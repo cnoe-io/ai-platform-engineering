@@ -5,54 +5,20 @@ on:
   pull_request:
     types: [opened, synchronize, reopened, closed]
     paths:
-      - 'build/**'
+      - 'build/Dockerfile'
       - 'ai_platform_engineering/multi_agents/**'
       - 'ai_platform_engineering/utils/**'
-      - 'ai_platform_engineering/utils/**'
-      - 'ai_platform_engineering/knowledge_bases/**'
       - 'pyproject.toml'
       - 'uv.lock'
       - 'ai_platform_engineering/__init__.py'
-      - '.github/**'
 env:
   IMAGE_NAME: ${{ github.repository_owner }}/prebuild/ai-platform-engineering
 
 jobs:
-  determine-changes:
+  build-and-push:
     runs-on: ubuntu-latest
     if: |
       github.event_name == 'pull_request' &&
-      startsWith(github.head_ref, 'prebuild/') &&
-      github.event.action != 'closed'
-    outputs:
-      should_build: ${{ steps.filter.outputs.core }}
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-
-      - name: Detect changed paths
-        id: filter
-        uses: dorny/paths-filter@v3
-        with:
-          filters: |
-            core:
-              - 'build/**'
-              - '.github/**'
-              - 'ai_platform_engineering/multi_agents/**'
-              - 'ai_platform_engineering/utils/**'
-              - 'ai_platform_engineering/utils/**'
-              - 'ai_platform_engineering/knowledge_bases/**'
-              - 'pyproject.toml'
-              - 'uv.lock'
-              - 'ai_platform_engineering/__init__.py'
-
-  build-and-push:
-    runs-on: ubuntu-latest
-    needs: determine-changes
-    if: |
-      needs.determine-changes.outputs.should_build == 'true' &&
       startsWith(github.head_ref, 'prebuild/') &&
       github.event.action != 'closed'
     permissions:
