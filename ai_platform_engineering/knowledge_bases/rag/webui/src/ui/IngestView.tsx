@@ -3,23 +3,25 @@ import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism'
 import { formatDistanceToNow } from 'date-fns'
 import type { IngestionJob, DataSourceInfo, IngestorInfo } from './Models'
-import { 
-  getDataSources, 
-  getIngestors, 
-  getJobStatus, 
+import {
+  getDataSources,
+  getIngestors,
+  getJobStatus,
   getJobsByDataSource,
-  ingestUrl, 
-  deleteDataSource, 
+  ingestUrl,
+  deleteDataSource,
   deleteIngestor,
-  reloadDataSource, 
+  reloadDataSource,
   terminateJob,
-  WEBLOADER_INGESTOR_ID
+  WEBLOADER_INGESTOR_ID,
+  CONFLUENCE_INGESTOR_ID
 } from '../api'
 import { getIconForType } from './typeConfig'
 
 export default function IngestView() {
   // Ingestion state
   const [url, setUrl] = useState('')
+  const [ingestType, setIngestType] = useState<'web' | 'confluence'>('web')
   const [checkForSiteMap, setCheckForSiteMap] = useState(true)
   const [sitemapMaxUrls, setSitemapMaxUrls] = useState(2000)
   const [description, setDescription] = useState('')
@@ -222,18 +224,24 @@ export default function IngestView() {
 
   const handleIngest = async () => {
     if (!url) return
-    
+
+    console.log('Ingesting with type:', ingestType)
+
     try {
       const response = await ingestUrl({
         url,
         check_for_sitemaps: checkForSiteMap,
         sitemap_max_urls: sitemapMaxUrls,
         description: description,
+        ingest_type: ingestType,
       })
       const { datasource_id, job_id, message } = response
       alert(`✅ ${message}`)
       await fetchDataSources()
-      await fetchJobsForDataSource(datasource_id)
+      // Only fetch jobs if datasource_id is provided (web ingest provides it, confluence doesn't)
+      if (datasource_id) {
+        await fetchJobsForDataSource(datasource_id)
+      }
       // Clear the form after successful ingestion
       setUrl('')
       setDescription('')
@@ -300,7 +308,36 @@ export default function IngestView() {
       {/* Ingest URL Section */}
       <section className="card mb-6 p-5">
         <h3 className="mb-4 text-lg font-semibold text-slate-900">Ingest URL</h3>
-        
+
+        {/* Ingest Type Selection */}
+        <div className="mb-4">
+          <label className="block text-sm font-medium text-slate-700 mb-2">
+            Ingest Type *
+          </label>
+          <div className="flex gap-2">
+            <button
+              onClick={() => setIngestType('web')}
+              className={`px-4 py-2 rounded text-sm font-medium transition-colors ${
+                ingestType === 'web'
+                  ? 'bg-blue-500 text-white'
+                  : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+              }`}
+            >
+              Web
+            </button>
+            <button
+              onClick={() => setIngestType('confluence')}
+              className={`px-4 py-2 rounded text-sm font-medium transition-colors ${
+                ingestType === 'confluence'
+                  ? 'bg-blue-500 text-white'
+                  : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+              }`}
+            >
+              Confluence
+            </button>
+          </div>
+        </div>
+
         {/* URL Input */}
         <div className="mb-4">
           <label className="block text-sm font-medium text-slate-700 mb-2">
@@ -318,17 +355,19 @@ export default function IngestView() {
               Ingest
             </button>
           </div>
-          <div className="mt-2 ml-2">
-            <label className="flex items-center gap-2">
-              <input
-                type="checkbox"
-                checked={checkForSiteMap}
-                onChange={(e) => setCheckForSiteMap(e.target.checked)}
-                className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-              />
-              <span className="text-sm text-slate-600">Check for sitemap</span>
-            </label>
-          </div>
+          {ingestType === 'web' && (
+            <div className="mt-2 ml-2">
+              <label className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={checkForSiteMap}
+                  onChange={(e) => setCheckForSiteMap(e.target.checked)}
+                  className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                />
+                <span className="text-sm text-slate-600">Check for sitemap</span>
+              </label>
+            </div>
+          )}
         </div>
 
         {/* Optional Configuration */}
@@ -347,7 +386,7 @@ export default function IngestView() {
               />
           </div>
           <div className="grid gap-4 md:grid-cols-2 mt-3">
-            {checkForSiteMap && (
+            {ingestType === 'web' && checkForSiteMap && (
               <div>
                 <label className="block text-sm font-medium text-slate-600 mb-1">
                   Sitemap Max URLs
@@ -440,6 +479,8 @@ export default function IngestView() {
                   const latestJob = jobs[0] // Jobs are sorted by created_at descending
                   const hasActiveJob = latestJob && (latestJob.status === 'in_progress' || latestJob.status === 'pending')
                   const isWebloaderDatasource = ds.ingestor_id === WEBLOADER_INGESTOR_ID
+                  const isConfluenceDatasource = ds.ingestor_id === CONFLUENCE_INGESTOR_ID
+                  const supportsReload = isWebloaderDatasource || isConfluenceDatasource
 
                   const icon = getIconForType(ds.source_type);
                   const isEmoji = icon && !icon.startsWith('/') && !icon.startsWith('data:');
@@ -482,11 +523,11 @@ export default function IngestView() {
                         <td className="px-4 py-3" title={new Date(ds.last_updated * 1000).toLocaleString()}>{formatRelativeTime(ds.last_updated)}</td>
                         <td className="px-4 py-3">
                           <div className="flex gap-2">
-                            <button 
-                              onClick={(e) => { e.stopPropagation(); handleReloadDataSource(ds.datasource_id); }} 
+                            <button
+                              onClick={(e) => { e.stopPropagation(); handleReloadDataSource(ds.datasource_id); }}
                               className="bg-orange-500 hover:bg-orange-700 text-white font-bold py-1 px-2 rounded text-xs disabled:opacity-50 disabled:cursor-not-allowed"
-                              disabled={hasActiveJob || !isWebloaderDatasource}
-                              title={!isWebloaderDatasource ? 'Only Web Ingestor supports Reload' : hasActiveJob ? 'Cannot reload while a job is active' : 'Reload this datasource'}
+                              disabled={hasActiveJob || !supportsReload}
+                              title={!supportsReload ? 'Reload not supported for this datasource type' : hasActiveJob ? 'Cannot reload while a job is active' : 'Reload this datasource'}
                             >
                               Reload
                             </button>

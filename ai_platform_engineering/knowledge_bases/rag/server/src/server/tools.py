@@ -61,17 +61,24 @@ class AgentTools:
             logger.info(f"Valid filter keys for search tool: {valid_filter_keys}")
             search_description = f"""
         Search for relevant documents and graph entities using semantic search in the vector databases.
+        Automatically searches BOTH graph entities and regular documents.
         Returns results with text truncated to 500 chars. Use fetch_document to get full content.
         Args:
-            query (str): The search query (Use full sentences for better results)
+            query (str): The search query
+                - For semantic search (default): Use full sentences (e.g., "What is the deployment process?")
+                - For keyword search: Use specific terms (e.g., "ERROR-404", "S3BucketEncryption")
             filters (dict): Optional filters to apply. Valid filter keys are: {valid_filter_keys}.
-            limit (int): Maximum number of results to return (default: 10)
-            is_graph_entity (bool): Whether to search ONLY for graph entities. Default: False
-            bias (str): Search bias type - "keyword" (90% keyword, 10% semantic) or "semantic" (60% semantic, 40% keyword). Default: "semantic"
+            limit (int): Maximum number of results per type to return (default: 10).
+            keyword_search (bool): If True, search for exact keywords/terms. If False (default), use semantic search with full sentences.
             thought (str): Your thoughts for choosing this tool
 
         Returns:
-            list: search results with text truncated to 500 chars and full metadata. Use fetch_document with document_id to get full content.
+            dict: {{
+                "graph_entity_documents": [list of graph entity results],
+                "text_documents": [list of regular document results]
+            }}
+            Each result contains text_content (truncated to 500 chars), metadata, and score.
+            Use fetch_document with document_id to get full content.
         """
         else:
             valid_filter_keys = valid_metadata_keys() # exclude graph metadata keys
@@ -83,11 +90,12 @@ class AgentTools:
         Search for relevant documents using semantic search in the vector databases.
         Returns results with text truncated to 500 chars. Use fetch_document to get full content.
         Args:
-            query (str): The search query (Use full sentences for better results)
+            query (str): The search query
+                - For semantic search (default): Use full sentences (e.g., "What is the deployment process?")
+                - For keyword search: Use specific terms (e.g., "ERROR-404", "deployment-failure")
             filters (dict): Optional filters to apply. Valid filter keys are: {valid_filter_keys}.
             limit (int): Maximum number of results to return (default: 10)
-            is_graph_entity (bool): Unavailable for this tool.
-            bias (str): Search bias type - "keyword" (90% keyword, 10% semantic) or "semantic" (60% semantic, 40% keyword). Default: "semantic"
+            keyword_search (bool): If True, search for exact keywords/terms. If False (default), use semantic search with full sentences.
             thought (str): Your thoughts for choosing this tool
 
         Returns:
@@ -120,55 +128,105 @@ class AgentTools:
     # Search tool     #
     ####################
 
-    async def search(self, query: str, filters: Optional[dict]=None, limit: int = 10,  bias: str = "semantic", is_graph_entity: bool = False, thought: str = ""):
+    async def search(self, query: str, filters: Optional[dict]=None, limit: int = 10,  keyword_search: bool = False, thought: str = ""):
         """
-        Search for relevant documents (and graph entities) using semantic search in the vector databases.
-        Returns truncated results. Use fetch_document to get full content.
+        Search for relevant documents and graph entities using semantic search in the vector databases.
+        Automatically searches BOTH graph entities and regular documents.
+        Returns results separated by type. Use fetch_document to get full content.
         """
-        logger.info(f"Search query: {query}, Limit: {limit}, Bias: {bias}, filters: {filters}, is_graph_entity: {is_graph_entity}, Thought: {thought}")
+        logger.info(f"Search query: {query}, Limit: {limit} per type, Keyword Search: {keyword_search}, filters: {filters}, Thought: {thought}")
 
         # Get weights based on bias
-        weights = get_search_weights(bias)
+        if keyword_search:
+            weights = [0.0, 1.0] # 0% semantic, 100% keyword
+        else:
+            weights = [0.5, 0.5] # 50% semantic, 50% keyword
+            
         logger.info(f"Using search weights (semantic, keyword): {weights}")
-        if is_graph_entity:
-            if filters is None:
-                filters = {}
-            filters.update({"is_graph_entity": True})
         
-        logger.info(f"Search filters: {filters}")
+        graph_entity_results: List[Dict[str, Any]] = []
+        text_document_results: List[Dict[str, Any]] = []
+        
+        # Search 1: Graph entities
         try:
-            results = await self.vector_db_query_service.query(
+            graph_filters = filters.copy() if filters else {}
+            graph_filters["is_graph_entity"] = True
+            
+            logger.info(f"Search filters for graph entities: {graph_filters}")
+            graph_results = await self.vector_db_query_service.query(
                 query=query,
-                filters=filters,
+                filters=graph_filters,
                 limit=limit,
                 ranker="weighted",
                 ranker_params={"weights": weights}
             )
+            
+            logger.info(f"Graph entity search results: {len(graph_results)} entities found")
+            
+            # Process graph entity results
+            for result in graph_results:
+                text = result.document.page_content
+                metadata = result.document.metadata
+                score = result.score
+                
+                # Truncate text
+                if len(text) > search_result_truncate_length:
+                    text = text[:search_result_truncate_length] + "... [truncated, use fetch_document with document_id to get full content]"
+                
+                graph_entity_results.append({
+                    "text_content": text,
+                    "metadata": metadata,
+                    "score": score
+                })
         except Exception as e:
             logger.error(f"Traceback: {traceback.format_exc()}")
-            logger.error(f"Error during search: {e}")
-            return f"Error during search: {e}"
-
-        logger.info(f"search results: total_documents {len(results)}")
-        # Truncate text in results to save tokens
-        truncated_results: List[Dict[str, Any]] = []
-        for result in results:
-            # Work with Pydantic model attributes directly
-            text = result.document.page_content
-            metadata = result.document.metadata
-            score = result.score
-            
-            # Truncate text
-            if len(text) > search_result_truncate_length:
-                text = text[:search_result_truncate_length] + "... [truncated, use fetch_document with document_id to get full content]"
-            
-            truncated_results.append({
-                "text_content": text,
-                "metadata": metadata,
-                "score": score
-            })
+            logger.error(f"Error during graph entity search: {e}")
+            # Continue to regular document search even if graph search fails
         
-        return truncated_results
+        # Search 2: Regular documents
+        try:
+            doc_filters = filters.copy() if filters else {}
+            doc_filters["is_graph_entity"] = False
+            
+            logger.info(f"Search filters for regular documents: {doc_filters}")
+            doc_results = await self.vector_db_query_service.query(
+                query=query,
+                filters=doc_filters,
+                limit=limit,
+                ranker="weighted",
+                ranker_params={"weights": weights}
+            )
+            
+            logger.info(f"Regular document search results: {len(doc_results)} documents found")
+            
+            # Process regular document results
+            for result in doc_results:
+                text = result.document.page_content
+                metadata = result.document.metadata
+                score = result.score
+                
+                # Truncate text
+                if len(text) > search_result_truncate_length:
+                    text = text[:search_result_truncate_length] + "... [truncated, use fetch_document with document_id to get full content]"
+                
+                text_document_results.append({
+                    "text_content": text,
+                    "metadata": metadata,
+                    "score": score
+                })
+        except Exception as e:
+            logger.error(f"Traceback: {traceback.format_exc()}")
+            logger.error(f"Error during regular document search: {e}")
+            # If both searches failed, return error
+            if not graph_entity_results and not text_document_results:
+                return f"Error during search: {e}"
+        
+        logger.info(f"Total search results: {len(graph_entity_results)} graph entities, {len(text_document_results)} text documents")
+        
+        return {
+            "graph_entity_documents": graph_entity_results,
+            "text_documents": text_document_results
+        }
 
     async def fetch_document(self, document_id: str, thought: str = ""):
         """

@@ -109,6 +109,10 @@ spec:
               mountPath: /app/prompt_config.yaml
               subPath: prompt_config.yaml
               readOnly: true
+            - name: prompt-config-rag
+              mountPath: /app/prompt_config.rag.yaml
+              subPath: prompt_config.rag.yaml
+              readOnly: true
             {{- with .Values.volumeMounts }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
@@ -116,6 +120,9 @@ spec:
         - name: prompt-config
           configMap:
             name: prompt-config
+        - name: prompt-config-rag
+          configMap:
+            name: prompt-config-rag
         {{- with .Values.volumes }}
         {{- toYaml . | nindent 8 }}
         {{- end }}

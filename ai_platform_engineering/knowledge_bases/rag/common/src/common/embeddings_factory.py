@@ -47,6 +47,11 @@ class EmbeddingsFactory:
             Cohere:
                 - COHERE_API_KEY: API key
             
+            HuggingFace:
+                - HUGGINGFACEHUB_API_TOKEN or HF_TOKEN: API token (required for gated models)
+                - EMBEDDINGS_DEVICE: Device to use (cpu, cuda, mps) (default: cpu)
+                - EMBEDDINGS_BATCH_SIZE: Batch size for embedding inference (default: 32)
+            
             Ollama:
                 - OLLAMA_BASE_URL: Base URL (default: http://localhost:11434)
 
@@ -93,7 +98,32 @@ class EmbeddingsFactory:
         elif provider == "huggingface":
             # Default to a popular sentence transformer model
             hf_model = os.getenv("EMBEDDINGS_MODEL", "sentence-transformers/all-MiniLM-L6-v2")
-            return HuggingFaceEmbeddings(model_name=hf_model)
+            hf_token = os.getenv("HUGGINGFACEHUB_API_TOKEN") or os.getenv("HF_TOKEN")
+            
+            # Configure model kwargs for optimal performance
+            model_kwargs = {
+                "device": "cpu",  # Explicitly set device (can be overridden with EMBEDDINGS_DEVICE env var)
+            }
+            
+            # Add token if available (required for gated models)
+            if hf_token:
+                model_kwargs["token"] = hf_token
+            
+            # Allow device override via environment variable
+            device = os.getenv("EMBEDDINGS_DEVICE", "cpu")
+            model_kwargs["device"] = device
+            
+            # Encode kwargs for inference optimization
+            encode_kwargs = {
+                "normalize_embeddings": True,  # Normalize embeddings for better similarity search
+                "batch_size": int(os.getenv("EMBEDDINGS_BATCH_SIZE", "32")),  # Configurable batch size
+            }
+            
+            return HuggingFaceEmbeddings(
+                model_name=hf_model,
+                model_kwargs=model_kwargs,
+                encode_kwargs=encode_kwargs,
+            )
 
         elif provider == "ollama":
             ollama_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
@@ -147,5 +177,10 @@ class EmbeddingsFactory:
         if model in dimension_map:
             return dimension_map[model]
         
+        # Check if set by environment variable
+        if os.getenv("EMBEDDINGS_DIMENSIONS"):
+            return int(os.getenv("EMBEDDINGS_DIMENSIONS"))
+
+        # If not set, return default
         # Default to 1536 (most common)
         return 1536

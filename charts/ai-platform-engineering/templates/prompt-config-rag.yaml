@@ -1,0 +1,20 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prompt-config-rag
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: {{ include "ai-platform-engineering.name" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+data:
+  prompt_config.rag.yaml: |
+{{- if .Values.ragPromptConfig }}
+{{- /* Custom RAG prompt config provided - use it directly */ -}}
+{{ .Values.ragPromptConfig | nindent 4 }}
+{{- else }}
+{{- /* Use default RAG config file */ -}}
+{{ .Files.Get "data/prompt_config.rag.yaml" | nindent 4 }}
+{{- end }}
+
