@@ -1,4 +1,20 @@
+## 0.3.0 (2026-01-12)
+
+### Fix
+
+- do not do chart version check on open PRs
+- helm rc
+- do not do chart version check on open PRs
+- fix helm
+- helm rc bump
+
+## 0.2.9-rc.1 (2026-01-12)
+
 ## 0.2.9 (2026-01-12)
+
+### Fix
+
+- finalizer to detect correct CIs
 
 ## 0.2.8-rc.9 (2026-01-12)
 
