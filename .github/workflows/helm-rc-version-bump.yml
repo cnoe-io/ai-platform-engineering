@@ -15,13 +15,12 @@ on:
 permissions:
   contents: write
   pull-requests: read
+  actions: write
 
 jobs:
   auto-bump-versions:
     name: Auto-bump Chart Versions
     runs-on: ubuntu-latest
-    # Don't run on commits made by this workflow (avoid infinite loop)
-    if: github.actor != 'github-actions[bot]'
     steps:
       - name: 📥 Checkout repository
         uses: actions/checkout@v6.0.1
@@ -220,7 +219,15 @@ jobs:
               CHART_DIR=$(dirname "$CHART_FILE")
 
               # Skip if already in changed charts or already found as parent
-              if [[ "$CHANGED_CHARTS $ALL_PARENT_CHARTS" =~ "$CHART_DIR" ]]; then
+              # Use word boundary matching (space-delimited) to avoid prefix matching issues
+              SKIP=false
+              for EXISTING in $CHANGED_CHARTS $ALL_PARENT_CHARTS; do
+                if [[ "$EXISTING" == "$CHART_DIR" ]]; then
+                  SKIP=true
+                  break
+                fi
+              done
+              if [[ "$SKIP" == "true" ]]; then
                 continue
               fi
 
@@ -439,3 +446,16 @@ jobs:
           name: version-bump-status
           path: ${{ runner.temp }}/status/version-bump-status.txt
           retention-days: 1
+
+      - name: 🚀 Trigger Helm chart publish
+        if: github.event_name == 'push' && steps.commit.outputs.committed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "🚀 Triggering Helm chart publish workflow..."
+
+          if gh workflow run helm.yml --ref main -f publish_all=true 2>&1; then
+            echo "✅ Helm publish workflow triggered successfully"
+          else
+            echo "⚠️ Failed to trigger Helm publish workflow (may need to be run manually)"
+          fi
