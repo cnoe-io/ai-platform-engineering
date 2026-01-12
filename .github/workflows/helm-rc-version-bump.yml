@@ -1,0 +1,444 @@
+name: "[CI][Helm] Auto-bump Chart Versions"
+description: "Automatically bump chart versions for changed charts and their parents"
+
+on:
+  pull_request:
+    paths:
+      - 'charts/**'
+    types: [opened, synchronize]
+  push:
+    branches:
+      - main
+    paths:
+      - 'charts/**'
+
+permissions:
+  contents: write
+  pull-requests: read
+
+jobs:
+  auto-bump-versions:
+    name: Auto-bump Chart Versions
+    runs-on: ubuntu-latest
+    # Don't run on commits made by this workflow (avoid infinite loop)
+    if: github.actor != 'github-actions[bot]'
+    steps:
+      - name: 📥 Checkout repository
+        uses: actions/checkout@v6.0.1
+        with:
+          # For PRs: checkout PR branch; For push: checkout the pushed ref
+          ref: ${{ github.event_name == 'pull_request' && github.head_ref || github.ref }}
+          fetch-depth: 0
+          # Use PAT instead of GITHUB_TOKEN to allow pushed commits to trigger workflows
+          token: ${{ secrets.GH_PAT }}
+
+      - name: ⚙️ Install yq
+        run: |
+          sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
+          sudo chmod +x /usr/local/bin/yq
+          yq --version
+
+      - name: 🏷️ Get latest release version
+        id: release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "🔍 Fetching latest release version..."
+
+          # Get the latest release tag using GitHub CLI
+          LATEST_RELEASE=$(gh release view --json tagName -q '.tagName' 2>/dev/null || echo "")
+
+          if [[ -z "$LATEST_RELEASE" ]]; then
+            # Fallback: try to get from git tags
+            LATEST_RELEASE=$(git tag --sort=-v:refname | grep -E '^v?[0-9]+\.[0-9]+\.[0-9]+$' | head -1 || echo "")
+          fi
+
+          if [[ -z "$LATEST_RELEASE" ]]; then
+            echo "❌ ERROR: Could not determine latest release version"
+            echo "Please ensure there is at least one release or semver tag in the repository"
+            exit 1
+          fi
+
+          # Strip 'v' prefix if present
+          RELEASE_VERSION="${LATEST_RELEASE#v}"
+
+          echo "✅ Latest release version: $RELEASE_VERSION"
+          echo "release_version=$RELEASE_VERSION" >> $GITHUB_OUTPUT
+
+      - name: ✅ Validate chart versions against release
+        id: validate
+        run: |
+          RELEASE_VERSION="${{ steps.release.outputs.release_version }}"
+
+          echo "🔍 Validating all chart versions against release version: $RELEASE_VERSION"
+          echo ""
+
+          # Valid patterns:
+          # 1. Exact match: <release_version> (e.g., 0.2.8)
+          # 2. RC pattern: <release_version>-rc.helm.<number> (e.g., 0.2.8-rc.helm.1)
+          VALID_PATTERN="^${RELEASE_VERSION}(-rc\.helm\.[0-9]+)?$"
+
+          echo "📋 Valid version pattern: $VALID_PATTERN"
+          echo ""
+
+          VALIDATION_FAILED=false
+          FAILED_CHARTS=""
+
+          for CHART_FILE in $(find charts -name "Chart.yaml" -type f); do
+            CHART_DIR=$(dirname "$CHART_FILE")
+            CHART_NAME=$(yq '.name' "$CHART_FILE")
+            CHART_VERSION=$(yq '.version' "$CHART_FILE" | tr -d '"')
+            APP_VERSION=$(yq '.appVersion // ""' "$CHART_FILE" | tr -d '"')
+
+            echo "📦 Checking $CHART_NAME ($CHART_DIR)"
+            echo "   version: $CHART_VERSION"
+            echo "   appVersion: $APP_VERSION"
+
+            # Validate chart version
+            if [[ ! "$CHART_VERSION" =~ $VALID_PATTERN ]]; then
+              echo "   ❌ ERROR: Chart version '$CHART_VERSION' does not match release pattern"
+              echo "      Expected: '$RELEASE_VERSION' or '$RELEASE_VERSION-rc.helm.<number>'"
+              VALIDATION_FAILED=true
+              FAILED_CHARTS="$FAILED_CHARTS $CHART_NAME(version:$CHART_VERSION)"
+            else
+              echo "   ✅ Chart version is valid"
+            fi
+
+            # Validate appVersion if it exists and is not empty
+            if [[ -n "$APP_VERSION" && "$APP_VERSION" != "null" ]]; then
+              if [[ ! "$APP_VERSION" =~ $VALID_PATTERN ]]; then
+                echo "   ❌ ERROR: appVersion '$APP_VERSION' does not match release pattern"
+                echo "      Expected: '$RELEASE_VERSION' or '$RELEASE_VERSION-rc.helm.<number>'"
+                VALIDATION_FAILED=true
+                FAILED_CHARTS="$FAILED_CHARTS $CHART_NAME(appVersion:$APP_VERSION)"
+              else
+                echo "   ✅ appVersion is valid"
+              fi
+            fi
+
+            echo ""
+          done
+
+          if [[ "$VALIDATION_FAILED" == "true" ]]; then
+            echo ""
+            echo "════════════════════════════════════════════════════════════════"
+            echo "❌ VERSION VALIDATION FAILED"
+            echo "════════════════════════════════════════════════════════════════"
+            echo ""
+            echo "The following charts have invalid versions:"
+            echo "$FAILED_CHARTS" | tr ' ' '\n' | grep -v '^$' | sed 's/^/  - /'
+            echo ""
+            echo "All chart versions and appVersions must match one of:"
+            echo "  - Exact release version: $RELEASE_VERSION"
+            echo "  - RC version pattern: $RELEASE_VERSION-rc.helm.<number>"
+            echo ""
+            echo "Please update the chart versions to match the latest release."
+            echo "════════════════════════════════════════════════════════════════"
+            exit 1
+          fi
+
+          echo "✅ All chart versions are valid against release version $RELEASE_VERSION"
+
+      - name: 🔍 Detect changed charts
+        id: detect
+        run: |
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            BASE_REF="origin/${{ github.event.pull_request.base.ref }}"
+            echo "🔍 Detecting changed files compared to $BASE_REF (PR mode)..."
+            CHANGED_FILES=$(git diff --name-only ${BASE_REF}...HEAD | grep "^charts/" || true)
+          else
+            # Push to main: compare against the state before the push
+            # This handles multiple commits pushed at once by comparing the entire range
+            BEFORE_SHA="${{ github.event.before }}"
+            echo "🔍 Detecting changed files compared to $BEFORE_SHA (push mode - all commits in push)..."
+            CHANGED_FILES=$(git diff --name-only ${BEFORE_SHA} HEAD | grep "^charts/" || true)
+          fi
+
+          if [[ -z "$CHANGED_FILES" ]]; then
+            echo "ℹ️  No chart files changed"
+            echo "changed_charts=" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          echo "📋 Changed files:"
+          echo "$CHANGED_FILES" | sed 's/^/  - /'
+
+          # Extract unique chart directories (containing Chart.yaml)
+          CHANGED_CHARTS=""
+          for FILE in $CHANGED_FILES; do
+            # Find the Chart.yaml for this file
+            DIR=$(dirname "$FILE")
+            while [[ "$DIR" != "." && "$DIR" != "charts" ]]; do
+              if [[ -f "$DIR/Chart.yaml" ]]; then
+                CHART_NAME=$(yq '.name' "$DIR/Chart.yaml")
+                if [[ ! "$CHANGED_CHARTS" =~ "$DIR" ]]; then
+                  CHANGED_CHARTS="$CHANGED_CHARTS $DIR"
+                fi
+                break
+              fi
+              DIR=$(dirname "$DIR")
+            done
+          done
+
+          CHANGED_CHARTS=$(echo "$CHANGED_CHARTS" | xargs)  # trim whitespace
+          echo ""
+          echo "📦 Changed charts:"
+          for CHART_DIR in $CHANGED_CHARTS; do
+            CHART_NAME=$(yq '.name' "$CHART_DIR/Chart.yaml")
+            echo "  - $CHART_NAME ($CHART_DIR)"
+          done
+
+          echo "changed_charts=$CHANGED_CHARTS" >> $GITHUB_OUTPUT
+
+      - name: 🔍 Find parent charts that need bumping (cascading up)
+        id: parents
+        if: steps.detect.outputs.changed_charts != ''
+        run: |
+          CHANGED_CHARTS="${{ steps.detect.outputs.changed_charts }}"
+
+          # Start with changed charts as the initial set to find parents for
+          CHARTS_TO_CHECK="$CHANGED_CHARTS"
+          ALL_PARENT_CHARTS=""
+
+          echo "🔍 Finding parent charts (cascading up the dependency tree)..."
+
+          # Keep finding parents until no new parents are found
+          ITERATION=1
+          while [[ -n "$CHARTS_TO_CHECK" ]]; do
+            echo ""
+            echo "  Iteration $ITERATION: checking parents for $(echo $CHARTS_TO_CHECK | wc -w) chart(s)"
+
+            # Get names of charts to check
+            CHART_NAMES_TO_CHECK=""
+            for CHART_DIR in $CHARTS_TO_CHECK; do
+              NAME=$(yq '.name' "$CHART_DIR/Chart.yaml")
+              CHART_NAMES_TO_CHECK="$CHART_NAMES_TO_CHECK $NAME"
+            done
+            CHART_NAMES_TO_CHECK=$(echo "$CHART_NAMES_TO_CHECK" | xargs)
+
+            # Find parent charts for this iteration
+            NEW_PARENTS=""
+            for CHART_FILE in $(find charts -name "Chart.yaml" -type f); do
+              CHART_DIR=$(dirname "$CHART_FILE")
+
+              # Skip if already in changed charts or already found as parent
+              if [[ "$CHANGED_CHARTS $ALL_PARENT_CHARTS" =~ "$CHART_DIR" ]]; then
+                continue
+              fi
+
+              # Check if this chart depends on any chart we're checking
+              if yq -e '.dependencies' "$CHART_FILE" > /dev/null 2>&1; then
+                for CHECK_NAME in $CHART_NAMES_TO_CHECK; do
+                  # Check if dependency exists (local: no repo or file:// repo)
+                  HAS_DEP=$(yq ".dependencies[] | select(.name == \"$CHECK_NAME\") | select(.repository == null or (.repository | test(\"^file://\")))" "$CHART_FILE" 2>/dev/null)
+                  if [[ -n "$HAS_DEP" ]]; then
+                    if [[ ! "$NEW_PARENTS" =~ "$CHART_DIR" ]]; then
+                      PARENT_NAME=$(yq '.name' "$CHART_FILE")
+                      NEW_PARENTS="$NEW_PARENTS $CHART_DIR"
+                      echo "    📦 $PARENT_NAME depends on $CHECK_NAME"
+                    fi
+                    break
+                  fi
+                done
+              fi
+            done
+
+            NEW_PARENTS=$(echo "$NEW_PARENTS" | xargs)
+
+            if [[ -z "$NEW_PARENTS" ]]; then
+              echo "  No more parents found"
+              break
+            fi
+
+            # Add new parents to the full list
+            ALL_PARENT_CHARTS="$ALL_PARENT_CHARTS $NEW_PARENTS"
+
+            # Next iteration: check for parents of the parents we just found
+            CHARTS_TO_CHECK="$NEW_PARENTS"
+            ITERATION=$((ITERATION + 1))
+
+            # Safety limit to prevent infinite loops
+            if [[ $ITERATION -gt 10 ]]; then
+              echo "  ⚠️  Reached iteration limit, stopping"
+              break
+            fi
+          done
+
+          ALL_PARENT_CHARTS=$(echo "$ALL_PARENT_CHARTS" | xargs)
+          echo ""
+          echo "📋 All parent charts needing bump: $ALL_PARENT_CHARTS"
+          echo "parent_charts=$ALL_PARENT_CHARTS" >> $GITHUB_OUTPUT
+
+          # Combine all charts that need version check
+          ALL_CHARTS="$CHANGED_CHARTS $ALL_PARENT_CHARTS"
+          ALL_CHARTS=$(echo "$ALL_CHARTS" | xargs)
+          echo "all_charts=$ALL_CHARTS" >> $GITHUB_OUTPUT
+
+      - name: 🔍 Check which charts need version bump
+        id: check
+        if: steps.detect.outputs.changed_charts != ''
+        run: |
+          ALL_CHARTS="${{ steps.parents.outputs.all_charts }}"
+
+          echo "🔍 Checking if versions were bumped..."
+
+          # Determine base ref for comparison
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            BASE_REF="origin/${{ github.event.pull_request.base.ref }}"
+          else
+            # Use the commit before the push to handle multiple commits pushed at once
+            BASE_REF="${{ github.event.before }}"
+          fi
+
+          CHARTS_TO_BUMP=""
+          for CHART_DIR in $ALL_CHARTS; do
+            CHART_FILE="$CHART_DIR/Chart.yaml"
+            CHART_NAME=$(yq '.name' "$CHART_FILE")
+            CURRENT_VERSION=$(yq '.version' "$CHART_FILE")
+
+            # Get base version
+            BASE_VERSION=$(git show ${BASE_REF}:$CHART_FILE 2>/dev/null | yq '.version' || echo "0.0.0")
+
+            echo "  $CHART_NAME: $BASE_VERSION → $CURRENT_VERSION"
+
+            if [[ "$CURRENT_VERSION" == "$BASE_VERSION" ]]; then
+              echo "    ❌ Version not bumped"
+              CHARTS_TO_BUMP="$CHARTS_TO_BUMP $CHART_DIR"
+            else
+              echo "    ✅ Version already bumped"
+            fi
+          done
+
+          CHARTS_TO_BUMP=$(echo "$CHARTS_TO_BUMP" | xargs)
+          echo ""
+          echo "charts_to_bump=$CHARTS_TO_BUMP" >> $GITHUB_OUTPUT
+
+          if [[ -z "$CHARTS_TO_BUMP" ]]; then
+            echo "✅ All chart versions already bumped"
+          else
+            echo "📝 Charts needing version bump: $CHARTS_TO_BUMP"
+          fi
+
+      - name: 📝 Bump chart versions
+        id: bump
+        if: steps.check.outputs.charts_to_bump != ''
+        run: |
+          CHARTS_TO_BUMP="${{ steps.check.outputs.charts_to_bump }}"
+          RELEASE_VERSION="${{ steps.release.outputs.release_version }}"
+
+          echo "🔄 Bumping chart versions..."
+          echo "📋 Base release version: $RELEASE_VERSION"
+
+          BUMPED_CHARTS=""
+          for CHART_DIR in $CHARTS_TO_BUMP; do
+            CHART_FILE="$CHART_DIR/Chart.yaml"
+            CHART_NAME=$(yq '.name' "$CHART_FILE")
+            CURRENT_VERSION=$(yq '.version' "$CHART_FILE")
+
+            # Determine new version
+            if [[ "$CURRENT_VERSION" =~ -rc\.helm\.([0-9]+)$ ]]; then
+              # Already has rc.helm suffix, increment it
+              CURRENT_RC="${BASH_REMATCH[1]}"
+              NEW_RC=$((CURRENT_RC + 1))
+              NEW_VERSION="${RELEASE_VERSION}-rc.helm.${NEW_RC}"
+            else
+              # No rc.helm suffix, start with 1
+              NEW_VERSION="${RELEASE_VERSION}-rc.helm.1"
+            fi
+
+            echo "  📦 $CHART_NAME: $CURRENT_VERSION → $NEW_VERSION"
+
+            # Update the version
+            yq -i ".version = \"$NEW_VERSION\"" "$CHART_FILE"
+
+            BUMPED_CHARTS="$BUMPED_CHARTS $CHART_NAME"
+          done
+
+          BUMPED_CHARTS=$(echo "$BUMPED_CHARTS" | xargs)
+          echo ""
+          echo "bumped_charts=$BUMPED_CHARTS" >> $GITHUB_OUTPUT
+
+      - name: 🔄 Update parent dependency versions
+        if: steps.bump.outputs.bumped_charts != ''
+        run: |
+          CHARTS_TO_BUMP="${{ steps.check.outputs.charts_to_bump }}"
+
+          echo "🔄 Updating dependency version references in parent charts..."
+
+          # Build a map of chart name -> new version
+          declare -A VERSION_MAP
+          for CHART_DIR in $CHARTS_TO_BUMP; do
+            CHART_NAME=$(yq '.name' "$CHART_DIR/Chart.yaml")
+            NEW_VERSION=$(yq '.version' "$CHART_DIR/Chart.yaml")
+            VERSION_MAP[$CHART_NAME]=$NEW_VERSION
+            echo "  $CHART_NAME = $NEW_VERSION"
+          done
+
+          # Update dependency references in all parent charts
+          for CHART_FILE in $(find charts -name "Chart.yaml" -type f); do
+            if yq -e '.dependencies' "$CHART_FILE" > /dev/null 2>&1; then
+              for CHART_NAME in "${!VERSION_MAP[@]}"; do
+                NEW_VERSION="${VERSION_MAP[$CHART_NAME]}"
+
+                # Update local dependencies (no repo or file:// repo)
+                yq -i "(.dependencies[] | select(.name == \"$CHART_NAME\" and .repository == null)).version = \"$NEW_VERSION\"" "$CHART_FILE" 2>/dev/null || true
+                yq -i "(.dependencies[] | select(.name == \"$CHART_NAME\" and .repository != null and (.repository | test(\"^file://\")))).version = \"$NEW_VERSION\"" "$CHART_FILE" 2>/dev/null || true
+              done
+            fi
+          done
+
+          echo "✅ Updated dependency version references"
+
+      - name: 📤 Commit and push version bumps
+        id: commit
+        if: steps.bump.outputs.bumped_charts != ''
+        run: |
+          BUMPED_CHARTS="${{ steps.bump.outputs.bumped_charts }}"
+
+          # Check if there are changes to commit
+          if git diff --quiet; then
+            echo "ℹ️  No changes to commit"
+            echo "committed=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          # Configure git
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          # Stage and commit
+          find charts -name "Chart.yaml" -type f -exec git add {} +
+          git commit -m "chore: bump chart versions for $BUMPED_CHARTS"
+
+          # Push to PR branch
+          git push
+
+          echo "✅ Committed and pushed chart version bumps"
+          echo ""
+          echo "📋 Bumped charts: $BUMPED_CHARTS"
+          echo "committed=true" >> $GITHUB_OUTPUT
+
+      - name: 📋 Determine commit status
+        id: status
+        run: |
+          # Determine if a new commit was made
+          if [[ "${{ steps.commit.outputs.committed }}" == "true" ]]; then
+            echo "new_commit=true" >> $GITHUB_OUTPUT
+            echo "🔄 New commit was made - downstream workflows should skip"
+          else
+            echo "new_commit=false" >> $GITHUB_OUTPUT
+            echo "✅ No new commit - downstream workflows can proceed"
+          fi
+
+          # Write status file for artifact
+          mkdir -p ${{ runner.temp }}/status
+          echo "new_commit=${{ steps.commit.outputs.committed == 'true' && 'true' || 'false' }}" > "${{ runner.temp }}/status/version-bump-status.txt"
+          echo "pr_number=${{ github.event.pull_request.number }}" >> "${{ runner.temp }}/status/version-bump-status.txt"
+          echo "head_sha=${{ github.event.pull_request.head.sha }}" >> "${{ runner.temp }}/status/version-bump-status.txt"
+
+      - name: 📦 Save commit status artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: version-bump-status
+          path: ${{ runner.temp }}/status/version-bump-status.txt
+          retention-days: 1

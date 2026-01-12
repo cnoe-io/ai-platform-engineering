@@ -1,24 +1,132 @@
-name: "[CI][Agent Forge] Build and Push"
+name: "[CI][AgentForge] Build and Push"
 description: "Build and push Agent Forge Plugin"
 
 on:
+  # Trigger on push to main to build and push images
   push:
     branches:
       - main
+    paths:
+      - 'ai_platform_engineering/**'
+      - 'build/**'
+      - 'pyproject.toml'
+      - 'uv.lock'
+    # Build on all manual new tags as well
     tags:
       - '**'
   workflow_dispatch:
+    inputs:
+      tag_version:
+        description: 'Version tag to apply (e.g., 0.2.8-rc.1)'
+        required: false
+        type: string
 
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository_owner }}/backstage-plugin-agent-forge
 
 jobs:
-  build-and-push:
+  prepare:
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
+
+    outputs:
+      should_build: ${{ steps.set-outputs.outputs.should_build }}
+      should_retag: ${{ steps.set-outputs.outputs.should_retag }}
+      tag_version: ${{ steps.version.outputs.tag_version }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Determine Tag
+        id: version
+        uses: ./.github/actions/determine-release-tag
+        with:
+          manual_tag: ${{ inputs.tag_version }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Detect changed paths
+        id: filter
+        uses: dorny/paths-filter@v3.0.2
+        with:
+          filters: |
+            forge:
+              - 'build/agent-forge/**'
+
+      - name: Set Outputs
+        id: set-outputs
+        env:
+          FORGE_CHANGED: ${{ steps.filter.outputs.forge }}
+          TAG_VERSION: ${{ steps.version.outputs.tag_version }}
+        run: |
+          SHOULD_BUILD="false"
+          SHOULD_RETAG="false"
+          TAG_VERSION="${{ env.TAG_VERSION }}"
+
+          if [[ "$TAG_VERSION" =~ -rc\.[0-9]+$ ]]; then
+            IS_RC="true"
+          else
+            IS_RC="false"
+          fi
+
+          # Determine build vs retag logic:
+          # 1. Final release (non-RC tag): Always build
+          # 2. RC tag with changes: Build
+          # 3. RC tag without changes: Retag from previous version
+          # 4. Push to main or workflow_dispatch without tag: Build
+
+          if [ -n "$TAG_VERSION" ]; then
+            # We have a tag version (from workflow_dispatch or tag push)
+            if [ "$IS_RC" == "true" ]; then
+              # RC tag: only build if forge files changed, otherwise retag
+              if [ "$FORGE_CHANGED" == "true" ]; then
+                SHOULD_BUILD="true"
+                echo "🔨 RC tag with forge changes: building"
+              else
+                SHOULD_RETAG="true"
+                echo "🏷️ RC tag without forge changes: retagging"
+              fi
+            else
+              # Final release (non-RC): always build
+              SHOULD_BUILD="true"
+              echo "🚀 Final release: building"
+            fi
+          elif [ "${{ github.ref }}" == "refs/heads/main" ] || [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            # Push to main or manual trigger without tag: always build
+            SHOULD_BUILD="true"
+            echo "📦 Push to main or manual trigger: building"
+          elif [ "$FORGE_CHANGED" == "true" ]; then
+            # PR with forge changes
+            SHOULD_BUILD="true"
+            echo "🔍 Forge files changed: building"
+          fi
+
+          echo "should_build=$SHOULD_BUILD" >> $GITHUB_OUTPUT
+          echo "should_retag=$SHOULD_RETAG" >> $GITHUB_OUTPUT
+          echo "Outputs: build=$SHOULD_BUILD, retag=$SHOULD_RETAG, is_rc=$IS_RC"
+
+  build-and-push:
+    needs: prepare
+    if: needs.prepare.outputs.should_build == 'true'
+    permissions:
+      contents: read
+      packages: write
+
+    strategy:
+      matrix:
+        include:
+          - platform: linux/amd64
+            runner: ubuntu-latest
+          - platform: linux/arm64
+            runner: ubuntu-24.04-arm64
+      fail-fast: false
+
+    runs-on: ${{ matrix.runner }}
 
     steps:
       - name: Checkout main repository
@@ -49,24 +157,22 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Set platform tag suffix
+        id: platform
+        run: |
+          PLATFORM="${{ matrix.platform }}"
+          SUFFIX="${PLATFORM//\//-}"
+          echo "suffix=$SUFFIX" >> $GITHUB_OUTPUT
+
       - name: Extract metadata for Docker
         id: meta
         uses: docker/metadata-action@v5
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
-            type=raw,value=latest,enable={{is_default_branch}}
-            type=ref,event=branch
-            type=ref,event=pr
-            type=ref,event=tag
-            type=sha,enable={{is_default_branch}}
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
-        with:
-          platforms: linux/amd64,linux/arm64
+            type=raw,value=latest-${{ steps.platform.outputs.suffix }},enable=${{ github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' }}
+            type=raw,value=${{ needs.prepare.outputs.tag_version }}-${{ steps.platform.outputs.suffix }},enable=${{ needs.prepare.outputs.tag_version != '' }}
+            type=sha,format=short,suffix=-${{ steps.platform.outputs.suffix }}
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -80,5 +186,214 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
-          cache-to: type=gha,mode=max
-          platforms: linux/amd64,linux/arm64
+          cache-to: type=gha,mode=min
+          platforms: ${{ matrix.platform }}
+
+  # Create multi-arch manifest after platform builds complete
+  create-manifest:
+    needs: [prepare, build-and-push]
+    if: needs.prepare.outputs.should_build == 'true' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      packages: write
+
+    steps:
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create and push manifest
+        run: |
+          IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}"
+          TAG_VERSION="${{ needs.prepare.outputs.tag_version }}"
+
+          # Create manifest for version tag if provided
+          if [ -n "$TAG_VERSION" ]; then
+            echo "Creating manifest for $TAG_VERSION..."
+            docker manifest create "${IMAGE}:${TAG_VERSION}" \
+              "${IMAGE}:${TAG_VERSION}-linux-amd64" \
+              "${IMAGE}:${TAG_VERSION}-linux-arm64"
+            docker manifest push "${IMAGE}:${TAG_VERSION}"
+          fi
+
+          # Create manifest for latest if on main or workflow_dispatch
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" || "${{ github.ref }}" == "refs/heads/main" ]]; then
+            echo "Creating manifest for latest..."
+            docker manifest create "${IMAGE}:latest" \
+              "${IMAGE}:latest-linux-amd64" \
+              "${IMAGE}:latest-linux-arm64"
+            docker manifest push "${IMAGE}:latest"
+          fi
+
+          echo "✅ Multi-arch manifests created"
+
+  # Retag unchanged agent forge from previous version when tag_version is provided
+  # If source image doesn't exist (still building), falls back to full build
+  retag-unchanged:
+    runs-on: ubuntu-latest
+    needs: prepare
+    if: needs.prepare.outputs.should_retag == 'true'
+    permissions:
+      contents: read
+      packages: write
+
+    env:
+      REGISTRY: ghcr.io
+      IMAGE_NAME: ${{ github.repository_owner }}/backstage-plugin-agent-forge
+
+    steps:
+      - name: 🔒 Harden runner
+        uses: step-security/harden-runner@20cf305ff2072d973412fa9b1e3a4f227bda3c76 # v2.14.0
+        with:
+          egress-policy: audit
+
+      - name: 📦 Install crane
+        run: |
+          VERSION="v0.20.2"
+          curl -sL "https://github.com/google/go-containerregistry/releases/download/${VERSION}/go-containerregistry_Linux_x86_64.tar.gz" | tar xz crane
+          sudo mv crane /usr/local/bin/
+
+      - name: 🔐 Log in to registry
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "$GH_TOKEN" | crane auth login ghcr.io -u ${{ github.actor }} --password-stdin
+
+      - name: 🔍 Check source image and retag or build
+        id: retag-or-build
+        env:
+          TAG_VERSION: ${{ needs.prepare.outputs.tag_version }}
+        run: |
+          FULL_IMAGE="${REGISTRY}/${IMAGE_NAME}"
+          echo "🏷️ Processing agent-forge..."
+
+          # Determine source tag (previous version)
+          if [[ "$TAG_VERSION" =~ ^(.+)-rc\.([0-9]+)$ ]]; then
+            BASE_VERSION="${BASH_REMATCH[1]}"
+            RC_NUM="${BASH_REMATCH[2]}"
+
+            if [[ "$RC_NUM" -gt 1 ]]; then
+              PREV_RC=$((RC_NUM - 1))
+              SOURCE_TAG="${BASE_VERSION}-rc.${PREV_RC}"
+            else
+              SOURCE_TAG="${BASE_VERSION}"
+            fi
+          else
+            SOURCE_TAG="latest"
+          fi
+
+          echo "  Source: ${SOURCE_TAG}"
+          echo "  Target: ${TAG_VERSION}"
+
+          # Check if source image exists
+          if crane manifest "${FULL_IMAGE}:${SOURCE_TAG}" >/dev/null 2>&1; then
+            echo "  ✅ Source image exists, retagging..."
+            if crane tag "${FULL_IMAGE}:${SOURCE_TAG}" "${TAG_VERSION}"; then
+              echo "  ✅ Successfully retagged from ${SOURCE_TAG}"
+              echo "needs_build=false" >> $GITHUB_OUTPUT
+            else
+              echo "  ⚠️ Retag failed unexpectedly, will build instead"
+              echo "needs_build=true" >> $GITHUB_OUTPUT
+            fi
+          else
+            echo "  ⚠️ Source image ${SOURCE_TAG} not found (may still be building)"
+            echo "  📦 Will build fresh instead of using stale fallback"
+            echo "needs_build=true" >> $GITHUB_OUTPUT
+          fi
+
+      # Fallback build if retag not possible
+      - name: Checkout main repository
+        if: steps.retag-or-build.outputs.needs_build == 'true'
+        uses: actions/checkout@v6
+        with:
+          path: main-repo
+          fetch-depth: 1
+
+      - name: Checkout community-plugins repository
+        if: steps.retag-or-build.outputs.needs_build == 'true'
+        uses: actions/checkout@v6
+        with:
+          repository: cnoe-io/community-plugins
+          ref: agent-forge-upstream-docker
+          token: ${{ secrets.GITHUB_TOKEN }}
+          path: community-plugins
+          fetch-depth: 1
+
+      - name: Copy custom Dockerfile
+        if: steps.retag-or-build.outputs.needs_build == 'true'
+        run: |
+          echo "Copying Dockerfile..."
+          cp main-repo/build/agent-forge/Dockerfile community-plugins/Dockerfile
+          echo "Ready to build!"
+
+      - name: Log in to GitHub Container Registry
+        if: steps.retag-or-build.outputs.needs_build == 'true'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        if: steps.retag-or-build.outputs.needs_build == 'true'
+        uses: docker/setup-buildx-action@v3
+
+      - name: 🔨 Build and Push (fallback)
+        if: steps.retag-or-build.outputs.needs_build == 'true'
+        uses: docker/build-push-action@v6
+        with:
+          context: community-plugins
+          file: community-plugins/Dockerfile
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.prepare.outputs.tag_version }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=min
+          platforms: linux/amd64
+
+  # Notify release-finalize workflow when this CI completes (for final release builds only)
+  notify-release:
+    runs-on: ubuntu-latest
+    needs: [prepare, build-and-push, create-manifest, retag-unchanged]
+    # Only notify for final releases (non-RC tags) - RC builds don't need release finalization
+    if: |
+      always() &&
+      needs.prepare.outputs.tag_version != '' &&
+      !contains(needs.prepare.outputs.tag_version, '-rc.')
+    steps:
+      - name: 🔔 Notify release finalize
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG_VERSION: ${{ needs.prepare.outputs.tag_version }}
+        run: |
+          # Determine overall conclusion
+          BUILD_RESULT="${{ needs.build-and-push.result }}"
+          MANIFEST_RESULT="${{ needs.create-manifest.result }}"
+          RETAG_RESULT="${{ needs.retag-unchanged.result }}"
+
+          # Consider skipped as success (job conditions not met)
+          if [[ "$BUILD_RESULT" == "skipped" ]]; then BUILD_RESULT="success"; fi
+          if [[ "$MANIFEST_RESULT" == "skipped" ]]; then MANIFEST_RESULT="success"; fi
+          if [[ "$RETAG_RESULT" == "skipped" ]]; then RETAG_RESULT="success"; fi
+
+          if [[ "$BUILD_RESULT" == "success" && "$MANIFEST_RESULT" == "success" && "$RETAG_RESULT" == "success" ]]; then
+            CONCLUSION="success"
+          else
+            CONCLUSION="failure"
+          fi
+
+          echo "🔔 Notifying release-finalize: tag=$TAG_VERSION, conclusion=$CONCLUSION"
+
+          gh api /repos/${{ github.repository }}/dispatches --input - <<EOF
+          {
+            "event_type": "ci-completed",
+            "client_payload": {
+              "tag": "$TAG_VERSION",
+              "workflow": "${{ github.workflow }}",
+              "conclusion": "$CONCLUSION"
+            }
+          }
+          EOF
