@@ -226,11 +226,13 @@ jobs:
           cache-to: type=gha,mode=max
 
   # Retag unchanged agents from previous version when tag_version is provided
+  # If source image doesn't exist (still building), falls back to full build
   retag-unchanged:
     runs-on: ubuntu-latest
     needs: determine-agents
     if: needs.determine-agents.outputs.should_retag == 'true'
     permissions:
+      contents: read
       packages: write
 
     strategy:
@@ -241,6 +243,7 @@ jobs:
     env:
       REGISTRY: ghcr.io
       IMAGE_NAME: ${{ github.repository_owner }}/mcp-${{ matrix.agent }}
+      AGENT_DIR: ai_platform_engineering/agents/${{ matrix.agent }}
 
     steps:
       - name: 🔒 Harden runner
@@ -260,13 +263,13 @@ jobs:
         run: |
           echo "$GH_TOKEN" | crane auth login ghcr.io -u ${{ github.actor }} --password-stdin
 
-      - name: 🏷️ Retag from previous version
+      - name: 🔍 Check source image and retag or build
+        id: retag-or-build
         env:
           TAG_VERSION: ${{ needs.determine-agents.outputs.tag_version }}
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           FULL_IMAGE="${REGISTRY}/${IMAGE_NAME}"
-          echo "🏷️ Retagging mcp-${{ matrix.agent }}..."
+          echo "🏷️ Processing mcp-${{ matrix.agent }}..."
 
           # Determine source tag (previous version)
           if [[ "$TAG_VERSION" =~ ^(.+)-rc\.([0-9]+)$ ]]; then
@@ -286,34 +289,67 @@ jobs:
           echo "  Source: ${SOURCE_TAG}"
           echo "  Target: ${TAG_VERSION}"
 
-          # Check if there's a running build for the source tag (race condition prevention)
-          if [[ "$SOURCE_TAG" != "latest" ]]; then
-            RUNNING_RUN=$(gh run list \
-              --workflow="${{ github.workflow }}" \
-              --branch="${SOURCE_TAG}" \
-              --status=in_progress \
-              --json databaseId \
-              --jq '.[0].databaseId' 2>/dev/null || echo "")
-
-            if [[ -n "$RUNNING_RUN" ]]; then
-              echo "  ⏳ Source tag ${SOURCE_TAG} is still building (run $RUNNING_RUN)"
-              echo "     Waiting for it to complete before retagging..."
-              gh run watch "$RUNNING_RUN" --exit-status
-              echo "  ✅ Build complete, proceeding with retag"
-            fi
-          fi
-
-          if crane tag "${FULL_IMAGE}:${SOURCE_TAG}" "${TAG_VERSION}" 2>/dev/null; then
-            echo "  ✅ Successfully retagged from ${SOURCE_TAG}"
-          else
-            echo "  ⚠️ Failed to retag from ${SOURCE_TAG}, trying 'latest'..."
-            if crane tag "${FULL_IMAGE}:latest" "${TAG_VERSION}" 2>/dev/null; then
-              echo "  ✅ Successfully retagged from latest"
+          # Check if source image exists
+          if crane manifest "${FULL_IMAGE}:${SOURCE_TAG}" >/dev/null 2>&1; then
+            echo "  ✅ Source image exists, retagging..."
+            if crane tag "${FULL_IMAGE}:${SOURCE_TAG}" "${TAG_VERSION}"; then
+              echo "  ✅ Successfully retagged from ${SOURCE_TAG}"
+              echo "needs_build=false" >> $GITHUB_OUTPUT
             else
-              echo "  ❌ Failed to retag mcp-${{ matrix.agent }}"
-              exit 1
+              echo "  ⚠️ Retag failed unexpectedly, will build instead"
+              echo "needs_build=true" >> $GITHUB_OUTPUT
             fi
+          else
+            echo "  ⚠️ Source image ${SOURCE_TAG} not found (may still be building)"
+            echo "  📦 Will build fresh instead of using stale fallback"
+            echo "needs_build=true" >> $GITHUB_OUTPUT
           fi
+
+      # Fallback build if retag not possible
+      - name: Checkout repository
+        if: steps.retag-or-build.outputs.needs_build == 'true'
+        uses: actions/checkout@v6
+
+      - name: Set up Docker Buildx
+        if: steps.retag-or-build.outputs.needs_build == 'true'
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        if: steps.retag-or-build.outputs.needs_build == 'true'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up QEMU
+        if: steps.retag-or-build.outputs.needs_build == 'true'
+        uses: docker/setup-qemu-action@v3
+
+      - name: Determine Dockerfile path
+        if: steps.retag-or-build.outputs.needs_build == 'true'
+        id: dockerfile
+        run: |
+          if [ -f "${{ env.AGENT_DIR }}/build/Dockerfile.mcp" ]; then
+            echo "path=${{ env.AGENT_DIR }}/build/Dockerfile.mcp" >> $GITHUB_OUTPUT
+          else
+            echo "path=build/agents/Dockerfile.mcp" >> $GITHUB_OUTPUT
+          fi
+
+      - name: 🔨 Build and Push (fallback)
+        if: steps.retag-or-build.outputs.needs_build == 'true'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ steps.dockerfile.outputs.path }}
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.determine-agents.outputs.tag_version }}
+          build-args: |
+            AGENT_NAME=${{ matrix.agent }}
+          platforms: linux/amd64,linux/arm64
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
   # Notify release-finalize workflow when this CI completes (for final release builds only)
   notify-release:

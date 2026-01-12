@@ -124,7 +124,7 @@ jobs:
           echo "🔄 Generating changelog for $NEW_VERSION using commitizen..."
 
           # Generate changelog for unreleased commits with the new version
-          uv tool run cz changelog --unreleased-version "$NEW_VERSION"
+          cz changelog --unreleased-version "$NEW_VERSION"
 
           echo "✅ Generated changelog entry for $NEW_VERSION"
           echo ""
