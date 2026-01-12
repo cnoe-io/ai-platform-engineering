@@ -306,7 +306,7 @@ jobs:
           tags: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.prepare.outputs.tag_version }}
           cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-to: type=gha,mode=min
           platforms: linux/amd64,linux/arm64
 
   # Notify release-finalize workflow when this CI completes (for final release builds only)
