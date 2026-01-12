@@ -1,3 +1,9 @@
+## 0.3.1 (2026-01-12)
+
+### Fix
+
+- release finalizer to use tag correctly to detect CIs and publish chart after version sync
+
 ## 0.3.0 (2026-01-12)
 
 ### Fix
