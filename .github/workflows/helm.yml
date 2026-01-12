@@ -7,9 +7,6 @@ on:
       - main
     paths:
       - charts/**
-  pull_request:
-    paths:
-      - charts/**
 
 permissions:
   contents: read
