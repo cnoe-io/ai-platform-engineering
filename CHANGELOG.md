@@ -1,7 +1,10 @@
+## 0.4.0 (2026-01-12)
+
 ## 0.3.2 (2026-01-12)
 
 ### Fix
 
+- claude is stupid and did not apply fix for all...
 - finalize is stupid
 
 ## 0.3.1 (2026-01-12)
@@ -20,69 +23,14 @@
 - fix helm
 - helm rc bump
 
-## 0.2.9-rc.1 (2026-01-12)
-
 ## 0.2.9 (2026-01-12)
-
-### Fix
-
-- finalizer to detect correct CIs
-
-## 0.2.8-rc.9 (2026-01-12)
-
-### Fix
-
-- forge run
-- yaml fix for finalize wf
-
-## 0.2.8-rc.8 (2026-01-12)
 
 ### Feat
 
 - edge case with multiple commits pushed fast
-
-### Fix
-
-- retry kubectl download and fix notify wf + revert last failed release
-- fix release and always build if prev tag not found
-
-## 0.2.8-rc.7 (2026-01-09)
-
-## 0.2.8-rc.6 (2026-01-09)
-
-### Fix
-
-- retag for rc if no image change
-
-## 0.2.8-rc.5 (2026-01-09)
-
-### Feat
-
 - add finalizer to make release after all CI finishes and clean up previous rc tags
 - use common action
-
-## 0.2.8-rc.4 (2026-01-09)
-
-### Fix
-
-- retag-unchanged
-
-## 0.2.8-rc.3 (2026-01-09)
-
-### Feat
-
 - use -rc.X suffix to decide retag or all rebuilds
-
-### Fix
-
-- subagent CIs need to build all upon push to main
-
-## 0.2.8-rc.2 (2026-01-09)
-
-## 0.2.8-rc.1 (2026-01-08)
-
-### Feat
-
 - use gh cli to wait for tag in all CI builds instead
 - refactor major time
 - merge auto-bump and pre-release helm wf for cleaner builds
@@ -92,6 +40,14 @@
 
 ### Fix
 
+- finalizer to detect correct CIs
+- forge run
+- yaml fix for finalize wf
+- retry kubectl download and fix notify wf + revert last failed release
+- fix release and always build if prev tag not found
+- retag for rc if no image change
+- retag-unchanged
+- subagent CIs need to build all upon push to main
 - fixddsfsdfawdfewafr3wq2dfrw3rf2gaet
 - tag AFTER CI
 - fixddsfsdfawdfewafr3wq2dfrw3rf2gaet
