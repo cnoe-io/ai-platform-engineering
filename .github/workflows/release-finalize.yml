@@ -225,16 +225,16 @@ jobs:
 
           # Only add failure note if not already present
           if [[ "$CURRENT_BODY" != *"CI BUILD FAILURE"* ]]; then
-            NEW_BODY="$CURRENT_BODY
+            NEW_BODY="${CURRENT_BODY}
 
----
-⚠️ **CI BUILD FAILURE** ⚠️
+          ---
+          ⚠️ **CI BUILD FAILURE** ⚠️
 
-One or more CI builds failed for this release. Please investigate and either:
-1. Fix the issues and re-run the failed workflows
-2. Delete this draft release and create a new one
+          One or more CI builds failed for this release. Please investigate and either:
+          1. Fix the issues and re-run the failed workflows
+          2. Delete this draft release and create a new one
 
-_Updated: $(date -u '+%Y-%m-%d %H:%M:%S UTC')_"
+          _Updated: $(date -u '+%Y-%m-%d %H:%M:%S UTC')_"
 
             gh release edit "$TAG" --notes "$NEW_BODY"
             echo "📝 Added failure note to release"
