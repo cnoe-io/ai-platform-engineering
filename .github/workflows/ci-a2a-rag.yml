@@ -413,6 +413,13 @@ jobs:
 
           echo "🔔 Notifying release-finalize: tag=$TAG_VERSION, conclusion=$CONCLUSION"
 
-          gh api /repos/${{ github.repository }}/dispatches \
-            -f event_type=ci-completed \
-            -f client_payload="{\"tag\":\"$TAG_VERSION\",\"workflow\":\"${{ github.workflow }}\",\"conclusion\":\"$CONCLUSION\"}"
+          gh api /repos/${{ github.repository }}/dispatches --input - <<EOF
+          {
+            "event_type": "ci-completed",
+            "client_payload": {
+              "tag": "$TAG_VERSION",
+              "workflow": "${{ github.workflow }}",
+              "conclusion": "$CONCLUSION"
+            }
+          }
+          EOF
