@@ -67,8 +67,9 @@ jobs:
             echo -n "  📦 $WF_NAME: "
 
             # Get the most recent run for this workflow triggered on the tag ref
-            # Using --branch works for both branches and tags
+            # --repo is required because there's no checkout step
             RUN_DATA=$(gh run list \
+              --repo="${{ github.repository }}" \
               --workflow="$WF_NAME" \
               --branch="$TAG" \
               --limit=1 \
