@@ -267,7 +267,7 @@ tar -tzf charts/ai-platform-engineering/charts/rag-stack-*.tgz | \
 **3. Chart Publishing**:
 
 ```bash
-REGISTRY="oci://ghcr.io/${{ github.repository_owner }}/helm-charts"
+REGISTRY="oci://ghcr.io/${{ github.repository_owner }}/charts"
 
 # Check if version already exists
 if helm pull $REGISTRY/$CHART_NAME --version $CHART_VERSION; then

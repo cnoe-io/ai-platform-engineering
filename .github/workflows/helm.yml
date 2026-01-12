@@ -7,9 +7,16 @@ on:
       - main
     paths:
       - charts/**
-  pull_request:
-    paths:
-      - charts/**
+  workflow_dispatch:
+    inputs:
+      publish_all:
+        description: 'Publish all charts (bypass change detection)'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
 
 permissions:
   contents: read
@@ -138,8 +145,8 @@ jobs:
   publish:
     name: Push Helm Charts to GHCR
     runs-on: ubuntu-latest
-    # Publish only on merge to main
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    # Publish on merge to main or workflow_dispatch
+    if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch'
 
     steps:
       - name: 📥 Checkout repository
@@ -159,8 +166,27 @@ jobs:
       - name: 🔍 Detect Changed Charts
         id: detect
         run: |
+          # Check if publish_all is set (workflow_dispatch)
+          PUBLISH_ALL="${{ github.event.inputs.publish_all }}"
+
+          if [[ "$PUBLISH_ALL" == "true" ]]; then
+            echo "📦 publish_all=true, will publish all charts"
+            echo "rag-stack-changed=true" >> $GITHUB_OUTPUT
+            echo "ai-platform-changed=true" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
           # Detect which charts have changes compared to previous commit
-          CHANGED_FILES=$(git diff --name-only HEAD~1 HEAD)
+          CHANGED_FILES=$(git diff --name-only HEAD~1 HEAD 2>/dev/null || echo "")
+
+          # If no diff available (e.g., workflow_dispatch without publish_all), publish all
+          if [[ -z "$CHANGED_FILES" ]]; then
+            echo "📦 No diff available, will publish all charts"
+            echo "rag-stack-changed=true" >> $GITHUB_OUTPUT
+            echo "ai-platform-changed=true" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
           echo "Changed files in this push:"
           echo "$CHANGED_FILES"
 
@@ -190,7 +216,7 @@ jobs:
           CURRENT_VERSION=$(grep "^version:" charts/rag-stack/Chart.yaml | awk '{print $2}')
           echo "Current version: $CURRENT_VERSION"
 
-          REGISTRY="oci://ghcr.io/${{ github.repository_owner }}/helm-charts"
+          REGISTRY="oci://ghcr.io/${{ github.repository_owner }}/charts"
           if helm pull $REGISTRY/rag-stack --version $CURRENT_VERSION --destination /tmp 2>/dev/null; then
             echo "⏭️  rag-stack:$CURRENT_VERSION already published, skipping"
             echo "rag-stack-skip=true" >> $GITHUB_ENV
@@ -231,7 +257,7 @@ jobs:
             echo "❌ ERROR: neo4j missing from rag-stack package"
             exit 1
           fi
-          
+
           if tar -tzf charts/ai-platform-engineering/charts/rag-stack-*.tgz | grep -q "^rag-stack/charts/milvus/Chart.yaml"; then
             echo "✅ milvus dependency verified"
           else
@@ -243,7 +269,7 @@ jobs:
 
       - name: 🚀 Push Charts to GHCR
         run: |
-          REGISTRY="oci://ghcr.io/${{ github.repository_owner }}/helm-charts"
+          REGISTRY="oci://ghcr.io/${{ github.repository_owner }}/charts"
 
           echo "📦 Pushing charts to $REGISTRY"
 

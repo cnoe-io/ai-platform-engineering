@@ -240,3 +240,5 @@ caipe-ui-core/
 # Coverage reports
 coverage.json
 
+# Helm lock files - regenerated during build
+**/Chart.lock
