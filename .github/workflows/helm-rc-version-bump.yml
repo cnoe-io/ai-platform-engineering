@@ -147,9 +147,11 @@ jobs:
             echo "🔍 Detecting changed files compared to $BASE_REF (PR mode)..."
             CHANGED_FILES=$(git diff --name-only ${BASE_REF}...HEAD | grep "^charts/" || true)
           else
-            # Push to main: compare to previous commit
-            echo "🔍 Detecting changed files compared to HEAD~1 (push mode)..."
-            CHANGED_FILES=$(git diff --name-only HEAD~1 HEAD | grep "^charts/" || true)
+            # Push to main: compare against the state before the push
+            # This handles multiple commits pushed at once by comparing the entire range
+            BEFORE_SHA="${{ github.event.before }}"
+            echo "🔍 Detecting changed files compared to $BEFORE_SHA (push mode - all commits in push)..."
+            CHANGED_FILES=$(git diff --name-only ${BEFORE_SHA} HEAD | grep "^charts/" || true)
           fi
 
           if [[ -z "$CHANGED_FILES" ]]; then
@@ -284,7 +286,8 @@ jobs:
           if [[ "${{ github.event_name }}" == "pull_request" ]]; then
             BASE_REF="origin/${{ github.event.pull_request.base.ref }}"
           else
-            BASE_REF="HEAD~1"
+            # Use the commit before the push to handle multiple commits pushed at once
+            BASE_REF="${{ github.event.before }}"
           fi
 
           CHARTS_TO_BUMP=""
