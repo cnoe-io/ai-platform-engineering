@@ -49,23 +49,6 @@ jobs:
           echo "🔍 Checking CI statuses for tag: $TAG"
           echo ""
 
-          # Get the commit SHA for this tag (dereference if annotated tag)
-          TAG_REF=$(gh api "/repos/${{ github.repository }}/git/refs/tags/$TAG" 2>/dev/null || echo "{}")
-          TAG_TYPE=$(echo "$TAG_REF" | jq -r '.object.type // "unknown"')
-          TAG_SHA=$(echo "$TAG_REF" | jq -r '.object.sha // ""')
-
-          # If it's an annotated tag, dereference to get the commit SHA
-          if [[ "$TAG_TYPE" == "tag" && -n "$TAG_SHA" ]]; then
-            TAG_SHA=$(gh api "/repos/${{ github.repository }}/git/tags/$TAG_SHA" --jq '.object.sha' 2>/dev/null || echo "$TAG_SHA")
-          fi
-
-          if [[ -z "$TAG_SHA" ]]; then
-            echo "❌ Could not find SHA for tag $TAG"
-            exit 1
-          fi
-          echo "📌 Tag commit SHA: $TAG_SHA"
-          echo ""
-
           # Required CI workflows that must pass for release
           REQUIRED_WORKFLOWS=(
             "[CI][A2A] Sub-Agents A2A Docker Build and Push"
@@ -83,14 +66,17 @@ jobs:
           for WF_NAME in "${REQUIRED_WORKFLOWS[@]}"; do
             echo -n "  📦 $WF_NAME: "
 
-            # Get the most recent run for this workflow matching the tag's commit SHA
+            # Get the most recent run for this workflow triggered on the tag ref
+            # Using --branch works for both branches and tags
             RUN_DATA=$(gh run list \
               --workflow="$WF_NAME" \
-              --limit=10 \
-              --json status,conclusion,databaseId,headSha \
-              2>/dev/null | jq --arg sha "$TAG_SHA" '[.[] | select(.headSha == $sha)] | .[0:1]' || echo "[]")
+              --branch="$TAG" \
+              --limit=1 \
+              --json status,conclusion,databaseId \
+              2>/dev/null || echo "[]")
 
-            if [[ "$RUN_DATA" == "[]" || -z "$RUN_DATA" ]]; then
+            RUN_COUNT=$(echo "$RUN_DATA" | jq 'length')
+            if [[ "$RUN_COUNT" -eq 0 || -z "$RUN_DATA" || "$RUN_DATA" == "[]" ]]; then
               echo "⏳ not started yet"
               ALL_PASSED=false
               MISSING_RUNS+=("$WF_NAME")
