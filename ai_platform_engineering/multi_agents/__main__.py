@@ -6,7 +6,7 @@ import logging
 logging.basicConfig(level=logging.INFO)
 
 AGENT_HOST = "0.0.0.0"
-AGENT_PORT = 8000  # Default port for the agent server
+AGENT_PORT = int(os.getenv("AGENT_PORT", 8000))  # Default port for the agent server
 
 @click.group()
 @click.option('--host', default=AGENT_HOST, help='Host to bind the server.')
