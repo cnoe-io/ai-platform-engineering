@@ -131,7 +131,7 @@ jobs:
           echo "🚀 Publishing release $TAG..."
 
           # Check if release exists and is a draft
-          RELEASE_INFO=$(gh release view "$TAG" --json isDraft,url 2>/dev/null || echo '{"isDraft":false}')
+          RELEASE_INFO=$(gh release view "$TAG" --repo="${{ github.repository }}" --json isDraft,url 2>/dev/null || echo '{"isDraft":false}')
           IS_DRAFT=$(echo "$RELEASE_INFO" | jq -r '.isDraft')
 
           if [[ "$IS_DRAFT" != "true" ]]; then
@@ -140,7 +140,7 @@ jobs:
           fi
 
           # Publish the release
-          gh release edit "$TAG" --draft=false
+          gh release edit "$TAG" --repo="${{ github.repository }}" --draft=false
 
           echo "✅ Release $TAG published!"
           echo "🔗 $(echo "$RELEASE_INFO" | jq -r '.url')"
@@ -223,7 +223,7 @@ jobs:
           echo "❌ CI builds failed for $TAG"
 
           # Add a note to the release
-          RELEASE_INFO=$(gh release view "$TAG" --json body 2>/dev/null || echo '{}')
+          RELEASE_INFO=$(gh release view "$TAG" --repo="${{ github.repository }}" --json body 2>/dev/null || echo '{}')
           CURRENT_BODY=$(echo "$RELEASE_INFO" | jq -r '.body // ""')
 
           # Only add failure note if not already present
@@ -239,7 +239,7 @@ jobs:
 
           _Updated: $(date -u '+%Y-%m-%d %H:%M:%S UTC')_"
 
-            gh release edit "$TAG" --notes "$NEW_BODY"
+            gh release edit "$TAG" --repo="${{ github.repository }}" --notes "$NEW_BODY"
             echo "📝 Added failure note to release"
           fi
 
