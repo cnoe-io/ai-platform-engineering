@@ -268,24 +268,36 @@ jobs:
           BASE_BRANCH="${{ github.event.pull_request.base.ref }}"
           ALL_CHARTS="${{ steps.parents.outputs.all_charts }}"
 
-          echo "🔍 Checking if versions were bumped..."
+          echo "🔍 Checking which Chart.yaml files need version bump..."
+          echo "📋 Base branch: origin/$BASE_BRANCH"
+          echo ""
+
+          # Get list of ALL Chart.yaml files that have been modified in this PR (compared to base branch)
+          MODIFIED_CHART_FILES=$(git diff --name-only origin/$BASE_BRANCH...HEAD | grep 'Chart\.yaml$' || true)
+
+          echo "📋 Chart.yaml files already modified in this PR:"
+          if [[ -n "$MODIFIED_CHART_FILES" ]]; then
+            echo "$MODIFIED_CHART_FILES" | sed 's/^/  - /'
+          else
+            echo "  (none)"
+          fi
+          echo ""
 
           CHARTS_TO_BUMP=""
           for CHART_DIR in $ALL_CHARTS; do
             CHART_FILE="$CHART_DIR/Chart.yaml"
             CHART_NAME=$(yq '.name' "$CHART_FILE")
-            CURRENT_VERSION=$(yq '.version' "$CHART_FILE")
 
-            # Get base branch version
-            BASE_VERSION=$(git show origin/$BASE_BRANCH:$CHART_FILE 2>/dev/null | yq '.version' || echo "0.0.0")
+            echo "  📦 $CHART_NAME ($CHART_FILE)"
 
-            echo "  $CHART_NAME: $BASE_VERSION → $CURRENT_VERSION"
-
-            if [[ "$CURRENT_VERSION" == "$BASE_VERSION" ]]; then
-              echo "    ❌ Version not bumped"
-              CHARTS_TO_BUMP="$CHARTS_TO_BUMP $CHART_DIR"
+            # Check if this Chart.yaml is in the list of files modified in this PR
+            if echo "$MODIFIED_CHART_FILES" | grep -qF "$CHART_FILE"; then
+              # Chart.yaml already modified in this PR - don't bump again
+              echo "    ✅ Chart.yaml already modified in this PR → skip"
             else
-              echo "    ✅ Version already bumped"
+              # Chart.yaml not modified in this PR - needs bump
+              echo "    ❌ Chart.yaml not modified in this PR → needs bump"
+              CHARTS_TO_BUMP="$CHARTS_TO_BUMP $CHART_DIR"
             fi
           done
 
@@ -294,7 +306,7 @@ jobs:
           echo "charts_to_bump=$CHARTS_TO_BUMP" >> $GITHUB_OUTPUT
 
           if [[ -z "$CHARTS_TO_BUMP" ]]; then
-            echo "✅ All chart versions already bumped"
+            echo "✅ All Chart.yaml files already modified in this PR - nothing to bump"
           else
             echo "📝 Charts needing version bump: $CHARTS_TO_BUMP"
           fi
@@ -313,9 +325,10 @@ jobs:
           for CHART_DIR in $CHARTS_TO_BUMP; do
             CHART_FILE="$CHART_DIR/Chart.yaml"
             CHART_NAME=$(yq '.name' "$CHART_FILE")
-            CURRENT_VERSION=$(yq '.version' "$CHART_FILE")
+            # Normalize version: strip quotes and whitespace
+            CURRENT_VERSION=$(yq '.version' "$CHART_FILE" | tr -d '"' | tr -d "'" | xargs)
 
-            # Determine new version
+            # Determine new version: increment rc number by 1
             if [[ "$CURRENT_VERSION" =~ -rc\.helm\.([0-9]+)$ ]]; then
               # Already has rc.helm suffix, increment it
               CURRENT_RC="${BASH_REMATCH[1]}"
