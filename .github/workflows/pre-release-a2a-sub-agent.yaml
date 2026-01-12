@@ -11,8 +11,30 @@ on:
       - 'build/agents/Dockerfile.a2a'
 
 jobs:
+  load-config:
+    runs-on: ubuntu-latest
+    if: |
+      github.event_name == 'pull_request' &&
+      startsWith(github.head_ref, 'prebuild/') &&
+      github.event.action != 'closed'
+    outputs:
+      all_agents: ${{ steps.read-config.outputs.all_agents }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          sparse-checkout: .github/agents.json
+          sparse-checkout-cone-mode: false
+
+      - name: Read agents config
+        id: read-config
+        run: |
+          ALL_AGENTS=$(jq -c '.a2a_agents' .github/agents.json)
+          echo "all_agents=$ALL_AGENTS" >> $GITHUB_OUTPUT
+
   determine-agents:
     runs-on: ubuntu-latest
+    needs: load-config
     if: |
       github.event_name == 'pull_request' &&
       startsWith(github.head_ref, 'prebuild/') &&
@@ -20,111 +42,59 @@ jobs:
     outputs:
       agents: ${{ steps.set-matrix.outputs.agents }}
       should_build: ${{ steps.set-matrix.outputs.should_build }}
+    env:
+      ALL_AGENTS: ${{ needs.load-config.outputs.all_agents }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
+      - name: Generate path filters
+        id: generate-filters
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const agents = JSON.parse(process.env.ALL_AGENTS);
+            let filters = 'shared_utils:\n';
+            filters += '  - \'ai_platform_engineering/utils/**\'\n';
+            filters += 'shared_dockerfile:\n';
+            filters += '  - \'build/agents/Dockerfile.a2a\'\n';
+            agents.forEach(agent => {
+              filters += `${agent}:\n`;
+              filters += `  - 'ai_platform_engineering/agents/${agent}/**'\n`;
+              filters += `  - '!ai_platform_engineering/agents/${agent}/mcp/**'\n`;
+              filters += `  - '!ai_platform_engineering/agents/${agent}/build/Dockerfile.mcp'\n`;
+            });
+            core.setOutput('filters', filters);
+
       - name: Detect changed paths
         id: filter
         uses: dorny/paths-filter@v3
         with:
           predicate-quantifier: 'every'
-          filters: |
-            shared:
-              - 'ai_platform_engineering/utils/a2a/a2a_remote_agent_connect.py'
-              - 'ai_platform_engineering/utils/agntcy/agntcy_remote_agent_connect.py'
-              - '.github/**'
-              - 'build/agents/Dockerfile.a2a'
-            argocd:
-              - 'ai_platform_engineering/agents/argocd/**'
-              - '!ai_platform_engineering/agents/argocd/mcp/**'
-              - '!ai_platform_engineering/agents/argocd/build/Dockerfile.mcp'
-            aws:
-              - 'ai_platform_engineering/agents/aws/**'
-              - '!ai_platform_engineering/agents/aws/mcp/**'
-              - '!ai_platform_engineering/agents/aws/build/Dockerfile.mcp'
-            backstage:
-              - 'ai_platform_engineering/agents/backstage/**'
-              - '!ai_platform_engineering/agents/backstage/mcp/**'
-              - '!ai_platform_engineering/agents/backstage/build/Dockerfile.mcp'
-            confluence:
-              - 'ai_platform_engineering/agents/confluence/**'
-              - '!ai_platform_engineering/agents/confluence/mcp/**'
-              - '!ai_platform_engineering/agents/confluence/build/Dockerfile.mcp'
-            github:
-              - 'ai_platform_engineering/agents/github/**'
-              - '!ai_platform_engineering/agents/github/mcp/**'
-              - '!ai_platform_engineering/agents/github/build/Dockerfile.mcp'
-            jira:
-              - 'ai_platform_engineering/agents/jira/**'
-              - '!ai_platform_engineering/agents/jira/mcp/**'
-              - '!ai_platform_engineering/agents/jira/build/Dockerfile.mcp'
-            komodor:
-              - 'ai_platform_engineering/agents/komodor/**'
-              - '!ai_platform_engineering/agents/komodor/mcp/**'
-              - '!ai_platform_engineering/agents/komodor/build/Dockerfile.mcp'
-            pagerduty:
-              - 'ai_platform_engineering/agents/pagerduty/**'
-              - '!ai_platform_engineering/agents/pagerduty/mcp/**'
-              - '!ai_platform_engineering/agents/pagerduty/build/Dockerfile.mcp'
-            slack:
-              - 'ai_platform_engineering/agents/slack/**'
-              - '!ai_platform_engineering/agents/slack/mcp/**'
-              - '!ai_platform_engineering/agents/slack/build/Dockerfile.mcp'
-            splunk:
-              - 'ai_platform_engineering/agents/splunk/**'
-              - '!ai_platform_engineering/agents/splunk/mcp/**'
-              - '!ai_platform_engineering/agents/splunk/build/Dockerfile.mcp'
-            template:
-              - 'ai_platform_engineering/agents/template/**'
-              - '!ai_platform_engineering/agents/template/mcp/**'
-              - '!ai_platform_engineering/agents/template/build/Dockerfile.mcp'
-            webex:
-              - 'ai_platform_engineering/agents/webex/**'
-              - '!ai_platform_engineering/agents/webex/mcp/**'
-              - '!ai_platform_engineering/agents/webex/build/Dockerfile.mcp'
-            weather:
-              - 'ai_platform_engineering/agents/weather/**'
-              - '!ai_platform_engineering/agents/weather/mcp/**'
-              - '!ai_platform_engineering/agents/weather/build/Dockerfile.mcp'
-            litellm:
-              - 'ai_platform_engineering/agents/litellm/**'
-              - '!ai_platform_engineering/agents/litellm/mcp/**'
-              - '!ai_platform_engineering/agents/litellm/build/Dockerfile.mcp'
+          filters: ${{ steps.generate-filters.outputs.filters }}
 
       - name: Set matrix based on changes
         id: set-matrix
         uses: actions/github-script@v8
         env:
-          BUILD_ALL: ${{ steps.filter.outputs.shared == 'true' }}
-          CHANGED_ARGOCD: ${{ steps.filter.outputs.argocd }}
-          CHANGED_AWS: ${{ steps.filter.outputs.aws }}
-          CHANGED_BACKSTAGE: ${{ steps.filter.outputs.backstage }}
-          CHANGED_CONFLUENCE: ${{ steps.filter.outputs.confluence }}
-          CHANGED_GITHUB: ${{ steps.filter.outputs.github }}
-          CHANGED_JIRA: ${{ steps.filter.outputs.jira }}
-          CHANGED_KOMODOR: ${{ steps.filter.outputs.komodor }}
-          CHANGED_PAGERDUTY: ${{ steps.filter.outputs.pagerduty }}
-          CHANGED_SLACK: ${{ steps.filter.outputs.slack }}
-          CHANGED_SPLUNK: ${{ steps.filter.outputs.splunk }}
-          CHANGED_TEMPLATE: ${{ steps.filter.outputs.template }}
-          CHANGED_WEBEX: ${{ steps.filter.outputs.webex }}
-          CHANGED_WEATHER: ${{ steps.filter.outputs.weather }}
-          CHANGED_LITELLM: ${{ steps.filter.outputs.litellm }}
+          BUILD_ALL: >-
+            ${{
+              steps.filter.outputs.shared_utils == 'true' ||
+              steps.filter.outputs.shared_dockerfile == 'true'
+            }}
+          FILTER_OUTPUTS: ${{ toJson(steps.filter.outputs) }}
         with:
           script: |
-            const allAgents = [
-              'argocd','aws','backstage','confluence','github','jira','komodor','pagerduty','slack','splunk','template','webex','weather','litellm'
-            ];
+            const allAgents = JSON.parse(process.env.ALL_AGENTS);
             const buildAll = process.env.BUILD_ALL === 'true';
+            const filterOutputs = JSON.parse(process.env.FILTER_OUTPUTS);
             let selected;
             if (buildAll) {
               selected = allAgents;
             } else {
-              const env = process.env;
-              selected = allAgents.filter(a => env['CHANGED_' + a.toUpperCase()] === 'true');
+              selected = allAgents.filter(a => filterOutputs[a] === 'true');
             }
             core.setOutput('agents', JSON.stringify(selected));
             core.setOutput('should_build', String(selected.length > 0));
@@ -260,15 +230,34 @@ jobs:
               body
             });
 
+  load-config-cleanup:
+    runs-on: ubuntu-latest
+    if: github.event.action == 'closed' && startsWith(github.event.pull_request.head.ref, 'prebuild/')
+    outputs:
+      all_agents: ${{ steps.read-config.outputs.all_agents }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          sparse-checkout: .github/agents.json
+          sparse-checkout-cone-mode: false
+
+      - name: Read agents config
+        id: read-config
+        run: |
+          ALL_AGENTS=$(jq -c '.a2a_agents' .github/agents.json)
+          echo "all_agents=$ALL_AGENTS" >> $GITHUB_OUTPUT
+
   cleanup-images:
     runs-on: ubuntu-latest
+    needs: load-config-cleanup
     if: github.event.action == 'closed' && startsWith(github.event.pull_request.head.ref, 'prebuild/')
     permissions:
       contents: read
       packages: write
     strategy:
       matrix:
-        agent: ['argocd','aws','backstage','confluence','github','jira','komodor','pagerduty','slack','splunk','template','webex','weather','litellm']
+        agent: ${{ fromJson(needs.load-config-cleanup.outputs.all_agents) }}
       fail-fast: false
     env:
       OWNER: ${{ github.repository_owner }}

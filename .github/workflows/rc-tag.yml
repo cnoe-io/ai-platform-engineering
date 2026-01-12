@@ -1,0 +1,147 @@
+name: "[Release] Create RC Tags for Images"
+description: "Create RC tag on main push and tag all images"
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      # Trigger on image-related file changes (OR logic - any match triggers)
+      - 'ai_platform_engineering/**'
+      - 'build/**'
+      - 'pyproject.toml'
+      - 'uv.lock'
+
+permissions:
+  contents: write
+  packages: write
+  actions: write
+
+env:
+  REGISTRY: ghcr.io
+
+jobs:
+  create-rc-tag:
+    name: Create RC tag and tag all images
+    runs-on: ubuntu-latest
+    steps:
+      - name: 🔒 Harden runner
+        uses: step-security/harden-runner@20cf305ff2072d973412fa9b1e3a4f227bda3c76 # v2.14.0
+        with:
+          egress-policy: audit
+
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Get version and config
+        id: version
+        run: |
+          VERSION=$(grep '^version = ' pyproject.toml | sed 's/version = "\(.*\)"/\1/')
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "📦 Current version: $VERSION"
+
+          # Read agent lists from config file
+          A2A_AGENTS=$(jq -r '.a2a_agents | join(" ")' .github/agents.json)
+          MCP_AGENTS=$(jq -r '.mcp_agents | join(" ")' .github/agents.json)
+          RAG_COMPONENTS=$(jq -r '.rag_components | join(" ")' .github/agents.json)
+          echo "a2a_agents=$A2A_AGENTS" >> $GITHUB_OUTPUT
+          echo "mcp_agents=$MCP_AGENTS" >> $GITHUB_OUTPUT
+          echo "rag_components=$RAG_COMPONENTS" >> $GITHUB_OUTPUT
+
+      - name: Determine next RC number
+        id: rc
+        uses: actions/github-script@v8
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        with:
+          script: |
+            const version = process.env.VERSION;
+            const prefix = `${version}-rc.`;
+
+            // Get all tags
+            const { data: refs } = await github.rest.git.listMatchingRefs({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              ref: `tags/${prefix}`
+            });
+
+            // Find the highest RC number
+            let maxRc = 0;
+            for (const ref of refs) {
+              const tagName = ref.ref.replace('refs/tags/', '');
+              const match = tagName.match(new RegExp(`^${version.replace(/\./g, '\\.')}-rc\\.(\\d+)$`));
+              if (match) {
+                const num = parseInt(match[1], 10);
+                if (num > maxRc) maxRc = num;
+              }
+            }
+
+            const nextRc = maxRc + 1;
+            const rcTag = `${version}-rc.${nextRc}`;
+
+            console.log(`📊 Found ${refs.length} existing RC tags for ${version}`);
+            console.log(`🏷️ Next RC tag: ${rcTag}`);
+
+            core.setOutput('number', nextRc);
+            core.setOutput('tag', rcTag);
+
+      - name: Create Git tag
+        env:
+          RC_TAG: ${{ steps.rc.outputs.tag }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          git tag -a "$RC_TAG" -m "Release candidate $RC_TAG"
+          git push origin "$RC_TAG"
+
+          echo "✅ Created and pushed tag: $RC_TAG"
+
+      - name: Create summary
+        env:
+          RC_TAG: ${{ steps.rc.outputs.tag }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          cat >> $GITHUB_STEP_SUMMARY << EOF
+          # 🏷️ Release Candidate Created
+
+          | Property | Value |
+          |----------|-------|
+          | **RC Tag** | \`${RC_TAG}\` |
+          | **Base Version** | \`${VERSION}\` |
+          | **Commit** | \`${{ github.sha }}\` |
+
+          ## What happened
+
+          1. 🏷️ Created git tag \`${RC_TAG}\`
+          2. 🔄 Triggered CI workflows with \`tag_version=${RC_TAG}\`
+          3. 📦 CI workflows building asynchronously - images will be tagged when complete
+
+          ## Usage
+
+          All images are now available with the \`${RC_TAG}\` tag:
+
+          \`\`\`bash
+          # Supervisor Agent
+          docker pull ghcr.io/${{ github.repository_owner }}/ai-platform-engineering:${RC_TAG}
+
+          # Sub-agents (example)
+          docker pull ghcr.io/${{ github.repository_owner }}/agent-slack:${RC_TAG}
+          docker pull ghcr.io/${{ github.repository_owner }}/mcp-jira:${RC_TAG}
+
+          # RAG components (example)
+          docker pull ghcr.io/${{ github.repository_owner }}/caipe-rag-server:${RC_TAG}
+          \`\`\`
+
+          ## Helm Chart
+
+          Update your values.yaml:
+
+          \`\`\`yaml
+          global:
+            image:
+              tag: "${RC_TAG}"
+          \`\`\`
+          EOF
