@@ -10,7 +10,7 @@ spec:
   sources:
     # Main chart from GHCR
     - chart: ai-platform-engineering
-      repoURL: ghcr.io/cnoe-io/helm-charts
+      repoURL: ghcr.io/cnoe-io/charts
       targetRevision: <CHART VERSION>
       helm:
         valueFiles:
