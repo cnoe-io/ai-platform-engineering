@@ -1,100 +1,20 @@
-## 0.2.9 (2026-01-12)
-
-### Fix
-
-- yaml fix for finalize wf
-
-## 0.2.8-rc.8 (2026-01-12)
-
-### Feat
-
-- edge case with multiple commits pushed fast
-
-### Fix
-
-- retry kubectl download and fix notify wf + revert last failed release
-- fix release and always build if prev tag not found
-
-## 0.2.8-rc.7 (2026-01-09)
-
-## 0.2.8-rc.6 (2026-01-09)
-
-### Fix
-
-- retag for rc if no image change
-
-## 0.2.8-rc.5 (2026-01-09)
-
-### Feat
-
-- add finalizer to make release after all CI finishes and clean up previous rc tags
-- use common action
-
-## 0.2.8-rc.4 (2026-01-09)
-
-### Fix
-
-- retag-unchanged
-
-## 0.2.8-rc.3 (2026-01-09)
-
-### Feat
-
-- use -rc.X suffix to decide retag or all rebuilds
-
-### Fix
-
-- subagent CIs need to build all upon push to main
-
-## 0.2.8-rc.2 (2026-01-09)
-
-## 0.2.8-rc.1 (2026-01-08)
-
-### Feat
-
-- use gh cli to wait for tag in all CI builds instead
-- refactor major time
-- merge auto-bump and pre-release helm wf for cleaner builds
-- do not commit lock files
-- modify chart versions and appVersions to be the current release
-- new release pipeline
-
-### Fix
-
-- fixddsfsdfawdfewafr3wq2dfrw3rf2gaet
-- tag AFTER CI
-- fixddsfsdfawdfewafr3wq2dfrw3rf2gaet
-- wf ofc needs actions perm
-- appearntly wf run is buggy with branch
-- desparetly going through horrible gh action bs
-- release-manual to trigger the CIs driectly
-- correct helm chart versions and fix wf
-- helm chart test
-
-## 0.2.8 (2026-01-06)
-
-### BREAKING CHANGE
-
-- incident_engineer module is no longer available
-- Platform engineer agent now uses structured outputs
-exclusively. Legacy response formats are no longer supported.
-- Agents must now use UserInputMetaData JSON format instead of plain text when requesting user input
-- Update A2A protocol field naming from camelCase to snake_case
-- Replace artifactId with artifact_id throughout codebase
-- Replace messageId with message_id in streaming events
-- Replace taskId with task_id in context handling
-- Replace contextId with context_id across protocol
-- Replace lastChunk with last_chunk in streaming
-- Update TypeScript schema in Agent Forge frontend to match
-- none
-Closes: #324
-- helm chart version bumped to 0.2.3
-- test command now runs both general and RAG module tests
-- Redis service port name changed from 'http' to 'redis'
+## 0.2.8 (2025-12-22)
 
 ### Feat
 
 - **helm**: make rag prompt configurable
+
+### Fix
+
+- **docker-compose.yaml**: add rag_web_ingestor
+- **helm**: make grafana dashboard label configurable
+- rag tool and prompt optimizations
+- critical fix for ingestor
+
+## 0.2.6 (2025-12-16)
+
+### Feat
+
 - add langfuse to agent ontology
 - **prompts**: make analyze_query mandatory for all queries
 - **agents**: add SOPs, table formatting, and context scoping to Confluence, PagerDuty, AWS
@@ -108,6 +28,52 @@ Closes: #324
 - **prompts**: add GitHub Actions log retrieval from URLs
 - **agents**: add MCP tool error handling to prevent A2A stream closure
 - **prompts**: add GitHub agent formatting SOP and context awareness
+
+### Fix
+
+- clean-up
+- reconcile
+- **docker-compose.dev.yaml**: revert to stable
+- add MAX_SEARCH_RESULTS and WARN_SEARCH_RESULTS for argocd agent
+- neo4j port
+- rag image
+- docker-compose fix
+- minor bugfix; docker-compose fixes
+- accept/reject buttons api in UI
+- argocd ingestor additional id keys
+- content too large err, return 400 if no ontology; better batching
+- better err handling for ontology agent
+- explicit rag reference instructions
+- **ci**: add uv to PATH in lint workflow
+- **prompts**: escape curly braces in JSON examples for Python format()
+- add analyze_query as llm query
+- add analyze_query as llm query
+- updates
+- **langmem**: fix API call and prevent orphaned tool calls
+- **supervisor**: respect ENABLE_STREAMING env var
+- **streaming**: resolve Queue is closed race condition and improve error handling
+- **agents**: improve error parsing for TaskGroup and async errors
+- **prompts**: make RAG lookup conditional
+- **supervisor**: improve orphaned tool call recovery UX
+- **prompts**: remove biased examples from GitHub Actions debugging SOP
+- **supervisor**: fix ToolMessage and SystemMessage imports
+- **agents**: update to non-deprecated create_agent API
+- **agents**: correct LangMem API usage and import order
+- **github-agent**: add GH_TOKEN environment variable for gh CLI authentication
+- **docker-compose.yaml**: add RAG_SERVER_URL
+
+### Refactor
+
+- **prompt**: reconcile jarvis prompt with deep_agent optimizations
+- **prompt**: make source citation generic and add prompt chaining
+- **prompt**: make agent prefixes generic in supervisor prompt
+- **prompts**: replace analyze_query with [Agent] prefix format
+- **agents**: use LLMFactory for LangMem summarization
+
+## 0.2.5 (2025-12-12)
+
+### Feat
+
 - webui ingest view now supports pagination
 - **docs**: add development guide
 - add github ingestor
@@ -158,238 +124,9 @@ Closes: #324
 - also enable metric from each sub-agent
 - default metric to false and use global with helper
 - add prometheus metrics support
-- **argocd**: add Link column to ArgoCD application tables
-- enhance agent prompts and capabilities
-- **argocd**: implement two-tier search with automatic exhaustive fallback
-- update agents and configuration files
-- bump chart
-- **template**: add PetStore MCP server implementation
-- **prompts**: add error handling and security guardrails
-- bump chart
-- much shorter system prompt for deep supervisor agent
-- cahrt bump for prompt config
-- ontology agent rewrite for scale
-- add webex and argocdv3 ingestors, fix dummy ingestor
-- add embeddings factory; separate webloader
-- **tools**: add workspace operations and utility tools
-- **mcp**: add standardized entry points for MCP servers
-- **structured-outputs**: implement structured output support for agents
-- **platform-engineer**: implement structured outputs and workspace tools
-- enhance user input transformation with detailed recipe
-- add user input metadata format and improve agent orchestration
-- add UserInputMetaData format and automatic error retry logic
-- enhance agent system with parallel execution and improved UX
-- parallelize MCP client initialization with graceful failure handling
-- add MCP initialization retry logic with configurable timeouts
-- add grep_virtual_file tool for efficient large output search
-- add critical directive to preserve sub-agent output details
-- add GitHub CI/CD failure analysis directive to system prompt
-- enhance multi-agent queries with unified tabulated results
-- add our github repo link easy for mobile
-- maintain same defaults and properly bump charts
-- add redis persistence, external secrets v1 support, and fix dependencies
-- add info on PR template
-- allow helm pre-release on fork PRs using label
-- Use more standard pattern for Helm ingress
-- build agent-forge on push to main and remove cronjob
-- Support multi-platform Docker builds (AMD64 + ARM64)
-- Update agent-forge Dockerfile for AMD64 compatibility
-- refactor a2a stream with common code and fix agent-forge workflow
-- add prompt templates and agent integration improvements
-- Add execution plan markers and creation confirmation policy
-- Major streaming architecture improvements and prompt enhancements
-- update a2a streaming and agent improvements
-- implement A2A streaming and common code refactoring
-- refactor a2a_stream with common code
-- major ingestor refactor
-- add retry when 429 Too many requests
-- add istio support and extraDeploy for custom resources
-- **helm**: Add flexible prompt configuration with default and deep agent modes
-- up to date helm and external secrets doc
-- **helm**: add promptConfig override support
-- adding job termination, reload and search weights
-- add mcp server for RAG
-- add Claude Agent SDK template with A2A and MCP protocol bindings
-- add dev version of complete
-- allow supervisor agent to work with any remote agent
-- add condition to rag-stack and fix webui;
-- new rag-stack chart
-- add agent_skill_examples in prompt_config
-- add ENABLE_<agent> to supervisor cm
-- use skills example config
-- agent-rag can now filter
-- dynamic docker-compose generation with persona-based profiles
-- add dynamic docker-compose generator and persona configuration
-- add agent-aws-slim and agent-petstore-slim services
-- **agents**: enhance jira agent and add argocd tests
-- **agents**: enhance jira agent and add argocd tests
-- add connectors
-- add common utils
-- unified rag server
-- migrate ontology and rag agent
-- **deepagents**: add deepagents package locally
-- **backstage**: add TechDocs tools for improved documentation access
-- disable graphrag in helm chart until fixed
-- add tags to helm dependencies
-- current experiment-dev-use2-1 values
-- **auth**: update A2A authentication configuration
-- add additional authentication options for A2A protocol
-- add missing agent deployments for aws, splunk, webex, komodor
-- upgrade Jira agent to API v3
-- idpbuilder values
-- add OAuth2 authentication support for A2A protocol
-- add integration test workflows and improve agent Docker build automation
-- updating collection name from rag-default to rag-united
-- backend data management improvements for milvus and redis
-- adding addtional config in web UI frontend
-- add prebuild docker image github actions
-- Only build images if relevant change
-- Adding streamable http to Webex agent
-- Adding initial, optional Webex agent
-- Adding streamable http to Webex agent
-- Adding initial, optional Webex agent
-- use routing evaluator and tool match evalutor and use the expected ouptut in the dataset
-- implement new llm-trajectory match evaluator
-- redesign the trajectory and tool call match evaluator
-- **trace**: redesign trace processing method to get the tool call
-- **evals**: refactor evaluator architecture and switch to OpenAI
-- **evals**: add unified trajectory evaluator with graceful LLM fallback
-- **evals**: link dataset traces with platform engineer execution
-- **evals**: add auto-detection for Langfuse host in upload script
-- add expected_output support and separate upload functionality
-- add eval service
-- major helm chart refactor
-- implement memory-optimized batch processing for URL loading
-- update agents documentation and sidebar
-- enhance coverage reporting with detailed metrics and tables
-- **tests**: add comprehensive test suite with memory monitoring and scale tests
-- add AWS agent to include cost explorer MCP (#251)
-- add kb-rag-web to helm chart
-- add the aws agent to platform engineer (#246)
-- Addition of Agent Splunk (#247)
-- use a2a card to dynamically create client
-- added redis db management backend
-- added reranking
-- frontend now supports RAG config
-- add multiple llm provider support for graphrag
-- **argocd**: add argocd sanity tests for local argocd kind instance (#224)
-- **workshop**: add workshop 7 docker-compose
-- add http mcp remote support for petstore and weather agents
-- implement job tracking and ingestion progress for URL processing
-- initialize frontend for KB RAG with React, Vite, and Tailwind CSS
-- create dev mission docker file
-- add petstore to docker-compose.weather
-- add multi-agent dynamic connectivity and petstore refactor
-- add weather agent with stdio mcp server
-- adding rag-ingestion pipeline
-- **brand**: update docs to CAIPE branding (#211)
-- add eval prompts (#191)
-- **docker**: use multi-stage builds to reduce container size (#198)
-- add a new graphrag helm chart
-- fix Langfuse trace ID propagation in multi-agent system (#195)
-- **helm**: add useRemoteMcpServer to use remote MCP server (#193)
-- add mcp http support to helm chart (#190)
-- add slim to helm chart (#187)
-- use agntcy-app-sdk to integrate with agntcy slim (#171)
-- **graph-rag**: add evaluation and tests
-- embed vidcast in idpbuilder doc
-- add a new pre-release helm chart github action
-- output URL to help user.
-- updated kb-rag from agent-rag
-- implement distributed tracing across all agents (#139)
-- add idpbuilder docs (#142)
-- allow external url as the A2A url (#122)
-- intial commit incident engineer (#111)
-- **graph_rag**: create nexigraph graph rag system (#97)
-- **rag**: doc load, embed, vector store, retrieve (#96)
-- updates
-- updates
-- remove dependency.yml
-- updates
-- update OSS artifacts and github actions
-- add some colours to the docs code block
-- add doc for eks deployment
-- **helm**: add command and args to deployment
-- **helm**: publish chart
-- add CORS and use LLMFactory
-- use cnoe_agent_utlis
-- publish helm
-- added ci pipeline
-- added ci pipeline
-- added A2A server and re-formatted
-- add A2A integration and new MCP server (#5)
-- Use cnoe utlis to get rid of llm_factory to encompass latest LLMs
-- added google's A2A server and client side
-- short term memory to the agent
-- add helm publish
-- add CORS and fix lint errors
-- use cnoe_agent_utlis instead of llm_factory
-- add agent forge
-- **agent-komodor**: add komodor agent
-- add script to automate Helm configuration for new agents
-- **docs**: add docs website
-- implement dual-mode docker-compose and update the readme and example env
-- **tracing**: use env to enable tracing
-- monkey patch a2a noise
-- implement langfuse v3
-- publish helm
-- added ci pipeline
-- added ci pipeline
-- added A2A server and re-formatted
-- add A2A integration and new MCP server (#5)
-- adding confluence agent
-- publish helm
-- added ci pipeline
-- added ci pipeline
-- added A2A server and re-formatted
-- add A2A integration and new MCP server (#5)
-- add agent-a2a-docker-build.yml
-- add mcp server support (#45)
-- **helm**: Implement helm chart (#42)
-- propogate context_id from user client LangGraph thread_id (#34)
-- **Dockerfile**: add multi-arch support
-- **cors**: add CORS and update ACP/A2A graph entry point (#11)
-- add A2A integration and new MCP server (#5)
-- adding 6th agent backstage
-- allow custom prompts via YAML config and restore original agent/platform prompt defaults
 
 ### Fix
 
-- inf loop bug; hf api token
-- **docker-compose.yaml**: add rag_web_ingestor
-- **helm**: make grafana dashboard label configurable
-- rag tool and prompt optimizations
-- critical fix for ingestor
-- clean-up
-- reconcile
-- **docker-compose.dev.yaml**: revert to stable
-- add MAX_SEARCH_RESULTS and WARN_SEARCH_RESULTS for argocd agent
-- neo4j port
-- rag image
-- docker-compose fix
-- minor bugfix; docker-compose fixes
-- accept/reject buttons api in UI
-- argocd ingestor additional id keys
-- content too large err, return 400 if no ontology; better batching
-- better err handling for ontology agent
-- explicit rag reference instructions
-- **ci**: add uv to PATH in lint workflow
-- **prompts**: escape curly braces in JSON examples for Python format()
-- add analyze_query as llm query
-- add analyze_query as llm query
-- updates
-- **langmem**: fix API call and prevent orphaned tool calls
-- **supervisor**: respect ENABLE_STREAMING env var
-- **streaming**: resolve Queue is closed race condition and improve error handling
-- **agents**: improve error parsing for TaskGroup and async errors
-- **prompts**: make RAG lookup conditional
-- **supervisor**: improve orphaned tool call recovery UX
-- **prompts**: remove biased examples from GitHub Actions debugging SOP
-- **supervisor**: fix ToolMessage and SystemMessage imports
-- **agents**: update to non-deprecated create_agent API
-- **agents**: correct LangMem API usage and import order
-- **github-agent**: add GH_TOKEN environment variable for gh CLI authentication
-- **docker-compose.yaml**: add RAG_SERVER_URL
 - remove unused var
 - update .gitleaksignore
 - remove agent_rag pyproject/uv
@@ -481,9 +218,49 @@ Closes: #324
 - **test**: add komodor test prompt
 - **lint**: fix linting
 - **komodor**: regenerate mcp from openapi spec
+
+### Refactor
+
+- **aws**: make system prompt generic and fix linting issues
+- **argocd-mcp**: pin dependencies to latest compatible versions
+- **deps**: clean up and align pyproject.toml files
+- **build**: remove redundant dev dependencies and pytest config
+- **build**: add individual MCP test targets for granular testing
+- **build**: decouple test targets for better modularity
+- **aws**: remove company-specific references from system prompt
+- **aws**: rename agent.py to agent_strands.py
+- **aws**: replace company-specific references with generic placeholders
+- remove Komodor agent from supervisor configuration
+- **aws**: update Strands agent imports and AWS CLI tool integration
+
+### Perf
+
+- **aws**: optimize agent performance with reduced timeouts and semaphores
+- **langgraph**: increase recursion limit to 100 for large batch operations
+
+## 0.2.4 (2025-11-24)
+
+### Feat
+
+- **argocd**: add Link column to ArgoCD application tables
+- enhance agent prompts and capabilities
+- **argocd**: implement two-tier search with automatic exhaustive fallback
+- update agents and configuration files
+
+### Fix
+
 - **tests**: ensure test file changes are committed
 - **tests**: mock LLMFactory instead of patching env vars for CI reliability
 - resolve linting errors
+
+## 0.2.3 (2025-11-21)
+
+### Feat
+
+- bump chart
+
+### Fix
+
 - **workaround**: add ENABLE_ARTIFACT_STREAMING to docker-compose
 - updates
 - set LLM_PROVIDER env var in test fixtures
@@ -492,6 +269,36 @@ Closes: #324
 - correct rag-server image repository and bump chart to 0.4.10
 - **ci**: prevent docs deployment on tag pushes
 - chart was not bumped with prompt config change
+
+### Refactor
+
+- change logger.info to logger.debug for detailed streaming logs
+
+## 0.2.2 (2025-11-20)
+
+### BREAKING CHANGE
+
+- incident_engineer module is no longer available
+- Platform engineer agent now uses structured outputs
+exclusively. Legacy response formats are no longer supported.
+
+### Feat
+
+- **template**: add PetStore MCP server implementation
+- **prompts**: add error handling and security guardrails
+- bump chart
+- much shorter system prompt for deep supervisor agent
+- cahrt bump for prompt config
+- ontology agent rewrite for scale
+- add webex and argocdv3 ingestors, fix dummy ingestor
+- add embeddings factory; separate webloader
+- **tools**: add workspace operations and utility tools
+- **mcp**: add standardized entry points for MCP servers
+- **structured-outputs**: implement structured output support for agents
+- **platform-engineer**: implement structured outputs and workspace tools
+
+### Fix
+
 - **docker**: update prompt config path and fix whitespace
 - **ci**: correct workflow ID in trigger script
 - **ci**: correct workflow ID in trigger script
@@ -539,6 +346,60 @@ Closes: #324
 - **ci**: ignore argocd and komodor agent tests with missing dependencies
 - **docker**: correct agent template name and improve extra_hosts docs
 - **docker**: correct agent name for petstore services in docker-compose
+
+### Refactor
+
+- **executor**: make duplicate detection deterministic and update prompt configs
+- **petstore**: migrate to BaseLangGraphAgent and shared utilities
+- remove agent initialization capabilities greeting and improve prompt config
+
+## 0.2.1 (2025-11-07)
+
+### BREAKING CHANGE
+
+- Agents must now use UserInputMetaData JSON format instead of plain text when requesting user input
+- Update A2A protocol field naming from camelCase to snake_case
+- Replace artifactId with artifact_id throughout codebase
+- Replace messageId with message_id in streaming events
+- Replace taskId with task_id in context handling
+- Replace contextId with context_id across protocol
+- Replace lastChunk with last_chunk in streaming
+- Update TypeScript schema in Agent Forge frontend to match
+
+### Feat
+
+- enhance user input transformation with detailed recipe
+- add user input metadata format and improve agent orchestration
+- add UserInputMetaData format and automatic error retry logic
+- enhance agent system with parallel execution and improved UX
+- parallelize MCP client initialization with graceful failure handling
+- add MCP initialization retry logic with configurable timeouts
+- add grep_virtual_file tool for efficient large output search
+- add critical directive to preserve sub-agent output details
+- add GitHub CI/CD failure analysis directive to system prompt
+- enhance multi-agent queries with unified tabulated results
+- add our github repo link easy for mobile
+- maintain same defaults and properly bump charts
+- add redis persistence, external secrets v1 support, and fix dependencies
+- add info on PR template
+- allow helm pre-release on fork PRs using label
+- Use more standard pattern for Helm ingress
+- build agent-forge on push to main and remove cronjob
+- Support multi-platform Docker builds (AMD64 + ARM64)
+- Update agent-forge Dockerfile for AMD64 compatibility
+- refactor a2a stream with common code and fix agent-forge workflow
+- add prompt templates and agent integration improvements
+- Add execution plan markers and creation confirmation policy
+- Major streaming architecture improvements and prompt enhancements
+- update a2a streaming and agent improvements
+- implement A2A streaming and common code refactoring
+- refactor a2a_stream with common code
+- major ingestor refactor
+- add retry when 429 Too many requests
+- add istio support and extraDeploy for custom resources
+
+### Fix
+
 - Docker Compose dev file not starting properly
 - **docs**: fix npm build errors and broken links
 - **agent-aws**: change default AWS agent backend to 'strands'
@@ -629,6 +490,40 @@ Closes: #324
 - updates
 - updates
 - updates
+
+### Refactor
+
+- integrate MCP retry logic directly into initialization
+- Weather and Webex agents to use BaseLangGraphAgent
+- GitHub agent to use BaseLangGraphAgent for consistent streaming
+- Move prompt_config.yaml to charts directory and relocate docs
+- Refactor AWS agent to use BaseStrandsAgent and BaseStrandsAgentExecutor
+- **a2a**: move a2a agent and bindings code to common library
+
+## 0.1.19 (2025-10-22)
+
+### Feat
+
+- **helm**: Add flexible prompt configuration with default and deep agent modes
+- up to date helm and external secrets doc
+- **helm**: add promptConfig override support
+- adding job termination, reload and search weights
+- add mcp server for RAG
+- add Claude Agent SDK template with A2A and MCP protocol bindings
+- add dev version of complete
+- allow supervisor agent to work with any remote agent
+- add condition to rag-stack and fix webui;
+- new rag-stack chart
+- add agent_skill_examples in prompt_config
+- add ENABLE_<agent> to supervisor cm
+- use skills example config
+- agent-rag can now filter
+- dynamic docker-compose generation with persona-based profiles
+- add dynamic docker-compose generator and persona configuration
+- add agent-aws-slim and agent-petstore-slim services
+
+### Fix
+
 - better idpbuilder docs;
 - **docs**: gh pages
 - remove redundant test-data
@@ -695,7 +590,42 @@ Closes: #324
 - change dense metric L2 -> COSINE
 - agent_rag now checks for graph ontology
 - lint
+
+### Refactor
+
+- **multi-agents**: consolidate agent registry with convention-based configuration
+
+## 0.1.18 (2025-10-06)
+
+### Fix
+
 - **rag**: build on all tags
+
+## 0.1.17 (2025-10-06)
+
+## 0.1.16 (2025-10-04)
+
+### BREAKING CHANGE
+
+- none
+Closes: #324
+
+### Feat
+
+- **agents**: enhance jira agent and add argocd tests
+- **agents**: enhance jira agent and add argocd tests
+- add connectors
+- add common utils
+- unified rag server
+- migrate ontology and rag agent
+- **deepagents**: add deepagents package locally
+- **backstage**: add TechDocs tools for improved documentation access
+- disable graphrag in helm chart until fixed
+- add tags to helm dependencies
+- current experiment-dev-use2-1 values
+
+### Fix
+
 - resolve RAG agent connection issues
 - lint
 - agent_rag is now like all other agents
@@ -743,7 +673,32 @@ Closes: #324
 - remove test_extractor.py error file
 - pin kb-rag services to sha-b098b8d
 - fix workshop4 to specific version
+
+### Refactor
+
+- improve RAG agent configuration and testing
+- **argocd**: modernize string formatting in server.py
+
+## 0.1.15 (2025-09-19)
+
+### Fix
+
 - **ci**: A2A/MCP builds
+
+## 0.1.14 (2025-09-19)
+
+### BREAKING CHANGE
+
+- helm chart version bumped to 0.2.3
+
+### Feat
+
+- **auth**: update A2A authentication configuration
+- add additional authentication options for A2A protocol
+- add missing agent deployments for aws, splunk, webex, komodor
+
+### Fix
+
 - **ci**: A2A/MCP build and publish on main/tags
 - **ci**: A2A/MCP build and publish on main/tags
 - **ci**: A2A/MCP build and publish on main/tags
@@ -752,7 +707,65 @@ Closes: #324
 - lint
 - updates
 - correct commit count for prebuild GHAs
+
+## 0.1.13 (2025-09-18)
+
+### Feat
+
+- upgrade Jira agent to API v3
+
+### Fix
+
 - undo helm values.yaml
+
+## 0.1.12 (2025-09-17)
+
+### BREAKING CHANGE
+
+- test command now runs both general and RAG module tests
+- Redis service port name changed from 'http' to 'redis'
+
+### Feat
+
+- idpbuilder values
+- add OAuth2 authentication support for A2A protocol
+- add integration test workflows and improve agent Docker build automation
+- updating collection name from rag-default to rag-united
+- backend data management improvements for milvus and redis
+- adding addtional config in web UI frontend
+- add prebuild docker image github actions
+- Only build images if relevant change
+- Adding streamable http to Webex agent
+- Adding initial, optional Webex agent
+- Adding streamable http to Webex agent
+- Adding initial, optional Webex agent
+- use routing evaluator and tool match evalutor and use the expected ouptut in the dataset
+- implement new llm-trajectory match evaluator
+- redesign the trajectory and tool call match evaluator
+- **trace**: redesign trace processing method to get the tool call
+- **evals**: refactor evaluator architecture and switch to OpenAI
+- **evals**: add unified trajectory evaluator with graceful LLM fallback
+- **evals**: link dataset traces with platform engineer execution
+- **evals**: add auto-detection for Langfuse host in upload script
+- add expected_output support and separate upload functionality
+- add eval service
+- major helm chart refactor
+- implement memory-optimized batch processing for URL loading
+- update agents documentation and sidebar
+- enhance coverage reporting with detailed metrics and tables
+- **tests**: add comprehensive test suite with memory monitoring and scale tests
+- add AWS agent to include cost explorer MCP (#251)
+- add kb-rag-web to helm chart
+- add the aws agent to platform engineer (#246)
+- Addition of Agent Splunk (#247)
+- use a2a card to dynamically create client
+- added redis db management backend
+- added reranking
+- frontend now supports RAG config
+- add multiple llm provider support for graphrag
+
+### Fix
+
 - updates
 - adding generic to custom parser to scrap sites like wikipedia
 - updating docker compose for the workshop
@@ -900,15 +913,62 @@ Closes: #324
 - typo for logger message
 - **workshop**: switch mission4 to a different env file
 - **weather**: add self.mcp_api_key
+
+### Refactor
+
+- **evals**: improve eval run naming with readable timestamp format
+- **evals**: clean up directory structure and remove obsolete files
+- remove hardcoded agent detection and use dynamic regex patterns
+- create kb-rag-stack
+
+## 0.1.10 (2025-08-26)
+
+### Fix
+
 - **petstore**: add PETSTORE_API_KEY support
 - correct petstore mcp env var name
 - Update README.md (#230)
+
+## 0.1.9 (2025-08-26)
+
+### Fix
+
 - **github**: add ENABLE_MCP_TOOL_MATCH feature flag (#229)
 - ruff lint
 - rag ingestion crash; workshop docker file
+
+## 0.1.8 (2025-08-25)
+
+### Feat
+
+- **argocd**: add argocd sanity tests for local argocd kind instance (#224)
+
+### Fix
+
 - **petstore/weather**: bug fixes (#225)
 - **docs**: escape  in Jira MCP comparison table for MDX compatibility
 - update navigation
+
+## 0.1.7 (2025-08-25)
+
+### Feat
+
+- **workshop**: add workshop 7 docker-compose
+- add http mcp remote support for petstore and weather agents
+- implement job tracking and ingestion progress for URL processing
+- initialize frontend for KB RAG with React, Vite, and Tailwind CSS
+- create dev mission docker file
+- add petstore to docker-compose.weather
+- add multi-agent dynamic connectivity and petstore refactor
+- add weather agent with stdio mcp server
+- adding rag-ingestion pipeline
+- **brand**: update docs to CAIPE branding (#211)
+- add eval prompts (#191)
+- **docker**: use multi-stage builds to reduce container size (#198)
+- add a new graphrag helm chart
+
+### Fix
+
 - docker-compose.mission2.yaml
 - **weather**: use remove URL (#223)
 - **workshop**: remove langfuse components from mission 7
@@ -961,12 +1021,99 @@ Closes: #324
 - wrong secretRef path
 - create json file and make graphrag optional
 - add SA field
+
+## 0.1.5 (2025-08-15)
+
+### Feat
+
+- fix Langfuse trace ID propagation in multi-agent system (#195)
+- **helm**: add useRemoteMcpServer to use remote MCP server (#193)
+- add mcp http support to helm chart (#190)
+
+### Fix
+
 - Dockerfile improvements and add .dockerignore (#197)
 - fix missing sub helm chart bump
 - mcp dockerfile to give .venv permissions (#192)
+
+## 0.1.4 (2025-08-12)
+
+### Fix
+
 - **build**: update workflow triggers
 - **build**: remove a2a prefix for agent container images
 - **build**: build and publish agents on every push to main and tags
+
+## 0.1.3 (2025-08-12)
+
+### Feat
+
+- add slim to helm chart (#187)
+- use agntcy-app-sdk to integrate with agntcy slim (#171)
+- **graph-rag**: add evaluation and tests
+- embed vidcast in idpbuilder doc
+- add a new pre-release helm chart github action
+- output URL to help user.
+- updated kb-rag from agent-rag
+- implement distributed tracing across all agents (#139)
+- add idpbuilder docs (#142)
+- allow external url as the A2A url (#122)
+- intial commit incident engineer (#111)
+- **graph_rag**: create nexigraph graph rag system (#97)
+- **rag**: doc load, embed, vector store, retrieve (#96)
+- updates
+- updates
+- remove dependency.yml
+- updates
+- update OSS artifacts and github actions
+- add some colours to the docs code block
+- add doc for eks deployment
+- **helm**: add command and args to deployment
+- **helm**: publish chart
+- add CORS and use LLMFactory
+- use cnoe_agent_utlis
+- publish helm
+- added ci pipeline
+- added ci pipeline
+- added A2A server and re-formatted
+- add A2A integration and new MCP server (#5)
+- Use cnoe utlis to get rid of llm_factory to encompass latest LLMs
+- added google's A2A server and client side
+- short term memory to the agent
+- add helm publish
+- add CORS and fix lint errors
+- use cnoe_agent_utlis instead of llm_factory
+- add agent forge
+- **agent-komodor**: add komodor agent
+- add script to automate Helm configuration for new agents
+- **docs**: add docs website
+- implement dual-mode docker-compose and update the readme and example env
+- **tracing**: use env to enable tracing
+- monkey patch a2a noise
+- implement langfuse v3
+- publish helm
+- added ci pipeline
+- added ci pipeline
+- added A2A server and re-formatted
+- add A2A integration and new MCP server (#5)
+- adding confluence agent
+- publish helm
+- added ci pipeline
+- added ci pipeline
+- added A2A server and re-formatted
+- add A2A integration and new MCP server (#5)
+- add agent-a2a-docker-build.yml
+- add mcp server support (#45)
+- **helm**: Implement helm chart (#42)
+- propogate context_id from user client LangGraph thread_id (#34)
+- **Dockerfile**: add multi-arch support
+- **cors**: add CORS and update ACP/A2A graph entry point (#11)
+- add A2A integration and new MCP server (#5)
+- adding 6th agent backstage
+- allow custom prompts via YAML config and restore original agent/platform prompt defaults
+
+### Fix
+
 - **build**: add latest tag for agent builds
 - add kb-rag to Platform Registry
 - readding new clients to kb-rag
@@ -1293,39 +1440,6 @@ Closes: #324
 
 ### Refactor
 
-- **prompt**: reconcile jarvis prompt with deep_agent optimizations
-- **prompt**: make source citation generic and add prompt chaining
-- **prompt**: make agent prefixes generic in supervisor prompt
-- **prompts**: replace analyze_query with [Agent] prefix format
-- **agents**: use LLMFactory for LangMem summarization
-- **aws**: make system prompt generic and fix linting issues
-- **argocd-mcp**: pin dependencies to latest compatible versions
-- **deps**: clean up and align pyproject.toml files
-- **build**: remove redundant dev dependencies and pytest config
-- **build**: add individual MCP test targets for granular testing
-- **build**: decouple test targets for better modularity
-- **aws**: remove company-specific references from system prompt
-- **aws**: rename agent.py to agent_strands.py
-- **aws**: replace company-specific references with generic placeholders
-- remove Komodor agent from supervisor configuration
-- **aws**: update Strands agent imports and AWS CLI tool integration
-- change logger.info to logger.debug for detailed streaming logs
-- **executor**: make duplicate detection deterministic and update prompt configs
-- **petstore**: migrate to BaseLangGraphAgent and shared utilities
-- remove agent initialization capabilities greeting and improve prompt config
-- integrate MCP retry logic directly into initialization
-- Weather and Webex agents to use BaseLangGraphAgent
-- GitHub agent to use BaseLangGraphAgent for consistent streaming
-- Move prompt_config.yaml to charts directory and relocate docs
-- Refactor AWS agent to use BaseStrandsAgent and BaseStrandsAgentExecutor
-- **a2a**: move a2a agent and bindings code to common library
-- **multi-agents**: consolidate agent registry with convention-based configuration
-- improve RAG agent configuration and testing
-- **argocd**: modernize string formatting in server.py
-- **evals**: improve eval run naming with readable timestamp format
-- **evals**: clean up directory structure and remove obsolete files
-- remove hardcoded agent detection and use dynamic regex patterns
-- create kb-rag-stack
 - prompt config to use structure output. Use UV, langgraph==0.5.3, a2a-sdk==0.2.16 (#155)
 - **docs**: simplify the top level menu (#110)
 - **agent-atlassian**: remove and update that it is split into Jira and Confluence agents (#103)
@@ -1346,8 +1460,3 @@ Closes: #324
 - docker support, clean-up, new chat client interface (#13)
 - create protocol_bindings directory for acp/a2a/mcp
 - optimize system prompt from a2a cards and skills
-
-### Perf
-
-- **aws**: optimize agent performance with reduced timeouts and semaphores
-- **langgraph**: increase recursion limit to 100 for large batch operations
