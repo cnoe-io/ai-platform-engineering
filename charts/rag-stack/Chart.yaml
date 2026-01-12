@@ -27,7 +27,7 @@ dependencies:
     alias: neo4j
     condition: neo4j.enabled
   - name: rag-redis
-    version: 0.4.1 # Do NOT bump this. It will be updated automatically using the PR or release workflow
+    version: 0.4.1-rc.helm.1 # Do NOT bump this. It will be updated automatically using the PR or release workflow
     repository: "file://./charts/rag-redis"
     condition: rag-redis.enabled
   - name: milvus
