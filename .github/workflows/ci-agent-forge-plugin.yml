@@ -38,10 +38,9 @@ jobs:
       tag_version: ${{ steps.version.outputs.tag_version }}
 
     steps:
-      - name: Checkout main repository
+      - name: Checkout repository
         uses: actions/checkout@v6
         with:
-          path: main-repo
           fetch-depth: 0
 
       - name: Determine Tag
@@ -55,7 +54,6 @@ jobs:
         id: filter
         uses: dorny/paths-filter@v3.0.2
         with:
-          working-directory: main-repo
           filters: |
             forge:
               - 'build/agent-forge/**'
