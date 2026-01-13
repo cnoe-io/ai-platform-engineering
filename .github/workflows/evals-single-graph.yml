@@ -12,6 +12,10 @@ permissions:
   contents: read
   pull-requests: write
 
+env:
+  LANGFUSE_PROJECT_ID: "cmkb5vqsm00d1zh0749kb76kr"
+  LANGFUSE_BASE_URL: "https://langfuse.dev.outshift.io"
+
 jobs:
   single-graph-evals:
     runs-on: caipe-integration-tests
@@ -79,12 +83,16 @@ jobs:
           # Langfuse for evaluation tracking
           LANGFUSE_PUBLIC_KEY=${{ secrets.LANGFUSE_PUBLIC_KEY }}
           LANGFUSE_SECRET_KEY=${{ secrets.LANGFUSE_SECRET_KEY }}
-          LANGFUSE_HOST=${{ secrets.LANGFUSE_HOST }}
+          LANGFUSE_HOST=https://langfuse.dev.outshift.io
+
+          # OpenAI for evaluators (if needed)
+          OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}
 
           # Single graph mode settings
           SINGLE_GRAPH_MODE=true
           A2A_TRANSPORT=p2p
-          ENABLE_TRACING=false
+          ENABLE_TRACING=true
+          PLATFORM_ENGINEER_URL=http://localhost:8002
           EOF
           
           # Mask non-empty values
@@ -118,68 +126,115 @@ jobs:
           echo "server_pid=$SERVER_PID" >> $GITHUB_OUTPUT
           echo "Server started with PID: $SERVER_PID"
           
-          # Stream logs in background
-          tail -f server.log &
-          TAIL_PID=$!
-          echo "tail_pid=$TAIL_PID" >> $GITHUB_OUTPUT
+          echo "::endgroup::"
+
+      - name: Start Eval Webhook Server
+        id: start-webhook
+        run: |
+          set -euo pipefail
+          echo "::group::Starting eval webhook server"
+          
+          cd evals
+          uv sync --all-extras
+          
+          # Start webhook server on port 8080
+          PLATFORM_ENGINEER_URL=http://localhost:8002 \
+            uv run python -m uvicorn webhook.langfuse_webhook:app --host 0.0.0.0 --port 8080 > webhook.log 2>&1 &
+          WEBHOOK_PID=$!
+          echo "webhook_pid=$WEBHOOK_PID" >> $GITHUB_OUTPUT
+          echo "Webhook server started with PID: $WEBHOOK_PID"
           
           echo "::endgroup::"
 
-      - name: Wait for Server Readiness
+      - name: Wait for Servers Readiness
         run: |
           set -euo pipefail
-          echo "Waiting for server to be ready..."
+          echo "Waiting for servers to be ready..."
+          
+          # Wait for Platform Engineer
+          echo "Checking Platform Engineer..."
           for i in $(seq 1 60); do
             if curl -sfS http://localhost:8002/.well-known/agent-card.json > /dev/null 2>&1; then
-              echo "✅ Server is ready!"
+              echo "✅ Platform Engineer is ready!"
               break
             fi
-            echo "Waiting... ($i/60)"
+            echo "Waiting for Platform Engineer... ($i/60)"
             sleep 5
           done
           
-          # Final check
+          # Wait for Webhook Server
+          echo "Checking Webhook Server..."
+          for i in $(seq 1 30); do
+            if curl -sfS http://localhost:8080/health > /dev/null 2>&1; then
+              echo "✅ Webhook server is ready!"
+              break
+            fi
+            echo "Waiting for Webhook server... ($i/30)"
+            sleep 2
+          done
+          
+          # Final checks
           if ! curl -sfS http://localhost:8002/.well-known/agent-card.json > /dev/null 2>&1; then
-            echo "❌ Server failed to start"
+            echo "❌ Platform Engineer failed to start"
             cat server.log || true
             exit 1
           fi
+          
+          if ! curl -sfS http://localhost:8080/health > /dev/null 2>&1; then
+            echo "❌ Webhook server failed to start"
+            cat evals/webhook.log || true
+            exit 1
+          fi
+          
+          echo "✅ All servers ready!"
 
-      - name: Run Evaluation Suite
+      - name: Run Evaluation via CLI
         id: run-evals
         run: |
           set -euo pipefail
           echo "::group::Running evaluation suite"
           
-          # Run evals and capture output
           cd evals
-          uv sync --all-extras
           
-          # Install pytest and json-report plugin
-          uv pip install pytest pytest-asyncio pytest-json-report
+          # Generate run name with timestamp
+          RUN_NAME="ci_pr${{ github.event.pull_request.number || 'main' }}_$(date +%Y%m%d_%H%M%S)"
+          echo "run_name=$RUN_NAME" >> $GITHUB_OUTPUT
           
-          # Run single-graph integration tests
-          PLATFORM_ENGINEER_URL=http://localhost:8002 uv run python -m pytest tests/test_single_graph_integration.py \
-            -v --tb=short \
-            --json-report --json-report-file=eval_results.json \
-            2>&1 | tee eval_output.log || true
+          # Run evaluations with CLI, capture output
+          PLATFORM_ENGINEER_URL=http://localhost:8002 \
+            uv run python run_evals_cli.py \
+              --dataset datasets/multi_agent.yaml \
+              --name "multi_agent_evals" \
+              --run-name "$RUN_NAME" \
+              --timeout 120 \
+              --concurrent 5 \
+              --output-json 2>&1 | tee eval_output.log
           
-          # Parse results for PR comment
-          if [ -f eval_results.json ]; then
-            PASSED=$(jq '.summary.passed // 0' eval_results.json)
-            FAILED=$(jq '.summary.failed // 0' eval_results.json)
-            TOTAL=$(jq '.summary.total // 0' eval_results.json)
-            DURATION=$(jq '.duration // 0' eval_results.json)
+          # Extract JSON results
+          if grep -q "JSON_OUTPUT_START" eval_output.log; then
+            sed -n '/JSON_OUTPUT_START/,/JSON_OUTPUT_END/p' eval_output.log | grep -v "JSON_OUTPUT" > eval_results.json
+            
+            # Parse results
+            PASSED=$(jq '.passed // 0' eval_results.json)
+            FAILED=$(jq '.failed // 0' eval_results.json)
+            TOTAL=$(jq '.total // 0' eval_results.json)
+            PASS_RATE=$(jq '.pass_rate // 0' eval_results.json)
+            DURATION=$(jq '.duration_seconds // 0' eval_results.json)
+            LANGFUSE_URL=$(jq -r '.langfuse_url // ""' eval_results.json)
             
             echo "passed=$PASSED" >> $GITHUB_OUTPUT
             echo "failed=$FAILED" >> $GITHUB_OUTPUT
             echo "total=$TOTAL" >> $GITHUB_OUTPUT
+            echo "pass_rate=$PASS_RATE" >> $GITHUB_OUTPUT
             echo "duration=$DURATION" >> $GITHUB_OUTPUT
+            echo "langfuse_url=$LANGFUSE_URL" >> $GITHUB_OUTPUT
           else
             echo "passed=0" >> $GITHUB_OUTPUT
             echo "failed=0" >> $GITHUB_OUTPUT
             echo "total=0" >> $GITHUB_OUTPUT
+            echo "pass_rate=0" >> $GITHUB_OUTPUT
             echo "duration=0" >> $GITHUB_OUTPUT
+            echo "langfuse_url=${LANGFUSE_BASE_URL}/project/${LANGFUSE_PROJECT_ID}/datasets/multi_agent_evals" >> $GITHUB_OUTPUT
           fi
           
           echo "::endgroup::"
@@ -192,29 +247,41 @@ jobs:
             const passed = '${{ steps.run-evals.outputs.passed }}';
             const failed = '${{ steps.run-evals.outputs.failed }}';
             const total = '${{ steps.run-evals.outputs.total }}';
+            const passRate = '${{ steps.run-evals.outputs.pass_rate }}';
             const duration = '${{ steps.run-evals.outputs.duration }}';
+            const runName = '${{ steps.run-evals.outputs.run_name }}';
+            const langfuseUrl = '${{ steps.run-evals.outputs.langfuse_url }}';
             
-            const status = failed === '0' ? '✅' : '❌';
-            const statusText = failed === '0' ? 'All tests passed!' : `${failed} test(s) failed`;
+            const status = parseFloat(passRate) >= 50 ? '✅' : '❌';
+            const statusText = parseFloat(passRate) >= 50 ? 'Evaluation Passed' : 'Evaluation Failed';
             
             const body = `## ${status} Single Graph Evaluation Results
             
             | Metric | Value |
             |--------|-------|
+            | **Run Name** | \`${runName}\` |
             | **Total Tests** | ${total} |
             | **Passed** | ✅ ${passed} |
             | **Failed** | ❌ ${failed} |
-            | **Duration** | ${parseFloat(duration).toFixed(2)}s |
+            | **Pass Rate** | ${passRate}% |
+            | **Duration** | ${duration}s |
             
-            ### Summary
-            ${statusText}
+            ### 🔗 View Results in Langfuse
+            
+            **[📊 View Dataset Run in Langfuse](${langfuseUrl})**
+            
+            > The Langfuse dataset contains detailed traces for each evaluation, including:
+            > - Agent routing decisions
+            > - Tool calls executed
+            > - Response quality scores
             
             <details>
-            <summary>📋 View Details</summary>
+            <summary>📋 Configuration Details</summary>
             
-            **Mode:** Single Graph (SINGLE_GRAPH_MODE=true)
-            **Server:** http://localhost:8002
-            **Dataset:** multi_agent.yaml
+            - **Mode:** Single Graph (SINGLE_GRAPH_MODE=true)
+            - **Server:** http://localhost:8002
+            - **Dataset:** multi_agent.yaml
+            - **Tracing:** Enabled with Langfuse
             
             </details>
             
@@ -260,6 +327,7 @@ jobs:
           path: |
             evals/eval_results.json
             evals/eval_output.log
+            evals/webhook.log
             server.log
           if-no-files-found: warn
 
@@ -267,13 +335,15 @@ jobs:
         if: always()
         run: |
           echo "::group::Cleanup"
-          # Stop server
+          # Stop servers
           kill ${{ steps.start-server.outputs.server_pid }} 2>/dev/null || true
-          kill ${{ steps.start-server.outputs.tail_pid }} 2>/dev/null || true
+          kill ${{ steps.start-webhook.outputs.webhook_pid }} 2>/dev/null || true
           
           # Show final logs on failure
           if [ "${{ job.status }}" != "success" ]; then
             echo "=== Server Logs (last 100 lines) ==="
             tail -n 100 server.log || true
+            echo "=== Webhook Logs (last 50 lines) ==="
+            tail -n 50 evals/webhook.log || true
           fi
           echo "::endgroup::"
