@@ -206,7 +206,7 @@ jobs:
               --dataset datasets/single_agent.yaml \
               --name "single_agent_tests" \
               --run-name "$RUN_NAME" \
-              --timeout 5 \
+              --timeout 20 \
               --concurrent 5 \
               --output-json 2>&1 | tee eval_output.log || true
           
