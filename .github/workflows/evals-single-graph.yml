@@ -153,7 +153,10 @@ jobs:
           
           # Run evals and capture output
           cd evals
-          uv sync
+          uv sync --all-extras
+          
+          # Install pytest and json-report plugin
+          uv pip install pytest pytest-asyncio pytest-json-report
           
           # Run single-graph integration tests
           PLATFORM_ENGINEER_URL=http://localhost:8002 uv run python -m pytest tests/test_single_graph_integration.py \
