@@ -400,12 +400,12 @@ class LangfuseEvalRunner:
                     item_id=item_id,
                     prompt=prompt[:100],
                     passed=passed,
-                    routing_score=routing_score,
-                    tool_match_score=tool_match_score,
+                    routing_score=routing_score if routing_score is not None else 0.0,
+                    tool_match_score=tool_match_score if tool_match_score is not None else 0.0,
                     execution_time=execution_time,
                     trace_id=trace_id,
-                    actual_output=response.response_text[:500] if response.response_text else None,
-                    expected_behavior=expected_behavior,
+                    actual_output=str(response.response_text)[:500] if response.response_text else "No response",
+                    expected_behavior=expected_behavior or "N/A",
                     failure_reason="Low scores" if not passed and response.success else ("Runtime execution failed" if not passed else None)
                 )
                 
@@ -423,13 +423,17 @@ class LangfuseEvalRunner:
                     trace_id=trace_id,
                     error=str(e),
                     actual_output=f"Error: {e}",
-                    expected_behavior=expected_behavior,
-                    failure_reason=f"Exception: {e}"
+                    expected_behavior=expected_behavior or "N/A",
+                    failure_reason=f"Exception: {str(e)}"
                 )
 
 
 async def main():
     """Main entry point for CLI evaluation runner."""
+    # Load environment variables from .env file (if present)
+    # This must be done before argparse definition to ensure os.getenv defaults work
+    load_dotenv()
+    
     parser = argparse.ArgumentParser(description="Run evaluations with Langfuse tracking")
     parser.add_argument(
         "--dataset", "-d",
@@ -460,7 +464,7 @@ async def main():
     parser.add_argument(
         "--concurrent", "-c",
         type=int,
-        default=5,
+        default=20,
         help="Max concurrent requests"
     )
     parser.add_argument(
@@ -469,10 +473,12 @@ async def main():
         help="Output results as JSON for CI parsing"
     )
     
-    args = parser.parse_args()
+    parser.add_argument(
+        "--output-file",
+        help="Path to save JSON output"
+    )
     
-    # Load environment
-    load_dotenv()
+    args = parser.parse_args()
     
     # Initialize runner
     runner = LangfuseEvalRunner(
@@ -499,8 +505,13 @@ async def main():
     summary = await runner.run_evaluation(dataset, run_name)
     
     # Output for CI
+    import json
+    if args.output_file:
+        with open(args.output_file, 'w') as f:
+            json.dump(summary, f, indent=2)
+        logger.info(f"JSON Output saved to {args.output_file}")
+
     if args.output_json:
-        import json
         print("\n---JSON_OUTPUT_START---")
         print(json.dumps(summary, indent=2))
         print("---JSON_OUTPUT_END---")

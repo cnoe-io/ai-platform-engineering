@@ -207,13 +207,11 @@ jobs:
               --name "single_agent_tests" \
               --run-name "$RUN_NAME" \
               --timeout 20 \
-              --concurrent 5 \
-              --output-json 2>&1 | tee eval_output.log || true
+              --concurrent 20 \
+              --output-file eval_results.json || true
           
           # Extract JSON results
-          if grep -q "JSON_OUTPUT_START" eval_output.log; then
-            sed -n '/JSON_OUTPUT_START/,/JSON_OUTPUT_END/p' eval_output.log | grep -v "JSON_OUTPUT" > eval_results.json
-            
+          if [ -f eval_results.json ]; then
             # Parse results
             PASSED=$(jq '.passed // 0' eval_results.json)
             FAILED=$(jq '.failed // 0' eval_results.json)
@@ -231,6 +229,7 @@ jobs:
             echo "avg_routing=$AVG_ROUTING" >> $GITHUB_OUTPUT
             echo "avg_tool_match=$AVG_TOOL_MATCH" >> $GITHUB_OUTPUT
           else
+            echo "::error::eval_results.json not found"
             echo "passed=0" >> $GITHUB_OUTPUT
             echo "failed=0" >> $GITHUB_OUTPUT
             echo "total=0" >> $GITHUB_OUTPUT
