@@ -194,6 +194,11 @@ jobs:
           set -euo pipefail
           echo "::group::Running evaluation suite"
           
+          # Source environment variables
+          set -a
+          source .env
+          set +a
+          
           cd evals
           
           # Generate run name with timestamp
@@ -208,7 +213,7 @@ jobs:
               --run-name "$RUN_NAME" \
               --timeout 120 \
               --concurrent 5 \
-              --output-json 2>&1 | tee eval_output.log
+              --output-json 2>&1 | tee eval_output.log || true
           
           # Extract JSON results
           if grep -q "JSON_OUTPUT_START" eval_output.log; then
