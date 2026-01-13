@@ -201,6 +201,7 @@ jobs:
           LANGFUSE_SECRET_KEY=lf_sk_caipe_evals_ci_secret \
           LANGFUSE_HOST=http://localhost:3000 \
           PLATFORM_ENGINEER_URL=http://localhost:8002 \
+          AZURE_OPENAI_API_KEY=${{ secrets.AZURE_OPENAI_API_KEY }} \
             uv run python run_evals_cli.py \
               --dataset datasets/single_agent.yaml \
               --name "single_agent_tests" \
@@ -285,7 +286,6 @@ jobs:
             - **Mode:** Single Graph (SINGLE_GRAPH_MODE=true)
             - **Server:** http://localhost:8002
             - **Dataset:** single_agent.yaml
-            - **Langfuse:** Local instance via Docker
             
             </details>
             
