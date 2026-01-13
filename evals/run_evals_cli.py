@@ -1,20 +1,21 @@
 #!/usr/bin/env python3
 """
-CLI runner for evaluations that integrates with Langfuse datasets.
+CLI runner for evaluations using Langfuse dataset runs.
 
 This script:
-1. Syncs prompts from multi_agent.yaml to a Langfuse dataset
-2. Runs evaluations against the Platform Engineer server
-3. Logs results to Langfuse with trace linking
+1. Syncs prompts from single_agent.yaml to a Langfuse dataset
+2. Runs evaluations in parallel using asyncio
+3. Uses the existing runner infrastructure with routing/tool_match evaluators
 4. Outputs a link to the Langfuse dataset run
 
 Usage:
-    python run_evals_cli.py --dataset datasets/multi_agent.yaml --server http://localhost:8002
+    python run_evals_cli.py --dataset datasets/single_agent.yaml --server http://localhost:8002
     
 Environment variables required:
     LANGFUSE_PUBLIC_KEY
     LANGFUSE_SECRET_KEY
     LANGFUSE_HOST (defaults to https://langfuse.dev.outshift.io)
+    OPENAI_API_KEY (for LLM-based evaluators)
 """
 
 import argparse
@@ -23,9 +24,9 @@ import logging
 import os
 import sys
 import time
-import uuid
 from pathlib import Path
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
+from dataclasses import dataclass
 
 import yaml
 from dotenv import load_dotenv
@@ -35,6 +36,9 @@ from langfuse import Langfuse
 sys.path.insert(0, str(Path(__file__).parent))
 
 from clients.eval_client import EvalClient, EvaluationRequest
+from trace_analysis import TraceExtractor
+from evaluators.routing_evaluator import RoutingEvaluator
+from evaluators.tool_match_evaluator import ToolMatchEvaluator
 
 # Configure logging
 logging.basicConfig(
@@ -45,8 +49,21 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+@dataclass
+class EvalResult:
+    """Result of a single evaluation."""
+    item_id: str
+    prompt: str
+    passed: bool
+    routing_score: Optional[float] = None
+    tool_match_score: Optional[float] = None
+    execution_time: float = 0.0
+    trace_id: Optional[str] = None
+    error: Optional[str] = None
+
+
 class LangfuseEvalRunner:
-    """Run evaluations with Langfuse dataset tracking."""
+    """Run evaluations with Langfuse dataset tracking and LLM-based scoring."""
     
     LANGFUSE_PROJECT_ID = "cmkb5vqsm00d1zh0749kb76kr"
     LANGFUSE_BASE_URL = "https://langfuse.dev.outshift.io"
@@ -66,6 +83,10 @@ class LangfuseEvalRunner:
         self.langfuse_host = langfuse_host or os.getenv("LANGFUSE_HOST", self.LANGFUSE_BASE_URL)
         self.langfuse = self._init_langfuse()
         
+        # Initialize evaluators
+        self.trace_extractor = TraceExtractor(self.langfuse)
+        self.evaluators = self._init_evaluators()
+        
         # Eval client
         self.eval_client = EvalClient(
             platform_engineer_url=platform_engineer_url,
@@ -74,7 +95,7 @@ class LangfuseEvalRunner:
         )
         
         # Results tracking
-        self.results: List[Dict[str, Any]] = []
+        self.results: List[EvalResult] = []
     
     def _init_langfuse(self) -> Langfuse:
         """Initialize Langfuse client."""
@@ -93,6 +114,34 @@ class LangfuseEvalRunner:
             secret_key=secret_key,
             host=self.langfuse_host
         )
+    
+    def _init_evaluators(self) -> Dict[str, Any]:
+        """Initialize routing and tool match evaluators."""
+        evaluators = {}
+        openai_key = os.getenv("OPENAI_API_KEY")
+        
+        if openai_key and self.trace_extractor:
+            try:
+                evaluators['routing'] = RoutingEvaluator(
+                    trace_extractor=self.trace_extractor,
+                    openai_api_key=openai_key
+                )
+                logger.info("✅ Routing evaluator initialized")
+            except Exception as e:
+                logger.warning(f"Failed to init routing evaluator: {e}")
+            
+            try:
+                evaluators['tool_match'] = ToolMatchEvaluator(
+                    trace_extractor=self.trace_extractor,
+                    openai_api_key=openai_key
+                )
+                logger.info("✅ Tool match evaluator initialized")
+            except Exception as e:
+                logger.warning(f"Failed to init tool_match evaluator: {e}")
+        else:
+            logger.warning("⚠️ OPENAI_API_KEY not set - evaluators disabled")
+        
+        return evaluators
     
     def load_prompts_from_yaml(self, yaml_path: str) -> List[Dict[str, Any]]:
         """Load evaluation prompts from YAML file."""
@@ -114,18 +163,14 @@ class LangfuseEvalRunner:
         except Exception:
             dataset = self.langfuse.create_dataset(
                 name=dataset_name,
-                description="Multi-agent evaluation prompts for single-graph mode"
+                description="Single-agent evaluation prompts for read-only operations"
             )
             logger.info(f"✨ Created new dataset: {dataset_name}")
         
         # Sync items to dataset
-        existing_ids = {item.id for item in dataset.items} if hasattr(dataset, 'items') else set()
         new_items = 0
-        
         for prompt_data in prompts:
             item_id = prompt_data.get('id')
-            
-            # Create dataset item
             messages = prompt_data.get('messages', [])
             user_message = next(
                 (m['content'] for m in messages if m.get('role') == 'user'),
@@ -145,7 +190,7 @@ class LangfuseEvalRunner:
                 )
                 new_items += 1
             except Exception as e:
-                logger.debug(f"Item may already exist or error: {e}")
+                logger.debug(f"Item may already exist: {e}")
         
         logger.info(f"📊 Synced {new_items} items to dataset")
         
@@ -158,7 +203,7 @@ class LangfuseEvalRunner:
         dataset: Any,
         run_name: str = None
     ) -> Dict[str, Any]:
-        """Run evaluation on all dataset items with Langfuse tracking."""
+        """Run evaluation on all dataset items in parallel with Langfuse tracking."""
         
         if not run_name:
             timestamp = time.strftime("%Y%m%d_%H%M%S")
@@ -171,41 +216,39 @@ class LangfuseEvalRunner:
         await self.eval_client.initialize()
         
         start_time = time.time()
-        passed = 0
-        failed = 0
         
         try:
-            # Process items in parallel batches
+            # Process items in parallel with semaphore
             semaphore = asyncio.Semaphore(self.max_concurrent)
             
-            async def evaluate_item(item) -> Dict[str, Any]:
+            async def evaluate_item(item) -> EvalResult:
                 async with semaphore:
                     return await self._evaluate_single_item(item, run_name)
             
+            # Run all evaluations in parallel
             tasks = [evaluate_item(item) for item in dataset.items]
-            results = await asyncio.gather(*tasks, return_exceptions=True)
-            
-            # Process results
-            for result in results:
-                if isinstance(result, Exception):
-                    failed += 1
-                    self.results.append({
-                        "status": "error",
-                        "error": str(result)
-                    })
-                elif result.get("passed"):
-                    passed += 1
-                    self.results.append(result)
-                else:
-                    failed += 1
-                    self.results.append(result)
+            self.results = await asyncio.gather(*tasks, return_exceptions=True)
             
         finally:
             await self.eval_client.cleanup()
-            # Flush Langfuse
+            # Wait for traces to be sent
+            await asyncio.sleep(2)
             self.langfuse.flush()
         
         duration = time.time() - start_time
+        
+        # Calculate results
+        passed = sum(1 for r in self.results if isinstance(r, EvalResult) and r.passed)
+        failed = len(self.results) - passed
+        
+        # Calculate average scores
+        routing_scores = [r.routing_score for r in self.results 
+                         if isinstance(r, EvalResult) and r.routing_score is not None]
+        tool_match_scores = [r.tool_match_score for r in self.results 
+                            if isinstance(r, EvalResult) and r.tool_match_score is not None]
+        
+        avg_routing = sum(routing_scores) / len(routing_scores) if routing_scores else 0
+        avg_tool_match = sum(tool_match_scores) / len(tool_match_scores) if tool_match_scores else 0
         
         # Generate results summary
         summary = {
@@ -216,6 +259,8 @@ class LangfuseEvalRunner:
             "failed": failed,
             "duration_seconds": round(duration, 2),
             "pass_rate": round(passed / len(dataset.items) * 100, 1) if dataset.items else 0,
+            "avg_routing_score": round(avg_routing, 2),
+            "avg_tool_match_score": round(avg_tool_match, 2),
             "langfuse_url": f"{self.LANGFUSE_BASE_URL}/project/{self.LANGFUSE_PROJECT_ID}/datasets/{dataset.name}"
         }
         
@@ -229,6 +274,8 @@ class LangfuseEvalRunner:
         logger.info(f"✅ Passed: {passed}")
         logger.info(f"❌ Failed: {failed}")
         logger.info(f"Pass Rate: {summary['pass_rate']}%")
+        logger.info(f"Avg Routing Score: {summary['avg_routing_score']}")
+        logger.info(f"Avg Tool Match Score: {summary['avg_tool_match_score']}")
         logger.info(f"Duration: {summary['duration_seconds']}s")
         logger.info(f"\n🔗 Langfuse Dataset: {summary['langfuse_url']}")
         logger.info("=" * 60 + "\n")
@@ -239,10 +286,15 @@ class LangfuseEvalRunner:
         self,
         item: Any,
         run_name: str
-    ) -> Dict[str, Any]:
-        """Evaluate a single dataset item with Langfuse trace linking."""
+    ) -> EvalResult:
+        """Evaluate a single dataset item with Langfuse trace linking and scoring."""
         
-        # Extract prompt from item
+        # Extract data from item
+        item_metadata = item.metadata or {}
+        item_id = item_metadata.get('id', item.id)
+        expected_agents = item_metadata.get('expected_agents', [])
+        expected_behavior = item_metadata.get('expected_behavior', '')
+        
         if hasattr(item, 'input') and item.input:
             if isinstance(item.input, dict):
                 prompt = item.input.get('prompt') or str(item.input)
@@ -251,16 +303,19 @@ class LangfuseEvalRunner:
         else:
             prompt = "Unknown prompt"
         
-        item_metadata = item.metadata or {}
-        item_id = item_metadata.get('id', item.id)
-        
         logger.info(f"🔍 [{item_id}] Evaluating: {prompt[:50]}...")
         
-        # Create dataset run trace using Langfuse's dataset run context
+        start_time = time.time()
+        
+        # Create dataset run context
         with item.run(
             run_name=run_name,
             run_description=f"Evaluation of {item_id}",
-            run_metadata={"platform_engineer_url": self.platform_engineer_url}
+            run_metadata={
+                "platform_engineer_url": self.platform_engineer_url,
+                "expected_agents": expected_agents,
+                "expected_behavior": expected_behavior
+            }
         ) as run_ctx:
             trace_id = run_ctx.trace_id
             
@@ -272,52 +327,94 @@ class LangfuseEvalRunner:
                 # Update trace with results
                 run_ctx.update_trace(
                     input=prompt,
-                    output=response.response_text[:1000] if response.response_text else "No response"
+                    output=response.response_text[:2000] if response.response_text else "No response"
                 )
                 
-                # Determine pass/fail
-                passed = response.success and len(response.response_text) > 0
+                execution_time = time.time() - start_time
                 
-                # Score the run
-                run_ctx.score_trace(
-                    name="eval_passed",
-                    value=1.0 if passed else 0.0,
-                    comment=f"Response received in {response.execution_time:.1f}s" if passed else response.error_message
-                )
+                # Wait for trace to be fully created
+                await asyncio.sleep(1)
+                
+                # Run evaluators
+                routing_score = None
+                tool_match_score = None
+                
+                if 'routing' in self.evaluators and expected_agents:
+                    try:
+                        routing_result = self.evaluators['routing'].evaluate(
+                            trace_id=trace_id,
+                            user_prompt=prompt,
+                            expected_agents=expected_agents
+                        )
+                        routing_score = routing_result.routing_score
+                        run_ctx.score_trace(
+                            name="routing_score",
+                            value=routing_score,
+                            comment=routing_result.routing_reasoning
+                        )
+                        logger.info(f"🔍 [{item_id}] Routing score: {routing_score:.2f}")
+                    except Exception as e:
+                        logger.warning(f"Routing evaluation failed for {item_id}: {e}")
+                
+                if 'tool_match' in self.evaluators and expected_behavior:
+                    try:
+                        tool_match_result = self.evaluators['tool_match'].evaluate(
+                            trace_id=trace_id,
+                            user_prompt=prompt,
+                            expected_behavior=expected_behavior
+                        )
+                        tool_match_score = tool_match_result.tool_match_score
+                        run_ctx.score_trace(
+                            name="tool_match_score",
+                            value=tool_match_score,
+                            comment=tool_match_result.tool_match_reasoning
+                        )
+                        logger.info(f"🔍 [{item_id}] Tool match score: {tool_match_score:.2f}")
+                    except Exception as e:
+                        logger.warning(f"Tool match evaluation failed for {item_id}: {e}")
+                
+                # Determine pass/fail based on scores
+                passed = response.success
+                if routing_score is not None:
+                    passed = passed and routing_score >= 0.5
+                if tool_match_score is not None:
+                    passed = passed and tool_match_score >= 0.5
                 
                 status = "✅ PASSED" if passed else "❌ FAILED"
-                logger.info(f"🔍 [{item_id}] {status} in {response.execution_time:.1f}s")
+                logger.info(f"🔍 [{item_id}] {status} in {execution_time:.1f}s")
                 
-                return {
-                    "item_id": item_id,
-                    "prompt": prompt[:100],
-                    "passed": passed,
-                    "execution_time": response.execution_time,
-                    "trace_id": trace_id,
-                    "error": response.error_message
-                }
+                return EvalResult(
+                    item_id=item_id,
+                    prompt=prompt[:100],
+                    passed=passed,
+                    routing_score=routing_score,
+                    tool_match_score=tool_match_score,
+                    execution_time=execution_time,
+                    trace_id=trace_id
+                )
                 
             except Exception as e:
+                execution_time = time.time() - start_time
                 logger.error(f"🔍 [{item_id}] ERROR: {e}")
                 run_ctx.update_trace(input=prompt, output=f"Error: {e}")
-                run_ctx.score_trace(name="eval_passed", value=0.0, comment=str(e))
+                run_ctx.score_trace(name="routing_score", value=0.0, comment=str(e))
                 
-                return {
-                    "item_id": item_id,
-                    "prompt": prompt[:100],
-                    "passed": False,
-                    "execution_time": 0,
-                    "trace_id": trace_id,
-                    "error": str(e)
-                }
+                return EvalResult(
+                    item_id=item_id,
+                    prompt=prompt[:100],
+                    passed=False,
+                    execution_time=execution_time,
+                    trace_id=trace_id,
+                    error=str(e)
+                )
 
 
 async def main():
     """Main entry point for CLI evaluation runner."""
-    parser = argparse.ArgumentParser(description="Run evaluations against Platform Engineer with Langfuse tracking")
+    parser = argparse.ArgumentParser(description="Run evaluations with Langfuse tracking")
     parser.add_argument(
         "--dataset", "-d",
-        default="datasets/multi_agent.yaml",
+        default="datasets/single_agent.yaml",
         help="Path to dataset YAML file"
     )
     parser.add_argument(
@@ -390,9 +487,9 @@ async def main():
         print("---JSON_OUTPUT_END---")
     
     # Return exit code based on pass rate
-    min_pass_rate = 50  # At least 50% must pass
+    min_pass_rate = 30  # Lower threshold since some agents may not be configured
     if summary["pass_rate"] < min_pass_rate:
-        logger.error(f"Pass rate {summary['pass_rate']}% below minimum {min_pass_rate}%")
+        logger.warning(f"Pass rate {summary['pass_rate']}% below minimum {min_pass_rate}%")
         sys.exit(1)
     
     return summary

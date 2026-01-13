@@ -208,8 +208,8 @@ jobs:
           # Run evaluations with CLI, capture output
           PLATFORM_ENGINEER_URL=http://localhost:8002 \
             uv run python run_evals_cli.py \
-              --dataset datasets/multi_agent.yaml \
-              --name "multi_agent_evals" \
+              --dataset datasets/single_agent.yaml \
+              --name "single_agent_tests" \
               --run-name "$RUN_NAME" \
               --timeout 120 \
               --concurrent 5 \
@@ -239,7 +239,7 @@ jobs:
             echo "total=0" >> $GITHUB_OUTPUT
             echo "pass_rate=0" >> $GITHUB_OUTPUT
             echo "duration=0" >> $GITHUB_OUTPUT
-            echo "langfuse_url=${LANGFUSE_BASE_URL}/project/${LANGFUSE_PROJECT_ID}/datasets/multi_agent_evals" >> $GITHUB_OUTPUT
+            echo "langfuse_url=${LANGFUSE_BASE_URL}/project/${LANGFUSE_PROJECT_ID}/datasets/single_agent_tests" >> $GITHUB_OUTPUT
           fi
           
           echo "::endgroup::"

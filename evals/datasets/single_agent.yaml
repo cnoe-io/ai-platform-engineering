@@ -1,0 +1,288 @@
+name: single_agent_tests
+description: |
+  Single agent evaluation tests covering read-only operations for each agent.
+  Each test is designed to validate routing and tool selection without side effects.
+  Tests are named by agent and tool for clear identification in Langfuse.
+
+prompts:
+  # ============================================================================
+  # ARGOCD AGENT TESTS
+  # ============================================================================
+  
+  - id: "argocd_version_check"
+    messages:
+      - role: "user"
+        content: "Show me the ArgoCD version"
+    expected_agents: ["argocd_tools_agent"]
+    expected_behavior: "Should use ArgoCD agent to retrieve and display the current ArgoCD server version"
+
+  - id: "argocd_list_applications"
+    messages:
+      - role: "user"
+        content: "List all ArgoCD applications"
+    expected_agents: ["argocd_tools_agent"]
+    expected_behavior: "Should use ArgoCD agent to list all applications with their sync and health status"
+
+  - id: "argocd_list_projects"
+    messages:
+      - role: "user"
+        content: "List all ArgoCD projects"
+    expected_agents: ["argocd_tools_agent"]
+    expected_behavior: "Should use ArgoCD agent to list all ArgoCD projects"
+
+  - id: "argocd_list_clusters"
+    messages:
+      - role: "user"
+        content: "Show all clusters registered in ArgoCD"
+    expected_agents: ["argocd_tools_agent"]
+    expected_behavior: "Should use ArgoCD agent to list all registered clusters"
+
+  - id: "argocd_search_apps"
+    messages:
+      - role: "user"
+        content: "Search for ArgoCD applications containing 'prod'"
+    expected_agents: ["argocd_tools_agent"]
+    expected_behavior: "Should use Search_Argocd_Resources tool to find applications matching 'prod'"
+
+  # ============================================================================
+  # GITHUB AGENT TESTS
+  # ============================================================================
+
+  - id: "github_list_repositories"
+    messages:
+      - role: "user"
+        content: "List all repositories in cnoe-io organization"
+    expected_agents: ["github_tools_agent"]
+    expected_behavior: "Should use GitHub agent to list all repositories in the cnoe-io organization"
+
+  - id: "github_repo_description"
+    messages:
+      - role: "user"
+        content: "Show the description for ai-platform-engineering repo in cnoe-io org"
+    expected_agents: ["github_tools_agent"]
+    expected_behavior: "Should use GitHub agent to fetch repository description for ai-platform-engineering"
+
+  - id: "github_list_issues"
+    messages:
+      - role: "user"
+        content: "Show open issues in cnoe-io/ai-platform-engineering"
+    expected_agents: ["github_tools_agent"]
+    expected_behavior: "Should use GitHub agent to list open issues for the repository"
+
+  - id: "github_list_pull_requests"
+    messages:
+      - role: "user"
+        content: "List open pull requests in cnoe-io/ai-platform-engineering"
+    expected_agents: ["github_tools_agent"]
+    expected_behavior: "Should use GitHub agent to list open PRs"
+
+  - id: "github_get_commits"
+    messages:
+      - role: "user"
+        content: "Show the last 5 commits on main branch"
+    expected_agents: ["github_tools_agent"]
+    expected_behavior: "Should use GitHub agent to retrieve recent commits from main branch"
+
+  - id: "github_workflow_runs"
+    messages:
+      - role: "user"
+        content: "Check the status of GitHub Actions workflows"
+    expected_agents: ["github_tools_agent"]
+    expected_behavior: "Should use GitHub agent to check workflow run statuses"
+
+  # ============================================================================
+  # JIRA AGENT TESTS
+  # ============================================================================
+
+  - id: "jira_list_projects"
+    messages:
+      - role: "user"
+        content: "List all Jira projects I have access to"
+    expected_agents: ["jira_tools_agent"]
+    expected_behavior: "Should use Jira agent to list all accessible projects"
+
+  - id: "jira_search_bugs"
+    messages:
+      - role: "user"
+        content: "Find all open bugs in Jira"
+    expected_agents: ["jira_tools_agent"]
+    expected_behavior: "Should use Jira agent with JQL: issuetype = Bug AND status != Done"
+
+  - id: "jira_recent_issues"
+    messages:
+      - role: "user"
+        content: "Show issues updated in the last 7 days"
+    expected_agents: ["jira_tools_agent"]
+    expected_behavior: "Should use Jira agent with date filter: updated >= -7d"
+
+  - id: "jira_search_epics"
+    messages:
+      - role: "user"
+        content: "List all epics in Jira"
+    expected_agents: ["jira_tools_agent"]
+    expected_behavior: "Should use Jira agent with JQL: issuetype = Epic"
+
+  # ============================================================================
+  # PAGERDUTY AGENT TESTS
+  # ============================================================================
+
+  - id: "pagerduty_list_incidents"
+    messages:
+      - role: "user"
+        content: "Show current open incidents in PagerDuty"
+    expected_agents: ["pagerduty_tools_agent"]
+    expected_behavior: "Should use PagerDuty agent to list triggered and acknowledged incidents"
+
+  - id: "pagerduty_list_services"
+    messages:
+      - role: "user"
+        content: "List all PagerDuty services"
+    expected_agents: ["pagerduty_tools_agent"]
+    expected_behavior: "Should use PagerDuty agent to list all configured services"
+
+  - id: "pagerduty_oncall_schedule"
+    messages:
+      - role: "user"
+        content: "Who is currently on-call?"
+    expected_agents: ["pagerduty_tools_agent"]
+    expected_behavior: "Should use PagerDuty agent to get current on-call schedule"
+
+  # ============================================================================
+  # CONFLUENCE AGENT TESTS
+  # ============================================================================
+
+  - id: "confluence_list_spaces"
+    messages:
+      - role: "user"
+        content: "List all Confluence spaces"
+    expected_agents: ["confluence_tools_agent"]
+    expected_behavior: "Should use Confluence agent to list all accessible spaces"
+
+  - id: "confluence_search_pages"
+    messages:
+      - role: "user"
+        content: "Search for 'deployment' in Confluence"
+    expected_agents: ["confluence_tools_agent"]
+    expected_behavior: "Should use Confluence agent to search for pages containing 'deployment'"
+
+  - id: "confluence_recent_pages"
+    messages:
+      - role: "user"
+        content: "Show recently updated Confluence pages"
+    expected_agents: ["confluence_tools_agent"]
+    expected_behavior: "Should list pages modified recently"
+
+  # ============================================================================
+  # SPLUNK AGENT TESTS
+  # ============================================================================
+
+  - id: "splunk_list_indexes"
+    messages:
+      - role: "user"
+        content: "List available Splunk indexes"
+    expected_agents: ["splunk_tools_agent"]
+    expected_behavior: "Should use Splunk agent to list available indexes"
+
+  - id: "splunk_search_errors"
+    messages:
+      - role: "user"
+        content: "Search for error logs in the last 24 hours"
+    expected_agents: ["splunk_tools_agent"]
+    expected_behavior: "Should use Splunk agent to search logs with SPL query for errors"
+
+  - id: "splunk_server_info"
+    messages:
+      - role: "user"
+        content: "Get Splunk server information"
+    expected_agents: ["splunk_tools_agent"]
+    expected_behavior: "Should use Splunk agent to get server version and info"
+
+  # ============================================================================
+  # BACKSTAGE AGENT TESTS
+  # ============================================================================
+
+  - id: "backstage_list_entities"
+    messages:
+      - role: "user"
+        content: "List all entities in Backstage catalog"
+    expected_agents: ["backstage_tools_agent"]
+    expected_behavior: "Should use Backstage agent to list catalog entities"
+
+  - id: "backstage_list_services"
+    messages:
+      - role: "user"
+        content: "Show all services in Backstage"
+    expected_agents: ["backstage_tools_agent"]
+    expected_behavior: "Should list service entities from Backstage catalog"
+
+  # ============================================================================
+  # KOMODOR AGENT TESTS
+  # ============================================================================
+
+  - id: "komodor_list_clusters"
+    messages:
+      - role: "user"
+        content: "List all Kubernetes clusters in Komodor"
+    expected_agents: ["komodor_tools_agent"]
+    expected_behavior: "Should use Komodor agent to list monitored clusters"
+
+  - id: "komodor_list_services"
+    messages:
+      - role: "user"
+        content: "List Kubernetes services in Komodor"
+    expected_agents: ["komodor_tools_agent"]
+    expected_behavior: "Should use Komodor agent to list K8s services"
+
+  - id: "komodor_unhealthy_services"
+    messages:
+      - role: "user"
+        content: "Show unhealthy services in Komodor"
+    expected_agents: ["komodor_tools_agent"]
+    expected_behavior: "Should filter services by health status = unhealthy"
+
+  # ============================================================================
+  # SLACK AGENT TESTS
+  # ============================================================================
+
+  - id: "slack_list_channels"
+    messages:
+      - role: "user"
+        content: "List Slack channels I have access to"
+    expected_agents: ["slack_tools_agent"]
+    expected_behavior: "Should use Slack agent to list accessible channels"
+
+  - id: "slack_channel_info"
+    messages:
+      - role: "user"
+        content: "Get information about the #general Slack channel"
+    expected_agents: ["slack_tools_agent"]
+    expected_behavior: "Should retrieve channel details"
+
+  # ============================================================================
+  # WEBEX AGENT TESTS
+  # ============================================================================
+
+  - id: "webex_list_rooms"
+    messages:
+      - role: "user"
+        content: "List my Webex rooms"
+    expected_agents: ["webex_tools_agent"]
+    expected_behavior: "Should use Webex agent to list rooms"
+
+  # ============================================================================
+  # WEATHER AGENT TESTS
+  # ============================================================================
+
+  - id: "weather_current_sf"
+    messages:
+      - role: "user"
+        content: "What's the current weather in San Francisco?"
+    expected_agents: ["weather_tools_agent"]
+    expected_behavior: "Should use Weather agent to get current weather conditions"
+
+  - id: "weather_forecast_nyc"
+    messages:
+      - role: "user"
+        content: "Will it rain tomorrow in New York?"
+    expected_agents: ["weather_tools_agent"]
+    expected_behavior: "Should get weather forecast for tomorrow"
