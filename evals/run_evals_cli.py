@@ -258,6 +258,7 @@ class LangfuseEvalRunner:
         summary = {
             "run_name": run_name,
             "dataset_name": dataset.name,
+            "langfuse_host": os.getenv("LANGFUSE_HOST", "https://langfuse.dev.outshift.io"),
             "total": len(dataset.items),
             "passed": passed,
             "failed": failed,
