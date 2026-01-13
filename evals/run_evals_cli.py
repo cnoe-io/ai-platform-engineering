@@ -118,7 +118,8 @@ class LangfuseEvalRunner:
     def _init_evaluators(self) -> Dict[str, Any]:
         """Initialize routing and tool match evaluators."""
         evaluators = {}
-        openai_key = os.getenv("OPENAI_API_KEY")
+        # Try Azure OpenAI key first, then standard OpenAI key
+        openai_key = os.getenv("AZURE_OPENAI_API_KEY") or os.getenv("OPENAI_API_KEY")
         
         if openai_key and self.trace_extractor:
             try:
@@ -139,7 +140,7 @@ class LangfuseEvalRunner:
             except Exception as e:
                 logger.warning(f"Failed to init tool_match evaluator: {e}")
         else:
-            logger.warning("⚠️ OPENAI_API_KEY not set - evaluators disabled")
+            logger.warning("⚠️ AZURE_OPENAI_API_KEY/OPENAI_API_KEY not set - evaluators disabled")
         
         return evaluators
     
@@ -260,8 +261,7 @@ class LangfuseEvalRunner:
             "duration_seconds": round(duration, 2),
             "pass_rate": round(passed / len(dataset.items) * 100, 1) if dataset.items else 0,
             "avg_routing_score": round(avg_routing, 2),
-            "avg_tool_match_score": round(avg_tool_match, 2),
-            "langfuse_url": f"{self.LANGFUSE_BASE_URL}/project/{self.LANGFUSE_PROJECT_ID}/datasets/{dataset.name}"
+            "avg_tool_match_score": round(avg_tool_match, 2)
         }
         
         # Log summary
@@ -277,7 +277,6 @@ class LangfuseEvalRunner:
         logger.info(f"Avg Routing Score: {summary['avg_routing_score']}")
         logger.info(f"Avg Tool Match Score: {summary['avg_tool_match_score']}")
         logger.info(f"Duration: {summary['duration_seconds']}s")
-        logger.info(f"\n🔗 Langfuse Dataset: {summary['langfuse_url']}")
         logger.info("=" * 60 + "\n")
         
         return summary

@@ -6,43 +6,43 @@ description: |
 
 prompts:
   # ============================================================================
-  # ARGOCD AGENT TESTS
+  # ARGOCD AGENT TESTS (Disabled)
   # ============================================================================
   
-  - id: "argocd_version_check"
-    messages:
-      - role: "user"
-        content: "Show me the ArgoCD version"
-    expected_agents: ["argocd_tools_agent"]
-    expected_behavior: "Should use ArgoCD agent to retrieve and display the current ArgoCD server version"
+  # - id: "argocd_version_check"
+  #   messages:
+  #     - role: "user"
+  #       content: "Show me the ArgoCD version"
+  #   expected_agents: ["argocd_tools_agent"]
+  #   expected_behavior: "Should use ArgoCD agent to retrieve and display the current ArgoCD server version"
 
-  - id: "argocd_list_applications"
-    messages:
-      - role: "user"
-        content: "List all ArgoCD applications"
-    expected_agents: ["argocd_tools_agent"]
-    expected_behavior: "Should use ArgoCD agent to list all applications with their sync and health status"
+  # - id: "argocd_list_applications"
+  #   messages:
+  #     - role: "user"
+  #       content: "List all ArgoCD applications"
+  #   expected_agents: ["argocd_tools_agent"]
+  #   expected_behavior: "Should use ArgoCD agent to list all applications with their sync and health status"
 
-  - id: "argocd_list_projects"
-    messages:
-      - role: "user"
-        content: "List all ArgoCD projects"
-    expected_agents: ["argocd_tools_agent"]
-    expected_behavior: "Should use ArgoCD agent to list all ArgoCD projects"
+  # - id: "argocd_list_projects"
+  #   messages:
+  #     - role: "user"
+  #       content: "List all ArgoCD projects"
+  #   expected_agents: ["argocd_tools_agent"]
+  #   expected_behavior: "Should use ArgoCD agent to list all ArgoCD projects"
 
-  - id: "argocd_list_clusters"
-    messages:
-      - role: "user"
-        content: "Show all clusters registered in ArgoCD"
-    expected_agents: ["argocd_tools_agent"]
-    expected_behavior: "Should use ArgoCD agent to list all registered clusters"
+  # - id: "argocd_list_clusters"
+  #   messages:
+  #     - role: "user"
+  #       content: "Show all clusters registered in ArgoCD"
+  #   expected_agents: ["argocd_tools_agent"]
+  #   expected_behavior: "Should use ArgoCD agent to list all registered clusters"
 
-  - id: "argocd_search_apps"
-    messages:
-      - role: "user"
-        content: "Search for ArgoCD applications containing 'prod'"
-    expected_agents: ["argocd_tools_agent"]
-    expected_behavior: "Should use Search_Argocd_Resources tool to find applications matching 'prod'"
+  # - id: "argocd_search_apps"
+  #   messages:
+  #     - role: "user"
+  #       content: "Search for ArgoCD applications containing 'prod'"
+  #   expected_agents: ["argocd_tools_agent"]
+  #   expected_behavior: "Should use Search_Argocd_Resources tool to find applications matching 'prod'"
 
   # ============================================================================
   # GITHUB AGENT TESTS

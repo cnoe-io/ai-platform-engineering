@@ -40,7 +40,7 @@ class EvalClient:
     def __init__(
         self,
         platform_engineer_url: str = "http://platform-engineering:8000",
-        timeout: float = 300.0,
+        timeout: float = 180.0,
         max_concurrent_requests: int = 3
     ):
         self.platform_engineer_url = platform_engineer_url
