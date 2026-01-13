@@ -1,0 +1,276 @@
+name: "[Evals] Single Graph Mode Evaluation"
+description: "Run evaluation suite against single graph mode and post results to PR"
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  single-graph-evals:
+    runs-on: caipe-integration-tests
+    timeout-minutes: 30
+
+    steps:
+      - name: Cleanup previous run artifacts
+        run: |
+          echo "::group::Cleaning up previous run artifacts"
+          sudo find /home/ubuntu/actions-runner/_work/ai-platform-engineering/ai-platform-engineering -name "__pycache__" -type d -exec rm -rf {} + 2>/dev/null || true
+          sudo find /home/ubuntu/actions-runner/_work/ai-platform-engineering/ai-platform-engineering -name "*.pyc" -type f -delete 2>/dev/null || true
+          echo "::endgroup::"
+
+      - name: Ensure workspace directory exists
+        run: |
+          echo "::group::Ensuring workspace directory exists"
+          sudo mkdir -p /home/ubuntu/actions-runner/_work/ai-platform-engineering/ai-platform-engineering
+          sudo chown -R ubuntu:ubuntu /home/ubuntu/actions-runner/_work/ai-platform-engineering/ai-platform-engineering
+          echo "::endgroup::"
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Create .env from GitHub Secrets
+        run: |
+          set -euo pipefail
+          cat > .env << 'EOF'
+          LLM_PROVIDER=${{ secrets.LLM_PROVIDER }}
+          AZURE_OPENAI_ENDPOINT=${{ secrets.AZURE_OPENAI_ENDPOINT }}
+          AZURE_OPENAI_API_KEY=${{ secrets.AZURE_OPENAI_API_KEY }}
+          AZURE_OPENAI_DEPLOYMENT=${{ secrets.AZURE_OPENAI_DEPLOYMENT }}
+          AZURE_OPENAI_API_VERSION=${{ secrets.AZURE_OPENAI_API_VERSION }}
+
+          ARGOCD_TOKEN=${{ secrets.ARGOCD_TOKEN }}
+          ARGOCD_API_URL=${{ secrets.ARGOCD_API_URL }}
+          ARGOCD_VERIFY_SSL=true
+
+          BACKSTAGE_API_TOKEN=${{ secrets.BACKSTAGE_API_TOKEN }}
+          BACKSTAGE_URL=${{ secrets.BACKSTAGE_URL }}
+
+          ATLASSIAN_TOKEN=${{ secrets.ATLASSIAN_TOKEN }}
+          ATLASSIAN_EMAIL=${{ secrets.ATLASSIAN_EMAIL }}
+          ATLASSIAN_API_URL=${{ secrets.ATLASSIAN_API_URL }}
+          ATLASSIAN_VERIFY_SSL=true
+
+          CONFLUENCE_API_URL=${{ secrets.CONFLUENCE_API_URL }}
+
+          GITHUB_PERSONAL_ACCESS_TOKEN=${{ secrets.GH_PAT }}
+
+          PAGERDUTY_API_KEY=${{ secrets.PAGERDUTY_API_KEY }}
+          PAGERDUTY_API_URL=https://api.pagerduty.com
+
+          SPLUNK_TOKEN=${{ secrets.SPLUNK_TOKEN }}
+          SPLUNK_API_URL=${{ secrets.SPLUNK_API_URL }}
+
+          KOMODOR_TOKEN=${{ secrets.KOMODOR_TOKEN }}
+          KOMODOR_API_URL=${{ secrets.KOMODOR_API_URL }}
+
+          SLACK_BOT_TOKEN=${{ secrets.SLACK_BOT_TOKEN }}
+          SLACK_APP_TOKEN=${{ secrets.SLACK_APP_TOKEN }}
+          SLACK_SIGNING_SECRET=${{ secrets.SLACK_SIGNING_SECRET }}
+          SLACK_CLIENT_SECRET=${{ secrets.SLACK_CLIENT_SECRET }}
+          SLACK_TEAM_ID=${{ secrets.SLACK_TEAM_ID }}
+
+          # Langfuse for evaluation tracking
+          LANGFUSE_PUBLIC_KEY=${{ secrets.LANGFUSE_PUBLIC_KEY }}
+          LANGFUSE_SECRET_KEY=${{ secrets.LANGFUSE_SECRET_KEY }}
+          LANGFUSE_HOST=${{ secrets.LANGFUSE_HOST }}
+
+          # Single graph mode settings
+          SINGLE_GRAPH_MODE=true
+          A2A_TRANSPORT=p2p
+          ENABLE_TRACING=false
+          EOF
+          
+          # Mask non-empty values
+          while IFS='=' read -r k v; do
+            [ -z "${k:-}" ] && continue
+            [ "${k#\#}" != "$k" ] && continue
+            if [ -n "${v:-}" ]; then
+              echo "::add-mask::${v}"
+            fi
+          done < .env
+
+      - name: Install uv
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Start Single Graph Server
+        id: start-server
+        run: |
+          set -euo pipefail
+          echo "::group::Starting single graph server"
+          
+          # Start server in background
+          make run-single-graph > server.log 2>&1 &
+          SERVER_PID=$!
+          echo "server_pid=$SERVER_PID" >> $GITHUB_OUTPUT
+          echo "Server started with PID: $SERVER_PID"
+          
+          # Stream logs in background
+          tail -f server.log &
+          TAIL_PID=$!
+          echo "tail_pid=$TAIL_PID" >> $GITHUB_OUTPUT
+          
+          echo "::endgroup::"
+
+      - name: Wait for Server Readiness
+        run: |
+          set -euo pipefail
+          echo "Waiting for server to be ready..."
+          for i in $(seq 1 60); do
+            if curl -sfS http://localhost:8002/.well-known/agent-card.json > /dev/null 2>&1; then
+              echo "✅ Server is ready!"
+              break
+            fi
+            echo "Waiting... ($i/60)"
+            sleep 5
+          done
+          
+          # Final check
+          if ! curl -sfS http://localhost:8002/.well-known/agent-card.json > /dev/null 2>&1; then
+            echo "❌ Server failed to start"
+            cat server.log || true
+            exit 1
+          fi
+
+      - name: Run Evaluation Suite
+        id: run-evals
+        run: |
+          set -euo pipefail
+          echo "::group::Running evaluation suite"
+          
+          # Run evals and capture output
+          cd evals
+          uv sync
+          
+          # Run single-graph integration tests
+          PLATFORM_ENGINEER_URL=http://localhost:8002 uv run python -m pytest tests/test_single_graph_integration.py \
+            -v --tb=short \
+            --json-report --json-report-file=eval_results.json \
+            2>&1 | tee eval_output.log || true
+          
+          # Parse results for PR comment
+          if [ -f eval_results.json ]; then
+            PASSED=$(jq '.summary.passed // 0' eval_results.json)
+            FAILED=$(jq '.summary.failed // 0' eval_results.json)
+            TOTAL=$(jq '.summary.total // 0' eval_results.json)
+            DURATION=$(jq '.duration // 0' eval_results.json)
+            
+            echo "passed=$PASSED" >> $GITHUB_OUTPUT
+            echo "failed=$FAILED" >> $GITHUB_OUTPUT
+            echo "total=$TOTAL" >> $GITHUB_OUTPUT
+            echo "duration=$DURATION" >> $GITHUB_OUTPUT
+          else
+            echo "passed=0" >> $GITHUB_OUTPUT
+            echo "failed=0" >> $GITHUB_OUTPUT
+            echo "total=0" >> $GITHUB_OUTPUT
+            echo "duration=0" >> $GITHUB_OUTPUT
+          fi
+          
+          echo "::endgroup::"
+
+      - name: Post Results to PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const passed = '${{ steps.run-evals.outputs.passed }}';
+            const failed = '${{ steps.run-evals.outputs.failed }}';
+            const total = '${{ steps.run-evals.outputs.total }}';
+            const duration = '${{ steps.run-evals.outputs.duration }}';
+            
+            const status = failed === '0' ? '✅' : '❌';
+            const statusText = failed === '0' ? 'All tests passed!' : `${failed} test(s) failed`;
+            
+            const body = `## ${status} Single Graph Evaluation Results
+            
+            | Metric | Value |
+            |--------|-------|
+            | **Total Tests** | ${total} |
+            | **Passed** | ✅ ${passed} |
+            | **Failed** | ❌ ${failed} |
+            | **Duration** | ${parseFloat(duration).toFixed(2)}s |
+            
+            ### Summary
+            ${statusText}
+            
+            <details>
+            <summary>📋 View Details</summary>
+            
+            **Mode:** Single Graph (SINGLE_GRAPH_MODE=true)
+            **Server:** http://localhost:8002
+            **Dataset:** multi_agent.yaml
+            
+            </details>
+            
+            ---
+            *Run ID: ${{ github.run_id }} | Commit: ${{ github.sha }}*
+            `;
+            
+            // Find existing comment
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+            
+            const botComment = comments.find(comment => 
+              comment.user.type === 'Bot' && 
+              comment.body.includes('Single Graph Evaluation Results')
+            );
+            
+            if (botComment) {
+              // Update existing comment
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: botComment.id,
+                body: body
+              });
+            } else {
+              // Create new comment
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: body
+              });
+            }
+
+      - name: Upload Eval Results Artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-results
+          path: |
+            evals/eval_results.json
+            evals/eval_output.log
+            server.log
+          if-no-files-found: warn
+
+      - name: Cleanup
+        if: always()
+        run: |
+          echo "::group::Cleanup"
+          # Stop server
+          kill ${{ steps.start-server.outputs.server_pid }} 2>/dev/null || true
+          kill ${{ steps.start-server.outputs.tail_pid }} 2>/dev/null || true
+          
+          # Show final logs on failure
+          if [ "${{ job.status }}" != "success" ]; then
+            echo "=== Server Logs (last 100 lines) ==="
+            tail -n 100 server.log || true
+          fi
+          echo "::endgroup::"

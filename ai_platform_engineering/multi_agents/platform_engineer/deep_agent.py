@@ -29,6 +29,8 @@ from ai_platform_engineering.multi_agents.tools import (
     clear_workspace
 )
 from deepagents import async_create_deep_agent
+from ai_platform_engineering.utils.a2a_common.base_langgraph_agent import BaseLangGraphAgent
+from ai_platform_engineering.utils.a2a_common.base_langgraph_agent_single_node import BaseLangGraphAgentSingleNode
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -274,10 +276,18 @@ class AIPlatformEngineerMAS:
 
     # CHECK FOR SINGLE GRAPH MODE
     # If enabled, try to replace A2A subagents with local compiled graphs
-    if os.getenv("SINGLE_GRAPH_MODE", "false").lower() == "true":
+    sg_mode = os.getenv("SINGLE_GRAPH_MODE", "false")
+    logger.info(f"Checking SINGLE_GRAPH_MODE: '{sg_mode}'")
+    if sg_mode.lower() == "true":
         logger.info("🔗 SINGLE GRAPH MODE detected - attempting to load local agent graphs")
         # This will both replace existing proxies AND append missing local agents
         subagents = await self._inject_local_graphs(subagents)
+
+        # Remove A2A tools from all_tools to force usage of local graphs via task()
+        # This prevents the supervisor from calling the A2ARemoteAgentConnectTool which fails in single-node
+        agents_to_remove = set(platform_registry.AGENT_NAMES)
+        all_tools = [t for t in all_tools if t.name not in agents_to_remove]
+        logger.info(f"🔥 Removed A2A tools for single graph mode: {agents_to_remove}")
 
     logger.info(f'🔧 Rebuilding with {len(all_tools)} tools and {len(subagents)} subagents')
     logger.info(f'📦 Tools: {[t.name for t in all_tools]}')
@@ -468,6 +478,10 @@ class AIPlatformEngineerMAS:
     import importlib
     import inspect
     
+    # Import BaseLangGraphAgentSingleNode for isinstance checks
+    from ai_platform_engineering.utils.a2a_common.base_langgraph_agent_single_node import BaseLangGraphAgentSingleNode as BLGASN
+    from ai_platform_engineering.utils.a2a_common.base_langgraph_agent import BaseLangGraphAgent as BLGA
+    
     # Import agent_prompts from prompts module for descriptions
     from ai_platform_engineering.multi_agents.platform_engineer.prompts import agent_prompts
 
@@ -478,18 +492,62 @@ class AIPlatformEngineerMAS:
         if os.getenv(env_var, "false").lower() == "true":
             enabled_agents.append(agent_key)
     
-    logger.info(f"🔗 Single Graph Mode: Enabled local agents: {enabled_agents}")
+    # Get MCP Mode from env
+    mcp_mode = os.getenv("MCP_MODE", "stdio").lower()
+    
+    logger.info(f"🔗 Single Graph Mode: Enabled local agents: {enabled_agents} (Mode: {mcp_mode})")
 
     # 2. Process each enabled agent
     for agent_key in enabled_agents:
         module_path, class_name = local_agent_registry[agent_key]
         
         try:
-            logger.info(f"🔄 Loading local graph for {agent_key} from {module_path}.{class_name}...")
+            # Convert to lowercase for module paths (env vars use uppercase, directories use lowercase)
+            agent_key_lower = agent_key.lower()
             
-            # Dynamic import
-            module = importlib.import_module(module_path)
-            agent_class = getattr(module, class_name)
+            # Dynamic discovery logic
+            # Construct standard module path
+            # ai_platform_engineering.agents.{name}.agent_{name}.protocol_bindings.a2a_server.agent
+            module_path = f"ai_platform_engineering.agents.{agent_key_lower}.agent_{agent_key_lower}.protocol_bindings.a2a_server.agent"
+            
+            logger.debug(f"🔍 Attempting to discover agent {agent_key} in {module_path}")
+            
+            try:
+                module = importlib.import_module(module_path)
+            except ImportError as e:
+                logger.warning(f"⚠️ Could not import module for {agent_key}: {e}. Skipping dynamic loading.")
+                continue
+
+            # Find agent class in module
+            agent_class = None
+            for name, obj in inspect.getmembers(module):
+                # Prefer BaseLangGraphAgentSingleNode subclasses, but fallback to BaseLangGraphAgent subclasses
+                if inspect.isclass(obj):
+                    try:
+                        # Use a robust check that doesn't rely on exact object identity 
+                        # to avoid issues with multiple imports of the base class
+                        mro_names = [f"{b.__module__}.{b.__name__}" for b in obj.__mro__]
+                        
+                        is_base = any(name in (
+                            "ai_platform_engineering.utils.a2a_common.base_langgraph_agent.BaseLangGraphAgent",
+                            "ai_platform_engineering.utils.a2a_common.base_langgraph_agent_single_node.BaseLangGraphAgentSingleNode"
+                        ) for name in [f"{obj.__module__}.{obj.__name__}"])
+                        
+                        is_sub = any("ai_platform_engineering.utils.a2a_common.base_langgraph_agent.BaseLangGraphAgent" in name for name in mro_names)
+                        
+                        if not is_base and is_sub:
+                            logger.info(f"   ✅ Found agent class: {name}")
+                            agent_class = obj
+                            break
+                    except Exception:
+                        pass
+            
+            if not agent_class:
+                logger.warning(f"⚠️  No BLGA subclass found in {module_path} for {agent_key}. Skipping. (Found: {[n for n, o in inspect.getmembers(module) if inspect.isclass(o)]})")
+                continue
+
+            class_name = agent_class.__name__
+            logger.info(f"🔄 Loading local graph for {agent_key} from {module_path}.{class_name}...")
             
             # Instantiate agent
             agent_instance = agent_class()
@@ -510,7 +568,7 @@ class AIPlatformEngineerMAS:
             possible_server_path = os.path.abspath(os.path.join(
                 agent_dir, 
                 "../../../mcp", 
-                f"mcp_{agent_key}", 
+                f"mcp_{agent_key_lower}", 
                 "server.py"
             ))
             
@@ -532,27 +590,27 @@ class AIPlatformEngineerMAS:
             found = False
             for subagent in subagents:
                 # Flexible name matching (argocd vs ArgoCD)
-                if subagent.get("name", "").lower().replace(" ", "_") == agent_key:
+                if subagent.get("name", "").lower().replace(" ", "_") == agent_key_lower:
                     subagent["graph"] = agent_instance.graph
                     # Get description from prompt_config or fallback to agent's instruction
-                    agent_description = agent_prompts.get(agent_key, {}).get("system_prompt", None)
+                    agent_description = agent_prompts.get(agent_key_lower, {}).get("system_prompt", None)
                     subagent["description"] = agent_description.strip() if agent_description else agent_instance.get_system_instruction()
-                    logger.info(f"✅ Replaced existing A2A proxy with local graph for {agent_key}")
+                    logger.info(f"✅ Replaced existing A2A proxy with local graph for {agent_key_lower}")
                     found = True
                     break
             
             if not found:
                 # Add new subagent entry with description from prompt_config
-                agent_description = agent_prompts.get(agent_key, {}).get("system_prompt", f"Manage {agent_key} resources.")
-                logger.info(f"✅ Injecting missing local agent {agent_key} into graph")
+                agent_description = agent_prompts.get(agent_key_lower, {}).get("system_prompt", f"Manage {agent_key_lower} resources.")
+                logger.info(f"✅ Injecting missing local agent {agent_key_lower} into graph")
                 subagents.append({
-                    "name": agent_key,  # Use key as canonical name
+                    "name": agent_key_lower,  # Use lowercase key as canonical name
                     "description": agent_description.strip(),
                     "graph": agent_instance.graph
                 })
 
         except Exception as e:
-            logger.error(f"❌ Failed to load local graph for {agent_key}: {e}")
+            logger.error(f"❌ Failed to load local graph for {agent_key_lower}: {e}")
             import traceback
             logger.error(traceback.format_exc())
 

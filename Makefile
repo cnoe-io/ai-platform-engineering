@@ -126,7 +126,6 @@ run-single-graph: setup-venv ## Run the AI Platform Engineer in Single Graph Mod
 	export ENABLE_WEATHER=true && \
 	export ENABLE_WEBEX=true && \
 	export ENABLE_BACKSTAGE=true && \
-	export ENABLE_RAG=true && \
 	export ENABLE_TRACING=$${ENABLE_TRACING:-false} && \
 	uv run --project $(AI_PLATFORM_ENGINEERING_DIR) python -m ai_platform_engineering.multi_agents platform-engineer $(ARGS)
 
@@ -244,7 +243,21 @@ test-rag-scale: setup-venv ## Run RAG module scale tests with memory monitoring
 # 	@echo "Running comprehensive RAG module test suite..."
 # 	@cd ai_platform_engineering/knowledge_bases/rag/server && make test-all
 
+
+## ========== Evaluations ==========
+
+run-evals: setup-venv  ## Run evaluation suite against a running server
+	@echo "Running evaluation suite..."
+	@uv add httpx rich pytest pytest-asyncio pytest-json-report pyyaml --dev
+	cd evals && uv sync && PLATFORM_ENGINEER_URL=http://localhost:8002 uv run python -m pytest tests/test_single_graph_integration.py -v --tb=short --json-report --json-report-file=eval_results.json
+
+run-evals-verbose: setup-venv  ## Run evaluation suite with verbose output
+	@echo "Running evaluation suite with verbose output..."
+	@uv add httpx rich pytest pytest-asyncio pytest-json-report pyyaml --dev
+	cd evals && uv sync && PLATFORM_ENGINEER_URL=http://localhost:8002 uv run python -m pytest tests/test_single_graph_integration.py -v --tb=long -o log_cli=true -o log_cli_level=INFO
+
 ## ========== Integration Tests ==========
+
 
 quick-sanity: setup-venv  ## Run all integration tests
 	@echo "Running AI Platform Engineering integration tests..."

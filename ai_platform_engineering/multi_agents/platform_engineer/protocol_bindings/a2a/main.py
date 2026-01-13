@@ -26,6 +26,7 @@ from a2a.types import (
   AgentCard,
   AgentSkill,
 )
+from a2a.server.apps.rest.rest_adapter import RESTAdapter
 
 
 from ai_platform_engineering.multi_agents.platform_engineer.prompts import (
@@ -146,6 +147,20 @@ a2a_server = A2AStarletteApplication(
 )
 
 app = a2a_server.build()
+
+################################################################################
+# Add REST routes for streaming support
+################################################################################
+rest_adapter = RESTAdapter(
+    agent_card=get_agent_card(host, port, external_url),
+    http_handler=request_handler
+)
+
+# Manually add REST routes to the Starlette app
+for (path, method), handler in rest_adapter.routes().items():
+    # Use allow_methods instead of methods for add_route
+    app.add_route(path, handler, methods=[method])
+    logger.info(f"Added REST route: {method} {path}")
 
 ################################################################################
 # Add authentication middleware if enabled

@@ -111,7 +111,7 @@ class A2ARemoteAgentConnectTool(BaseTool):
           self._skill_id = self._agent_card.skills[0].id
 
         logger.info(f"Successfully fetched public agent card for {self._remote_agent_card}.")
-        if _public_card.supportsAuthenticatedExtendedCard and self._access_token:
+        if getattr(_public_card, "supports_authenticated_extended_card", False) and self._access_token:
           try:
             _extended_card = await resolver.get_agent_card(
                 relative_card_path='/agent/authenticatedExtendedCard',
