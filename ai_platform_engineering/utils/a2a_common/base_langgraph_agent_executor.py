@@ -97,15 +97,33 @@ class BaseLangGraphAgentExecutor(AgentExecutor, ABC):
             )
         )
 
+        # Track the last response turn - reset when we see a new LLM turn starting
+        # This ensures the final artifact only contains the final response, not all intermediate reasoning
+        last_turn_content: list[str] = []
+
         # Stream responses from the underlying agent
         async for event in self.agent.stream(query, task.context_id, trace_id):
             if event['is_task_complete']:
-                # Task completed successfully - send empty final marker (content already streamed)
-                final_content = ''.join(accumulated_content) if accumulated_content else event.get('content', '')
+                # Task completed successfully
+                # IMPORTANT: Use last_turn_content (most recent reasoning) instead of all accumulated content
+                # This prevents intermediate "I'll help you...", "Great! I found..." from appearing in final output
+                event_content = event.get('content', '')
+                if event_content:
+                    # If the completion event has content, use it as the final content
+                    final_content = event_content
+                elif last_turn_content:
+                    # Otherwise use the last turn's accumulated content
+                    final_content = ''.join(last_turn_content)
+                else:
+                    # Fallback to all accumulated content if nothing else available
+                    final_content = ''.join(accumulated_content)
+
                 logger.info(
-                    f"{agent_name}: Task complete. Accumulated {len(accumulated_content)} chunks, "
-                    f"final_content length: {len(final_content)}"
+                    f"{agent_name}: Task complete. Accumulated {len(accumulated_content)} total chunks, "
+                    f"last_turn had {len(last_turn_content)} chunks, final_content length: {len(final_content)}"
                 )
+                # Log the actual content to debug what's being sent as complete_result
+                logger.info(f"📝 {agent_name}: FINAL_CONTENT (first 500 chars): {final_content[:500]}")
 
                 # Close the streaming artifact (if any) so SSE consumers see last_chunk=True
                 if streaming_artifact_id is not None:
@@ -214,8 +232,18 @@ class BaseLangGraphAgentExecutor(AgentExecutor, ABC):
                 if kind == 'tool_call' or 'tool_call' in event:
                     tool_info = event.get('tool_call', {})
                     tool_name = tool_info.get('name', 'unknown')
+                    
+                    # Don't reset last_turn_content for ResponseFormat - it's the structured output
+                    # tool used by LangGraph to return the final response, not a regular tool call
+                    if tool_name.lower() != 'responseformat':
+                        # Tool call indicates a new reasoning turn - reset last_turn_content
+                        # This ensures we don't include pre-tool-call reasoning in the final output
+                        last_turn_content.clear()
+                        logger.info(f"{agent_name}: 🔧 Tool call - {tool_name} (resetting last_turn_content)")
+                    else:
+                        logger.info(f"{agent_name}: 🔧 Tool call - {tool_name} (NOT resetting - structured output tool)")
+                    
                     description = f"Tool call started: {tool_name}"
-                    logger.info(f"{agent_name}: 🔧 Tool call - {tool_name}")
                     await event_queue.enqueue_event(
                         TaskArtifactUpdateEvent(
                             append=False,
@@ -236,8 +264,17 @@ class BaseLangGraphAgentExecutor(AgentExecutor, ABC):
                     tool_name = tool_info.get('name', 'unknown')
                     is_error = tool_info.get('is_error', False) or tool_info.get('status') == 'failed'
                     status_text = 'failed' if is_error else tool_info.get('status', 'completed')
+                    
+                    # Don't reset for ResponseFormat - it's the structured output, not a regular tool
+                    if tool_name.lower() != 'responseformat':
+                        # Tool result indicates the tool has finished - next content is new LLM response
+                        # Reset last_turn_content so the post-tool response is captured as the "final" content
+                        last_turn_content.clear()
+                        logger.info(f"{agent_name}: ✅ Tool result - {tool_name} ({status_text}) (resetting last_turn_content)")
+                    else:
+                        logger.info(f"{agent_name}: ✅ Tool result - {tool_name} ({status_text}) (NOT resetting - structured output)")
+                    
                     description = f"Tool call {status_text}: {tool_name}"
-                    logger.info(f"{agent_name}: ✅ Tool result - {tool_name} ({status_text})")
                     await event_queue.enqueue_event(
                         TaskArtifactUpdateEvent(
                             append=False,
@@ -273,8 +310,10 @@ class BaseLangGraphAgentExecutor(AgentExecutor, ABC):
                 # Default behaviour: treat as AI text chunk
                 if content:
                     accumulated_content.append(content)
+                    last_turn_content.append(content)
                     logger.debug(
-                        f"{agent_name}: Accumulated AI response chunk ({len(content)} chars). Total chunks: {len(accumulated_content)}"
+                        f"{agent_name}: Accumulated AI response chunk ({len(content)} chars). "
+                        f"Total chunks: {len(accumulated_content)}, last_turn: {len(last_turn_content)}"
                     )
 
                     artifact = new_text_artifact(

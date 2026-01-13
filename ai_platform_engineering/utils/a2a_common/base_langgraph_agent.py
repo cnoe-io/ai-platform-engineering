@@ -1041,6 +1041,9 @@ Use this as the reference point for all date calculations. When users say "today
 
         # Track which messages we've already processed to avoid duplicates
         seen_tool_calls = set()
+        
+        # Track the ResponseFormat structured output content (the actual final response)
+        response_format_content = ""
 
         # Check if token-by-token streaming is enabled (default: false for backward compatibility)
         enable_streaming = os.getenv("ENABLE_STREAMING", "true").lower() == "true"
@@ -1091,6 +1094,26 @@ Use this as the reference point for all date calculations. When users say "today
                                 if tool_id:
                                     seen_tool_calls.add(tool_id)
 
+                                # Special handling for ResponseFormat - extract the structured output content
+                                # This is the final response from LangGraph structured output, not a regular tool call
+                                if tool_name.lower() == 'responseformat':
+                                    tool_args = tool_call.get("args", {})
+                                    # Extract 'response' field which contains the actual content
+                                    structured_content = tool_args.get("response", "")
+                                    if structured_content:
+                                        response_format_content = structured_content
+                                        logger.info(f"📝 Captured ResponseFormat content: {len(response_format_content)} chars")
+                                        logger.info(f"📝 ResponseFormat content (first 300 chars): {response_format_content[:300]}")
+                                    else:
+                                        # Try to serialize the whole args as fallback
+                                        import json
+                                        try:
+                                            response_format_content = json.dumps(tool_args)
+                                            logger.info(f"📝 Captured ResponseFormat args as JSON: {len(response_format_content)} chars")
+                                        except Exception:
+                                            response_format_content = str(tool_args)
+                                            logger.info(f"📝 Captured ResponseFormat args as string: {len(response_format_content)} chars")
+
                                 agent_name_formatted = self.get_agent_name().title()
                                 tool_name_formatted = tool_name.title()
                                 yield {
@@ -1109,20 +1132,32 @@ Use this as the reference point for all date calculations. When users say "today
                         if message.content:
                             # Normalize content to string (AWS Bedrock returns list, OpenAI returns string)
                             content = message.content
+                            # Log raw content for debugging extended thinking issues
+                            logger.info(f"🔍 BEDROCK RAW CONTENT (base): type={type(content).__name__}, value={str(content)[:200]}")
                             if isinstance(content, list):
                                 # If content is a list (AWS Bedrock), extract text from content blocks
-                                logger.debug(f"🔄 BEDROCK FORMAT FIX (streaming): Converting list content to text. Raw: {str(content)[:100]}...")
+                                logger.info(f"🔍 BEDROCK LIST CONTENT (base): {len(content)} items, raw={str(content)[:200]}")
                                 text_parts = []
-                                for item in content:
+                                for idx, item in enumerate(content):
                                     if isinstance(item, dict):
-                                        # Extract text from Bedrock content block: {"type": "text", "text": "..."}
-                                        text_parts.append(item.get('text', ''))
+                                        # Only extract text from 'text' type blocks, skip 'thinking' and other types
+                                        # Claude extended thinking returns {"type": "thinking", "thinking": "..."} which should be filtered out
+                                        block_type = item.get('type')
+                                        logger.info(f"🔍 BEDROCK CONTENT BLOCK (base) [{idx}]: type={block_type}, keys={list(item.keys())}")
+                                        if block_type == 'text' or block_type is None:
+                                            text_parts.append(item.get('text', ''))
+                                        elif block_type == 'thinking':
+                                            logger.info(f"🚫 SKIPPING THINKING BLOCK (base): {str(item)[:100]}")
+                                        else:
+                                            logger.info(f"🚫 SKIPPING UNKNOWN BLOCK TYPE (base): {block_type}")
                                     elif isinstance(item, str):
+                                        logger.info(f"🔍 BEDROCK STRING ITEM (base) [{idx}]: {item[:100]}")
                                         text_parts.append(item)
                                     else:
+                                        logger.info(f"🔍 BEDROCK OTHER ITEM (base) [{idx}]: {type(item).__name__}")
                                         text_parts.append(str(item))
                                 content = ''.join(text_parts)
-                                logger.debug(f"🔄 BEDROCK FORMAT FIX (streaming): Normalized to: {content[:100]}...")
+                                logger.info(f"🔄 BEDROCK FORMAT FIX (streaming): Normalized to: {content[:100]}...")
                             elif not isinstance(content, str):
                                 logger.debug(f"🔄 Content normalization: Converting {type(content).__name__} to string")
                                 content = str(content) if content else ''
@@ -1146,7 +1181,10 @@ Use this as the reference point for all date calculations. When users say "today
                             text_parts = []
                             for item in tool_content:
                                 if isinstance(item, dict):
-                                    text_parts.append(item.get('text', ''))
+                                    # Only extract text from 'text' type blocks, skip 'thinking' and other types
+                                    block_type = item.get('type')
+                                    if block_type == 'text' or block_type is None:
+                                        text_parts.append(item.get('text', ''))
                                 elif isinstance(item, str):
                                     text_parts.append(item)
                                 else:
@@ -1379,8 +1417,13 @@ Use this as the reference point for all date calculations. When users say "today
                                     text_parts = []
                                     for item in content_text:
                                         if isinstance(item, dict):
-                                            # Extract text from Bedrock content block: {"type": "text", "text": "..."}
-                                            text_parts.append(item.get('text', ''))
+                                            # Only extract text from 'text' type blocks, skip 'thinking' and other types
+                                            # Claude extended thinking returns {"type": "thinking", "thinking": "..."} which should be filtered out
+                                            block_type = item.get('type')
+                                            if block_type == 'text' or block_type is None:
+                                                text_parts.append(item.get('text', ''))
+                                            elif block_type == 'thinking':
+                                                logger.debug(f"🔄 BEDROCK FORMAT FIX (full-msg): Skipping thinking block")
                                         elif isinstance(item, str):
                                             text_parts.append(item)
                                         else:
@@ -1412,8 +1455,12 @@ Use this as the reference point for all date calculations. When users say "today
 
         # Yield task completion marker (only if not cancelled)
         if not stream_cancelled:
+            # Use ResponseFormat structured output content if available (this is the actual final response)
+            final_content = response_format_content if response_format_content else ''
+            if final_content:
+                logger.info(f"📤 Using ResponseFormat content as final response: {len(final_content)} chars")
             yield {
                 'is_task_complete': True,
                 'require_user_input': False,
-                'content': '',
+                'content': final_content,
             }

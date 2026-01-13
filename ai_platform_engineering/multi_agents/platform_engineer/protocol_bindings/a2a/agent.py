@@ -359,18 +359,33 @@ class AIPlatformEngineerA2ABinding:
                       continue
 
                   content = message.content
+                  # Log raw content for debugging extended thinking issues
+                  logging.info(f"🔍 BEDROCK RAW CONTENT: type={type(content).__name__}, value={str(content)[:200]}")
                   # Normalize content (handle both string and list formats)
                   if isinstance(content, list):
+                      logging.info(f"🔍 BEDROCK LIST CONTENT: {len(content)} items")
                       text_parts = []
-                      for item in content:
+                      for idx, item in enumerate(content):
                           if isinstance(item, dict):
-                              text_parts.append(item.get('text', ''))
+                              # Only extract text from 'text' type blocks, skip 'thinking' and other types
+                              # Claude extended thinking returns {"type": "thinking", "thinking": "..."} which should be filtered out
+                              block_type = item.get('type')
+                              logging.info(f"🔍 BEDROCK CONTENT BLOCK [{idx}]: type={block_type}, keys={list(item.keys())}")
+                              if block_type == 'text' or block_type is None:
+                                  text_parts.append(item.get('text', ''))
+                              elif block_type == 'thinking':
+                                  logging.info(f"🚫 SKIPPING THINKING BLOCK: {str(item)[:100]}")
+                              else:
+                                  logging.info(f"🚫 SKIPPING UNKNOWN BLOCK TYPE: {block_type}")
                           elif isinstance(item, str):
+                              logging.info(f"🔍 BEDROCK STRING ITEM [{idx}]: {item[:100]}")
                               text_parts.append(item)
                           else:
+                              logging.info(f"🔍 BEDROCK OTHER ITEM [{idx}]: {type(item).__name__}")
                               text_parts.append(str(item))
                       content = ''.join(text_parts)
                   elif not isinstance(content, str):
+                      logging.info(f"🔍 BEDROCK NON-STRING CONTENT: {type(content).__name__}")
                       content = str(content) if content else ''
 
                   # Accumulate content for post-stream parsing
@@ -449,7 +464,10 @@ class AIPlatformEngineerA2ABinding:
                       text_parts = []
                       for item in tool_content:
                           if isinstance(item, dict):
-                              text_parts.append(item.get('text', ''))
+                              # Only extract text from 'text' type blocks, skip 'thinking' and other types
+                              block_type = item.get('type')
+                              if block_type == 'text' or block_type is None:
+                                  text_parts.append(item.get('text', ''))
                           elif isinstance(item, str):
                               text_parts.append(item)
                           else:
@@ -897,8 +915,10 @@ class AIPlatformEngineerA2ABinding:
                       text_parts = []
                       for item in content:
                           if isinstance(item, dict):
-                              # Extract text from Bedrock content block: {"type": "text", "text": "..."}
-                              text_parts.append(item.get('text', ''))
+                              # Only extract text from 'text' type blocks, skip 'thinking' and other types
+                              block_type = item.get('type')
+                              if block_type == 'text' or block_type is None:
+                                  text_parts.append(item.get('text', ''))
                           elif isinstance(item, str):
                               text_parts.append(item)
                           else:
@@ -939,7 +959,10 @@ class AIPlatformEngineerA2ABinding:
               text_parts = []
               for item in final_content:
                   if isinstance(item, dict):
-                      text_parts.append(item.get('text', ''))
+                      # Only extract text from 'text' type blocks, skip 'thinking' and other types
+                      block_type = item.get('type')
+                      if block_type == 'text' or block_type is None:
+                          text_parts.append(item.get('text', ''))
                   elif isinstance(item, str):
                       text_parts.append(item)
                   else:
