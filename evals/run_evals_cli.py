@@ -346,7 +346,26 @@ class LangfuseEvalRunner:
                 execution_time = time.time() - start_time
                 
                 # Wait for trace to be fully created
-                await asyncio.sleep(1)
+                # Wait for trace to be fully created and synced to Langfuse
+                # This is critical for valid evaluation as Langfuse indexing can be async/delayed
+                max_trace_wait = 10
+                for i in range(max_trace_wait):
+                    try:
+                        # Attempt to check if trace exists by fetching it
+                        # We use the trace_extractor if available, or just wait blindly if not
+                        if self.trace_extractor:
+                            try:
+                                self.trace_extractor.langfuse.get_trace(trace_id)
+                                break 
+                            except Exception:
+                                # Trace not found yet
+                                if i == max_trace_wait - 1:
+                                    logger.warning(f"⚠️ Trace {trace_id} not found in Langfuse after {max_trace_wait}s")
+                        
+                        await asyncio.sleep(1)
+                    except Exception as e:
+                        logger.debug(f"Waiting for trace {trace_id}: {e}")
+                        await asyncio.sleep(1)
                 
                 # Run evaluators
                 routing_score = None
