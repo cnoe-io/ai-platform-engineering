@@ -6,7 +6,8 @@ generating datasource and document IDs, and enhancing metadata with Confluence-s
 
 import time
 import hashlib
-from typing import Dict, List, Any, Tuple
+import traceback
+from typing import Dict, List, Any, Tuple, Optional
 from urllib.parse import urlparse
 import aiohttp
 from aiohttp_retry import RetryClient, ExponentialRetry
@@ -22,31 +23,7 @@ logger = get_logger(__name__)
 
 # Configuration constants
 CONFLUENCE_BATCH_SIZE = 100  # Documents per batch
-
-
-async def create_confluence_session(
-    confluence_url: str, username: str, token: str, verify_ssl: bool
-) -> aiohttp.ClientSession:
-    """Create authenticated aiohttp session for Confluence API.
-
-    Args:
-        confluence_url: Base URL of the Confluence instance
-        username: Confluence username or email
-        token: Confluence API token or password
-        verify_ssl: Whether to verify SSL certificates
-
-    Returns:
-        Configured aiohttp ClientSession with authentication
-    """
-    auth = aiohttp.BasicAuth(username, token)
-    connector = aiohttp.TCPConnector(verify_ssl=verify_ssl)
-    session = aiohttp.ClientSession(
-        auth=auth,
-        connector=connector,
-        timeout=aiohttp.ClientTimeout(total=30),
-        headers={"User-Agent": "Mozilla/5.0 (compatible; ConfluenceRAGIngestor/1.0)"},
-    )
-    return session
+CONFLUENCE_API_PAGE_LIMIT = 100  # Pages per API call for pagination
 
 
 def generate_datasource_id(confluence_url: str, space_key: str) -> str:
@@ -130,31 +107,69 @@ class ConfluenceLoader:
         if self.session:
             await self.session.close()
 
-    async def fetch_page_content(self, page_id: str) -> Tuple[Dict[str, Any], str]:
-        """Fetch full page content from Confluence REST API (v1).
+    async def fetch_child_pages(
+        self, parent_page_id: str
+    ) -> Tuple[List[str], List[Tuple[str, str]]]:
+        """Fetch direct child page IDs for a parent page.
+
+        Uses Confluence REST API v1: GET /rest/api/content/{id}/child/page
 
         Args:
-            page_id: Confluence page ID
+            parent_page_id: ID of the parent page
 
         Returns:
-            Tuple of (page_metadata, html_content)
+            Tuple of (child_page_ids, failed_fetches)
+            - child_page_ids: List of direct child page IDs
+            - failed_fetches: List of (identifier, error_msg) tuples where identifier is the page_id or error type
         """
-        url = f"{self.confluence_url}/rest/api/content/{page_id}"
-        params = {"expand": "body.storage,version,space,history"}
+        child_ids = []
+        failed_fetches = []
+        start = 0
 
-        async with self.session.get(url, params=params) as resp:
-            if resp.status != 200:
-                text = await resp.text()
-                raise ValueError(
-                    f"Failed to fetch page {page_id}: {resp.status} - {text}"
-                )
+        while True:
+            try:
+                url = f"{self.confluence_url}/rest/api/content/{parent_page_id}/child/page"
+                params = {
+                    "start": start,
+                    "limit": CONFLUENCE_API_PAGE_LIMIT,
+                    "expand": "id,title",
+                }
 
-            page_data = await resp.json()
+                async with self.session.get(url, params=params) as resp:
+                    if resp.status == 200:
+                        data = await resp.json()
+                        batch = data.get("results", [])
 
-            # Extract HTML content from v1 API response
-            html_content = page_data.get("body", {}).get("storage", {}).get("value", "")
+                        if not batch:
+                            break
 
-            return page_data, html_content
+                        # Extract IDs
+                        for child in batch:
+                            child_id = child.get("id")
+                            if child_id:
+                                child_ids.append(child_id)
+                            else:
+                                self.logger.warning(
+                                    f"Child page missing ID in response: {child}"
+                                )
+
+                        start += len(batch)
+
+                        if len(batch) < CONFLUENCE_API_PAGE_LIMIT:
+                            break
+                    else:
+                        text = await resp.text()
+                        error_msg = f"Failed to fetch children of {parent_page_id}: {resp.status} - {text}"
+                        self.logger.warning(error_msg)
+                        failed_fetches.append((parent_page_id, error_msg))
+                        break
+            except Exception as e:
+                error_msg = f"Error fetching children of {parent_page_id}: {e}"
+                self.logger.error(error_msg)
+                failed_fetches.append((parent_page_id, error_msg))
+                break
+
+        return child_ids, failed_fetches
 
     def extract_text_from_html(self, html_content: str) -> str:
         """Extract text from Confluence HTML storage format.
@@ -168,6 +183,125 @@ class ConfluenceLoader:
         soup = BeautifulSoup(html_content, "html.parser")
         text = soup.get_text(separator="\n", strip=True)
         return text
+
+    async def fetch_page_content(
+        self, page_id: str
+    ) -> Tuple[Optional[Dict], Optional[Tuple[str, str]]]:
+        """Fetch single page. Returns (page, None) on success or (None, (page_id, error)) on failure."""
+        try:
+            url = f"{self.confluence_url}/rest/api/content/{page_id}"
+            params = {"expand": "body.storage,version,space,history"}
+            async with self.session.get(url, params=params) as resp:
+                if resp.status == 200:
+                    return await resp.json(), None
+                text = await resp.text()
+                return None, (
+                    page_id,
+                    f"Failed to fetch page {page_id}: {resp.status} - {text}",
+                )
+        except Exception as e:
+            return None, (page_id, f"Error fetching page {page_id}: {e}")
+
+    async def load_pages(
+        self,
+        space_key: str,
+        page_configs: Optional[List[Dict[str, Any]]] = None,
+        page_limit: int = CONFLUENCE_API_PAGE_LIMIT,
+    ) -> Tuple[List[Dict[str, Any]], List[Tuple[str, str]]]:
+        """Load pages from Confluence space via REST API.
+
+        Args:
+            space_key: Confluence space key
+            page_configs: List of page config dicts, each with:
+                - page_id (required): Page ID to fetch
+                - get_child_pages (optional, default False): Include direct children
+            page_limit: Number of pages per API call for enumeration
+
+        Returns:
+            tuple: (list of successfully fetched pages, list of (page_id, error_msg) tuples)
+        """
+        self.logger.info(f"Loading pages from space {space_key}")
+        self.logger.debug(
+            f"Loading pages with space_key={space_key}, page_configs={page_configs}"
+        )
+        pages = []
+        failed_pages = []
+
+        if page_configs:
+            for config in page_configs:
+                page_id = config.get("page_id")
+                if not page_id:
+                    self.logger.warning(f"Page config missing page_id: {config}")
+                    continue
+
+                # Fetch parent page
+                page, failure = await self.fetch_page_content(page_id)
+                if page:
+                    pages.append(page)
+                if failure:
+                    failed_pages.append(failure)
+                    continue
+
+                # Fetch child pages if requested
+                if config.get("get_child_pages", False):
+                    child_ids, child_failures = await self.fetch_child_pages(page_id)
+                    failed_pages.extend(child_failures)
+
+                    for child_id in child_ids:
+                        child_page, child_failure = await self.fetch_page_content(
+                            child_id
+                        )
+                        if child_page:
+                            pages.append(child_page)
+                        if child_failure:
+                            failed_pages.append(child_failure)
+        else:
+            # Enumerate entire space
+            start = 0
+            while True:
+                try:
+                    url = f"{self.confluence_url}/rest/api/content"
+                    params = {
+                        "spaceKey": space_key,
+                        "type": "page",
+                        "start": start,
+                        "limit": page_limit,
+                        "expand": "body.storage,version,space,history",
+                    }
+                    async with self.session.get(url, params=params) as resp:
+                        if resp.status == 200:
+                            data = await resp.json()
+                            batch = data.get("results", [])
+                            if not batch:
+                                break
+                            pages.extend(batch)
+                            start += len(batch)
+                            if len(batch) < page_limit:
+                                break
+                        else:
+                            text = await resp.text()
+                            self.logger.error(
+                                f"Error fetching pages from {space_key}: {resp.status} - {text}"
+                            )
+                            failed_pages.append(
+                                (
+                                    space_key,
+                                    f"Error fetching pages from {space_key}: {resp.status} - {text}",
+                                )
+                            )
+                            break
+                except Exception as e:
+                    self.logger.error(f"Error enumerating {space_key}: {e}")
+                    self.logger.error(traceback.format_exc())
+                    failed_pages.append(
+                        (space_key, f"Error enumerating {space_key}: {e}")
+                    )
+                    break
+
+        self.logger.info(
+            f"Fetched {len(pages)} pages from space {space_key}, {len(failed_pages)} failures"
+        )
+        return pages, failed_pages
 
     async def ingest_pages(self, pages: List[Dict[str, Any]], job_id: str):
         """Ingest pages by extracting content, chunking, and sending to RAG.
@@ -185,8 +319,9 @@ class ConfluenceLoader:
                 continue
 
             try:
-                # Fetch full page content
-                page_data, html_content = await self.fetch_page_content(page_id)
+                html_content = (
+                    page.get("body", {}).get("storage", {}).get("value", "")
+                )
 
                 # Extract text
                 text = self.extract_text_from_html(html_content)
@@ -200,19 +335,19 @@ class ConfluenceLoader:
                 chunks = self.text_splitter.split_text(text)
 
                 # Extract base metadata from v1 API response
-                page_title = page_data.get("title", "")
-                space_key = page_data.get("space", {}).get("key", "")
-                space_name = page_data.get("space", {}).get("name", "")
-                page_url = self.confluence_url + page_data.get("_links", {}).get(
+                page_title = page.get("title", "")
+                space_key = page.get("space", {}).get("key", "")
+                space_name = page.get("space", {}).get("name", "")
+                page_url = self.confluence_url + page.get("_links", {}).get(
                     "webui", ""
                 )
-                created_date = page_data.get("history", {}).get("createdDate", "")
+                created_date = page.get("history", {}).get("createdDate", "")
                 last_modified = (
-                    page_data.get("history", {}).get("lastUpdated", {}).get("when", "")
+                    page.get("history", {}).get("lastUpdated", {}).get("when", "")
                 )
-                version = page_data.get("version", {}).get("number", 1)
+                version = page.get("version", {}).get("number", 1)
                 author = (
-                    page_data.get("history", {})
+                    page.get("history", {})
                     .get("createdBy", {})
                     .get("displayName", "")
                 )
@@ -269,7 +404,7 @@ class ConfluenceLoader:
                 # Update progress
                 await self.job_manager.increment_progress(job_id)
                 await self.job_manager.upsert_job(
-                    job_id, message=f"Processed page: {page_data.get('title', page_id)}"
+                    job_id, message=f"Processed page: {page.get('title', page_id)}"
                 )
 
             except Exception as e:
