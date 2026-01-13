@@ -454,7 +454,7 @@ async def main():
     parser.add_argument(
         "--timeout", "-t",
         type=float,
-        default=5.0,
+        default=20.0,
         help="Request timeout in seconds"
     )
     parser.add_argument(

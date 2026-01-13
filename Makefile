@@ -129,6 +129,10 @@ run-single-graph: setup-venv ## Run the AI Platform Engineer in Single Graph Mod
 	export ENABLE_TRACING=$${ENABLE_TRACING:-false} && \
 	uv run --project $(AI_PLATFORM_ENGINEERING_DIR) python -m ai_platform_engineering.multi_agents platform-engineer $(ARGS)
 
+run-evals: ## Run evaluation suite against running server (requires LANGFUSE_ keys)
+	cd evals && uv run python run_evals_cli.py --dataset datasets/single_agent.yaml --timeout 20.0
+
+
 langgraph-dev: setup-venv ## Run langgraph in development mode
 	@echo "Running langgraph dev..."
 	@. .venv/bin/activate && uv add langgraph-cli[inmem] --dev && uv sync --dev && cd ai_platform_engineering/multi_agents/platform_engineer && LANGGRAPH_DEV=true langgraph dev
