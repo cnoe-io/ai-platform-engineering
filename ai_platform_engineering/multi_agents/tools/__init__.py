@@ -14,15 +14,7 @@ from ai_platform_engineering.multi_agents.tools.workspace_ops import (
     list_workspace_files,
     clear_workspace
 )
-from ai_platform_engineering.multi_agents.tools.git_ops import (
-    git_clone,
-    git_status,
-    git_log,
-    git_branch,
-    git_diff,
-    git_show,
-    git_remote
-)
+# Note: git_* tools moved to ai_platform_engineering/agents/github/agent_github/tools.py
 from ai_platform_engineering.multi_agents.tools.grep_tool import (
     grep_search,
     grep_count
@@ -50,13 +42,7 @@ __all__ = [
     'read_workspace_file',
     'list_workspace_files',
     'clear_workspace',
-    'git_clone',
-    'git_status',
-    'git_log',
-    'git_branch',
-    'git_diff',
-    'git_show',
-    'git_remote',
+    # git_* tools moved to github agent
     'grep_search',
     'grep_count',
     'wget_download',
