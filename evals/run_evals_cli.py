@@ -60,6 +60,9 @@ class EvalResult:
     execution_time: float = 0.0
     trace_id: Optional[str] = None
     error: Optional[str] = None
+    actual_output: Optional[str] = None
+    expected_behavior: Optional[str] = None
+    failure_reason: Optional[str] = None
 
 
 class LangfuseEvalRunner:
@@ -261,7 +264,18 @@ class LangfuseEvalRunner:
             "duration_seconds": round(duration, 2),
             "pass_rate": round(passed / len(dataset.items) * 100, 1) if dataset.items else 0,
             "avg_routing_score": round(avg_routing, 2),
-            "avg_tool_match_score": round(avg_tool_match, 2)
+            "avg_tool_match_score": round(avg_tool_match, 2),
+            "failures": [
+                {
+                    "id": r.item_id,
+                    "prompt": r.prompt,
+                    "expected": r.expected_behavior or "N/A",
+                    "actual": r.actual_output or "No response",
+                    "reason": r.failure_reason or r.error or "Unknown failure"
+                }
+                for r in self.results 
+                if isinstance(r, EvalResult) and not r.passed
+            ]
         }
         
         # Log summary
@@ -389,7 +403,10 @@ class LangfuseEvalRunner:
                     routing_score=routing_score,
                     tool_match_score=tool_match_score,
                     execution_time=execution_time,
-                    trace_id=trace_id
+                    trace_id=trace_id,
+                    actual_output=response.response_text[:500] if response.response_text else None,
+                    expected_behavior=expected_behavior,
+                    failure_reason="Low scores" if not passed and response.success else ("Runtime execution failed" if not passed else None)
                 )
                 
             except Exception as e:
@@ -404,7 +421,10 @@ class LangfuseEvalRunner:
                     passed=False,
                     execution_time=execution_time,
                     trace_id=trace_id,
-                    error=str(e)
+                    error=str(e),
+                    actual_output=f"Error: {e}",
+                    expected_behavior=expected_behavior,
+                    failure_reason=f"Exception: {e}"
                 )
 
 

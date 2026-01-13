@@ -247,17 +247,43 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
-            const passed = '${{ steps.run-evals.outputs.passed }}';
-            const failed = '${{ steps.run-evals.outputs.failed }}';
-            const total = '${{ steps.run-evals.outputs.total }}';
-            const passRate = '${{ steps.run-evals.outputs.pass_rate }}';
-            const duration = '${{ steps.run-evals.outputs.duration }}';
-            const runName = '${{ steps.run-evals.outputs.run_name }}';
-            const avgRouting = '${{ steps.run-evals.outputs.avg_routing }}';
-            const avgToolMatch = '${{ steps.run-evals.outputs.avg_tool_match }}';
+            const fs = require('fs');
+            
+            let results = {};
+            try {
+              if (fs.existsSync('evals/eval_results.json')) {
+                results = JSON.parse(fs.readFileSync('evals/eval_results.json', 'utf8'));
+              }
+            } catch (e) {
+              console.error("Error reading eval results:", e);
+            }
+            
+            const passed = results.passed || 0;
+            const failed = results.failed || 0;
+            const total = results.total || 0;
+            const passRate = results.pass_rate || 0;
+            const duration = results.duration_seconds || 0;
+            const runName = results.run_name || 'N/A';
+            const avgRouting = results.avg_routing_score || 0;
+            const avgToolMatch = results.avg_tool_match_score || 0;
             
             const status = parseFloat(passRate) >= 30 ? '✅' : '❌';
             const statusText = parseFloat(passRate) >= 30 ? 'Evaluation Passed' : 'Evaluation Failed';
+            
+            let failureTable = "";
+            if (results.failures && results.failures.length > 0) {
+              failureTable = "\n### ❌ Failure Details\n\n| Item ID | Expected | Actual | Reason |\n|---|---|---|---|\n";
+              results.failures.slice(0, 20).forEach(f => {
+                const expected = (f.expected || "").replace(/\|/g, '\\|').replace(/\n/g, '<br>').slice(0, 100);
+                const actual = (f.actual || "").replace(/\|/g, '\\|').replace(/\n/g, '<br>').slice(0, 100);
+                const reason = (f.reason || "").replace(/\|/g, '\\|').replace(/\n/g, '<br>').slice(0, 100);
+                failureTable += `| \`${f.id}\` | ${expected} | ${actual} | ${reason} |\n`;
+              });
+              
+              if (results.failures.length > 20) {
+                failureTable += `\n*... and ${results.failures.length - 20} more failures.*`;
+              }
+            }
             
             const body = `## ${status} Single Graph Evaluation Results
             
@@ -276,9 +302,7 @@ jobs:
             
             - **Routing Score**: Measures how well the platform routes requests to the correct agent
             - **Tool Match Score**: Measures how well the agent selects the appropriate tools
-            
-            > Results are stored in the local Langfuse instance for this CI run.
-            > Scores are calculated using LLM-based evaluation of agent trajectories.
+            ${failureTable}
             
             <details>
             <summary>📋 Configuration Details</summary>
