@@ -689,6 +689,7 @@ async def ingest_confluence_page(confluence_request: ConfluenceIngestRequest):
         raise HTTPException(status_code=500, detail="Server not initialized")
 
     logger.info(f"Received Confluence page ingestion request: {confluence_request.url}")
+    logger.info(f"  get_child_pages: {confluence_request.get_child_pages}")
 
     # Parse Confluence URL to extract space_key and page_id
     confluence_match = re.search(r'/spaces/([^/]+)/pages/(\d+)', confluence_request.url)
@@ -717,23 +718,38 @@ async def ingest_confluence_page(confluence_request: ConfluenceIngestRequest):
     domain = urlparse(confluence_request.url).netloc.replace(".", "_").replace("-", "_")
     datasource_id = f"src_confluence___{domain}__{space_key}"
 
+    # Build page config for this ingestion
+    page_config = {
+        "page_id": page_id,
+        "source": confluence_request.url,
+        "get_child_pages": confluence_request.get_child_pages
+    }
+
     # Check if datasource already exists
     existing_datasource = await metadata_storage.get_datasource_info(datasource_id)
     if existing_datasource:
-        # Update existing datasource
-        existing_page_ids = existing_datasource.metadata.get("page_ids", []) if existing_datasource.metadata else []
+        if not existing_datasource.metadata:
+            existing_datasource.metadata = {}
+        page_configs = existing_datasource.metadata.get("page_configs", [])
 
-        if len(existing_page_ids) == 0:
-            # Empty page_ids means fetch all pages - don't modify
-            logger.info(f"Datasource {datasource_id} fetches all pages, not modifying page_ids")
-        elif page_id not in existing_page_ids:
-            # Add page_id to the list
-            existing_page_ids.append(page_id)
-            existing_datasource.metadata["page_ids"] = existing_page_ids
-            await metadata_storage.store_datasource_info(existing_datasource)
-            logger.info(f"Added page {page_id} to datasource {datasource_id}")
+        # Check if page already exists in configs
+        existing_page_config = next(
+            (c for c in page_configs if c.get("page_id") == page_id),
+            None
+        )
+
+        if existing_page_config:
+            # Update the get_child_pages flag
+            existing_page_config["get_child_pages"] = confluence_request.get_child_pages
+            existing_page_config["source"] = confluence_request.url
+            logger.info(f"Updated page {page_id} config in {datasource_id}")
         else:
-            logger.info(f"Page {page_id} already in datasource {datasource_id}")
+            # Add new page config
+            page_configs.append(page_config)
+            logger.info(f"Added page {page_id} to {datasource_id}")
+
+        existing_datasource.metadata["page_configs"] = page_configs
+        await metadata_storage.store_datasource_info(existing_datasource)
     else:
         # Create new datasource
         if not confluence_request.description:
@@ -741,13 +757,6 @@ async def ingest_confluence_page(confluence_request: ConfluenceIngestRequest):
 
         confluence_url_base = confluence_request.url.split('/wiki/')[0] + '/wiki' if '/wiki/' in confluence_request.url else confluence_request.url
 
-        # Metadata schema for source_type="confluence":
-        # {
-        #   "confluence_ingest_request": ConfluenceIngestRequest, # Original request for audit
-        #   "space_key": str,             # Confluence space key
-        #   "page_ids": List[str] | None, # Specific page IDs, or None/[] for entire space
-        #   "confluence_url": str         # Base Confluence URL
-        # }
         datasource_info = DataSourceInfo(
             datasource_id=datasource_id,
             ingestor_id=generate_ingestor_id(CONFLUENCE_INGESTOR_NAME, CONFLUENCE_INGESTOR_TYPE),
@@ -759,8 +768,8 @@ async def ingest_confluence_page(confluence_request: ConfluenceIngestRequest):
             metadata={
                 "confluence_ingest_request": confluence_request.model_dump(),
                 "space_key": space_key,
-                "page_ids": [page_id],
-                "confluence_url": confluence_url_base
+                "page_configs": [page_config],
+                "confluence_url": confluence_url_base,
             }
         )
 

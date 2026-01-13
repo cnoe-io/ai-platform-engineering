@@ -33,7 +33,7 @@ Required environment variables:
 
 Optional environment variables:
 
-- `CONFLUENCE_SPACES` - Comma-separated list of spaces to auto-sync. Format: `SPACE` (entire space), `SPACE:123` (specific page), or `SPACE:123:456` (multiple pages). Example: `DEV,DOCS:123,WIKI:456:789`. If not set, only user-requested pages are ingested.
+- `CONFLUENCE_SPACES` - JSON object mapping space keys to page configurations. Format: `{"SPACE_KEY": [{"page_id": "123", "get_child_pages": false}], "SPACE2": []}`. Empty array fetches entire space. If not set, only user-requested pages are ingested.
 - `CONFLUENCE_SYNC_INTERVAL` - Sync interval in seconds (default: `86400` = 24 hours)
 - `CONFLUENCE_SSL_VERIFY` - Enable SSL verification (default: `true`)
 - `CONFLUENCE_MAX_CONCURRENCY` - Max concurrent page fetches (default: `5`)
@@ -50,9 +50,9 @@ export CONFLUENCE_USERNAME="your.email@company.com"
 export CONFLUENCE_TOKEN="your-api-token"
 
 # Optional: configure auto-sync spaces
-export CONFLUENCE_SPACES="DEV,DOCS,WIKI"  # Sync entire spaces
+export CONFLUENCE_SPACES='{"DEV": [], "DOCS": [], "WIKI": []}'  # Sync entire spaces
 # OR
-export CONFLUENCE_SPACES="DEV:123,DOCS:456:789"  # Sync specific pages
+export CONFLUENCE_SPACES='{"DEV": [{"page_id": "123"}], "DOCS": [{"page_id": "456", "get_child_pages": true}]}'  # Sync specific pages
 
 # Run the ingestor
 python ingestor.py
@@ -69,6 +69,15 @@ curl -X POST "http://localhost:8080/v1/ingest/confluence/page" \
   -d '{
     "url": "https://yourcompany.atlassian.net/wiki/spaces/DEV/pages/123456/Page-Title",
     "description": "Developer documentation"
+  }'
+
+# Ingest a page with child pages
+curl -X POST "http://localhost:8080/v1/ingest/confluence/page" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "url": "https://yourcompany.atlassian.net/wiki/spaces/DEV/pages/123456/Page-Title",
+    "description": "Developer documentation",
+    "get_child_pages": true
   }'
 
 # Reload a datasource
@@ -117,7 +126,10 @@ DataSourceInfo(
             "description": "..."
         },
         "space_key": "SPACE",
-        "page_ids": ["123", "456"],  # Specific pages, or None/[] for all pages
+        "page_configs": [  # List of page configurations
+            {"page_id": "123", "get_child_pages": false, "source": "https://..."},
+            {"page_id": "456", "get_child_pages": true}
+        ],  # Empty list fetches entire space
         "confluence_url": "https://company.atlassian.net/wiki"
     }
 )
