@@ -1254,8 +1254,13 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                     text_parts = []
                     for item in content:
                         if isinstance(item, dict):
-                            # Extract text from Bedrock content block: {"type": "text", "text": "..."}
-                            text_parts.append(item.get('text', ''))
+                            # Only extract text from 'text' type blocks, skip 'thinking' and other types
+                            # Claude extended thinking returns {"type": "thinking", "thinking": "..."} which should be filtered out
+                            block_type = item.get('type')
+                            if block_type == 'text' or block_type is None:
+                                text_parts.append(item.get('text', ''))
+                            elif block_type == 'thinking':
+                                logger.debug("Skipping thinking block from Bedrock response")
                         elif isinstance(item, str):
                             text_parts.append(item)
                         else:
