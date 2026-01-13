@@ -269,20 +269,8 @@ jobs:
             const status = parseFloat(passRate) >= 30 ? '✅' : '❌';
             const statusText = parseFloat(passRate) >= 30 ? 'Evaluation Passed' : 'Evaluation Failed';
             
-            let failureTable = "";
-            if (results.failures && results.failures.length > 0) {
-              failureTable = "\n### ❌ Failure Details\n\n| Item ID | Expected | Actual | Reason |\n|---|---|---|---|\n";
-              results.failures.slice(0, 20).forEach(f => {
-                const expected = (f.expected || "").replace(/\|/g, '\\|').replace(/\n/g, '<br>').slice(0, 100);
-                const actual = (f.actual || "").replace(/\|/g, '\\|').replace(/\n/g, '<br>').slice(0, 100);
-                const reason = (f.reason || "").replace(/\|/g, '\\|').replace(/\n/g, '<br>').slice(0, 100);
-                failureTable += `| \`${f.id}\` | ${expected} | ${actual} | ${reason} |\n`;
-              });
-              
-              if (results.failures.length > 20) {
-                failureTable += `\n*... and ${results.failures.length - 20} more failures.*`;
-              }
-            }
+            const langfuseHost = results.langfuse_host || 'https://langfuse.dev.outshift.io';
+            const langfuseLink = `${langfuseHost}/projects`
             
             const body = `## ${status} Single Graph Evaluation Results
             
@@ -296,12 +284,16 @@ jobs:
             | **Avg Routing Score** | ${avgRouting} |
             | **Avg Tool Match Score** | ${avgToolMatch} |
             | **Duration** | ${duration}s |
+
+            ### 🔗 Langfuse Trace
+            
+            [View Evaluation Run in Langfuse](${langfuseLink})
             
             ### 📊 Evaluation Scores
             
             - **Routing Score**: Measures how well the platform routes requests to the correct agent
             - **Tool Match Score**: Measures how well the agent selects the appropriate tools
-            ${failureTable}
+
             
             <details>
             <summary>📋 Configuration Details</summary>
