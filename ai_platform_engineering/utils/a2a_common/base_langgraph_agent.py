@@ -474,8 +474,8 @@ Use this as the reference point for all date calculations. When users say "today
         logger.info("=" * 50)
         logger.info(f"📡 Launching MCP server at: {server_path}")
 
-        # Get MCP mode from environment
-        mcp_mode = os.getenv("MCP_MODE", "stdio").lower()
+        # Get MCP mode from config/env
+        mcp_mode = args.get("mcp_mode") or os.getenv("MCP_MODE", "stdio").lower()
         client = None
 
         if mcp_mode == "http" or mcp_mode == "streamable_http":
