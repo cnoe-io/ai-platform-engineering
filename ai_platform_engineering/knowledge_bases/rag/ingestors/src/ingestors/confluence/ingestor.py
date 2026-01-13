@@ -59,7 +59,6 @@ RELOAD_INTERVAL = int(
 )  # 24 hours default
 MAX_CONCURRENCY = int(os.environ.get("CONFLUENCE_MAX_CONCURRENCY", "5"))
 MAX_INGESTION_TASKS = int(os.environ.get("CONFLUENCE_MAX_INGESTION_TASKS", "5"))
-RELOAD_RECENT_THRESHOLD = 60  # Seconds to skip recently updated datasources
 
 
 def _create_datasource_info(
@@ -476,7 +475,7 @@ async def periodic_reload(client: Client):
         datasources_to_reload = [
             ds
             for ds in datasources
-            if (current_time - ds.last_updated) > RELOAD_RECENT_THRESHOLD
+            if (current_time - ds.last_updated) >= RELOAD_INTERVAL
         ]
 
         logger.info(
