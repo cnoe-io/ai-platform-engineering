@@ -197,9 +197,9 @@ jobs:
           echo "run_name=$RUN_NAME" >> $GITHUB_OUTPUT
           
           # Run evaluations with CLI, capture output
-          LANGFUSE_PUBLIC_KEY=lf_pk_caipe_evals_ci \
-          LANGFUSE_SECRET_KEY=lf_sk_caipe_evals_ci_secret \
-          LANGFUSE_HOST=http://localhost:3000 \
+          LANGFUSE_PUBLIC_KEY=${{ secrets.LANGFUSE_PUBLIC_KEY }} \
+          LANGFUSE_SECRET_KEY=${{ secrets.LANGFUSE_SECRET_KEY }} \
+          LANGFUSE_HOST=${{ secrets.LANGFUSE_HOST }} \
           PLATFORM_ENGINEER_URL=http://localhost:8002 \
           AZURE_OPENAI_API_KEY=${{ secrets.AZURE_OPENAI_API_KEY }} \
             uv run python run_evals_cli.py \

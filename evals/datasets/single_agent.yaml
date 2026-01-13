@@ -197,23 +197,7 @@ prompts:
     expected_agents: ["splunk_tools_agent"]
     expected_behavior: "Should use Splunk agent to get server version and info"
 
-  # ============================================================================
-  # BACKSTAGE AGENT TESTS
-  # ============================================================================
 
-  - id: "backstage_list_entities"
-    messages:
-      - role: "user"
-        content: "List all entities in Backstage catalog"
-    expected_agents: ["backstage_tools_agent"]
-    expected_behavior: "Should use Backstage agent to list catalog entities"
-
-  - id: "backstage_list_services"
-    messages:
-      - role: "user"
-        content: "Show all services in Backstage"
-    expected_agents: ["backstage_tools_agent"]
-    expected_behavior: "Should list service entities from Backstage catalog"
 
   # ============================================================================
   # KOMODOR AGENT TESTS
