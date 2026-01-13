@@ -42,7 +42,7 @@ class EvalClient:
         platform_engineer_url: str = "http://platform-engineering:8000",
         timeout: float = 20.0,
         max_retries: int = 3,
-        max_concurrent_requests: int = 3
+        max_concurrent_requests: int = 20
     ):
         self.platform_engineer_url = platform_engineer_url
         self.timeout = timeout
@@ -164,15 +164,29 @@ class EvalClient:
         )
     
     def _extract_response_text(self, response) -> str:
-        """Extract content from A2A response."""
-        # Extract content from response (same logic as original)
-        if hasattr(response, 'content'):
-            return response.content
-        elif hasattr(response, 'message') and hasattr(response.message, 'content'):
-            return response.message.content
-        elif isinstance(response, dict):
-            return response.get('content', str(response))
-        else:
+        """Extract content from A2A response, handling streaming artifacts."""
+        try:
+            # Check for streaming result artifact first (common in Platform Engineer)
+            if hasattr(response, 'result') and hasattr(response.result, 'artifacts'):
+                for artifact in response.result.artifacts:
+                    if artifact.name == 'streaming_result' and hasattr(artifact, 'parts'):
+                        # Join all text parts
+                        return "".join([
+                            p.root.text for p in artifact.parts 
+                            if hasattr(p, 'root') and hasattr(p.root, 'text')
+                        ])
+            
+            # Standard message content
+            if hasattr(response, 'content'):
+                return response.content
+            elif hasattr(response, 'message') and hasattr(response.message, 'content'):
+                return response.message.content
+            elif isinstance(response, dict):
+                return response.get('content', str(response))
+            else:
+                return str(response)
+        except Exception as e:
+            logger.warning(f"Error extracting response text: {e}")
             return str(response)
     
     async def cleanup(self):
