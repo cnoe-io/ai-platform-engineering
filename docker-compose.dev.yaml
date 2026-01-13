@@ -48,6 +48,7 @@ services:
       - AWS_AGENT_HOST=agent-aws
       - BACKSTAGE_AGENT_HOST=agent-backstage
       - CONFLUENCE_AGENT_HOST=agent-confluence
+      - GITLAB_AGENT_HOST=agent-gitlab
       - GITHUB_AGENT_HOST=agent-github
       - JIRA_AGENT_HOST=agent-jira
       - KOMODOR_AGENT_HOST=agent-komodor
@@ -73,6 +74,7 @@ services:
       - ENABLE_BACKSTAGE=${ENABLE_BACKSTAGE:-false}
       - ENABLE_CONFLUENCE=${ENABLE_CONFLUENCE:-false}
       - ENABLE_GITHUB=${ENABLE_GITHUB:-false}
+      - ENABLE_GITLAB=${ENABLE_GITLAB:-false}
       - ENABLE_JIRA=${ENABLE_JIRA:-false}
       - ENABLE_KOMODOR=${ENABLE_KOMODOR:-false}
       - ENABLE_PAGERDUTY=${ENABLE_PAGERDUTY:-false}
@@ -225,6 +227,32 @@ services:
     # volumes: ["/var/run/docker.sock:/var/run/docker.sock"]
     profiles:
       - github
+      - all-agents
+
+  # GitLab
+  agent-gitlab:
+    build:
+      context: .
+      dockerfile: build/agents/Dockerfile.a2a
+      args:
+        - AGENT_NAME=gitlab # key for tracing
+    container_name: agent-gitlab
+    volumes:
+      - ./charts/ai-platform-engineering/data/prompt_config.gitlab_agent.yaml:/app/prompt_config.gitlab_agent.yaml
+      - ./ai_platform_engineering/agents/gitlab/agent_gitlab:/app/ai_platform_engineering/agents/agent/agent_gitlab
+      - ./ai_platform_engineering/utils:/app/ai_platform_engineering/utils
+    env_file: [.env]
+    ports: ["8014:8000"]
+    environment:
+      - A2A_TRANSPORT=${A2A_TRANSPORT:-p2p}
+      - MCP_MODE=stdio
+      - SLIM_ENDPOINT=${SLIM_ENDPOINT:-http://slim-dataplane:46357}
+      - ENABLE_TRACING=${ENABLE_TRACING:-false}
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
+      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
+    profiles:
+      - gitlab
       - all-agents
 
   # Weather Agent
@@ -707,7 +735,7 @@ services:
 
   # Backstage Plugin (Agent Forge)
   backstage-agent-forge:
-    image: ghcr.io/cnoe-io/backstage-plugin-agent-forge:latest
+    image: ghcr.io/cnoe-io/backstage-plugin-agent-forge:0.2.7
     container_name: backstage-agent-forge
     ports: ["13000:3000"]
     environment:

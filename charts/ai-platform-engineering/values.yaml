@@ -7,6 +7,7 @@ tags:
   agent-backstage: false
   agent-confluence: false
   agent-github: false
+  agent-gitlab: false
   agent-jira: false
   agent-komodor: false
   agent-pagerduty: false
@@ -153,6 +154,14 @@ agent-github:
   nameOverride: "agent-github"
   image:
     repository: "ghcr.io/cnoe-io/agent-github"
+    pullPolicy: "Always"
+  mcp:
+    useRemoteMcpServer: true
+
+agent-gitlab:
+  nameOverride: "agent-gitlab"
+  image:
+    repository: "ghcr.io/cnoe-io/agent-gitlab"
     pullPolicy: "Always"
   mcp:
     useRemoteMcpServer: true
