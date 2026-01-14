@@ -17,6 +17,7 @@ services:
   caipe-supervisor:
     image: ghcr.io/cnoe-io/ai-platform-engineering:${IMAGE_TAG:-stable}
     container_name: caipe-supervisor
+    user: "0:0"
     volumes:
       - ${PROMPT_CONFIG_PATH:-./charts/ai-platform-engineering/data/prompt_config.deep_agent.yaml}:/app/prompt_config.yaml
     env_file:
@@ -92,24 +93,24 @@ services:
   slim-dataplane:
     image: ghcr.io/agntcy/slim:0.6.1
     container_name: slim-dataplane
-    ports: ["46357:46357"]
+    ports: [ "46357:46357" ]
     environment:
       - PASSWORD=${SLIM_GATEWAY_PASSWORD:-dummy_password}
       - CONFIG_PATH=/config.yaml
-    volumes: ["./slim-config.yaml:/config.yaml"]
-    command: ["/slim", "--config", "/config.yaml"]
+    volumes: [ "./slim-config.yaml:/config.yaml" ]
+    command: [ "/slim", "--config", "/config.yaml" ]
     profiles:
       - slim
 
   slim-control-plane:
     image: ghcr.io/agntcy/slim/control-plane:0.0.1
     container_name: slim-control-plane
-    ports: ["50051:50051", "50052:50052"]
+    ports: [ "50051:50051", "50052:50052" ]
     environment:
       - PASSWORD=${SLIM_GATEWAY_PASSWORD:-dummy_password}
       - CONFIG_PATH=/config.yaml
-    volumes: ["./slim-config.yaml:/config.yaml"]
-    command: ["/slim", "--config", "/config.yaml"]
+    volumes: [ "./slim-config.yaml:/config.yaml" ]
+    command: [ "/slim", "--config", "/config.yaml" ]
     profiles:
       - slim
 
@@ -120,10 +121,11 @@ services:
   agent-aws:
     image: ghcr.io/cnoe-io/agent-aws:${IMAGE_TAG:-stable}
     container_name: agent-aws
+    user: "0:0"
     volumes:
       - ./charts/ai-platform-engineering/data/prompt_config.aws_agent.yaml:/app/prompt_config.aws_agent.yaml
-    env_file: [.env]
-    ports: ["8012:8000"]
+    env_file: [ .env ]
+    ports: [ "8012:8000" ]
     environment:
       - AWS_AGENT_BACKEND=${AWS_AGENT_BACKEND:-langgraph}
       - A2A_TRANSPORT=${A2A_TRANSPORT:-p2p}
@@ -152,10 +154,11 @@ services:
   agent-petstore:
     image: ghcr.io/cnoe-io/agent-template:${IMAGE_TAG:-stable}
     container_name: agent-petstore
+    user: "0:0"
     volumes:
       - ./charts/ai-platform-engineering/data/prompt_config.petstore_agent.yaml:/app/prompt_config.petstore_agent.yaml
-    env_file: [.env]
-    ports: ["8013:8000"]
+    env_file: [ .env ]
+    ports: [ "8013:8000" ]
     environment:
       - A2A_TRANSPORT=${A2A_TRANSPORT:-p2p}
       - MCP_MODE=http
@@ -175,10 +178,11 @@ services:
   agent-github:
     image: ghcr.io/cnoe-io/agent-github:${IMAGE_TAG:-stable}
     container_name: agent-github
+    user: "0:0"
     volumes:
       - ./charts/ai-platform-engineering/data/prompt_config.github_agent.yaml:/app/prompt_config.github_agent.yaml
-    env_file: [.env]
-    ports: ["8001:8000"]
+    env_file: [ .env ]
+    ports: [ "8001:8000" ]
     environment:
       - A2A_TRANSPORT=${A2A_TRANSPORT:-p2p}
       - MCP_MODE=http
@@ -187,7 +191,7 @@ services:
       - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
       - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
       - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
-      - GH_TOKEN=${GITHUB_PERSONAL_ACCESS_TOKEN}  # gh CLI authentication
+      - GH_TOKEN=${GITHUB_PERSONAL_ACCESS_TOKEN} # gh CLI authentication
     # Docker socket mount is only needed when MCP_MODE=stdio
     # For local Github Offical MCP server execution.
     # Uncomment this when MCP_MODE=stdio is supported
@@ -200,10 +204,11 @@ services:
   agent-weather:
     image: ghcr.io/cnoe-io/agent-weather:${IMAGE_TAG:-stable}
     container_name: agent-weather
+    user: "0:0" # Override appuser which doesn't exist in this image
     volumes:
       - ./charts/ai-platform-engineering/data/prompt_config.weather_agent.yaml:/app/prompt_config.weather_agent.yaml
-    env_file: [.env]
-    ports: ["8002:8000"]
+    env_file: [ .env ]
+    ports: [ "8002:8000" ]
     environment:
       - A2A_TRANSPORT=${A2A_TRANSPORT:-p2p}
       - MCP_MODE=http
@@ -218,10 +223,11 @@ services:
   agent-backstage:
     image: ghcr.io/cnoe-io/agent-backstage:${IMAGE_TAG:-stable}
     container_name: agent-backstage
+    user: "0:0"
     volumes:
       - ./charts/ai-platform-engineering/data/prompt_config.backstage_agent.yaml:/app/prompt_config.backstage_agent.yaml
-    env_file: [.env]
-    ports: ["8003:8000"]
+    env_file: [ .env ]
+    ports: [ "8003:8000" ]
     environment:
       - A2A_TRANSPORT=${A2A_TRANSPORT:-p2p}
       - MCP_MODE=http
@@ -238,14 +244,15 @@ services:
   mcp-backstage:
     image: ghcr.io/cnoe-io/mcp-backstage:${IMAGE_TAG:-stable}
     container_name: mcp-backstage
-    env_file: [.env]
-    ports: ["18001:8000"]
+    user: "0:0"
+    env_file: [ .env ]
+    ports: [ "18001:8000" ]
     environment:
       - MCP_MODE=http
       - MCP_HOST=0.0.0.0
       - MCP_PORT=8000
     healthcheck:
-      test: ["CMD", "python", "-c", "import socket; s=socket.socket(); s.settimeout(1); result=s.connect_ex(('localhost', 8000)); s.close(); exit(0 if result == 0 else 1)"]
+      test: [ "CMD", "python", "-c", "import socket; s=socket.socket(); s.settimeout(1); result=s.connect_ex(('localhost', 8000)); s.close(); exit(0 if result == 0 else 1)" ]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -258,10 +265,11 @@ services:
   agent-argocd:
     image: ghcr.io/cnoe-io/agent-argocd:${IMAGE_TAG:-stable}
     container_name: agent-argocd
+    user: "0:0"
     volumes:
       - ./charts/ai-platform-engineering/data/prompt_config.argocd_agent.yaml:/app/prompt_config.argocd_agent.yaml
-    env_file: [.env]
-    ports: ["8004:8000"]
+    env_file: [ .env ]
+    ports: [ "8004:8000" ]
     environment:
       - A2A_TRANSPORT=${A2A_TRANSPORT:-p2p}
       - MCP_MODE=http
@@ -278,14 +286,15 @@ services:
   mcp-argocd:
     image: ghcr.io/cnoe-io/mcp-argocd:${IMAGE_TAG:-stable}
     container_name: mcp-argocd
-    env_file: [.env]
-    ports: ["18002:8000"]
+    user: "0:0"
+    env_file: [ .env ]
+    ports: [ "18002:8000" ]
     environment:
       - MCP_MODE=http
       - MCP_HOST=0.0.0.0
       - MCP_PORT=8000
     healthcheck:
-      test: ["CMD", "python", "-c", "import socket; s=socket.socket(); s.settimeout(1); result=s.connect_ex(('localhost', 8000)); s.close(); exit(0 if result == 0 else 1)"]
+      test: [ "CMD", "python", "-c", "import socket; s=socket.socket(); s.settimeout(1); result=s.connect_ex(('localhost', 8000)); s.close(); exit(0 if result == 0 else 1)" ]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -298,10 +307,11 @@ services:
   agent-confluence:
     image: ghcr.io/cnoe-io/agent-confluence:${IMAGE_TAG:-stable}
     container_name: agent-confluence
+    user: "0:0"
     volumes:
       - ./charts/ai-platform-engineering/data/prompt_config.confluence_agent.yaml:/app/prompt_config.confluence_agent.yaml
-    env_file: [.env]
-    ports: ["8005:8000"]
+    env_file: [ .env ]
+    ports: [ "8005:8000" ]
     environment:
       - A2A_TRANSPORT=${A2A_TRANSPORT:-p2p}
       - MCP_MODE=http
@@ -318,8 +328,9 @@ services:
   mcp-confluence:
     image: ghcr.io/sooperset/mcp-atlassian:latest
     container_name: mcp-confluence
-    env_file: [.env]
-    ports: ["18003:8000"]
+    user: "0:0" # Override appuser which doesn't exist in this third-party image
+    env_file: [ .env ]
+    ports: [ "18003:8000" ]
     environment:
       - CONFLUENCE_URL=${CONFLUENCE_URL}
       - CONFLUENCE_USERNAME=${CONFLUENCE_USERNAME}
@@ -332,10 +343,11 @@ services:
   agent-jira:
     image: ghcr.io/cnoe-io/agent-jira:${IMAGE_TAG:-stable}
     container_name: agent-jira
+    user: "0:0"
     volumes:
       - ./charts/ai-platform-engineering/data/prompt_config.jira_agent.yaml:/app/prompt_config.jira_agent.yaml
-    env_file: [.env]
-    ports: ["8006:8000"]
+    env_file: [ .env ]
+    ports: [ "8006:8000" ]
     environment:
       - A2A_TRANSPORT=${A2A_TRANSPORT:-p2p}
       - MCP_MODE=http
@@ -352,14 +364,15 @@ services:
   mcp-jira:
     image: ghcr.io/cnoe-io/mcp-jira:${IMAGE_TAG:-stable}
     container_name: mcp-jira
-    env_file: [.env]
-    ports: ["18004:8000"]
+    user: "0:0"
+    env_file: [ .env ]
+    ports: [ "18004:8000" ]
     environment:
       - MCP_MODE=http
       - MCP_HOST=0.0.0.0
       - MCP_PORT=8000
     healthcheck:
-      test: ["CMD", "python", "-c", "import socket; s=socket.socket(); s.settimeout(1); result=s.connect_ex(('localhost', 8000)); s.close(); exit(0 if result == 0 else 1)"]
+      test: [ "CMD", "python", "-c", "import socket; s=socket.socket(); s.settimeout(1); result=s.connect_ex(('localhost', 8000)); s.close(); exit(0 if result == 0 else 1)" ]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -372,10 +385,11 @@ services:
   agent-komodor:
     image: ghcr.io/cnoe-io/agent-komodor:${IMAGE_TAG:-stable}
     container_name: agent-komodor
+    user: "0:0"
     volumes:
       - ./charts/ai-platform-engineering/data/prompt_config.komodor_agent.yaml:/app/prompt_config.komodor_agent.yaml
-    env_file: [.env]
-    ports: ["8007:8000"]
+    env_file: [ .env ]
+    ports: [ "8007:8000" ]
     environment:
       - A2A_TRANSPORT=${A2A_TRANSPORT:-p2p}
       - MCP_MODE=http
@@ -392,14 +406,15 @@ services:
   mcp-komodor:
     image: ghcr.io/cnoe-io/mcp-komodor:${IMAGE_TAG:-stable}
     container_name: mcp-komodor
-    env_file: [.env]
-    ports: ["18005:8000"]
+    user: "0:0"
+    env_file: [ .env ]
+    ports: [ "18005:8000" ]
     environment:
       - MCP_MODE=http
       - MCP_HOST=0.0.0.0
       - MCP_PORT=8000
     healthcheck:
-      test: ["CMD", "python", "-c", "import socket; s=socket.socket(); s.settimeout(1); result=s.connect_ex(('localhost', 8000)); s.close(); exit(0 if result == 0 else 1)"]
+      test: [ "CMD", "python", "-c", "import socket; s=socket.socket(); s.settimeout(1); result=s.connect_ex(('localhost', 8000)); s.close(); exit(0 if result == 0 else 1)" ]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -412,10 +427,11 @@ services:
   agent-pagerduty:
     image: ghcr.io/cnoe-io/agent-pagerduty:${IMAGE_TAG:-stable}
     container_name: agent-pagerduty
+    user: "0:0"
     volumes:
       - ./charts/ai-platform-engineering/data/prompt_config.pagerduty_agent.yaml:/app/prompt_config.pagerduty_agent.yaml
-    env_file: [.env]
-    ports: ["8008:8000"]
+    env_file: [ .env ]
+    ports: [ "8008:8000" ]
     environment:
       - A2A_TRANSPORT=${A2A_TRANSPORT:-p2p}
       - MCP_MODE=http
@@ -432,14 +448,15 @@ services:
   mcp-pagerduty:
     image: ghcr.io/cnoe-io/mcp-pagerduty:${IMAGE_TAG:-stable}
     container_name: mcp-pagerduty
-    env_file: [.env]
-    ports: ["18006:8000"]
+    user: "0:0"
+    env_file: [ .env ]
+    ports: [ "18006:8000" ]
     environment:
       - MCP_MODE=http
       - MCP_HOST=0.0.0.0
       - MCP_PORT=8000
     healthcheck:
-      test: ["CMD", "python", "-c", "import socket; s=socket.socket(); s.settimeout(1); result=s.connect_ex(('localhost', 8000)); s.close(); exit(0 if result == 0 else 1)"]
+      test: [ "CMD", "python", "-c", "import socket; s=socket.socket(); s.settimeout(1); result=s.connect_ex(('localhost', 8000)); s.close(); exit(0 if result == 0 else 1)" ]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -452,10 +469,11 @@ services:
   agent-slack:
     image: ghcr.io/cnoe-io/agent-slack:${IMAGE_TAG:-stable}
     container_name: agent-slack
+    user: "0:0"
     volumes:
       - ./charts/ai-platform-engineering/data/prompt_config.slack_agent.yaml:/app/prompt_config.slack_agent.yaml
-    env_file: [.env]
-    ports: ["8009:8000"]
+    env_file: [ .env ]
+    ports: [ "8009:8000" ]
     environment:
       - A2A_TRANSPORT=${A2A_TRANSPORT:-p2p}
       - MCP_MODE=http
@@ -472,14 +490,15 @@ services:
   mcp-slack:
     image: ghcr.io/cnoe-io/mcp-slack:${IMAGE_TAG:-stable}
     container_name: mcp-slack
-    env_file: [.env]
-    ports: ["18007:8000"]
+    user: "0:0"
+    env_file: [ .env ]
+    ports: [ "18007:8000" ]
     environment:
       - MCP_MODE=http
       - MCP_HOST=0.0.0.0
       - MCP_PORT=8000
     healthcheck:
-      test: ["CMD", "python", "-c", "import socket; s=socket.socket(); s.settimeout(1); result=s.connect_ex(('localhost', 8000)); s.close(); exit(0 if result == 0 else 1)"]
+      test: [ "CMD", "python", "-c", "import socket; s=socket.socket(); s.settimeout(1); result=s.connect_ex(('localhost', 8000)); s.close(); exit(0 if result == 0 else 1)" ]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -492,10 +511,11 @@ services:
   agent-splunk:
     image: ghcr.io/cnoe-io/agent-splunk:${IMAGE_TAG:-stable}
     container_name: agent-splunk
+    user: "0:0"
     volumes:
       - ./charts/ai-platform-engineering/data/prompt_config.splunk_agent.yaml:/app/prompt_config.splunk_agent.yaml
-    env_file: [.env]
-    ports: ["8010:8000"]
+    env_file: [ .env ]
+    ports: [ "8010:8000" ]
     environment:
       - A2A_TRANSPORT=${A2A_TRANSPORT:-p2p}
       - MCP_MODE=http
@@ -512,14 +532,15 @@ services:
   mcp-splunk:
     image: ghcr.io/cnoe-io/mcp-splunk:${IMAGE_TAG:-stable}
     container_name: mcp-splunk
-    env_file: [.env]
-    ports: ["18008:8000"]
+    user: "0:0"
+    env_file: [ .env ]
+    ports: [ "18008:8000" ]
     environment:
       - MCP_MODE=http
       - MCP_HOST=0.0.0.0
       - MCP_PORT=8000
     healthcheck:
-      test: ["CMD", "python", "-c", "import socket; s=socket.socket(); s.settimeout(1); result=s.connect_ex(('localhost', 8000)); s.close(); exit(0 if result == 0 else 1)"]
+      test: [ "CMD", "python", "-c", "import socket; s=socket.socket(); s.settimeout(1); result=s.connect_ex(('localhost', 8000)); s.close(); exit(0 if result == 0 else 1)" ]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -532,10 +553,11 @@ services:
   agent-webex:
     image: ghcr.io/cnoe-io/agent-webex:${IMAGE_TAG:-stable}
     container_name: agent-webex
+    user: "0:0"
     volumes:
       - ./charts/ai-platform-engineering/data/prompt_config.webex_agent.yaml:/app/prompt_config.webex_agent.yaml
-    env_file: [.env]
-    ports: ["8011:8000"]
+    env_file: [ .env ]
+    ports: [ "8011:8000" ]
     environment:
       - A2A_TRANSPORT=${A2A_TRANSPORT:-p2p}
       - MCP_MODE=http
@@ -552,14 +574,15 @@ services:
   mcp-webex:
     image: ghcr.io/cnoe-io/mcp-webex:${IMAGE_TAG:-stable}
     container_name: mcp-webex
-    env_file: [.env]
-    ports: ["18009:8000"]
+    user: "0:0"
+    env_file: [ .env ]
+    ports: [ "18009:8000" ]
     environment:
       - MCP_MODE=http
       - MCP_HOST=0.0.0.0
       - MCP_PORT=8000
     healthcheck:
-      test: ["CMD", "python", "-c", "import socket; s=socket.socket(); s.settimeout(1); result=s.connect_ex(('localhost', 8000)); s.close(); exit(0 if result == 0 else 1)"]
+      test: [ "CMD", "python", "-c", "import socket; s=socket.socket(); s.settimeout(1); result=s.connect_ex(('localhost', 8000)); s.close(); exit(0 if result == 0 else 1)" ]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -568,12 +591,11 @@ services:
       - webex
       - all-agents
 
-
   # Backstage Plugin (Agent Forge)
   backstage-agent-forge:
     image: ghcr.io/cnoe-io/backstage-plugin-agent-forge:latest
     container_name: backstage-agent-forge
-    ports: ["13000:3000"]
+    ports: [ "13000:3000" ]
     environment:
       - NODE_ENV=development
       - AGENT_FORGE_BASE_URL=${AGENT_FORGE_BASE_URL:-http://localhost:8000}
@@ -587,7 +609,7 @@ services:
   rag_server:
     image: ghcr.io/cnoe-io/caipe-rag-server:${IMAGE_TAG:-stable}
     container_name: rag_server
-    ports: ["9446:9446"]
+    ports: [ "9446:9446" ]
     environment:
       - LOG_LEVEL=DEBUG
       - REDIS_URL=redis://rag-redis:6379/0
@@ -601,8 +623,8 @@ services:
       - CLEANUP_INTERVAL=86400
       - EMBEDDINGS_MODEL=${EMBEDDINGS_MODEL:-text-embedding-3-large}
     restart: unless-stopped
-    env_file: [.env]
-    depends_on: [rag-redis]
+    env_file: [ .env ]
+    depends_on: [ rag-redis ]
     profiles:
       - rag
       - graph_rag
@@ -610,7 +632,7 @@ services:
   agent_ontology:
     image: ghcr.io/cnoe-io/caipe-rag-agent-ontology:${IMAGE_TAG:-stable}
     container_name: agent_ontology
-    ports: ["8098:8098"]
+    ports: [ "8098:8098" ]
     environment:
       - LOG_LEVEL=DEBUG
       - REDIS_URL=redis://rag-redis:6379/0
@@ -619,9 +641,9 @@ services:
       - NEO4J_USERNAME=neo4j
       - NEO4J_PASSWORD=dummy_password
       - SYNC_INTERVAL=86400
-    env_file: [.env]
+    env_file: [ .env ]
     restart: unless-stopped
-    depends_on: [rag_server, neo4j, neo4j-ontology, rag-redis]
+    depends_on: [ rag_server, neo4j, neo4j-ontology, rag-redis ]
     profiles:
       - graph_rag
 
@@ -631,8 +653,8 @@ services:
     environment:
       - RAG_SERVER_URL=http://rag_server:9446
       - NGINX_ENVSUBST_TEMPLATE_SUFFIX=.conf
-    depends_on: [rag_server]
-    ports: ["9447:80"]
+    depends_on: [ rag_server ]
+    ports: [ "9447:80" ]
     profiles:
       - rag
       - graph_rag
@@ -646,9 +668,9 @@ services:
       - REDIS_URL=redis://rag-redis:6379/0
       - RAG_SERVER_URL=http://rag_server:9446
       - MAX_CONCURRENT_JOBS=${WEBLOADER_INGESTOR_MAX_CONCURRENT_JOBS:-10}
-    env_file: [.env]
+    env_file: [ .env ]
     restart: unless-stopped
-    depends_on: [rag_server]
+    depends_on: [ rag_server ]
     profiles:
       - rag
       - graph_rag
@@ -662,7 +684,7 @@ services:
       - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/neo4j/config:/config
       - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/neo4j/data:/data
       - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/neo4j/plugins:/plugins
-    ports: ["7474:7474", "7687:7687"]
+    ports: [ "7474:7474", "7687:7687" ]
     restart: unless-stopped
     environment:
       - NEO4J_AUTH=neo4j/dummy_password
@@ -681,7 +703,7 @@ services:
       - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/neo4j-ontology/config:/config
       - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/neo4j-ontology/data:/data
       - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/neo4j-ontology/plugins:/plugins
-    ports: ["7688:7687"]
+    ports: [ "7688:7687" ]
     restart: unless-stopped
     environment:
       - NEO4J_AUTH=neo4j/dummy_password
@@ -697,8 +719,8 @@ services:
     container_name: rag-redis
     volumes:
       - rag_redis_data:/data
-    command: ["/bin/sh", "-c", "redis-server --save 60 1 --appendonly yes"]
-    ports: [":6379"]
+    command: [ "/bin/sh", "-c", "redis-server --save 60 1 --appendonly yes" ]
+    ports: [ ":6379" ]
     restart: unless-stopped
     profiles:
       - rag
@@ -707,8 +729,8 @@ services:
   milvus-standalone:
     image: milvusdb/milvus:v2.6.0
     container_name: milvus-standalone
-    command: ["milvus", "run", "standalone"]
-    security_opt: [seccomp:unconfined]
+    command: [ "milvus", "run", "standalone" ]
+    security_opt: [ seccomp:unconfined ]
     environment:
       - MINIO_REGION=us-east-1
       - ETCD_ENDPOINTS=etcd:2379
@@ -717,13 +739,13 @@ services:
     volumes:
       - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/milvus:/var/lib/milvus
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9091/healthz"]
+      test: [ "CMD", "curl", "-f", "http://localhost:9091/healthz" ]
       interval: 30s
       start_period: 90s
       timeout: 20s
       retries: 3
-    ports: [":19530", ":9091"]
-    depends_on: [etcd, milvus-minio]
+    ports: [ ":19530", ":9091" ]
+    depends_on: [ etcd, milvus-minio ]
     profiles:
       - rag
       - graph_rag
@@ -740,7 +762,7 @@ services:
       - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/etcd:/etcd
     command: etcd -advertise-client-urls=http://etcd:2379 -listen-client-urls http://0.0.0.0:2379 --data-dir /etcd
     healthcheck:
-      test: ["CMD", "etcdctl", "endpoint", "health"]
+      test: [ "CMD", "etcdctl", "endpoint", "health" ]
       interval: 30s
       timeout: 20s
       retries: 3
@@ -754,12 +776,12 @@ services:
     environment:
       - MINIO_ACCESS_KEY=minioadmin
       - MINIO_SECRET_KEY=minioadmin
-    ports: [":9001", ":9000"]
+    ports: [ ":9001", ":9000" ]
     volumes:
       - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/minio:/minio_data
     command: minio server /minio_data --console-address ":9001"
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      test: [ "CMD", "curl", "-f", "http://localhost:9000/minio/health/live" ]
       interval: 30s
       timeout: 20s
       retries: 3
@@ -781,7 +803,7 @@ services:
         condition: service_healthy
       langfuse-clickhouse:
         condition: service_healthy
-    ports: ["127.0.0.1:3030:3030"]
+    ports: [ "127.0.0.1:3030:3030" ]
     environment:
       - DATABASE_URL=postgresql://postgres:postgres@langfuse-postgres:5432/postgres
       - SALT=mysalt
@@ -823,7 +845,7 @@ services:
         condition: service_healthy
       langfuse-clickhouse:
         condition: service_healthy
-    ports: ["3000:3000"]
+    ports: [ "3000:3000" ]
     environment:
       - DATABASE_URL=postgresql://postgres:postgres@langfuse-postgres:5432/postgres
       - SALT=mysalt
@@ -867,7 +889,7 @@ services:
     volumes:
       - langfuse_clickhouse_data:/var/lib/clickhouse
       - langfuse_clickhouse_logs:/var/log/clickhouse-server
-    ports: ["127.0.0.1:8123:8123", "127.0.0.1:9000:9000"]
+    ports: [ "127.0.0.1:8123:8123", "127.0.0.1:9000:9000" ]
     healthcheck:
       test: wget --no-verbose --tries=1 --spider http://localhost:8123/ping || exit 1
       interval: 5s
@@ -886,11 +908,11 @@ services:
     environment:
       - MINIO_ROOT_USER=minio
       - MINIO_ROOT_PASSWORD=miniosecret
-    ports: ["9090:9000", "127.0.0.1:9091:9001"]
+    ports: [ "9090:9000", "127.0.0.1:9091:9001" ]
     volumes:
       - langfuse_minio_data:/data
     healthcheck:
-      test: ["CMD", "mc", "ready", "local"]
+      test: [ "CMD", "mc", "ready", "local" ]
       interval: 1s
       timeout: 5s
       retries: 5
@@ -905,9 +927,9 @@ services:
     volumes:
       - langfuse_redis_data:/data
     command: --requirepass ${REDIS_AUTH:-myredissecret} --appendonly yes
-    ports: ["127.0.0.1:6379:6379"]
+    ports: [ "127.0.0.1:6379:6379" ]
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: [ "CMD", "redis-cli", "ping" ]
       interval: 3s
       timeout: 10s
       retries: 10
@@ -919,7 +941,7 @@ services:
     container_name: langfuse-postgres
     restart: always
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      test: [ "CMD-SHELL", "pg_isready -U postgres" ]
       interval: 3s
       timeout: 3s
       retries: 10
@@ -927,7 +949,7 @@ services:
       - POSTGRES_USER=postgres
       - POSTGRES_PASSWORD=postgres
       - POSTGRES_DB=postgres
-    ports: ["127.0.0.1:5432:5432"]
+    ports: [ "127.0.0.1:5432:5432" ]
     volumes:
       - langfuse_postgres_data:/var/lib/postgresql/data
     profiles:
@@ -943,8 +965,8 @@ services:
     depends_on:
       langfuse-web:
         condition: service_started
-    ports: ["8024:8000"]
-    env_file: [.env]
+    ports: [ "8024:8000" ]
+    env_file: [ .env ]
     environment:
       - PLATFORM_ENGINEER_URL=http://platform-engineering:8000
       - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
@@ -955,7 +977,7 @@ services:
     volumes:
       - ./evals/datasets:/app/datasets
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      test: [ "CMD", "curl", "-f", "http://localhost:8000/health" ]
       interval: 30s
       timeout: 10s
       retries: 3
