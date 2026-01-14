@@ -36,7 +36,11 @@ from .context_config import get_context_limit_for_provider, get_min_messages_to_
 from ai_platform_engineering.utils.metrics import MetricsCallbackHandler
 
 
+# Configure logging level from environment
+_log_level = os.getenv("LOG_LEVEL", "INFO").upper()
+logging.basicConfig(level=getattr(logging, _log_level, logging.INFO))
 logger = logging.getLogger(__name__)
+logger.setLevel(getattr(logging, _log_level, logging.INFO))
 
 # LangMem utilities for intelligent message summarization
 from .langmem_utils import summarize_messages
@@ -1041,7 +1045,7 @@ Use this as the reference point for all date calculations. When users say "today
 
         # Track which messages we've already processed to avoid duplicates
         seen_tool_calls = set()
-        
+
         # Track the ResponseFormat structured output content (the actual final response)
         response_format_content = ""
 
@@ -1094,25 +1098,11 @@ Use this as the reference point for all date calculations. When users say "today
                                 if tool_id:
                                     seen_tool_calls.add(tool_id)
 
-                                # Special handling for ResponseFormat - extract the structured output content
-                                # This is the final response from LangGraph structured output, not a regular tool call
+                                # NOTE: Do NOT capture ResponseFormat args from AIMessageChunk
+                                # During streaming, the args are incomplete (usually empty {})
+                                # The complete args will be captured from the final AIMessage instead
                                 if tool_name.lower() == 'responseformat':
-                                    tool_args = tool_call.get("args", {})
-                                    # Extract 'response' field which contains the actual content
-                                    structured_content = tool_args.get("response", "")
-                                    if structured_content:
-                                        response_format_content = structured_content
-                                        logger.info(f"📝 Captured ResponseFormat content: {len(response_format_content)} chars")
-                                        logger.info(f"📝 ResponseFormat content (first 300 chars): {response_format_content[:300]}")
-                                    else:
-                                        # Try to serialize the whole args as fallback
-                                        import json
-                                        try:
-                                            response_format_content = json.dumps(tool_args)
-                                            logger.info(f"📝 Captured ResponseFormat args as JSON: {len(response_format_content)} chars")
-                                        except Exception:
-                                            response_format_content = str(tool_args)
-                                            logger.info(f"📝 Captured ResponseFormat args as string: {len(response_format_content)} chars")
+                                    logger.debug(f"📝 ResponseFormat tool call detected in stream chunk (args will be captured from final AIMessage)")
 
                                 agent_name_formatted = self.get_agent_name().title()
                                 tool_name_formatted = tool_name.title()
@@ -1246,6 +1236,31 @@ Use this as the reference point for all date calculations. When users say "today
                                     continue
                                 if tool_id:
                                     seen_tool_calls.add(tool_id)
+
+                                # CRITICAL: Extract ResponseFormat content from COMPLETE AIMessage
+                                # This is where we get the full args, not from streaming chunks
+                                if tool_name.lower() == 'responseformat':
+                                    tool_args = tool_call.get("args", {})
+                                    # Extract 'message' field which contains the actual content
+                                    structured_content = tool_args.get("message", "") or tool_args.get("response", "")
+                                    if structured_content:
+                                        response_format_content = structured_content
+                                        logger.info(f"📝 Captured ResponseFormat from AIMessage: {len(response_format_content)} chars")
+                                        logger.info(f"📝 ResponseFormat content (first 300 chars): {response_format_content[:300]}")
+                                    else:
+                                        # Fallback: try to get any string value from args
+                                        import json
+                                        for key, val in tool_args.items():
+                                            if isinstance(val, str) and len(val) > 10:
+                                                response_format_content = val
+                                                logger.info(f"📝 Captured ResponseFormat '{key}' field: {len(response_format_content)} chars")
+                                                break
+                                        if not response_format_content and tool_args:
+                                            try:
+                                                response_format_content = json.dumps(tool_args)
+                                                logger.info(f"📝 Captured ResponseFormat args as JSON: {len(response_format_content)} chars")
+                                            except Exception:
+                                                response_format_content = str(tool_args)
 
                                 agent_name_formatted = self.get_agent_name().title()
                                 tool_name_formatted = tool_name.title()

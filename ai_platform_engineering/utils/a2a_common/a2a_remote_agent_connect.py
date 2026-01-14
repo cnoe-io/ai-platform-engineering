@@ -30,8 +30,11 @@ from pydantic import BaseModel, Field
 # Import metrics for tracking subagent and MCP tool calls
 from ai_platform_engineering.utils.metrics import record_subagent_call, record_mcp_tool_call
 
-
+# Configure logging level from environment
+_log_level = os.getenv("LOG_LEVEL", "INFO").upper()
+logging.basicConfig(level=getattr(logging, _log_level, logging.INFO))
 logger = logging.getLogger("a2a.client.tool")
+logger.setLevel(getattr(logging, _log_level, logging.INFO))
 
 
 class A2AToolInput(BaseModel):
