@@ -71,12 +71,21 @@ class AgentRegistry:
     def get_enabled_agents_from_env(self) -> List[str]:
         """Get all environment variables that start with ENABLE_*."""
         enabled_agents = []
+        # List of reserved names that are used for feature flags, not for actual agents
+        reserved_feature_flags = ("TRACING", "STREAMING", "RAG", "ENHANCED_STREAMING", "ENHANCED_ORCHESTRATION", "ARGOCD_SERVER")
+        
         for k, v in os.environ.items():
             if k.startswith('ENABLE_'):
                 logger.info(f"Found env var: {k} = {v}")
                 if v.lower() == "true":
+                    agent_name = k.split('ENABLE_')[1]
+                    # Skip pseudo-agents related to feature flags
+                    if agent_name in reserved_feature_flags:
+                        logger.info(f"Skipping feature flag '{agent_name}'")
+                        continue
+                    
                     logger.info(f"Env var {k} is enabled")
-                    enabled_agents.append(k.split('ENABLE_')[1])
+                    enabled_agents.append(agent_name)
         logger.info(f"Enabled agents: {enabled_agents}")
         return enabled_agents
 
@@ -289,11 +298,25 @@ class AgentRegistry:
         """
         if not self._check_connectivity:
             logger.debug(f"Connectivity checks disabled, assuming {agent_name} is reachable")
-            return (True, None)
+            # Return a dummy card so the agent is registered
+            dummy_card = {
+                "name": agent_name,
+                "description": f"Agent {agent_name} (Connectivity Check Skipped)",
+                "skills": [],
+                "url": agent_url
+            }
+            return (True, dummy_card)
 
         if self.transport == "slim":
             # For SLIM transport, we currently do not perform any connectivity checks.
-            return (True, None)
+            # But we should return a card if we can infer it, or a dummy one.
+            dummy_card = {
+                "name": agent_name,
+                "description": f"Agent {agent_name} (SLIM Transport)",
+                "skills": [],
+                "url": agent_url
+            }
+            return (True, dummy_card)
         else:
             # For A2A transport, use HTTP connectivity check which returns agent card
             return self._check_http_agent_connectivity(agent_name, agent_url)

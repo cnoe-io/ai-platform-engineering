@@ -56,13 +56,24 @@ class ArgoCDAgent(BaseLangGraphAgent):
         if not argocd_api_url:
             raise ValueError("ARGOCD_API_URL must be set as an environment variable.")
 
+        project_dir = os.path.dirname(os.path.dirname(server_path))
+        venv_python = os.path.join(project_dir, ".venv/bin/python")
+        
+        if os.path.exists(venv_python):
+             command = venv_python
+             args = [server_path]
+        else:
+             command = "uv"
+             args = ["run", "--quiet", "--project", project_dir, server_path]
+
         return {
-            "command": "uv",
-            "args": ["run", "--project", os.path.dirname(server_path), server_path],
+            "command": command,
+            "args": args,
             "env": {
                 "ARGOCD_TOKEN": argocd_token,
                 "ARGOCD_API_URL": argocd_api_url,
-                "ARGOCD_VERIFY_SSL": "false"
+                "ARGOCD_VERIFY_SSL": "false",
+                "MCP_MODE": "stdio"
             },
             "transport": "stdio",
         }

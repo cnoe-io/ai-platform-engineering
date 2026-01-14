@@ -1,0 +1,370 @@
+name: "[Evals] Single Graph Mode Evaluation"
+description: "Run evaluation suite against single graph mode and post results to PR"
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+env:
+  # Langfuse headless init credentials (local instance)
+  LANGFUSE_PUBLIC_KEY: "lf_pk_caipe_evals_ci"
+  LANGFUSE_SECRET_KEY: "lf_sk_caipe_evals_ci_secret"
+  LANGFUSE_HOST: "http://localhost:3000"
+
+jobs:
+  single-graph-evals:
+    runs-on: caipe-integration-tests
+    timeout-minutes: 30
+
+    steps:
+      - name: Cleanup previous run artifacts
+        run: |
+          echo "::group::Cleaning up previous run artifacts"
+          sudo find /home/ubuntu/actions-runner/_work/ai-platform-engineering/ai-platform-engineering -name "__pycache__" -type d -exec rm -rf {} + 2>/dev/null || true
+          sudo find /home/ubuntu/actions-runner/_work/ai-platform-engineering/ai-platform-engineering -name "*.pyc" -type f -delete 2>/dev/null || true
+          # Stop any existing containers
+          docker compose -f evals/docker-compose.langfuse.yaml down 2>/dev/null || true
+          echo "::endgroup::"
+
+      - name: Ensure workspace directory exists
+        run: |
+          echo "::group::Ensuring workspace directory exists"
+          sudo mkdir -p /home/ubuntu/actions-runner/_work/ai-platform-engineering/ai-platform-engineering
+          sudo chown -R ubuntu:ubuntu /home/ubuntu/actions-runner/_work/ai-platform-engineering/ai-platform-engineering
+          echo "::endgroup::"
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Create .env from GitHub Secrets
+        run: |
+          set -euo pipefail
+          cat > .env << 'EOF'
+          LLM_PROVIDER=${{ secrets.LLM_PROVIDER }}
+          AZURE_OPENAI_ENDPOINT=${{ secrets.AZURE_OPENAI_ENDPOINT }}
+          AZURE_OPENAI_API_KEY=${{ secrets.AZURE_OPENAI_API_KEY }}
+          AZURE_OPENAI_DEPLOYMENT=${{ secrets.AZURE_OPENAI_DEPLOYMENT }}
+          AZURE_OPENAI_API_VERSION=${{ secrets.AZURE_OPENAI_API_VERSION }}
+
+          ARGOCD_TOKEN=${{ secrets.ARGOCD_TOKEN }}
+          ARGOCD_API_URL=${{ secrets.ARGOCD_API_URL }}
+          ARGOCD_VERIFY_SSL=true
+
+          BACKSTAGE_API_TOKEN=${{ secrets.BACKSTAGE_API_TOKEN }}
+          BACKSTAGE_URL=${{ secrets.BACKSTAGE_URL }}
+
+          ATLASSIAN_TOKEN=${{ secrets.ATLASSIAN_TOKEN }}
+          ATLASSIAN_EMAIL=${{ secrets.ATLASSIAN_EMAIL }}
+          ATLASSIAN_API_URL=${{ secrets.ATLASSIAN_API_URL }}
+          ATLASSIAN_VERIFY_SSL=true
+
+          CONFLUENCE_API_URL=${{ secrets.CONFLUENCE_API_URL }}
+
+          GITHUB_PERSONAL_ACCESS_TOKEN=${{ secrets.GH_PAT }}
+
+          PAGERDUTY_API_KEY=${{ secrets.PAGERDUTY_API_KEY }}
+          PAGERDUTY_API_URL=https://api.pagerduty.com
+
+          SPLUNK_TOKEN=${{ secrets.SPLUNK_TOKEN }}
+          SPLUNK_API_URL=${{ secrets.SPLUNK_API_URL }}
+
+          KOMODOR_TOKEN=${{ secrets.KOMODOR_TOKEN }}
+          KOMODOR_API_URL=${{ secrets.KOMODOR_API_URL }}
+
+          SLACK_BOT_TOKEN=${{ secrets.SLACK_BOT_TOKEN }}
+          SLACK_APP_TOKEN=${{ secrets.SLACK_APP_TOKEN }}
+          SLACK_SIGNING_SECRET=${{ secrets.SLACK_SIGNING_SECRET }}
+          SLACK_CLIENT_SECRET=${{ secrets.SLACK_CLIENT_SECRET }}
+          SLACK_TEAM_ID=${{ secrets.SLACK_TEAM_ID }}
+
+          # OpenAI for evaluators
+          OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}
+
+          # Single graph mode settings
+          SINGLE_GRAPH_MODE=true
+          A2A_TRANSPORT=p2p
+          ENABLE_TRACING=true
+          PLATFORM_ENGINEER_URL=http://localhost:8002
+          
+          # Langfuse (local instance via docker)
+          LANGFUSE_PUBLIC_KEY=lf_pk_caipe_evals_ci
+          LANGFUSE_SECRET_KEY=lf_sk_caipe_evals_ci_secret
+          LANGFUSE_HOST=http://localhost:3000
+          EOF
+          
+          # Mask non-empty values
+          while IFS='=' read -r k v; do
+            [ -z "${k:-}" ] && continue
+            [ "${k#\#}" != "$k" ] && continue
+            if [ -n "${v:-}" ]; then
+              echo "::add-mask::${v}"
+            fi
+          done < .env
+
+      - name: Install uv
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Start Langfuse (Local)
+        run: |
+          set -euo pipefail
+          echo "::group::Starting local Langfuse instance"
+          
+          cd evals
+          docker compose -f docker-compose.langfuse.yaml up -d
+          
+          echo "Waiting for Langfuse to be ready..."
+          for i in $(seq 1 60); do
+            if curl -sfS http://localhost:3000/api/public/health > /dev/null 2>&1; then
+              echo "✅ Langfuse is ready!"
+              break
+            fi
+            echo "Waiting for Langfuse... ($i/60)"
+            sleep 5
+          done
+          
+          if ! curl -sfS http://localhost:3000/api/public/health > /dev/null 2>&1; then
+            echo "❌ Langfuse failed to start"
+            docker compose -f docker-compose.langfuse.yaml logs
+            exit 1
+          fi
+          
+          echo "::endgroup::"
+
+      - name: Start Single Graph Server
+        id: start-server
+        run: |
+          set -euo pipefail
+          echo "::group::Starting single graph server"
+          
+          # Start server in background
+          make run-single-graph > server.log 2>&1 &
+          SERVER_PID=$!
+          echo "server_pid=$SERVER_PID" >> $GITHUB_OUTPUT
+          echo "Server started with PID: $SERVER_PID"
+          
+          echo "::endgroup::"
+
+      - name: Wait for Server Readiness
+        run: |
+          set -euo pipefail
+          echo "Waiting for Platform Engineer server..."
+          
+          for i in $(seq 1 60); do
+            if curl -sfS http://localhost:8002/.well-known/agent-card.json > /dev/null 2>&1; then
+              echo "✅ Platform Engineer is ready!"
+              break
+            fi
+            echo "Waiting for Platform Engineer... ($i/60)"
+            sleep 5
+          done
+          
+          if ! curl -sfS http://localhost:8002/.well-known/agent-card.json > /dev/null 2>&1; then
+            echo "❌ Platform Engineer failed to start"
+            cat server.log || true
+            exit 1
+          fi
+
+      - name: Run Evaluation via CLI
+        id: run-evals
+        run: |
+          set -euo pipefail
+          echo "::group::Running evaluation suite"
+          
+          # Source environment variables
+          set -a
+          source .env
+          set +a
+          
+          cd evals
+          uv sync --all-extras
+          
+          # Generate run name with timestamp
+          RUN_NAME="ci_pr${{ github.event.pull_request.number || 'main' }}_$(date +%Y%m%d_%H%M%S)"
+          echo "run_name=$RUN_NAME" >> $GITHUB_OUTPUT
+          
+          # Run evaluations with CLI, capture output
+          LANGFUSE_PUBLIC_KEY=${{ secrets.LANGFUSE_PUBLIC_KEY }} \
+          LANGFUSE_SECRET_KEY=${{ secrets.LANGFUSE_SECRET_KEY }} \
+          LANGFUSE_HOST=${{ secrets.LANGFUSE_HOST }} \
+          PLATFORM_ENGINEER_URL=http://localhost:8002 \
+          AZURE_OPENAI_API_KEY=${{ secrets.AZURE_OPENAI_API_KEY }} \
+            uv run python run_evals_cli.py \
+              --dataset datasets/single_agent.yaml \
+              --name "single_agent_tests" \
+              --run-name "$RUN_NAME" \
+              --timeout 20 \
+              --concurrent 20 \
+              --output-file eval_results.json || true
+          
+          # Extract JSON results
+          if [ -f eval_results.json ]; then
+            # Parse results
+            PASSED=$(jq '.passed // 0' eval_results.json)
+            FAILED=$(jq '.failed // 0' eval_results.json)
+            TOTAL=$(jq '.total // 0' eval_results.json)
+            PASS_RATE=$(jq '.pass_rate // 0' eval_results.json)
+            DURATION=$(jq '.duration_seconds // 0' eval_results.json)
+            AVG_ROUTING=$(jq '.avg_routing_score // 0' eval_results.json)
+            AVG_TOOL_MATCH=$(jq '.avg_tool_match_score // 0' eval_results.json)
+            
+            echo "passed=$PASSED" >> $GITHUB_OUTPUT
+            echo "failed=$FAILED" >> $GITHUB_OUTPUT
+            echo "total=$TOTAL" >> $GITHUB_OUTPUT
+            echo "pass_rate=$PASS_RATE" >> $GITHUB_OUTPUT
+            echo "duration=$DURATION" >> $GITHUB_OUTPUT
+            echo "avg_routing=$AVG_ROUTING" >> $GITHUB_OUTPUT
+            echo "avg_tool_match=$AVG_TOOL_MATCH" >> $GITHUB_OUTPUT
+          else
+            echo "::error::eval_results.json not found"
+            echo "passed=0" >> $GITHUB_OUTPUT
+            echo "failed=0" >> $GITHUB_OUTPUT
+            echo "total=0" >> $GITHUB_OUTPUT
+            echo "pass_rate=0" >> $GITHUB_OUTPUT
+            echo "duration=0" >> $GITHUB_OUTPUT
+            echo "avg_routing=0" >> $GITHUB_OUTPUT
+            echo "avg_tool_match=0" >> $GITHUB_OUTPUT
+          fi
+          
+          echo "::endgroup::"
+
+      - name: Post Results to PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            
+            let results = {};
+            try {
+              if (fs.existsSync('evals/eval_results.json')) {
+                results = JSON.parse(fs.readFileSync('evals/eval_results.json', 'utf8'));
+              }
+            } catch (e) {
+              console.error("Error reading eval results:", e);
+            }
+            
+            const passed = results.passed || 0;
+            const failed = results.failed || 0;
+            const total = results.total || 0;
+            const passRate = results.pass_rate || 0;
+            const duration = results.duration_seconds || 0;
+            const runName = results.run_name || 'N/A';
+            const avgRouting = results.avg_routing_score || 0;
+            const avgToolMatch = results.avg_tool_match_score || 0;
+            
+            const status = parseFloat(passRate) >= 30 ? '✅' : '❌';
+            const statusText = parseFloat(passRate) >= 30 ? 'Evaluation Passed' : 'Evaluation Failed';
+            
+            const langfuseHost = results.langfuse_host || 'https://langfuse.dev.outshift.io';
+            const langfuseLink = `${langfuseHost}/projects`
+            
+            const body = `## ${status} Single Graph Evaluation Results
+            
+            | Metric | Value |
+            |--------|-------|
+            | **Run Name** | \`${runName}\` |
+            | **Total Tests** | ${total} |
+            | **Passed** | ✅ ${passed} |
+            | **Failed** | ❌ ${failed} |
+            | **Pass Rate** | ${passRate}% |
+            | **Avg Routing Score** | ${avgRouting} |
+            | **Avg Tool Match Score** | ${avgToolMatch} |
+            | **Duration** | ${duration}s |
+
+            ### 🔗 Langfuse Trace
+            
+            [View Evaluation Run in Langfuse](${langfuseLink})
+            
+            ### 📊 Evaluation Scores
+            
+            - **Routing Score**: Measures how well the platform routes requests to the correct agent
+            - **Tool Match Score**: Measures how well the agent selects the appropriate tools
+
+            
+            <details>
+            <summary>📋 Configuration Details</summary>
+            
+            - **Mode:** Single Graph (SINGLE_GRAPH_MODE=true)
+            - **Server:** http://localhost:8002
+            - **Dataset:** single_agent.yaml
+            
+            </details>
+            
+            ---
+            *Run ID: ${{ github.run_id }} | Commit: ${{ github.sha }}*
+            `;
+            
+            // Find existing comment
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+            
+            const botComment = comments.find(comment => 
+              comment.user.type === 'Bot' && 
+              comment.body.includes('Single Graph Evaluation Results')
+            );
+            
+            if (botComment) {
+              // Update existing comment
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: botComment.id,
+                body: body
+              });
+            } else {
+              // Create new comment
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: body
+              });
+            }
+
+      - name: Upload Eval Results Artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-results
+          path: |
+            evals/eval_results.json
+            evals/eval_output.log
+            server.log
+          if-no-files-found: warn
+
+      - name: Cleanup
+        if: always()
+        run: |
+          echo "::group::Cleanup"
+          # Stop servers
+          kill ${{ steps.start-server.outputs.server_pid }} 2>/dev/null || true
+          
+          # Stop Langfuse
+          cd evals
+          docker compose -f docker-compose.langfuse.yaml down 2>/dev/null || true
+          
+          # Show final logs on failure
+          if [ "${{ job.status }}" != "success" ]; then
+            echo "=== Server Logs (last 100 lines) ==="
+            tail -n 100 ../server.log || true
+            echo "=== Eval Output (last 50 lines) ==="
+            tail -n 50 eval_output.log || true
+          fi
+          echo "::endgroup::"

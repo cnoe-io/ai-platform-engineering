@@ -105,9 +105,33 @@ run: run-ai-platform-engineer ## Run the application with uv
 	@echo "Running the AI Platform Engineer persona..."
 
 run-ai-platform-engineer: setup-venv ## Run the AI Platform Engineering Multi-Agent System
-	@echo "Running the AI Platform Engineering Multi-Agent System..."
-	@uv sync --no-dev
-	@uv run python -m ai_platform_engineering.multi_agents platform-engineer $(ARGS)
+	@echo "Running AI Platform Engineer Agent..."
+	@export AGENT_PORT=8002 && \
+	export AGENT_NAME="ai-platform-engineer" && \
+	uv run --project $(AI_PLATFORM_ENGINEERING_DIR) python -m ai_platform_engineering.multi_agents.platform_engineer $(ARGS)
+
+run-single-graph: setup-venv ## Run the AI Platform Engineer in Single Graph Mode
+	@echo "Running AI Platform Engineer Agent in Single Graph Mode..."
+	@export AGENT_PORT=8002 && \
+	export AGENT_NAME="ai-platform-engineer" && \
+	export SINGLE_GRAPH_MODE=true && \
+	export ENABLE_ARGOCD=true && \
+	export ENABLE_GITHUB=true && \
+	export ENABLE_JIRA=true && \
+	export ENABLE_KOMODOR=true && \
+	export ENABLE_CONFLUENCE=true && \
+	export ENABLE_PAGERDUTY=true && \
+	export ENABLE_SLACK=true && \
+	export ENABLE_SPLUNK=true && \
+	export ENABLE_WEATHER=true && \
+	export ENABLE_WEBEX=true && \
+	export ENABLE_BACKSTAGE=true && \
+	export ENABLE_TRACING=$${ENABLE_TRACING:-false} && \
+	uv run --project $(AI_PLATFORM_ENGINEERING_DIR) python -m ai_platform_engineering.multi_agents platform-engineer $(ARGS)
+
+run-evals: ## Run evaluation suite against running server (requires LANGFUSE_ keys)
+	cd evals && uv run python run_evals_cli.py --dataset datasets/single_agent.yaml --timeout 20.0
+
 
 langgraph-dev: setup-venv ## Run langgraph in development mode
 	@echo "Running langgraph dev..."
@@ -223,7 +247,21 @@ test-rag-scale: setup-venv ## Run RAG module scale tests with memory monitoring
 # 	@echo "Running comprehensive RAG module test suite..."
 # 	@cd ai_platform_engineering/knowledge_bases/rag/server && make test-all
 
+
+## ========== Evaluations ==========
+
+run-evals: setup-venv  ## Run evaluation suite against a running server
+	@echo "Running evaluation suite..."
+	@uv add httpx rich pytest pytest-asyncio pytest-json-report pyyaml --dev
+	cd evals && uv sync && PLATFORM_ENGINEER_URL=http://localhost:8002 uv run python -m pytest tests/test_single_graph_integration.py -v --tb=short --json-report --json-report-file=eval_results.json
+
+run-evals-verbose: setup-venv  ## Run evaluation suite with verbose output
+	@echo "Running evaluation suite with verbose output..."
+	@uv add httpx rich pytest pytest-asyncio pytest-json-report pyyaml --dev
+	cd evals && uv sync && PLATFORM_ENGINEER_URL=http://localhost:8002 uv run python -m pytest tests/test_single_graph_integration.py -v --tb=long -o log_cli=true -o log_cli_level=INFO
+
 ## ========== Integration Tests ==========
+
 
 quick-sanity: setup-venv  ## Run all integration tests
 	@echo "Running AI Platform Engineering integration tests..."

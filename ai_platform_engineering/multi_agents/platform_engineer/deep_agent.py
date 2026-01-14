@@ -4,17 +4,16 @@
 import logging
 import uuid
 import os
-import threading
 import asyncio
-import time
-import httpx
-import traceback
 from langchain_core.messages import AIMessage
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.checkpoint.memory import InMemorySaver
 from cnoe_agent_utils import LLMFactory
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from typing import Optional, Dict, Any, List
+import time
+import httpx
+import traceback
 
 
 from ai_platform_engineering.multi_agents.platform_engineer import platform_registry
@@ -30,6 +29,8 @@ from ai_platform_engineering.multi_agents.tools import (
     clear_workspace
 )
 from deepagents import async_create_deep_agent
+from ai_platform_engineering.utils.a2a_common.base_langgraph_agent import BaseLangGraphAgent
+from ai_platform_engineering.utils.a2a_common.base_langgraph_agent_single_node import BaseLangGraphAgentSingleNode
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -46,10 +47,9 @@ class AIPlatformEngineerMAS:
     platform_registry.enable_dynamic_monitoring(on_change_callback=self._on_agents_changed)
 
     # Thread safety for graph access
-    self._graph_lock = threading.RLock()
+    self._graph_lock = asyncio.Lock()
     self._graph = None
     self._graph_generation = 0  # Track graph version for debugging
-
     # RAG-related instance variables
     self.rag_enabled = ENABLE_RAG # if the server is not reachable, this will be set to False
     self.rag_config: Optional[Dict[str, Any]] = None # the rag config returned from the server
@@ -57,8 +57,14 @@ class AIPlatformEngineerMAS:
     self.rag_mcp_client: Optional[MultiServerMCPClient] = None # the mcp client for the rag server
     self.rag_tools: List[Any] = [] # the MCP tools returned from the rag server, loaded at startup
 
-    # Build initial graph
-    self._build_graph()
+    self._initialized = False
+    
+    # RAG-related instance variables (for backwards compatibility with docker-compose)
+    self.rag_enabled = ENABLE_RAG  # if the server is not reachable, this will be set to False
+    self.rag_config: Optional[Dict[str, Any]] = None  # the rag config returned from the server
+    self.rag_config_timestamp: Optional[float] = None  # the timestamp of the last time the rag config was fetched
+    self.rag_mcp_client: Optional[MultiServerMCPClient] = None  # the mcp client for the rag server
+    self.rag_tools: List[Any] = []  # the MCP tools returned from the rag server, loaded at startup
 
     logger.info(f"AIPlatformEngineerMAS initialized with {len(platform_registry.agents)} agents")
     if self.rag_enabled:
@@ -66,23 +72,30 @@ class AIPlatformEngineerMAS:
     else:
       logger.info("❌📚 RAG is DISABLED")
 
+  async def ensure_initialized(self):
+      """Ensure graph is built before use."""
+      if self._initialized and self._graph:
+          return
+
+      async with self._graph_lock:
+          if self._initialized and self._graph:
+              return
+          await self._build_graph()
+          self._initialized = True
+
   def get_graph(self) -> CompiledStateGraph:
     """
     Returns the current compiled LangGraph instance.
-    Thread-safe access to the graph.
-
-    Returns:
-        CompiledStateGraph: The current compiled LangGraph instance.
+    Warning: This returns None if ensure_initialized() hasn't been awaited.
     """
-    with self._graph_lock:
-      return self._graph
+    return self._graph
 
-  def _on_agents_changed(self):
+  async def _on_agents_changed(self):
     """Callback triggered when agent registry detects changes."""
     logger.info("Agent registry change detected, rebuilding graph...")
-    self._rebuild_graph()
+    await self._rebuild_graph()
 
-  def _rebuild_graph(self) -> bool:
+  async def _rebuild_graph(self) -> bool:
     """
     Rebuild the graph with current agents from registry.
 
@@ -90,9 +103,9 @@ class AIPlatformEngineerMAS:
         bool: True if graph was rebuilt successfully
     """
     try:
-      with self._graph_lock:
+      async with self._graph_lock:
         old_generation = self._graph_generation
-        self._build_graph()
+        await self._build_graph()
         logger.info(f"Graph successfully rebuilt (generation {old_generation} → {self._graph_generation})")
         return True
     except Exception as e:
@@ -158,7 +171,7 @@ class AIPlatformEngineerMAS:
       return []
 
 
-  def _build_graph(self) -> None:
+  async def _build_graph(self) -> None:
     """
     Internal method to construct and compile a DeepAgents graph with current agents.
     Updates self._graph and increments generation counter.
@@ -260,6 +273,21 @@ class AIPlatformEngineerMAS:
 
     # Generate CustomSubAgents (pre-created react agents with A2A tools)
     subagents = platform_registry.generate_subagents(agent_prompts, base_model)
+
+    # CHECK FOR SINGLE GRAPH MODE
+    # If enabled, try to replace A2A subagents with local compiled graphs
+    sg_mode = os.getenv("SINGLE_GRAPH_MODE", "false")
+    logger.info(f"Checking SINGLE_GRAPH_MODE: '{sg_mode}'")
+    if sg_mode.lower() == "true":
+        logger.info("🔗 SINGLE GRAPH MODE detected - attempting to load local agent graphs")
+        # This will both replace existing proxies AND append missing local agents
+        subagents = await self._inject_local_graphs(subagents)
+
+        # Remove A2A tools from all_tools to force usage of local graphs via task()
+        # This prevents the supervisor from calling the A2ARemoteAgentConnectTool which fails in single-node
+        agents_to_remove = set(platform_registry.AGENT_NAMES)
+        all_tools = [t for t in all_tools if t.name not in agents_to_remove]
+        logger.info(f"🔥 Removed A2A tools for single graph mode: {agents_to_remove}")
 
     logger.info(f'🔧 Rebuilding with {len(all_tools)} tools and {len(subagents)} subagents')
     logger.info(f'📦 Tools: {[t.name for t in all_tools]}')
@@ -422,4 +450,169 @@ class AIPlatformEngineerMAS:
         "type": "error",
         "data": str(e)
       }
+
+  async def _inject_local_graphs(self, subagents: list) -> list:
+    """
+    Helper to replace A2A proxy subagents with actual local compiled graphs.
+    Also adds agents that are enabled via env vars but were filtered by registry connectivity checks.
+    """
+    # Mapping of agent name to (module_path, class_name)
+    local_agent_registry = {
+        "argocd": ("ai_platform_engineering.agents.argocd.agent_argocd.protocol_bindings.a2a_server.agent", "ArgoCDAgent"),
+        "github": ("ai_platform_engineering.agents.github.agent_github.protocol_bindings.a2a_server.agent", "GitHubAgent"),
+        "jira": ("ai_platform_engineering.agents.jira.agent_jira.protocol_bindings.a2a_server.agent", "JiraAgent"),
+        "komodor": ("ai_platform_engineering.agents.komodor.agent_komodor.protocol_bindings.a2a_server.agent", "KomodorAgent"),
+        "confluence": ("ai_platform_engineering.agents.confluence.agent_confluence.protocol_bindings.a2a_server.agent", "ConfluenceAgent"),
+        "pagerduty": ("ai_platform_engineering.agents.pagerduty.agent_pagerduty.protocol_bindings.a2a_server.agent", "PagerDutyAgent"),
+        "slack": ("ai_platform_engineering.agents.slack.agent_slack.protocol_bindings.a2a_server.agent", "SlackAgent"),
+        "splunk": ("ai_platform_engineering.agents.splunk.agent_splunk.protocol_bindings.a2a_server.agent", "SplunkAgent"),
+        "weather": ("ai_platform_engineering.agents.weather.agent_weather.protocol_bindings.a2a_server.agent", "WeatherAgent"),
+        "webex": ("ai_platform_engineering.agents.webex.agent_webex.protocol_bindings.a2a_server.agent", "WebexAgent"),
+        "backstage": ("ai_platform_engineering.agents.backstage.agent_backstage.protocol_bindings.a2a_server.agent", "BackstageAgent"),
+    }
+
+    # AWS requires special handling, skipping for now as it lacks standard MCP dir structure
+    # "aws": ("ai_platform_engineering.agents.aws.agent_aws.protocol_bindings.a2a_server.agent", "AWSAgent"),
+
+    from langchain_core.runnables.config import RunnableConfig
+    import importlib
+    import inspect
+    
+    # Import BaseLangGraphAgentSingleNode for isinstance checks
+    from ai_platform_engineering.utils.a2a_common.base_langgraph_agent_single_node import BaseLangGraphAgentSingleNode as BLGASN
+    from ai_platform_engineering.utils.a2a_common.base_langgraph_agent import BaseLangGraphAgent as BLGA
+    
+    # Import agent_prompts from prompts module for descriptions
+    from ai_platform_engineering.multi_agents.platform_engineer.prompts import agent_prompts
+
+    # 1. Identify which agents SHOULD be enabled based on env vars
+    enabled_agents = []
+    for agent_key in local_agent_registry.keys():
+        env_var = f"ENABLE_{agent_key.upper()}"
+        if os.getenv(env_var, "false").lower() == "true":
+            enabled_agents.append(agent_key)
+    
+    # Get MCP Mode from env
+    mcp_mode = os.getenv("MCP_MODE", "stdio").lower()
+    
+    logger.info(f"🔗 Single Graph Mode: Enabled local agents: {enabled_agents} (Mode: {mcp_mode})")
+
+    # 2. Process each enabled agent
+    for agent_key in enabled_agents:
+        module_path, class_name = local_agent_registry[agent_key]
+        
+        try:
+            # Convert to lowercase for module paths (env vars use uppercase, directories use lowercase)
+            agent_key_lower = agent_key.lower()
+            
+            # Dynamic discovery logic
+            # Construct standard module path
+            # ai_platform_engineering.agents.{name}.agent_{name}.protocol_bindings.a2a_server.agent
+            module_path = f"ai_platform_engineering.agents.{agent_key_lower}.agent_{agent_key_lower}.protocol_bindings.a2a_server.agent"
+            
+            logger.debug(f"🔍 Attempting to discover agent {agent_key} in {module_path}")
+            
+            try:
+                module = importlib.import_module(module_path)
+            except ImportError as e:
+                logger.warning(f"⚠️ Could not import module for {agent_key}: {e}. Skipping dynamic loading.")
+                continue
+
+            # Find agent class in module
+            agent_class = None
+            for name, obj in inspect.getmembers(module):
+                # Prefer BaseLangGraphAgentSingleNode subclasses, but fallback to BaseLangGraphAgent subclasses
+                if inspect.isclass(obj):
+                    try:
+                        # Use a robust check that doesn't rely on exact object identity 
+                        # to avoid issues with multiple imports of the base class
+                        mro_names = [f"{b.__module__}.{b.__name__}" for b in obj.__mro__]
+                        
+                        is_base = any(name in (
+                            "ai_platform_engineering.utils.a2a_common.base_langgraph_agent.BaseLangGraphAgent",
+                            "ai_platform_engineering.utils.a2a_common.base_langgraph_agent_single_node.BaseLangGraphAgentSingleNode"
+                        ) for name in [f"{obj.__module__}.{obj.__name__}"])
+                        
+                        is_sub = any("ai_platform_engineering.utils.a2a_common.base_langgraph_agent.BaseLangGraphAgent" in name for name in mro_names)
+                        
+                        if not is_base and is_sub:
+                            logger.info(f"   ✅ Found agent class: {name}")
+                            agent_class = obj
+                            break
+                    except Exception:
+                        pass
+            
+            if not agent_class:
+                logger.warning(f"⚠️  No BLGA subclass found in {module_path} for {agent_key}. Skipping. (Found: {[n for n, o in inspect.getmembers(module) if inspect.isclass(o)]})")
+                continue
+
+            class_name = agent_class.__name__
+            logger.info(f"🔄 Loading local graph for {agent_key} from {module_path}.{class_name}...")
+            
+            # Instantiate agent
+            agent_instance = agent_class()
+            
+            # Logic to find the MCP server path relative to the agent module
+            # Standard generic pattern:
+            # Module: .../agents/{name}/agent_{name}/protocol_bindings/a2a_server/agent.py
+            # Server: .../agents/{name}/mcp/mcp_{name}/server.py
+            # Relative: ../../../../mcp/mcp_{name}/server.py
+            
+            agent_file = inspect.getfile(agent_class)
+            agent_dir = os.path.dirname(agent_file)
+            
+            # Try standard path
+            # Try standard path
+            # Expected: .../agents/{name}/agent_{name}/protocol_bindings/a2a_server/agent.py
+            # Go up 3 levels to reach .../agents/{name}
+            possible_server_path = os.path.abspath(os.path.join(
+                agent_dir, 
+                "../../../mcp", 
+                f"mcp_{agent_key_lower}", 
+                "server.py"
+            ))
+            
+            config_args = {}
+            if os.path.exists(possible_server_path):
+                logger.info(f"   📍 Found local MCP server at: {possible_server_path}")
+                config_args["server_path"] = possible_server_path
+            else:
+                logger.warning(f"   ⚠️ Could not find local MCP server at {possible_server_path}. Agent might rely on default or fail.")
+            
+            # Initialize graph
+            await agent_instance._setup_mcp_and_graph(RunnableConfig(configurable=config_args))
+            
+            if not agent_instance.graph:
+                logger.warning(f"❌ Local graph for {agent_key} resulted in None")
+                continue
+
+            # Check if this agent was already in the list (replace it) or needs to be added
+            found = False
+            for subagent in subagents:
+                # Flexible name matching (argocd vs ArgoCD)
+                if subagent.get("name", "").lower().replace(" ", "_") == agent_key_lower:
+                    subagent["graph"] = agent_instance.graph
+                    # Get description from prompt_config or fallback to agent's instruction
+                    agent_description = agent_prompts.get(agent_key_lower, {}).get("system_prompt", None)
+                    subagent["description"] = agent_description.strip() if agent_description else agent_instance.get_system_instruction()
+                    logger.info(f"✅ Replaced existing A2A proxy with local graph for {agent_key_lower}")
+                    found = True
+                    break
+            
+            if not found:
+                # Add new subagent entry with description from prompt_config
+                agent_description = agent_prompts.get(agent_key_lower, {}).get("system_prompt", f"Manage {agent_key_lower} resources.")
+                logger.info(f"✅ Injecting missing local agent {agent_key_lower} into graph")
+                subagents.append({
+                    "name": agent_key_lower,  # Use lowercase key as canonical name
+                    "description": agent_description.strip(),
+                    "graph": agent_instance.graph
+                })
+
+        except Exception as e:
+            logger.error(f"❌ Failed to load local graph for {agent_key_lower}: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+
+    return subagents
 

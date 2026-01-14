@@ -1,83 +1,476 @@
-name: multi_agent_workflows
-description: Multi-agent integration tests for cross-platform workflows
+name: multi_agent_comprehensive
+description: |
+  Comprehensive evaluation dataset for all agents in single-graph mode.
+  Includes single-agent tests and multi-agent workflow tests.
+  Covers: ArgoCD, Jira, GitHub, PagerDuty, Splunk, Confluence, Backstage, Komodor, Slack, Webex, Weather
+
 prompts:
-  # GitHub + Jira Integration
-  - id: "github_and_jira_integration"
+  # ============================================================================
+  # ARGOCD AGENT TESTS
+  # ============================================================================
+  
+  - id: "argocd_version"
+    messages:
+      - role: "user"
+        content: "Show me the ArgoCD version"
+    expected_agents: ["argocd_tools_agent"]
+    expected_behavior: "Should use ArgoCD agent to retrieve and display the current ArgoCD server version"
+
+  - id: "argocd_version_variation"
+    messages:
+      - role: "user"
+        content: "What version of ArgoCD is running?"
+    expected_agents: ["argocd_tools_agent"]
+    expected_behavior: "Should use ArgoCD agent to get version information"
+
+  - id: "argocd_list_applications"
+    messages:
+      - role: "user"
+        content: "List all ArgoCD applications"
+    expected_agents: ["argocd_tools_agent"]
+    expected_behavior: "Should use ArgoCD agent to list all applications with their sync and health status"
+
+  - id: "argocd_list_apps_short"
+    messages:
+      - role: "user"
+        content: "Show me argocd apps"
+    expected_agents: ["argocd_tools_agent"]
+    expected_behavior: "Should use ArgoCD agent to list applications"
+
+  - id: "argocd_search_applications"
+    messages:
+      - role: "user"
+        content: "Search for ArgoCD applications containing 'prod'"
+    expected_agents: ["argocd_tools_agent"]
+    expected_behavior: "Should use Search_Argocd_Resources tool to find applications matching 'prod'"
+
+  - id: "argocd_list_projects"
+    messages:
+      - role: "user"
+        content: "List all ArgoCD projects"
+    expected_agents: ["argocd_tools_agent"]
+    expected_behavior: "Should use ArgoCD agent to list all projects"
+
+  - id: "argocd_list_clusters"
+    messages:
+      - role: "user"
+        content: "Show all clusters in ArgoCD"
+    expected_agents: ["argocd_tools_agent"]
+    expected_behavior: "Should use ArgoCD agent to list all registered clusters"
+
+  # ============================================================================
+  # JIRA AGENT TESTS
+  # ============================================================================
+
+  - id: "jira_list_projects"
+    messages:
+      - role: "user"
+        content: "List all Jira projects I have access to"
+    expected_agents: ["jira_tools_agent"]
+    expected_behavior: "Should use Jira agent to list all accessible projects"
+
+  - id: "jira_list_projects_variation"
+    messages:
+      - role: "user"
+        content: "Show me available Jira projects"
+    expected_agents: ["jira_tools_agent"]
+    expected_behavior: "Should use Jira agent to list projects"
+
+  - id: "jira_search_issues"
+    messages:
+      - role: "user"
+        content: "Find all open bugs in Jira"
+    expected_agents: ["jira_tools_agent"]
+    expected_behavior: "Should use Jira agent with JQL: issuetype = Bug AND status != Done"
+
+  - id: "jira_search_issues_variation"
+    messages:
+      - role: "user"
+        content: "Show me open bug tickets"
+    expected_agents: ["jira_tools_agent"]
+    expected_behavior: "Should search for bug issues that are not resolved"
+
+  - id: "jira_recent_issues"
+    messages:
+      - role: "user"
+        content: "Show issues updated in the last 7 days"
+    expected_agents: ["jira_tools_agent"]
+    expected_behavior: "Should use Jira agent with date filter: updated >= -7d"
+
+  - id: "jira_get_issue"
+    messages:
+      - role: "user"
+        content: "Get details for Jira issue PLAT-123"
+    expected_agents: ["jira_tools_agent"]
+    expected_behavior: "Should use Jira agent to retrieve specific issue details"
+
+  - id: "jira_search_epics"
+    messages:
+      - role: "user"
+        content: "List all epics in the PLAT project"
+    expected_agents: ["jira_tools_agent"]
+    expected_behavior: "Should use Jira agent with JQL: project = PLAT AND issuetype = Epic"
+
+  # ============================================================================
+  # GITHUB AGENT TESTS
+  # ============================================================================
+
+  - id: "github_list_repos"
+    messages:
+      - role: "user"
+        content: "List repositories in cnoe-io organization"
+    expected_agents: ["github_tools_agent"]
+    expected_behavior: "Should use GitHub agent to list all repositories in the cnoe-io organization"
+
+  - id: "github_repo_description"
+    messages:
+      - role: "user"
+        content: "Show description for ai-platform-engineering repo in cnoe-io"
+    expected_agents: ["github_tools_agent"]
+    expected_behavior: "Should use GitHub agent to fetch repository description"
+
+  - id: "github_list_issues"
+    messages:
+      - role: "user"
+        content: "Show open issues in cnoe-io/ai-platform-engineering"
+    expected_agents: ["github_tools_agent"]
+    expected_behavior: "Should use GitHub agent to list open issues for the repository"
+
+  - id: "github_list_prs"
+    messages:
+      - role: "user"
+        content: "List open pull requests in cnoe-io/ai-platform-engineering"
+    expected_agents: ["github_tools_agent"]
+    expected_behavior: "Should use GitHub agent to list open PRs"
+
+  - id: "github_recent_commits"
+    messages:
+      - role: "user"
+        content: "Show the last 5 commits on main branch"
+    expected_agents: ["github_tools_agent"]
+    expected_behavior: "Should use GitHub agent to retrieve recent commits from main branch"
+
+  - id: "github_workflow_status"
+    messages:
+      - role: "user"
+        content: "Check the status of GitHub Actions workflows"
+    expected_agents: ["github_tools_agent"]
+    expected_behavior: "Should use GitHub agent to check workflow run statuses"
+
+  # ============================================================================
+  # PAGERDUTY AGENT TESTS
+  # ============================================================================
+
+  - id: "pagerduty_list_incidents"
+    messages:
+      - role: "user"
+        content: "Show current open incidents in PagerDuty"
+    expected_agents: ["pagerduty_tools_agent"]
+    expected_behavior: "Should use PagerDuty agent to list triggered and acknowledged incidents"
+
+  - id: "pagerduty_list_incidents_variation"
+    messages:
+      - role: "user"
+        content: "What PagerDuty incidents are active?"
+    expected_agents: ["pagerduty_tools_agent"]
+    expected_behavior: "Should list active incidents"
+
+  - id: "pagerduty_list_services"
+    messages:
+      - role: "user"
+        content: "List all PagerDuty services"
+    expected_agents: ["pagerduty_tools_agent"]
+    expected_behavior: "Should use PagerDuty agent to list all configured services"
+
+  - id: "pagerduty_oncall"
+    messages:
+      - role: "user"
+        content: "Who is currently on-call?"
+    expected_agents: ["pagerduty_tools_agent"]
+    expected_behavior: "Should use PagerDuty agent to get current on-call schedule"
+
+  - id: "pagerduty_oncall_variation"
+    messages:
+      - role: "user"
+        content: "Show me the on-call schedule"
+    expected_agents: ["pagerduty_tools_agent"]
+    expected_behavior: "Should retrieve on-call information"
+
+  # ============================================================================
+  # SPLUNK AGENT TESTS
+  # ============================================================================
+
+  - id: "splunk_search_logs"
+    messages:
+      - role: "user"
+        content: "Search for error logs in the last 24 hours"
+    expected_agents: ["splunk_tools_agent"]
+    expected_behavior: "Should use Splunk agent to search logs with SPL query for errors"
+
+  - id: "splunk_search_logs_variation"
+    messages:
+      - role: "user"
+        content: "Find errors in Splunk from today"
+    expected_agents: ["splunk_tools_agent"]
+    expected_behavior: "Should search Splunk for error entries"
+
+  - id: "splunk_list_indexes"
+    messages:
+      - role: "user"
+        content: "List available Splunk indexes"
+    expected_agents: ["splunk_tools_agent"]
+    expected_behavior: "Should use Splunk agent to list available indexes"
+
+  - id: "splunk_list_incidents"
+    messages:
+      - role: "user"
+        content: "Show Splunk Observability incidents"
+    expected_agents: ["splunk_tools_agent"]
+    expected_behavior: "Should use Splunk Observability tools to list incidents"
+
+  - id: "splunk_server_info"
+    messages:
+      - role: "user"
+        content: "Get Splunk server information"
+    expected_agents: ["splunk_tools_agent"]
+    expected_behavior: "Should use Splunk agent to get server version and info"
+
+  # ============================================================================
+  # CONFLUENCE AGENT TESTS
+  # ============================================================================
+
+  - id: "confluence_list_spaces"
+    messages:
+      - role: "user"
+        content: "List all Confluence spaces"
+    expected_agents: ["confluence_tools_agent"]
+    expected_behavior: "Should use Confluence agent to list all accessible spaces"
+
+  - id: "confluence_list_spaces_variation"
+    messages:
+      - role: "user"
+        content: "Show available wiki spaces"
+    expected_agents: ["confluence_tools_agent"]
+    expected_behavior: "Should list Confluence spaces"
+
+  - id: "confluence_search_pages"
+    messages:
+      - role: "user"
+        content: "Search for 'deployment' in Confluence"
+    expected_agents: ["confluence_tools_agent"]
+    expected_behavior: "Should use Confluence agent to search for pages containing 'deployment'"
+
+  - id: "confluence_search_variation"
+    messages:
+      - role: "user"
+        content: "Find runbook documentation in Confluence"
+    expected_agents: ["confluence_tools_agent"]
+    expected_behavior: "Should search for runbook-related pages"
+
+  - id: "confluence_recent_pages"
+    messages:
+      - role: "user"
+        content: "Show recently updated Confluence pages"
+    expected_agents: ["confluence_tools_agent"]
+    expected_behavior: "Should list pages modified recently"
+
+  # ============================================================================
+  # BACKSTAGE AGENT TESTS
+  # ============================================================================
+
+  - id: "backstage_list_entities"
+    messages:
+      - role: "user"
+        content: "List all entities in Backstage catalog"
+    expected_agents: ["backstage_tools_agent"]
+    expected_behavior: "Should use Backstage agent to list catalog entities"
+
+  - id: "backstage_list_services"
+    messages:
+      - role: "user"
+        content: "Show all services in Backstage"
+    expected_agents: ["backstage_tools_agent"]
+    expected_behavior: "Should list service entities from Backstage catalog"
+
+  - id: "backstage_get_entity"
+    messages:
+      - role: "user"
+        content: "Get details about a specific component in Backstage"
+    expected_agents: ["backstage_tools_agent"]
+    expected_behavior: "Should retrieve detailed entity information"
+
+  # ============================================================================
+  # KOMODOR AGENT TESTS
+  # ============================================================================
+
+  - id: "komodor_list_services"
+    messages:
+      - role: "user"
+        content: "List Kubernetes services in Komodor"
+    expected_agents: ["komodor_tools_agent"]
+    expected_behavior: "Should use Komodor agent to list K8s services"
+
+  - id: "komodor_service_health"
+    messages:
+      - role: "user"
+        content: "Show unhealthy services in Komodor"
+    expected_agents: ["komodor_tools_agent"]
+    expected_behavior: "Should filter services by health status = unhealthy"
+
+  - id: "komodor_list_clusters"
+    messages:
+      - role: "user"
+        content: "List all Kubernetes clusters in Komodor"
+    expected_agents: ["komodor_tools_agent"]
+    expected_behavior: "Should use Komodor agent to list monitored clusters"
+
+  - id: "komodor_recent_events"
+    messages:
+      - role: "user"
+        content: "Show recent Kubernetes events from Komodor"
+    expected_agents: ["komodor_tools_agent"]
+    expected_behavior: "Should list recent K8s events"
+
+  # ============================================================================
+  # SLACK AGENT TESTS
+  # ============================================================================
+
+  - id: "slack_list_channels"
+    messages:
+      - role: "user"
+        content: "List Slack channels I have access to"
+    expected_agents: ["slack_tools_agent"]
+    expected_behavior: "Should use Slack agent to list accessible channels"
+
+  - id: "slack_list_channels_variation"
+    messages:
+      - role: "user"
+        content: "Show available Slack channels"
+    expected_agents: ["slack_tools_agent"]
+    expected_behavior: "Should list Slack channels"
+
+  - id: "slack_channel_info"
+    messages:
+      - role: "user"
+        content: "Get information about the #general Slack channel"
+    expected_agents: ["slack_tools_agent"]
+    expected_behavior: "Should retrieve channel details"
+
+  # ============================================================================
+  # WEBEX AGENT TESTS
+  # ============================================================================
+
+  - id: "webex_list_rooms"
+    messages:
+      - role: "user"
+        content: "List my Webex rooms"
+    expected_agents: ["webex_tools_agent"]
+    expected_behavior: "Should use Webex agent to list rooms"
+
+  - id: "webex_list_rooms_variation"
+    messages:
+      - role: "user"
+        content: "Show Webex spaces I'm in"
+    expected_agents: ["webex_tools_agent"]
+    expected_behavior: "Should list Webex rooms/spaces"
+
+  # ============================================================================
+  # WEATHER AGENT TESTS
+  # ============================================================================
+
+  - id: "weather_current"
+    messages:
+      - role: "user"
+        content: "What's the current weather in San Francisco?"
+    expected_agents: ["weather_tools_agent"]
+    expected_behavior: "Should use Weather agent to get current weather conditions"
+
+  - id: "weather_forecast"
+    messages:
+      - role: "user"
+        content: "Will it rain tomorrow in New York?"
+    expected_agents: ["weather_tools_agent"]
+    expected_behavior: "Should get weather forecast for tomorrow"
+
+  - id: "weather_european_city"
+    messages:
+      - role: "user"
+        content: "What's the weather in Paris?"
+    expected_agents: ["weather_tools_agent"]
+    expected_behavior: "Should get weather in Celsius for European city"
+
+  # ============================================================================
+  # MULTI-AGENT WORKFLOW TESTS
+  # ============================================================================
+
+  - id: "github_jira_integration"
     messages:
       - role: "user"
         content: "Create a Jira issue for the latest GitHub issue in cnoe-io/ai-platform-engineering repo"
-    expected_output: "Created Jira issue PLAT-456 based on GitHub issue #123 'Fix Docker configuration' from ai-platform-engineering repo."
     expected_agents: ["github_tools_agent", "jira_tools_agent"]
-    expected_behavior: "Should first use GitHub agent to fetch the latest issue, then use Jira agent to create a new issue with the relevant details"
+    expected_behavior: |
+      1. GitHub agent fetches the latest issue from the repository
+      2. Jira agent creates a new issue with the relevant details
 
-  - id: "github_issues_to_jira_backlog"
+  - id: "github_issues_to_jira"
     messages:
       - role: "user"
         content: "Create Jira tickets for all open GitHub issues labeled 'bug'"
-    expected_output: "Created 5 Jira tickets from GitHub bug issues: PLAT-457, PLAT-458, PLAT-459, PLAT-460, PLAT-461."
     expected_agents: ["github_tools_agent", "jira_tools_agent"]
-    expected_behavior: "Should use GitHub agent to find issues with 'bug' label, then use Jira agent to create corresponding tickets for each bug"
+    expected_behavior: |
+      1. GitHub agent finds issues with 'bug' label
+      2. Jira agent creates corresponding tickets for each bug
 
-  # GitHub + ArgoCD Deployment
   - id: "cross_service_deployment"
     messages:
       - role: "user"
-        content: "Create a new GitHub repository, set up ArgoCD application, and deploy to production"
-    expected_output: "Created GitHub repo 'new-service', configured ArgoCD application 'new-service-prod', deployed successfully to production."
-    expected_agents: ["github_tools_agent", "argocd_tools_agent"]
+        content: "Check the ArgoCD application status and create a Jira ticket if any apps are out of sync"
+    expected_agents: ["argocd_tools_agent", "jira_tools_agent"]
     expected_behavior: |
-      1. GitHub agent creates a new repository
-      2. ArgoCD agent creates application configuration for the new repository
-      3. ArgoCD agent triggers deployment to production environment
+      1. ArgoCD agent lists applications and checks sync status
+      2. If out-of-sync apps found, Jira agent creates a tracking ticket
 
-
-  # PagerDuty + Slack + Jira Incident Management
   - id: "incident_management_workflow"
     messages:
       - role: "user"
-        content: "Create a PagerDuty incident for server downtime, notify Slack, and create a Jira ticket for tracking"
-    expected_output: "Created PagerDuty incident INC-789, posted alert to #incidents Slack channel, created Jira ticket PLAT-462 for tracking."
-    expected_agents: ["pagerduty_tools_agent", "slack_tools_agent", "jira_tools_agent"]
+        content: "Create a PagerDuty incident for server downtime and notify the #incidents Slack channel"
+    expected_agents: ["pagerduty_tools_agent", "slack_tools_agent"]
     expected_behavior: |
       1. PagerDuty agent creates incident for server downtime
-      2. Slack agent sends notification to team channel about the incident
-      3. Jira agent creates tracking ticket with incident details and references
+      2. Slack agent sends notification to #incidents channel
 
-
-  # Confluence + Backstage Documentation
   - id: "documentation_workflow"
     messages:
       - role: "user"
-        content: "Create a Confluence page documenting the deployment process and link it to the Backstage service catalog"
-    expected_output: "Created Confluence page 'Deployment Process Guide', updated Backstage catalog with documentation links."
-    expected_agents: ["confluence_tools_agent", "backstage_tools_agent"]
+        content: "Search for deployment documentation in Confluence and summarize it"
+    expected_agents: ["confluence_tools_agent"]
     expected_behavior: |
-      1. Confluence agent creates documentation page for deployment process
-      2. Backstage agent updates service catalog entry to reference the documentation
-      3. Establishes link between service definition and its documentation
+      1. Confluence agent searches for deployment-related pages
+      2. Returns search results with page summaries
 
-
-  # GitHub + ArgoCD + Confluence Release Process
   - id: "release_process"
     messages:
       - role: "user"
-        content: "Create GitHub release v2.1.0 for ai-platform-engineering repo, update ArgoCD application platform-api, and post release notes to Confluence"
-    expected_output: "Created GitHub release v2.1.0 for ai-platform-engineering, updated ArgoCD application platform-api deployment, posted release notes to Confluence documentation."
-    expected_agents: ["github_tools_agent", "argocd_tools_agent", "confluence_tools_agent"]
+        content: "Create a GitHub release and update the ArgoCD application to deploy it"
+    expected_agents: ["github_tools_agent", "argocd_tools_agent"]
     expected_behavior: |
-      1. GitHub agent creates release v2.1.0 with version tag and release notes for ai-platform-engineering repo
-      2. ArgoCD agent updates platform-api application to deploy the new release
-      3. Confluence agent creates or updates release documentation page
+      1. GitHub agent creates a new release
+      2. ArgoCD agent syncs or updates the application deployment
 
-  # Slack Integration Workflows
-  - id: "slack_notification_hub"
+  - id: "incident_investigation"
     messages:
       - role: "user"
-        content: "Set up notifications: GitHub PR updates to #dev, Jira status changes to #project, PagerDuty alerts to #ops"
-    expected_output: "Configured notifications: GitHub PR updates → #dev channel, Jira status changes → #project channel, PagerDuty alerts → #ops channel."
-    expected_agents: ["slack_tools_agent", "github_tools_agent", "jira_tools_agent", "pagerduty_tools_agent"]
+        content: "Show PagerDuty incidents and search Splunk for related error logs"
+    expected_agents: ["pagerduty_tools_agent", "splunk_tools_agent"]
     expected_behavior: |
-      1. GitHub agent configures PR webhook notifications
-      2. Jira agent sets up status change notifications
-      3. PagerDuty agent configures alert routing
-      4. Slack agent creates appropriate channel notifications for each service
+      1. PagerDuty agent lists current incidents
+      2. Splunk agent searches for error logs related to the incidents
+
+  - id: "k8s_debugging"
+    messages:
+      - role: "user"
+        content: "Check Komodor for unhealthy services and get ArgoCD sync status for them"
+    expected_agents: ["komodor_tools_agent", "argocd_tools_agent"]
+    expected_behavior: |
+      1. Komodor agent lists unhealthy services
+      2. ArgoCD agent checks sync status for those applications

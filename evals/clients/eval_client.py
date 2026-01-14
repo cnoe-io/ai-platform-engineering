@@ -40,11 +40,13 @@ class EvalClient:
     def __init__(
         self,
         platform_engineer_url: str = "http://platform-engineering:8000",
-        timeout: float = 300.0,
-        max_concurrent_requests: int = 3
+        timeout: float = 20.0,
+        max_retries: int = 3,
+        max_concurrent_requests: int = 20
     ):
         self.platform_engineer_url = platform_engineer_url
         self.timeout = timeout
+        self.max_retries = max_retries
         
         # Rate limiting to prevent overwhelming the Platform Engineer
         self._request_semaphore = asyncio.Semaphore(max_concurrent_requests)
@@ -92,66 +94,99 @@ class EvalClient:
         
         # Rate limiting to prevent queue overload
         async with self._request_semaphore:
-            try:
-                # Create a proper Message object with TextPart content and trace_id in metadata
-                message = Message(
-                    message_id=str(uuid.uuid4()),
-                    role=Role.user,
-                    parts=[TextPart(text=request.prompt)],
-                    context_id=str(uuid.uuid4()),
-                    metadata={"trace_id": request.trace_id} if request.trace_id else None
-                )
-                
-                # Create properly structured request
-                a2a_request = SendMessageRequest(
-                    id=str(uuid.uuid4()),
-                    params=MessageSendParams(
-                        message=message
+            last_error = None
+            
+            # Retry loop
+            for attempt in range(self.max_retries):
+                try:
+                    # Create properly structured request
+                    message = Message(
+                        message_id=str(uuid.uuid4()),
+                        role=Role.user,
+                        parts=[TextPart(text=request.prompt)],
+                        context_id=str(uuid.uuid4()),
+                        metadata={"trace_id": request.trace_id} if request.trace_id else None
                     )
-                )
+                    
+                    a2a_request = SendMessageRequest(
+                        id=str(uuid.uuid4()),
+                        params=MessageSendParams(
+                            message=message
+                        )
+                    )
+                    
+                    logger.info(f"🔍 EvalClient A2A Request: Sending trace_id={request.trace_id} to Platform Engineer (attempt {attempt+1}/{self.max_retries})")
+                    
+                    # Send message and get single response (not streaming) with timeout
+                    response = await asyncio.wait_for(
+                        self.a2a_client.send_message(a2a_request),
+                        timeout=self.timeout
+                    )
+                    
+                    execution_time = time.time() - start_time
+                    
+                    # Extract content from response
+                    response_text = self._extract_response_text(response)
+                    
+                    logger.info(f"🔍 EvalClient: Received response from Platform Engineer (trace_id: {request.trace_id}, time: {execution_time:.2f}s)")
+                    
+                    return EvaluationResponse(
+                        response_text=response_text,
+                        trace_id=request.trace_id or "unknown",
+                        success=True,
+                        execution_time=execution_time
+                    )
                 
-                logger.info(f"🔍 EvalClient A2A Request: Sending trace_id={request.trace_id} to Platform Engineer")
-                
-                # Send message and get single response (not streaming)
-                response = await self.a2a_client.send_message(a2a_request)
-                
-                execution_time = time.time() - start_time
-                
-                # Extract content from response
-                response_text = self._extract_response_text(response)
-                
-                logger.info(f"🔍 EvalClient: Received response from Platform Engineer (trace_id: {request.trace_id}, time: {execution_time:.2f}s)")
-                
-                return EvaluationResponse(
-                    response_text=response_text,
-                    trace_id=request.trace_id or "unknown",
-                    success=True,
-                    execution_time=execution_time
-                )
-                
-            except Exception as e:
-                execution_time = time.time() - start_time
-                error_msg = f"Failed to send message to Platform Engineer: {str(e)}"
-                logger.error(f"🔍 EvalClient: {error_msg}")
-                
-                return EvaluationResponse(
-                    response_text=error_msg,
-                    trace_id=request.trace_id or "unknown", 
-                    success=False,
-                    execution_time=execution_time,
-                    error_message=error_msg
-                )
+                except Exception as e:
+                    # Store error from this attempt
+                    last_error = e
+                    execution_time = time.time() - start_time
+                    error_msg = f"Attempt {attempt+1}/{self.max_retries} failed: {str(e)}"
+                    
+                    if isinstance(e, asyncio.TimeoutError):
+                        logger.debug(f"🔍 EvalClient: {error_msg} ({execution_time:.2f}s elapsed)")
+                    else:
+                        logger.warning(f"🔍 EvalClient: {error_msg} ({execution_time:.2f}s elapsed)")
+                        # Add a small delay for non-timeout errors to avoid spamming
+                        await asyncio.sleep(0.5)
+        
+        # If we get here, all retries failed
+        total_time = time.time() - start_time
+        final_error = f"Failed after {self.max_retries} attempts. Last error: {str(last_error)}"
+        logger.error(f"🔍 EvalClient: {final_error}")
+        
+        return EvaluationResponse(
+            response_text=f"Error: {final_error}",
+            trace_id=request.trace_id or "unknown", 
+            success=False,
+            execution_time=total_time,
+            error_message=final_error
+        )
     
     def _extract_response_text(self, response) -> str:
-        """Extract content from A2A response."""
-        # Extract content from response (same logic as original)
-        if hasattr(response, 'content'):
-            return response.content
-        elif hasattr(response, 'message') and hasattr(response.message, 'content'):
-            return response.message.content
-        elif isinstance(response, dict):
-            return response.get('content', str(response))
-        else:
+        """Extract content from A2A response, handling streaming artifacts."""
+        try:
+            # Check for streaming result artifact first (common in Platform Engineer)
+            if hasattr(response, 'result') and hasattr(response.result, 'artifacts'):
+                for artifact in response.result.artifacts:
+                    if artifact.name == 'streaming_result' and hasattr(artifact, 'parts'):
+                        # Join all text parts
+                        return "".join([
+                            p.root.text for p in artifact.parts 
+                            if hasattr(p, 'root') and hasattr(p.root, 'text')
+                        ])
+            
+            # Standard message content
+            if hasattr(response, 'content'):
+                return response.content
+            elif hasattr(response, 'message') and hasattr(response.message, 'content'):
+                return response.message.content
+            elif isinstance(response, dict):
+                return response.get('content', str(response))
+            else:
+                return str(response)
+        except Exception as e:
+            logger.warning(f"Error extracting response text: {e}")
             return str(response)
     
     async def cleanup(self):
