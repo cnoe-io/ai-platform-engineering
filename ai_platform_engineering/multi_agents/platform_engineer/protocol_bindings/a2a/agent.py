@@ -5,6 +5,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 from collections.abc import AsyncIterable
 from typing import Any
 
@@ -28,7 +29,9 @@ from ai_platform_engineering.utils.a2a_common.langmem_utils import (
 )
 from langchain_core.messages import AIMessage, AIMessageChunk, ToolMessage
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+import os
+_log_level = os.getenv("LOG_LEVEL", "INFO").upper()
+logging.basicConfig(level=getattr(logging, _log_level, logging.INFO), format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 class AIPlatformEngineerA2ABinding:
@@ -262,6 +265,20 @@ class AIPlatformEngineerA2ABinding:
           accumulated_ai_content = []
           final_ai_message = None
 
+          # CRITICAL: Track content from LAST turn only (after all tool calls complete)
+          # This prevents intermediate reasoning ("I'll help you...", "Great! I found...")
+          # from appearing in the final output
+          last_turn_content = []
+
+          # CRITICAL: Track ResponseFormat tool content (the deterministic final response)
+          # When response_format is enabled, the LLM calls ResponseFormat tool with structured output
+          # This is the ONLY reliable way to distinguish final answer from intermediate reasoning
+          response_format_content = ""
+
+          # For Bedrock streaming: accumulate tool_use blocks to reconstruct tool calls (e.g., ResponseFormat)
+          # Structure: {index: {"name": str | None, "input_parts": [str]}}
+          tool_use_buffers: dict[int, dict[str, list[str] | str | None]] = {}
+
           # Track sub-agent responses for fallback if synthesis fails
           # Format: {tool_name: response_content}
           accumulated_subagent_responses = {}
@@ -331,8 +348,32 @@ class AIPlatformEngineerA2ABinding:
 
               # Stream LLM tokens (includes execution plans and responses)
               if isinstance(message, AIMessageChunk):
+                  # Log what's in this chunk to understand the streaming behavior
+                  has_tc = hasattr(message, "tool_calls") and bool(message.tool_calls)
+                  has_content = bool(message.content)
+                  logging.info(f"📨 SUPERVISOR AIMessageChunk: has_tool_calls={has_tc}, has_content={has_content}, content_preview={str(message.content)[:100] if message.content else 'None'}")
+
                   # Check if this chunk has tool_calls (tool invocation)
                   if hasattr(message, "tool_calls") and message.tool_calls:
+                      # Get tool names for this chunk (filter out empty names from streaming chunks)
+                      tool_names = [tc.get("name", "").lower() for tc in message.tool_calls if tc.get("name")]
+
+                      # If no tool names, this is just a streaming chunk with tool arguments - skip clearing
+                      if not tool_names:
+                          logging.debug(f"📝 Tool argument streaming chunk (no names) - not clearing last_turn_content")
+                      else:
+                          # CRITICAL: Only clear last_turn_content for NON-HOUSEKEEPING tools
+                          # Housekeeping tools like write_todos are called AFTER the answer is generated
+                          # to update TODO status - we should NOT clear the answer content
+                          housekeeping_tools = {'write_todos', 'update_todos', 'clear_todos', 'reflect_on_output'}
+                          is_housekeeping = all(name in housekeeping_tools for name in tool_names)
+
+                          if not is_housekeeping and last_turn_content:
+                              logging.info(f"🔄 Tool call detected ({tool_names}) - clearing last_turn_content ({len(last_turn_content)} chunks)")
+                              last_turn_content.clear()
+                          elif is_housekeeping:
+                              logging.info(f"🔧 Housekeeping tool call ({tool_names}) - NOT clearing last_turn_content ({len(last_turn_content)} chunks)")
+
                       # This is a tool call chunk - emit tool start notifications
                       for tool_call in message.tool_calls:
                           tool_name = tool_call.get("name", "")
@@ -373,6 +414,25 @@ class AIPlatformEngineerA2ABinding:
                               logging.info(f"🔍 BEDROCK CONTENT BLOCK [{idx}]: type={block_type}, keys={list(item.keys())}")
                               if block_type == 'text' or block_type is None:
                                   text_parts.append(item.get('text', ''))
+                              elif block_type == 'tool_use':
+                                  idx = item.get('index')
+                                  if idx is None:
+                                      idx = item.get('contentBlockIndex')  # safety
+                                  if idx is not None:
+                                      buf = tool_use_buffers.setdefault(int(idx), {"name": item.get('name'), "input_parts": []})
+                                      if item.get('name') and not buf.get("name"):
+                                          buf["name"] = item.get('name')
+                                      fragment = item.get('input')
+                                      if isinstance(fragment, str):
+                                          buf["input_parts"].append(fragment)
+                                      elif isinstance(fragment, dict):
+                                          try:
+                                              buf["input_parts"].append(json.dumps(fragment))
+                                          except Exception:
+                                              pass
+                                      logging.info(f"🚧 Captured tool_use fragment from Bedrock stream (idx={idx}, name={buf.get('name')})")
+                                  else:
+                                      logging.info("⚠️ tool_use block missing index; skipping buffer accumulation")
                               elif block_type == 'thinking':
                                   logging.info(f"🚫 SKIPPING THINKING BLOCK: {str(item)[:100]}")
                               else:
@@ -391,6 +451,8 @@ class AIPlatformEngineerA2ABinding:
                   # Accumulate content for post-stream parsing
                   if content:
                       accumulated_ai_content.append(content)
+                      # Track in last_turn_content (will be cleared on non-housekeeping tool calls)
+                      last_turn_content.append(content)
 
                   if content:  # Only yield if there's actual content
                       # Check for querying announcements and emit as tool_update events
@@ -424,6 +486,23 @@ class AIPlatformEngineerA2ABinding:
 
               # Handle AIMessage with tool calls (tool start indicators)
               elif isinstance(message, AIMessage) and hasattr(message, "tool_calls") and message.tool_calls:
+                  logging.info(f"📨 SUPERVISOR AIMessage: has_content={bool(message.content)}, num_tool_calls={len(message.tool_calls)}, content_preview={str(message.content)[:200] if message.content else 'None'}")
+
+                  # Get tool names (filter out empty names)
+                  tool_names = [tc.get("name", "").lower() for tc in message.tool_calls if tc.get("name")]
+
+                  # Only process if we have actual tool names
+                  if tool_names:
+                      # CRITICAL: Only clear last_turn_content for NON-HOUSEKEEPING tools
+                      housekeeping_tools = {'write_todos', 'update_todos', 'clear_todos', 'reflect_on_output'}
+                      is_housekeeping = all(name in housekeeping_tools for name in tool_names)
+
+                      if not is_housekeeping and last_turn_content:
+                          logging.info(f"🔄 AIMessage tool call ({tool_names}) - clearing last_turn_content ({len(last_turn_content)} chunks)")
+                          last_turn_content.clear()
+                      elif is_housekeeping:
+                          logging.info(f"🔧 AIMessage housekeeping tool call ({tool_names}) - NOT clearing last_turn_content ({len(last_turn_content)} chunks)")
+
                   for tool_call in message.tool_calls:
                       tool_name = tool_call.get("name", "")
                       tool_call_id = tool_call.get("id", "")
@@ -432,6 +511,32 @@ class AIPlatformEngineerA2ABinding:
                       if not tool_name or not tool_name.strip():
                           logging.debug("Skipping tool call with empty name")
                           continue
+
+                      # CRITICAL: Capture ResponseFormat content from AIMessage
+                      # This is the DETERMINISTIC way to get the final response
+                      # ResponseFormat tool contains the structured final output
+                      if tool_name.lower() == 'responseformat':
+                          tool_args = tool_call.get("args", {})
+                          # Extract 'content' or 'message' field which contains the actual response
+                          structured_content = tool_args.get("content", "") or tool_args.get("message", "") or tool_args.get("response", "")
+                          if structured_content:
+                              response_format_content = structured_content
+                              logging.info(f"📝 SUPERVISOR: Captured ResponseFormat content: {len(response_format_content)} chars")
+                              logging.info(f"📝 SUPERVISOR: ResponseFormat content (first 300 chars): {response_format_content[:300]}")
+                          else:
+                              # Fallback: try to get any string value from args
+                              import json
+                              for key, val in tool_args.items():
+                                  if isinstance(val, str) and len(val) > 10:
+                                      response_format_content = val
+                                      logging.info(f"📝 SUPERVISOR: Captured ResponseFormat '{key}' field: {len(response_format_content)} chars")
+                                      break
+                              if not response_format_content and tool_args:
+                                  try:
+                                      response_format_content = json.dumps(tool_args)
+                                      logging.info(f"📝 SUPERVISOR: Captured ResponseFormat args as JSON: {len(response_format_content)} chars")
+                                  except Exception:
+                                      response_format_content = str(tool_args)
 
                       # Track this tool call as pending
                       if tool_call_id:
@@ -566,6 +671,10 @@ class AIPlatformEngineerA2ABinding:
                       logging.info(f"🎯 AIMessage content preview: {content_preview}...")
                       accumulated_ai_content.append(str(message.content))
                   final_ai_message = message
+
+              # Catch-all for any unknown message types
+              else:
+                  logging.debug(f"⚠️ SUPERVISOR: Unknown message type: {type(message).__name__}, message={str(message)[:200]}")
 
       except asyncio.CancelledError:
           logging.warning("⚠️ Primary stream cancelled by client disconnection - parsing final response before exit")
@@ -947,19 +1056,101 @@ class AIPlatformEngineerA2ABinding:
                   final_ai_message = message
 
       # After EITHER primary or fallback streaming completes, parse the final response to extract is_task_complete
-      logging.info(f"🔍 POST-STREAM PARSING: final_ai_message={final_ai_message is not None}, accumulated_chunks={len(accumulated_ai_content)}")
+      logging.info(f"🔍 POST-STREAM PARSING: response_format_content={len(response_format_content)}, final_ai_message={final_ai_message is not None}, last_turn_chunks={len(last_turn_content)}, accumulated_chunks={len(accumulated_ai_content)}")
 
-      # Try to use final_ai_message first, otherwise use accumulated content
-      if final_ai_message:
-          logging.info("✅ Using final AIMessage for structured response parsing")
-          # Extract content from AIMessage
+      # Attempt to reconstruct ResponseFormat from accumulated Bedrock tool_use buffers if missing
+      if not response_format_content and tool_use_buffers:
+          for idx, buf in tool_use_buffers.items():
+              name = (buf.get("name") or "").lower()
+              if name == "responseformat":
+                  joined = "".join(buf.get("input_parts", []))
+                  try:
+                      parsed_tool = json.loads(joined)
+                      candidate = parsed_tool.get("content") or parsed_tool.get("message") or parsed_tool.get("response")
+                      if isinstance(candidate, str) and candidate:
+                          response_format_content = candidate
+                          logging.info(f"📝 Reconstructed ResponseFormat content from tool_use idx={idx}: {len(response_format_content)} chars")
+                          break
+                      elif isinstance(candidate, dict):
+                          try:
+                              response_format_content = json.dumps(candidate)
+                              logging.info(f"📝 Reconstructed ResponseFormat JSON from tool_use idx={idx}: {len(response_format_content)} chars")
+                              break
+                          except Exception:
+                              pass
+                  except Exception as recon_err:
+                      logging.warning(f"⚠️ Failed to parse tool_use buffer idx={idx}: {recon_err}")
+
+      # Synthesis retry: if we still have no ResponseFormat content, run a non-streaming invoke to force tool calls
+      if not response_format_content:
+          try:
+              logging.info("🔁 ResponseFormat missing after stream; running synthesis retry with non-streaming invoke.")
+              synthesis_result = await self.graph.ainvoke(inputs, config)
+              synth_messages = synthesis_result.get("messages", []) if isinstance(synthesis_result, dict) else []
+              for msg in reversed(synth_messages):
+                  tool_calls = getattr(msg, "tool_calls", None)
+                  if tool_calls:
+                      for tc in tool_calls:
+                          tname = (tc.get("name") or "").lower()
+                          if tname == "responseformat":
+                              args = tc.get("args", {}) or {}
+                              structured_content = args.get("content") or args.get("message") or args.get("response")
+                              if structured_content:
+                                  response_format_content = structured_content
+                                  logging.info(f"📝 Captured ResponseFormat content from synthesis retry: {len(response_format_content)} chars")
+                                  break
+                              for key, val in args.items():
+                                  if isinstance(val, str) and len(val) > 10:
+                                      response_format_content = val
+                                      logging.info(f"📝 Captured ResponseFormat '{key}' field from synthesis retry: {len(response_format_content)} chars")
+                                      break
+                      if response_format_content:
+                          break
+          except Exception as synth_err:
+              logging.warning(f"⚠️ Synthesis retry failed: {synth_err}")
+
+      # Content selection strategy (PRIORITY ORDER):
+      # 1. response_format_content: DETERMINISTIC - captured from ResponseFormat tool call
+      # 2. final_ai_message: The complete AIMessage from the final LLM turn (if captured)
+      # 3. last_turn_content: Content from the LAST turn only (after all tool calls complete)
+      # 4. accumulated_ai_content: ALL content (fallback, may include intermediate reasoning)
+
+      def _strip_preamble(text: str) -> str:
+          """
+          Heuristic fallback: remove leading conversational preamble.
+          Keep from first markdown heading or list marker if present.
+          """
+          if not text:
+              return ""
+          markers = []
+          for token in ["\n## ", "\n### ", "\n# ", "\n- ", "\n* ", "\n1. "]:
+              idx = text.find(token)
+              if idx != -1:
+                  markers.append(idx + 1)
+          if markers:
+              start = min(markers)
+              return text[start:].lstrip()
+          return text.strip()
+
+      def _parse_structured(content: str, source: str):
+          result = self.handle_structured_response(content)
+          if result is None:
+              logging.error(f"❌ Unable to parse structured response from {source}")
+          return result
+
+      final_response = None
+
+      if response_format_content:
+          logging.info(f"✅ Using ResponseFormat content ({len(response_format_content)} chars) for final response - DETERMINISTIC")
+          logging.info(f"📝 ResponseFormat content preview: {response_format_content[:300]}...")
+          final_response = _parse_structured(response_format_content, "ResponseFormat tool")
+      elif final_ai_message:
+          logging.warning("⚠️ ResponseFormat tool was not invoked or returned no content; attempting to parse final AIMessage.")
           final_content = final_ai_message.content if hasattr(final_ai_message, 'content') else str(final_ai_message)
-          # Normalize final_content to string (Bedrock returns list, OpenAI returns string)
           if isinstance(final_content, list):
               text_parts = []
               for item in final_content:
                   if isinstance(item, dict):
-                      # Only extract text from 'text' type blocks, skip 'thinking' and other types
                       block_type = item.get('type')
                       if block_type == 'text' or block_type is None:
                           text_parts.append(item.get('text', ''))
@@ -972,21 +1163,39 @@ class AIPlatformEngineerA2ABinding:
               final_content = str(final_content) if final_content else ""
           logging.info(f"📝 Extracted content from AIMessage: type={type(final_content)}, length={len(final_content)}")
           logging.info(f"📝 Content preview: {final_content[:300]}...")
-          final_response = self.handle_structured_response(final_content)
-          logging.info(f"✅ Parsed response from final AIMessage: is_task_complete={final_response.get('is_task_complete')}")
+          final_response = _parse_structured(final_content, "final AIMessage")
+      elif last_turn_content:
+          last_turn_text = ''.join(last_turn_content)
+          logging.info(f"✅ Using last_turn_content ({len(last_turn_text)} chars, {len(last_turn_content)} chunks) for structured response parsing")
+          logging.info(f"📝 Last turn content preview: {last_turn_text[:300]}...")
+          final_response = _parse_structured(last_turn_text, "last_turn_content")
       elif accumulated_ai_content:
           accumulated_text = ''.join(accumulated_ai_content)
-          logging.info(f"⚠️ Using accumulated content ({len(accumulated_text)} chars) for structured response parsing")
+          logging.warning(f"⚠️ Using accumulated content ({len(accumulated_text)} chars) for structured response parsing - may include intermediate reasoning!")
           logging.info(f"📝 Accumulated content preview: {accumulated_text[:300]}...")
-          final_response = self.handle_structured_response(accumulated_text)
-          logging.info(f"✅ Parsed response from accumulated content: is_task_complete={final_response.get('is_task_complete')}")
-      else:
-          logging.warning("❌ No final message or accumulated content to parse - defaulting to complete")
-          final_response = {
-              'is_task_complete': True,
-              'require_user_input': False,
-              'content': '',
-          }
+          final_response = _parse_structured(accumulated_text, "accumulated content")
+
+      if final_response is None:
+          # If we have accumulated content, try heuristic preamble stripping
+          if accumulated_ai_content:
+              accumulated_text = ''.join(accumulated_ai_content)
+              trimmed = _strip_preamble(accumulated_text)
+              if trimmed:
+                  logging.warning("⚠️ Structured parse failed; using heuristic-trimmed accumulated content.")
+                  final_response = {
+                      'is_task_complete': True,
+                      'require_user_input': False,
+                      'content': trimmed,
+                  }
+
+          if final_response is None:
+              logging.error("❌ No structured response parsed; informing caller that ResponseFormat was not produced.")
+              final_response = {
+                  # Keep task incomplete so clients treat this as an error signal, not a completed answer
+                  'is_task_complete': False,
+                  'require_user_input': False,
+                  'content': "ResponseFormat tool was not invoked; please retry.",
+              }
 
       # Yield the final parsed response with correct is_task_complete
       logging.info(f"🚀 YIELDING FINAL RESPONSE: is_task_complete={final_response.get('is_task_complete')}, require_user_input={final_response.get('require_user_input')}, content_length={len(final_response.get('content', ''))}")
@@ -994,117 +1203,107 @@ class AIPlatformEngineerA2ABinding:
 
   def handle_structured_response(self, ai_message):
     logging.info(f"🔧 handle_structured_response called: input_type={type(ai_message).__name__}")
+    response_obj = None
     try:
-      response_obj = None
-      if isinstance(ai_message, PlatformEngineerResponse):
-          logging.info("✅ Input is already PlatformEngineerResponse")
-          response_obj = ai_message
-      elif isinstance(ai_message, dict):
-          logging.info("✅ Input is dict, validating as PlatformEngineerResponse")
-          response_obj = PlatformEngineerResponse.model_validate(ai_message)
-      elif isinstance(ai_message, str):
-          raw_content = ai_message.strip()
-          logging.info(f"✅ Input is string ({len(raw_content)} chars), attempting to parse JSON")
-          # Strip Markdown code fences if present
-          if raw_content.startswith('```') and raw_content.endswith('```'):
-              if raw_content.startswith('```json'):
-                  raw_content = raw_content[7:-3].strip()
-                  logging.info("Stripped ```json``` markdown")
-              else:
-                  raw_content = raw_content[3:-3].strip()
-                  logging.info("Stripped ``` markdown")
+        if isinstance(ai_message, PlatformEngineerResponse):
+            logging.info("✅ Input is already PlatformEngineerResponse")
+            response_obj = ai_message
+        elif isinstance(ai_message, dict):
+            logging.info("✅ Input is dict, validating as PlatformEngineerResponse")
+            response_obj = PlatformEngineerResponse.model_validate(ai_message)
+        elif isinstance(ai_message, str):
+            raw_content = ai_message.strip()
+            logging.info(f"✅ Input is string ({len(raw_content)} chars), attempting to parse JSON")
 
-          # Try to find and parse the last valid PlatformEngineerResponse JSON object
-          # The LLM sometimes outputs multiple JSON objects or text before JSON
-          # Strategy: Find all potential JSON start positions and try to parse from the LAST valid one
+            # Strip Markdown code fences if present
+            if raw_content.startswith('```') and raw_content.endswith('```'):
+                if raw_content.startswith('```json'):
+                    raw_content = raw_content[7:-3].strip()
+                    logging.info("Stripped ```json``` markdown")
+                else:
+                    raw_content = raw_content[3:-3].strip()
+                    logging.info("Stripped ``` markdown")
 
-          response_obj = None
-          brace_positions = [i for i, c in enumerate(raw_content) if c == '{']
+            # Try to find and parse the last valid PlatformEngineerResponse JSON object
+            brace_positions = [i for i, c in enumerate(raw_content) if c == '{']
 
-          # Try parsing from each '{' position, starting from the END (last JSON object)
-          for start_pos in reversed(brace_positions):
-              try:
-                  candidate = raw_content[start_pos:]
-                  response_obj = PlatformEngineerResponse.model_validate_json(candidate)
-                  logging.info(f"✅ Successfully parsed PlatformEngineerResponse from position {start_pos}")
-                  break
-              except Exception:
-                  continue
+            for start_pos in reversed(brace_positions):
+                try:
+                    candidate = raw_content[start_pos:]
+                    response_obj = PlatformEngineerResponse.model_validate_json(candidate)
+                    logging.info(f"✅ Successfully parsed PlatformEngineerResponse from position {start_pos}")
+                    break
+                except Exception:
+                    continue
 
-          if response_obj is None:
-              logging.info("❌ Could not parse any valid PlatformEngineerResponse from content")
+            if response_obj is None:
+                logging.info("❌ Could not parse any valid PlatformEngineerResponse from content")
     except Exception as e:
-      logging.warning(f"❌ Failed to deserialize PlatformEngineerResponse: {e}")
+        logging.warning(f"❌ Failed to deserialize PlatformEngineerResponse: {e}")
 
     if response_obj is not None:
-      logging.info(f"✅ Successfully created response_obj: is_task_complete={response_obj.is_task_complete}, require_user_input={response_obj.require_user_input}")
-      result = {
-        'is_task_complete': response_obj.is_task_complete,
-        'require_user_input': response_obj.require_user_input,
-        'content': response_obj.content,
-      }
-      # Add metadata if present
-      if getattr(response_obj, "metadata", None):
-          md = response_obj.metadata
-          result['metadata'] = {
-            'user_input': getattr(md, 'user_input', None),
-            'input_fields': [
-              {
-                'field_name': f.field_name,
-                'field_description': f.field_description,
-                'field_values': getattr(f, 'field_values', None),
-                'required': getattr(f, 'required', True)
-              }
-              for f in (md.input_fields or [])
-            ] if getattr(md, 'input_fields', None) else None
-          }
-      logging.info(f"🎉 Returning structured response: is_task_complete={result.get('is_task_complete')}, require_user_input={result.get('require_user_input')}")
-      return result
+        logging.info(f"✅ Successfully created response_obj: is_task_complete={response_obj.is_task_complete}, require_user_input={response_obj.require_user_input}")
+        result = {
+          'is_task_complete': response_obj.is_task_complete,
+          'require_user_input': response_obj.require_user_input,
+          'content': response_obj.content,
+        }
+        # Add metadata if present
+        if getattr(response_obj, "metadata", None):
+            md = response_obj.metadata
+            result['metadata'] = {
+              'user_input': getattr(md, 'user_input', None),
+              'input_fields': [
+                {
+                  'field_name': f.field_name,
+                  'field_description': f.field_description,
+                  'field_values': getattr(f, 'field_values', None),
+                  'required': getattr(f, 'required', True)
+                }
+                for f in (md.input_fields or [])
+              ] if getattr(md, 'input_fields', None) else None
+            }
+        logging.info(f"🎉 Returning structured response: is_task_complete={result.get('is_task_complete')}, require_user_input={result.get('require_user_input')}")
+        return result
 
     # Fallback: handle plain text or attempt JSON parsing for backward compatibility
     logging.info("⚠️ Falling back to legacy JSON parsing")
     try:
-      content = ai_message if isinstance(ai_message, str) else str(ai_message)
+        content = ai_message if isinstance(ai_message, str) else str(ai_message)
 
-      # Log the raw content for debugging
-      logging.info(f"Raw LLM content (fallback handling): {repr(content)}")
+        # Log the raw content for debugging
+        logging.info(f"Raw LLM content (fallback handling): {repr(content)}")
 
-      # Strip markdown code block formatting if present
-      if content.startswith('```json') and content.endswith('```'):
-        content = content[7:-3].strip()  # Remove ```json at start and ``` at end
-        logging.info("Stripped ```json``` formatting")
-      elif content.startswith('```') and content.endswith('```'):
-        content = content[3:-3].strip()  # Remove ``` at start and end
-        logging.info("Stripped ``` formatting")
+        # Strip markdown code block formatting if present
+        if content.startswith('```json') and content.endswith('```'):
+            content = content[7:-3].strip()  # Remove ```json at start and ``` at end
+            logging.info("Stripped ```json``` formatting")
+        elif content.startswith('```') and content.endswith('```'):
+            content = content[3:-3].strip()  # Remove ``` at start and end
+            logging.info("Stripped ``` formatting")
 
-      logging.info(f"Content after stripping: {repr(content)}")
+        logging.info(f"Content after stripping: {repr(content)}")
 
-      # If content doesn't look like JSON, treat it as a working text update
-      if not (content.startswith('{') or content.startswith('[')):
-        logging.info("Content appears to be plain text; returning working structured response.")
-        return {
-          'is_task_complete': False,
-          'require_user_input': False,
-          'content': content,
-        }
+        # Require structured output; if content is not JSON-shaped, signal failure
+        if not (content.startswith('{') or content.startswith('[')):
+            logging.warning("Content is not structured JSON; no final response will be returned.")
+            return None
 
-      # Attempt to parse JSON
-      response_dict = json.loads(content)
-      if isinstance(response_dict, dict):
-        logging.info("Successfully parsed JSON response (fallback)")
-        return response_dict
-      else:
-        logging.warning("Parsed JSON is not a dictionary; returning working structured response with text content.")
-        return {
-          'is_task_complete': False,
-          'require_user_input': False,
-          'content': content,
-        }
+        response_dict = json.loads(content)
+        if isinstance(response_dict, dict):
+            logging.info("Successfully parsed JSON response (fallback)")
+            return response_dict
+        logging.warning("Parsed JSON is not a dictionary; returning failure.")
+        return None
     except json.JSONDecodeError as e:
-      logging.warning(f"Failed to decode content as JSON, returning working structured response: {e}")
-      logging.warning(f"Content that failed to parse: {repr(content)}")
-      return {
-        'is_task_complete': False,
+        logging.warning(f"Failed to decode content as JSON: {e}")
+        logging.warning(f"Content that failed to parse: {repr(content)}")
+        return None
+
+    # Last-resort fallback: return the raw (trimmed) content as a completed response
+    logging.warning("⚠️ No valid PlatformEngineerResponse parsed; returning raw content as final response.")
+    return {
+        'is_task_complete': True,
         'require_user_input': False,
-        'content': content,
-      }
+        'content': content if 'content' in locals() else str(ai_message),
+    }

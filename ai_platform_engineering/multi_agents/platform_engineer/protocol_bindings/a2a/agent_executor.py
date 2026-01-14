@@ -1183,10 +1183,11 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                                     else:
                                         logger.warning(f"⚠️ Part has neither 'text' nor 'data' key: {p}")
                         elif artifact_name == 'streaming_result':
-                            # Forward streaming chunks to client but DON'T accumulate (prevents duplication from full-content chunks)
-                            # Streaming chunks are for real-time display only, final results will be used for partial_result/final_result
+                            # SKIP streaming_result chunks entirely - they contain intermediate thinking/planning
+                            # We only want complete_result/final_result for the final clean response
                             total_chunk_size = sum(len(p.get('text', '')) for p in parts if isinstance(p, dict) and p.get('text'))
-                            logger.debug(f"📤 Forwarding streaming_result chunk ({total_chunk_size} chars) - NOT accumulating (will use complete_result/final_result)")
+                            logger.debug(f"🚫 SKIPPING streaming_result chunk ({total_chunk_size} chars) - contains intermediate thinking, using complete_result only")
+                            continue  # Skip forwarding this artifact to client
                         elif artifact_name == 'partial_result':
                             # Partial result from sub-agent - accumulate it (it's a final result)
                             for p in parts:
@@ -1275,10 +1276,12 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                     await self._ensure_execution_plan_completed(event_queue, task)
                     logger.info("✅ EXECUTOR: Task complete event received! Enqueuing FINAL_RESULT artifact.")
 
-                    # Send final artifact with all accumulated content for non-streaming clients
+                    # Send final artifact with the clean final content
                     # Content selection strategy (PRIORITY ORDER):
                     # 1. If sub-agent sent DataPart: Use sub-agent's DataPart (has structured data like JarvisResponse)
-                    # 2. Otherwise: Use sub-agent's content (backward compatible)
+                    # 2. If sub-agent accumulated content: Use it (from complete_result/final_result - clean)
+                    # 3. Event content: Use it (from handle_structured_response - clean, no intermediate reasoning)
+                    # 4. Accumulated streaming content: Last resort fallback (may contain intermediate reasoning)
 
                     if sub_agent_sent_datapart and sub_agent_datapart_data:
                         # Sub-agent sent structured DataPart - recreate DataPart artifact (highest priority)
@@ -1297,19 +1300,29 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                             description='Complete result from Platform Engineer.',
                             text=final_content,
                         )
+                    elif content:
+                        # CRITICAL: Use event content from handle_structured_response
+                        # This is the clean final response, NOT the intermediate streaming chunks
+                        final_content = content
+                        logger.info(f"📝 Using event content (from handle_structured_response) for final_result ({len(final_content)} chars)")
+                        artifact = new_text_artifact(
+                            name='final_result',
+                            description='Complete result from Platform Engineer.',
+                            text=final_content,
+                        )
                     elif accumulated_content:
-                        # Fallback to supervisor content
+                        # Last resort fallback - accumulated streaming content may have intermediate reasoning
                         final_content = ''.join(accumulated_content)
-                        logger.info(f"📝 Using supervisor accumulated content for final_result ({len(final_content)} chars) - fallback")
+                        logger.warning(f"⚠️ Using supervisor accumulated content for final_result ({len(final_content)} chars) - may contain intermediate reasoning")
                         artifact = new_text_artifact(
                             name='final_result',
                             description='Complete result from Platform Engineer.',
                             text=final_content,
                         )
                     else:
-                        # Final fallback to current event content
-                        final_content = content
-                        logger.info(f"📝 Using current event content for final_result ({len(final_content)} chars)")
+                        # Empty content
+                        final_content = ''
+                        logger.warning(f"⚠️ No content available for final_result")
                         artifact = new_text_artifact(
                             name='final_result',
                             description='Complete result from Platform Engineer.',

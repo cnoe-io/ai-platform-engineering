@@ -4,8 +4,13 @@
 """Base agent executor for A2A protocol handling with streaming support."""
 
 import logging
+import os
 from abc import ABC
 from typing_extensions import override
+
+# Configure logging level from environment
+_log_level = os.getenv("LOG_LEVEL", "INFO").upper()
+logging.basicConfig(level=getattr(logging, _log_level, logging.INFO))
 
 from a2a.server.agent_execution import AgentExecutor, RequestContext
 from a2a.server.events.event_queue import EventQueue
@@ -232,7 +237,7 @@ class BaseLangGraphAgentExecutor(AgentExecutor, ABC):
                 if kind == 'tool_call' or 'tool_call' in event:
                     tool_info = event.get('tool_call', {})
                     tool_name = tool_info.get('name', 'unknown')
-                    
+
                     # Don't reset last_turn_content for ResponseFormat - it's the structured output
                     # tool used by LangGraph to return the final response, not a regular tool call
                     if tool_name.lower() != 'responseformat':
@@ -242,7 +247,7 @@ class BaseLangGraphAgentExecutor(AgentExecutor, ABC):
                         logger.info(f"{agent_name}: 🔧 Tool call - {tool_name} (resetting last_turn_content)")
                     else:
                         logger.info(f"{agent_name}: 🔧 Tool call - {tool_name} (NOT resetting - structured output tool)")
-                    
+
                     description = f"Tool call started: {tool_name}"
                     await event_queue.enqueue_event(
                         TaskArtifactUpdateEvent(
@@ -264,7 +269,7 @@ class BaseLangGraphAgentExecutor(AgentExecutor, ABC):
                     tool_name = tool_info.get('name', 'unknown')
                     is_error = tool_info.get('is_error', False) or tool_info.get('status') == 'failed'
                     status_text = 'failed' if is_error else tool_info.get('status', 'completed')
-                    
+
                     # Don't reset for ResponseFormat - it's the structured output, not a regular tool
                     if tool_name.lower() != 'responseformat':
                         # Tool result indicates the tool has finished - next content is new LLM response
@@ -273,7 +278,7 @@ class BaseLangGraphAgentExecutor(AgentExecutor, ABC):
                         logger.info(f"{agent_name}: ✅ Tool result - {tool_name} ({status_text}) (resetting last_turn_content)")
                     else:
                         logger.info(f"{agent_name}: ✅ Tool result - {tool_name} ({status_text}) (NOT resetting - structured output)")
-                    
+
                     description = f"Tool call {status_text}: {tool_name}"
                     await event_queue.enqueue_event(
                         TaskArtifactUpdateEvent(
