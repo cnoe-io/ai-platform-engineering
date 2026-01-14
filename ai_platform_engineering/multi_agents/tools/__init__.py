@@ -14,7 +14,19 @@ from ai_platform_engineering.multi_agents.tools.workspace_ops import (
     list_workspace_files,
     clear_workspace
 )
-# Note: git_* tools moved to ai_platform_engineering/agents/github/agent_github/tools.py
+# Import git_* tools from utils (supports both GitHub and GitLab authentication)
+# This allows chaining: git_clone → grep_search → glob_find workflows
+from ai_platform_engineering.utils.git_tools import (
+    git_clone,
+    git_status,
+    git_log,
+    git_branch,
+    git_diff,
+    git_show,
+    git_remote,
+    git_pull,
+    git_fetch,
+)
 from ai_platform_engineering.multi_agents.tools.grep_tool import (
     grep_search,
     grep_count
@@ -42,7 +54,16 @@ __all__ = [
     'read_workspace_file',
     'list_workspace_files',
     'clear_workspace',
-    # git_* tools moved to github agent
+    # git_* tools (from utils - supports GitHub and GitLab auth)
+    'git_clone',
+    'git_status',
+    'git_log',
+    'git_branch',
+    'git_diff',
+    'git_show',
+    'git_remote',
+    'git_pull',
+    'git_fetch',
     'grep_search',
     'grep_count',
     'wget_download',
