@@ -1,0 +1,51 @@
+# Simple Agent Manifest Example
+# This demonstrates a minimal agent configuration
+
+manifest_version: "1.0"
+
+metadata:
+  name: "simple_agent"
+  display_name: "Simple Agent"
+  version: "0.1.0"
+  description: "A simple example agent that demonstrates basic functionality"
+  author: "CNOE Contributors"
+  author_email: "info@cnoe.io"
+  license: "Apache-2.0"
+  tags:
+    - "example"
+    - "simple"
+    - "demo"
+
+protocols:
+  - a2a
+
+transports:
+  - http
+
+skills:
+  - id: "simple_skill"
+    name: "Simple Operations"
+    description: "Perform simple operations and answer basic questions"
+    tags:
+      - "basic"
+      - "operations"
+    examples:
+      - "What can you do?"
+      - "Hello, how are you?"
+      - "Help me with a simple task"
+
+dependencies: []
+
+environment:
+  - name: "SIMPLE_AGENT_MODE"
+    description: "Operating mode for the agent"
+    required: false
+    default: "standard"
+
+capabilities:
+  streaming: true
+  pushNotifications: true
+
+docker_config:
+  base_image: "python:3.13-slim"
+
