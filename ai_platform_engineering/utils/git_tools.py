@@ -19,6 +19,7 @@ This module is used by:
 
 import logging
 import os
+import re
 import subprocess
 from typing import Any, Dict, List, Optional
 from urllib.parse import urlparse
@@ -29,6 +30,63 @@ logger = logging.getLogger(__name__)
 
 # Maximum execution time for git commands
 GIT_TIMEOUT = int(os.getenv("GIT_MAX_EXECUTION_TIME", "300"))
+
+# Token patterns to sanitize from output (never log or send to LLM)
+_SENSITIVE_TOKENS: List[str] = []
+
+
+def _get_all_tokens() -> List[str]:
+    """
+    Collect all configured tokens for sanitization.
+    Called once per command to build the list of tokens to redact.
+    """
+    tokens = []
+    for env_var in [
+        "GITHUB_PERSONAL_ACCESS_TOKEN",
+        "GITHUB_TOKEN",
+        "GITLAB_PERSONAL_ACCESS_TOKEN",
+        "GITLAB_TOKEN",
+        "GIT_TOKEN",
+        "GH_TOKEN",
+    ]:
+        token = os.getenv(env_var)
+        if token and len(token) > 4:  # Only add non-trivial tokens
+            tokens.append(token)
+    return tokens
+
+
+def _sanitize_output(text: str, tokens: Optional[List[str]] = None) -> str:
+    """
+    Remove any authentication tokens from text to prevent credential leakage.
+
+    CRITICAL: This function MUST be called on ALL output before:
+    - Logging
+    - Returning to LLM/agent
+    - Including in error messages
+
+    Args:
+        text: Text that may contain sensitive tokens
+        tokens: List of tokens to redact (if None, uses _get_all_tokens())
+
+    Returns:
+        Sanitized text with tokens replaced by [REDACTED]
+    """
+    if not text:
+        return text
+
+    if tokens is None:
+        tokens = _get_all_tokens()
+
+    sanitized = text
+    for token in tokens:
+        if token and token in sanitized:
+            sanitized = sanitized.replace(token, "[REDACTED]")
+
+    # Also redact any x-access-token patterns that might appear in URLs
+    # Pattern: x-access-token:ANYTHING@
+    sanitized = re.sub(r'x-access-token:[^@]+@', 'x-access-token:[REDACTED]@', sanitized)
+
+    return sanitized
 
 
 def _detect_git_provider(url: str) -> str:
@@ -76,6 +134,29 @@ def _get_auth_token(provider: str) -> Optional[str]:
         )
 
 
+def _inject_token_into_url(url: str, token: str) -> str:
+    """
+    Inject authentication token into a git HTTPS URL.
+
+    Transforms: https://github.com/owner/repo.git
+    Into: https://x-access-token:TOKEN@github.com/owner/repo.git
+
+    Args:
+        url: Original repository URL
+        token: Authentication token
+
+    Returns:
+        URL with embedded token for authentication
+    """
+    parsed = urlparse(url)
+    if parsed.scheme in ('http', 'https') and not parsed.username:
+        # Inject token into URL
+        netloc_with_auth = f"x-access-token:{token}@{parsed.netloc}"
+        authenticated_url = parsed._replace(netloc=netloc_with_auth).geturl()
+        return authenticated_url
+    return url
+
+
 def _run_git_command(
     args: List[str],
     cwd: Optional[str] = None,
@@ -86,7 +167,10 @@ def _run_git_command(
     Internal helper to run git commands safely with authentication.
 
     Automatically detects the git provider (GitHub/GitLab) from the URL
-    and uses the appropriate authentication token.
+    and uses the appropriate authentication token by injecting it into the URL.
+
+    SECURITY: All output is sanitized to remove tokens before returning.
+    Never log the authenticated URL or include tokens in error messages.
 
     Args:
         args: List of command arguments (e.g., ['git', 'status'])
@@ -95,13 +179,19 @@ def _run_git_command(
         repo_url: Repository URL (used to detect provider for auth)
 
     Returns:
-        Dict with success, stdout, stderr, and return_code
+        Dict with success, stdout, stderr, and return_code (all sanitized)
     """
+    # Collect tokens once for sanitization
+    tokens_to_redact = _get_all_tokens()
+
     try:
         # Merge environment variables
         cmd_env = os.environ.copy()
         if env:
             cmd_env.update(env)
+
+        # Clone the args list so we can modify it
+        cmd_args = list(args)
 
         # Set up authentication if repo_url is provided
         if repo_url:
@@ -109,29 +199,20 @@ def _run_git_command(
             token = _get_auth_token(provider)
 
             if token:
-                # Configure git credential helper to use token
-                # Works for both GitHub and GitLab HTTPS URLs
-                cmd_env["GIT_ASKPASS"] = "echo"
-                cmd_env["GIT_USERNAME"] = "x-access-token"
-                cmd_env["GIT_PASSWORD"] = token
+                # Inject token into URL for reliable authentication
+                authenticated_url = _inject_token_into_url(repo_url, token)
+                # Replace the original URL in args with the authenticated one
+                for i, arg in enumerate(cmd_args):
+                    if arg == repo_url:
+                        cmd_args[i] = authenticated_url
+                        break
+                # SECURITY: Never log the authenticated URL - only log that auth is being used
                 logger.debug(f"Using {provider} token for authentication")
             else:
                 logger.debug(f"No token found for {provider}, proceeding without auth")
-        else:
-            # No URL provided, try to get token from environment
-            # Check for any available token
-            token = (
-                os.getenv("GITHUB_PERSONAL_ACCESS_TOKEN") or
-                os.getenv("GITLAB_PERSONAL_ACCESS_TOKEN") or
-                os.getenv("GIT_TOKEN")
-            )
-            if token:
-                cmd_env["GIT_ASKPASS"] = "echo"
-                cmd_env["GIT_USERNAME"] = "x-access-token"
-                cmd_env["GIT_PASSWORD"] = token
 
         result = subprocess.run(
-            args,
+            cmd_args,
             cwd=cwd,
             env=cmd_env,
             capture_output=True,
@@ -139,10 +220,11 @@ def _run_git_command(
             timeout=GIT_TIMEOUT
         )
 
+        # SECURITY: Sanitize all output before returning
         return {
             'success': result.returncode == 0,
-            'stdout': result.stdout.strip(),
-            'stderr': result.stderr.strip(),
+            'stdout': _sanitize_output(result.stdout.strip(), tokens_to_redact),
+            'stderr': _sanitize_output(result.stderr.strip(), tokens_to_redact),
             'return_code': result.returncode
         }
     except subprocess.TimeoutExpired:
@@ -153,10 +235,11 @@ def _run_git_command(
             'return_code': -1
         }
     except Exception as e:
+        # SECURITY: Sanitize exception message in case it contains token
         return {
             'success': False,
             'stdout': '',
-            'stderr': str(e),
+            'stderr': _sanitize_output(str(e), tokens_to_redact),
             'return_code': -1
         }
 
