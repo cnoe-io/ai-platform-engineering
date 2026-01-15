@@ -93,6 +93,7 @@ services:
       - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
       - LANGFUSE_SESSION_ID=${LANGFUSE_SESSION_ID:-ai-platform-engineering}
       - LANGFUSE_USER_ID=${LANGFUSE_USER_ID:-platform-engineer}
+      - OTEL_EXPORTER_OTLP_TIMEOUT=${OTEL_EXPORTER_OTLP_TIMEOUT:-30000}
     command: platform-engineer
 
   ####################################################################################################
@@ -149,6 +150,7 @@ services:
       - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
       - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
       - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
+      - OTEL_EXPORTER_OTLP_TIMEOUT=${OTEL_EXPORTER_OTLP_TIMEOUT:-30000}
       - AWS_REGION=${AWS_REGION}
       - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
       - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
@@ -194,6 +196,7 @@ services:
       - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
       - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
       - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
+      - OTEL_EXPORTER_OTLP_TIMEOUT=${OTEL_EXPORTER_OTLP_TIMEOUT:-30000}
     profiles:
       - petstore
       - all-agents
@@ -220,6 +223,7 @@ services:
       - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
       - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
       - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
+      - OTEL_EXPORTER_OTLP_TIMEOUT=${OTEL_EXPORTER_OTLP_TIMEOUT:-30000}
       - GH_TOKEN=${GITHUB_PERSONAL_ACCESS_TOKEN}  # gh CLI authentication
     # Docker socket mount is only needed when MCP_MODE=stdio
     # For local Github Offical MCP server execution.
@@ -251,6 +255,7 @@ services:
       - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
       - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
       - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
+      - OTEL_EXPORTER_OTLP_TIMEOUT=${OTEL_EXPORTER_OTLP_TIMEOUT:-30000}
     profiles:
       - gitlab
       - all-agents
@@ -1114,6 +1119,7 @@ services:
       - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
       - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
       - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
+      - OTEL_EXPORTER_OTLP_TIMEOUT=${OTEL_EXPORTER_OTLP_TIMEOUT:-30000}
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
     volumes:
