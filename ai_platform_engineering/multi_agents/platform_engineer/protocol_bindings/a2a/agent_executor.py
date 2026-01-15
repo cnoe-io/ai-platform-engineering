@@ -415,8 +415,7 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                                 logger.debug(f"📝 Appending to existing artifact (append=True) with ID: {sub_agent_streaming_artifact_id}")
 
                             # Forward chunk immediately to client (streaming!)
-                            #
-# Add small delay after first artifact to ensure it's registered
+                            # Add small delay after first artifact to ensure it's registered
                             # before subsequent append operations (prevents A2A SDK warnings)
                             if use_append is False:
                                 await self._safe_enqueue_event(
@@ -1415,7 +1414,7 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                        if is_final_response_event:
                            logger.info(f"⏭️ SKIPPING STREAMING for final response event (duplicate) - length: {len(content)} chars, accumulated: {len(existing_accumulated_text)} chars")
                            continue  # Skip to next event - don't stream this duplicate content
-                       
+
                        if is_duplicate_of_sub_agent:
                            logger.info(f"⏭️ SKIPPING STREAMING for sub-agent duplicate content: {content[:50]}...")
                            continue  # Skip to next event - don't stream this duplicate content
