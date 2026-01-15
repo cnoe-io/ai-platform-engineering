@@ -254,7 +254,7 @@ class AIPlatformEngineerA2ABinding:
       # SYNTHESIS RETRY CONFIGURATION
       # If synthesis fails (orphaned tool calls, timeout), retry before failing
       # ========================================================================
-      max_synthesis_retries = int(os.getenv("MAX_SYNTHESIS_RETRIES", "2"))
+      max_synthesis_retries = int(os.getenv("MAX_SYNTHESIS_RETRIES", "0"))
       synthesis_retry_count = 0
 
       try:
@@ -542,11 +542,19 @@ class AIPlatformEngineerA2ABinding:
               # Handle final AIMessage (without tool calls) from primary stream
               elif isinstance(message, AIMessage):
                   # This is the final complete AIMessage - store it for post-stream parsing
+                  # CRITICAL: Do NOT append to accumulated_ai_content if we already have streaming content
+                  # The AIMessageChunks already contain all the tokens, appending the final AIMessage
+                  # would duplicate the content (the final message contains the same text as all chunks combined)
                   logging.info(f"🎯 CAPTURED final AIMessage from primary stream: type={type(message).__name__}, has_content={hasattr(message, 'content')}")
                   if hasattr(message, 'content'):
                       content_preview = str(message.content)[:200]
                       logging.info(f"🎯 AIMessage content preview: {content_preview}...")
-                      accumulated_ai_content.append(str(message.content))
+                      # Only accumulate if we haven't received streaming chunks (non-streaming mode fallback)
+                      if not accumulated_ai_content:
+                          logging.info(f"📝 Accumulating AIMessage content (no streaming chunks received)")
+                          accumulated_ai_content.append(str(message.content))
+                      else:
+                          logging.info(f"⏭️ SKIPPING AIMessage accumulation - already have {len(accumulated_ai_content)} streaming chunks")
                   final_ai_message = message
 
       except asyncio.CancelledError:
@@ -585,6 +593,7 @@ class AIPlatformEngineerA2ABinding:
               yield {
                   "is_task_complete": False,
                   "require_user_input": False,
+                  "clear_accumulators": True,  # Signal to executor to clear accumulated content before retry
                   "content": (
                       "✅ I've recovered from an interrupted tool call. "
                       "Let me continue processing your request...\n\n"
@@ -830,6 +839,15 @@ class AIPlatformEngineerA2ABinding:
                   "content": fallback_content,
               }
               return
+
+          # Signal to executor to clear accumulated content before fallback stream
+          # This prevents duplication from partial content streamed before the exception
+          yield {
+              "is_task_complete": False,
+              "require_user_input": False,
+              "clear_accumulators": True,
+              "content": "🔄 Switching to fallback streaming mode...",
+          }
           async for item_type, item in self.graph.astream(inputs, config, stream_mode=['messages', 'custom', 'updates']):
 
               # Handle custom A2A event payloads emitted via get_stream_writer()
@@ -966,6 +984,13 @@ class AIPlatformEngineerA2ABinding:
           }
 
       # Yield the final parsed response with correct is_task_complete
+      # CRITICAL: If we already streamed content via AIMessageChunk, DO NOT include content again
+      # This prevents duplication where content is streamed token-by-token AND then sent again in final response
+      if accumulated_ai_content and len(accumulated_ai_content) > 1:
+          # We streamed chunks, so clear content from final response to avoid duplication
+          logging.info(f"⏭️ Clearing content from final response - already streamed {len(accumulated_ai_content)} chunks")
+          final_response['content'] = ''
+
       logging.info(f"🚀 YIELDING FINAL RESPONSE: is_task_complete={final_response.get('is_task_complete')}, require_user_input={final_response.get('require_user_input')}, content_length={len(final_response.get('content', ''))}")
       yield final_response
 

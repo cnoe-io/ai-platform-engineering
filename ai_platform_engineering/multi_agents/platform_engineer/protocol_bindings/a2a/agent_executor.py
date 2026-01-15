@@ -1029,6 +1029,14 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
             # invoke the underlying agent, using streaming results
             # NOTE: Pass task to maintain task ID consistency across sub-agents
             async for event in self.agent.stream(query, context_id, trace_id):
+                # Handle clear_accumulators signal from agent retry logic
+                # This prevents output duplication when the agent retries after error recovery
+                if isinstance(event, dict) and event.get('clear_accumulators'):
+                    logger.info("🗑️ Received clear_accumulators signal - clearing accumulated content to prevent duplication")
+                    accumulated_content.clear()
+                    sub_agent_accumulated_content.clear()
+                    # Continue processing the event (it may also have content)
+
                 # Handle direct artifact payloads emitted by agent binding (e.g., write_todos execution plan)
                 artifact_payload = event.get('artifact') if isinstance(event, dict) else None
                 if artifact_payload:
@@ -1373,12 +1381,13 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                        # to avoid duplication. We detect this deterministically by checking if accumulated content is a substring.
                        existing_accumulated_text = ''.join(accumulated_content) if accumulated_content else ''
 
-                       # Deterministic check: if accumulated content is contained in this event's content, it's the final response
-                       # The final response from agent.py contains the full accumulated content, so we shouldn't accumulate it again
-                       # We check if accumulated content is a substring of this event's content (deterministic, no thresholds)
+                       # Check if this content is a duplicate of what we've already accumulated
+                       # This is a safety check - the primary fix is in agent.py where we skip accumulating
+                       # the final AIMessage when we already have streaming chunks
                        is_final_response_event = (
-                           existing_accumulated_text and  # We have accumulated content to compare
-                           existing_accumulated_text in content  # Accumulated content is contained in this event (deterministic substring check)
+                           existing_accumulated_text and
+                           content and
+                           existing_accumulated_text == content  # Exact match only (deterministic)
                        )
 
                        # Accumulate non-notification content for final UI response
@@ -1394,18 +1403,24 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                            (content in sub_agent_text_so_far or sub_agent_text_so_far in content)  # Content matches sub-agent content (deterministic substring check)
                        )
 
-                       if not is_tool_notification and not is_final_response_event:
-                           if not sub_agent_sent_datapart and not is_duplicate_of_sub_agent:
+                       # CRITICAL: Skip streaming entirely for final response events and duplicates
+                       # Otherwise the same content appears twice in streaming_result artifact
+                       if is_final_response_event:
+                           logger.info(f"⏭️ SKIPPING STREAMING for final response event (duplicate) - length: {len(content)} chars, accumulated: {len(existing_accumulated_text)} chars")
+                           continue  # Skip to next event - don't stream this duplicate content
+                       
+                       if is_duplicate_of_sub_agent:
+                           logger.info(f"⏭️ SKIPPING STREAMING for sub-agent duplicate content: {content[:50]}...")
+                           continue  # Skip to next event - don't stream this duplicate content
+
+                       if not is_tool_notification:
+                           if not sub_agent_sent_datapart:
                                accumulated_content.append(content)
                                logger.debug(f"📝 Added content to final response accumulator: {content[:50]}...")
-                           elif is_duplicate_of_sub_agent:
-                               logger.debug(f"⏭️ SKIPPING supervisor content - duplicates sub-agent content: {content[:50]}...")
                            else:
-                               logger.debug(f"⏭️ SKIPPING supervisor content - sub-agent sent DataPart (sub_agent_sent_datapart=True): {content[:50]}...")
-                       elif is_final_response_event:
-                           logger.debug(f"⏭️ SKIPPING final response event content (already accumulated) - length: {len(content)} chars, accumulated: {len(existing_accumulated_text)} chars")
+                               logger.debug(f"⏭️ SKIPPING accumulation - sub-agent sent DataPart (sub_agent_sent_datapart=True): {content[:50]}...")
                        else:
-                           logger.debug(f"🔧 Skipping tool notification from final response: {content.strip()}")
+                           logger.debug(f"🔧 Tool notification - will stream but not accumulate: {content.strip()}")
 
                        # A2A protocol: first artifact must have append=False, subsequent use append=True
                        use_append = first_artifact_sent
