@@ -9,10 +9,12 @@ from collections.abc import AsyncIterable
 from typing import Any
 
 # A2A tracing is disabled via cnoe-agent-utils disable_a2a_tracing() in main.py
-from a2a.types import Message as A2AMessage
-from a2a.types import Task as A2ATask
-from a2a.types import TaskArtifactUpdateEvent as A2ATaskArtifactUpdateEvent
-from a2a.types import TaskStatusUpdateEvent as A2ATaskStatusUpdateEvent
+from a2a.types import (
+    Message as A2AMessage,
+    Task as A2ATask,
+    TaskArtifactUpdateEvent,
+    TaskStatusUpdateEvent,
+)
 from ai_platform_engineering.multi_agents.platform_engineer.deep_agent import (
     AIPlatformEngineerMAS,
 )
@@ -163,7 +165,7 @@ class AIPlatformEngineerA2ABinding:
       """Try to deserialize a dict payload into known A2A models."""
       if not isinstance(data, dict):
           return None
-      for model in (A2ATaskStatusUpdateEvent, A2ATaskArtifactUpdateEvent, A2ATask, A2AMessage):
+      for model in (TaskStatusUpdateEvent, TaskArtifactUpdateEvent, A2ATask, A2AMessage):
           try:
               return model.model_validate(data)  # type: ignore[attr-defined]
           except Exception:
