@@ -7,7 +7,7 @@ feedback that the agent can use to create corrective TODO items.
 """
 
 from langchain_core.tools import tool
-from typing import Dict, List, Any
+from typing import List
 
 
 @tool
@@ -15,37 +15,24 @@ def reflect_on_output(
     user_request: str,
     actual_output: str,
     requirements: List[str]
-) -> Dict[str, Any]:
+) -> str:
     """
     Validate that your output meets the user's requirements.
-
-    Use this tool BEFORE presenting final results to the user to ensure
-    your work is complete and correct.
 
     Args:
         user_request: The original user request/query
         actual_output: The output you generated (markdown, table, list, etc.)
         requirements: List of specific requirements from the user request
-                     Examples: ["markdown table", "sorted by date", "include links"]
 
     Returns:
-        Dict with:
-        - is_valid: bool - True if output meets all requirements
-        - issues: List[str] - Specific problems found (empty if is_valid=True)
-        - suggestions: List[str] - Actionable steps to fix the issues
-        - validation_summary: str - Overall assessment
+        Validation result as string (PASSED or FAILED with issues/suggestions)
 
-    Example usage:
+    Example:
         reflect_on_output(
-            user_request="tabulate jira issues with links and assignees",
-            actual_output="1. JIRA-123...\n2. JIRA-456...",
-            requirements=["markdown table", "include jira links", "include assignees"]
+            user_request="tabulate jira issues with links",
+            actual_output="| Issue | Link |\\n|---|---|\\n| JIRA-123 | http... |",
+            requirements=["markdown table", "include jira links"]
         )
-
-    If validation fails, you MUST:
-    1. Create new TODO items for each issue found
-    2. Execute those TODOs to fix the problems
-    3. Call reflect_on_output again to re-validate
     """
 
     issues = []
@@ -115,14 +102,12 @@ def reflect_on_output(
     is_valid = len(issues) == 0
 
     if is_valid:
-        validation_summary = "✅ Output validation PASSED - all requirements met. Proceed with presenting results to user."
+        return "✅ PASSED - All requirements met. Proceed with presenting results to user."
     else:
-        validation_summary = f"❌ Output validation FAILED - {len(issues)} issue(s) found. Create TODO items to fix each issue and re-validate."
-
-    return {
-        "is_valid": is_valid,
-        "issues": issues,
-        "suggestions": suggestions,
-        "validation_summary": validation_summary,
-        "total_issues": len(issues)
-    }
+        result_lines = [f"❌ FAILED - {len(issues)} issue(s) found:"]
+        for i, issue in enumerate(issues, 1):
+            result_lines.append(f"  {i}. Issue: {issue}")
+            if i <= len(suggestions):
+                result_lines.append(f"     Fix: {suggestions[i-1]}")
+        result_lines.append("\nCreate TODO items for each issue and re-validate after fixing.")
+        return '\n'.join(result_lines)

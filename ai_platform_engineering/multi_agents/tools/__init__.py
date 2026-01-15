@@ -2,11 +2,21 @@
 Multi-agent tools package.
 
 Contains shared tools used across multiple agents.
+
+Command-line tools are in utils/agent_tools/ for use by all agents:
+- git: Run any git command with auto auth
+- curl: Run any curl command
+- wget: Run any wget command
+- grep: Run any grep command
+- glob_find: Find files with glob patterns
+- fetch_url: Fetch content from public URLs
+- jq: Process JSON data
+- yq: Process YAML data
+- read_file, write_file, append_file, list_files: File I/O
 """
 
 from ai_platform_engineering.multi_agents.tools.reflect_on_output import reflect_on_output
 from ai_platform_engineering.multi_agents.tools.format_markdown import format_markdown
-from ai_platform_engineering.multi_agents.tools.fetch_url import fetch_url
 from ai_platform_engineering.multi_agents.tools.get_current_date import get_current_date
 from ai_platform_engineering.multi_agents.tools.workspace_ops import (
     write_workspace_file,
@@ -14,38 +24,25 @@ from ai_platform_engineering.multi_agents.tools.workspace_ops import (
     list_workspace_files,
     clear_workspace
 )
-# Import git_* tools from utils (supports both GitHub and GitLab authentication)
-# This allows chaining: git_clone → grep_search → glob_find workflows
-from ai_platform_engineering.utils.git_tools import (
-    git_clone,
-    git_status,
-    git_log,
-    git_branch,
-    git_diff,
-    git_show,
-    git_remote,
-    git_pull,
-    git_fetch,
-)
-from ai_platform_engineering.multi_agents.tools.grep_tool import (
-    grep_search,
-    grep_count
-)
-from ai_platform_engineering.multi_agents.tools.wget_tool import (
-    wget_download,
-    wget_mirror
-)
-from ai_platform_engineering.multi_agents.tools.curl_tool import (
-    curl_request,
-    curl_download
-)
-from ai_platform_engineering.multi_agents.tools.glob_tool import (
+
+# Command-line tools from utils/agent_tools/ (available to all agents)
+from ai_platform_engineering.utils.agent_tools import (
+    git,
+    curl,
+    wget,
+    grep,
     glob_find,
-    glob_expand,
-    glob_test
+    fetch_url,
+    jq,
+    yq,
+    read_file,
+    write_file,
+    append_file,
+    list_files,
 )
 
 __all__ = [
+    # Core utilities
     'reflect_on_output',
     'format_markdown',
     'fetch_url',
@@ -54,32 +51,21 @@ __all__ = [
     'read_workspace_file',
     'list_workspace_files',
     'clear_workspace',
-    # git_* tools (from utils - supports GitHub and GitLab auth)
-    'git_clone',
-    'git_status',
-    'git_log',
-    'git_branch',
-    'git_diff',
-    'git_show',
-    'git_remote',
-    'git_pull',
-    'git_fetch',
-    'grep_search',
-    'grep_count',
-    'wget_download',
-    'wget_mirror',
-    'curl_request',
-    'curl_download',
-    'glob_find',
-    'glob_expand',
-    'glob_test'
+
+    # Command-line tools (pass full shell command)
+    'git',          # git("git clone https://github.com/org/repo")
+    'curl',         # curl("curl -sL https://example.com/api")
+    'wget',         # wget("wget -O out.txt https://example.com")
+    'grep',         # grep("grep -rn pattern /path")
+    'glob_find',    # glob_find("**/*.py")
+
+    # Data processing tools
+    'jq',           # jq("jq '.items[].name' data.json")
+    'yq',           # yq("yq '.spec.replicas' deployment.yaml")
+
+    # File I/O tools
+    'read_file',    # read_file("/tmp/data.json")
+    'write_file',   # write_file("/tmp/out.json", content)
+    'append_file',  # append_file("/tmp/log.txt", "entry\n")
+    'list_files',   # list_files("/tmp/repo", pattern="*.yaml")
 ]
-
-
-
-
-
-
-
-
-

@@ -13,18 +13,8 @@ from typing import Any, Optional
 from langchain_core.tools import BaseTool
 from pydantic import BaseModel, Field
 
-# Import git tools from utils (shared with GitLab agent)
-from ai_platform_engineering.utils.git_tools import (
-    git_clone,
-    git_status,
-    git_log,
-    git_branch,
-    git_diff,
-    git_show,
-    git_remote,
-    git_pull,
-    git_fetch,
-)
+# Import git tool from utils (shared with GitLab agent)
+from ai_platform_engineering.utils.agent_tools import git
 
 logger = logging.getLogger(__name__)
 
@@ -240,38 +230,30 @@ def get_gh_cli_tool() -> Optional[GHCLITool]:
 
 
 # =============================================================================
-# Git Operations Tools (imported from utils/git_tools.py)
+# Git Operations Tool (imported from utils/agent_tools/)
 # =============================================================================
-# The git_* tools are imported at the top of this file from:
-#   ai_platform_engineering.utils.git_tools
+# The generic `git` tool is imported from:
+#   ai_platform_engineering.utils.agent_tools
 #
-# Available tools:
-#   - git_clone: Clone repositories (GitHub/GitLab auth supported)
-#   - git_status: Check repository status
-#   - git_log: View commit history
-#   - git_branch: List branches
-#   - git_diff: Show changes
-#   - git_show: Show commit/file details
-#   - git_remote: List remotes
-#   - git_pull: Pull latest changes
-#   - git_fetch: Fetch from remote
+# Usage:
+#   git("clone https://github.com/org/repo.git /path/to/dir")
+#   git("status", cwd="/path/to/repo")
+#   git("log --oneline -10", cwd="/path/to/repo")
+#   git("branch -a", cwd="/path/to/repo")
+#   git("diff HEAD~1", cwd="/path/to/repo")
+#   git("show HEAD:README.md", cwd="/path/to/repo")
+#   git("remote -v", cwd="/path/to/repo")
+#   git("pull origin main", cwd="/path/to/repo")
+#   git("fetch --all", cwd="/path/to/repo")
 #
-# These tools automatically detect the git provider (GitHub/GitLab) from the URL
-# and use the appropriate authentication token.
+# The tool automatically detects the git provider (GitHub/GitLab) from URLs
+# and uses the appropriate authentication token.
 
 
 # Export all tools for use by the GitHub agent
 __all__ = [
     'GHCLITool',
     'get_gh_cli_tool',
-    # Git tools (from utils)
-    'git_clone',
-    'git_status',
-    'git_log',
-    'git_branch',
-    'git_diff',
-    'git_show',
-    'git_remote',
-    'git_pull',
-    'git_fetch',
+    # Generic git tool (from utils)
+    'git',
 ]

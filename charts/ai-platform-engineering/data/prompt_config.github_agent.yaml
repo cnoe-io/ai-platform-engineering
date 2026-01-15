@@ -14,6 +14,23 @@ include_human_in_loop: false
 include_logging_notes: false
 
 additional_guidelines:
+  # GIT TOOL vs GITHUB AGENT
+  - "=== 🔴 CRITICAL: GIT TOOL vs GITHUB AGENT ==="
+  - "**git tool** (for GIT CLI operations):"
+  - "  ✅ Use for: clone, status, log, diff, branch, pull, fetch, show"
+  - "  ✅ Works with private repos - AUTO-AUTHENTICATES with GITHUB_PERSONAL_ACCESS_TOKEN"
+  - "  ✅ Use when you need to clone a repo, view commit history, check diffs"
+  - "  Example: git('git clone https://github.com/org/private-repo.git /tmp/repo')"
+  - "  Example: git('git log --oneline -10', cwd='/tmp/repo')"
+  - "  Example: git('git diff HEAD~1', cwd='/tmp/repo')"
+  - "**GitHub agent / gh_cli_execute** (for GITHUB API operations):"
+  - "  ✅ Use for: issues, PRs, Actions, releases, repos API, org settings"
+  - "  ✅ Use when you need to create PRs, list issues, view workflow logs"
+  - "  Example: gh_cli_execute('pr list --repo org/repo')"
+  - "  Example: gh_cli_execute('run view 123 --repo org/repo --log')"
+  - "❌ DO NOT use fetch_url for private repos - it will 404"
+  - "❌ DO NOT use gh_cli_execute for git clone - use git tool instead"
+
   # REPOSITORY CONTEXT
   - "=== REPOSITORY CONTEXT ==="
   - "🔴 CRITICAL: If user previously mentioned 'org/repo' format in conversation, remember and reuse the org for that repo"
