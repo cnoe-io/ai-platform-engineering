@@ -21,11 +21,9 @@ from a2a.types import (
     Message as A2AMessage,
     Task as A2ATask,
     TaskArtifactUpdateEvent,
-    TaskArtifactUpdateEvent as A2ATaskArtifactUpdateEvent,
     TaskState,
     TaskStatus,
     TaskStatusUpdateEvent,
-    TaskStatusUpdateEvent as A2ATaskStatusUpdateEvent,
     SendStreamingMessageRequest,
     MessageSendParams,
     Artifact,
@@ -1079,11 +1077,11 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                     continue
 
                 # Handle typed A2A events - TRANSFORM APPEND FLAG FOR FORWARDED EVENTS
-                if isinstance(event, (A2ATaskArtifactUpdateEvent, A2ATaskStatusUpdateEvent)):
+                if isinstance(event, (TaskArtifactUpdateEvent, TaskStatusUpdateEvent)):
                     logger.debug(f"Executor: Processing streamed A2A event: {type(event).__name__}")
 
                     # Fix forwarded TaskArtifactUpdateEvent to handle append flag correctly
-                    if isinstance(event, A2ATaskArtifactUpdateEvent):
+                    if isinstance(event, TaskArtifactUpdateEvent):
                         # Transform the event to use our first_artifact_sent logic
                         use_append = first_artifact_sent
                         if not first_artifact_sent:
@@ -1103,7 +1101,7 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                         await self._safe_enqueue_event(event_queue, transformed_event)
                     else:
                         # Forward status events with corrected task ID
-                        if isinstance(event, A2ATaskStatusUpdateEvent):
+                        if isinstance(event, TaskStatusUpdateEvent):
                             # Update the task ID to match the original client task
                             corrected_status_event = TaskStatusUpdateEvent(
                                 context_id=event.context_id,
