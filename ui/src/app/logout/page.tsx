@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import { LogOut, Loader2, CheckCircle2, ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { IntegrationOrbit } from "@/components/gallery/IntegrationOrbit";
 
 export default function LogoutPage() {
   const { status } = useSession();
@@ -45,14 +46,24 @@ export default function LogoutPage() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-background relative overflow-hidden">
       {/* Background gradient */}
-      <div className="absolute inset-0 bg-gradient-to-br from-[hsl(173,80%,40%)]/5 via-transparent to-[hsl(270,75%,60%)]/5" />
+      <div className="absolute inset-0 bg-gradient-to-br from-[hsl(173,80%,40%)]/10 via-transparent to-[hsl(270,75%,60%)]/10" />
+      <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-primary/5 via-transparent to-transparent" />
 
-      {/* Logout Card */}
-      <motion.div
-        initial={{ opacity: 0, scale: 0.95 }}
-        animate={{ opacity: 1, scale: 1 }}
-        className="relative z-10 w-full max-w-md mx-4"
-      >
+      <div className="relative z-10 flex items-center gap-12 mx-4">
+        {/* Left side - Integration Animation (hidden on mobile) */}
+        <div className="hidden lg:block">
+          <IntegrationOrbit />
+          <p className="text-center text-sm text-muted-foreground mt-4 max-w-[300px]">
+            Connect your platform tools and let AI agents collaborate
+          </p>
+        </div>
+
+        {/* Logout Card */}
+        <motion.div
+          initial={{ opacity: 0, scale: 0.95 }}
+          animate={{ opacity: 1, scale: 1 }}
+          className="w-full max-w-md"
+        >
         <div className="bg-card border border-border rounded-2xl shadow-2xl overflow-hidden">
           {/* Header */}
           <div className="p-8 text-center border-b border-border bg-muted/30">
@@ -156,19 +167,20 @@ export default function LogoutPage() {
           </div>
         </div>
 
-        {/* Additional Info */}
-        <p className="text-center text-xs text-muted-foreground mt-6">
-          Powered by OSS{" "}
-          <a
-            href="https://caipe.io"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-primary hover:underline"
-          >
-            caipe.io
-          </a>
-        </p>
-      </motion.div>
+          {/* Additional Info */}
+          <p className="text-center text-xs text-muted-foreground mt-6">
+            Powered by OSS{" "}
+            <a
+              href="https://caipe.io"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-primary hover:underline"
+            >
+              caipe.io
+            </a>
+          </p>
+        </motion.div>
+      </div>
     </div>
   );
 }
