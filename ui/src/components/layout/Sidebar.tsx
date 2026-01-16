@@ -41,8 +41,11 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse }: Sideb
   };
 
   return (
-    <div
-      className="flex flex-col h-full w-full bg-card/50 backdrop-blur-sm overflow-hidden"
+    <motion.div
+      initial={false}
+      animate={{ width: collapsed ? 64 : 280 }}
+      transition={{ duration: 0.2 }}
+      className="flex flex-col h-full bg-card/50 backdrop-blur-sm border-r border-border/50 shrink-0 overflow-hidden"
     >
       {/* Collapse Toggle */}
       <div className="flex items-center justify-end p-2 h-12">
@@ -235,6 +238,6 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse }: Sideb
           )}
         </div>
       </div>
-    </div>
+    </motion.div>
   );
 }
