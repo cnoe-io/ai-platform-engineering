@@ -17,6 +17,7 @@ All documentation files are in the root of this directory, organized by date and
 ## Documentation by Category
 
 ### 🏗️ Architecture & Core Design
+- **2026-01-16-caipe-ui-architecture.md** - CAIPE UI architecture with A2A visualization (CopilotKit/A2UI/AG-UI evaluation) [🟢 In-use]
 - **2025-11-05-architecture.md** - Main architecture overview (consolidated) [🟢 In-use]
 - **2024-10-22-streaming-architecture.md** - Original streaming architecture [🔴 Superseded by platform-engineer-streaming]
 - **2024-10-23-platform-engineer-streaming-architecture.md** - Platform Engineer streaming specifics [🟢 In-use]
@@ -77,6 +78,7 @@ All documentation files are in the root of this directory, organized by date and
 ## Quick Reference Guide
 
 ### Looking for...
+- **CAIPE UI (A2A visualization)?** → `2026-01-16-caipe-ui-architecture.md`
 - **Architecture overview?** → `2025-11-05-architecture.md`
 - **Streaming implementation?** → `2024-10-23-platform-engineer-streaming-architecture.md`
 - **Date/time handling?** → `2025-11-05-date-handling.md`

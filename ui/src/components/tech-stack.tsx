@@ -1,0 +1,220 @@
+"use client";
+
+import React, { useState, useRef, useEffect } from "react";
+import { motion, AnimatePresence } from "framer-motion";
+import { Layers, ExternalLink, X, ChevronUp } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
+
+interface TechItem {
+  name: string;
+  description: string;
+  url: string;
+  logo?: string;
+  category: "platform" | "protocol" | "framework" | "community";
+}
+
+const techStack: TechItem[] = [
+  {
+    name: "CAIPE",
+    description: "Community AI Platform Engineering - Multi-Agent System for Platform Engineers",
+    url: "https://cnoe-io.github.io/ai-platform-engineering/",
+    category: "platform",
+  },
+  {
+    name: "A2A Protocol",
+    description: "Agent-to-Agent protocol for inter-agent communication (by Google)",
+    url: "https://google.github.io/A2A/",
+    category: "protocol",
+  },
+  {
+    name: "A2UI",
+    description: "Agent-to-User Interface specification for declarative UI widgets",
+    url: "https://a2ui.org/",
+    category: "protocol",
+  },
+  {
+    name: "AG-UI",
+    description: "Agent-User Interaction Protocol for real-time AI experiences (by CopilotKit)",
+    url: "https://docs.ag-ui.com/",
+    category: "protocol",
+  },
+  {
+    name: "CopilotKit",
+    description: "Framework for building AI copilot experiences in React applications",
+    url: "https://docs.copilotkit.ai/",
+    category: "framework",
+  },
+  {
+    name: "CNOE",
+    description: "Cloud Native Operational Excellence - Open source IDP reference implementations",
+    url: "https://cnoe.io/",
+    category: "community",
+  },
+  {
+    name: "LangGraph",
+    description: "Framework for building stateful, multi-actor applications with LLMs",
+    url: "https://langchain-ai.github.io/langgraph/",
+    category: "framework",
+  },
+  {
+    name: "MCP",
+    description: "Model Context Protocol for AI tool integration (by Anthropic)",
+    url: "https://modelcontextprotocol.io/",
+    category: "protocol",
+  },
+];
+
+const categoryLabels: Record<TechItem["category"], string> = {
+  platform: "Platform",
+  protocol: "Protocols",
+  framework: "Frameworks",
+  community: "Community",
+};
+
+const categoryColors: Record<TechItem["category"], string> = {
+  platform: "from-[hsl(173,80%,40%)] to-[hsl(173,80%,30%)]",
+  protocol: "from-purple-500 to-purple-600",
+  framework: "from-amber-500 to-amber-600",
+  community: "from-blue-500 to-blue-600",
+};
+
+export function TechStackButton() {
+  const [open, setOpen] = useState(false);
+  const panelRef = useRef<HTMLDivElement>(null);
+
+  // Close on outside click
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (panelRef.current && !panelRef.current.contains(event.target as Node)) {
+        setOpen(false);
+      }
+    }
+    if (open) {
+      document.addEventListener("mousedown", handleClickOutside);
+    }
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [open]);
+
+  // Group by category
+  const grouped = techStack.reduce((acc, item) => {
+    if (!acc[item.category]) acc[item.category] = [];
+    acc[item.category].push(item);
+    return acc;
+  }, {} as Record<TechItem["category"], TechItem[]>);
+
+  return (
+    <div className="fixed bottom-4 right-4 z-50" ref={panelRef}>
+      <AnimatePresence>
+        {open && (
+          <motion.div
+            initial={{ opacity: 0, y: 20, scale: 0.95 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 20, scale: 0.95 }}
+            transition={{ duration: 0.2 }}
+            className="absolute bottom-full right-0 mb-2 w-80 max-h-[70vh] overflow-hidden rounded-xl bg-card border border-border shadow-2xl"
+          >
+            {/* Header */}
+            <div className="flex items-center justify-between p-3 border-b border-border bg-muted/30">
+              <div className="flex items-center gap-2">
+                <div className="p-1.5 rounded-lg bg-gradient-to-br from-[hsl(173,80%,40%)] to-[hsl(270,75%,60%)]">
+                  <Layers className="h-4 w-4 text-white" />
+                </div>
+                <div>
+                  <h3 className="font-semibold text-sm">Technology Stack</h3>
+                  <p className="text-[10px] text-muted-foreground">Powered by open standards</p>
+                </div>
+              </div>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7"
+                onClick={() => setOpen(false)}
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+
+            {/* Content */}
+            <div className="p-2 max-h-[50vh] overflow-y-auto">
+              {(["platform", "protocol", "framework", "community"] as const).map((category) => (
+                grouped[category] && (
+                  <div key={category} className="mb-3 last:mb-0">
+                    <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider px-2 mb-1">
+                      {categoryLabels[category]}
+                    </p>
+                    <div className="space-y-1">
+                      {grouped[category].map((tech) => (
+                        <a
+                          key={tech.name}
+                          href={tech.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex items-start gap-3 p-2 rounded-lg hover:bg-muted/50 transition-colors group"
+                        >
+                          <div className={cn(
+                            "w-8 h-8 rounded-lg bg-gradient-to-br flex items-center justify-center shrink-0 text-white text-xs font-bold",
+                            categoryColors[tech.category]
+                          )}>
+                            {tech.name.slice(0, 2).toUpperCase()}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-1.5">
+                              <span className="font-medium text-sm group-hover:text-primary transition-colors">
+                                {tech.name}
+                              </span>
+                              <ExternalLink className="h-3 w-3 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
+                            </div>
+                            <p className="text-[11px] text-muted-foreground leading-relaxed line-clamp-2">
+                              {tech.description}
+                            </p>
+                          </div>
+                        </a>
+                      ))}
+                    </div>
+                  </div>
+                )
+              ))}
+            </div>
+
+            {/* Footer */}
+            <div className="p-2 border-t border-border bg-muted/20">
+              <p className="text-[10px] text-center text-muted-foreground">
+                Built with ❤️ by the{" "}
+                <a
+                  href="https://cnoe.io/"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-primary hover:underline"
+                >
+                  CNOE
+                </a>{" "}
+                community
+              </p>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Toggle Button */}
+      <motion.button
+        onClick={() => setOpen(!open)}
+        className={cn(
+          "flex items-center gap-2 px-3 py-2 rounded-full border transition-all",
+          open
+            ? "bg-primary text-primary-foreground border-primary shadow-lg shadow-primary/30"
+            : "bg-card/90 backdrop-blur-sm border-border hover:border-primary/50 hover:shadow-lg text-muted-foreground hover:text-foreground"
+        )}
+        whileHover={{ scale: 1.02 }}
+        whileTap={{ scale: 0.98 }}
+      >
+        <span className="w-2 h-2 rounded-full bg-gradient-to-r from-[hsl(173,80%,40%)] to-[hsl(270,75%,60%)]" />
+        <span className="text-xs font-medium">Powered By</span>
+        <ChevronUp className={cn(
+          "h-3 w-3 transition-transform",
+          open ? "rotate-180" : "rotate-0"
+        )} />
+      </motion.button>
+    </div>
+  );
+}
