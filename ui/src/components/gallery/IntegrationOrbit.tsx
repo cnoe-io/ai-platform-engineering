@@ -5,8 +5,8 @@ import { motion } from "framer-motion";
 
 // Integration logos with accurate SVG paths from Simple Icons (https://simpleicons.org)
 const integrations = [
-  { 
-    name: "Argo", 
+  {
+    name: "Argo",
     color: "#EF7B4D",
     // Argo CD logo
     icon: (
@@ -15,8 +15,8 @@ const integrations = [
       </svg>
     )
   },
-  { 
-    name: "AWS", 
+  {
+    name: "AWS",
     color: "#232F3E",
     // Amazon AWS logo
     icon: (
@@ -25,8 +25,8 @@ const integrations = [
       </svg>
     )
   },
-  { 
-    name: "GitHub", 
+  {
+    name: "GitHub",
     color: "#181717",
     // GitHub logo
     icon: (
@@ -35,8 +35,8 @@ const integrations = [
       </svg>
     )
   },
-  { 
-    name: "Jira", 
+  {
+    name: "Jira",
     color: "#0052CC",
     // Jira logo
     icon: (
@@ -45,8 +45,8 @@ const integrations = [
       </svg>
     )
   },
-  { 
-    name: "GitLab", 
+  {
+    name: "GitLab",
     color: "#FC6D26",
     // GitLab logo
     icon: (
@@ -55,8 +55,8 @@ const integrations = [
       </svg>
     )
   },
-  { 
-    name: "Splunk", 
+  {
+    name: "Splunk",
     color: "#000000",
     // Splunk logo
     icon: (
@@ -65,8 +65,8 @@ const integrations = [
       </svg>
     )
   },
-  { 
-    name: "Confluence", 
+  {
+    name: "Confluence",
     color: "#172B4D",
     // Confluence logo
     icon: (
@@ -75,8 +75,8 @@ const integrations = [
       </svg>
     )
   },
-  { 
-    name: "Webex", 
+  {
+    name: "Webex",
     color: "#000000",
     // Webex logo
     icon: (
@@ -85,8 +85,8 @@ const integrations = [
       </svg>
     )
   },
-  { 
-    name: "Kubernetes", 
+  {
+    name: "Kubernetes",
     color: "#326CE5",
     // Kubernetes logo
     icon: (
@@ -95,8 +95,8 @@ const integrations = [
       </svg>
     )
   },
-  { 
-    name: "Slack", 
+  {
+    name: "Slack",
     color: "#4A154B",
     // Slack logo
     icon: (
@@ -105,8 +105,8 @@ const integrations = [
       </svg>
     )
   },
-  { 
-    name: "Backstage", 
+  {
+    name: "Backstage",
     color: "#9BF0E1",
     // Backstage (Spotify) logo
     icon: (
@@ -115,8 +115,8 @@ const integrations = [
       </svg>
     )
   },
-  { 
-    name: "AI", 
+  {
+    name: "AI",
     color: "#FF6F61",
     // Robot/AI icon
     icon: (
@@ -125,8 +125,8 @@ const integrations = [
       </svg>
     )
   },
-  { 
-    name: "Workflows", 
+  {
+    name: "Workflows",
     color: "#FF9800",
     // Workflows/Tools icon
     icon: (
@@ -135,8 +135,8 @@ const integrations = [
       </svg>
     )
   },
-  { 
-    name: "PagerDuty", 
+  {
+    name: "PagerDuty",
     color: "#06AC38",
     // PagerDuty logo
     icon: (
@@ -158,7 +158,7 @@ export function IntegrationOrbit() {
       {/* Background glow effects */}
       <div className="absolute inset-0 bg-gradient-to-br from-[hsl(173,80%,40%)]/10 via-transparent to-[hsl(270,75%,60%)]/10" />
       <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-primary/20 via-transparent to-transparent" />
-      
+
       {/* Connecting lines animation */}
       <svg className="absolute inset-0 w-full h-full" style={{ zIndex: 0 }}>
         <defs>
@@ -224,7 +224,7 @@ export function IntegrationOrbit() {
             const angle = (index * 360) / innerOrbit.length;
             const x = Math.cos((angle * Math.PI) / 180) * 90;
             const y = Math.sin((angle * Math.PI) / 180) * 90;
-            
+
             return (
               <motion.div
                 key={integration.name}
@@ -266,7 +266,7 @@ export function IntegrationOrbit() {
             const angle = (index * 360) / outerOrbit.length + 30; // Offset from inner
             const x = Math.cos((angle * Math.PI) / 180) * 130;
             const y = Math.sin((angle * Math.PI) / 180) * 130;
-            
+
             return (
               <motion.div
                 key={integration.name}
