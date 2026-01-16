@@ -57,8 +57,18 @@ export default {
         sm: "calc(var(--radius) - 4px)",
       },
       fontFamily: {
-        sans: ["var(--font-geist-sans)"],
-        mono: ["var(--font-geist-mono)"],
+        // Default sans font - Inter (OpenAI style)
+        sans: ["var(--font-inter)", "var(--font-source-sans)", "var(--font-ibm-plex)", "system-ui", "sans-serif"],
+        // Alternative fonts available via CSS class
+        inter: ["var(--font-inter)", "system-ui", "sans-serif"],
+        "source-sans": ["var(--font-source-sans)", "system-ui", "sans-serif"],
+        "ibm-plex": ["var(--font-ibm-plex)", "system-ui", "sans-serif"],
+        // Monospace - JetBrains Mono (VSCode style)
+        mono: ["var(--font-mono)", "Menlo", "Monaco", "Consolas", "monospace"],
+      },
+      fontSize: {
+        // Custom font size scale for accessibility
+        "2xs": ["0.625rem", { lineHeight: "0.875rem" }],
       },
       keyframes: {
         "accordion-down": {

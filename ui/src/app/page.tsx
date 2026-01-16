@@ -20,6 +20,7 @@ import { UseCasesGallery } from "@/components/gallery/UseCasesGallery";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { TechStackButton } from "@/components/tech-stack";
 import { UserMenu } from "@/components/user-menu";
+import { SettingsPanel } from "@/components/settings-panel";
 import { AuthGuard } from "@/components/auth-guard";
 import { useChatStore } from "@/store/chat-store";
 import { Button } from "@/components/ui/button";
@@ -150,8 +151,9 @@ function HomePage() {
             </div>
           )}
 
-          {/* Theme, Links & User */}
+          {/* Settings, Theme, Links & User */}
           <div className="flex items-center gap-1 border-l border-border pl-3">
+            <SettingsPanel />
             <ThemeToggle />
             <Button variant="ghost" size="icon" className="h-8 w-8" asChild>
               <a
