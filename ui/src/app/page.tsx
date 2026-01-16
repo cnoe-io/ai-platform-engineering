@@ -157,10 +157,10 @@ function HomePage() {
             <ThemeToggle />
             <Button variant="ghost" size="icon" className="h-8 w-8" asChild>
               <a
-                href="https://cnoe-io.github.io/ai-platform-engineering/"
+                href="https://caipe.io"
                 target="_blank"
                 rel="noopener noreferrer"
-                title="CAIPE Docs"
+                title="caipe.io"
               >
                 <BookOpen className="h-4 w-4" />
               </a>
