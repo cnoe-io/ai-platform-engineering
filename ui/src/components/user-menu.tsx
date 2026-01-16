@@ -140,16 +140,14 @@ export function UserMenu() {
 
             {/* Actions */}
             <div className="p-1.5">
-              <button
-                onClick={() => {
-                  setOpen(false);
-                  signOut({ callbackUrl: "/login" });
-                }}
+              <a
+                href="/logout"
+                onClick={() => setOpen(false)}
                 className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-destructive hover:bg-destructive/10 transition-colors"
               >
                 <LogOut className="h-4 w-4" />
                 Sign Out
-              </button>
+              </a>
             </div>
           </motion.div>
         )}
