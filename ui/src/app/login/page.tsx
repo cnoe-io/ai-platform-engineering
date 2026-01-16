@@ -4,7 +4,7 @@ import React, { useEffect, useState } from "react";
 import { signIn, useSession } from "next-auth/react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { motion } from "framer-motion";
-import { LogIn, Shield, Loader2, AlertCircle } from "lucide-react";
+import { LogIn, Loader2, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { LoadingScreen } from "@/components/loading-screen";
 
@@ -101,19 +101,6 @@ export default function LoginPage() {
               )}
               {isLoading ? "Redirecting..." : "Sign in with SSO"}
             </Button>
-
-            {/* Security Note */}
-            <div className="mt-6 flex items-center justify-center gap-2 text-xs text-muted-foreground">
-              <Shield className="h-3.5 w-3.5" />
-              <span>Secured with enterprise OIDC authentication</span>
-            </div>
-          </div>
-
-          {/* Footer */}
-          <div className="px-8 py-4 border-t border-border bg-muted/20">
-            <p className="text-[10px] text-center text-muted-foreground">
-              By signing in, you agree to the terms of service and privacy policy.
-            </p>
           </div>
         </div>
 
