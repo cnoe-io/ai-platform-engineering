@@ -44,27 +44,41 @@ export default function LogoutPage() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background relative overflow-hidden">
-      {/* Background gradient */}
-      <div className="absolute inset-0 bg-gradient-to-br from-[hsl(173,80%,40%)]/10 via-transparent to-[hsl(270,75%,60%)]/10" />
-      <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-primary/5 via-transparent to-transparent" />
-
-      <div className="relative z-10 flex items-center gap-12 mx-4">
-        {/* Left side - Integration Animation (hidden on mobile) */}
-        <div className="hidden lg:block">
+    <div className="min-h-screen flex bg-background relative overflow-hidden">
+      {/* Left Panel - Integration Animation */}
+      <div className="hidden lg:flex lg:w-1/2 relative items-center justify-center bg-gradient-to-br from-[hsl(173,80%,40%)]/10 via-background to-[hsl(270,75%,60%)]/10">
+        {/* Background effects */}
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-primary/10 via-transparent to-transparent" />
+        
+        <div className="relative z-10 flex flex-col items-center">
           <IntegrationOrbit />
-          <p className="text-center text-sm text-muted-foreground mt-4 max-w-[300px]">
-            Connect your platform tools and let AI agents collaborate
-          </p>
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.3 }}
+            className="text-center mt-8 max-w-sm px-4"
+          >
+            <h2 className="text-2xl font-bold gradient-text mb-3">
+              Multi-Agent Platform Engineering
+            </h2>
+            <p className="text-muted-foreground">
+              Connect your platform tools and let AI agents collaborate to solve complex operations tasks.
+            </p>
+          </motion.div>
         </div>
+      </div>
 
-        {/* Logout Card */}
+      {/* Right Panel - Logout Card */}
+      <div className="flex-1 flex items-center justify-center p-8 relative">
+        {/* Background gradient for right panel */}
+        <div className="absolute inset-0 bg-gradient-to-bl from-[hsl(270,75%,60%)]/5 via-transparent to-transparent lg:hidden" />
+        
         <motion.div
           initial={{ opacity: 0, scale: 0.95 }}
           animate={{ opacity: 1, scale: 1 }}
-          className="w-full max-w-md"
+          className="relative z-10 w-full max-w-md"
         >
-        <div className="bg-card border border-border rounded-2xl shadow-2xl overflow-hidden">
+          <div className="bg-card border border-border rounded-2xl shadow-2xl overflow-hidden">
           {/* Header */}
           <div className="p-8 text-center border-b border-border bg-muted/30">
             <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-gradient-to-br from-[hsl(173,80%,40%)] via-[hsl(270,75%,60%)] to-[hsl(330,80%,55%)] flex items-center justify-center">
@@ -159,13 +173,13 @@ export default function LogoutPage() {
             )}
           </div>
 
-          {/* Footer */}
-          <div className="px-8 py-4 border-t border-border bg-muted/20">
-            <p className="text-[10px] text-center text-muted-foreground">
-              Your session has ended. Any unsaved work may be lost.
-            </p>
+            {/* Footer */}
+            <div className="px-8 py-4 border-t border-border bg-muted/20">
+              <p className="text-[10px] text-center text-muted-foreground">
+                Your session has ended. Any unsaved work may be lost.
+              </p>
+            </div>
           </div>
-        </div>
 
           {/* Additional Info */}
           <p className="text-center text-xs text-muted-foreground mt-6">
