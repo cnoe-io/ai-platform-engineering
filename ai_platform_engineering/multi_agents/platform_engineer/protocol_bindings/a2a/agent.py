@@ -560,7 +560,7 @@ class AIPlatformEngineerA2ABinding:
                       logging.info(f"🎯 AIMessage content preview: {content_preview}...")
                       if not accumulated_ai_content:
                           # Non-streaming mode: no chunks received, use the complete AIMessage
-                          logging.info(f"📝 Accumulating AIMessage content (no streaming chunks received)")
+                          logging.info("📝 Accumulating AIMessage content (no streaming chunks received)")
                           accumulated_ai_content.append(str(message.content))
                       else:
                           # Streaming mode: chunks already contain the content, skip the final AIMessage
