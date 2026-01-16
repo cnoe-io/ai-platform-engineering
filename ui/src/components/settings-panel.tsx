@@ -231,14 +231,26 @@ export function SettingsPanel() {
                     <Monitor className="h-4 w-4 text-muted-foreground" />
                     <h3 className="font-medium">Preview</h3>
                   </div>
-                  <div className="p-4 rounded-lg border border-border bg-background">
-                    <p className="text-sm mb-2">
+                  <div 
+                    className="p-4 rounded-lg border border-border bg-background"
+                    style={{
+                      fontFamily: fontFamily === "inter" ? "var(--font-inter), system-ui, sans-serif"
+                        : fontFamily === "source-sans" ? "var(--font-source-sans), system-ui, sans-serif"
+                        : fontFamily === "ibm-plex" ? "var(--font-ibm-plex), system-ui, sans-serif"
+                        : "system-ui, -apple-system, BlinkMacSystemFont, sans-serif",
+                      fontSize: fontSize === "small" ? "14px"
+                        : fontSize === "large" ? "18px"
+                        : fontSize === "x-large" ? "20px"
+                        : "16px",
+                    }}
+                  >
+                    <p className="mb-2">
                       The quick brown fox jumps over the lazy dog.
                     </p>
-                    <p className="text-xs text-muted-foreground mb-2">
+                    <p className="text-muted-foreground mb-2" style={{ fontSize: "0.85em" }}>
                       ABCDEFGHIJKLMNOPQRSTUVWXYZ abcdefghijklmnopqrstuvwxyz 0123456789
                     </p>
-                    <code className="text-xs font-mono bg-muted px-2 py-1 rounded">
+                    <code className="font-mono bg-muted px-2 py-1 rounded" style={{ fontSize: "0.85em" }}>
                       const agent = new A2AAgent();
                     </code>
                   </div>
