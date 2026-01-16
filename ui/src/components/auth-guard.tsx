@@ -3,8 +3,8 @@
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { Loader2 } from "lucide-react";
 import { config } from "@/lib/config";
+import { LoadingScreen } from "@/components/loading-screen";
 
 interface AuthGuardProps {
   children: React.ReactNode;
@@ -56,16 +56,10 @@ export function AuthGuard({ children }: AuthGuardProps) {
 
   // Show loading while checking authentication/authorization
   if (status === "loading" || !authChecked) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-background">
-        <div className="flex flex-col items-center gap-4">
-          <Loader2 className="h-8 w-8 animate-spin text-primary" />
-          <p className="text-sm text-muted-foreground">
-            {status === "loading" ? "Checking authentication..." : "Verifying authorization..."}
-          </p>
-        </div>
-      </div>
-    );
+    const message = status === "loading" 
+      ? "Checking authentication..." 
+      : "Verifying authorization...";
+    return <LoadingScreen message={message} />;
   }
 
   // If not authenticated and SSO is enabled, show nothing (redirect will happen)

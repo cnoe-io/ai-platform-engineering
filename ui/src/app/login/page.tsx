@@ -4,12 +4,12 @@ import React, { useEffect, useState } from "react";
 import { signIn, useSession } from "next-auth/react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { motion } from "framer-motion";
-import { LogIn, Shield, Loader2, AlertCircle, Zap } from "lucide-react";
+import { LogIn, Shield, Loader2, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
+import { LoadingScreen } from "@/components/loading-screen";
 
 export default function LoginPage() {
-  const { data: session, status } = useSession();
+  const { status } = useSession();
   const router = useRouter();
   const searchParams = useSearchParams();
   const [isLoading, setIsLoading] = useState(false);
@@ -34,28 +34,7 @@ export default function LoginPage() {
   };
 
   if (status === "loading") {
-    return (
-      <div className="min-h-screen flex flex-col items-center justify-center bg-background relative overflow-hidden">
-        {/* Background gradient */}
-        <div className="absolute inset-0 bg-gradient-to-br from-[hsl(173,80%,40%)]/10 via-transparent to-[hsl(270,75%,60%)]/10" />
-        
-        <div className="relative z-10 flex flex-col items-center gap-4">
-          {/* Spinning logo container */}
-          <div className="relative">
-            <div className="absolute inset-0 rounded-2xl bg-gradient-to-br from-[hsl(173,80%,40%)] to-[hsl(270,75%,60%)] animate-spin opacity-20 blur-xl" />
-            <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-[hsl(173,80%,40%)] via-[hsl(270,75%,60%)] to-[hsl(330,80%,55%)] flex items-center justify-center relative">
-              <img src="/logo.svg" alt="CAIPE" className="h-12 w-12" />
-            </div>
-          </div>
-          
-          {/* Loading spinner */}
-          <div className="flex items-center gap-3">
-            <Loader2 className="h-5 w-5 animate-spin text-primary" style={{ animation: 'spin 1s linear infinite' }} />
-            <span className="text-sm text-muted-foreground">Loading...</span>
-          </div>
-        </div>
-      </div>
-    );
+    return <LoadingScreen message="Loading..." />;
   }
 
   return (
