@@ -10,6 +10,10 @@
 :root {
   --radius: 0.75rem;
 
+  /* Font size scale - adjustable via settings */
+  --font-size-base: 1rem;
+  --font-size-scale: 1;
+
   /* A2A Protocol Event Colors - consistent across themes */
   --a2a-task: 199 89% 48%;
   --a2a-artifact: 270 75% 60%;
@@ -22,6 +26,50 @@
   --gradient-start: 173 80% 40%;
   --gradient-mid: 270 75% 60%;
   --gradient-end: 330 80% 55%;
+}
+
+/* ========================================
+   FONT SIZE SETTINGS
+   Applied via data-font-size attribute
+   ======================================== */
+[data-font-size="small"] {
+  --font-size-scale: 0.875;
+  font-size: 14px;
+}
+
+[data-font-size="medium"] {
+  --font-size-scale: 1;
+  font-size: 16px;
+}
+
+[data-font-size="large"] {
+  --font-size-scale: 1.125;
+  font-size: 18px;
+}
+
+[data-font-size="x-large"] {
+  --font-size-scale: 1.25;
+  font-size: 20px;
+}
+
+/* ========================================
+   FONT FAMILY SETTINGS
+   Applied via data-font-family attribute
+   ======================================== */
+[data-font-family="inter"] {
+  font-family: var(--font-inter), system-ui, sans-serif;
+}
+
+[data-font-family="source-sans"] {
+  font-family: var(--font-source-sans), system-ui, sans-serif;
+}
+
+[data-font-family="ibm-plex"] {
+  font-family: var(--font-ibm-plex), system-ui, sans-serif;
+}
+
+[data-font-family="system"] {
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
 }
 
 /* ========================================
