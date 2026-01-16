@@ -238,6 +238,36 @@ function ChatMessage({ message, onCopy, isCopied, isStreaming = false }: ChatMes
   // Get a preview of the streaming content (last 200 chars)
   const streamPreview = message.content.slice(-200).trim();
 
+  // Extract active tools from events (tool_start without matching tool_end)
+  const activeTools = React.useMemo(() => {
+    if (!isStreaming || message.isFinal) return [];
+    
+    const toolStarts: Map<string, { name: string; startTime: Date }> = new Map();
+    const toolEnds = new Set<string>();
+    
+    for (const event of message.events) {
+      if (event.type === "tool_start") {
+        const toolName = event.artifact?.name || event.displayName || "Tool";
+        toolStarts.set(event.id, { name: toolName, startTime: event.timestamp });
+      } else if (event.type === "tool_end") {
+        // Match tool_end to tool_start by artifact name or similar
+        const toolName = event.artifact?.name || event.displayName || "Tool";
+        for (const [id, tool] of toolStarts) {
+          if (tool.name === toolName) {
+            toolEnds.add(id);
+            break;
+          }
+        }
+      }
+    }
+    
+    // Return tools that have started but not ended
+    return Array.from(toolStarts.entries())
+      .filter(([id]) => !toolEnds.has(id))
+      .map(([, tool]) => tool.name)
+      .slice(-3); // Show max 3 active tools
+  }, [message.events, isStreaming, message.isFinal]);
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 10 }}
@@ -283,19 +313,43 @@ function ChatMessage({ message, onCopy, isCopied, isStreaming = false }: ChatMes
         {/* Streaming state - Cursor/OpenAI style */}
         {isStreaming && !message.isFinal ? (
           <div className="space-y-2">
-            {/* Thinking indicator */}
+            {/* Tool/Thinking indicator */}
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
-              className="inline-flex items-center gap-2 px-4 py-3 rounded-xl bg-card border border-border/50"
+              className="inline-flex flex-col gap-1.5"
             >
-              <div className="flex items-center gap-2">
-                <div className="relative">
-                  <div className="w-2 h-2 bg-primary rounded-full animate-ping absolute" />
-                  <div className="w-2 h-2 bg-primary rounded-full" />
-                </div>
-                <span className="text-sm text-muted-foreground">Thinking...</span>
-              </div>
+              {/* Active tools */}
+              <AnimatePresence mode="popLayout">
+                {activeTools.length > 0 ? (
+                  activeTools.map((toolName, idx) => (
+                    <motion.div
+                      key={`${toolName}-${idx}`}
+                      initial={{ opacity: 0, x: -10 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      exit={{ opacity: 0, x: 10 }}
+                      className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-400"
+                    >
+                      <Loader2 className="h-3 w-3 animate-spin" />
+                      <span className="text-xs font-medium">{toolName}</span>
+                    </motion.div>
+                  ))
+                ) : (
+                  <motion.div
+                    key="thinking"
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    className="inline-flex items-center gap-2 px-4 py-3 rounded-xl bg-card border border-border/50"
+                  >
+                    <div className="relative">
+                      <div className="w-2 h-2 bg-primary rounded-full animate-ping absolute" />
+                      <div className="w-2 h-2 bg-primary rounded-full" />
+                    </div>
+                    <span className="text-sm text-muted-foreground">Thinking...</span>
+                  </motion.div>
+                )}
+              </AnimatePresence>
             </motion.div>
 
             {/* Collapsible stream preview */}

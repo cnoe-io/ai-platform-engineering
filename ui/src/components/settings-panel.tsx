@@ -231,7 +231,7 @@ export function SettingsPanel() {
                     <Monitor className="h-4 w-4 text-muted-foreground" />
                     <h3 className="font-medium">Preview</h3>
                   </div>
-                  <div 
+                  <div
                     className="p-4 rounded-lg border border-border bg-background"
                     style={{
                       fontFamily: fontFamily === "inter" ? "var(--font-inter), system-ui, sans-serif"
