@@ -40,11 +40,13 @@ export default function LoginPage() {
 
   return (
     <div className="min-h-screen flex bg-background relative overflow-hidden">
+      {/* Full-page background gradients that span both panels */}
+      <div className="absolute inset-0 bg-gradient-to-br from-[hsl(173,80%,40%)]/8 via-transparent to-[hsl(270,75%,60%)]/8" />
+      <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_30%_50%,_var(--tw-gradient-stops))] from-[hsl(173,80%,40%)]/10 via-transparent to-transparent" />
+      <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_70%_50%,_var(--tw-gradient-stops))] from-[hsl(270,75%,60%)]/8 via-transparent to-transparent" />
+
       {/* Left Panel - Integration Animation */}
-      <div className="hidden lg:flex lg:w-1/2 relative items-center justify-center bg-gradient-to-br from-[hsl(173,80%,40%)]/10 via-background to-[hsl(270,75%,60%)]/10">
-        {/* Background effects */}
-        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-primary/10 via-transparent to-transparent" />
-        
+      <div className="hidden lg:flex lg:w-1/2 relative items-center justify-center">
         <div className="relative z-10 flex flex-col items-center">
           <IntegrationOrbit />
           <motion.div
@@ -65,9 +67,7 @@ export default function LoginPage() {
 
       {/* Right Panel - Login Card */}
       <div className="flex-1 flex items-center justify-center p-8 relative">
-        {/* Background gradient for right panel */}
-        <div className="absolute inset-0 bg-gradient-to-bl from-[hsl(270,75%,60%)]/5 via-transparent to-transparent lg:hidden" />
-        
+
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
