@@ -7,6 +7,7 @@ import { motion } from "framer-motion";
 import { LogIn, Loader2, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { LoadingScreen } from "@/components/loading-screen";
+import { IntegrationOrbit } from "@/components/gallery/IntegrationOrbit";
 
 export default function LoginPage() {
   const { status } = useSession();
@@ -43,80 +44,90 @@ export default function LoginPage() {
       <div className="absolute inset-0 bg-gradient-to-br from-[hsl(173,80%,40%)]/10 via-transparent to-[hsl(270,75%,60%)]/10" />
       <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-primary/5 via-transparent to-transparent" />
 
-      {/* Login Card */}
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="relative z-10 w-full max-w-md mx-4"
-      >
-        <div className="bg-card border border-border rounded-2xl shadow-2xl overflow-hidden">
-          {/* Header */}
-          <div className="p-8 text-center border-b border-border bg-muted/30">
-            <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-gradient-to-br from-[hsl(173,80%,40%)] via-[hsl(270,75%,60%)] to-[hsl(330,80%,55%)] flex items-center justify-center animate-pulse-glow">
-              <img src="/logo.svg" alt="CAIPE" className="h-10 w-10" />
-            </div>
-            <h1 className="text-2xl font-bold gradient-text">CAIPE</h1>
-            <p className="text-sm text-muted-foreground mt-1">
-              Community AI Platform Engineering
-            </p>
-          </div>
-
-          {/* Content */}
-          <div className="p-8">
-            {/* Error Message */}
-            {error && (
-              <motion.div
-                initial={{ opacity: 0, y: -10 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="mb-6 p-4 rounded-lg bg-destructive/10 border border-destructive/30 flex items-start gap-3"
-              >
-                <AlertCircle className="h-5 w-5 text-destructive shrink-0 mt-0.5" />
-                <div>
-                  <p className="text-sm font-medium text-destructive">
-                    Authentication Failed
-                  </p>
-                  <p className="text-xs text-destructive/80 mt-1">
-                    {error === "OAuthSignin" && "Failed to start authentication flow."}
-                    {error === "OAuthCallback" && "Failed to complete authentication."}
-                    {error === "OAuthCreateAccount" && "Failed to create account."}
-                    {error === "Callback" && "Authentication callback error."}
-                    {error === "AccessDenied" && "Access denied. You may not have permission."}
-                    {!["OAuthSignin", "OAuthCallback", "OAuthCreateAccount", "Callback", "AccessDenied"].includes(error) &&
-                      "An unexpected error occurred. Please try again."}
-                  </p>
-                </div>
-              </motion.div>
-            )}
-
-            {/* SSO Login Button */}
-            <Button
-              onClick={handleSignIn}
-              disabled={isLoading}
-              className="w-full h-12 text-base gap-2 bg-gradient-to-r from-[hsl(173,80%,40%)] to-[hsl(270,75%,60%)] hover:opacity-90 transition-opacity"
-            >
-              {isLoading ? (
-                <Loader2 className="h-5 w-5 animate-spin" />
-              ) : (
-                <LogIn className="h-5 w-5" />
-              )}
-              {isLoading ? "Redirecting..." : "Sign in with SSO"}
-            </Button>
-          </div>
+      <div className="relative z-10 flex items-center gap-12 mx-4">
+        {/* Left side - Integration Animation (hidden on mobile) */}
+        <div className="hidden lg:block">
+          <IntegrationOrbit />
+          <p className="text-center text-sm text-muted-foreground mt-4 max-w-[300px]">
+            Connect your platform tools and let AI agents collaborate
+          </p>
         </div>
 
-        {/* Additional Info */}
-        <p className="text-center text-xs text-muted-foreground mt-6">
-          Powered by OSS{" "}
-          <a
-            href="https://caipe.io"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-primary hover:underline"
-          >
-            caipe.io
-          </a>
-        </p>
-      </motion.div>
+        {/* Login Card */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="w-full max-w-md"
+        >
+          <div className="bg-card border border-border rounded-2xl shadow-2xl overflow-hidden">
+            {/* Header */}
+            <div className="p-8 text-center border-b border-border bg-muted/30">
+              <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-gradient-to-br from-[hsl(173,80%,40%)] via-[hsl(270,75%,60%)] to-[hsl(330,80%,55%)] flex items-center justify-center animate-pulse-glow">
+                <img src="/logo.svg" alt="CAIPE" className="h-10 w-10" />
+              </div>
+              <h1 className="text-2xl font-bold gradient-text">CAIPE</h1>
+              <p className="text-sm text-muted-foreground mt-1">
+                Community AI Platform Engineering
+              </p>
+            </div>
+
+            {/* Content */}
+            <div className="p-8">
+              {/* Error Message */}
+              {error && (
+                <motion.div
+                  initial={{ opacity: 0, y: -10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="mb-6 p-4 rounded-lg bg-destructive/10 border border-destructive/30 flex items-start gap-3"
+                >
+                  <AlertCircle className="h-5 w-5 text-destructive shrink-0 mt-0.5" />
+                  <div>
+                    <p className="text-sm font-medium text-destructive">
+                      Authentication Failed
+                    </p>
+                    <p className="text-xs text-destructive/80 mt-1">
+                      {error === "OAuthSignin" && "Failed to start authentication flow."}
+                      {error === "OAuthCallback" && "Failed to complete authentication."}
+                      {error === "OAuthCreateAccount" && "Failed to create account."}
+                      {error === "Callback" && "Authentication callback error."}
+                      {error === "AccessDenied" && "Access denied. You may not have permission."}
+                      {!["OAuthSignin", "OAuthCallback", "OAuthCreateAccount", "Callback", "AccessDenied"].includes(error) &&
+                        "An unexpected error occurred. Please try again."}
+                    </p>
+                  </div>
+                </motion.div>
+              )}
+
+              {/* SSO Login Button */}
+              <Button
+                onClick={handleSignIn}
+                disabled={isLoading}
+                className="w-full h-12 text-base gap-2 bg-gradient-to-r from-[hsl(173,80%,40%)] to-[hsl(270,75%,60%)] hover:opacity-90 transition-opacity"
+              >
+                {isLoading ? (
+                  <Loader2 className="h-5 w-5 animate-spin" />
+                ) : (
+                  <LogIn className="h-5 w-5" />
+                )}
+                {isLoading ? "Redirecting..." : "Sign in with SSO"}
+              </Button>
+            </div>
+          </div>
+
+          {/* Additional Info */}
+          <p className="text-center text-xs text-muted-foreground mt-6">
+            Powered by OSS{" "}
+            <a
+              href="https://caipe.io"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-primary hover:underline"
+            >
+              caipe.io
+            </a>
+          </p>
+        </motion.div>
+      </div>
     </div>
   );
 }
