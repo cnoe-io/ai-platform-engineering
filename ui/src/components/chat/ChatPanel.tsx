@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useRef, useEffect, useCallback } from "react";
+import { useSession } from "next-auth/react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Send, Square, User, Bot, Sparkles, Copy, Check, Loader2, ChevronDown, ChevronUp } from "lucide-react";
 import ReactMarkdown from "react-markdown";
@@ -13,12 +14,14 @@ import { useChatStore } from "@/store/chat-store";
 import { A2AClient } from "@/lib/a2a-client";
 import { cn, extractFinalAnswer } from "@/lib/utils";
 import { ChatMessage as ChatMessageType } from "@/types/a2a";
+import { config } from "@/lib/config";
 
 interface ChatPanelProps {
   endpoint: string;
 }
 
 export function ChatPanel({ endpoint }: ChatPanelProps) {
+  const { data: session } = useSession();
   const [input, setInput] = useState("");
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -37,6 +40,9 @@ export function ChatPanel({ endpoint }: ChatPanelProps) {
     setStreaming,
     isStreaming,
   } = useChatStore();
+
+  // Get access token from session (if SSO is enabled and user is authenticated)
+  const accessToken = config.ssoEnabled ? session?.accessToken : undefined;
 
   const conversation = getActiveConversation();
 
@@ -75,6 +81,7 @@ export function ChatPanel({ endpoint }: ChatPanelProps) {
     try {
       clientRef.current = new A2AClient({
         endpoint,
+        accessToken, // Pass JWT token for Bearer authentication
         onEvent: (event) => {
           addA2AEvent(event);
           addEventToMessage(convId!, assistantMsgId, event);
@@ -120,7 +127,7 @@ export function ChatPanel({ endpoint }: ChatPanelProps) {
       appendToMessage(convId, assistantMsgId, `\n\n**Error:** Failed to connect to A2A endpoint`);
       setStreaming(false);
     }
-  }, [input, isStreaming, activeConversationId, endpoint, createConversation, addMessage, appendToMessage, updateMessage, addEventToMessage, addA2AEvent, setStreaming]);
+  }, [input, isStreaming, activeConversationId, endpoint, accessToken, createConversation, addMessage, appendToMessage, updateMessage, addEventToMessage, addA2AEvent, setStreaming]);
 
   const handleStop = () => {
     clientRef.current?.abort();
@@ -138,7 +145,7 @@ export function ChatPanel({ endpoint }: ChatPanelProps) {
     <div className="h-full flex flex-col bg-background">
       {/* Messages Area */}
       <ScrollArea className="flex-1" ref={scrollRef}>
-        <div className="max-w-4xl mx-auto p-4 space-y-6">
+        <div className="max-w-5xl mx-auto px-6 py-6 space-y-8">
           {!conversation?.messages.length && (
             <div className="text-center py-20">
               <div className="w-16 h-16 mx-auto mb-6 rounded-2xl bg-gradient-to-br from-primary to-primary/60 flex items-center justify-center">
@@ -236,12 +243,18 @@ function ChatMessage({ message, onCopy, isCopied, isStreaming = false }: ChatMes
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0 }}
-      className={cn("flex gap-4", isUser && "flex-row-reverse")}
+      className={cn(
+        "flex gap-4",
+        isUser ? "flex-row-reverse" : "flex-row"
+      )}
     >
+      {/* Avatar */}
       <div
         className={cn(
-          "w-8 h-8 rounded-full flex items-center justify-center shrink-0",
-          isUser ? "bg-primary" : "bg-gradient-to-br from-purple-500 to-pink-500",
+          "w-9 h-9 rounded-xl flex items-center justify-center shrink-0 shadow-sm",
+          isUser
+            ? "bg-primary"
+            : "bg-gradient-to-br from-[hsl(270,75%,60%)] to-[hsl(330,80%,55%)]",
           isStreaming && "animate-pulse"
         )}
       >
@@ -254,7 +267,19 @@ function ChatMessage({ message, onCopy, isCopied, isStreaming = false }: ChatMes
         )}
       </div>
 
-      <div className={cn("flex-1 max-w-[80%]", isUser && "text-right")}>
+      {/* Message Content */}
+      <div className={cn(
+        "flex-1 min-w-0",
+        isUser ? "max-w-[70%] text-right" : "max-w-full"
+      )}>
+        {/* Role label */}
+        <div className={cn(
+          "text-xs font-medium mb-1.5",
+          isUser ? "text-primary" : "text-muted-foreground"
+        )}>
+          {isUser ? "You" : "CAIPE"}
+        </div>
+
         {/* Streaming state - Cursor/OpenAI style */}
         {isStreaming && !message.isFinal ? (
           <div className="space-y-2">
@@ -262,7 +287,7 @@ function ChatMessage({ message, onCopy, isCopied, isStreaming = false }: ChatMes
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
-              className="inline-flex items-center gap-2 px-4 py-3 rounded-2xl rounded-tl-sm bg-card border border-border"
+              className="inline-flex items-center gap-2 px-4 py-3 rounded-xl bg-card border border-border/50"
             >
               <div className="flex items-center gap-2">
                 <div className="relative">
@@ -314,70 +339,149 @@ function ChatMessage({ message, onCopy, isCopied, isStreaming = false }: ChatMes
           <>
             <div
               className={cn(
-                "inline-block rounded-2xl px-4 py-3 text-sm",
+                "rounded-xl",
                 isUser
-                  ? "bg-primary text-primary-foreground rounded-tr-sm"
-                  : "bg-card border border-border rounded-tl-sm"
+                  ? "inline-block bg-primary text-primary-foreground px-4 py-3 rounded-tr-sm"
+                  : "bg-card/50 border border-border/50 px-5 py-4"
               )}
             >
               {isUser ? (
-                <p className="whitespace-pre-wrap">{message.content}</p>
+                <p className="whitespace-pre-wrap text-sm">{message.content}</p>
               ) : (
-                <div className="prose prose-invert prose-sm max-w-none">
+                <div className="prose-container">
                   <ReactMarkdown
                     remarkPlugins={[remarkGfm]}
                     components={{
+                      // Headings
+                      h1: ({ children }) => (
+                        <h1 className="text-xl font-bold text-foreground mb-4 mt-6 first:mt-0 pb-2 border-b border-border/50">
+                          {children}
+                        </h1>
+                      ),
+                      h2: ({ children }) => (
+                        <h2 className="text-lg font-semibold text-foreground mb-3 mt-5 first:mt-0">
+                          {children}
+                        </h2>
+                      ),
+                      h3: ({ children }) => (
+                        <h3 className="text-base font-semibold text-foreground mb-2 mt-4 first:mt-0">
+                          {children}
+                        </h3>
+                      ),
+                      // Paragraphs
+                      p: ({ children }) => (
+                        <p className="text-sm leading-relaxed text-foreground/90 mb-3 last:mb-0">
+                          {children}
+                        </p>
+                      ),
+                      // Lists
+                      ul: ({ children }) => (
+                        <ul className="list-disc list-outside ml-5 mb-3 space-y-1.5 text-sm text-foreground/90">
+                          {children}
+                        </ul>
+                      ),
+                      ol: ({ children }) => (
+                        <ol className="list-decimal list-outside ml-5 mb-3 space-y-1.5 text-sm text-foreground/90">
+                          {children}
+                        </ol>
+                      ),
+                      li: ({ children }) => (
+                        <li className="leading-relaxed">{children}</li>
+                      ),
+                      // Code
                       code({ className, children, ...props }) {
                         const match = /language-(\w+)/.exec(className || "");
-                        const isInline = !match;
-                        return isInline ? (
-                          <code className="bg-muted px-1 py-0.5 rounded text-xs" {...props}>
-                            {children}
-                          </code>
-                        ) : (
-                          <SyntaxHighlighter
-                            style={oneDark}
-                            language={match[1]}
-                            PreTag="div"
-                            customStyle={{ margin: 0, borderRadius: "0.5rem" }}
-                          >
-                            {String(children).replace(/\n$/, "")}
-                          </SyntaxHighlighter>
-                        );
-                      },
-                      table({ children }) {
-                        return (
-                          <div className="overflow-x-auto my-4">
-                            <table className="min-w-full border-collapse border border-border">
+                        const isInline = !match && !className;
+
+                        if (isInline) {
+                          return (
+                            <code
+                              className="bg-muted/80 text-primary px-1.5 py-0.5 rounded text-[13px] font-mono"
+                              {...props}
+                            >
                               {children}
-                            </table>
+                            </code>
+                          );
+                        }
+
+                        return (
+                          <div className="my-4 rounded-lg overflow-hidden border border-border/50">
+                            {match && (
+                              <div className="bg-muted/50 px-3 py-1.5 text-xs text-muted-foreground border-b border-border/50 font-mono">
+                                {match[1]}
+                              </div>
+                            )}
+                            <SyntaxHighlighter
+                              style={oneDark}
+                              language={match ? match[1] : "text"}
+                              PreTag="div"
+                              customStyle={{
+                                margin: 0,
+                                borderRadius: 0,
+                                padding: "1rem",
+                                fontSize: "13px",
+                                lineHeight: "1.5",
+                                background: "hsl(var(--muted) / 0.3)"
+                              }}
+                            >
+                              {String(children).replace(/\n$/, "")}
+                            </SyntaxHighlighter>
                           </div>
                         );
                       },
-                      th({ children }) {
-                        return (
-                          <th className="border border-border px-3 py-2 bg-muted text-left">
+                      // Blockquotes
+                      blockquote: ({ children }) => (
+                        <blockquote className="border-l-4 border-primary/50 pl-4 my-4 italic text-muted-foreground">
+                          {children}
+                        </blockquote>
+                      ),
+                      // Tables
+                      table: ({ children }) => (
+                        <div className="overflow-x-auto my-4 rounded-lg border border-border/50">
+                          <table className="min-w-full text-sm">
                             {children}
-                          </th>
-                        );
-                      },
-                      td({ children }) {
-                        return (
-                          <td className="border border-border px-3 py-2">{children}</td>
-                        );
-                      },
-                      a({ href, children }) {
-                        return (
-                          <a
-                            href={href}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-primary hover:underline"
-                          >
-                            {children}
-                          </a>
-                        );
-                      },
+                          </table>
+                        </div>
+                      ),
+                      thead: ({ children }) => (
+                        <thead className="bg-muted/50">{children}</thead>
+                      ),
+                      th: ({ children }) => (
+                        <th className="px-4 py-2.5 text-left font-semibold text-foreground border-b border-border/50">
+                          {children}
+                        </th>
+                      ),
+                      td: ({ children }) => (
+                        <td className="px-4 py-2.5 border-b border-border/30 text-foreground/90">
+                          {children}
+                        </td>
+                      ),
+                      tr: ({ children }) => (
+                        <tr className="hover:bg-muted/30 transition-colors">{children}</tr>
+                      ),
+                      // Links
+                      a: ({ href, children }) => (
+                        <a
+                          href={href}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-primary hover:text-primary/80 underline underline-offset-2 decoration-primary/50 hover:decoration-primary transition-colors"
+                        >
+                          {children}
+                        </a>
+                      ),
+                      // Horizontal rule
+                      hr: () => (
+                        <hr className="my-6 border-border/50" />
+                      ),
+                      // Strong/Bold
+                      strong: ({ children }) => (
+                        <strong className="font-semibold text-foreground">{children}</strong>
+                      ),
+                      // Emphasis/Italic
+                      em: ({ children }) => (
+                        <em className="italic text-foreground/90">{children}</em>
+                      ),
                     }}
                   >
                     {displayContent || "..."}
@@ -386,17 +490,18 @@ function ChatMessage({ message, onCopy, isCopied, isStreaming = false }: ChatMes
               )}
             </div>
 
+            {/* Actions */}
             {!isUser && displayContent && !isStreaming && (
-              <div className="flex items-center gap-2 mt-2">
+              <div className="flex items-center gap-1 mt-2">
                 <Button
                   variant="ghost"
                   size="sm"
-                  className="h-7 text-xs"
+                  className="h-7 text-xs text-muted-foreground hover:text-foreground"
                   onClick={() => onCopy(displayContent, message.id)}
                 >
                   {isCopied ? (
                     <>
-                      <Check className="h-3 w-3 mr-1" />
+                      <Check className="h-3 w-3 mr-1 text-green-500" />
                       Copied
                     </>
                   ) : (
