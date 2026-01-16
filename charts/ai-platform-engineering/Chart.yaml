@@ -71,7 +71,7 @@ dependencies:
       - child: agentExports.data
         parent: global.enabledSubAgents.gitlab
   - name: agent
-    version: 0.4.2
+    version: 0.2.8 # Do NOT bump this. It will be updated automatically using the PR or release workflow
     alias: agent-jira
     tags:
       - agent-jira
