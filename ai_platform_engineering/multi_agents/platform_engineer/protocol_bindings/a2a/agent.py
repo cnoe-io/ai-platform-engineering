@@ -9,10 +9,12 @@ from collections.abc import AsyncIterable
 from typing import Any
 
 # A2A tracing is disabled via cnoe-agent-utils disable_a2a_tracing() in main.py
-from a2a.types import Message as A2AMessage
-from a2a.types import Task as A2ATask
-from a2a.types import TaskArtifactUpdateEvent as A2ATaskArtifactUpdateEvent
-from a2a.types import TaskStatusUpdateEvent as A2ATaskStatusUpdateEvent
+from a2a.types import (
+    Message as A2AMessage,
+    Task as A2ATask,
+    TaskArtifactUpdateEvent,
+    TaskStatusUpdateEvent,
+)
 from ai_platform_engineering.multi_agents.platform_engineer.deep_agent import (
     AIPlatformEngineerMAS,
 )
@@ -163,7 +165,7 @@ class AIPlatformEngineerA2ABinding:
       """Try to deserialize a dict payload into known A2A models."""
       if not isinstance(data, dict):
           return None
-      for model in (A2ATaskStatusUpdateEvent, A2ATaskArtifactUpdateEvent, A2ATask, A2AMessage):
+      for model in (TaskStatusUpdateEvent, TaskArtifactUpdateEvent, A2ATask, A2AMessage):
           try:
               return model.model_validate(data)  # type: ignore[attr-defined]
           except Exception:
@@ -189,12 +191,12 @@ class AIPlatformEngineerA2ABinding:
       # Add context_id to metadata so tools can maintain conversation continuity
       if context_id:
           config['metadata']['context_id'] = context_id
-          logging.debug(f"Added context_id to config metadata: {context_id}")
+          logging.info(f"Added context_id to config metadata: {context_id}")
 
       # Add trace_id to metadata for distributed tracing
       if trace_id:
           config['metadata']['trace_id'] = trace_id
-          logging.debug(f"Added trace_id to config metadata: {trace_id}")
+          logging.info(f"Added trace_id to config metadata: {trace_id}")
       else:
           # Try to get trace_id from TracingManager context if not provided
           current_trace_id = self.tracing.get_trace_id()
@@ -558,7 +560,7 @@ class AIPlatformEngineerA2ABinding:
                       logging.info(f"🎯 AIMessage content preview: {content_preview}...")
                       if not accumulated_ai_content:
                           # Non-streaming mode: no chunks received, use the complete AIMessage
-                          logging.info(f"📝 Accumulating AIMessage content (no streaming chunks received)")
+                          logging.info("📝 Accumulating AIMessage content (no streaming chunks received)")
                           accumulated_ai_content.append(str(message.content))
                       else:
                           # Streaming mode: chunks already contain the content, skip the final AIMessage
