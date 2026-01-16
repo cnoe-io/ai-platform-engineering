@@ -154,10 +154,9 @@ const innerOrbit = integrations.slice(7, 14);
 
 export function IntegrationOrbit() {
   return (
-    <div className="relative w-full h-[280px] flex items-center justify-center overflow-hidden">
-      {/* Background glow effects */}
-      <div className="absolute inset-0 bg-gradient-to-br from-[hsl(173,80%,40%)]/10 via-transparent to-[hsl(270,75%,60%)]/10" />
-      <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-primary/20 via-transparent to-transparent" />
+    <div className="relative w-[400px] h-[400px] flex items-center justify-center">
+      {/* Subtle center glow only - blends with page background */}
+      <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-primary/10 via-transparent to-transparent opacity-50" />
 
       {/* Connecting lines animation */}
       <svg className="absolute inset-0 w-full h-full" style={{ zIndex: 0 }}>
@@ -172,7 +171,7 @@ export function IntegrationOrbit() {
         <motion.circle
           cx="50%"
           cy="50%"
-          r="90"
+          r="120"
           fill="none"
           stroke="url(#lineGradient)"
           strokeWidth="1"
@@ -185,7 +184,7 @@ export function IntegrationOrbit() {
         <motion.circle
           cx="50%"
           cy="50%"
-          r="130"
+          r="175"
           fill="none"
           stroke="url(#lineGradient)"
           strokeWidth="1"
@@ -199,7 +198,7 @@ export function IntegrationOrbit() {
 
       {/* Center CAIPE Logo */}
       <motion.div
-        className="absolute z-20 w-20 h-20 rounded-2xl bg-gradient-to-br from-[hsl(173,80%,40%)] via-[hsl(270,75%,60%)] to-[hsl(330,80%,55%)] flex items-center justify-center shadow-2xl shadow-primary/50"
+        className="absolute z-20 w-24 h-24 rounded-2xl bg-gradient-to-br from-[hsl(173,80%,40%)] via-[hsl(270,75%,60%)] to-[hsl(330,80%,55%)] flex items-center justify-center shadow-2xl shadow-primary/50"
         animate={{
           scale: [1, 1.05, 1],
           boxShadow: [
@@ -210,11 +209,11 @@ export function IntegrationOrbit() {
         }}
         transition={{ duration: 3, repeat: Infinity, ease: "easeInOut" }}
       >
-        <img src="/logo.svg" alt="CAIPE" className="w-12 h-12 filter brightness-0 invert" />
+        <img src="/logo.svg" alt="CAIPE" className="w-14 h-14 filter brightness-0 invert" />
       </motion.div>
 
       {/* Inner Orbit - closer integrations */}
-      <div className="absolute w-[180px] h-[180px]">
+      <div className="absolute w-[240px] h-[240px]">
         <motion.div
           className="w-full h-full"
           animate={{ rotate: 360 }}
@@ -222,30 +221,30 @@ export function IntegrationOrbit() {
         >
           {innerOrbit.map((integration, index) => {
             const angle = (index * 360) / innerOrbit.length;
-            const x = Math.cos((angle * Math.PI) / 180) * 90;
-            const y = Math.sin((angle * Math.PI) / 180) * 90;
+            const x = Math.cos((angle * Math.PI) / 180) * 120;
+            const y = Math.sin((angle * Math.PI) / 180) * 120;
 
             return (
               <motion.div
                 key={integration.name}
                 className="absolute"
                 style={{
-                  left: `calc(50% + ${x}px - 18px)`,
-                  top: `calc(50% + ${y}px - 18px)`,
+                  left: `calc(50% + ${x}px - 22px)`,
+                  top: `calc(50% + ${y}px - 22px)`,
                 }}
                 animate={{ rotate: -360 }}
                 transition={{ duration: 30, repeat: Infinity, ease: "linear" }}
                 whileHover={{ scale: 1.3, zIndex: 50 }}
               >
                 <motion.div
-                  className="w-9 h-9 rounded-xl flex items-center justify-center shadow-lg cursor-pointer group"
+                  className="w-11 h-11 rounded-xl flex items-center justify-center shadow-lg cursor-pointer group"
                   style={{ backgroundColor: integration.color }}
                   whileHover={{
                     boxShadow: `0 0 20px ${integration.color}80`,
                   }}
                   title={integration.name}
                 >
-                  <div className="w-5 h-5 text-white">
+                  <div className="w-6 h-6 text-white">
                     {integration.icon}
                   </div>
                 </motion.div>
@@ -256,7 +255,7 @@ export function IntegrationOrbit() {
       </div>
 
       {/* Outer Orbit - wider spread */}
-      <div className="absolute w-[260px] h-[260px]">
+      <div className="absolute w-[350px] h-[350px]">
         <motion.div
           className="w-full h-full"
           animate={{ rotate: -360 }}
@@ -264,30 +263,30 @@ export function IntegrationOrbit() {
         >
           {outerOrbit.map((integration, index) => {
             const angle = (index * 360) / outerOrbit.length + 30; // Offset from inner
-            const x = Math.cos((angle * Math.PI) / 180) * 130;
-            const y = Math.sin((angle * Math.PI) / 180) * 130;
+            const x = Math.cos((angle * Math.PI) / 180) * 175;
+            const y = Math.sin((angle * Math.PI) / 180) * 175;
 
             return (
               <motion.div
                 key={integration.name}
                 className="absolute"
                 style={{
-                  left: `calc(50% + ${x}px - 20px)`,
-                  top: `calc(50% + ${y}px - 20px)`,
+                  left: `calc(50% + ${x}px - 24px)`,
+                  top: `calc(50% + ${y}px - 24px)`,
                 }}
                 animate={{ rotate: 360 }}
                 transition={{ duration: 45, repeat: Infinity, ease: "linear" }}
                 whileHover={{ scale: 1.3, zIndex: 50 }}
               >
                 <motion.div
-                  className="w-10 h-10 rounded-xl flex items-center justify-center shadow-lg cursor-pointer"
+                  className="w-12 h-12 rounded-xl flex items-center justify-center shadow-lg cursor-pointer"
                   style={{ backgroundColor: integration.color }}
                   whileHover={{
                     boxShadow: `0 0 25px ${integration.color}80`,
                   }}
                   title={integration.name}
                 >
-                  <div className="w-6 h-6 text-white">
+                  <div className="w-7 h-7 text-white">
                     {integration.icon}
                   </div>
                 </motion.div>
