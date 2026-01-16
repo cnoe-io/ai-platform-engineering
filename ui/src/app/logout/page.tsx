@@ -101,7 +101,7 @@ export default function LogoutPage() {
                     <LogOut className="h-4 w-4" />
                     Sign In Again
                   </Button>
-                  
+
                   <Button
                     variant="outline"
                     onClick={handleBackToHome}
@@ -135,7 +135,7 @@ export default function LogoutPage() {
                     <LogOut className="h-4 w-4" />
                     Yes, Sign Out
                   </Button>
-                  
+
                   <Button
                     variant="outline"
                     onClick={handleBackToHome}
