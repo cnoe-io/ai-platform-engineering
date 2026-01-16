@@ -19,8 +19,6 @@ from a2a.types import (
     TaskState,
     TaskStatus,
     TaskStatusUpdateEvent,
-    SendStreamingMessageRequest,
-    MessageSendParams,
     Artifact,
     Part,
     DataPart,
@@ -81,10 +79,6 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                 if text:
                     texts.append(text)
         return " ".join(texts)
-
-    # _stream_from_multiple_agents removed - use Deep Agent for orchestration
-
-    # to support structured metadata and dynamic form generation
 
     async def _safe_enqueue_event(self, event_queue: EventQueue, event) -> None:
         """
@@ -164,12 +158,9 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
             # Platform engineer is the ROOT supervisor - generate trace_id
             # Langfuse requires 32 lowercase hex chars (no dashes)
             trace_id = str(uuid.uuid4()).replace('-', '').lower()
-            logger.debug(f"🔍 Platform Engineer Executor: Generated ROOT trace_id: {trace_id}")
+            logger.info(f"🔍 Platform Engineer Executor: Generated ROOT trace_id: {trace_id}")
         else:
-            logger.info(f"🔍 Platform Engineer Executor: Using trace_id from context: {trace_id}")
-
-        # All queries are routed through Deep Agent for orchestration
-        logger.debug("🎛️  Routing query to Deep Agent for orchestration")
+            logger.info(f"🔍 Platform Engineer Executor: Using trace_id from previous context: {trace_id}")
 
         # Track streaming state for proper A2A protocol
         first_artifact_sent = False

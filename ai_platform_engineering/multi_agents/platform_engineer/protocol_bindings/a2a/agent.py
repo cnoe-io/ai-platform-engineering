@@ -191,12 +191,12 @@ class AIPlatformEngineerA2ABinding:
       # Add context_id to metadata so tools can maintain conversation continuity
       if context_id:
           config['metadata']['context_id'] = context_id
-          logging.debug(f"Added context_id to config metadata: {context_id}")
+          logging.info(f"Added context_id to config metadata: {context_id}")
 
       # Add trace_id to metadata for distributed tracing
       if trace_id:
           config['metadata']['trace_id'] = trace_id
-          logging.debug(f"Added trace_id to config metadata: {trace_id}")
+          logging.info(f"Added trace_id to config metadata: {trace_id}")
       else:
           # Try to get trace_id from TracingManager context if not provided
           current_trace_id = self.tracing.get_trace_id()
