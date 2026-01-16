@@ -12,9 +12,7 @@ Provides tools for file I/O operations:
 Available to all agents (argocd, github, jira, etc.).
 """
 
-import os
 from pathlib import Path
-from typing import Optional
 
 from langchain_core.tools import tool
 

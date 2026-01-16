@@ -1,17 +1,10 @@
 # Copyright 2025 CNOE
 # SPDX-License-Identifier: Apache-2.0
-"""
-Simplified Agent Executor for Platform Engineer.
-
-This is a proposed refactoring of agent_executor.py with cleaner structure.
-"""
 
 import logging
 import uuid
-import os
-import json
 from dataclasses import dataclass, field
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict
 from typing_extensions import override
 
 from a2a.server.agent_execution import AgentExecutor, RequestContext
@@ -67,7 +60,7 @@ class StreamState:
 
 
 class AIPlatformEngineerA2AExecutor(AgentExecutor):
-    """AI Platform Engineer A2A Executor with simplified streaming support."""
+    """AI Platform Engineer A2A Executor."""
 
     def __init__(self):
         self.agent = AIPlatformEngineerA2ABinding()
@@ -144,7 +137,7 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                 artifact=artifact,
             )
         )
-        logger.debug("Sent execution plan completion update")
+        logger.info("Sent execution plan completion update")
 
     def _format_execution_plan_text(self, todos: list[dict[str, str]], label: str = 'final') -> str:
         """Format execution plan as markdown checkbox list."""
@@ -430,7 +423,7 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
 
     @override
     async def execute(self, context: RequestContext, event_queue: EventQueue) -> None:
-        """Execute the agent with simplified event handling."""
+        """Execute the agent."""
         # Reset execution plan state for new task
         self._execution_plan_emitted = False
         self._execution_plan_artifact_id = None
@@ -453,16 +446,13 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
         trace_id = extract_trace_id_from_context(context)
         if not trace_id:
             trace_id = str(uuid.uuid4()).replace('-', '').lower()
-            logger.debug(f"Generated ROOT trace_id: {trace_id}")
+            logger.info(f"Generated ROOT trace_id: {trace_id}")
 
         # Initialize state
         state = StreamState()
-        last_event = None
 
         try:
             async for event in self.agent.stream(query, context_id, trace_id):
-                last_event = event
-
                 # FIX for A2A Streaming Duplication (Retry/Fallback):
                 # When the agent encounters an error (e.g., orphaned tool calls) and retries,
                 # the executor may have already accumulated content from the failed attempt.
