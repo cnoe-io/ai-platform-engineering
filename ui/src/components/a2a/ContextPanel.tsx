@@ -89,9 +89,11 @@ export function ContextPanel({ debugMode, onDebugModeChange }: ContextPanelProps
   }, [isStreaming, streamingChunks.length]);
 
   // Extract final answer from last message
-  const finalAnswer = lastAssistantMessage
+  const finalAnswerResult = lastAssistantMessage
     ? extractFinalAnswer(lastAssistantMessage.content)
     : null;
+  const hasFinalAnswer = finalAnswerResult?.hasFinalAnswer ?? false;
+  const finalAnswerContent = finalAnswerResult?.content ?? "";
 
   // Count events for badge
   const eventCount = a2aEvents.length;
@@ -209,7 +211,7 @@ export function ContextPanel({ debugMode, onDebugModeChange }: ContextPanelProps
               </AnimatePresence>
 
               {/* Final Answer Section */}
-              {finalAnswer && !isStreaming && (
+              {hasFinalAnswer && !isStreaming && (
                 <motion.div
                   initial={{ opacity: 0, y: 10 }}
                   animate={{ opacity: 1, y: 0 }}
@@ -222,7 +224,7 @@ export function ContextPanel({ debugMode, onDebugModeChange }: ContextPanelProps
 
                   <div className="p-4 rounded-lg bg-green-500/10 border border-green-500/30">
                     <p className="text-sm leading-relaxed whitespace-pre-wrap">
-                      {finalAnswer}
+                      {finalAnswerContent}
                     </p>
                   </div>
                 </motion.div>
@@ -285,7 +287,7 @@ export function ContextPanel({ debugMode, onDebugModeChange }: ContextPanelProps
               </div>
 
               {/* Empty state */}
-              {!finalAnswer && !isStreaming && streamingChunks.length === 0 && eventCount === 0 && (
+              {!hasFinalAnswer && !isStreaming && streamingChunks.length === 0 && eventCount === 0 && (
                 <div className="text-center py-12">
                   <div className="w-14 h-14 mx-auto mb-4 rounded-2xl bg-gradient-to-br from-primary/20 to-purple-500/20 flex items-center justify-center">
                     <FileText className="h-6 w-6 text-primary" />
