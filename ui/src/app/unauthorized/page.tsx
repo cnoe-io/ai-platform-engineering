@@ -31,10 +31,10 @@ export default function UnauthorizedPage() {
           <h1 className="text-2xl font-bold text-center mb-2">
             Access Denied
           </h1>
-          
+
           {/* Description */}
           <p className="text-muted-foreground text-center mb-6">
-            You don&apos;t have permission to access this application. 
+            You don&apos;t have permission to access this application.
             Your account is not a member of the required group.
           </p>
 
@@ -75,7 +75,7 @@ export default function UnauthorizedPage() {
               <LogOut className="h-4 w-4" />
               Sign Out & Try Different Account
             </Button>
-            
+
             <Button
               variant="ghost"
               className="w-full gap-2 text-muted-foreground"
