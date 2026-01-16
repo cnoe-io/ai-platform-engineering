@@ -21,7 +21,7 @@ export function LoadingScreen({ message = "Loading..." }: LoadingScreenProps) {
         {/* Logo with glow effect */}
         <div className="relative">
           {/* Spinning glow ring */}
-          <div 
+          <div
             className="absolute inset-[-8px] rounded-3xl opacity-30"
             style={{
               background: 'linear-gradient(135deg, hsl(173,80%,40%), hsl(270,75%,60%), hsl(330,80%,55%))',
@@ -29,7 +29,7 @@ export function LoadingScreen({ message = "Loading..." }: LoadingScreenProps) {
             }}
           />
           {/* Blur glow */}
-          <div 
+          <div
             className="absolute inset-[-4px] rounded-2xl blur-xl opacity-40"
             style={{
               background: 'linear-gradient(135deg, hsl(173,80%,40%), hsl(270,75%,60%))',
@@ -53,10 +53,10 @@ export function LoadingScreen({ message = "Loading..." }: LoadingScreenProps) {
         <div className="flex items-center gap-3 mt-2">
           {/* Custom spinner */}
           <div className="relative w-5 h-5">
-            <div 
+            <div
               className="absolute inset-0 rounded-full border-2 border-primary/20"
             />
-            <div 
+            <div
               className="absolute inset-0 rounded-full border-2 border-transparent border-t-primary"
               style={{ animation: 'spin 0.8s linear infinite' }}
             />
@@ -67,16 +67,15 @@ export function LoadingScreen({ message = "Loading..." }: LoadingScreenProps) {
 
       {/* Footer */}
       <p className="absolute bottom-6 text-center text-xs text-muted-foreground">
-        Powered by{" "}
+        Powered by OSS{" "}
         <a
-          href="https://cnoe-io.github.io/ai-platform-engineering/"
+          href="https://caipe.io"
           target="_blank"
           rel="noopener noreferrer"
           className="text-primary hover:underline"
         >
-          CNOE
-        </a>{" "}
-        Agentic AI SIG
+          caipe.io
+        </a>
       </p>
     </div>
   );

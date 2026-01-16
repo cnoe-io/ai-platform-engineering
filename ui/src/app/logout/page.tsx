@@ -158,16 +158,15 @@ export default function LogoutPage() {
 
         {/* Additional Info */}
         <p className="text-center text-xs text-muted-foreground mt-6">
-          Powered by{" "}
+          Powered by OSS{" "}
           <a
-            href="https://cnoe-io.github.io/ai-platform-engineering/"
+            href="https://caipe.io"
             target="_blank"
             rel="noopener noreferrer"
             className="text-primary hover:underline"
           >
-            CNOE
-          </a>{" "}
-          Agentic AI SIG
+            caipe.io
+          </a>
         </p>
       </motion.div>
     </div>

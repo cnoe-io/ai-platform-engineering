@@ -56,8 +56,8 @@ export function AuthGuard({ children }: AuthGuardProps) {
 
   // Show loading while checking authentication/authorization
   if (status === "loading" || !authChecked) {
-    const message = status === "loading" 
-      ? "Checking authentication..." 
+    const message = status === "loading"
+      ? "Checking authentication..."
       : "Verifying authorization...";
     return <LoadingScreen message={message} />;
   }
