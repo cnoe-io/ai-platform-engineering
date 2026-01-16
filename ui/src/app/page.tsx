@@ -190,13 +190,18 @@ function HomePage() {
       <ResizablePanelGroup direction="horizontal" className="flex-1">
         {/* Sidebar Panel */}
         <ResizablePanel
-          defaultSize={sidebarCollapsed ? 4 : 18}
-          minSize={4}
-          maxSize={30}
+          defaultSize={sidebarCollapsed ? "64px" : "280px"}
+          minSize="64px"
+          maxSize="400px"
           collapsible
-          collapsedSize={4}
-          onCollapse={() => setSidebarCollapsed(true)}
-          onExpand={() => setSidebarCollapsed(false)}
+          collapsedSize="64px"
+          onResize={(size) => {
+            // Detect collapse based on size
+            const isCollapsed = size.percentage <= 5;
+            if (isCollapsed !== sidebarCollapsed) {
+              setSidebarCollapsed(isCollapsed);
+            }
+          }}
         >
           <Sidebar
             activeTab={activeTab}
@@ -209,7 +214,7 @@ function HomePage() {
         <ResizableHandle withHandle />
 
         {/* Content Area */}
-        <ResizablePanel defaultSize={contextPanelVisible ? 55 : 78} minSize={30}>
+        <ResizablePanel minSize="300px">
           <AnimatePresence mode="wait">
             {activeTab === "chat" ? (
               <motion.div
@@ -239,7 +244,7 @@ function HomePage() {
         {activeTab === "chat" && contextPanelVisible && (
           <>
             <ResizableHandle withHandle />
-            <ResizablePanel defaultSize={27} minSize={15} maxSize={50}>
+            <ResizablePanel defaultSize="380px" minSize="200px" maxSize="600px">
               <ContextPanel
                 debugMode={debugMode}
                 onDebugModeChange={setDebugMode}
