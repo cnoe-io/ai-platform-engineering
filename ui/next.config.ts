@@ -16,7 +16,10 @@ const nextConfig: NextConfig = {
     },
   },
 
-  // Webpack configuration for better development experience
+  // Turbopack is default in Next.js 16 - empty config silences migration warning
+  turbopack: {},
+
+  // Webpack configuration (fallback for non-Turbopack builds)
   webpack: (config, { isServer }) => {
     // Suppress warnings for optional peer dependencies
     config.resolve.fallback = {
