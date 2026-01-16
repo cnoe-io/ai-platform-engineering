@@ -3,8 +3,6 @@
 import React, { useState, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
-  PanelLeftClose,
-  PanelLeftOpen,
   Github,
   BookOpen,
   Zap,
@@ -23,7 +21,11 @@ import { SettingsPanel } from "@/components/settings-panel";
 import { AuthGuard } from "@/components/auth-guard";
 import { useChatStore } from "@/store/chat-store";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
+import {
+  ResizablePanelGroup,
+  ResizablePanel,
+  ResizableHandle,
+} from "@/components/ui/resizable";
 import { cn } from "@/lib/utils";
 import { config } from "@/lib/config";
 
@@ -184,18 +186,30 @@ function HomePage() {
         </div>
       </header>
 
-      {/* Main Content */}
-      <div className="flex-1 flex overflow-hidden">
-        {/* Sidebar */}
-        <Sidebar
-          activeTab={activeTab}
-          onTabChange={setActiveTab}
-          collapsed={sidebarCollapsed}
-          onCollapse={setSidebarCollapsed}
-        />
+      {/* Main Content - Resizable Panels */}
+      <ResizablePanelGroup direction="horizontal" className="flex-1">
+        {/* Sidebar Panel */}
+        <ResizablePanel
+          defaultSize={sidebarCollapsed ? 4 : 18}
+          minSize={4}
+          maxSize={30}
+          collapsible
+          collapsedSize={4}
+          onCollapse={() => setSidebarCollapsed(true)}
+          onExpand={() => setSidebarCollapsed(false)}
+        >
+          <Sidebar
+            activeTab={activeTab}
+            onTabChange={setActiveTab}
+            collapsed={sidebarCollapsed}
+            onCollapse={setSidebarCollapsed}
+          />
+        </ResizablePanel>
+
+        <ResizableHandle withHandle />
 
         {/* Content Area */}
-        <div className="flex-1 flex overflow-hidden">
+        <ResizablePanel defaultSize={contextPanelVisible ? 55 : 78} minSize={30}>
           <AnimatePresence mode="wait">
             {activeTab === "chat" ? (
               <motion.div
@@ -203,30 +217,9 @@ function HomePage() {
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
-                className="flex-1 flex overflow-hidden"
+                className="h-full"
               >
-                {/* Chat Panel */}
-                <div className={cn("flex-1 min-w-0")}>
-                  <ChatPanel endpoint={caipeUrl} />
-                </div>
-
-                {/* Context/Output Panel */}
-                <AnimatePresence>
-                  {contextPanelVisible && (
-                    <motion.div
-                      initial={{ width: 0, opacity: 0 }}
-                      animate={{ width: 420, opacity: 1 }}
-                      exit={{ width: 0, opacity: 0 }}
-                      transition={{ duration: 0.2 }}
-                      className="shrink-0 border-l border-border/50"
-                    >
-                      <ContextPanel
-                        debugMode={debugMode}
-                        onDebugModeChange={setDebugMode}
-                      />
-                    </motion.div>
-                  )}
-                </AnimatePresence>
+                <ChatPanel endpoint={caipeUrl} />
               </motion.div>
             ) : (
               <motion.div
@@ -234,14 +227,27 @@ function HomePage() {
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
-                className="flex-1 overflow-hidden"
+                className="h-full overflow-hidden"
               >
                 <UseCasesGallery onSelectUseCase={handleSelectUseCase} />
               </motion.div>
             )}
           </AnimatePresence>
-        </div>
-      </div>
+        </ResizablePanel>
+
+        {/* Context/Output Panel - Only in chat mode */}
+        {activeTab === "chat" && contextPanelVisible && (
+          <>
+            <ResizableHandle withHandle />
+            <ResizablePanel defaultSize={27} minSize={15} maxSize={50}>
+              <ContextPanel
+                debugMode={debugMode}
+                onDebugModeChange={setDebugMode}
+              />
+            </ResizablePanel>
+          </>
+        )}
+      </ResizablePanelGroup>
 
     </div>
   );

@@ -241,10 +241,10 @@ function ChatMessage({ message, onCopy, isCopied, isStreaming = false }: ChatMes
   // Extract active tools from events (tool_start without matching tool_end)
   const activeTools = React.useMemo(() => {
     if (!isStreaming || message.isFinal) return [];
-    
+
     const toolStarts: Map<string, { description: string; startTime: Date }> = new Map();
     const toolEnds = new Set<string>();
-    
+
     for (const event of message.events) {
       if (event.type === "tool_start") {
         // Use displayContent for the actual tool description (e.g., "Calling Agent Search...")
@@ -263,7 +263,7 @@ function ChatMessage({ message, onCopy, isCopied, isStreaming = false }: ChatMes
         }
       }
     }
-    
+
     // Return tools that have started but not ended
     return Array.from(toolStarts.entries())
       .filter(([id]) => !toolEnds.has(id))
