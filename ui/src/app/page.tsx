@@ -5,7 +5,6 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   PanelLeftClose,
   PanelLeftOpen,
-  Radio,
   Github,
   BookOpen,
   Zap,
@@ -97,20 +96,24 @@ function HomePage() {
 
         {/* Status & Actions */}
         <div className="flex items-center gap-3">
-          {/* Powered By + Status */}
+          {/* Powered By + Connection Status */}
           <div className="flex items-center gap-2">
             {/* Powered By */}
             <TechStackButton variant="compact" />
 
-            {/* Streaming Status */}
-            <div className={cn(
-              "flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium",
-              isStreaming
-                ? "bg-green-500/15 text-green-400 border border-green-500/30"
-                : "bg-muted text-muted-foreground"
-            )}>
-              <Radio className={cn("h-3 w-3", isStreaming && "animate-pulse")} />
-              {isStreaming ? "Streaming" : "Ready"}
+            {/* Connection Status - shows URL when ready, "Streaming" when active */}
+            <div 
+              className={cn(
+                "flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium",
+                "bg-green-500/15 text-green-400 border border-green-500/30"
+              )}
+              title={`Connected to ${caipeUrl}`}
+            >
+              <div className={cn(
+                "h-2 w-2 rounded-full bg-green-400",
+                isStreaming && "animate-pulse"
+              )} />
+              {isStreaming ? "Streaming" : new URL(caipeUrl).host}
             </div>
           </div>
 
