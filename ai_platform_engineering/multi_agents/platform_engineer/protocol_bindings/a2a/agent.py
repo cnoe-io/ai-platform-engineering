@@ -384,6 +384,30 @@ class AIPlatformEngineerA2ABinding:
 
                           logging.debug(f"Tool call started (from AIMessageChunk): {tool_name}")
 
+                          # CRITICAL: Capture ResponseFormat content from AIMessageChunk
+                          # This is the DETERMINISTIC way to get the final response
+                          # Note: Tool is defined as @tool("ResponseFormat") but Bedrock may return "PlatformEngineerResponse"
+                          if tool_name.lower() in ('responseformat', 'platformengineerresponse'):
+                              tool_args = tool_call.get("args", {})
+                              # Extract 'content' field which contains the actual response
+                              structured_content = tool_args.get("content", "") or tool_args.get("message", "") or tool_args.get("response", "")
+                              if structured_content:
+                                  response_format_content = structured_content
+                                  logging.info(f"📝 SUPERVISOR AIMessageChunk: Captured ResponseFormat content: {len(response_format_content)} chars")
+                                  logging.info(f"📝 SUPERVISOR AIMessageChunk: ResponseFormat content preview: {response_format_content[:300]}")
+                              else:
+                                  # Pre-populate tool_use_buffers so fragments can be collected
+                                  # During streaming, args may be empty initially and filled via content blocks
+                                  if tool_args:
+                                      for key, val in tool_args.items():
+                                          if isinstance(val, str) and len(val) > 10:
+                                              response_format_content = val
+                                              logging.info(f"📝 SUPERVISOR AIMessageChunk: Captured ResponseFormat '{key}' field: {len(response_format_content)} chars")
+                                              break
+                                  # Also pre-populate buffer with index 0 for later reconstruction
+                                  tool_use_buffers.setdefault(0, {"name": tool_name, "input_parts": []})
+                                  logging.info(f"📝 Pre-populated tool_use_buffers[0] with name={tool_name}")
+
                           # Stream tool start notification to client with metadata
                           tool_name_formatted = tool_name.title()
                           yield {
@@ -418,6 +442,7 @@ class AIPlatformEngineerA2ABinding:
                                   idx = item.get('index')
                                   if idx is None:
                                       idx = item.get('contentBlockIndex')  # safety
+                                  tool_use_name = item.get('name', '').lower()
                                   if idx is not None:
                                       buf = tool_use_buffers.setdefault(int(idx), {"name": item.get('name'), "input_parts": []})
                                       if item.get('name') and not buf.get("name"):
@@ -425,12 +450,21 @@ class AIPlatformEngineerA2ABinding:
                                       fragment = item.get('input')
                                       if isinstance(fragment, str):
                                           buf["input_parts"].append(fragment)
+                                          logging.info(f"🚧 Captured tool_use STRING fragment (idx={idx}, name={buf.get('name')}, len={len(fragment)})")
                                       elif isinstance(fragment, dict):
+                                          # CRITICAL: If fragment is a complete dict AND it's ResponseFormat, extract content NOW!
+                                          # This handles the case where Bedrock sends complete tool_use input as dict
+                                          if tool_use_name in ('responseformat', 'platformengineerresponse'):
+                                              direct_content = fragment.get('content') or fragment.get('message') or fragment.get('response')
+                                              if direct_content and isinstance(direct_content, str):
+                                                  response_format_content = direct_content
+                                                  logging.info(f"🎯 DIRECT CAPTURE: Extracted ResponseFormat content from complete dict input ({len(response_format_content)} chars)")
+                                                  logging.info(f"🎯 DIRECT CAPTURE preview: {response_format_content[:300]}...")
                                           try:
                                               buf["input_parts"].append(json.dumps(fragment))
+                                              logging.info(f"🚧 Captured tool_use DICT fragment (idx={idx}, name={buf.get('name')}, keys={list(fragment.keys())})")
                                           except Exception:
                                               pass
-                                      logging.info(f"🚧 Captured tool_use fragment from Bedrock stream (idx={idx}, name={buf.get('name')})")
                                   else:
                                       logging.info("⚠️ tool_use block missing index; skipping buffer accumulation")
                               elif block_type == 'thinking':
@@ -515,14 +549,16 @@ class AIPlatformEngineerA2ABinding:
                       # CRITICAL: Capture ResponseFormat content from AIMessage
                       # This is the DETERMINISTIC way to get the final response
                       # ResponseFormat tool contains the structured final output
-                      if tool_name.lower() == 'responseformat':
+                      # Note: Tool is defined as @tool("ResponseFormat") but Bedrock returns the schema name "PlatformEngineerResponse"
+                      if tool_name.lower() in ('responseformat', 'platformengineerresponse'):
                           tool_args = tool_call.get("args", {})
+                          logging.info(f"🎯 AIMessage ResponseFormat detected! tool_name={tool_name}, args_keys={list(tool_args.keys()) if tool_args else 'empty'}")
                           # Extract 'content' or 'message' field which contains the actual response
                           structured_content = tool_args.get("content", "") or tool_args.get("message", "") or tool_args.get("response", "")
                           if structured_content:
                               response_format_content = structured_content
-                              logging.info(f"📝 SUPERVISOR: Captured ResponseFormat content: {len(response_format_content)} chars")
-                              logging.info(f"📝 SUPERVISOR: ResponseFormat content (first 300 chars): {response_format_content[:300]}")
+                              logging.info(f"🎯 AIMessage ResponseFormat: Captured content ({len(response_format_content)} chars)")
+                              logging.info(f"🎯 AIMessage ResponseFormat content preview: {response_format_content[:300]}")
                           else:
                               # Fallback: try to get any string value from args
                               import json
@@ -1057,19 +1093,34 @@ class AIPlatformEngineerA2ABinding:
 
       # After EITHER primary or fallback streaming completes, parse the final response to extract is_task_complete
       logging.info(f"🔍 POST-STREAM PARSING: response_format_content={len(response_format_content)}, final_ai_message={final_ai_message is not None}, last_turn_chunks={len(last_turn_content)}, accumulated_chunks={len(accumulated_ai_content)}")
+      logging.info(f"🔍 POST-STREAM PARSING: tool_use_buffers keys={list(tool_use_buffers.keys())}")
+      for buf_idx, buf in tool_use_buffers.items():
+          buf_name = buf.get("name", "unknown")
+          buf_parts_count = len(buf.get("input_parts", []))
+          buf_parts_total_len = sum(len(p) for p in buf.get("input_parts", []))
+          logging.info(f"🔍 POST-STREAM PARSING: tool_use_buffers[{buf_idx}] name={buf_name}, parts_count={buf_parts_count}, total_len={buf_parts_total_len}")
+      if response_format_content:
+          logging.info(f"🔍 POST-STREAM PARSING: response_format_content preview: {response_format_content[:500]}...")
 
       # Attempt to reconstruct ResponseFormat from accumulated Bedrock tool_use buffers if missing
       if not response_format_content and tool_use_buffers:
+          logging.info(f"🔧 RECONSTRUCTION: Attempting to reconstruct ResponseFormat from {len(tool_use_buffers)} tool_use buffers")
           for idx, buf in tool_use_buffers.items():
               name = (buf.get("name") or "").lower()
-              if name == "responseformat":
-                  joined = "".join(buf.get("input_parts", []))
+              input_parts = buf.get("input_parts", [])
+              logging.info(f"🔧 RECONSTRUCTION: Buffer idx={idx}, name={name}, parts_count={len(input_parts)}")
+              if name in ("responseformat", "platformengineerresponse"):
+                  joined = "".join(input_parts)
+                  logging.info(f"🔧 RECONSTRUCTION: Joined input_parts length={len(joined)}")
+                  logging.info(f"🔧 RECONSTRUCTION: Joined content preview: {joined[:500]}...")
                   try:
                       parsed_tool = json.loads(joined)
+                      logging.info(f"🔧 RECONSTRUCTION: Successfully parsed JSON, keys={list(parsed_tool.keys()) if isinstance(parsed_tool, dict) else 'not a dict'}")
                       candidate = parsed_tool.get("content") or parsed_tool.get("message") or parsed_tool.get("response")
                       if isinstance(candidate, str) and candidate:
                           response_format_content = candidate
                           logging.info(f"📝 Reconstructed ResponseFormat content from tool_use idx={idx}: {len(response_format_content)} chars")
+                          logging.info(f"📝 Reconstructed content preview: {response_format_content[:300]}...")
                           break
                       elif isinstance(candidate, dict):
                           try:
@@ -1078,13 +1129,19 @@ class AIPlatformEngineerA2ABinding:
                               break
                           except Exception:
                               pass
+                      else:
+                          logging.warning(f"⚠️ RECONSTRUCTION: No valid content/message/response field found in parsed JSON")
                   except Exception as recon_err:
                       logging.warning(f"⚠️ Failed to parse tool_use buffer idx={idx}: {recon_err}")
+                      logging.warning(f"⚠️ Joined content that failed to parse: {joined[:200]}...")
 
       # Synthesis retry: if we still have no ResponseFormat content, run a non-streaming invoke to force tool calls
+      # WARNING: This runs a SECOND full LLM call which can cause duplicate processing!
       if not response_format_content:
           try:
-              logging.info("🔁 ResponseFormat missing after stream; running synthesis retry with non-streaming invoke.")
+              logging.warning("🔁⚠️ SYNTHESIS RETRY TRIGGERED: ResponseFormat content is EMPTY after streaming!")
+              logging.warning("🔁⚠️ SYNTHESIS RETRY: This will run a SECOND full LLM call - may cause duplicate [FINAL_ANSWER]!")
+              logging.warning(f"🔁⚠️ SYNTHESIS RETRY: tool_use_buffers had {len(tool_use_buffers)} entries but no valid ResponseFormat content extracted")
               synthesis_result = await self.graph.ainvoke(inputs, config)
               synth_messages = synthesis_result.get("messages", []) if isinstance(synthesis_result, dict) else []
               for msg in reversed(synth_messages):
@@ -1092,7 +1149,7 @@ class AIPlatformEngineerA2ABinding:
                   if tool_calls:
                       for tc in tool_calls:
                           tname = (tc.get("name") or "").lower()
-                          if tname == "responseformat":
+                          if tname in ("responseformat", "platformengineerresponse"):
                               args = tc.get("args", {}) or {}
                               structured_content = args.get("content") or args.get("message") or args.get("response")
                               if structured_content:

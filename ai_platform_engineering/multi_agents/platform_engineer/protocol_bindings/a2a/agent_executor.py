@@ -1278,33 +1278,38 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
 
                     # Send final artifact with the clean final content
                     # Content selection strategy (PRIORITY ORDER):
-                    # 1. If sub-agent sent DataPart: Use sub-agent's DataPart (has structured data like JarvisResponse)
-                    # 2. If sub-agent accumulated content: Use it (from complete_result/final_result - clean)
-                    # 3. Event content: Use it (from handle_structured_response - clean, no intermediate reasoning)
+                    # 1. Event content with is_task_complete=True: HIGHEST PRIORITY - this is the clean final response
+                    #    from ResponseFormat/PlatformEngineerResponse tool call (synthesized by supervisor)
+                    # 2. If sub-agent sent DataPart: Use sub-agent's DataPart (has structured data like JarvisResponse)
+                    # 3. If sub-agent accumulated content: Use it (from complete_result/final_result)
                     # 4. Accumulated streaming content: Last resort fallback (may contain intermediate reasoning)
+                    #
+                    # CRITICAL: When supervisor calls subagents AND uses ResponseFormat, the event content
+                    # contains the clean, synthesized final answer. Sub-agent content is intermediate!
 
-                    if sub_agent_sent_datapart and sub_agent_datapart_data:
-                        # Sub-agent sent structured DataPart - recreate DataPart artifact (highest priority)
-                        logger.debug("📦 Creating DataPart artifact for final_result - sub_agent_sent_datapart=True")
-                        artifact = new_data_artifact(
-                            name='final_result',
-                            description='Complete structured result from Platform Engineer',
-                            data=sub_agent_datapart_data,
-                        )
-                    elif sub_agent_accumulated_content:
-                        # Fallback to sub-agent content
-                        final_content = ''.join(sub_agent_accumulated_content)
-                        logger.info(f"📝 Using sub-agent accumulated content for final_result ({len(final_content)} chars)")
+                    if content:
+                        # HIGHEST PRIORITY: Use event content from ResponseFormat/handle_structured_response
+                        # This is the clean, synthesized final response from the supervisor
+                        final_content = content
+                        logger.info(f"📝 Using event content (from ResponseFormat/handle_structured_response) for final_result ({len(final_content)} chars)")
                         artifact = new_text_artifact(
                             name='final_result',
                             description='Complete result from Platform Engineer.',
                             text=final_content,
                         )
-                    elif content:
-                        # CRITICAL: Use event content from handle_structured_response
-                        # This is the clean final response, NOT the intermediate streaming chunks
-                        final_content = content
-                        logger.info(f"📝 Using event content (from handle_structured_response) for final_result ({len(final_content)} chars)")
+                    elif sub_agent_sent_datapart and sub_agent_datapart_data:
+                        # Sub-agent sent structured DataPart - recreate DataPart artifact
+                        logger.debug("📦 Creating DataPart artifact for final_result - sub_agent_sent_datapart=True (no event content)")
+                        artifact = new_data_artifact(
+                            name='final_result',
+                            description='Complete structured result from Platform Engineer',
+                            data=sub_agent_datapart_data,
+                        )
+                        final_content = json.dumps(sub_agent_datapart_data) if sub_agent_datapart_data else ''
+                    elif sub_agent_accumulated_content:
+                        # Fallback to sub-agent content (only when no event content)
+                        final_content = ''.join(sub_agent_accumulated_content)
+                        logger.info(f"📝 Using sub-agent accumulated content for final_result ({len(final_content)} chars) - no event content available")
                         artifact = new_text_artifact(
                             name='final_result',
                             description='Complete result from Platform Engineer.',

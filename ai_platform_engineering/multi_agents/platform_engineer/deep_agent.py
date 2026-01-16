@@ -363,7 +363,21 @@ class AIPlatformEngineerMAS:
       if not messages:
         raise RuntimeError("No messages found in the graph response.")
 
-      # Find the last AIMessage with non-empty content
+      # First, look for ResponseFormat/PlatformEngineerResponse tool call in reverse order
+      # This contains the properly formatted final answer
+      # Note: Tool is defined as @tool("ResponseFormat") but Bedrock returns the schema name "PlatformEngineerResponse"
+      for message in reversed(messages):
+        if isinstance(message, AIMessage) and hasattr(message, 'tool_calls') and message.tool_calls:
+          for tool_call in message.tool_calls:
+            tool_name = tool_call.get('name', '').lower()
+            if tool_name in ('responseformat', 'platformengineerresponse'):
+              args = tool_call.get('args', {})
+              content = args.get('content', '')
+              if content:
+                logger.debug(f"Found ResponseFormat tool call with content: {content[:100]}...")
+                return content.strip()
+
+      # Fallback: Find the last AIMessage with non-empty content
       for message in reversed(messages):
         if isinstance(message, AIMessage) and message.content.strip():
           logger.debug(f"Valid AIMessage found: {message.content.strip()}")
