@@ -231,6 +231,12 @@ node_modules/
 # package-lock.json
 # package.json
 
+# Next.js
+.next/
+out/
+ui/.next/
+ui/out/
+
 # Claude Code configuration
 .claude/
 

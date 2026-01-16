@@ -79,7 +79,11 @@ const categoryColors: Record<TechItem["category"], string> = {
   community: "from-blue-500 to-blue-600",
 };
 
-export function TechStackButton() {
+interface TechStackButtonProps {
+  variant?: "floating" | "compact";
+}
+
+export function TechStackButton({ variant = "floating" }: TechStackButtonProps) {
   const [open, setOpen] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
 
@@ -103,16 +107,23 @@ export function TechStackButton() {
     return acc;
   }, {} as Record<TechItem["category"], TechItem[]>);
 
+  const isCompact = variant === "compact";
+
   return (
-    <div className="fixed bottom-4 right-4 z-50" ref={panelRef}>
+    <div className={cn("z-50", isCompact ? "relative" : "fixed bottom-4 left-4")} ref={panelRef}>
       <AnimatePresence>
         {open && (
           <motion.div
-            initial={{ opacity: 0, y: 20, scale: 0.95 }}
+            initial={{ opacity: 0, y: isCompact ? -10 : 20, scale: 0.95 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 20, scale: 0.95 }}
+            exit={{ opacity: 0, y: isCompact ? -10 : 20, scale: 0.95 }}
             transition={{ duration: 0.2 }}
-            className="absolute bottom-full right-0 mb-2 w-80 max-h-[70vh] overflow-hidden rounded-xl bg-card border border-border shadow-2xl"
+            className={cn(
+              "absolute w-80 max-h-[70vh] overflow-hidden rounded-xl bg-card border border-border shadow-2xl",
+              isCompact
+                ? "top-full right-0 mt-2"
+                : "bottom-full left-0 mb-2"
+            )}
           >
             {/* Header */}
             <div className="flex items-center justify-between p-3 border-b border-border bg-muted/30">
@@ -200,19 +211,32 @@ export function TechStackButton() {
       <motion.button
         onClick={() => setOpen(!open)}
         className={cn(
-          "flex items-center gap-2 px-3 py-2 rounded-full border transition-all",
-          open
-            ? "bg-primary text-primary-foreground border-primary shadow-lg shadow-primary/30"
-            : "bg-card/90 backdrop-blur-sm border-border hover:border-primary/50 hover:shadow-lg text-muted-foreground hover:text-foreground"
+          "flex items-center gap-2 transition-all",
+          isCompact
+            ? cn(
+                "px-2.5 py-1 rounded-full text-xs font-medium",
+                open
+                  ? "bg-primary/15 text-primary border border-primary/30"
+                  : "bg-muted/50 text-muted-foreground hover:text-foreground hover:bg-muted"
+              )
+            : cn(
+                "px-3 py-2 rounded-full border",
+                open
+                  ? "bg-primary text-primary-foreground border-primary shadow-lg shadow-primary/30"
+                  : "bg-card/90 backdrop-blur-sm border-border hover:border-primary/50 hover:shadow-lg text-muted-foreground hover:text-foreground"
+              )
         )}
-        whileHover={{ scale: 1.02 }}
+        whileHover={{ scale: isCompact ? 1 : 1.02 }}
         whileTap={{ scale: 0.98 }}
       >
-        <span className="w-2 h-2 rounded-full bg-gradient-to-r from-[hsl(173,80%,40%)] to-[hsl(270,75%,60%)]" />
-        <span className="text-xs font-medium">Powered By</span>
+        <span className={cn(
+          "rounded-full bg-gradient-to-r from-[hsl(173,80%,40%)] to-[hsl(270,75%,60%)]",
+          isCompact ? "w-1.5 h-1.5" : "w-2 h-2"
+        )} />
+        <span className="text-xs font-medium">{isCompact ? "Tech" : "Powered By"}</span>
         <ChevronUp className={cn(
           "h-3 w-3 transition-transform",
-          open ? "rotate-180" : "rotate-0"
+          open ? (isCompact ? "rotate-0" : "rotate-180") : (isCompact ? "rotate-180" : "rotate-0")
         )} />
       </motion.button>
     </div>
