@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useCallback } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion } from "framer-motion";
 import {
   Github,
   BookOpen,
@@ -186,73 +186,80 @@ function HomePage() {
         </div>
       </header>
 
-      {/* Main Content - Resizable Panels */}
-      <ResizablePanelGroup direction="horizontal" className="flex-1">
-        {/* Sidebar Panel */}
-        <ResizablePanel
-          defaultSize={sidebarCollapsed ? "64px" : "280px"}
-          minSize="64px"
-          maxSize="400px"
-          collapsible
-          collapsedSize="64px"
-          onResize={(size) => {
-            // Detect collapse based on size
-            const isCollapsed = size.percentage <= 5;
-            if (isCollapsed !== sidebarCollapsed) {
-              setSidebarCollapsed(isCollapsed);
-            }
-          }}
-        >
-          <Sidebar
-            activeTab={activeTab}
-            onTabChange={setActiveTab}
-            collapsed={sidebarCollapsed}
-            onCollapse={setSidebarCollapsed}
-          />
-        </ResizablePanel>
+      {/* Main Content */}
+      <div className="flex-1 flex overflow-hidden">
+        {activeTab === "chat" ? (
+          /* Chat Mode - Resizable Panels */
+          <ResizablePanelGroup direction="horizontal" className="flex-1">
+            {/* Sidebar Panel */}
+            <ResizablePanel
+              defaultSize={sidebarCollapsed ? "64px" : "280px"}
+              minSize="64px"
+              maxSize="400px"
+              collapsible
+              collapsedSize="64px"
+              onResize={(size) => {
+                const isCollapsed = size.percentage <= 5;
+                if (isCollapsed !== sidebarCollapsed) {
+                  setSidebarCollapsed(isCollapsed);
+                }
+              }}
+            >
+              <Sidebar
+                activeTab={activeTab}
+                onTabChange={setActiveTab}
+                collapsed={sidebarCollapsed}
+                onCollapse={setSidebarCollapsed}
+              />
+            </ResizablePanel>
 
-        <ResizableHandle withHandle />
+            <ResizableHandle withHandle />
 
-        {/* Content Area */}
-        <ResizablePanel minSize="300px">
-          <AnimatePresence mode="wait">
-            {activeTab === "chat" ? (
+            {/* Chat Panel */}
+            <ResizablePanel minSize="300px">
               <motion.div
                 key="chat"
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
                 className="h-full"
               >
                 <ChatPanel endpoint={caipeUrl} />
               </motion.div>
-            ) : (
-              <motion.div
-                key="gallery"
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                className="h-full overflow-hidden"
-              >
-                <UseCasesGallery onSelectUseCase={handleSelectUseCase} />
-              </motion.div>
-            )}
-          </AnimatePresence>
-        </ResizablePanel>
-
-        {/* Context/Output Panel - Only in chat mode */}
-        {activeTab === "chat" && contextPanelVisible && (
-          <>
-            <ResizableHandle withHandle />
-            <ResizablePanel defaultSize="380px" minSize="200px" maxSize="600px">
-              <ContextPanel
-                debugMode={debugMode}
-                onDebugModeChange={setDebugMode}
-              />
             </ResizablePanel>
+
+            {/* Context/Output Panel */}
+            {contextPanelVisible && (
+              <>
+                <ResizableHandle withHandle />
+                <ResizablePanel defaultSize="380px" minSize="200px" maxSize="600px">
+                  <ContextPanel
+                    debugMode={debugMode}
+                    onDebugModeChange={setDebugMode}
+                  />
+                </ResizablePanel>
+              </>
+            )}
+          </ResizablePanelGroup>
+        ) : (
+          /* Gallery Mode - Simple Layout without resizing */
+          <>
+            <Sidebar
+              activeTab={activeTab}
+              onTabChange={setActiveTab}
+              collapsed={sidebarCollapsed}
+              onCollapse={setSidebarCollapsed}
+            />
+            <motion.div
+              key="gallery"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              className="flex-1 overflow-hidden"
+            >
+              <UseCasesGallery onSelectUseCase={handleSelectUseCase} />
+            </motion.div>
           </>
         )}
-      </ResizablePanelGroup>
+      </div>
 
     </div>
   );
