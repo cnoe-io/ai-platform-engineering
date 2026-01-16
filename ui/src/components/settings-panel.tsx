@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
+import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { Settings, X, Type, Palette, Monitor, Check } from "lucide-react";
 import { useTheme } from "next-themes";
@@ -74,40 +75,27 @@ export function SettingsPanel() {
 
   if (!mounted) return null;
 
-  return (
-    <>
-      {/* Settings Button */}
-      <Button
-        variant="ghost"
-        size="icon"
-        className="h-8 w-8"
-        onClick={() => setOpen(true)}
-        title="Settings"
-      >
-        <Settings className="h-4 w-4" />
-      </Button>
+  const modalContent = (
+    <AnimatePresence>
+      {open && (
+        <>
+          {/* Backdrop */}
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[9999]"
+            onClick={() => setOpen(false)}
+          />
 
-      {/* Settings Panel */}
-      <AnimatePresence>
-        {open && (
-          <>
-            {/* Backdrop */}
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50"
-              onClick={() => setOpen(false)}
-            />
-
-            {/* Panel */}
-            <motion.div
-              initial={{ opacity: 0, x: 300 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: 300 }}
-              transition={{ type: "spring", damping: 25, stiffness: 300 }}
-              className="fixed right-0 top-0 h-full w-96 bg-card border-l border-border shadow-2xl z-50 overflow-y-auto"
-            >
+          {/* Panel */}
+          <motion.div
+            initial={{ opacity: 0, x: 300 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: 300 }}
+            transition={{ type: "spring", damping: 25, stiffness: 300 }}
+            className="fixed right-0 top-0 h-full w-96 bg-card border-l border-border shadow-2xl z-[9999] overflow-y-auto"
+          >
               {/* Header */}
               <div className="sticky top-0 bg-card/95 backdrop-blur-sm border-b border-border p-4 flex items-center justify-between">
                 <h2 className="text-lg font-semibold">Settings</h2>
@@ -260,6 +248,23 @@ export function SettingsPanel() {
           </>
         )}
       </AnimatePresence>
+  );
+
+  return (
+    <>
+      {/* Settings Button */}
+      <Button
+        variant="ghost"
+        size="icon"
+        className="h-8 w-8"
+        onClick={() => setOpen(true)}
+        title="Settings"
+      >
+        <Settings className="h-4 w-4" />
+      </Button>
+
+      {/* Render modal in portal to ensure it's above everything */}
+      {typeof document !== "undefined" && createPortal(modalContent, document.body)}
     </>
   );
 }
