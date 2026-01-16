@@ -54,6 +54,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     nodejs \
     npm \
     git \
+    wget \
+    grep \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
@@ -106,6 +108,17 @@ RUN ARCH=$(uname -m) && \
     tar -xzf glab.tar.gz && \
     mv bin/glab /usr/local/bin/glab && \
     rm -rf glab.tar.gz gh_${GLAB_VERSION}_linux_${GLAB_ARCH}
+
+# Install yq (YAML processor like jq for JSON)
+RUN ARCH=$(uname -m) && \
+    if [ "$ARCH" = "aarch64" ] || [ "$ARCH" = "arm64" ]; then \
+        YQ_ARCH="arm64"; \
+    else \
+        YQ_ARCH="amd64"; \
+    fi && \
+    YQ_VERSION="v4.44.1" && \
+    curl -sfL --retry 5 --retry-delay 3 "https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_${YQ_ARCH}" -o /usr/local/bin/yq && \
+    chmod +x /usr/local/bin/yq
 
 # Create appuser in final image
 RUN groupadd -r appuser && useradd -r -g appuser -u 1001 -m appuser

@@ -16,7 +16,7 @@ Tests cover:
 
 import unittest
 from unittest.mock import Mock, patch
-from ai_platform_engineering.multi_agents.tools.fetch_url import fetch_url
+from ai_platform_engineering.utils.agent_tools import fetch_url
 
 
 class TestFetchUrlValidation(unittest.TestCase):
