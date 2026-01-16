@@ -30,8 +30,11 @@ from pydantic import BaseModel, Field
 # Import metrics for tracking subagent and MCP tool calls
 from ai_platform_engineering.utils.metrics import record_subagent_call, record_mcp_tool_call
 
-
+# Configure logging level from environment
+_log_level = os.getenv("LOG_LEVEL", "INFO").upper()
+logging.basicConfig(level=getattr(logging, _log_level, logging.INFO))
 logger = logging.getLogger("a2a.client.tool")
+logger.setLevel(getattr(logging, _log_level, logging.INFO))
 
 
 class A2AToolInput(BaseModel):
@@ -377,7 +380,9 @@ class A2ARemoteAgentConnectTool(BaseTool):
 
           if artifact and isinstance(artifact, dict):
             parts = artifact.get('parts', [])
-            logger.debug(f"🔍 parts count: {len(parts)}")
+            artifact_name = artifact.get('name', '')
+            is_complete_result = artifact_name == 'complete_result' or result.get('last_chunk', False)
+            logger.debug(f"🔍 parts count: {len(parts)}, artifact_name={artifact_name}, is_complete_result={is_complete_result}")
             for part in parts:
               logger.debug(f"🔍 part type: {type(part)}, is_dict: {isinstance(part, dict)}")
               if isinstance(part, dict):
@@ -387,14 +392,29 @@ class A2ARemoteAgentConnectTool(BaseTool):
 
                 if text:
                   logger.debug(f"🔍 TextPart extracted: '{text[:100]}...', length: {len(text)} chars")
-                  accumulated_text.append(text)
-                  logger.debug(f"✅ Accumulated text from artifact-update: {len(text)} chars")
+                  # Only accumulate from the final complete_result artifact, not intermediate streaming chunks
+                  # This prevents intermediate reasoning ("I'll help you...", "Great!...") from appearing in final response
+                  if is_complete_result:
+                    # Clear any previously accumulated content and use only the final result
+                    accumulated_text.clear()
+                    accumulated_text.append(text)
+                    logger.info(f"✅ Using complete_result artifact as final response: {len(text)} chars")
+                    # Log the actual content to debug what's in the complete_result
+                    logger.info(f"📝 COMPLETE_RESULT CONTENT (first 500 chars): {text[:500]}")
+                  else:
+                    # Still log intermediate chunks but don't accumulate them for final response
+                    logger.debug(f"⏭️ Skipping intermediate streaming chunk for accumulation: {len(text)} chars (artifact_name={artifact_name})")
                 elif data:
                   # DataPart with structured JSON - convert to JSON string for accumulation
+                  # Only accumulate from the final complete_result artifact
                   import json
                   json_str = json.dumps(data)
-                  accumulated_text.append(json_str)
-                  logger.info(f"✅ Accumulated DataPart from artifact-update: {len(json_str)} chars")
+                  if is_complete_result:
+                    accumulated_text.clear()
+                    accumulated_text.append(json_str)
+                    logger.info(f"✅ Using complete_result DataPart as final response: {len(json_str)} chars")
+                  else:
+                    logger.debug(f"⏭️ Skipping intermediate DataPart for accumulation: {len(json_str)} chars")
                 else:
                   logger.debug(f"🔍 part has neither 'text' nor 'data' key: {list(part.keys())}")
 
@@ -430,20 +450,11 @@ class A2ARemoteAgentConnectTool(BaseTool):
 
           if is_completed:
             logger.debug(f"⏭️ Skipping completion signal from sub-agent (final={is_final}, state={task_state}) - supervisor will complete its own task")
-            # Still accumulate text if present, but don't forward the completion signal
-            if isinstance(status, dict):
-              message = status.get('message')
-              if message and isinstance(message, dict):
-                parts = message.get('parts', [])
-                for part in parts:
-                  if isinstance(part, dict):
-                    text = part.get('text')
-                    if text:
-                      accumulated_text.append(text)
-                      logger.debug(f"Accumulated text from skipped completion status-update: {len(text)} chars")
+            # Don't accumulate status-update text - we use only the complete_result artifact for final response
             continue
 
-          # Forward non-completion status-update events
+          # Forward non-completion status-update events (for streaming to clients)
+          # Note: We don't accumulate status-update text - we use only the complete_result artifact for final response
           status = result.get('status')
           if status and isinstance(status, dict):
             message = status.get('message')
@@ -453,8 +464,7 @@ class A2ARemoteAgentConnectTool(BaseTool):
                 if isinstance(part, dict):
                   text = part.get('text')
                   if text:
-                    accumulated_text.append(text)
-
+                    # Don't accumulate - we use only complete_result artifact for final response
                     stream_tool_output = os.getenv("STREAM_SUB_AGENT_TOOL_OUTPUT", "false").lower() == "true"
                     is_tool_notification = '🔧' in text or '✅' in text
                     is_tool_output = '📄' in text

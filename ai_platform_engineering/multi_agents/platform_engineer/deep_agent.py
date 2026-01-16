@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import logging
+import json
 import uuid
 import os
 import threading
@@ -15,10 +16,12 @@ from langgraph.checkpoint.memory import InMemorySaver
 from cnoe_agent_utils import LLMFactory
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from typing import Optional, Dict, Any, List
+from langchain_core.tools import tool
 
 
 from ai_platform_engineering.multi_agents.platform_engineer import platform_registry
 from ai_platform_engineering.multi_agents.platform_engineer.prompts import agent_prompts, generate_system_prompt
+from ai_platform_engineering.multi_agents.platform_engineer.response_format import PlatformEngineerResponse
 from ai_platform_engineering.multi_agents.tools import (
     reflect_on_output,
     format_markdown,
@@ -29,7 +32,11 @@ from ai_platform_engineering.multi_agents.tools import (
     list_workspace_files,
     clear_workspace
 )
+from langchain_core.tools import tool
+import json
 from deepagents import async_create_deep_agent
+from langchain_core.tools import tool
+import json
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -258,6 +265,16 @@ class AIPlatformEngineerMAS:
       all_tools.extend(self.rag_tools)
       logger.info(f"✅📚 Added {len(self.rag_tools)} RAG tools to supervisor")
 
+    # Explicit ResponseFormat tool so Bedrock sees it in tool list
+    @tool("ResponseFormat", args_schema=PlatformEngineerResponse)
+    def response_format_tool(**kwargs):
+      try:
+        return json.dumps(kwargs)
+      except Exception:
+        return str(kwargs)
+
+    all_tools.append(response_format_tool)
+
     # Generate CustomSubAgents (pre-created react agents with A2A tools)
     subagents = platform_registry.generate_subagents(agent_prompts, base_model)
 
@@ -275,13 +292,23 @@ class AIPlatformEngineerMAS:
 
     logger.info("🎨 Creating deep agent with system prompt")
 
+    # Response format instruction tells the LLM how to use the ResponseFormat tool
+    response_format_instruction = (
+      "You MUST call the ResponseFormat tool exactly once at the end of every task. "
+      "Do not provide the final answer outside of this tool call. "
+      "Place ONLY the final user-facing answer (no thinking, no preamble) inside the 'content' field, "
+      "wrapped in [FINAL_ANSWER] and [/FINAL_ANSWER] markers. "
+      "The answer should be in markdown and should exclude any planning text. "
+      "Set 'is_task_complete' to true when the task is done, otherwise false. "
+      "Set 'require_user_input' to true only when you need more information from the user."
+    )
+
     deep_agent = async_create_deep_agent(
       tools=all_tools,  # A2A tools + RAG tools + reflect_on_output for validation
       instructions=system_prompt,  # System prompt enforces TODO-based execution workflow
       subagents=subagents,  # CustomSubAgents for proper task() delegation
       model=base_model,
-      # response_format=PlatformEngineerResponse  # Removed: Causes embedded JSON in streaming output
-      # Sub-agent DataParts (like Jarvis forms) still work - they're forwarded independently
+      response_format=(response_format_instruction, PlatformEngineerResponse),  # Tuple: (instruction, class)
     )
 
     # Check if LANGGRAPH_DEV is defined in the environment
@@ -336,7 +363,21 @@ class AIPlatformEngineerMAS:
       if not messages:
         raise RuntimeError("No messages found in the graph response.")
 
-      # Find the last AIMessage with non-empty content
+      # First, look for ResponseFormat/PlatformEngineerResponse tool call in reverse order
+      # This contains the properly formatted final answer
+      # Note: Tool is defined as @tool("ResponseFormat") but Bedrock returns the schema name "PlatformEngineerResponse"
+      for message in reversed(messages):
+        if isinstance(message, AIMessage) and hasattr(message, 'tool_calls') and message.tool_calls:
+          for tool_call in message.tool_calls:
+            tool_name = tool_call.get('name', '').lower()
+            if tool_name in ('responseformat', 'platformengineerresponse'):
+              args = tool_call.get('args', {})
+              content = args.get('content', '')
+              if content:
+                logger.debug(f"Found ResponseFormat tool call with content: {content[:100]}...")
+                return content.strip()
+
+      # Fallback: Find the last AIMessage with non-empty content
       for message in reversed(messages):
         if isinstance(message, AIMessage) and message.content.strip():
           logger.debug(f"Valid AIMessage found: {message.content.strip()}")
