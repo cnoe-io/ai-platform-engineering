@@ -242,18 +242,21 @@ function ChatMessage({ message, onCopy, isCopied, isStreaming = false }: ChatMes
   const activeTools = React.useMemo(() => {
     if (!isStreaming || message.isFinal) return [];
     
-    const toolStarts: Map<string, { name: string; startTime: Date }> = new Map();
+    const toolStarts: Map<string, { description: string; startTime: Date }> = new Map();
     const toolEnds = new Set<string>();
     
     for (const event of message.events) {
       if (event.type === "tool_start") {
-        const toolName = event.artifact?.name || event.displayName || "Tool";
-        toolStarts.set(event.id, { name: toolName, startTime: event.timestamp });
+        // Use displayContent for the actual tool description (e.g., "Calling Agent Search...")
+        // Fall back to displayName or a generic label
+        const toolDescription = event.displayContent || event.displayName || "Processing...";
+        toolStarts.set(event.id, { description: toolDescription, startTime: event.timestamp });
       } else if (event.type === "tool_end") {
-        // Match tool_end to tool_start by artifact name or similar
-        const toolName = event.artifact?.name || event.displayName || "Tool";
+        // Match tool_end to tool_start by finding the most recent unmatched start
+        const endDescription = event.displayContent || "";
         for (const [id, tool] of toolStarts) {
-          if (tool.name === toolName) {
+          // Match by similar description or just mark the oldest unmatched
+          if (!toolEnds.has(id)) {
             toolEnds.add(id);
             break;
           }
@@ -264,7 +267,7 @@ function ChatMessage({ message, onCopy, isCopied, isStreaming = false }: ChatMes
     // Return tools that have started but not ended
     return Array.from(toolStarts.entries())
       .filter(([id]) => !toolEnds.has(id))
-      .map(([, tool]) => tool.name)
+      .map(([, tool]) => tool.description)
       .slice(-3); // Show max 3 active tools
   }, [message.events, isStreaming, message.isFinal]);
 
@@ -322,16 +325,17 @@ function ChatMessage({ message, onCopy, isCopied, isStreaming = false }: ChatMes
               {/* Active tools */}
               <AnimatePresence mode="popLayout">
                 {activeTools.length > 0 ? (
-                  activeTools.map((toolName, idx) => (
+                  activeTools.map((toolDescription, idx) => (
                     <motion.div
-                      key={`${toolName}-${idx}`}
+                      key={`${toolDescription}-${idx}`}
                       initial={{ opacity: 0, x: -10 }}
                       animate={{ opacity: 1, x: 0 }}
                       exit={{ opacity: 0, x: 10 }}
                       className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-400"
                     >
+                      <span className="text-sm">🔧</span>
+                      <span className="text-xs font-medium">{toolDescription}</span>
                       <Loader2 className="h-3 w-3 animate-spin" />
-                      <span className="text-xs font-medium">{toolName}</span>
                     </motion.div>
                   ))
                 ) : (
