@@ -19,13 +19,15 @@ import { ContextPanel } from "@/components/a2a/ContextPanel";
 import { UseCasesGallery } from "@/components/gallery/UseCasesGallery";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { TechStackButton } from "@/components/tech-stack";
+import { UserMenu } from "@/components/user-menu";
+import { AuthGuard } from "@/components/auth-guard";
 import { useChatStore } from "@/store/chat-store";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { config } from "@/lib/config";
 
-export default function Home() {
+function HomePage() {
   // Default to Use Cases gallery to showcase capabilities
   const [activeTab, setActiveTab] = useState<"chat" | "gallery">("gallery");
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -52,7 +54,10 @@ export default function Home() {
       <header className="h-14 border-b border-border/50 bg-card/50 backdrop-blur-xl flex items-center justify-between px-4 shrink-0 z-50">
         <div className="flex items-center gap-4">
           {/* Logo */}
-          <div className="flex items-center gap-2.5">
+          <div
+            className="flex items-center gap-2.5 cursor-default"
+            title="Community AI Platform Engineering"
+          >
             <img
               src="/logo.svg"
               alt="CAIPE Logo"
@@ -91,8 +96,12 @@ export default function Home() {
 
         {/* Status & Actions */}
         <div className="flex items-center gap-3">
-          {/* Streaming Status */}
+          {/* Powered By + Status */}
           <div className="flex items-center gap-2">
+            {/* Powered By */}
+            <TechStackButton variant="compact" />
+
+            {/* Streaming Status */}
             <div className={cn(
               "flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium",
               isStreaming
@@ -141,15 +150,15 @@ export default function Home() {
             </div>
           )}
 
-          {/* Theme & External Links */}
+          {/* Theme, Links & User */}
           <div className="flex items-center gap-1 border-l border-border pl-3">
             <ThemeToggle />
             <Button variant="ghost" size="icon" className="h-8 w-8" asChild>
               <a
-                href="https://docs.ag-ui.com"
+                href="https://cnoe-io.github.io/ai-platform-engineering/"
                 target="_blank"
                 rel="noopener noreferrer"
-                title="AG-UI Docs"
+                title="CAIPE Docs"
               >
                 <BookOpen className="h-4 w-4" />
               </a>
@@ -164,6 +173,8 @@ export default function Home() {
                 <Github className="h-4 w-4" />
               </a>
             </Button>
+            {/* User Menu - Only shown when SSO is enabled */}
+            <UserMenu />
           </div>
         </div>
       </header>
@@ -227,8 +238,18 @@ export default function Home() {
         </div>
       </div>
 
-      {/* Technology Stack Button - Bottom Right */}
-      <TechStackButton />
     </div>
   );
+}
+
+// Wrap with AuthGuard when SSO is enabled
+export default function Home() {
+  if (config.ssoEnabled) {
+    return (
+      <AuthGuard>
+        <HomePage />
+      </AuthGuard>
+    );
+  }
+  return <HomePage />;
 }
