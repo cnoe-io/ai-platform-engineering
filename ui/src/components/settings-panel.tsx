@@ -47,7 +47,7 @@ export function SettingsPanel() {
     setMounted(true);
     const savedFontSize = localStorage.getItem("caipe-font-size") as FontSize | null;
     const savedFontFamily = localStorage.getItem("caipe-font-family") as FontFamily | null;
-    
+
     if (savedFontSize) {
       setFontSize(savedFontSize);
       document.documentElement.setAttribute("data-font-size", savedFontSize);
