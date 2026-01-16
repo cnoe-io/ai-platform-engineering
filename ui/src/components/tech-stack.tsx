@@ -18,7 +18,7 @@ const techStack: TechItem[] = [
   {
     name: "CAIPE",
     description: "Community AI Platform Engineering - Multi-Agent System for Platform Engineers",
-    url: "https://cnoe-io.github.io/ai-platform-engineering/",
+    url: "https://caipe.io",
     category: "platform",
   },
   {
