@@ -1,7 +1,7 @@
 # Copyright 2025 CNOE
 # SPDX-License-Identifier: Apache-2.0
 
-"""Custom tools for GitHub Agent including gh CLI execution."""
+"""Custom tools for GitHub Agent including gh CLI execution and git operations."""
 
 import asyncio
 import logging
@@ -12,6 +12,9 @@ from typing import Any, Optional
 
 from langchain_core.tools import BaseTool
 from pydantic import BaseModel, Field
+
+# Import git tool from utils (shared with GitLab agent)
+from ai_platform_engineering.utils.agent_tools import git
 
 logger = logging.getLogger(__name__)
 
@@ -226,6 +229,31 @@ def get_gh_cli_tool() -> Optional[GHCLITool]:
     return GHCLITool(allow_write_operations=False)
 
 
+# =============================================================================
+# Git Operations Tool (imported from utils/agent_tools/)
+# =============================================================================
+# The generic `git` tool is imported from:
+#   ai_platform_engineering.utils.agent_tools
+#
+# Usage:
+#   git("clone https://github.com/org/repo.git /path/to/dir")
+#   git("status", cwd="/path/to/repo")
+#   git("log --oneline -10", cwd="/path/to/repo")
+#   git("branch -a", cwd="/path/to/repo")
+#   git("diff HEAD~1", cwd="/path/to/repo")
+#   git("show HEAD:README.md", cwd="/path/to/repo")
+#   git("remote -v", cwd="/path/to/repo")
+#   git("pull origin main", cwd="/path/to/repo")
+#   git("fetch --all", cwd="/path/to/repo")
+#
+# The tool automatically detects the git provider (GitHub/GitLab) from URLs
+# and uses the appropriate authentication token.
 
 
-
+# Export all tools for use by the GitHub agent
+__all__ = [
+    'GHCLITool',
+    'get_gh_cli_tool',
+    # Generic git tool (from utils)
+    'git',
+]

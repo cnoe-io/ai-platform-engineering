@@ -27,7 +27,21 @@ from ai_platform_engineering.multi_agents.tools import (
     write_workspace_file,
     read_workspace_file,
     list_workspace_files,
-    clear_workspace
+    clear_workspace,
+    # Command-line tools
+    git,        # git("git clone https://...", cwd=...)
+    curl,       # curl("curl -s https://...")
+    wget,       # wget("wget -O file.txt https://...")
+    grep,       # grep("grep -r pattern .")
+    glob_find,  # glob_find("**/*.py")
+    # Data processing tools
+    jq,         # jq("jq '.items[].name' data.json")
+    yq,         # yq("yq '.spec.replicas' deployment.yaml")
+    # File I/O tools
+    read_file,   # read_file("/tmp/data.json")
+    write_file,  # write_file("/tmp/out.json", content)
+    append_file, # append_file("/tmp/log.txt", "entry\n")
+    list_files,  # list_files("/tmp/repo", pattern="*.yaml")
 )
 from deepagents import async_create_deep_agent
 
@@ -241,7 +255,7 @@ class AIPlatformEngineerMAS:
     # Get fresh tools from registry (for tool notifications and visibility)
     all_agents = platform_registry.get_all_agents()
 
-    # Add utility tools: reflection, markdown formatting, URL fetching, current date, workspace
+    # Add utility tools: reflection, markdown, URL, date, workspace, and command-line tools
     all_tools = all_agents + [
         reflect_on_output,
         format_markdown,
@@ -250,7 +264,21 @@ class AIPlatformEngineerMAS:
         write_workspace_file,
         read_workspace_file,
         list_workspace_files,
-        clear_workspace
+        clear_workspace,
+        # Command-line tools for clone→grep→glob workflows
+        git,        # git("git clone https://...", cwd=...)
+        curl,       # curl("curl -s https://...")
+        wget,       # wget("wget -O file.txt https://...")
+        grep,       # grep("grep -r pattern .")
+        glob_find,  # glob_find("**/*.py")
+        # Data processing tools
+        jq,         # jq("jq '.items[].name' data.json")
+        yq,         # yq("yq '.spec.replicas' deployment.yaml")
+        # File I/O tools
+        read_file,   # read_file("/tmp/data.json")
+        write_file,  # write_file("/tmp/out.json", content)
+        append_file, # append_file("/tmp/log.txt", "entry\n")
+        list_files,  # list_files("/tmp/repo", pattern="*.yaml")
     ]
 
     # Add RAG tools if initially loaded
