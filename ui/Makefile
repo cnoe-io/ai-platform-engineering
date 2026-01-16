@@ -1,9 +1,11 @@
 # CAIPE UI Makefile
 # Usage: make <target>
 
-.PHONY: help install dev build start clean lint format check
+.PHONY: help install dev build start clean lint format check run setup
 
-# Default target
+# Default target - runs the full setup
+.DEFAULT_GOAL := run
+
 help:
 	@echo "CAIPE UI - Available targets:"
 	@echo ""
