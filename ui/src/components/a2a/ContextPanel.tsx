@@ -294,7 +294,7 @@ export function ContextPanel({ debugMode, onDebugModeChange }: ContextPanelProps
                             <div className="flex items-center gap-2 mb-1.5">
                               {/* Agent Logo */}
                               <AgentLogo agent={task.agent} size="sm" />
-                              
+
                               {/* Agent Name Badge with official color */}
                               {(() => {
                                 const agentLogo = getAgentLogo(task.agent);
