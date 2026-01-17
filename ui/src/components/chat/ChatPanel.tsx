@@ -333,24 +333,24 @@ function ChatMessage({
   // Get a preview of the streaming content (last 200 chars)
   const streamPreview = message.content.slice(-200).trim();
 
-  // Extract active tools from events (tool_start without matching tool_end)
-  const activeTools = React.useMemo(() => {
-    if (!isStreaming || message.isFinal) return [];
+  // Extract tools from events with their status (active or completed)
+  const toolsWithStatus = React.useMemo(() => {
+    if (message.isFinal) return [];
 
-    const toolStarts: Map<string, { description: string; startTime: Date }> = new Map();
+    const toolStarts: Map<string, { description: string; startTime: Date; order: number }> = new Map();
     const toolEnds = new Set<string>();
+    let order = 0;
 
     for (const event of message.events) {
       if (event.type === "tool_start") {
-        // Use displayContent for the actual tool description (e.g., "Calling Agent Search...")
-        // Fall back to displayName or a generic label
-        const toolDescription = event.displayContent || event.displayName || "Processing...";
-        toolStarts.set(event.id, { description: toolDescription, startTime: event.timestamp });
+        // Use displayContent for the actual tool description
+        // Remove leading 🔧 emoji if present to avoid duplication
+        let toolDescription = event.displayContent || event.displayName || "Processing...";
+        toolDescription = toolDescription.replace(/^🔧\s*/g, "").trim();
+        toolStarts.set(event.id, { description: toolDescription, startTime: event.timestamp, order: order++ });
       } else if (event.type === "tool_end") {
         // Match tool_end to tool_start by finding the most recent unmatched start
-        const endDescription = event.displayContent || "";
-        for (const [id, tool] of toolStarts) {
-          // Match by similar description or just mark the oldest unmatched
+        for (const [id] of toolStarts) {
           if (!toolEnds.has(id)) {
             toolEnds.add(id);
             break;
@@ -359,12 +359,16 @@ function ChatMessage({
       }
     }
 
-    // Return tools that have started but not ended
+    // Return tools with their status
     return Array.from(toolStarts.entries())
-      .filter(([id]) => !toolEnds.has(id))
-      .map(([, tool]) => tool.description)
-      .slice(-3); // Show max 3 active tools
-  }, [message.events, isStreaming, message.isFinal]);
+      .sort(([, a], [, b]) => a.order - b.order)
+      .map(([id, tool]) => ({
+        id,
+        description: tool.description,
+        isCompleted: toolEnds.has(id),
+      }))
+      .slice(-5); // Show max 5 recent tools
+  }, [message.events, message.isFinal]);
 
   return (
     <motion.div
@@ -413,45 +417,48 @@ function ChatMessage({
         {/* Streaming state - Cursor/OpenAI style */}
         {isStreaming && !message.isFinal ? (
           <div className="space-y-2">
-            {/* Tool/Thinking indicator */}
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              className="inline-flex flex-col gap-1.5"
-            >
-              {/* Active tools */}
-              <AnimatePresence mode="popLayout">
-                {activeTools.length > 0 ? (
-                  activeTools.map((toolDescription, idx) => (
-                    <motion.div
-                      key={`${toolDescription}-${idx}`}
-                      initial={{ opacity: 0, x: -10 }}
-                      animate={{ opacity: 1, x: 0 }}
-                      exit={{ opacity: 0, x: 10 }}
-                      className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-400"
-                    >
-                      <span className="text-sm">🔧</span>
-                      <span className="text-xs font-medium">{toolDescription}</span>
-                      <Loader2 className="h-3 w-3 animate-spin" />
-                    </motion.div>
-                  ))
-                ) : (
+            {/* Tool notifications - fixed position list */}
+            <div className="space-y-1.5">
+              {/* Show tools with their status */}
+              {toolsWithStatus.length > 0 ? (
+                toolsWithStatus.map((tool) => (
                   <motion.div
-                    key="thinking"
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    exit={{ opacity: 0 }}
-                    className="inline-flex items-center gap-2 px-4 py-3 rounded-xl bg-card border border-border/50"
+                    key={tool.id}
+                    initial={{ opacity: 0, x: -10 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    className={cn(
+                      "inline-flex items-center gap-2 px-3 py-2 rounded-lg border",
+                      tool.isCompleted
+                        ? "bg-green-500/10 border-green-500/30 text-green-400"
+                        : "bg-amber-500/10 border-amber-500/30 text-amber-400"
+                    )}
                   >
-                    <div className="relative">
-                      <div className="w-2 h-2 bg-primary rounded-full animate-ping absolute" />
-                      <div className="w-2 h-2 bg-primary rounded-full" />
-                    </div>
-                    <span className="text-sm text-muted-foreground">Thinking...</span>
+                    <span className="text-sm">{tool.isCompleted ? "✅" : "🔧"}</span>
+                    <span className={cn(
+                      "text-xs font-medium",
+                      tool.isCompleted && "line-through opacity-70"
+                    )}>
+                      {tool.description}
+                    </span>
+                    {!tool.isCompleted && <Loader2 className="h-3 w-3 animate-spin" />}
                   </motion.div>
-                )}
-              </AnimatePresence>
-            </motion.div>
+                ))
+              ) : (
+                /* Thinking indicator when no tools are active */
+                <motion.div
+                  key="thinking"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  className="inline-flex items-center gap-2 px-4 py-3 rounded-xl bg-card border border-border/50"
+                >
+                  <div className="relative">
+                    <div className="w-2 h-2 bg-primary rounded-full animate-ping absolute" />
+                    <div className="w-2 h-2 bg-primary rounded-full" />
+                  </div>
+                  <span className="text-sm text-muted-foreground">Thinking...</span>
+                </motion.div>
+              )}
+            </div>
 
             {/* Streaming output - expanded by default */}
             {message.content && (
