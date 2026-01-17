@@ -282,7 +282,7 @@ export function A2AStreamPanel() {
                                 </div>
                               )}
 
-                              <details 
+                              <details
                                 className="cursor-pointer group/details"
                                 onClick={(e) => e.stopPropagation()}
                               >
