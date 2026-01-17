@@ -34,8 +34,9 @@ export default function LoginPage() {
     }
   };
 
-  if (status === "loading") {
-    return <LoadingScreen message="Loading..." />;
+  // Show loading screen while checking auth or during redirect
+  if (status === "loading" || isLoading) {
+    return <LoadingScreen message={isLoading ? "Redirecting to SSO..." : "Loading..."} />;
   }
 
   return (
