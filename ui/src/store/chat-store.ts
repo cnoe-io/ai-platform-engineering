@@ -71,12 +71,11 @@ export const useChatStore = create<ChatState>()(
       },
 
       setActiveConversation: (id) => {
-        // Restore a2aEvents from the conversation being switched to
-        const state = get();
-        const targetConv = state.conversations.find((c) => c.id === id);
+        // Clear a2aEvents when switching conversations
+        // Events are session-only and specific to the current interaction
         set({
           activeConversationId: id,
-          a2aEvents: targetConv?.a2aEvents || []
+          a2aEvents: [], // Fresh start for each conversation switch
         });
       },
 
@@ -205,38 +204,16 @@ export const useChatStore = create<ChatState>()(
       },
 
       addA2AEvent: (event) => {
-        const state = get();
-        const activeId = state.activeConversationId;
-
+        // Add to global events for current session display only
+        // Events are transient and not persisted to localStorage
         set((prev) => ({
-          // Update global events for current session display
           a2aEvents: [...prev.a2aEvents, event],
-          // Also persist to the active conversation
-          conversations: activeId
-            ? prev.conversations.map((conv) =>
-                conv.id === activeId
-                  ? { ...conv, a2aEvents: [...conv.a2aEvents, event] }
-                  : conv
-              )
-            : prev.conversations,
         }));
       },
 
       clearA2AEvents: () => {
-        const state = get();
-        const activeId = state.activeConversationId;
-
-        set((prev) => ({
-          a2aEvents: [],
-          // Also clear from the active conversation
-          conversations: activeId
-            ? prev.conversations.map((conv) =>
-                conv.id === activeId
-                  ? { ...conv, a2aEvents: [] }
-                  : conv
-              )
-            : prev.conversations,
-        }));
+        // Clear session-only events
+        set({ a2aEvents: [] });
       },
 
       deleteConversation: (id) => {
@@ -297,10 +274,15 @@ export const useChatStore = create<ChatState>()(
     {
       name: "caipe-chat-history",
       storage: createJSONStorage(() => localStorage),
-      // Persist conversations (including a2aEvents) and activeConversationId
-      // Don't persist isStreaming, streamingConversations (transient state)
+      // Only persist conversations (without a2aEvents) and activeConversationId
+      // a2aEvents are transient - they don't persist across sessions
+      // This prevents accumulation of old events
       partialize: (state) => ({
-        conversations: state.conversations,
+        // Strip a2aEvents from conversations before persisting
+        conversations: state.conversations.map((conv) => ({
+          ...conv,
+          a2aEvents: [], // Don't persist a2aEvents
+        })),
         activeConversationId: state.activeConversationId,
       }),
       // Handle date serialization
@@ -311,29 +293,20 @@ export const useChatStore = create<ChatState>()(
             ...conv,
             createdAt: new Date(conv.createdAt),
             updatedAt: new Date(conv.updatedAt),
+            a2aEvents: [], // Start fresh - no persisted events
             messages: conv.messages.map((msg) => ({
               ...msg,
               timestamp: new Date(msg.timestamp),
-              // Restore event timestamps
+              // Restore event timestamps for message-level events
               events: msg.events.map((event) => ({
                 ...event,
                 timestamp: new Date(event.timestamp),
               })),
             })),
-            // Restore conversation-level a2aEvents timestamps
-            a2aEvents: (conv.a2aEvents || []).map((event) => ({
-              ...event,
-              timestamp: new Date(event.timestamp),
-            })),
           }));
 
-          // Restore a2aEvents for the active conversation
-          const activeConv = state.conversations.find(
-            (c) => c.id === state.activeConversationId
-          );
-          if (activeConv) {
-            state.a2aEvents = activeConv.a2aEvents;
-          }
+          // Start with empty a2aEvents
+          state.a2aEvents = [];
         }
       },
     }

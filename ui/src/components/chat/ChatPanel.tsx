@@ -13,7 +13,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useChatStore } from "@/store/chat-store";
 import { A2AClient } from "@/lib/a2a-client";
-import { cn, extractFinalAnswer } from "@/lib/utils";
+import { cn } from "@/lib/utils";
 import { ChatMessage as ChatMessageType } from "@/types/a2a";
 import { config } from "@/lib/config";
 import { FeedbackButton, Feedback } from "./FeedbackButton";
@@ -93,24 +93,14 @@ export function ChatPanel({ endpoint }: ChatPanelProps) {
         addA2AEvent(event);
         addEventToMessage(convId!, assistantMsgId, event);
 
-        // Handle streaming content
+        // Handle streaming content - append all artifact text directly
         if (event.type === "artifact" && event.displayContent) {
           appendToMessage(convId!, assistantMsgId, event.displayContent);
         }
 
-        // Handle final result
+        // Mark message as final when stream ends
         if (event.isLastChunk || event.isFinal) {
-          const currentConv = useChatStore.getState().conversations.find(c => c.id === convId);
-          const currentMsg = currentConv?.messages.find(m => m.id === assistantMsgId);
-          if (currentMsg) {
-            const { hasFinalAnswer, content } = extractFinalAnswer(currentMsg.content);
-            if (hasFinalAnswer) {
-              updateMessage(convId!, assistantMsgId, {
-                content,
-                isFinal: true
-              });
-            }
-          }
+          updateMessage(convId!, assistantMsgId, { isFinal: true });
         }
       },
       onError: (error) => {
@@ -326,9 +316,8 @@ function ChatMessage({
   const [showRawStream, setShowRawStream] = useState(true);
   const [isHovered, setIsHovered] = useState(false);
 
-  // Extract final answer if present, otherwise use content
-  const { hasFinalAnswer, content: finalContent } = extractFinalAnswer(message.content);
-  const displayContent = hasFinalAnswer ? finalContent : message.content;
+  // Display all streamed content as-is
+  const displayContent = message.content;
 
   // Get a preview of the streaming content (last 200 chars)
   const streamPreview = message.content.slice(-200).trim();
