@@ -43,13 +43,13 @@ export function FeedbackButton({
 
     // Toggle feedback - if same type clicked, deselect
     if (feedback?.type === type) {
-      onFeedbackChange?.({ 
-        type: null, 
-        showFeedbackOptions: false 
+      onFeedbackChange?.({
+        type: null,
+        showFeedbackOptions: false
       });
     } else {
-      onFeedbackChange?.({ 
-        type, 
+      onFeedbackChange?.({
+        type,
         showFeedbackOptions: true,
         reason: undefined,
         additionalFeedback: undefined,
@@ -64,7 +64,7 @@ export function FeedbackButton({
       reason,
       showFeedbackOptions: true,
     });
-    
+
     // Clear additional feedback if not "Other"
     if (reason !== "Other") {
       setAdditionalFeedback("");
@@ -75,17 +75,17 @@ export function FeedbackButton({
     if (!feedback?.reason) return;
 
     setIsSubmitting(true);
-    
+
     const finalFeedback: Feedback = {
       ...feedback,
       additionalFeedback: feedback.reason === "Other" ? additionalFeedback : undefined,
       submitted: true,
       showFeedbackOptions: false,
     };
-    
+
     onFeedbackChange?.(finalFeedback);
     await onFeedbackSubmit?.(finalFeedback);
-    
+
     setIsSubmitting(false);
     setAdditionalFeedback("");
   };
@@ -113,11 +113,11 @@ export function FeedbackButton({
           )}
           title="Thumb up"
         >
-          <ThumbsUp 
+          <ThumbsUp
             className={cn(
               "h-[18px] w-[18px]",
               isLiked ? "fill-current text-green-500" : "text-muted-foreground"
-            )} 
+            )}
           />
         </button>
 
@@ -134,11 +134,11 @@ export function FeedbackButton({
           )}
           title="Thumb down"
         >
-          <ThumbsDown 
+          <ThumbsDown
             className={cn(
               "h-[18px] w-[18px]",
               isDisliked ? "fill-current text-red-500" : "text-muted-foreground"
-            )} 
+            )}
           />
         </button>
 

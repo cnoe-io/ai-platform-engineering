@@ -2,7 +2,16 @@
 
 import React from "react";
 
-// Agent logo configurations with official SVG icons from Simple Icons
+/**
+ * Agent logo configurations with official SVG icons
+ * 
+ * Sources:
+ * - ArgoCD: https://techicons.dev/icons/argocd (devicons/devicon)
+ * - AWS, GitHub, Jira, etc: https://simpleicons.org
+ * 
+ * Note: Using simplified single-color versions for icon use.
+ * Full-color versions available at respective sources.
+ */
 export interface AgentLogoConfig {
   name: string;
   displayName: string;
@@ -15,7 +24,9 @@ export const AGENT_LOGOS: Record<string, AgentLogoConfig> = {
   argocd: {
     name: "argocd",
     displayName: "ArgoCD",
-    color: "#EF7B4D",
+    color: "#EF7B4D", // Official ArgoCD orange from devicons
+    // Simplified single-color version of official ArgoCD logo
+    // Full-color version: https://techicons.dev/icons/argocd
     icon: (
       <svg viewBox="0 0 24 24" fill="currentColor" className="w-full h-full">
         <path d="M12.555.004a3.2 3.2 0 0 0-1.11 0C5.93.524 1.335 4.673.295 10.092c-.947 4.942 1.186 9.723 5.01 12.376.104.072.27.028.27-.103V20.32c0-.043-.02-.083-.053-.109-2.608-2.024-3.967-5.341-3.208-8.87C3.12 7.152 6.705 3.875 10.96 3.351c.136-.017.232.12.169.244L8.73 8.418c-.06.117.023.254.152.254h.838c.06 0 .116-.033.144-.087l3.087-5.874c.053-.1.2-.1.253 0l3.087 5.874a.163.163 0 0 0 .144.087h.838c.129 0 .212-.137.152-.254l-2.398-4.823c-.063-.124.033-.26.169-.244 4.255.524 7.839 3.8 8.645 8.088.76 3.53-.6 6.847-3.207 8.871-.034.026-.054.066-.054.109v2.045c0 .131.166.175.27.103 3.824-2.653 5.957-7.434 5.01-12.376-1.04-5.42-5.634-9.568-11.149-10.088a3.2 3.2 0 0 0-.555-.495zm-.555 8.65a.815.815 0 0 0-.815.814v6.22a.815.815 0 0 0 1.63 0v-6.22a.815.815 0 0 0-.815-.815z"/>
