@@ -98,21 +98,21 @@ export function ChatPanel({ endpoint }: ChatPanelProps) {
         if (event.type === "artifact" && event.displayContent) {
           const newContent = event.displayContent;
           const artifactName = event.artifact?.name || "";
-          
+
           // Skip tool notifications - they're handled separately in UI
           if (artifactName === "tool_notification_start" || artifactName === "tool_notification_end") {
             // Tool notifications don't go into message content
             return;
           }
-          
-          // Use A2A append flag: 
+
+          // Use A2A append flag:
           // - shouldAppend=false (append=false in A2A): REPLACE/start new
           // - shouldAppend=true (append=true in A2A): APPEND to existing
           // - Complete/final results: REPLACE
-          const isCompleteResult = artifactName === "complete_result" || 
+          const isCompleteResult = artifactName === "complete_result" ||
                                    artifactName === "final_result" ||
                                    event.isLastChunk;
-          
+
           if (!event.shouldAppend || isCompleteResult) {
             // Replace message content (start new or complete result)
             updateMessage(convId!, assistantMsgId, { content: newContent });
