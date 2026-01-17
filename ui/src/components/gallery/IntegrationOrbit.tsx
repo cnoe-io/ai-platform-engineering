@@ -3,21 +3,16 @@
 import React from "react";
 import { motion } from "framer-motion";
 
-// Integration logos with accurate SVG paths
-// Sources: devicons/devicon, simpleicons.org, backstage.io
+// Integration logos - simple single-color icons for small containers
+// Sources: simpleicons.org, devicons
 const integrations = [
   {
     name: "ArgoCD",
-    color: "#171C24",
-    // Full-color ArgoCD logo from devicons - https://techicons.dev/icons/argocd
+    color: "#EF7B4D",
+    // ArgoCD squid/octopus icon - simplified for small display
     icon: (
-      <svg viewBox="0 0 128 128" className="w-full h-full">
-        <path fill="#b6cfea" d="M109.926 47.508c0 25.355-20.555 45.91-45.91 45.91-25.356 0-45.91-20.555-45.91-45.91 0-25.352 20.554-45.906 45.91-45.906 25.355 0 45.91 20.554 45.91 45.906z"/>
-        <path fill="#e6f5f8" d="M108.227 47.508c0 24.418-19.793 44.21-44.211 44.21-24.414 0-44.207-19.792-44.207-44.21C19.809 23.094 39.602 3.3 64.016 3.3c24.418 0 44.21 19.793 44.21 44.207z"/>
-        <path fill="#ee794b" d="M42.762 65.363s2.976 48.035 2.976 48.887c0 .422.426 1.273-1.703 2.125-2.125.848-8.926 2.55-8.926 2.55h10.203c4.676 0 4.676-3.827 4.676-4.675 0-.852 1.274-19.129 1.274-19.129s.425 21.68.425 22.527c0 .852-.425 2.125-3.398 2.977-2.125.426-8.504 1.7-8.504 1.7h9.778c5.953 0 5.953-3.825 5.953-3.825l1.273-19.129s.426 19.129.426 21.254c0 1.7-1.274 2.977-5.953 3.824-2.973.852-6.801 1.703-6.801 1.703h11.055c5.523-.425 6.375-4.254 6.375-4.254l9.351-47.609z"/>
-        <path fill="#e9654b" d="M92.07 53.887c0 7.277-5.898 13.175-13.175 13.175-7.278 0-13.18-5.898-13.18-13.175 0-7.278 5.902-13.18 13.18-13.18 7.277 0 13.175 5.902 13.175 13.18zM62.316 53.887c0 7.277-5.902 13.175-13.18 13.175-7.277 0-13.175-5.898-13.175-13.175 0-7.278 5.898-13.18 13.176-13.18 7.277 0 13.18 5.902 13.18 13.18z"/>
-        <path fill="#fff" d="M89.098 53.887c0 5.633-4.57 10.203-10.203 10.203-5.633 0-10.204-4.57-10.204-10.203 0-5.637 4.57-10.203 10.204-10.203 5.632 0 10.203 4.566 10.203 10.203zM58.488 53.887c0 5.633-4.566 10.203-10.199 10.203-5.637 0-10.203-4.57-10.203-10.203a10.201 10.201 0 0110.203-10.203c5.633 0 10.2 4.566 10.2 10.203z"/>
-        <path fill="#010101" d="M51.262 52.61a2.975 2.975 0 11-5.95.003 2.975 2.975 0 015.95-.004zM81.871 52.61a2.976 2.976 0 11-5.951.001 2.976 2.976 0 015.951-.002z"/>
+      <svg viewBox="0 0 24 24" fill="currentColor" className="w-full h-full">
+        <path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm0 2.4a9.6 9.6 0 110 19.2 9.6 9.6 0 010-19.2zm0 2.4a2.4 2.4 0 100 4.8 2.4 2.4 0 000-4.8zm-4.8 6a1.8 1.8 0 100 3.6 1.8 1.8 0 000-3.6zm9.6 0a1.8 1.8 0 100 3.6 1.8 1.8 0 000-3.6zm-7.2 4.8c0 1.325 1.075 2.4 2.4 2.4s2.4-1.075 2.4-2.4h-4.8z"/>
       </svg>
     )
   },
@@ -64,10 +59,10 @@ const integrations = [
   {
     name: "Splunk",
     color: "#65A637",
-    // Full-color Splunk logo with green accents
+    // Splunk chevron logo - simple single color
     icon: (
-      <svg viewBox="0 0 128 128" className="w-full h-full">
-        <path fill="#65A637" d="M8 128l40.4-23.6V86.3L8 105.6zM120 21.6L79.6 45.2v18.1l40.4-23.6zM48.4 128L8 104.4v-24l40.4 23.6zm31.2-105.7L120 45.9v-24L79.6 1.7zM8 22.6v23.5l40.4 23.5V51.5zM120 105.4V81.9L79.6 58.4v18.1z"/>
+      <svg viewBox="0 0 24 24" fill="currentColor" className="w-full h-full">
+        <path d="m1.5 24 7.556-4.41v-4.238L1.5 19.755ZM22.5 4.244l-7.556 4.403v4.246L22.5 8.482ZM9.056 24 1.5 19.755v-4.482l7.556 4.403Zm5.888-19.756L22.5 8.482V4.244l-7.556-4.237ZM1.5 4.237V8.49l7.556 4.403V8.647ZM22.5 19.762v-4.246l-7.556-4.41v4.247Z"/>
       </svg>
     )
   },
@@ -114,10 +109,12 @@ const integrations = [
   {
     name: "Backstage",
     color: "#36BAA2",
-    // Official Backstage logo from backstage.io - teal "B" mark
+    // Backstage logo - centered B with bar
     icon: (
-      <svg viewBox="0 0 800 280" className="w-full h-full">
-        <path fill="#36BAA2" d="M0 0h120v280H0V0zm160 0h120v100h60c66.274 0 120 53.726 120 120s-53.726 120-120 120H160V0zm120 220h60c33.137 0 60-26.863 60-60s-26.863-60-60-60h-60v120z"/>
+      <svg viewBox="0 0 24 24" fill="currentColor" className="w-full h-full">
+        <rect x="2" y="3" width="3" height="18" rx="0.5"/>
+        <path d="M8 3h5c3.3 0 6 2.2 6 5s-2.7 5-6 5H8V3zm3 8h2c1.7 0 3-1.1 3-2.5S14.7 6 13 6h-2v5z"/>
+        <path d="M8 13h6c3.3 0 6 2.2 6 5s-2.7 5-6 5H8v-10zm3 8h3c1.7 0 3-1.1 3-2.5S15.7 16 14 16h-3v5z"/>
       </svg>
     )
   },
