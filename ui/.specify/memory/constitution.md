@@ -1,50 +1,86 @@
-# [PROJECT_NAME] Constitution
-<!-- Example: Spec Constitution, TaskFlow Constitution, etc. -->
+# CAIPE UI Constitution
 
 ## Core Principles
 
-### [PRINCIPLE_1_NAME]
-<!-- Example: I. Library-First -->
-[PRINCIPLE_1_DESCRIPTION]
-<!-- Example: Every feature starts as a standalone library; Libraries must be self-contained, independently testable, documented; Clear purpose required - no organizational-only libraries -->
+### I. A2A Protocol Conformance
+All agent communication follows the A2A (Agent-to-Agent) protocol specification:
+- JSON-RPC 2.0 over SSE for streaming
+- Proper contextId handling for conversation continuity
+- Support for artifacts, status updates, and task management
 
-### [PRINCIPLE_2_NAME]
-<!-- Example: II. CLI Interface -->
-[PRINCIPLE_2_DESCRIPTION]
-<!-- Example: Every library exposes functionality via CLI; Text in/out protocol: stdin/args → stdout, errors → stderr; Support JSON + human-readable formats -->
+### II. AG-UI & A2UI Integration
+UI follows modern agent-user interaction patterns:
+- Streaming output with real-time updates
+- Execution plan visualization with task checkboxes
+- Widget support for agent-rendered UI components
+- Declarative A2UI specification support
 
-### [PRINCIPLE_3_NAME]
-<!-- Example: III. Test-First (NON-NEGOTIABLE) -->
-[PRINCIPLE_3_DESCRIPTION]
-<!-- Example: TDD mandatory: Tests written → User approved → Tests fail → Then implement; Red-Green-Refactor cycle strictly enforced -->
+### III. Component-Driven Architecture
+React components are:
+- Self-contained and reusable
+- Use Tailwind CSS for styling
+- Follow shadcn/ui patterns
+- Support theming (light/dark/midnight/nord/tokyo)
 
-### [PRINCIPLE_4_NAME]
-<!-- Example: IV. Integration Testing -->
-[PRINCIPLE_4_DESCRIPTION]
-<!-- Example: Focus areas requiring integration tests: New library contract tests, Contract changes, Inter-service communication, Shared schemas -->
+### IV. State Management
+Application state managed via:
+- Zustand for global state (chat-store)
+- localStorage persistence for conversations
+- Per-conversation streaming state
+- Proper hydration handling
 
-### [PRINCIPLE_5_NAME]
-<!-- Example: V. Observability, VI. Versioning & Breaking Changes, VII. Simplicity -->
-[PRINCIPLE_5_DESCRIPTION]
-<!-- Example: Text I/O ensures debuggability; Structured logging required; Or: MAJOR.MINOR.BUILD format; Or: Start simple, YAGNI principles -->
+### V. Authentication & Security
+- OIDC SSO support via NextAuth
+- Group-based authorization (configurable claim)
+- JWT Bearer token for A2A requests
+- Proper session management
 
-## [SECTION_2_NAME]
-<!-- Example: Additional Constraints, Security Requirements, Performance Standards, etc. -->
+## Technology Stack
 
-[SECTION_2_CONTENT]
-<!-- Example: Technology stack requirements, compliance standards, deployment policies, etc. -->
+- **Framework**: Next.js 16.x with App Router
+- **UI Library**: React 19.x
+- **Styling**: Tailwind CSS 4.x
+- **State**: Zustand with persist middleware
+- **Auth**: NextAuth.js with OIDC provider
+- **Icons**: Lucide React + Custom SVG logos
+- **Animation**: Framer Motion
 
-## [SECTION_3_NAME]
-<!-- Example: Development Workflow, Review Process, Quality Gates, etc. -->
+## Feature Categories
 
-[SECTION_3_CONTENT]
-<!-- Example: Code review requirements, testing gates, deployment approval process, etc. -->
+### Chat System
+- Multi-conversation support with history
+- Message feedback (thumbs up/down)
+- Copy buttons for messages
+- Markdown rendering with syntax highlighting
+- Agent selection via custom call buttons
+
+### Execution Visualization
+- Task list with interactive checkboxes
+- Progress bar with completion percentage
+- Official agent logos (ArgoCD, AWS, GitHub, etc.)
+- Real-time status updates
+
+### A2A Debug
+- Full event stream inspection
+- Raw JSON viewing
+- Event filtering by type
+- Auto-scroll during streaming
+
+### Gallery
+- Use case showcase
+- Quick-start prompts
+- Integration demonstrations
 
 ## Governance
-<!-- Example: Constitution supersedes all other practices; Amendments require documentation, approval, migration plan -->
 
-[GOVERNANCE_RULES]
-<!-- Example: All PRs/reviews must verify compliance; Complexity must be justified; Use [GUIDANCE_FILE] for runtime development guidance -->
+Constitution supersedes all other practices. Amendments require:
+1. Documentation in spec
+2. Approval via PR review
+3. Migration plan if breaking
 
-**Version**: [CONSTITUTION_VERSION] | **Ratified**: [RATIFICATION_DATE] | **Last Amended**: [LAST_AMENDED_DATE]
-<!-- Example: Version: 2.1.1 | Ratified: 2025-06-13 | Last Amended: 2025-07-16 -->
+All changes must be:
+- Committed incrementally
+- Spec Kit updated with each feature
+- DCO signed
+
+**Version**: 1.0.0 | **Ratified**: 2026-01-17 | **Last Amended**: 2026-01-17
