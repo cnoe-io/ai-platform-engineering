@@ -1,8 +1,8 @@
 # Agent Forge Features Spec
 
-**Status**: ✅ Implemented  
-**Created**: 2026-01-17  
-**Updated**: 2026-01-17  
+**Status**: ✅ Implemented
+**Created**: 2026-01-17
+**Updated**: 2026-01-17
 
 ## Overview
 
@@ -30,23 +30,21 @@ Port key features from the agent-forge Backstage plugin to CAIPE UI to provide f
 
 **Problem**: No way to provide feedback on agent responses.
 
-**Solution**:
-- Thumbs up/down buttons per assistant message
-- Negative feedback dialog with reason selection:
-  - Incorrect information
-  - Not helpful
-  - Too verbose
-  - Missing details
-  - Confusing response
-  - Other
-- Additional feedback text input
-- Feedback persisted to message state
+**Solution** (matching agent-forge exactly):
+- Inline thumbs up/down buttons per assistant message
+- When clicked, inline panel appears below message with reason chips:
+  - **For LIKE**: "Very Helpful", "Accurate", "Simplified My Task", "Other"
+  - **For DISLIKE**: "Inaccurate", "Poorly Formatted", "Incomplete", "Off-topic", "Other"
+- If "Other" selected, shows multi-line text area for additional feedback
+- Submit button (disabled until reason selected)
+- "Thank you for your feedback!" message after submission
+- Toggle behavior: clicking same thumb deselects
 
 **Files Changed**:
 - `src/components/chat/FeedbackButton.tsx` (new)
 - `src/components/chat/ChatPanel.tsx`
 - `src/store/chat-store.ts` (added `updateMessageFeedback`)
-- `src/types/a2a.ts` (added `MessageFeedback` type)
+- `src/types/a2a.ts` (added `MessageFeedback` type with `showFeedbackOptions`)
 
 ---
 

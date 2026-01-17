@@ -151,12 +151,13 @@ export interface Conversation {
   a2aEvents: A2AEvent[];
 }
 
-// Feedback types
+// Feedback types - matching agent-forge
 export interface MessageFeedback {
-  type: "positive" | "negative" | null;
+  type: "like" | "dislike" | null;
   reason?: string;
   additionalFeedback?: string;
   submitted?: boolean;
+  showFeedbackOptions?: boolean;
 }
 
 export interface ChatMessage {
