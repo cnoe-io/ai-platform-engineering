@@ -25,6 +25,7 @@ import { useChatStore } from "@/store/chat-store";
 import { cn, extractFinalAnswer } from "@/lib/utils";
 import { A2AStreamPanel } from "./A2AStreamPanel";
 import { A2AEvent } from "@/types/a2a";
+import { AgentLogo, getAgentLogo } from "@/components/shared/AgentLogos";
 
 // Task status from execution plan
 interface ExecutionTask {
@@ -290,18 +291,28 @@ export function ContextPanel({ debugMode, onDebugModeChange }: ContextPanelProps
 
                           {/* Task Content */}
                           <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2 mb-1">
-                              <Badge
-                                variant="outline"
-                                className={cn(
-                                  "text-[10px] px-1.5 py-0",
-                                  task.status === "completed" && "border-green-500/50 text-green-400",
-                                  task.status === "in_progress" && "border-sky-500/50 text-sky-400",
-                                  task.status === "failed" && "border-red-500/50 text-red-400"
-                                )}
-                              >
-                                {task.agent}
-                              </Badge>
+                            <div className="flex items-center gap-2 mb-1.5">
+                              {/* Agent Logo */}
+                              <AgentLogo agent={task.agent} size="sm" />
+                              
+                              {/* Agent Name Badge with official color */}
+                              {(() => {
+                                const agentLogo = getAgentLogo(task.agent);
+                                return (
+                                  <span
+                                    className={cn(
+                                      "text-[10px] font-semibold px-1.5 py-0.5 rounded",
+                                      task.status === "completed" && "opacity-60"
+                                    )}
+                                    style={{
+                                      backgroundColor: agentLogo ? `${agentLogo.color}20` : 'var(--muted)',
+                                      color: agentLogo?.color || 'var(--muted-foreground)',
+                                    }}
+                                  >
+                                    {agentLogo?.displayName || task.agent}
+                                  </span>
+                                );
+                              })()}
                             </div>
                             <p className={cn(
                               "text-sm leading-relaxed",

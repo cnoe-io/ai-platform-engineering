@@ -51,7 +51,7 @@ export function MetadataInputForm({
 
   const validateForm = useCallback(() => {
     const newErrors: Record<string, string> = {};
-    
+
     inputFields.forEach((field) => {
       if (!formData[field.field_name]?.trim()) {
         newErrors[field.field_name] = "This field is required";
@@ -64,9 +64,9 @@ export function MetadataInputForm({
 
   const handleSubmit = useCallback(async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     if (!validateForm()) return;
-    
+
     setIsSubmitting(true);
     try {
       await onSubmit(formData);
@@ -108,7 +108,7 @@ export function MetadataInputForm({
             <label className="text-sm font-medium text-foreground">
               {field.field_name.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())}
             </label>
-            
+
             {field.field_description && (
               <p className="text-xs text-muted-foreground">
                 {field.field_description}

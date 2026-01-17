@@ -73,10 +73,10 @@ export function ChatPanel({ endpoint }: ChatPanelProps) {
 
     // Prepend agent prompt if selected
     const baseMessage = input.trim();
-    const message = selectedAgentPrompt 
-      ? `${selectedAgentPrompt} ${baseMessage}` 
+    const message = selectedAgentPrompt
+      ? `${selectedAgentPrompt} ${baseMessage}`
       : baseMessage;
-    
+
     setInput("");
     setSelectedAgentPrompt(null); // Clear after sending
 
@@ -224,13 +224,13 @@ export function ChatPanel({ endpoint }: ChatPanelProps) {
                 onChange={setSelectedAgentPrompt}
               />
             </div>
-            
+
             <textarea
               ref={inputRef}
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder={selectedAgentPrompt 
+              placeholder={selectedAgentPrompt
                 ? `Ask ${DEFAULT_AGENTS.find(a => a.prompt === selectedAgentPrompt)?.label || 'agent'}...`
                 : "Ask CAIPE anything..."
               }
@@ -258,7 +258,7 @@ export function ChatPanel({ endpoint }: ChatPanelProps) {
               </Button>
             )}
           </div>
-          
+
           {/* Selected agent indicator */}
           {selectedAgentPrompt && (
             <div className="flex items-center gap-2 text-xs text-muted-foreground">
@@ -266,7 +266,7 @@ export function ChatPanel({ endpoint }: ChatPanelProps) {
               <span className="px-2 py-0.5 rounded-md bg-primary/10 text-primary font-medium">
                 {DEFAULT_AGENTS.find(a => a.prompt === selectedAgentPrompt)?.label || selectedAgentPrompt}
               </span>
-              <button 
+              <button
                 onClick={() => setSelectedAgentPrompt(null)}
                 className="text-muted-foreground hover:text-foreground"
               >
@@ -274,7 +274,7 @@ export function ChatPanel({ endpoint }: ChatPanelProps) {
               </button>
             </div>
           )}
-          
+
           <p className="text-xs text-muted-foreground text-center">
             CAIPE can make mistakes. Verify important information.
           </p>
@@ -295,10 +295,10 @@ interface ChatMessageProps {
   onFeedbackSubmit?: (feedback: Feedback) => void;
 }
 
-function ChatMessage({ 
-  message, 
-  onCopy, 
-  isCopied, 
+function ChatMessage({
+  message,
+  onCopy,
+  isCopied,
   isStreaming = false,
   feedback,
   onFeedbackChange,
@@ -675,7 +675,7 @@ function ChatMessage({
 
             {/* Actions */}
             {!isUser && displayContent && !isStreaming && (
-              <motion.div 
+              <motion.div
                 initial={{ opacity: 0 }}
                 animate={{ opacity: isHovered ? 1 : 0.6 }}
                 className="flex items-center gap-2 mt-2"
