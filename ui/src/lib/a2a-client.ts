@@ -209,11 +209,19 @@ export class A2AClient {
         };
 
       case "message":
+        // Extract text from message parts (agent messages contain the actual content)
+        const messageParts = result.parts || [];
+        const messageTextPart = messageParts.find((p: { kind?: string }) => p.kind === "text");
+        const messageText = messageTextPart && "text" in messageTextPart ? (messageTextPart as { text: string }).text : "";
+        const isAgentMessage = result.role === "agent";
+        
         return {
           ...baseEvent,
           type: "message",
-          displayName: "Message",
-          displayContent: "",
+          // For agent messages, append the content to the chat
+          shouldAppend: isAgentMessage, // Agent messages should be appended
+          displayName: isAgentMessage ? "Agent" : "Message",
+          displayContent: messageText,
           color: "primary",
           icon: "MessageSquare",
         };

@@ -93,10 +93,17 @@ export function ChatPanel({ endpoint }: ChatPanelProps) {
         addA2AEvent(event);
         addEventToMessage(convId!, assistantMsgId, event);
 
-        // Handle streaming content from A2A artifacts
+        // Handle streaming content from A2A artifacts and messages
         // Use the A2A 'append' flag to determine behavior
-        if (event.type === "artifact" && event.displayContent) {
-          const newContent = event.displayContent;
+        const newContent = event.displayContent;
+        
+        if (!newContent) {
+          // No content to process
+          return;
+        }
+
+        // Handle ARTIFACT events
+        if (event.type === "artifact") {
           const artifactName = event.artifact?.name || "";
 
           // Skip tool notifications - they're handled separately in UI
@@ -130,6 +137,13 @@ export function ChatPanel({ endpoint }: ChatPanelProps) {
               updateMessage(convId!, assistantMsgId, { content: newContent });
             }
           }
+        }
+        
+        // Handle MESSAGE events (agent messages contain actual response content)
+        // This is how agent-forge accumulates the streaming text
+        if (event.type === "message" && event.shouldAppend) {
+          console.log(`[A2A] Appending message content (${newContent.length} chars)`);
+          appendToMessage(convId!, assistantMsgId, newContent);
         }
 
         // Mark message as final when stream ends
