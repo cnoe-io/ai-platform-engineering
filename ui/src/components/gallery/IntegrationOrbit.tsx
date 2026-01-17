@@ -8,7 +8,7 @@ import { motion } from "framer-motion";
 const integrations = [
   {
     name: "ArgoCD",
-    color: "#EF7B4D",
+    color: "#171C24",
     // Full-color ArgoCD logo from devicons - https://techicons.dev/icons/argocd
     icon: (
       <svg viewBox="0 0 128 128" className="w-full h-full">
