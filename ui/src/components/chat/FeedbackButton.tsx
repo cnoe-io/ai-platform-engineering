@@ -65,10 +65,10 @@ export function FeedbackButton({
       additionalFeedback: additionalFeedback.trim() || undefined,
       submitted: true,
     };
-    
+
     onFeedbackChange?.(newFeedback);
     await onFeedbackSubmit?.(newFeedback);
-    
+
     setIsSubmitting(false);
     setShowReasonDialog(false);
     setSelectedReason("");
