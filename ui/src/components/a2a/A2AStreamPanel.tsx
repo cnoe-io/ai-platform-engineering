@@ -282,7 +282,10 @@ export function A2AStreamPanel() {
                                 </div>
                               )}
 
-                              <details className="cursor-pointer group/details">
+                              <details 
+                                className="cursor-pointer group/details"
+                                onClick={(e) => e.stopPropagation()}
+                              >
                                 <summary className="text-muted-foreground hover:text-foreground flex items-center gap-1">
                                   <ChevronDown className="h-3 w-3 group-open/details:rotate-180 transition-transform" />
                                   Raw JSON
