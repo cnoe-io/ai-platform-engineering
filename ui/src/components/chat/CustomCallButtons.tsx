@@ -3,37 +3,21 @@
 import React from "react";
 import { motion } from "framer-motion";
 import { cn } from "@/lib/utils";
-import {
-  GitBranch,
-  Cloud,
-  AlertTriangle,
-  Github,
-  FileText,
-  Search,
-  Database,
-  Server,
-  Settings,
-  Terminal,
-  Rocket,
-} from "lucide-react";
+import { AGENT_LOGOS, AgentLogoConfig } from "@/components/shared/AgentLogos";
 
 export interface CustomCall {
   id: string;
   label: string;
   prompt: string;
-  icon?: string;
-  color?: string;
   suggestions?: string[];
 }
 
-// Default agent configurations
+// Default agent configurations using AGENT_LOGOS
 export const DEFAULT_AGENTS: CustomCall[] = [
   {
     id: "argocd",
     label: "ArgoCD",
     prompt: "@argocd",
-    icon: "rocket",
-    color: "from-orange-500 to-red-500",
     suggestions: [
       "List all ArgoCD applications",
       "Show sync status for all apps",
@@ -44,8 +28,6 @@ export const DEFAULT_AGENTS: CustomCall[] = [
     id: "aws",
     label: "AWS",
     prompt: "@aws",
-    icon: "cloud",
-    color: "from-amber-500 to-orange-500",
     suggestions: [
       "List EC2 instances",
       "Show S3 buckets",
@@ -56,8 +38,6 @@ export const DEFAULT_AGENTS: CustomCall[] = [
     id: "github",
     label: "GitHub",
     prompt: "@github",
-    icon: "github",
-    color: "from-gray-600 to-gray-800",
     suggestions: [
       "List open PRs",
       "Show recent commits",
@@ -68,8 +48,6 @@ export const DEFAULT_AGENTS: CustomCall[] = [
     id: "jira",
     label: "Jira",
     prompt: "@jira",
-    icon: "file-text",
-    color: "from-blue-500 to-indigo-500",
     suggestions: [
       "Show my open tickets",
       "Find high-priority issues",
@@ -80,8 +58,6 @@ export const DEFAULT_AGENTS: CustomCall[] = [
     id: "splunk",
     label: "Splunk",
     prompt: "@splunk",
-    icon: "search",
-    color: "from-green-500 to-emerald-500",
     suggestions: [
       "Search for errors",
       "Show recent alerts",
@@ -92,8 +68,6 @@ export const DEFAULT_AGENTS: CustomCall[] = [
     id: "pagerduty",
     label: "PagerDuty",
     prompt: "@pagerduty",
-    icon: "alert-triangle",
-    color: "from-red-500 to-rose-500",
     suggestions: [
       "Show active incidents",
       "List on-call schedule",
@@ -101,21 +75,6 @@ export const DEFAULT_AGENTS: CustomCall[] = [
     ],
   },
 ];
-
-// Icon mapping
-const iconMap: Record<string, React.ComponentType<{ className?: string }>> = {
-  rocket: Rocket,
-  cloud: Cloud,
-  github: Github,
-  "file-text": FileText,
-  search: Search,
-  "alert-triangle": AlertTriangle,
-  "git-branch": GitBranch,
-  database: Database,
-  server: Server,
-  settings: Settings,
-  terminal: Terminal,
-};
 
 interface CustomCallButtonsProps {
   agents?: CustomCall[];
@@ -141,7 +100,7 @@ export function CustomCallButtons({
       {/* Agent Buttons */}
       <div className="flex flex-wrap gap-1.5">
         {agents.map((agent) => {
-          const Icon = iconMap[agent.icon || "rocket"] || Rocket;
+          const agentLogo = AGENT_LOGOS[agent.id];
           const isSelected = selectedAgent === agent.id;
 
           return (
@@ -156,14 +115,20 @@ export function CustomCallButtons({
               disabled={disabled}
               className={cn(
                 "flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all",
-                "border border-transparent",
+                "border",
                 isSelected
-                  ? `bg-gradient-to-r ${agent.color} text-white shadow-lg`
-                  : "bg-muted/50 text-muted-foreground hover:bg-muted hover:text-foreground",
+                  ? "text-white shadow-lg border-transparent"
+                  : "bg-muted/50 text-muted-foreground hover:bg-muted hover:text-foreground border-transparent",
                 disabled && "opacity-50 cursor-not-allowed"
               )}
+              style={isSelected && agentLogo ? {
+                backgroundColor: agentLogo.color,
+              } : undefined}
             >
-              <Icon className="h-3.5 w-3.5" />
+              {/* Agent Icon from AGENT_LOGOS */}
+              <div className={cn("w-4 h-4", isSelected ? "text-white" : "")} style={!isSelected && agentLogo ? { color: agentLogo.color } : undefined}>
+                {agentLogo?.icon || <span className="text-xs">{agent.label.charAt(0)}</span>}
+              </div>
               {!compact && <span>{agent.label}</span>}
             </motion.button>
           );
@@ -224,7 +189,7 @@ export function InlineAgentSelector({
   return (
     <div className="flex items-center gap-1 px-1">
       {agents.slice(0, 4).map((agent) => {
-        const Icon = iconMap[agent.icon || "rocket"] || Rocket;
+        const agentLogo = AGENT_LOGOS[agent.id];
         const isSelected = value === agent.prompt;
 
         return (
@@ -235,11 +200,17 @@ export function InlineAgentSelector({
             className={cn(
               "p-1.5 rounded-md transition-all",
               isSelected
-                ? "bg-primary text-primary-foreground"
+                ? "text-white"
                 : "text-muted-foreground hover:text-foreground hover:bg-muted"
             )}
+            style={isSelected && agentLogo ? { backgroundColor: agentLogo.color } : undefined}
           >
-            <Icon className="h-3.5 w-3.5" />
+            <div 
+              className="w-4 h-4"
+              style={!isSelected && agentLogo ? { color: agentLogo.color } : undefined}
+            >
+              {agentLogo?.icon || <span className="text-xs font-bold">{agent.label.charAt(0)}</span>}
+            </div>
           </button>
         );
       })}

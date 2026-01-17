@@ -44,7 +44,7 @@ export function Tooltip({
   const [uncontrolledOpen, setUncontrolledOpen] = React.useState(defaultOpen);
   const isControlled = controlledOpen !== undefined;
   const open = isControlled ? controlledOpen : uncontrolledOpen;
-  
+
   const setOpen = React.useCallback((value: boolean) => {
     if (!isControlled) {
       setUncontrolledOpen(value);
