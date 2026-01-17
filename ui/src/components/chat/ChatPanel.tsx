@@ -94,28 +94,31 @@ export function ChatPanel({ endpoint }: ChatPanelProps) {
         addEventToMessage(convId!, assistantMsgId, event);
 
         // Handle streaming content from A2A artifacts
+        // Use the A2A 'append' flag to determine behavior
         if (event.type === "artifact" && event.displayContent) {
           const newContent = event.displayContent;
           const artifactName = event.artifact?.name || "";
           
-          // Check if this is a complete/final result that should replace all content
-          // A2A uses append=false or specific artifact names to indicate replacement
+          // Skip tool notifications - they're handled separately in UI
+          if (artifactName === "tool_notification_start" || artifactName === "tool_notification_end") {
+            // Tool notifications don't go into message content
+            return;
+          }
+          
+          // Use A2A append flag: 
+          // - shouldAppend=false (append=false in A2A): REPLACE/start new
+          // - shouldAppend=true (append=true in A2A): APPEND to existing
+          // - Complete/final results: REPLACE
           const isCompleteResult = artifactName === "complete_result" || 
                                    artifactName === "final_result" ||
                                    event.isLastChunk;
           
-          if (isCompleteResult) {
-            // Complete result - replace message content entirely
+          if (!event.shouldAppend || isCompleteResult) {
+            // Replace message content (start new or complete result)
             updateMessage(convId!, assistantMsgId, { content: newContent });
           } else {
-            // Streaming/partial result - append if not duplicate
-            const currentConv = useChatStore.getState().conversations.find(c => c.id === convId);
-            const currentMsg = currentConv?.messages.find(m => m.id === assistantMsgId);
-            const currentContent = currentMsg?.content || "";
-            
-            if (!currentContent.includes(newContent)) {
-              appendToMessage(convId!, assistantMsgId, newContent);
-            }
+            // Append to existing content
+            appendToMessage(convId!, assistantMsgId, newContent);
           }
         }
 
