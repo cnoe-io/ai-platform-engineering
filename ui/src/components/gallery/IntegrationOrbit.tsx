@@ -296,27 +296,36 @@ export function IntegrationOrbit() {
         </motion.div>
       </div>
 
-      {/* Floating particles */}
-      {[...Array(8)].map((_, i) => (
-        <motion.div
-          key={i}
-          className="absolute w-1 h-1 rounded-full bg-primary/50"
-          style={{
-            left: `${20 + Math.random() * 60}%`,
-            top: `${20 + Math.random() * 60}%`,
-          }}
-          animate={{
-            y: [0, -20, 0],
-            opacity: [0.3, 0.8, 0.3],
-            scale: [1, 1.5, 1],
-          }}
-          transition={{
-            duration: 2 + Math.random() * 2,
-            repeat: Infinity,
-            delay: Math.random() * 2,
-          }}
-        />
-      ))}
+      {/* Floating particles - using deterministic positions based on index to avoid hydration mismatch */}
+      {[...Array(8)].map((_, i) => {
+        // Deterministic pseudo-random values based on index
+        const seed = (i * 17 + 7) % 100;
+        const left = 20 + (seed * 0.6);
+        const top = 20 + (((i * 31 + 13) % 100) * 0.6);
+        const duration = 2 + (i % 3);
+        const delay = (i * 0.25);
+        
+        return (
+          <motion.div
+            key={i}
+            className="absolute w-1 h-1 rounded-full bg-primary/50"
+            style={{
+              left: `${left}%`,
+              top: `${top}%`,
+            }}
+            animate={{
+              y: [0, -20, 0],
+              opacity: [0.3, 0.8, 0.3],
+              scale: [1, 1.5, 1],
+            }}
+            transition={{
+              duration,
+              repeat: Infinity,
+              delay,
+            }}
+          />
+        );
+      })}
     </div>
   );
 }
