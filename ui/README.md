@@ -13,7 +13,7 @@ A modern React-based UI for visualizing A2A (Agent-to-Agent) protocol messages w
 - **A2A Spec Conformant**: Full support for A2A protocol events (task, artifact-update, status-update)
 - **A2UI Widget Support**: Declarative UI components (buttons, forms, cards, lists, tables, etc.)
 - **Real-time Streaming**: Live visualization of SSE events with filters and inspection
-- **[FINAL ANSWER] Detection**: Automatically extracts and displays final answers
+- **Real-time Streaming**: Displays all streamed content as it arrives
 
 ## Quick Start
 

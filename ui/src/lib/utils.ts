@@ -53,17 +53,3 @@ export function parseSSELine(line: string): { event?: string; data?: string } | 
 
   return null;
 }
-
-export function extractFinalAnswer(text: string): { hasFinalAnswer: boolean; content: string } {
-  const marker = "[FINAL ANSWER]";
-  const index = text.indexOf(marker);
-
-  if (index === -1) {
-    return { hasFinalAnswer: false, content: text };
-  }
-
-  return {
-    hasFinalAnswer: true,
-    content: text.substring(index + marker.length).trim(),
-  };
-}
