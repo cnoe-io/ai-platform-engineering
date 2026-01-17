@@ -219,12 +219,15 @@ export const useChatStore = create<ChatState>()(
       deleteConversation: (id) => {
         set((state) => {
           const newConversations = state.conversations.filter((c) => c.id !== id);
+          const wasActiveConversation = state.activeConversationId === id;
+          
           return {
             conversations: newConversations,
-            activeConversationId:
-              state.activeConversationId === id
-                ? newConversations[0]?.id || null
-                : state.activeConversationId,
+            activeConversationId: wasActiveConversation
+              ? newConversations[0]?.id || null
+              : state.activeConversationId,
+            // Clear A2A events when deleting the active conversation
+            a2aEvents: wasActiveConversation ? [] : state.a2aEvents,
           };
         });
       },
