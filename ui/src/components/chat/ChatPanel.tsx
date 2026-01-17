@@ -93,11 +93,22 @@ export function ChatPanel({ endpoint }: ChatPanelProps) {
         addA2AEvent(event);
         addEventToMessage(convId!, assistantMsgId, event);
 
-        // Handle streaming content from A2A artifacts
         const newContent = event.displayContent;
+        const artifactName = event.artifact?.name || "";
 
+        // Debug: Log all events with content
+        if (newContent) {
+          console.log(`[A2A] Event: type=${event.type}, artifact=${artifactName}, content=${newContent.length} chars, lastChunk=${event.isLastChunk}, isFinal=${event.isFinal}`);
+        }
+
+        // Skip events without content
         if (!newContent) {
-          return; // No content to process
+          // Still check for final status
+          if (event.isFinal) {
+            console.log(`[A2A] Final status received - marking message complete`);
+            updateMessage(convId!, assistantMsgId, { isFinal: true });
+          }
+          return;
         }
 
         // Skip tool notifications - they're handled separately in UI
@@ -105,10 +116,8 @@ export function ChatPanel({ endpoint }: ChatPanelProps) {
           return;
         }
 
-        const artifactName = event.artifact?.name || "";
-        
         // Skip tool notification artifacts and execution plans (shown in Tasks panel)
-        if (artifactName === "tool_notification_start" || 
+        if (artifactName === "tool_notification_start" ||
             artifactName === "tool_notification_end" ||
             artifactName === "execution_plan_update" ||
             artifactName === "execution_plan_status_update") {
@@ -116,29 +125,30 @@ export function ChatPanel({ endpoint }: ChatPanelProps) {
         }
 
         // Determine if this is a complete/final result that should REPLACE content
+        // complete_result and partial_result contain the FULL accumulated text
         const isCompleteResult = artifactName === "partial_result" ||
                                  artifactName === "complete_result" ||
-                                 artifactName === "final_result" ||
-                                 event.isLastChunk;
+                                 artifactName === "final_result";
 
         // Handle content based on event type
         if (event.type === "artifact" || event.type === "message") {
           if (isCompleteResult) {
             // Complete results always REPLACE (this is the final accumulated text)
-            console.log(`[A2A] REPLACE (final): ${artifactName} (${newContent.length} chars)`);
-            updateMessage(convId!, assistantMsgId, { content: newContent });
+            console.log(`[A2A] ✅ REPLACE with complete_result: ${newContent.length} chars`);
+            updateMessage(convId!, assistantMsgId, { content: newContent, isFinal: true });
+          } else if (artifactName === "streaming_result") {
+            // Append streaming chunks
+            appendToMessage(convId!, assistantMsgId, newContent);
           } else {
-            // ALWAYS APPEND streaming content - even if append=false
-            // Different artifacts (supervisor vs sub-agent) all contribute to the same message
-            // Only partial_result/complete_result should reset content
-            console.log(`[A2A] APPEND: ${artifactName} (${newContent.length} chars)`);
+            // For other artifacts, append by default
+            console.log(`[A2A] APPEND (other): ${artifactName} (${newContent.length} chars)`);
             appendToMessage(convId!, assistantMsgId, newContent);
           }
         }
 
-        // Mark message as final when stream ends
-        if (event.isLastChunk || event.isFinal) {
-          console.log(`[A2A] Marking message as FINAL`);
+        // Mark message as final when stream ends (backup check)
+        if (event.isLastChunk && !isCompleteResult) {
+          console.log(`[A2A] lastChunk received - marking message complete`);
           updateMessage(convId!, assistantMsgId, { isFinal: true });
         }
       },
