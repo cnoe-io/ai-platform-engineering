@@ -115,7 +115,8 @@ export function ChatPanel({ endpoint }: ChatPanelProps) {
         },
       });
 
-      const reader = await clientRef.current.sendMessage(message);
+      // Pass convId as contextId/threadId for multi-turn conversation
+      const reader = await clientRef.current.sendMessage(message, convId);
 
       // Consume the stream
       while (true) {
