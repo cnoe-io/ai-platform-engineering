@@ -69,9 +69,9 @@ export const useChatStore = create<ChatState>()(
         // Restore a2aEvents from the conversation being switched to
         const state = get();
         const targetConv = state.conversations.find((c) => c.id === id);
-        set({ 
-          activeConversationId: id, 
-          a2aEvents: targetConv?.a2aEvents || [] 
+        set({
+          activeConversationId: id,
+          a2aEvents: targetConv?.a2aEvents || []
         });
       },
 
@@ -202,7 +202,7 @@ export const useChatStore = create<ChatState>()(
       addA2AEvent: (event) => {
         const state = get();
         const activeId = state.activeConversationId;
-        
+
         set((prev) => ({
           // Update global events for current session display
           a2aEvents: [...prev.a2aEvents, event],
@@ -220,7 +220,7 @@ export const useChatStore = create<ChatState>()(
       clearA2AEvents: () => {
         const state = get();
         const activeId = state.activeConversationId;
-        
+
         set((prev) => ({
           a2aEvents: [],
           // Also clear from the active conversation
@@ -292,7 +292,7 @@ export const useChatStore = create<ChatState>()(
               timestamp: new Date(event.timestamp),
             })),
           }));
-          
+
           // Restore a2aEvents for the active conversation
           const activeConv = state.conversations.find(
             (c) => c.id === state.activeConversationId

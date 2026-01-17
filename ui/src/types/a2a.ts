@@ -21,8 +21,11 @@ export interface A2AParams {
     messageId: string;
     role: "user" | "assistant";
     parts: MessagePart[];
+    /** Context ID for conversation continuity - MUST be inside message per A2A spec */
+    contextId?: string;
   };
   taskId?: string;
+  /** @deprecated Use message.contextId instead for A2A conversation continuity */
   contextId?: string;
 }
 
