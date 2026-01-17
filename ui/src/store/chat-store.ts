@@ -17,6 +17,7 @@ interface ChatState {
   isStreaming: boolean;
   streamingConversations: Map<string, StreamingState>;
   a2aEvents: A2AEvent[];
+  pendingMessage: string | null; // Message to auto-submit when ChatPanel mounts
 
   // Actions
   createConversation: () => string;
@@ -35,6 +36,8 @@ interface ChatState {
   clearAllConversations: () => void;
   getActiveConversation: () => Conversation | undefined;
   updateMessageFeedback: (conversationId: string, messageId: string, feedback: MessageFeedback) => void;
+  setPendingMessage: (message: string | null) => void;
+  consumePendingMessage: () => string | null;
 }
 
 export const useChatStore = create<ChatState>()(
@@ -45,6 +48,7 @@ export const useChatStore = create<ChatState>()(
       isStreaming: false,
       streamingConversations: new Map<string, StreamingState>(),
       a2aEvents: [],
+      pendingMessage: null,
 
       createConversation: () => {
         const id = generateId();
@@ -275,6 +279,19 @@ export const useChatStore = create<ChatState>()(
               : conv
           ),
         }));
+      },
+
+      setPendingMessage: (message) => {
+        set({ pendingMessage: message });
+      },
+
+      consumePendingMessage: () => {
+        const state = get();
+        const message = state.pendingMessage;
+        if (message) {
+          set({ pendingMessage: null });
+        }
+        return message;
       },
     }),
     {

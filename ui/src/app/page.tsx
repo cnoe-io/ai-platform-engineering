@@ -35,7 +35,7 @@ function HomePage() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [contextPanelVisible, setContextPanelVisible] = useState(true);
   const [debugMode, setDebugMode] = useState(false);
-  const { createConversation, setActiveConversation, addMessage, isStreaming } = useChatStore();
+  const { createConversation, setActiveConversation, setPendingMessage, isStreaming } = useChatStore();
 
   // Use centralized configuration for CAIPE URL
   const caipeUrl = config.caipeUrl;
@@ -44,10 +44,11 @@ function HomePage() {
     (prompt: string) => {
       const convId = createConversation();
       setActiveConversation(convId);
-      addMessage(convId, { role: "user", content: prompt });
+      // Set pending message - ChatPanel will auto-submit it
+      setPendingMessage(prompt);
       setActiveTab("chat");
     },
-    [createConversation, setActiveConversation, addMessage]
+    [createConversation, setActiveConversation, setPendingMessage]
   );
 
   return (

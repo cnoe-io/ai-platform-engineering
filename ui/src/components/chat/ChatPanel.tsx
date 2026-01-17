@@ -44,6 +44,7 @@ export function ChatPanel({ endpoint }: ChatPanelProps) {
     isConversationStreaming,
     cancelConversationRequest,
     updateMessageFeedback,
+    consumePendingMessage,
   } = useChatStore();
 
   // Get access token from session (if SSO is enabled and user is authenticated)
@@ -68,17 +69,9 @@ export function ChatPanel({ endpoint }: ChatPanelProps) {
     setTimeout(() => setCopiedId(null), 2000);
   };
 
-  const handleSubmit = useCallback(async () => {
-    if (!input.trim() || isThisConversationStreaming) return;
-
-    // Prepend agent prompt if selected
-    const baseMessage = input.trim();
-    const message = selectedAgentPrompt
-      ? `${selectedAgentPrompt} ${baseMessage}`
-      : baseMessage;
-
-    setInput("");
-    setSelectedAgentPrompt(null); // Clear after sending
+  // Core submit function that accepts a message directly
+  const submitMessage = useCallback(async (messageToSend: string) => {
+    if (!messageToSend.trim() || isThisConversationStreaming) return;
 
     // Create conversation if needed
     let convId = activeConversationId;
@@ -87,7 +80,7 @@ export function ChatPanel({ endpoint }: ChatPanelProps) {
     }
 
     // Add user message
-    addMessage(convId, { role: "user", content: message });
+    addMessage(convId, { role: "user", content: messageToSend });
 
     // Add assistant message placeholder
     const assistantMsgId = addMessage(convId, { role: "assistant", content: "" });
@@ -139,7 +132,7 @@ export function ChatPanel({ endpoint }: ChatPanelProps) {
 
     try {
       // Pass convId as contextId/threadId for multi-turn conversation
-      const reader = await client.sendMessage(message, convId);
+      const reader = await client.sendMessage(messageToSend, convId);
 
       // Consume the stream
       while (true) {
@@ -151,7 +144,31 @@ export function ChatPanel({ endpoint }: ChatPanelProps) {
       appendToMessage(convId, assistantMsgId, `\n\n**Error:** Failed to connect to A2A endpoint`);
       setConversationStreaming(convId, null);
     }
-  }, [input, selectedAgentPrompt, isThisConversationStreaming, activeConversationId, endpoint, accessToken, createConversation, addMessage, appendToMessage, updateMessage, addEventToMessage, addA2AEvent, setConversationStreaming]);
+  }, [isThisConversationStreaming, activeConversationId, endpoint, accessToken, createConversation, addMessage, appendToMessage, updateMessage, addEventToMessage, addA2AEvent, setConversationStreaming]);
+
+  // Wrapper for form submission that uses input state
+  const handleSubmit = useCallback(async () => {
+    if (!input.trim()) return;
+
+    // Prepend agent prompt if selected
+    const baseMessage = input.trim();
+    const message = selectedAgentPrompt
+      ? `${selectedAgentPrompt} ${baseMessage}`
+      : baseMessage;
+
+    setInput("");
+    setSelectedAgentPrompt(null); // Clear after sending
+
+    await submitMessage(message);
+  }, [input, selectedAgentPrompt, submitMessage]);
+
+  // Auto-submit pending message from use case selection
+  useEffect(() => {
+    const pendingMessage = consumePendingMessage();
+    if (pendingMessage) {
+      submitMessage(pendingMessage);
+    }
+  }, [activeConversationId, consumePendingMessage, submitMessage]);
 
   const handleStop = () => {
     if (activeConversationId) {
