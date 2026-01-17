@@ -2,17 +2,18 @@
 
 import React, { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { ThumbsUp, ThumbsDown, X, Send, Loader2 } from "lucide-react";
+import { ThumbsUp, ThumbsDown, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
-export type FeedbackType = "positive" | "negative" | null;
+export type FeedbackType = "like" | "dislike" | null;
 
 export interface Feedback {
   type: FeedbackType;
   reason?: string;
   additionalFeedback?: string;
   submitted?: boolean;
+  showFeedbackOptions?: boolean;
 }
 
 interface FeedbackButtonProps {
@@ -23,14 +24,9 @@ interface FeedbackButtonProps {
   disabled?: boolean;
 }
 
-const NEGATIVE_REASONS = [
-  "Incorrect information",
-  "Not helpful",
-  "Too verbose",
-  "Missing details",
-  "Confusing response",
-  "Other",
-];
+// Feedback reasons matching agent-forge
+const LIKE_REASONS = ["Very Helpful", "Accurate", "Simplified My Task", "Other"];
+const DISLIKE_REASONS = ["Inaccurate", "Poorly Formatted", "Incomplete", "Off-topic", "Other"];
 
 export function FeedbackButton({
   messageId,
@@ -39,187 +35,180 @@ export function FeedbackButton({
   onFeedbackSubmit,
   disabled = false,
 }: FeedbackButtonProps) {
-  const [showReasonDialog, setShowReasonDialog] = useState(false);
-  const [selectedReason, setSelectedReason] = useState<string>("");
   const [additionalFeedback, setAdditionalFeedback] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const handleThumbsUp = () => {
-    if (disabled) return;
-    const newFeedback: Feedback = { type: "positive", submitted: true };
-    onFeedbackChange?.(newFeedback);
-    onFeedbackSubmit?.(newFeedback);
-  };
+  const handleThumbClick = (type: FeedbackType) => {
+    if (disabled || feedback?.submitted) return;
 
-  const handleThumbsDown = () => {
-    if (disabled) return;
-    onFeedbackChange?.({ type: "negative" });
-    setShowReasonDialog(true);
-  };
-
-  const handleSubmitNegative = async () => {
-    setIsSubmitting(true);
-    const newFeedback: Feedback = {
-      type: "negative",
-      reason: selectedReason,
-      additionalFeedback: additionalFeedback.trim() || undefined,
-      submitted: true,
-    };
-
-    onFeedbackChange?.(newFeedback);
-    await onFeedbackSubmit?.(newFeedback);
-
-    setIsSubmitting(false);
-    setShowReasonDialog(false);
-    setSelectedReason("");
-    setAdditionalFeedback("");
-  };
-
-  const handleClose = () => {
-    setShowReasonDialog(false);
-    setSelectedReason("");
-    setAdditionalFeedback("");
-    // Reset feedback if dialog is closed without submitting
-    if (feedback?.type === "negative" && !feedback.submitted) {
-      onFeedbackChange?.({ type: null });
+    // Toggle feedback - if same type clicked, deselect
+    if (feedback?.type === type) {
+      onFeedbackChange?.({ 
+        type: null, 
+        showFeedbackOptions: false 
+      });
+    } else {
+      onFeedbackChange?.({ 
+        type, 
+        showFeedbackOptions: true,
+        reason: undefined,
+        additionalFeedback: undefined,
+      });
     }
   };
 
-  const isPositive = feedback?.type === "positive";
-  const isNegative = feedback?.type === "negative";
-  const isSubmitted = feedback?.submitted;
+  const handleReasonClick = (reason: string) => {
+    onFeedbackChange?.({
+      ...feedback,
+      type: feedback?.type || null,
+      reason,
+      showFeedbackOptions: true,
+    });
+    
+    // Clear additional feedback if not "Other"
+    if (reason !== "Other") {
+      setAdditionalFeedback("");
+    }
+  };
+
+  const handleSubmitFeedback = async () => {
+    if (!feedback?.reason) return;
+
+    setIsSubmitting(true);
+    
+    const finalFeedback: Feedback = {
+      ...feedback,
+      additionalFeedback: feedback.reason === "Other" ? additionalFeedback : undefined,
+      submitted: true,
+      showFeedbackOptions: false,
+    };
+    
+    onFeedbackChange?.(finalFeedback);
+    await onFeedbackSubmit?.(finalFeedback);
+    
+    setIsSubmitting(false);
+    setAdditionalFeedback("");
+  };
+
+  const isLiked = feedback?.type === "like";
+  const isDisliked = feedback?.type === "dislike";
+  const showFeedbackOptions = feedback?.showFeedbackOptions && !feedback?.submitted;
+  const reasons = isLiked ? LIKE_REASONS : DISLIKE_REASONS;
+  const showOtherInput = feedback?.reason === "Other";
 
   return (
-    <>
-      <div className="flex items-center gap-0.5">
+    <div className="space-y-2">
+      {/* Thumbs Up/Down Buttons - Inline style matching agent-forge */}
+      <div className="flex items-center gap-1">
         {/* Thumbs Up */}
-        <Button
-          variant="ghost"
-          size="icon"
+        <button
+          onClick={() => handleThumbClick("like")}
+          disabled={disabled || feedback?.submitted}
           className={cn(
-            "h-7 w-7 rounded-lg transition-all",
-            isPositive
-              ? "text-green-500 bg-green-500/10 hover:bg-green-500/20"
-              : "text-muted-foreground hover:text-foreground hover:bg-muted"
+            "p-1 rounded transition-all",
+            isLiked
+              ? "opacity-100"
+              : "opacity-60 hover:opacity-100",
+            (disabled || feedback?.submitted) && "cursor-not-allowed opacity-50"
           )}
-          onClick={handleThumbsUp}
-          disabled={disabled || isSubmitted}
-          title="Helpful"
+          title="Thumb up"
         >
-          <ThumbsUp className={cn("h-3.5 w-3.5", isPositive && "fill-current")} />
-        </Button>
+          <ThumbsUp 
+            className={cn(
+              "h-[18px] w-[18px]",
+              isLiked ? "fill-current text-green-500" : "text-muted-foreground"
+            )} 
+          />
+        </button>
 
         {/* Thumbs Down */}
-        <Button
-          variant="ghost"
-          size="icon"
+        <button
+          onClick={() => handleThumbClick("dislike")}
+          disabled={disabled || feedback?.submitted}
           className={cn(
-            "h-7 w-7 rounded-lg transition-all",
-            isNegative
-              ? "text-red-500 bg-red-500/10 hover:bg-red-500/20"
-              : "text-muted-foreground hover:text-foreground hover:bg-muted"
+            "p-1 rounded transition-all",
+            isDisliked
+              ? "opacity-100"
+              : "opacity-60 hover:opacity-100",
+            (disabled || feedback?.submitted) && "cursor-not-allowed opacity-50"
           )}
-          onClick={handleThumbsDown}
-          disabled={disabled || isSubmitted}
-          title="Not helpful"
+          title="Thumb down"
         >
-          <ThumbsDown className={cn("h-3.5 w-3.5", isNegative && "fill-current")} />
-        </Button>
+          <ThumbsDown 
+            className={cn(
+              "h-[18px] w-[18px]",
+              isDisliked ? "fill-current text-red-500" : "text-muted-foreground"
+            )} 
+          />
+        </button>
 
         {/* Submitted indicator */}
-        {isSubmitted && (
-          <span className="text-xs text-muted-foreground ml-1">
-            Thanks!
+        {feedback?.submitted && (
+          <span className="text-xs text-muted-foreground ml-2">
+            Thank you for your feedback!
           </span>
         )}
       </div>
 
-      {/* Negative Feedback Dialog */}
+      {/* Feedback Options Panel - Inline below message, matching agent-forge */}
       <AnimatePresence>
-        {showReasonDialog && (
+        {showFeedbackOptions && (
           <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm"
-            onClick={handleClose}
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: "auto" }}
+            exit={{ opacity: 0, height: 0 }}
+            className="p-3 bg-card rounded-lg border border-border"
           >
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95, y: 10 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: 10 }}
-              className="bg-card border border-border rounded-xl shadow-2xl w-full max-w-md mx-4 overflow-hidden"
-              onClick={(e) => e.stopPropagation()}
-            >
-              {/* Header */}
-              <div className="flex items-center justify-between px-4 py-3 border-b border-border">
-                <h3 className="font-semibold text-foreground">What went wrong?</h3>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-8 w-8"
-                  onClick={handleClose}
+            {/* Reason Chips */}
+            <div className="flex flex-wrap gap-1.5 mb-3">
+              {reasons.map((reason) => (
+                <button
+                  key={reason}
+                  onClick={() => handleReasonClick(reason)}
+                  className={cn(
+                    "px-3 py-1 rounded-full text-xs font-medium transition-all",
+                    feedback?.reason === reason
+                      ? "bg-primary text-primary-foreground"
+                      : "bg-muted text-muted-foreground hover:bg-muted/80"
+                  )}
                 >
-                  <X className="h-4 w-4" />
-                </Button>
-              </div>
+                  {reason}
+                </button>
+              ))}
+            </div>
 
-              {/* Content */}
-              <div className="p-4 space-y-4">
-                {/* Reason buttons */}
-                <div className="flex flex-wrap gap-2">
-                  {NEGATIVE_REASONS.map((reason) => (
-                    <button
-                      key={reason}
-                      onClick={() => setSelectedReason(reason)}
-                      className={cn(
-                        "px-3 py-1.5 rounded-lg text-sm font-medium transition-all",
-                        selectedReason === reason
-                          ? "bg-primary text-primary-foreground"
-                          : "bg-muted hover:bg-muted/80 text-foreground"
-                      )}
-                    >
-                      {reason}
-                    </button>
-                  ))}
-                </div>
-
-                {/* Additional feedback */}
-                <div>
-                  <label className="text-sm text-muted-foreground mb-1.5 block">
-                    Additional feedback (optional)
-                  </label>
+            {/* Additional Feedback Text Area (for "Other") */}
+            <AnimatePresence>
+              {showOtherInput && (
+                <motion.div
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: "auto" }}
+                  exit={{ opacity: 0, height: 0 }}
+                  className="mb-3"
+                >
                   <textarea
                     value={additionalFeedback}
                     onChange={(e) => setAdditionalFeedback(e.target.value)}
-                    placeholder="Tell us more about what went wrong..."
-                    className="w-full h-24 px-3 py-2 bg-muted/50 border border-border rounded-lg text-sm resize-none focus:outline-none focus:ring-2 focus:ring-primary/50"
+                    placeholder="Provide additional feedback"
+                    className="w-full h-20 px-3 py-2 text-sm bg-muted/50 border border-border rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-primary/50"
                   />
-                </div>
-              </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
 
-              {/* Footer */}
-              <div className="flex items-center justify-end gap-2 px-4 py-3 border-t border-border bg-muted/30">
-                <Button variant="ghost" onClick={handleClose}>
-                  Cancel
-                </Button>
-                <Button
-                  onClick={handleSubmitNegative}
-                  disabled={!selectedReason || isSubmitting}
-                  className="gap-2"
-                >
-                  {isSubmitting ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <Send className="h-4 w-4" />
-                  )}
-                  Submit Feedback
-                </Button>
-              </div>
-            </motion.div>
+            {/* Submit Button */}
+            <Button
+              size="sm"
+              onClick={handleSubmitFeedback}
+              disabled={!feedback?.reason || isSubmitting}
+              className="gap-2"
+            >
+              {isSubmitting && <Loader2 className="h-3 w-3 animate-spin" />}
+              Submit Feedback
+            </Button>
           </motion.div>
         )}
       </AnimatePresence>
-    </>
+    </div>
   );
 }
