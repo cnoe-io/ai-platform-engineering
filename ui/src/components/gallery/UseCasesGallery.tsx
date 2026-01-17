@@ -199,7 +199,7 @@ export function UseCasesGallery({ onSelectUseCase }: UseCasesGalleryProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategory, setSelectedCategory] = useState("All");
   const [hoveredId, setHoveredId] = useState<string | null>(null);
-  
+
   // Input form state
   const [activeFormUseCase, setActiveFormUseCase] = useState<UseCase | null>(null);
   const [formValues, setFormValues] = useState<Record<string, string>>({});
@@ -533,7 +533,7 @@ export function UseCasesGallery({ onSelectUseCase }: UseCasesGalleryProps) {
             >
               {/* Header gradient */}
               <div className="h-1.5 w-full bg-gradient-to-r from-[hsl(173,80%,40%)] via-[hsl(270,75%,60%)] to-[hsl(330,80%,55%)]" />
-              
+
               <div className="p-6">
                 {/* Header */}
                 <div className="flex items-start justify-between mb-6">
