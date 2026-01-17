@@ -37,9 +37,18 @@ export function ContextPanel({ debugMode, onDebugModeChange }: ContextPanelProps
   const [activeTab, setActiveTab] = useState<"tasks" | "debug">(debugMode ? "debug" : "tasks");
 
   // Parse execution plan tasks from A2A events
+  // When streaming ends, mark all tasks as completed
   const executionTasks = useMemo(() => {
-    return parseExecutionTasks(a2aEvents);
-  }, [a2aEvents]);
+    const tasks = parseExecutionTasks(a2aEvents);
+    // If streaming has ended and we have tasks, mark remaining as completed
+    if (!isStreaming && tasks.length > 0) {
+      return tasks.map(task => ({
+        ...task,
+        status: task.status === "failed" ? "failed" : "completed" as const,
+      }));
+    }
+    return tasks;
+  }, [a2aEvents, isStreaming]);
 
   // Sync tab with debug mode
   useEffect(() => {
