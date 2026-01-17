@@ -151,6 +151,14 @@ export interface Conversation {
   a2aEvents: A2AEvent[];
 }
 
+// Feedback types
+export interface MessageFeedback {
+  type: "positive" | "negative" | null;
+  reason?: string;
+  additionalFeedback?: string;
+  submitted?: boolean;
+}
+
 export interface ChatMessage {
   id: string;
   role: "user" | "assistant";
@@ -159,6 +167,7 @@ export interface ChatMessage {
   events: A2AEvent[];
   widgets?: Widget[];
   isFinal?: boolean;
+  feedback?: MessageFeedback;
 }
 
 // Use case types for gallery

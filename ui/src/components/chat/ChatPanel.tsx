@@ -10,11 +10,14 @@ import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useChatStore } from "@/store/chat-store";
 import { A2AClient } from "@/lib/a2a-client";
 import { cn, extractFinalAnswer } from "@/lib/utils";
 import { ChatMessage as ChatMessageType } from "@/types/a2a";
 import { config } from "@/lib/config";
+import { FeedbackButton, Feedback } from "./FeedbackButton";
+import { InlineAgentSelector, DEFAULT_AGENTS, CustomCall } from "./CustomCallButtons";
 
 interface ChatPanelProps {
   endpoint: string;
@@ -24,6 +27,7 @@ export function ChatPanel({ endpoint }: ChatPanelProps) {
   const { data: session } = useSession();
   const [input, setInput] = useState("");
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [selectedAgentPrompt, setSelectedAgentPrompt] = useState<string | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -39,6 +43,7 @@ export function ChatPanel({ endpoint }: ChatPanelProps) {
     setConversationStreaming,
     isConversationStreaming,
     cancelConversationRequest,
+    updateMessageFeedback,
   } = useChatStore();
 
   // Get access token from session (if SSO is enabled and user is authenticated)
@@ -66,8 +71,14 @@ export function ChatPanel({ endpoint }: ChatPanelProps) {
   const handleSubmit = useCallback(async () => {
     if (!input.trim() || isThisConversationStreaming) return;
 
-    const message = input.trim();
+    // Prepend agent prompt if selected
+    const baseMessage = input.trim();
+    const message = selectedAgentPrompt 
+      ? `${selectedAgentPrompt} ${baseMessage}` 
+      : baseMessage;
+    
     setInput("");
+    setSelectedAgentPrompt(null); // Clear after sending
 
     // Create conversation if needed
     let convId = activeConversationId;
@@ -140,7 +151,7 @@ export function ChatPanel({ endpoint }: ChatPanelProps) {
       appendToMessage(convId, assistantMsgId, `\n\n**Error:** Failed to connect to A2A endpoint`);
       setConversationStreaming(convId, null);
     }
-  }, [input, isThisConversationStreaming, activeConversationId, endpoint, accessToken, createConversation, addMessage, appendToMessage, updateMessage, addEventToMessage, addA2AEvent, setConversationStreaming]);
+  }, [input, selectedAgentPrompt, isThisConversationStreaming, activeConversationId, endpoint, accessToken, createConversation, addMessage, appendToMessage, updateMessage, addEventToMessage, addA2AEvent, setConversationStreaming]);
 
   const handleStop = () => {
     if (activeConversationId) {
@@ -184,6 +195,17 @@ export function ChatPanel({ endpoint }: ChatPanelProps) {
                   onCopy={handleCopy}
                   isCopied={copiedId === msg.id}
                   isStreaming={isAssistantStreaming}
+                  feedback={msg.feedback}
+                  onFeedbackChange={(feedback) => {
+                    if (activeConversationId) {
+                      updateMessageFeedback(activeConversationId, msg.id, feedback);
+                    }
+                  }}
+                  onFeedbackSubmit={async (feedback) => {
+                    // TODO: Send feedback to backend
+                    console.log("Feedback submitted:", { messageId: msg.id, feedback });
+                    // Future: Send to /api/feedback endpoint
+                  }}
                 />
               );
             })}
@@ -193,14 +215,25 @@ export function ChatPanel({ endpoint }: ChatPanelProps) {
 
       {/* Input Area */}
       <div className="border-t border-border p-4">
-        <div className="max-w-4xl mx-auto">
+        <div className="max-w-4xl mx-auto space-y-2">
           <div className="relative flex items-end gap-2 bg-card rounded-xl border border-border p-2">
+            {/* Agent Selector */}
+            <div className="border-r border-border pr-1">
+              <InlineAgentSelector
+                value={selectedAgentPrompt}
+                onChange={setSelectedAgentPrompt}
+              />
+            </div>
+            
             <textarea
               ref={inputRef}
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="Ask CAIPE anything..."
+              placeholder={selectedAgentPrompt 
+                ? `Ask ${DEFAULT_AGENTS.find(a => a.prompt === selectedAgentPrompt)?.label || 'agent'}...`
+                : "Ask CAIPE anything..."
+              }
               className="flex-1 bg-transparent resize-none outline-none min-h-[44px] max-h-[200px] px-3 py-2 text-sm"
               rows={1}
               disabled={isThisConversationStreaming}
@@ -225,7 +258,24 @@ export function ChatPanel({ endpoint }: ChatPanelProps) {
               </Button>
             )}
           </div>
-          <p className="text-xs text-muted-foreground text-center mt-2">
+          
+          {/* Selected agent indicator */}
+          {selectedAgentPrompt && (
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <span>Targeting:</span>
+              <span className="px-2 py-0.5 rounded-md bg-primary/10 text-primary font-medium">
+                {DEFAULT_AGENTS.find(a => a.prompt === selectedAgentPrompt)?.label || selectedAgentPrompt}
+              </span>
+              <button 
+                onClick={() => setSelectedAgentPrompt(null)}
+                className="text-muted-foreground hover:text-foreground"
+              >
+                ×
+              </button>
+            </div>
+          )}
+          
+          <p className="text-xs text-muted-foreground text-center">
             CAIPE can make mistakes. Verify important information.
           </p>
         </div>
@@ -239,12 +289,25 @@ interface ChatMessageProps {
   onCopy: (content: string, id: string) => void;
   isCopied: boolean;
   isStreaming?: boolean;
+  // Feedback props
+  feedback?: Feedback;
+  onFeedbackChange?: (feedback: Feedback) => void;
+  onFeedbackSubmit?: (feedback: Feedback) => void;
 }
 
-function ChatMessage({ message, onCopy, isCopied, isStreaming = false }: ChatMessageProps) {
+function ChatMessage({ 
+  message, 
+  onCopy, 
+  isCopied, 
+  isStreaming = false,
+  feedback,
+  onFeedbackChange,
+  onFeedbackSubmit,
+}: ChatMessageProps) {
   const isUser = message.role === "user";
   // Show raw stream expanded by default during streaming, hide after final output
   const [showRawStream, setShowRawStream] = useState(true);
+  const [isHovered, setIsHovered] = useState(false);
 
   // Extract final answer if present, otherwise use content
   const { hasFinalAnswer, content: finalContent } = extractFinalAnswer(message.content);
@@ -292,9 +355,11 @@ function ChatMessage({ message, onCopy, isCopied, isStreaming = false }: ChatMes
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0 }}
       className={cn(
-        "flex gap-4",
+        "flex gap-4 group",
         isUser ? "flex-row-reverse" : "flex-row"
       )}
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
     >
       {/* Avatar */}
       <div
@@ -420,14 +485,51 @@ function ChatMessage({ message, onCopy, isCopied, isStreaming = false }: ChatMes
           <>
             <div
               className={cn(
-                "rounded-xl",
+                "rounded-xl relative",
                 isUser
                   ? "inline-block bg-primary text-primary-foreground px-4 py-3 rounded-tr-sm"
-                  : "bg-card/50 border border-border/50 px-5 py-4"
+                  : "bg-card/50 border border-border/50 px-5 py-4",
+                // Improved text selection styles
+                "selection:bg-primary/30 selection:text-foreground"
               )}
             >
               {isUser ? (
-                <p className="whitespace-pre-wrap text-sm">{message.content}</p>
+                <div className="relative">
+                  <p className="whitespace-pre-wrap text-sm selection:bg-white/30 selection:text-white">{message.content}</p>
+                  {/* Copy button for user messages - shows on hover */}
+                  <AnimatePresence>
+                    {isHovered && (
+                      <motion.div
+                        initial={{ opacity: 0, scale: 0.9 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        exit={{ opacity: 0, scale: 0.9 }}
+                        className="absolute -left-2 top-1/2 -translate-y-1/2 -translate-x-full"
+                      >
+                        <TooltipProvider>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-7 w-7 bg-card/80 border border-border/50 shadow-sm hover:bg-card"
+                                onClick={() => onCopy(message.content, message.id)}
+                              >
+                                {isCopied ? (
+                                  <Check className="h-3 w-3 text-green-500" />
+                                ) : (
+                                  <Copy className="h-3 w-3 text-muted-foreground" />
+                                )}
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent side="left">
+                              {isCopied ? "Copied!" : "Copy message"}
+                            </TooltipContent>
+                          </Tooltip>
+                        </TooltipProvider>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </div>
               ) : (
                 <div className="prose-container">
                   <ReactMarkdown
@@ -573,26 +675,45 @@ function ChatMessage({ message, onCopy, isCopied, isStreaming = false }: ChatMes
 
             {/* Actions */}
             {!isUser && displayContent && !isStreaming && (
-              <div className="flex items-center gap-1 mt-2">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-7 text-xs text-muted-foreground hover:text-foreground"
-                  onClick={() => onCopy(displayContent, message.id)}
-                >
-                  {isCopied ? (
-                    <>
-                      <Check className="h-3 w-3 mr-1 text-green-500" />
-                      Copied
-                    </>
-                  ) : (
-                    <>
-                      <Copy className="h-3 w-3 mr-1" />
-                      Copy
-                    </>
-                  )}
-                </Button>
-              </div>
+              <motion.div 
+                initial={{ opacity: 0 }}
+                animate={{ opacity: isHovered ? 1 : 0.6 }}
+                className="flex items-center gap-2 mt-2"
+              >
+                {/* Copy button */}
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7 text-muted-foreground hover:text-foreground hover:bg-muted"
+                        onClick={() => onCopy(displayContent, message.id)}
+                      >
+                        {isCopied ? (
+                          <Check className="h-3.5 w-3.5 text-green-500" />
+                        ) : (
+                          <Copy className="h-3.5 w-3.5" />
+                        )}
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      {isCopied ? "Copied!" : "Copy response"}
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+
+                {/* Divider */}
+                <div className="h-4 w-px bg-border/50" />
+
+                {/* Feedback buttons */}
+                <FeedbackButton
+                  messageId={message.id}
+                  feedback={feedback}
+                  onFeedbackChange={onFeedbackChange}
+                  onFeedbackSubmit={onFeedbackSubmit}
+                />
+              </motion.div>
             )}
           </>
         )}

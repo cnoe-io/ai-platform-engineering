@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
-import { Conversation, ChatMessage, A2AEvent } from "@/types/a2a";
+import { Conversation, ChatMessage, A2AEvent, MessageFeedback } from "@/types/a2a";
 import { generateId } from "@/lib/utils";
 import { A2AClient } from "@/lib/a2a-client";
 
@@ -34,6 +34,7 @@ interface ChatState {
   deleteConversation: (id: string) => void;
   clearAllConversations: () => void;
   getActiveConversation: () => Conversation | undefined;
+  updateMessageFeedback: (conversationId: string, messageId: string, feedback: MessageFeedback) => void;
 }
 
 export const useChatStore = create<ChatState>()(
@@ -258,6 +259,22 @@ export const useChatStore = create<ChatState>()(
       getActiveConversation: () => {
         const state = get();
         return state.conversations.find((c) => c.id === state.activeConversationId);
+      },
+
+      updateMessageFeedback: (conversationId, messageId, feedback) => {
+        set((state) => ({
+          conversations: state.conversations.map((conv) =>
+            conv.id === conversationId
+              ? {
+                  ...conv,
+                  messages: conv.messages.map((msg) =>
+                    msg.id === messageId ? { ...msg, feedback } : msg
+                  ),
+                  updatedAt: new Date(),
+                }
+              : conv
+          ),
+        }));
       },
     }),
     {
