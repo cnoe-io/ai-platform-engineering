@@ -144,6 +144,8 @@ export interface Conversation {
   createdAt: Date;
   updatedAt: Date;
   messages: ChatMessage[];
+  /** A2A events for this conversation (for debug panel, tasks, output) */
+  a2aEvents: A2AEvent[];
 }
 
 export interface ChatMessage {

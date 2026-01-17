@@ -45,10 +45,10 @@ export function ChatPanel({ endpoint }: ChatPanelProps) {
   const accessToken = config.ssoEnabled ? session?.accessToken : undefined;
 
   const conversation = getActiveConversation();
-  
+
   // Check if THIS conversation is streaming (not global)
-  const isThisConversationStreaming = activeConversationId 
-    ? isConversationStreaming(activeConversationId) 
+  const isThisConversationStreaming = activeConversationId
+    ? isConversationStreaming(activeConversationId)
     : false;
 
   useEffect(() => {
