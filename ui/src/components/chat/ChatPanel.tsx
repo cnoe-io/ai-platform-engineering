@@ -93,17 +93,29 @@ export function ChatPanel({ endpoint }: ChatPanelProps) {
         addA2AEvent(event);
         addEventToMessage(convId!, assistantMsgId, event);
 
-        // Handle streaming content - append artifact text, avoiding duplicates
+        // Handle streaming content from A2A artifacts
         if (event.type === "artifact" && event.displayContent) {
-          const currentConv = useChatStore.getState().conversations.find(c => c.id === convId);
-          const currentMsg = currentConv?.messages.find(m => m.id === assistantMsgId);
-          const currentContent = currentMsg?.content || "";
-          
-          // Skip if this exact content was already appended recently (avoid duplicates)
-          // Check if the new content is already at the end of the current content
           const newContent = event.displayContent;
-          if (!currentContent.endsWith(newContent) && !currentContent.includes(newContent)) {
-            appendToMessage(convId!, assistantMsgId, newContent);
+          const artifactName = event.artifact?.name || "";
+          
+          // Check if this is a complete/final result that should replace all content
+          // A2A uses append=false or specific artifact names to indicate replacement
+          const isCompleteResult = artifactName === "complete_result" || 
+                                   artifactName === "final_result" ||
+                                   event.isLastChunk;
+          
+          if (isCompleteResult) {
+            // Complete result - replace message content entirely
+            updateMessage(convId!, assistantMsgId, { content: newContent });
+          } else {
+            // Streaming/partial result - append if not duplicate
+            const currentConv = useChatStore.getState().conversations.find(c => c.id === convId);
+            const currentMsg = currentConv?.messages.find(m => m.id === assistantMsgId);
+            const currentContent = currentMsg?.content || "";
+            
+            if (!currentContent.includes(newContent)) {
+              appendToMessage(convId!, assistantMsgId, newContent);
+            }
           }
         }
 
