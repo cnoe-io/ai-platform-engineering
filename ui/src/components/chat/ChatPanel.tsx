@@ -93,61 +93,52 @@ export function ChatPanel({ endpoint }: ChatPanelProps) {
         addA2AEvent(event);
         addEventToMessage(convId!, assistantMsgId, event);
 
-        // Handle streaming content from A2A artifacts and messages
-        // Use the A2A 'append' flag to determine behavior
+        // Handle streaming content from A2A artifacts
         const newContent = event.displayContent;
-        
+
         if (!newContent) {
-          // No content to process
+          return; // No content to process
+        }
+
+        // Skip tool notifications - they're handled separately in UI
+        if (event.type === "tool_start" || event.type === "tool_end") {
           return;
         }
 
-        // Handle ARTIFACT events
-        if (event.type === "artifact") {
-          const artifactName = event.artifact?.name || "";
-
-          // Skip tool notifications - they're handled separately in UI
-          if (artifactName === "tool_notification_start" || artifactName === "tool_notification_end") {
-            // Tool notifications don't go into message content
-            return;
-          }
-
-          // Use A2A append flag:
-          // - shouldAppend=false (append=false in A2A): REPLACE/start new
-          // - shouldAppend=true (append=true in A2A): APPEND to existing
-          // - Complete/final results: REPLACE (partial_result, complete_result, final_result)
-          // NOTE: partial_result is the complete accumulated text sent by backend at stream end
-          const isCompleteResult = artifactName === "partial_result" ||
-                                   artifactName === "complete_result" ||
-                                   artifactName === "final_result" ||
-                                   event.isLastChunk;
-
-          if (!event.shouldAppend || isCompleteResult) {
-            // Replace message content (start new or complete result)
-            console.log(`[A2A] Replacing content with ${artifactName} (${newContent.length} chars)`);
-            updateMessage(convId!, assistantMsgId, { content: newContent });
-          } else if (artifactName === "streaming_result") {
-            // Only append for streaming_result artifacts
-            appendToMessage(convId!, assistantMsgId, newContent);
-          } else {
-            // For unknown artifacts, use append flag
-            if (event.shouldAppend) {
-              appendToMessage(convId!, assistantMsgId, newContent);
-            } else {
-              updateMessage(convId!, assistantMsgId, { content: newContent });
-            }
-          }
-        }
+        const artifactName = event.artifact?.name || "";
         
-        // Handle MESSAGE events (agent messages contain actual response content)
-        // This is how agent-forge accumulates the streaming text
-        if (event.type === "message" && event.shouldAppend) {
-          console.log(`[A2A] Appending message content (${newContent.length} chars)`);
-          appendToMessage(convId!, assistantMsgId, newContent);
+        // Skip tool notification artifacts and execution plans (shown in Tasks panel)
+        if (artifactName === "tool_notification_start" || 
+            artifactName === "tool_notification_end" ||
+            artifactName === "execution_plan_update" ||
+            artifactName === "execution_plan_status_update") {
+          return;
+        }
+
+        // Determine if this is a complete/final result that should REPLACE content
+        const isCompleteResult = artifactName === "partial_result" ||
+                                 artifactName === "complete_result" ||
+                                 artifactName === "final_result" ||
+                                 event.isLastChunk;
+
+        // Handle content based on event type
+        if (event.type === "artifact" || event.type === "message") {
+          if (isCompleteResult) {
+            // Complete results always REPLACE (this is the final accumulated text)
+            console.log(`[A2A] REPLACE (final): ${artifactName} (${newContent.length} chars)`);
+            updateMessage(convId!, assistantMsgId, { content: newContent });
+          } else {
+            // ALWAYS APPEND streaming content - even if append=false
+            // Different artifacts (supervisor vs sub-agent) all contribute to the same message
+            // Only partial_result/complete_result should reset content
+            console.log(`[A2A] APPEND: ${artifactName} (${newContent.length} chars)`);
+            appendToMessage(convId!, assistantMsgId, newContent);
+          }
         }
 
         // Mark message as final when stream ends
         if (event.isLastChunk || event.isFinal) {
+          console.log(`[A2A] Marking message as FINAL`);
           updateMessage(convId!, assistantMsgId, { isFinal: true });
         }
       },
