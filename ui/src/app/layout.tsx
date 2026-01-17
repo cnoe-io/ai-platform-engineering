@@ -37,7 +37,12 @@ export const metadata: Metadata = {
   title: "CAIPE UI",
   description: "Community AI Platform Engineering - Multi-Agent System for Platform Engineers",
   icons: {
-    icon: "/favicon.ico",
+    icon: [
+      { url: "/favicon.ico", sizes: "any" },
+      { url: "/icon.ico", sizes: "any" },
+    ],
+    shortcut: "/favicon.ico",
+    apple: "/favicon.ico",
   },
   openGraph: {
     title: "CAIPE UI",
