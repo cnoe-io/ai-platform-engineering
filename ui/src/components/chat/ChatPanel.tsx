@@ -230,7 +230,8 @@ interface ChatMessageProps {
 
 function ChatMessage({ message, onCopy, isCopied, isStreaming = false }: ChatMessageProps) {
   const isUser = message.role === "user";
-  const [showRawStream, setShowRawStream] = useState(false);
+  // Show raw stream expanded by default during streaming, hide after final output
+  const [showRawStream, setShowRawStream] = useState(true);
 
   // Extract final answer if present, otherwise use content
   const { hasFinalAnswer, content: finalContent } = extractFinalAnswer(message.content);
@@ -357,24 +358,32 @@ function ChatMessage({ message, onCopy, isCopied, isStreaming = false }: ChatMes
               </AnimatePresence>
             </motion.div>
 
-            {/* Collapsible stream preview */}
-            {streamPreview && (
+            {/* Streaming output - expanded by default */}
+            {message.content && (
               <motion.div
                 initial={{ opacity: 0, height: 0 }}
                 animate={{ opacity: 1, height: "auto" }}
-                className="mt-2"
+                className="mt-3"
               >
-                <button
-                  onClick={() => setShowRawStream(!showRawStream)}
-                  className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
-                >
-                  {showRawStream ? (
-                    <ChevronUp className="h-3 w-3" />
-                  ) : (
-                    <ChevronDown className="h-3 w-3" />
-                  )}
-                  <span>{showRawStream ? "Hide" : "Show"} raw stream</span>
-                </button>
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-xs font-medium text-muted-foreground">Streaming Output</span>
+                  <button
+                    onClick={() => setShowRawStream(!showRawStream)}
+                    className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+                  >
+                    {showRawStream ? (
+                      <>
+                        <ChevronUp className="h-3 w-3" />
+                        <span>Collapse</span>
+                      </>
+                    ) : (
+                      <>
+                        <ChevronDown className="h-3 w-3" />
+                        <span>Expand</span>
+                      </>
+                    )}
+                  </button>
+                </div>
 
                 <AnimatePresence>
                   {showRawStream && (
@@ -382,10 +391,10 @@ function ChatMessage({ message, onCopy, isCopied, isStreaming = false }: ChatMes
                       initial={{ opacity: 0, height: 0 }}
                       animate={{ opacity: 1, height: "auto" }}
                       exit={{ opacity: 0, height: 0 }}
-                      className="mt-2 p-3 rounded-lg bg-muted/50 border border-border/50 max-h-40 overflow-y-auto"
+                      className="p-4 rounded-lg bg-card/80 border border-border/50 max-h-64 overflow-y-auto"
                     >
-                      <pre className="text-xs text-muted-foreground font-mono whitespace-pre-wrap break-words">
-                        {message.content || "Waiting for response..."}
+                      <pre className="text-sm text-foreground/80 font-mono whitespace-pre-wrap break-words leading-relaxed">
+                        {message.content}
                       </pre>
                     </motion.div>
                   )}
