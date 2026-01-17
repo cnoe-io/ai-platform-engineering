@@ -53,18 +53,26 @@ export const useChatStore = create<ChatState>()(
           createdAt: new Date(),
           updatedAt: new Date(),
           messages: [],
+          a2aEvents: [], // Initialize with empty events
         };
 
         set((state) => ({
           conversations: [newConversation, ...state.conversations],
           activeConversationId: id,
+          a2aEvents: [], // Clear global events for new conversation
         }));
 
         return id;
       },
 
       setActiveConversation: (id) => {
-        set({ activeConversationId: id, a2aEvents: [] });
+        // Restore a2aEvents from the conversation being switched to
+        const state = get();
+        const targetConv = state.conversations.find((c) => c.id === id);
+        set({ 
+          activeConversationId: id, 
+          a2aEvents: targetConv?.a2aEvents || [] 
+        });
       },
 
       addMessage: (conversationId, message) => {
@@ -192,13 +200,38 @@ export const useChatStore = create<ChatState>()(
       },
 
       addA2AEvent: (event) => {
-        set((state) => ({
-          a2aEvents: [...state.a2aEvents, event],
+        const state = get();
+        const activeId = state.activeConversationId;
+        
+        set((prev) => ({
+          // Update global events for current session display
+          a2aEvents: [...prev.a2aEvents, event],
+          // Also persist to the active conversation
+          conversations: activeId
+            ? prev.conversations.map((conv) =>
+                conv.id === activeId
+                  ? { ...conv, a2aEvents: [...conv.a2aEvents, event] }
+                  : conv
+              )
+            : prev.conversations,
         }));
       },
 
       clearA2AEvents: () => {
-        set({ a2aEvents: [] });
+        const state = get();
+        const activeId = state.activeConversationId;
+        
+        set((prev) => ({
+          a2aEvents: [],
+          // Also clear from the active conversation
+          conversations: activeId
+            ? prev.conversations.map((conv) =>
+                conv.id === activeId
+                  ? { ...conv, a2aEvents: [] }
+                  : conv
+              )
+            : prev.conversations,
+        }));
       },
 
       deleteConversation: (id) => {
@@ -230,8 +263,8 @@ export const useChatStore = create<ChatState>()(
     {
       name: "caipe-chat-history",
       storage: createJSONStorage(() => localStorage),
-      // Only persist conversations and activeConversationId
-      // Don't persist isStreaming or a2aEvents (transient state)
+      // Persist conversations (including a2aEvents) and activeConversationId
+      // Don't persist isStreaming, streamingConversations (transient state)
       partialize: (state) => ({
         conversations: state.conversations,
         activeConversationId: state.activeConversationId,
@@ -247,8 +280,26 @@ export const useChatStore = create<ChatState>()(
             messages: conv.messages.map((msg) => ({
               ...msg,
               timestamp: new Date(msg.timestamp),
+              // Restore event timestamps
+              events: msg.events.map((event) => ({
+                ...event,
+                timestamp: new Date(event.timestamp),
+              })),
+            })),
+            // Restore conversation-level a2aEvents timestamps
+            a2aEvents: (conv.a2aEvents || []).map((event) => ({
+              ...event,
+              timestamp: new Date(event.timestamp),
             })),
           }));
+          
+          // Restore a2aEvents for the active conversation
+          const activeConv = state.conversations.find(
+            (c) => c.id === state.activeConversationId
+          );
+          if (activeConv) {
+            state.a2aEvents = activeConv.a2aEvents;
+          }
         }
       },
     }
