@@ -117,6 +117,7 @@ export interface A2AEvent {
   artifact?: Artifact;
   isFinal?: boolean;
   isLastChunk?: boolean;
+  shouldAppend?: boolean; // A2A append flag: true = append, false = replace
 
   // UI display helpers
   displayName: string;

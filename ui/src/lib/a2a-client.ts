@@ -188,6 +188,8 @@ export class A2AClient {
           type: eventType,
           artifact: artifact,
           isLastChunk: result.lastChunk,
+          // append flag from A2A: false = replace, true = append
+          shouldAppend: result.append !== false, // default to append if not specified
           displayName: this.formatArtifactName(artifactName),
           displayContent: artifact?.parts?.[0]?.text || "",
           color: this.getArtifactColor(artifactName),
