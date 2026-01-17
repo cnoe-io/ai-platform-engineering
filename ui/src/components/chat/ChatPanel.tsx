@@ -101,13 +101,15 @@ export function ChatPanel({ endpoint }: ChatPanelProps) {
           console.log(`[A2A] Event: type=${event.type}, artifact=${artifactName}, content=${newContent.length} chars, lastChunk=${event.isLastChunk}, isFinal=${event.isFinal}`);
         }
 
+        // Handle status events first (they signal stream end)
+        if (event.type === "status" && event.isFinal) {
+          console.log(`[A2A] ✅ Final status received - marking message complete`);
+          updateMessage(convId!, assistantMsgId, { isFinal: true });
+          return;
+        }
+
         // Skip events without content
         if (!newContent) {
-          // Still check for final status
-          if (event.isFinal) {
-            console.log(`[A2A] Final status received - marking message complete`);
-            updateMessage(convId!, assistantMsgId, { isFinal: true });
-          }
           return;
         }
 
@@ -134,14 +136,15 @@ export function ChatPanel({ endpoint }: ChatPanelProps) {
         if (event.type === "artifact" || event.type === "message") {
           if (isCompleteResult) {
             // Complete results always REPLACE (this is the final accumulated text)
-            console.log(`[A2A] ✅ REPLACE with complete_result: ${newContent.length} chars`);
+            console.log(`[A2A] ✅ REPLACE with ${artifactName}: ${newContent.length} chars`);
             updateMessage(convId!, assistantMsgId, { content: newContent, isFinal: true });
           } else if (artifactName === "streaming_result") {
             // Append streaming chunks
+            console.log(`[A2A] APPEND streaming: +${newContent.length} chars, text: "${newContent.substring(0, 30)}..."`);
             appendToMessage(convId!, assistantMsgId, newContent);
           } else {
             // For other artifacts, append by default
-            console.log(`[A2A] APPEND (other): ${artifactName} (${newContent.length} chars)`);
+            console.log(`[A2A] APPEND (${artifactName}): ${newContent.length} chars`);
             appendToMessage(convId!, assistantMsgId, newContent);
           }
         }
