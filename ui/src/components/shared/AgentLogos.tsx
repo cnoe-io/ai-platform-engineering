@@ -127,7 +127,7 @@ export const AGENT_LOGOS: Record<string, AgentLogoConfig> = {
 // Normalize agent name for lookup
 export function normalizeAgentName(name: string): string {
   const normalized = name.toLowerCase().trim();
-  
+
   // Handle common variations
   if (normalized.includes("argocd") || normalized === "argo") return "argocd";
   if (normalized === "aws" || normalized.includes("amazon")) return "aws";
@@ -139,7 +139,7 @@ export function normalizeAgentName(name: string): string {
   if (normalized === "kubernetes" || normalized === "k8s") return "kubernetes";
   if (normalized === "caipe" || normalized.includes("platform")) return "caipe";
   if (normalized === "supervisor") return "supervisor";
-  
+
   return normalized;
 }
 
@@ -159,28 +159,28 @@ interface AgentLogoProps {
 
 export function AgentLogo({ agent, size = "md", showFallback = true, className = "" }: AgentLogoProps) {
   const logo = getAgentLogo(agent);
-  
+
   const sizeClasses = {
     sm: "w-4 h-4",
     md: "w-5 h-5",
     lg: "w-6 h-6",
   };
-  
+
   if (!logo) {
     if (!showFallback) return null;
-    
+
     // Fallback to first letter
     return (
-      <div 
+      <div
         className={`${sizeClasses[size]} rounded-md bg-muted flex items-center justify-center text-xs font-bold ${className}`}
       >
         {agent.charAt(0).toUpperCase()}
       </div>
     );
   }
-  
+
   return (
-    <div 
+    <div
       className={`${sizeClasses[size]} rounded-md flex items-center justify-center ${className}`}
       style={{ backgroundColor: `${logo.color}20` }}
       title={logo.displayName}

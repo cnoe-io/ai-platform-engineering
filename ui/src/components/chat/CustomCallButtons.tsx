@@ -205,7 +205,7 @@ export function InlineAgentSelector({
             )}
             style={isSelected && agentLogo ? { backgroundColor: agentLogo.color } : undefined}
           >
-            <div 
+            <div
               className="w-4 h-4"
               style={!isSelected && agentLogo ? { color: agentLogo.color } : undefined}
             >
