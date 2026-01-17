@@ -214,7 +214,7 @@ export class A2AClient {
         const messageTextPart = messageParts.find((p: { kind?: string }) => p.kind === "text");
         const messageText = messageTextPart && "text" in messageTextPart ? (messageTextPart as { text: string }).text : "";
         const isAgentMessage = result.role === "agent";
-        
+
         return {
           ...baseEvent,
           type: "message",
