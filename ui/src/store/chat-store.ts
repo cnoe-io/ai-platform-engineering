@@ -2,11 +2,20 @@ import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
 import { Conversation, ChatMessage, A2AEvent } from "@/types/a2a";
 import { generateId } from "@/lib/utils";
+import { A2AClient } from "@/lib/a2a-client";
+
+// Track streaming state per conversation
+interface StreamingState {
+  conversationId: string;
+  messageId: string;
+  client: A2AClient;
+}
 
 interface ChatState {
   conversations: Conversation[];
   activeConversationId: string | null;
   isStreaming: boolean;
+  streamingConversations: Map<string, StreamingState>;
   a2aEvents: A2AEvent[];
 
   // Actions
@@ -17,6 +26,9 @@ interface ChatState {
   appendToMessage: (conversationId: string, messageId: string, content: string) => void;
   addEventToMessage: (conversationId: string, messageId: string, event: A2AEvent) => void;
   setStreaming: (streaming: boolean) => void;
+  setConversationStreaming: (conversationId: string, state: StreamingState | null) => void;
+  isConversationStreaming: (conversationId: string) => boolean;
+  cancelConversationRequest: (conversationId: string) => void;
   addA2AEvent: (event: A2AEvent) => void;
   clearA2AEvents: () => void;
   deleteConversation: (id: string) => void;
@@ -30,6 +42,7 @@ export const useChatStore = create<ChatState>()(
       conversations: [],
       activeConversationId: null,
       isStreaming: false,
+      streamingConversations: new Map<string, StreamingState>(),
       a2aEvents: [],
 
       createConversation: () => {
@@ -133,6 +146,49 @@ export const useChatStore = create<ChatState>()(
 
       setStreaming: (streaming) => {
         set({ isStreaming: streaming });
+      },
+
+      setConversationStreaming: (conversationId, state) => {
+        set((prev) => {
+          const newMap = new Map(prev.streamingConversations);
+          if (state) {
+            newMap.set(conversationId, state);
+          } else {
+            newMap.delete(conversationId);
+          }
+          // Update global isStreaming based on whether any conversation is streaming
+          return {
+            streamingConversations: newMap,
+            isStreaming: newMap.size > 0,
+          };
+        });
+      },
+
+      isConversationStreaming: (conversationId) => {
+        return get().streamingConversations.has(conversationId);
+      },
+
+      cancelConversationRequest: (conversationId) => {
+        const state = get();
+        const streamingState = state.streamingConversations.get(conversationId);
+        if (streamingState) {
+          // Abort the A2A client
+          streamingState.client.abort();
+          // Remove from streaming map
+          const newMap = new Map(state.streamingConversations);
+          newMap.delete(conversationId);
+          set({
+            streamingConversations: newMap,
+            isStreaming: newMap.size > 0,
+          });
+          // Mark the message as cancelled
+          const conv = state.conversations.find(c => c.id === conversationId);
+          const msg = conv?.messages.find(m => m.id === streamingState.messageId);
+          if (msg && !msg.isFinal) {
+            state.appendToMessage(conversationId, streamingState.messageId, "\n\n*Request cancelled*");
+            state.updateMessage(conversationId, streamingState.messageId, { isFinal: true });
+          }
+        }
       },
 
       addA2AEvent: (event) => {

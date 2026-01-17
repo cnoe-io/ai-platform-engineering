@@ -26,7 +26,6 @@ export function ChatPanel({ endpoint }: ChatPanelProps) {
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
-  const clientRef = useRef<A2AClient | null>(null);
 
   const {
     activeConversationId,
@@ -37,14 +36,20 @@ export function ChatPanel({ endpoint }: ChatPanelProps) {
     appendToMessage,
     addEventToMessage,
     addA2AEvent,
-    setStreaming,
-    isStreaming,
+    setConversationStreaming,
+    isConversationStreaming,
+    cancelConversationRequest,
   } = useChatStore();
 
   // Get access token from session (if SSO is enabled and user is authenticated)
   const accessToken = config.ssoEnabled ? session?.accessToken : undefined;
 
   const conversation = getActiveConversation();
+  
+  // Check if THIS conversation is streaming (not global)
+  const isThisConversationStreaming = activeConversationId 
+    ? isConversationStreaming(activeConversationId) 
+    : false;
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -59,7 +64,7 @@ export function ChatPanel({ endpoint }: ChatPanelProps) {
   };
 
   const handleSubmit = useCallback(async () => {
-    if (!input.trim() || isStreaming) return;
+    if (!input.trim() || isThisConversationStreaming) return;
 
     const message = input.trim();
     setInput("");
@@ -76,47 +81,54 @@ export function ChatPanel({ endpoint }: ChatPanelProps) {
     // Add assistant message placeholder
     const assistantMsgId = addMessage(convId, { role: "assistant", content: "" });
 
-    setStreaming(true);
+    // Create A2A client for this request
+    const client = new A2AClient({
+      endpoint,
+      accessToken, // Pass JWT token for Bearer authentication
+      onEvent: (event) => {
+        addA2AEvent(event);
+        addEventToMessage(convId!, assistantMsgId, event);
 
-    try {
-      clientRef.current = new A2AClient({
-        endpoint,
-        accessToken, // Pass JWT token for Bearer authentication
-        onEvent: (event) => {
-          addA2AEvent(event);
-          addEventToMessage(convId!, assistantMsgId, event);
+        // Handle streaming content
+        if (event.type === "artifact" && event.displayContent) {
+          appendToMessage(convId!, assistantMsgId, event.displayContent);
+        }
 
-          // Handle streaming content
-          if (event.type === "artifact" && event.displayContent) {
-            appendToMessage(convId!, assistantMsgId, event.displayContent);
-          }
-
-          // Handle final result
-          if (event.isLastChunk || event.isFinal) {
-            const currentConv = useChatStore.getState().conversations.find(c => c.id === convId);
-            const currentMsg = currentConv?.messages.find(m => m.id === assistantMsgId);
-            if (currentMsg) {
-              const { hasFinalAnswer, content } = extractFinalAnswer(currentMsg.content);
-              if (hasFinalAnswer) {
-                updateMessage(convId!, assistantMsgId, {
-                  content,
-                  isFinal: true
-                });
-              }
+        // Handle final result
+        if (event.isLastChunk || event.isFinal) {
+          const currentConv = useChatStore.getState().conversations.find(c => c.id === convId);
+          const currentMsg = currentConv?.messages.find(m => m.id === assistantMsgId);
+          if (currentMsg) {
+            const { hasFinalAnswer, content } = extractFinalAnswer(currentMsg.content);
+            if (hasFinalAnswer) {
+              updateMessage(convId!, assistantMsgId, {
+                content,
+                isFinal: true
+              });
             }
           }
-        },
-        onError: (error) => {
-          console.error("A2A Error:", error);
-          appendToMessage(convId!, assistantMsgId, `\n\n**Error:** ${error.message}`);
-        },
-        onComplete: () => {
-          setStreaming(false);
-        },
-      });
+        }
+      },
+      onError: (error) => {
+        console.error("A2A Error:", error);
+        appendToMessage(convId!, assistantMsgId, `\n\n**Error:** ${error.message}`);
+        setConversationStreaming(convId!, null);
+      },
+      onComplete: () => {
+        setConversationStreaming(convId!, null);
+      },
+    });
 
+    // Mark this conversation as streaming with its client
+    setConversationStreaming(convId, {
+      conversationId: convId,
+      messageId: assistantMsgId,
+      client,
+    });
+
+    try {
       // Pass convId as contextId/threadId for multi-turn conversation
-      const reader = await clientRef.current.sendMessage(message, convId);
+      const reader = await client.sendMessage(message, convId);
 
       // Consume the stream
       while (true) {
@@ -126,13 +138,14 @@ export function ChatPanel({ endpoint }: ChatPanelProps) {
     } catch (error) {
       console.error("Failed to send message:", error);
       appendToMessage(convId, assistantMsgId, `\n\n**Error:** Failed to connect to A2A endpoint`);
-      setStreaming(false);
+      setConversationStreaming(convId, null);
     }
-  }, [input, isStreaming, activeConversationId, endpoint, accessToken, createConversation, addMessage, appendToMessage, updateMessage, addEventToMessage, addA2AEvent, setStreaming]);
+  }, [input, isThisConversationStreaming, activeConversationId, endpoint, accessToken, createConversation, addMessage, appendToMessage, updateMessage, addEventToMessage, addA2AEvent, setConversationStreaming]);
 
   const handleStop = () => {
-    clientRef.current?.abort();
-    setStreaming(false);
+    if (activeConversationId) {
+      cancelConversationRequest(activeConversationId);
+    }
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -162,7 +175,7 @@ export function ChatPanel({ endpoint }: ChatPanelProps) {
           <AnimatePresence mode="popLayout">
             {conversation?.messages.map((msg, index) => {
               const isLastMessage = index === conversation.messages.length - 1;
-              const isAssistantStreaming = isStreaming && msg.role === "assistant" && isLastMessage;
+              const isAssistantStreaming = isThisConversationStreaming && msg.role === "assistant" && isLastMessage;
 
               return (
                 <ChatMessage
@@ -190,9 +203,9 @@ export function ChatPanel({ endpoint }: ChatPanelProps) {
               placeholder="Ask CAIPE anything..."
               className="flex-1 bg-transparent resize-none outline-none min-h-[44px] max-h-[200px] px-3 py-2 text-sm"
               rows={1}
-              disabled={isStreaming}
+              disabled={isThisConversationStreaming}
             />
-            {isStreaming ? (
+            {isThisConversationStreaming ? (
               <Button
                 size="icon"
                 variant="destructive"

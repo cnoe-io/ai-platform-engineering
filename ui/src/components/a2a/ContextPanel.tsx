@@ -483,11 +483,11 @@ function parseExecutionTasks(events: A2AEvent[]): ExecutionTask[] {
 
   events.forEach((event) => {
     // Check for execution plan artifacts
-    if (event.artifact?.name === "execution_plan_update" || 
+    if (event.artifact?.name === "execution_plan_update" ||
         event.artifact?.name === "execution_plan_status_update") {
-      
+
       const text = event.displayContent || event.artifact?.parts?.[0]?.text || "";
-      
+
       // Parse TODO list format from agent-forge style output
       // Matches patterns like:
       // ⏳ [ArgoCD] List all applications deployed in comn-dev-use2-1 cluster
@@ -496,16 +496,16 @@ function parseExecutionTasks(events: A2AEvent[]): ExecutionTask[] {
       const todoPattern = /([⏳✅🔄❌📋])\s*\[([^\]]+)\]\s*(.+)/g;
       let match;
       let order = 0;
-      
+
       while ((match = todoPattern.exec(text)) !== null) {
         const [, statusEmoji, agent, description] = match;
         const taskId = `${agent}-${description.slice(0, 20)}`.replace(/\s+/g, "-").toLowerCase();
-        
+
         let status: ExecutionTask["status"] = "pending";
         if (statusEmoji === "✅") status = "completed";
         else if (statusEmoji === "🔄" || statusEmoji === "⏳") status = "in_progress";
         else if (statusEmoji === "❌") status = "failed";
-        
+
         tasksMap.set(taskId, {
           id: taskId,
           agent: agent.trim(),
@@ -515,7 +515,7 @@ function parseExecutionTasks(events: A2AEvent[]): ExecutionTask[] {
         });
       }
     }
-    
+
     // Also check tool notifications for task-like patterns
     if (event.type === "tool_start" && event.displayContent) {
       const text = event.displayContent;
@@ -534,7 +534,7 @@ function parseExecutionTasks(events: A2AEvent[]): ExecutionTask[] {
         }
       }
     }
-    
+
     // Mark tool_end as completed
     if (event.type === "tool_end") {
       // Find the matching in_progress task and mark it complete
