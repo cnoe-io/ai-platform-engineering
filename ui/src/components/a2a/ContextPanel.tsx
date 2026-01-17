@@ -208,12 +208,29 @@ export function ContextPanel({ debugMode, onDebugModeChange }: ContextPanelProps
             <div className="p-4 space-y-3">
               {executionTasks.length > 0 ? (
                 <>
-                  <div className="flex items-center gap-2 text-xs text-muted-foreground mb-3">
-                    <ListTodo className="h-4 w-4 text-sky-400" />
-                    <span className="font-medium">Task Progress</span>
-                    <span className="text-muted-foreground/70">
-                      ({executionTasks.filter(t => t.status === "completed").length}/{executionTasks.length} completed)
-                    </span>
+                  {/* Progress Header */}
+                  <div className="space-y-2 mb-4">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                        <ListTodo className="h-4 w-4 text-sky-400" />
+                        <span className="font-medium">Execution Plan</span>
+                      </div>
+                      <span className="text-xs font-medium">
+                        {executionTasks.filter(t => t.status === "completed").length}/{executionTasks.length} completed
+                      </span>
+                    </div>
+
+                    {/* Progress Bar */}
+                    <div className="h-2 bg-muted/50 rounded-full overflow-hidden">
+                      <motion.div
+                        initial={{ width: 0 }}
+                        animate={{
+                          width: `${(executionTasks.filter(t => t.status === "completed").length / executionTasks.length) * 100}%`
+                        }}
+                        transition={{ duration: 0.5, ease: "easeOut" }}
+                        className="h-full bg-gradient-to-r from-green-500 to-emerald-400 rounded-full"
+                      />
+                    </div>
                   </div>
 
                   <div className="space-y-2">
@@ -225,23 +242,49 @@ export function ContextPanel({ debugMode, onDebugModeChange }: ContextPanelProps
                           animate={{ opacity: 1, x: 0 }}
                           transition={{ delay: idx * 0.05 }}
                           className={cn(
-                            "flex items-start gap-3 p-3 rounded-lg border transition-all",
+                            "flex items-start gap-3 p-3 rounded-lg border transition-all cursor-pointer",
                             task.status === "completed" && "bg-green-500/10 border-green-500/30",
                             task.status === "in_progress" && "bg-sky-500/10 border-sky-500/30",
-                            task.status === "pending" && "bg-muted/30 border-border/50",
+                            task.status === "pending" && "bg-muted/30 border-border/50 hover:bg-muted/50",
                             task.status === "failed" && "bg-red-500/10 border-red-500/30"
                           )}
                         >
-                          {/* Status Icon */}
-                          <div className="mt-0.5">
-                            {task.status === "completed" ? (
-                              <CheckCircle2 className="h-4 w-4 text-green-400" />
-                            ) : task.status === "in_progress" ? (
-                              <Loader2 className="h-4 w-4 text-sky-400 animate-spin" />
-                            ) : task.status === "failed" ? (
-                              <AlertCircle className="h-4 w-4 text-red-400" />
-                            ) : (
-                              <Circle className="h-4 w-4 text-muted-foreground" />
+                          {/* Interactive Checkbox */}
+                          <div className="mt-0.5 relative">
+                            <input
+                              type="checkbox"
+                              checked={task.status === "completed"}
+                              readOnly
+                              className={cn(
+                                "appearance-none w-4 h-4 rounded border-2 cursor-pointer transition-all",
+                                task.status === "completed"
+                                  ? "bg-green-500 border-green-500"
+                                  : task.status === "in_progress"
+                                  ? "border-sky-400 animate-pulse"
+                                  : task.status === "failed"
+                                  ? "border-red-400"
+                                  : "border-muted-foreground/50 hover:border-muted-foreground"
+                              )}
+                            />
+                            {/* Checkmark overlay */}
+                            {task.status === "completed" && (
+                              <svg
+                                className="absolute inset-0 w-4 h-4 text-white pointer-events-none"
+                                fill="none"
+                                viewBox="0 0 24 24"
+                                stroke="currentColor"
+                                strokeWidth={3}
+                              >
+                                <path
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                  d="M5 13l4 4L19 7"
+                                />
+                              </svg>
+                            )}
+                            {/* Spinner overlay for in-progress */}
+                            {task.status === "in_progress" && (
+                              <Loader2 className="absolute inset-0 w-4 h-4 text-sky-400 animate-spin" />
                             )}
                           </div>
 
