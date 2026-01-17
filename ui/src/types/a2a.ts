@@ -171,6 +171,16 @@ export interface ChatMessage {
   feedback?: MessageFeedback;
 }
 
+// Input field configuration for use case forms
+export interface UseCaseInputField {
+  name: string;
+  label: string;
+  placeholder: string;
+  type: "text" | "url" | "number";
+  required?: boolean;
+  helperText?: string;
+}
+
 // Use case types for gallery
 export interface UseCase {
   id: string;
@@ -178,8 +188,15 @@ export interface UseCase {
   description: string;
   category: string;
   tags: string[];
-  prompt: string;
+  prompt: string; // Can include {{fieldName}} placeholders for input forms
   expectedAgents: string[];
   thumbnail?: string;
   difficulty: "beginner" | "intermediate" | "advanced";
+  // Optional input form configuration
+  inputForm?: {
+    title: string;
+    description?: string;
+    fields: UseCaseInputField[];
+    submitLabel?: string;
+  };
 }

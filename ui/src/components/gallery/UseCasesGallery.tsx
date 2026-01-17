@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 import {
   Search,
   ArrowRight,
@@ -19,6 +19,9 @@ import {
   Clock,
   AlertTriangle,
   CheckCircle,
+  GitPullRequest,
+  X,
+  ExternalLink,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -30,6 +33,7 @@ import { cn } from "@/lib/utils";
 
 const iconMap: Record<string, React.ElementType> = {
   GitBranch,
+  GitPullRequest,
   Server,
   Bug,
   BarChart,
@@ -68,6 +72,32 @@ const useCases: UseCase[] = [
     expectedAgents: ["GitHub"],
     thumbnail: "GitBranch",
     difficulty: "beginner",
+  },
+  {
+    id: "review-specific-pr",
+    title: "Review a Specific PR",
+    description: "Get a detailed code review of a specific GitHub Pull Request including changes, comments, and recommendations.",
+    category: "Development",
+    tags: ["GitHub", "Code Review", "PR Analysis"],
+    prompt: "Review the GitHub Pull Request at {{prUrl}}. Analyze the code changes, check for potential issues, review the test coverage, and provide a comprehensive code review summary with recommendations.",
+    expectedAgents: ["GitHub"],
+    thumbnail: "GitPullRequest",
+    difficulty: "intermediate",
+    inputForm: {
+      title: "Review a GitHub Pull Request",
+      description: "Enter the PR URL or repository details to get a comprehensive code review.",
+      fields: [
+        {
+          name: "prUrl",
+          label: "PR URL or Link",
+          placeholder: "https://github.com/owner/repo/pull/123",
+          type: "url",
+          required: true,
+          helperText: "Paste the full GitHub PR URL (e.g., https://github.com/cnoe-io/ai-platform-engineering/pull/42)",
+        },
+      ],
+      submitLabel: "Start Review",
+    },
   },
   {
     id: "incident-analysis",
@@ -169,6 +199,71 @@ export function UseCasesGallery({ onSelectUseCase }: UseCasesGalleryProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategory, setSelectedCategory] = useState("All");
   const [hoveredId, setHoveredId] = useState<string | null>(null);
+  
+  // Input form state
+  const [activeFormUseCase, setActiveFormUseCase] = useState<UseCase | null>(null);
+  const [formValues, setFormValues] = useState<Record<string, string>>({});
+  const [formErrors, setFormErrors] = useState<Record<string, string>>({});
+
+  // Handle use case click - show form if it has one, otherwise submit directly
+  const handleUseCaseClick = (useCase: UseCase) => {
+    if (useCase.inputForm) {
+      setActiveFormUseCase(useCase);
+      // Initialize form values
+      const initialValues: Record<string, string> = {};
+      useCase.inputForm.fields.forEach((field) => {
+        initialValues[field.name] = "";
+      });
+      setFormValues(initialValues);
+      setFormErrors({});
+    } else {
+      onSelectUseCase(useCase.prompt);
+    }
+  };
+
+  // Handle form field change
+  const handleFormChange = (fieldName: string, value: string) => {
+    setFormValues((prev) => ({ ...prev, [fieldName]: value }));
+    // Clear error when user types
+    if (formErrors[fieldName]) {
+      setFormErrors((prev) => ({ ...prev, [fieldName]: "" }));
+    }
+  };
+
+  // Handle form submission
+  const handleFormSubmit = () => {
+    if (!activeFormUseCase?.inputForm) return;
+
+    // Validate required fields
+    const errors: Record<string, string> = {};
+    activeFormUseCase.inputForm.fields.forEach((field) => {
+      if (field.required && !formValues[field.name]?.trim()) {
+        errors[field.name] = `${field.label} is required`;
+      }
+    });
+
+    if (Object.keys(errors).length > 0) {
+      setFormErrors(errors);
+      return;
+    }
+
+    // Replace placeholders in prompt with form values
+    let prompt = activeFormUseCase.prompt;
+    Object.entries(formValues).forEach(([key, value]) => {
+      prompt = prompt.replace(new RegExp(`\\{\\{${key}\\}\\}`, "g"), value.trim());
+    });
+
+    // Close form and submit
+    setActiveFormUseCase(null);
+    onSelectUseCase(prompt);
+  };
+
+  // Close form
+  const handleCloseForm = () => {
+    setActiveFormUseCase(null);
+    setFormValues({});
+    setFormErrors({});
+  };
 
   const filteredUseCases = useCases.filter((uc) => {
     const matchesSearch =
@@ -269,7 +364,7 @@ export function UseCasesGallery({ onSelectUseCase }: UseCasesGalleryProps) {
                   key={useCase.id}
                   whileHover={{ scale: 1.02 }}
                   whileTap={{ scale: 0.98 }}
-                  onClick={() => onSelectUseCase(useCase.prompt)}
+                  onClick={() => handleUseCaseClick(useCase)}
                   className="flex items-center gap-3 p-4 rounded-xl bg-card border border-border/50 hover:border-primary hover:shadow-lg hover:shadow-primary/10 transition-all text-left group"
                 >
                   <div className="p-2 rounded-lg bg-gradient-to-br from-[hsl(173,80%,40%)] to-[hsl(270,75%,60%)] shrink-0 group-hover:scale-110 transition-transform">
@@ -328,7 +423,7 @@ export function UseCasesGallery({ onSelectUseCase }: UseCasesGalleryProps) {
                         ? "border-primary shadow-xl shadow-primary/20 ring-1 ring-primary/20"
                         : "hover:border-border/80"
                     )}
-                    onClick={() => onSelectUseCase(useCase.prompt)}
+                    onClick={() => handleUseCaseClick(useCase)}
                   >
                     {/* Gradient accent bar */}
                     <div className={cn(
@@ -417,6 +512,116 @@ export function UseCasesGallery({ onSelectUseCase }: UseCasesGalleryProps) {
           )}
         </div>
       </ScrollArea>
+
+      {/* Input Form Modal */}
+      <AnimatePresence>
+        {activeFormUseCase?.inputForm && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+            onClick={handleCloseForm}
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              transition={{ type: "spring", damping: 25, stiffness: 300 }}
+              className="relative w-full max-w-lg mx-4 bg-card border border-border rounded-2xl shadow-2xl overflow-hidden"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Header gradient */}
+              <div className="h-1.5 w-full bg-gradient-to-r from-[hsl(173,80%,40%)] via-[hsl(270,75%,60%)] to-[hsl(330,80%,55%)]" />
+              
+              <div className="p-6">
+                {/* Header */}
+                <div className="flex items-start justify-between mb-6">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2.5 rounded-xl bg-gradient-to-br from-[hsl(173,80%,40%)] to-[hsl(270,75%,60%)] shadow-lg">
+                      <GitPullRequest className="h-5 w-5 text-white" />
+                    </div>
+                    <div>
+                      <h2 className="text-xl font-bold">{activeFormUseCase.inputForm.title}</h2>
+                      {activeFormUseCase.inputForm.description && (
+                        <p className="text-sm text-muted-foreground mt-0.5">
+                          {activeFormUseCase.inputForm.description}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8 shrink-0"
+                    onClick={handleCloseForm}
+                  >
+                    <X className="h-4 w-4" />
+                  </Button>
+                </div>
+
+                {/* Form Fields */}
+                <div className="space-y-4">
+                  {activeFormUseCase.inputForm.fields.map((field) => (
+                    <div key={field.name} className="space-y-2">
+                      <label className="text-sm font-medium flex items-center gap-1">
+                        {field.label}
+                        {field.required && <span className="text-red-400">*</span>}
+                      </label>
+                      <Input
+                        type={field.type}
+                        placeholder={field.placeholder}
+                        value={formValues[field.name] || ""}
+                        onChange={(e) => handleFormChange(field.name, e.target.value)}
+                        className={cn(
+                          "h-12",
+                          formErrors[field.name] && "border-red-500 focus:border-red-500"
+                        )}
+                      />
+                      {field.helperText && !formErrors[field.name] && (
+                        <p className="text-xs text-muted-foreground flex items-center gap-1">
+                          <ExternalLink className="h-3 w-3" />
+                          {field.helperText}
+                        </p>
+                      )}
+                      {formErrors[field.name] && (
+                        <p className="text-xs text-red-400">{formErrors[field.name]}</p>
+                      )}
+                    </div>
+                  ))}
+                </div>
+
+                {/* Preview of generated prompt */}
+                {Object.values(formValues).some(v => v.trim()) && (
+                  <div className="mt-6 p-3 bg-muted/50 rounded-lg border border-border/50">
+                    <p className="text-xs text-muted-foreground mb-1">Preview:</p>
+                    <p className="text-sm">
+                      {activeFormUseCase.prompt.replace(
+                        /\{\{(\w+)\}\}/g,
+                        (_, key) => formValues[key]?.trim() || `{{${key}}}`
+                      ).substring(0, 150)}...
+                    </p>
+                  </div>
+                )}
+
+                {/* Actions */}
+                <div className="flex items-center justify-end gap-3 mt-6 pt-4 border-t border-border/50">
+                  <Button variant="ghost" onClick={handleCloseForm}>
+                    Cancel
+                  </Button>
+                  <Button
+                    onClick={handleFormSubmit}
+                    className="bg-gradient-to-r from-[hsl(173,80%,40%)] to-[hsl(270,75%,60%)] text-white hover:opacity-90"
+                  >
+                    <Rocket className="h-4 w-4 mr-2" />
+                    {activeFormUseCase.inputForm.submitLabel || "Submit"}
+                  </Button>
+                </div>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
