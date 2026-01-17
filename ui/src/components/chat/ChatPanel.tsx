@@ -108,17 +108,27 @@ export function ChatPanel({ endpoint }: ChatPanelProps) {
           // Use A2A append flag:
           // - shouldAppend=false (append=false in A2A): REPLACE/start new
           // - shouldAppend=true (append=true in A2A): APPEND to existing
-          // - Complete/final results: REPLACE
-          const isCompleteResult = artifactName === "complete_result" ||
+          // - Complete/final results: REPLACE (partial_result, complete_result, final_result)
+          // NOTE: partial_result is the complete accumulated text sent by backend at stream end
+          const isCompleteResult = artifactName === "partial_result" ||
+                                   artifactName === "complete_result" ||
                                    artifactName === "final_result" ||
                                    event.isLastChunk;
 
           if (!event.shouldAppend || isCompleteResult) {
             // Replace message content (start new or complete result)
+            console.log(`[A2A] Replacing content with ${artifactName} (${newContent.length} chars)`);
             updateMessage(convId!, assistantMsgId, { content: newContent });
-          } else {
-            // Append to existing content
+          } else if (artifactName === "streaming_result") {
+            // Only append for streaming_result artifacts
             appendToMessage(convId!, assistantMsgId, newContent);
+          } else {
+            // For unknown artifacts, use append flag
+            if (event.shouldAppend) {
+              appendToMessage(convId!, assistantMsgId, newContent);
+            } else {
+              updateMessage(convId!, assistantMsgId, { content: newContent });
+            }
           }
         }
 
