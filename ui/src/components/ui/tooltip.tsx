@@ -67,19 +67,21 @@ interface TooltipTriggerProps {
 export function TooltipTrigger({ children, asChild }: TooltipTriggerProps) {
   const { setOpen } = React.useContext(TooltipStateContext);
   const { delayDuration } = React.useContext(TooltipContext);
-  const timeoutRef = React.useRef<NodeJS.Timeout>();
+  const timeoutRef = React.useRef<NodeJS.Timeout | null>(null);
 
   const handleMouseEnter = () => {
     timeoutRef.current = setTimeout(() => setOpen(true), delayDuration);
   };
 
   const handleMouseLeave = () => {
-    clearTimeout(timeoutRef.current);
+    if (timeoutRef.current) clearTimeout(timeoutRef.current);
     setOpen(false);
   };
 
   React.useEffect(() => {
-    return () => clearTimeout(timeoutRef.current);
+    return () => {
+      if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    };
   }, []);
 
   if (asChild && React.isValidElement(children)) {
