@@ -110,8 +110,10 @@ export const authOptions: NextAuthOptions = {
 
       // Extract and store groups from profile
       if (profile) {
-        token.profile = profile;
-        const groups = extractGroups(profile as Record<string, unknown>);
+        // Cast profile to Record for storage and group extraction
+        const profileData = profile as unknown as Record<string, unknown>;
+        token.profile = profileData;
+        const groups = extractGroups(profileData);
         token.groups = groups;
         token.isAuthorized = hasRequiredGroup(groups);
       }
