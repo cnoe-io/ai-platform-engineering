@@ -96,15 +96,24 @@ export function ChatPanel({ endpoint }: ChatPanelProps) {
         const newContent = event.displayContent;
         const artifactName = event.artifact?.name || "";
 
-        // Debug: Log all events with content
-        if (newContent) {
-          console.log(`[A2A] Event: type=${event.type}, artifact=${artifactName}, content=${newContent.length} chars, lastChunk=${event.isLastChunk}, isFinal=${event.isFinal}`);
-        }
+        // Debug: Log ALL events
+        console.log(`[A2A] Event received:`, {
+          type: event.type,
+          artifact: artifactName,
+          contentLength: newContent?.length || 0,
+          content: newContent ? newContent.substring(0, 100) : "(none)",
+          lastChunk: event.isLastChunk,
+          isFinal: event.isFinal,
+          shouldAppend: event.shouldAppend,
+          raw: event.raw?.result?.kind,
+        });
 
         // Handle status events first (they signal stream end)
         if (event.type === "status" && event.isFinal) {
-          console.log(`[A2A] ✅ Final status received - marking message complete`);
+          console.log(`[A2A] ✅ Final status received - marking message complete. convId=${convId}, msgId=${assistantMsgId}`);
           updateMessage(convId!, assistantMsgId, { isFinal: true });
+          // Also ensure streaming state is cleared
+          setConversationStreaming(convId!, null);
           return;
         }
 
@@ -161,6 +170,9 @@ export function ChatPanel({ endpoint }: ChatPanelProps) {
         setConversationStreaming(convId!, null);
       },
       onComplete: () => {
+        console.log(`[A2A] ✅ onComplete called - stream ended. convId=${convId}, msgId=${assistantMsgId}`);
+        // Mark message as final if not already
+        updateMessage(convId!, assistantMsgId, { isFinal: true });
         setConversationStreaming(convId!, null);
       },
     });

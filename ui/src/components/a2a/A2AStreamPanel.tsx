@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useRef } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Layers,
@@ -20,6 +20,7 @@ import {
   ChevronDown,
   ExternalLink,
   Copy,
+  Check,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -123,8 +124,12 @@ export function A2AStreamPanel() {
     return iconMap[iconName] || Box;
   };
 
-  const copyToClipboard = (text: string) => {
+  const [copiedEventId, setCopiedEventId] = useState<string | null>(null);
+
+  const copyToClipboard = (text: string, eventId: string) => {
     navigator.clipboard.writeText(text);
+    setCopiedEventId(eventId);
+    setTimeout(() => setCopiedEventId(null), 2000);
   };
 
   return (
@@ -291,19 +296,29 @@ export function A2AStreamPanel() {
                                   Raw JSON
                                 </summary>
                                 <div className="mt-2 relative">
-                                  <pre className="p-2 bg-muted/50 rounded-md overflow-x-auto text-[10px] font-mono max-h-40">
+                                  <pre className="p-2 pr-10 bg-muted/50 rounded-md overflow-x-auto text-[10px] font-mono max-h-40">
                                     {JSON.stringify(event.raw, null, 2)}
                                   </pre>
                                   <Button
                                     size="icon"
                                     variant="ghost"
-                                    className="absolute top-1 right-1 h-6 w-6"
+                                    className={cn(
+                                      "absolute top-1 right-1 h-6 w-6 transition-colors",
+                                      copiedEventId === event.id
+                                        ? "text-green-500 hover:text-green-500"
+                                        : "text-muted-foreground hover:text-foreground"
+                                    )}
                                     onClick={(e) => {
                                       e.stopPropagation();
-                                      copyToClipboard(JSON.stringify(event.raw, null, 2));
+                                      copyToClipboard(JSON.stringify(event.raw, null, 2), event.id);
                                     }}
+                                    title={copiedEventId === event.id ? "Copied!" : "Copy JSON"}
                                   >
-                                    <Copy className="h-3 w-3" />
+                                    {copiedEventId === event.id ? (
+                                      <Check className="h-3 w-3" />
+                                    ) : (
+                                      <Copy className="h-3 w-3" />
+                                    )}
                                   </Button>
                                 </div>
                               </details>
