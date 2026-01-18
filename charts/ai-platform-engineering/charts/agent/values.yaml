@@ -37,6 +37,18 @@ serviceAccount:
   # If not set and create is true, a name is generated using the fullname template
   name: ""
 
+# RBAC configuration - used by agents that need cluster-level access (e.g., kubernetes agent)
+rbac:
+  # Specifies whether RBAC resources should be created
+  create: false
+  # Rules for the ClusterRole (only used when create is true)
+  # Example for kubernetes agent:
+  # rules:
+  #   - apiGroups: [""]
+  #     resources: ["namespaces", "pods", "pods/log", "services", "nodes", "events"]
+  #     verbs: ["get", "list", "watch"]
+  rules: []
+
 # This is for setting Kubernetes Annotations to a Pod.
 # For more information checkout: https://kubernetes.io/docs/concepts/overview/working-with-objects/annotations/
 podAnnotations: {}

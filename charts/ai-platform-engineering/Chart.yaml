@@ -90,6 +90,33 @@ dependencies:
         parent: global.enabledSubAgents.komodor
   - name: agent
     version: 0.2.8 # Do NOT bump this. It will be updated automatically using the PR or release workflow
+    alias: agent-kubernetes
+    tags:
+      - agent-kubernetes
+      - complete
+    import-values:
+      - child: agentExports.data
+        parent: global.enabledSubAgents.kubernetes
+  - name: agent
+    version: 0.2.8 # Do NOT bump this. It will be updated automatically using the PR or release workflow
+    alias: agent-istio
+    tags:
+      - agent-istio
+      - complete
+    import-values:
+      - child: agentExports.data
+        parent: global.enabledSubAgents.istio
+  - name: agent
+    version: 0.2.8 # Do NOT bump this. It will be updated automatically using the PR or release workflow
+    alias: agent-signoz
+    tags:
+      - agent-signoz
+      - complete
+    import-values:
+      - child: agentExports.data
+        parent: global.enabledSubAgents.signoz
+  - name: agent
+    version: 0.2.8 # Do NOT bump this. It will be updated automatically using the PR or release workflow
     alias: agent-pagerduty
     tags:
       - agent-pagerduty
