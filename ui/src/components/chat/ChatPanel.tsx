@@ -584,12 +584,17 @@ function ChatMessage({
                       li: ({ children }) => (
                         <li className="leading-relaxed">{children}</li>
                       ),
-                      // Code
-                      code({ className, children, ...props }) {
+                      // Code - handles both inline and fenced code blocks
+                      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+                      code({ className, children, node, ...props }) {
                         const match = /language-(\w+)/.exec(className || "");
-                        const isInline = !match && !className;
+                        // Check if this is a code block (has newlines or language) vs inline code
+                        const codeContent = String(children).replace(/\n$/, "");
+                        const hasNewlines = codeContent.includes("\n");
+                        const isCodeBlock = match || hasNewlines || className;
 
-                        if (isInline) {
+                        if (!isCodeBlock) {
+                          // Inline code
                           return (
                             <code
                               className="bg-muted/80 text-primary px-1.5 py-0.5 rounded text-[13px] font-mono"
@@ -600,16 +605,29 @@ function ChatMessage({
                           );
                         }
 
+                        // Fenced code block
+                        const language = match ? match[1] : "text";
                         return (
                           <div className="my-4 rounded-lg overflow-hidden border border-border/50">
-                            {match && (
-                              <div className="bg-muted/50 px-3 py-1.5 text-xs text-muted-foreground border-b border-border/50 font-mono">
-                                {match[1]}
-                              </div>
-                            )}
+                            <div className="flex items-center justify-between bg-muted/50 px-3 py-1.5 border-b border-border/50">
+                              <span className="text-xs text-muted-foreground font-mono">
+                                {language}
+                              </span>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-6 w-6 text-muted-foreground hover:text-foreground"
+                                onClick={() => {
+                                  navigator.clipboard.writeText(codeContent);
+                                }}
+                                title="Copy code"
+                              >
+                                <Copy className="h-3 w-3" />
+                              </Button>
+                            </div>
                             <SyntaxHighlighter
                               style={oneDark}
-                              language={match ? match[1] : "text"}
+                              language={language}
                               PreTag="div"
                               customStyle={{
                                 margin: 0,
@@ -620,7 +638,7 @@ function ChatMessage({
                                 background: "hsl(var(--muted) / 0.3)"
                               }}
                             >
-                              {String(children).replace(/\n$/, "")}
+                              {codeContent}
                             </SyntaxHighlighter>
                           </div>
                         );
