@@ -4,6 +4,7 @@
 """Kubernetes MCP Server - Provides tools for managing Kubernetes cluster resources."""
 
 import os
+import logging
 import json
 from dotenv import load_dotenv
 from fastmcp import FastMCP
@@ -12,8 +13,25 @@ from kubernetes.client.rest import ApiException
 
 load_dotenv()
 
-# Initialize FastMCP server
-mcp = FastMCP("Kubernetes MCP Server")
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+
+# Suppress DEBUG level messages from sse_starlette.sse
+logging.getLogger("sse_starlette.sse").setLevel(logging.INFO)
+logging.getLogger("mcp.server.lowlevel.server").setLevel(logging.INFO)
+
+# Get MCP configuration from environment variables
+MCP_MODE = os.getenv("MCP_MODE", "stdio")
+MCP_HOST = os.getenv("MCP_HOST", "0.0.0.0")
+MCP_PORT = int(os.getenv("MCP_PORT", "8000"))
+
+logging.info(f"Starting MCP server in {MCP_MODE} mode on {MCP_HOST}:{MCP_PORT}")
+
+# Initialize FastMCP server with appropriate transport
+if MCP_MODE.lower() in ["sse", "http"]:
+    mcp = FastMCP("Kubernetes MCP Server", host=MCP_HOST, port=MCP_PORT)
+else:
+    mcp = FastMCP("Kubernetes MCP Server")
 
 # Load Kubernetes configuration
 try:
