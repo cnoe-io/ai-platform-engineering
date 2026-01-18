@@ -56,6 +56,10 @@ export interface A2AResult {
 
   // Status update fields
   final?: boolean;
+
+  // Message result fields
+  parts?: MessagePart[];
+  role?: "user" | "agent";
 }
 
 export interface A2AError {

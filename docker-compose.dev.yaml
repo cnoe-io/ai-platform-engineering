@@ -788,8 +788,7 @@ services:
       retries: 3
       start_period: 30s
     profiles:
-      - ui
-      - all-agents
+      - caipe-ui
 
   ####################################################################################################
   #                                      RAG Services                                                #
