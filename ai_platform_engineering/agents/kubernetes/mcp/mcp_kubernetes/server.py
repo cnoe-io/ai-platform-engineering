@@ -881,3 +881,9 @@ def _get_node_roles(node) -> list:
                 role = label.split("/")[1]
                 roles.append(role)
     return roles if roles else ["worker"]
+
+
+# Run the server when executed directly
+if __name__ == "__main__":
+    logging.info(f"Running MCP server with transport: {MCP_MODE.lower()}")
+    mcp.run(transport=MCP_MODE.lower())
