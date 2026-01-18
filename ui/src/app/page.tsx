@@ -200,7 +200,7 @@ function HomePage() {
               collapsible
               collapsedSize="64px"
               onResize={(size) => {
-                const isCollapsed = size.percentage <= 5;
+                const isCollapsed = size.asPercentage <= 5;
                 if (isCollapsed !== sidebarCollapsed) {
                   setSidebarCollapsed(isCollapsed);
                 }
