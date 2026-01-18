@@ -606,40 +606,50 @@ function ChatMessage({
                         }
 
                         // Fenced code block
-                        const language = match ? match[1] : "text";
+                        const language = match ? match[1] : "";
+                        const shouldHighlight = match && language !== "text";
+                        
                         return (
-                          <div className="my-4 rounded-lg overflow-hidden border border-border/50">
-                            <div className="flex items-center justify-between bg-muted/50 px-3 py-1.5 border-b border-border/50">
-                              <span className="text-xs text-muted-foreground font-mono">
-                                {language}
+                          <div className="my-4 rounded-lg overflow-hidden border border-border/30 bg-[#1e1e2e]">
+                            <div className="flex items-center justify-between px-4 py-2 border-b border-border/20 bg-[#181825]">
+                              <span className="text-xs text-zinc-500 font-mono uppercase tracking-wide">
+                                {language || "plain text"}
                               </span>
                               <Button
                                 variant="ghost"
                                 size="icon"
-                                className="h-6 w-6 text-muted-foreground hover:text-foreground"
+                                className="h-6 w-6 text-zinc-500 hover:text-zinc-300 hover:bg-transparent"
                                 onClick={() => {
                                   navigator.clipboard.writeText(codeContent);
                                 }}
                                 title="Copy code"
                               >
-                                <Copy className="h-3 w-3" />
+                                <Copy className="h-3.5 w-3.5" />
                               </Button>
                             </div>
-                            <SyntaxHighlighter
-                              style={oneDark}
-                              language={language}
-                              PreTag="div"
-                              customStyle={{
-                                margin: 0,
-                                borderRadius: 0,
-                                padding: "1rem",
-                                fontSize: "13px",
-                                lineHeight: "1.5",
-                                background: "hsl(var(--muted) / 0.3)"
-                              }}
-                            >
-                              {codeContent}
-                            </SyntaxHighlighter>
+                            {shouldHighlight ? (
+                              <SyntaxHighlighter
+                                style={oneDark}
+                                language={language}
+                                PreTag="div"
+                                customStyle={{
+                                  margin: 0,
+                                  borderRadius: 0,
+                                  padding: "1rem 1.25rem",
+                                  fontSize: "13px",
+                                  lineHeight: "1.6",
+                                  background: "transparent"
+                                }}
+                              >
+                                {codeContent}
+                              </SyntaxHighlighter>
+                            ) : (
+                              <pre className="p-4 overflow-x-auto">
+                                <code className="text-[13px] leading-relaxed text-zinc-300 font-mono whitespace-pre-wrap">
+                                  {codeContent}
+                                </code>
+                              </pre>
+                            )}
                           </div>
                         );
                       },
