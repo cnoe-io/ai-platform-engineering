@@ -169,7 +169,7 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
         3. Supervisor accumulated content
 
         Returns: (content, is_datapart)
-        
+
         Note: Extracts content after [FINAL ANSWER] marker to filter out
         intermediate thinking/planning messages.
         """
