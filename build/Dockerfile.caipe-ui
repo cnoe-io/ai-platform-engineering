@@ -1,0 +1,63 @@
+# CAIPE UI Dockerfile
+# Multi-stage build for Next.js application with nginx reverse proxy
+# Pattern based on RAG webui Dockerfile
+
+# ---------- Stage 1: Install dependencies ----------
+FROM node:20-alpine AS deps
+RUN apk add --no-cache libc6-compat
+WORKDIR /app
+
+# Install dependencies with cache
+COPY ui/package.json ui/package-lock.json* ui/yarn.lock* ui/pnpm-lock.yaml* ./
+RUN if [ -f package-lock.json ]; then npm ci; \
+    elif [ -f yarn.lock ]; then yarn install --frozen-lockfile; \
+    elif [ -f pnpm-lock.yaml ]; then npm i -g pnpm && pnpm i --frozen-lockfile; \
+    else npm i; fi
+
+# ---------- Stage 2: Build application ----------
+FROM node:20-alpine AS build
+WORKDIR /app
+
+COPY --from=deps /app/node_modules ./node_modules
+COPY ui .
+
+# Build arguments for configuration
+ARG CAIPE_URL=http://caipe-supervisor:8000
+ENV NEXT_PUBLIC_CAIPE_URL=$CAIPE_URL
+
+# Disable telemetry during build
+ENV NEXT_TELEMETRY_DISABLED=1
+
+# Build Next.js standalone application
+RUN npm run build
+
+# ---------- Stage 3: Production runtime ----------
+FROM node:20-alpine AS runner
+WORKDIR /app
+
+ENV NODE_ENV=production
+ENV NEXT_TELEMETRY_DISABLED=1
+
+# Create non-root user
+RUN addgroup --system --gid 1001 nodejs && \
+    adduser --system --uid 1001 nextjs
+
+# Copy built standalone application
+COPY --from=build /app/public ./public
+COPY --from=build --chown=nextjs:nodejs /app/.next/standalone ./
+COPY --from=build --chown=nextjs:nodejs /app/.next/static ./.next/static
+
+USER nextjs
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
+    CMD wget --no-verbose --tries=1 --spider http://localhost:3000/api/health || exit 1
+
+EXPOSE 3000
+
+ENV PORT=3000
+ENV HOSTNAME="0.0.0.0"
+
+# Runtime environment variables can override build-time defaults
+# Set CAIPE_URL or NEXT_PUBLIC_CAIPE_URL at runtime
+CMD ["node", "server.js"]

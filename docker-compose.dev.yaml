@@ -760,6 +760,8 @@ services:
   # Features: Chat history, Chat UI with final output, A2A message stream visualization
   # Includes Use Cases gallery inspired by ag-ui composer
   #
+  # Build: Uses build/Dockerfile.caipe-ui (Next.js standalone with Node.js server)
+  #
   # Configuration:
   #   CAIPE_URL: URL of the CAIPE supervisor A2A endpoint
   #   - Default (dev): http://localhost:8000
@@ -767,8 +769,8 @@ services:
   #   - Override with: CAIPE_URL=http://your-host:port
   caipe-ui:
     build:
-      context: ./ui
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: build/Dockerfile.caipe-ui
       args:
         - CAIPE_URL=http://caipe-supervisor:8000
     container_name: caipe-ui
@@ -782,7 +784,7 @@ services:
     depends_on:
       - caipe-supervisor
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000"]
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/api/health"]
       interval: 30s
       timeout: 10s
       retries: 3
