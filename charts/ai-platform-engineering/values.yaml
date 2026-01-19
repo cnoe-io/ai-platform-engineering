@@ -8,9 +8,12 @@ tags:
   agent-confluence: false
   agent-github: false
   agent-gitlab: false
+  agent-istio: false
   agent-jira: false
   agent-komodor: false
+  agent-kubernetes: false
   agent-pagerduty: false
+  agent-signoz: false
   agent-slack: false
   agent-splunk: false
   agent-webex: false
@@ -258,6 +261,64 @@ agent-komodor:
   mcp:
     image:
       repository: "ghcr.io/cnoe-io/mcp-komodor"
+      # tag defaults to .Chart.AppVersion when not specified
+      tag: ""
+      pullPolicy: "Always"
+    mode: "http" # Options: stdio, http
+    port: 8000
+
+agent-kubernetes:
+  nameOverride: "agent-kubernetes"
+  image:
+    repository: "ghcr.io/cnoe-io/agent-kubernetes"
+    pullPolicy: "Always"
+  mcp:
+    image:
+      repository: "ghcr.io/cnoe-io/mcp-kubernetes"
+      # tag defaults to .Chart.AppVersion when not specified
+      tag: ""
+      pullPolicy: "Always"
+    mode: "http" # Options: stdio, http
+    port: 8000
+  # Kubernetes agent needs in-cluster RBAC
+  serviceAccount:
+    create: true
+    name: "agent-kubernetes"
+  rbac:
+    create: true
+    rules:
+      - apiGroups: [""]
+        resources: ["namespaces", "pods", "pods/log", "services", "nodes", "events", "configmaps", "secrets"]
+        verbs: ["get", "list", "watch"]
+      - apiGroups: ["apps"]
+        resources: ["deployments", "statefulsets", "daemonsets", "replicasets"]
+        verbs: ["get", "list", "watch", "patch", "update"]
+      - apiGroups: ["batch"]
+        resources: ["jobs", "cronjobs"]
+        verbs: ["get", "list", "watch"]
+
+agent-istio:
+  nameOverride: "agent-istio"
+  image:
+    repository: "ghcr.io/cnoe-io/agent-istio"
+    pullPolicy: "Always"
+  mcp:
+    image:
+      repository: "ghcr.io/cnoe-io/mcp-istio"
+      # tag defaults to .Chart.AppVersion when not specified
+      tag: ""
+      pullPolicy: "Always"
+    mode: "http" # Options: stdio, http
+    port: 8000
+
+agent-signoz:
+  nameOverride: "agent-signoz"
+  image:
+    repository: "ghcr.io/cnoe-io/agent-signoz"
+    pullPolicy: "Always"
+  mcp:
+    image:
+      repository: "ghcr.io/cnoe-io/mcp-signoz"
       # tag defaults to .Chart.AppVersion when not specified
       tag: ""
       pullPolicy: "Always"
