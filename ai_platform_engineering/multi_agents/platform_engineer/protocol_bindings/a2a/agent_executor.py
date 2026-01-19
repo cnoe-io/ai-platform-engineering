@@ -147,6 +147,20 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
             lines.append(f"- {checkbox} {item.get('step', '')}")
         return '\n'.join(lines)
 
+    def _extract_final_answer(self, content: str) -> str:
+        """
+        Extract content after [FINAL ANSWER] marker.
+        If marker not found, return original content.
+        """
+        marker = "[FINAL ANSWER]"
+        if marker in content:
+            # Extract everything after the marker
+            idx = content.find(marker)
+            final_content = content[idx + len(marker):].strip()
+            logger.debug(f"Extracted final answer: {len(final_content)} chars (marker found at pos {idx})")
+            return final_content
+        return content
+
     def _get_final_content(self, state: StreamState) -> tuple:
         """
         Get final content with priority order:
@@ -155,13 +169,18 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
         3. Supervisor accumulated content
 
         Returns: (content, is_datapart)
+        
+        Note: Extracts content after [FINAL ANSWER] marker to filter out
+        intermediate thinking/planning messages.
         """
         if state.sub_agent_datapart:
             return state.sub_agent_datapart, True
         if state.sub_agent_content:
-            return ''.join(state.sub_agent_content), False
+            raw_content = ''.join(state.sub_agent_content)
+            return self._extract_final_answer(raw_content), False
         if state.supervisor_content:
-            return ''.join(state.supervisor_content), False
+            raw_content = ''.join(state.supervisor_content)
+            return self._extract_final_answer(raw_content), False
         return '', False
 
     def _is_tool_notification(self, content: str, event: dict) -> bool:
