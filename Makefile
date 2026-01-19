@@ -15,7 +15,8 @@ APP_NAME ?= ai-platform-engineering
 	generate-docker-compose generate-docker-compose-dev generate-docker-compose-all clean-docker-compose \
 	lint lint-fix test test-compose-generator test-compose-generator-coverage \
 	test-rag-unit test-rag-coverage test-rag-memory test-rag-scale validate lock-all help \
-	beads-gh-issues-sync beads-gh-issues-sync-run beads-list beads-ready beads-sync
+	beads-gh-issues-sync beads-gh-issues-sync-run beads-list beads-ready beads-sync \
+	caipe-ui caipe-ui-install caipe-ui-build caipe-ui-dev
 
 .DEFAULT_GOAL := run
 
@@ -113,6 +114,22 @@ run-ai-platform-engineer: setup-venv ## Run the AI Platform Engineering Multi-Ag
 langgraph-dev: setup-venv ## Run langgraph in development mode
 	@echo "Running langgraph dev..."
 	@. .venv/bin/activate && uv add langgraph-cli[inmem] --dev && uv sync --dev && cd ai_platform_engineering/multi_agents/platform_engineer && LANGGRAPH_DEV=true langgraph dev
+
+## ========== CAIPE UI ==========
+
+caipe-ui: caipe-ui-install caipe-ui-dev ## Build and run the CAIPE UI (install + dev server)
+
+caipe-ui-install: ## Install CAIPE UI dependencies
+	@echo "Installing CAIPE UI dependencies..."
+	@cd ui && npm install
+
+caipe-ui-build: caipe-ui-install ## Build CAIPE UI for production
+	@echo "Building CAIPE UI for production..."
+	@cd ui && npm run build
+
+caipe-ui-dev: ## Run CAIPE UI in development mode
+	@echo "Starting CAIPE UI development server..."
+	@cd ui && npm run dev
 
 ## ========== Lint ==========
 
