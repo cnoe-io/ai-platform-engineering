@@ -22,7 +22,7 @@ jobs:
 
     steps:
       - name: 📥 Download version bump status artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: version-bump-status
           run-id: ${{ github.event.workflow_run.id }}
@@ -59,7 +59,7 @@ jobs:
       - name: 🔍 Get PR details
         if: steps.bump-status.outputs.skip != 'true'
         id: pr-info
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           script: |
             const prNumber = '${{ steps.bump-status.outputs.pr_number }}';
@@ -360,7 +360,7 @@ jobs:
 
       - name: 💬 Comment on PR
         if: steps.bump-status.outputs.skip != 'true' && steps.should-run.outputs.should_run == 'true' && steps.version-check.outputs.skip != 'true'
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           script: |
             const registry = `ghcr.io/${{ github.repository_owner }}/pre-release-helm-charts`;
