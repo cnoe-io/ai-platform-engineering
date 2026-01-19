@@ -774,7 +774,7 @@ services:
       args:
         - CAIPE_URL=http://caipe-supervisor:8000
     container_name: caipe-ui
-    ports: ["3001:3000"]
+    ports: ["3000:3000"]
     env_file:
       - .env
     environment:
@@ -786,7 +786,7 @@ services:
       # NextAuth configuration (required for production)
       # Generate a secret with: openssl rand -base64 32
       - NEXTAUTH_SECRET=${NEXTAUTH_SECRET:-caipe-dev-secret-change-in-production}
-      - NEXTAUTH_URL=${NEXTAUTH_URL:-http://localhost:3001}
+      - NEXTAUTH_URL=${NEXTAUTH_URL:-http://localhost:3000}
       # SSO Configuration - reads from .env file
       # Map OIDC_* variables from .env to CAIPE_UI_OIDC_* expected by the app
       - CAIPE_UI_OIDC_ENABLED=${OIDC_ENABLED:-false}
