@@ -1,0 +1,349 @@
+name: "[CI] CAIPE UI Build and Push"
+description: "Build and push CAIPE UI Docker image"
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'ui/**'
+      - 'build/Dockerfile.caipe-ui'
+    tags:
+      - '**'
+  pull_request:
+    paths:
+      - 'ui/**'
+      - 'build/Dockerfile.caipe-ui'
+  workflow_dispatch:
+    inputs:
+      tag_version:
+        description: 'Version tag to apply (e.g., 0.2.8-rc.1)'
+        required: false
+        type: string
+
+jobs:
+  determine-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      should_build: ${{ steps.set-outputs.outputs.should_build }}
+      should_retag: ${{ steps.set-outputs.outputs.should_retag }}
+      tag_version: ${{ steps.version.outputs.tag_version }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Determine Tag
+        id: version
+        uses: ./.github/actions/determine-release-tag
+        with:
+          manual_tag: ${{ inputs.tag_version }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Detect changed paths
+        id: filter
+        uses: dorny/paths-filter@v3.0.2
+        with:
+          filters: |
+            ui:
+              - 'ui/**'
+              - 'build/Dockerfile.caipe-ui'
+
+      - name: Set Outputs
+        id: set-outputs
+        env:
+          UI_CHANGED: ${{ steps.filter.outputs.ui }}
+          TAG_VERSION: ${{ steps.version.outputs.tag_version }}
+        run: |
+          SHOULD_BUILD="false"
+          SHOULD_RETAG="false"
+          TAG_VERSION="${{ env.TAG_VERSION }}"
+
+          # Check if this is an RC tag
+          if [[ "$TAG_VERSION" =~ -rc\.[0-9]+$ ]]; then
+            IS_RC="true"
+          else
+            IS_RC="false"
+          fi
+
+          if [ -n "$TAG_VERSION" ]; then
+            if [ "$IS_RC" == "true" ]; then
+              if [ "$UI_CHANGED" == "true" ]; then
+                SHOULD_BUILD="true"
+                echo "🔨 RC tag with UI changes: building"
+              else
+                SHOULD_RETAG="true"
+                echo "🏷️ RC tag without UI changes: retagging"
+              fi
+            else
+              SHOULD_BUILD="true"
+              echo "🚀 Final release: building"
+            fi
+          elif [ "${{ github.ref }}" == "refs/heads/main" ]; then
+            SHOULD_BUILD="true"
+            echo "📦 Push to main: building"
+          elif [ "$UI_CHANGED" == "true" ]; then
+            SHOULD_BUILD="true"
+            echo "🔍 UI files changed: building"
+          fi
+
+          echo "should_build=$SHOULD_BUILD" >> $GITHUB_OUTPUT
+          echo "should_retag=$SHOULD_RETAG" >> $GITHUB_OUTPUT
+          echo "Outputs: build=$SHOULD_BUILD, retag=$SHOULD_RETAG, is_rc=$IS_RC"
+
+  build-and-push:
+    runs-on: ubuntu-latest
+    needs: determine-changes
+    if: needs.determine-changes.outputs.should_build == 'true'
+    permissions:
+      contents: read
+      packages: write
+
+    env:
+      REGISTRY: ghcr.io
+      IMAGE_NAME: ${{ github.repository_owner }}/caipe-ui
+      DOCKERFILE: build/Dockerfile.caipe-ui
+
+    steps:
+      - name: 🔒 Harden runner
+        uses: step-security/harden-runner@20cf305ff2072d973412fa9b1e3a4f227bda3c76 # v2.14.0
+        with:
+          egress-policy: audit
+
+      - name: Free disk space
+        run: |
+          echo "Disk usage before cleanup:"
+          df -h
+          sudo apt-get remove -y '^ghc-*' || true
+          sudo apt-get remove -y '^dotnet-*' || true
+          sudo apt-get remove -y '^llvm-*' || true
+          sudo apt-get remove -y 'php*' || true
+          sudo apt-get remove -y azure-cli google-cloud-cli hhvm google-chrome-stable firefox powershell mono-devel || true
+          sudo apt-get autoremove -y
+          sudo apt-get clean
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /opt/hostedtoolcache/CodeQL
+          sudo rm -rf /usr/local/share/boost
+          sudo rm -rf "$AGENT_TOOLSDIRECTORY"
+          docker system prune -af --volumes || true
+          echo "Disk usage after cleanup:"
+          df -h
+
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata for Docker
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=latest,enable=${{ github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' }}
+            type=raw,value=${{ needs.determine-changes.outputs.tag_version }},enable=${{ needs.determine-changes.outputs.tag_version != '' }}
+            type=ref,event=branch,prefix=
+            type=ref,event=tag,prefix=
+            type=sha,format=short,prefix=
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Build and Push Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ env.DOCKERFILE }}
+          push: ${{ github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/') }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          platforms: linux/amd64,linux/arm64
+          cache-from: type=gha
+          cache-to: type=gha,mode=min
+          build-args: |
+            CAIPE_URL=http://caipe-supervisor:8000
+            BUILDKIT_INLINE_CACHE=1
+          provenance: false
+          sbom: false
+
+  retag-unchanged:
+    runs-on: ubuntu-latest
+    needs: determine-changes
+    if: needs.determine-changes.outputs.should_retag == 'true'
+    permissions:
+      contents: read
+      packages: write
+
+    env:
+      REGISTRY: ghcr.io
+      IMAGE_NAME: ${{ github.repository_owner }}/caipe-ui
+      DOCKERFILE: build/Dockerfile.caipe-ui
+
+    steps:
+      - name: 🔒 Harden runner
+        uses: step-security/harden-runner@20cf305ff2072d973412fa9b1e3a4f227bda3c76 # v2.14.0
+        with:
+          egress-policy: audit
+
+      - name: 📦 Install crane
+        run: |
+          VERSION="v0.20.2"
+          curl -sL "https://github.com/google/go-containerregistry/releases/download/${VERSION}/go-containerregistry_Linux_x86_64.tar.gz" | tar xz crane
+          sudo mv crane /usr/local/bin/
+
+      - name: 🔐 Log in to registry
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "$GH_TOKEN" | crane auth login ghcr.io -u ${{ github.actor }} --password-stdin
+
+      - name: 🔍 Check source image and retag or build
+        id: retag-or-build
+        env:
+          TAG_VERSION: ${{ needs.determine-changes.outputs.tag_version }}
+        run: |
+          FULL_IMAGE="${REGISTRY}/${IMAGE_NAME}"
+          echo "🏷️ Processing caipe-ui..."
+
+          if [[ "$TAG_VERSION" =~ ^(.+)-rc\.([0-9]+)$ ]]; then
+            BASE_VERSION="${BASH_REMATCH[1]}"
+            RC_NUM="${BASH_REMATCH[2]}"
+
+            if [[ "$RC_NUM" -gt 1 ]]; then
+              PREV_RC=$((RC_NUM - 1))
+              SOURCE_TAG="${BASE_VERSION}-rc.${PREV_RC}"
+            else
+              SOURCE_TAG="${BASE_VERSION}"
+            fi
+          else
+            SOURCE_TAG="latest"
+          fi
+
+          echo "  Source: ${SOURCE_TAG}"
+          echo "  Target: ${TAG_VERSION}"
+
+          if crane manifest "${FULL_IMAGE}:${SOURCE_TAG}" >/dev/null 2>&1; then
+            echo "  ✅ Source image exists, retagging..."
+            if crane tag "${FULL_IMAGE}:${SOURCE_TAG}" "${TAG_VERSION}"; then
+              echo "  ✅ Successfully retagged from ${SOURCE_TAG}"
+              echo "needs_build=false" >> $GITHUB_OUTPUT
+            else
+              echo "  ⚠️ Retag failed unexpectedly, will build instead"
+              echo "needs_build=true" >> $GITHUB_OUTPUT
+            fi
+          else
+            echo "  ⚠️ Source image ${SOURCE_TAG} not found"
+            echo "  📦 Will build fresh instead"
+            echo "needs_build=true" >> $GITHUB_OUTPUT
+          fi
+
+      # Fallback build if retag not possible
+      - name: Free disk space
+        if: steps.retag-or-build.outputs.needs_build == 'true'
+        run: |
+          echo "Disk usage before cleanup:"
+          df -h
+          sudo apt-get remove -y '^ghc-*' || true
+          sudo apt-get remove -y '^dotnet-*' || true
+          sudo apt-get remove -y '^llvm-*' || true
+          sudo apt-get remove -y 'php*' || true
+          sudo apt-get remove -y azure-cli google-cloud-cli hhvm google-chrome-stable firefox powershell mono-devel || true
+          sudo apt-get autoremove -y
+          sudo apt-get clean
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /opt/hostedtoolcache/CodeQL
+          sudo rm -rf /usr/local/share/boost
+          sudo rm -rf "$AGENT_TOOLSDIRECTORY"
+          docker system prune -af --volumes || true
+          echo "Disk usage after cleanup:"
+          df -h
+
+      - name: Checkout repository
+        if: steps.retag-or-build.outputs.needs_build == 'true'
+        uses: actions/checkout@v6
+
+      - name: Set up Docker Buildx
+        if: steps.retag-or-build.outputs.needs_build == 'true'
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        if: steps.retag-or-build.outputs.needs_build == 'true'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up QEMU
+        if: steps.retag-or-build.outputs.needs_build == 'true'
+        uses: docker/setup-qemu-action@v3
+
+      - name: 🔨 Build and Push (fallback)
+        if: steps.retag-or-build.outputs.needs_build == 'true'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ env.DOCKERFILE }}
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.determine-changes.outputs.tag_version }}
+          platforms: linux/amd64,linux/arm64
+          cache-from: type=gha
+          cache-to: type=gha,mode=min
+          build-args: |
+            CAIPE_URL=http://caipe-supervisor:8000
+            BUILDKIT_INLINE_CACHE=1
+          provenance: false
+          sbom: false
+
+  # Notify release-finalize workflow when this CI completes
+  notify-release:
+    runs-on: ubuntu-latest
+    needs: [determine-changes, build-and-push, retag-unchanged]
+    if: |
+      always() &&
+      needs.determine-changes.outputs.tag_version != '' &&
+      !contains(needs.determine-changes.outputs.tag_version, '-rc.')
+    steps:
+      - name: 🔔 Notify release finalize
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG_VERSION: ${{ needs.determine-changes.outputs.tag_version }}
+        run: |
+          BUILD_RESULT="${{ needs.build-and-push.result }}"
+          RETAG_RESULT="${{ needs.retag-unchanged.result }}"
+
+          if [[ "$BUILD_RESULT" == "skipped" ]]; then BUILD_RESULT="success"; fi
+          if [[ "$RETAG_RESULT" == "skipped" ]]; then RETAG_RESULT="success"; fi
+
+          if [[ "$BUILD_RESULT" == "success" && "$RETAG_RESULT" == "success" ]]; then
+            CONCLUSION="success"
+          else
+            CONCLUSION="failure"
+          fi
+
+          echo "🔔 Notifying release-finalize: tag=$TAG_VERSION, conclusion=$CONCLUSION"
+
+          gh api /repos/${{ github.repository }}/dispatches --input - <<EOF
+          {
+            "event_type": "ci-completed",
+            "client_payload": {
+              "tag": "$TAG_VERSION",
+              "workflow": "${{ github.workflow }}",
+              "conclusion": "$CONCLUSION"
+            }
+          }
+          EOF
