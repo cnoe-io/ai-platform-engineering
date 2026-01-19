@@ -146,9 +146,11 @@ build-caipe-ui: ## Build CAIPE UI Docker image locally
 run-caipe-ui-docker: build-caipe-ui ## Run CAIPE UI container locally (requires caipe-supervisor)
 	@echo "Running CAIPE UI container..."
 	docker run --rm -it \
-		-p 3001:3000 \
+		-p 3000:3000 \
 		-e NEXT_PUBLIC_CAIPE_URL=http://localhost:8000 \
 		-e CAIPE_URL=http://localhost:8000 \
+		-e NEXTAUTH_SECRET=caipe-dev-secret \
+		-e NEXTAUTH_URL=http://localhost:3000 \
 		--name caipe-ui-local \
 		$(CAIPE_UI_IMAGE):$(CAIPE_UI_TAG)
 
