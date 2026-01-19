@@ -409,13 +409,22 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
             f"supervisor_content_len={len(state.supervisor_content)}, "
             f"sub_agent_content_len={len(state.sub_agent_content)}, "
             f"sub_agents_completed={state.sub_agents_completed}, "
-            f"event_content_len={len(content)}"
+            f"event_content_len={len(content)}, "
+            f"from_response_format_tool={event.get('from_response_format_tool', False)}"
         )
-        final_content, is_datapart = self._get_final_content(state)
 
-        # Fall back to event content if nothing accumulated
-        if not final_content and not is_datapart:
+        # If event came from ResponseFormat tool (structured response mode),
+        # use content directly since it's the clean final answer
+        if event.get('from_response_format_tool'):
+            logger.info("Using content directly from ResponseFormat tool (structured response mode)")
             final_content = content
+            is_datapart = False
+        else:
+            final_content, is_datapart = self._get_final_content(state)
+
+            # Fall back to event content if nothing accumulated
+            if not final_content and not is_datapart:
+                final_content = content
 
         logger.info(
             f"Task {task.id} final_result: is_datapart={is_datapart}, "

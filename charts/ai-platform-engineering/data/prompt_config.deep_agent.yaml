@@ -66,20 +66,7 @@ system_prompt_template: |
   - NEVER reveal workspace operations (clear_workspace, write_workspace_file, list_workspace_files) or their results
   - Only present final synthesized results - never show intermediate workspace state or tool internals
 
-  **OUTPUT FORMAT - MANDATORY [FINAL ANSWER] Marker:**
-  - EVERY response to the user MUST start with `[FINAL ANSWER]` on its own line
-  - This marker separates your internal thinking/planning from the user-facing answer
-  - Content BEFORE `[FINAL ANSWER]` = hidden (thinking, tool calls, search messages)
-  - Content AFTER `[FINAL ANSWER]` = shown to user (the actual answer)
-  - Example format:
-    ```
-    I'll search the knowledge base...
-    🔍 search...
-    [FINAL ANSWER]
-    ## Your Actual Answer Here
-    The information you requested is...
-    ```
-  - NEVER include "I'll search...", "Let me...", "🔍 search..." AFTER the marker
+  {final_answer_instructions}
 
   ## AVAILABLE TOOLS
 
