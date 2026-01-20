@@ -378,6 +378,22 @@ Use this as the reference point for all date calculations. When users say "today
         logger.warning(f"{self.get_agent_name()}: Truncated {tool_name} output from {len(output_str)} to {max_size} chars")
         return truncated + truncation_notice, True
 
+    def _filter_mcp_tools(self, tools: list) -> list:
+        """
+        Filter MCP tools before they are wrapped with error handling.
+
+        Subclasses can override this to remove unwanted tools based on
+        environment variables or other criteria (e.g., blocking create/update/delete
+        operations based on read-only mode settings).
+
+        Args:
+            tools: List of tools from MCP client
+
+        Returns:
+            Filtered list of tools (default: no filtering)
+        """
+        return tools
+
     def _wrap_mcp_tools(self, tools: list, context_id: str) -> list:
         """
         Wrap MCP tools with error handling to prevent exceptions from closing A2A streams.
@@ -532,6 +548,9 @@ Use this as the reference point for all date calculations. When users say "today
         # Get tools from MCP client
         tools = await client.get_tools()
 
+        # Allow subclasses to filter tools (e.g., based on environment variables)
+        tools = self._filter_mcp_tools(tools)
+
         # Allow subclasses to wrap tools (e.g., for error handling)
         tools = self._wrap_mcp_tools(tools, args.get("thread_id", "default"))
 
@@ -607,8 +626,16 @@ Use this as the reference point for all date calculations. When users say "today
         # Create the react agent graph
         logger.info(f"🔧 Creating {agent_name} agent graph with {len(tools)} tools...")
 
+        # Configure model with agent name for proper tracing
+        # This ensures LangGraph observations show the agent name instead of generic "agent"
+        model_with_name = self.model.with_config(
+            run_name=agent_name,
+            tags=[f"agent:{agent_name}"],
+            metadata={"agent_name": agent_name}
+        )
+
         self.graph = create_react_agent(
-            self.model,
+            model_with_name,
             tools,
             checkpointer=memory,
             prompt=self._get_system_instruction_with_date(),

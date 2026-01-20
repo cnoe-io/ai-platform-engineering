@@ -41,13 +41,15 @@ export const ingestUrl = async (params: {
     sitemap_max_urls?: number;
     description?: string;
     ingest_type?: string;
+    get_child_pages?: boolean;
 }): Promise<{ datasource_id: string | null; job_id: string | null; message: string }> => {
     // Route to appropriate endpoint based on ingest_type
     if (params.ingest_type === 'confluence') {
         // Use dedicated confluence endpoint
         const response = await api.post('/v1/ingest/confluence/page', {
             url: params.url,
-            description: params.description || ''
+            description: params.description || '',
+            get_child_pages: params.get_child_pages || false
         });
         return response.data;
     } else {

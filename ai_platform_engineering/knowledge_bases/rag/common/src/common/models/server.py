@@ -59,6 +59,7 @@ class WebIngestorCommand(str, Enum):
 class ConfluenceIngestRequest(BaseModel):
     url: str = Field(..., description="Confluence page URL (e.g., 'https://domain.atlassian.net/wiki/spaces/SPACE/pages/PAGE_ID/Title')")
     description: str = Field("", description="Description for this data source")
+    get_child_pages: bool = Field(False, description="Whether to ingest direct child pages of this page")
 
 class ConfluenceReloadRequest(BaseModel):
     datasource_id: str = Field(..., description="ID of the Confluence datasource to reload")

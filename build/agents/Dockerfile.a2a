@@ -51,6 +51,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     unzip \
     jq \
+    nodejs \
+    npm \
+    git \
+    wget \
+    grep \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
@@ -90,6 +95,30 @@ RUN ARCH=$(uname -m) && \
     tar -xzf gh.tar.gz && \
     mv gh_${GH_VERSION}_linux_${GH_ARCH}/bin/gh /usr/local/bin/gh && \
     rm -rf gh.tar.gz gh_${GH_VERSION}_linux_${GH_ARCH}
+
+# Install GitLab CLI (architecture-aware)
+RUN ARCH=$(uname -m) && \
+    if [ "$ARCH" = "aarch64" ] || [ "$ARCH" = "arm64" ]; then \
+        GLAB_ARCH="arm64"; \
+    else \
+        GLAB_ARCH="amd64"; \
+    fi && \
+    GLAB_VERSION="1.80.4" && \
+    curl -sL "https://gitlab.com/gitlab-org/cli/-/releases/v${GLAB_VERSION}/downloads/glab_${GLAB_VERSION}_linux_${GLAB_ARCH}.tar.gz" -o glab.tar.gz && \
+    tar -xzf glab.tar.gz && \
+    mv bin/glab /usr/local/bin/glab && \
+    rm -rf glab.tar.gz gh_${GLAB_VERSION}_linux_${GLAB_ARCH}
+
+# Install yq (YAML processor like jq for JSON)
+RUN ARCH=$(uname -m) && \
+    if [ "$ARCH" = "aarch64" ] || [ "$ARCH" = "arm64" ]; then \
+        YQ_ARCH="arm64"; \
+    else \
+        YQ_ARCH="amd64"; \
+    fi && \
+    YQ_VERSION="v4.44.1" && \
+    curl -sfL --retry 5 --retry-delay 3 "https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_${YQ_ARCH}" -o /usr/local/bin/yq && \
+    chmod +x /usr/local/bin/yq
 
 # Create appuser in final image
 RUN groupadd -r appuser && useradd -r -g appuser -u 1001 -m appuser

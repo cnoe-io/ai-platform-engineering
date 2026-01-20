@@ -48,6 +48,7 @@ services:
       - AWS_AGENT_HOST=agent-aws
       - BACKSTAGE_AGENT_HOST=agent-backstage
       - CONFLUENCE_AGENT_HOST=agent-confluence
+      - GITLAB_AGENT_HOST=agent-gitlab
       - GITHUB_AGENT_HOST=agent-github
       - JIRA_AGENT_HOST=agent-jira
       - KOMODOR_AGENT_HOST=agent-komodor
@@ -62,6 +63,9 @@ services:
       - RAG_SERVER_URL=${RAG_SERVER_URL:-http://rag_server:9446}
       - ENABLE_RAG=${ENABLE_RAG:-false}
 
+      # GitHub Token for git operations
+      - GITHUB_TOKEN=${GITHUB_PERSONAL_ACCESS_TOKEN}
+
       # The following ENABLE_* environment variables control the activation of individual sub-agents for multi-agent orchestration.
       # In .env file, set each variable to 'true' to enable the corresponding agent, or 'false' to disable it.
       # Example: ENABLE_ARGOCD=true enables the ArgoCD agent, allowing the platform engineer to route tasks related to Kubernetes application management.
@@ -73,6 +77,7 @@ services:
       - ENABLE_BACKSTAGE=${ENABLE_BACKSTAGE:-false}
       - ENABLE_CONFLUENCE=${ENABLE_CONFLUENCE:-false}
       - ENABLE_GITHUB=${ENABLE_GITHUB:-false}
+      - ENABLE_GITLAB=${ENABLE_GITLAB:-false}
       - ENABLE_JIRA=${ENABLE_JIRA:-false}
       - ENABLE_KOMODOR=${ENABLE_KOMODOR:-false}
       - ENABLE_PAGERDUTY=${ENABLE_PAGERDUTY:-false}
@@ -91,6 +96,7 @@ services:
       - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
       - LANGFUSE_SESSION_ID=${LANGFUSE_SESSION_ID:-ai-platform-engineering}
       - LANGFUSE_USER_ID=${LANGFUSE_USER_ID:-platform-engineer}
+      - OTEL_EXPORTER_OTLP_TIMEOUT=${OTEL_EXPORTER_OTLP_TIMEOUT:-30000}
     command: platform-engineer
 
   ####################################################################################################
@@ -147,6 +153,7 @@ services:
       - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
       - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
       - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
+      - OTEL_EXPORTER_OTLP_TIMEOUT=${OTEL_EXPORTER_OTLP_TIMEOUT:-30000}
       - AWS_REGION=${AWS_REGION}
       - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
       - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
@@ -192,6 +199,7 @@ services:
       - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
       - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
       - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
+      - OTEL_EXPORTER_OTLP_TIMEOUT=${OTEL_EXPORTER_OTLP_TIMEOUT:-30000}
     profiles:
       - petstore
       - all-agents
@@ -218,6 +226,7 @@ services:
       - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
       - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
       - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
+      - OTEL_EXPORTER_OTLP_TIMEOUT=${OTEL_EXPORTER_OTLP_TIMEOUT:-30000}
       - GH_TOKEN=${GITHUB_PERSONAL_ACCESS_TOKEN}  # gh CLI authentication
     # Docker socket mount is only needed when MCP_MODE=stdio
     # For local Github Offical MCP server execution.
@@ -225,6 +234,33 @@ services:
     # volumes: ["/var/run/docker.sock:/var/run/docker.sock"]
     profiles:
       - github
+      - all-agents
+
+  # GitLab
+  agent-gitlab:
+    build:
+      context: .
+      dockerfile: build/agents/Dockerfile.a2a
+      args:
+        - AGENT_NAME=gitlab # key for tracing
+    container_name: agent-gitlab
+    volumes:
+      - ./charts/ai-platform-engineering/data/prompt_config.gitlab_agent.yaml:/app/prompt_config.gitlab_agent.yaml
+      - ./ai_platform_engineering/agents/gitlab/agent_gitlab:/app/ai_platform_engineering/agents/agent/agent_gitlab
+      - ./ai_platform_engineering/utils:/app/ai_platform_engineering/utils
+    env_file: [.env]
+    ports: ["8014:8000"]
+    environment:
+      - A2A_TRANSPORT=${A2A_TRANSPORT:-p2p}
+      - MCP_MODE=stdio
+      - SLIM_ENDPOINT=${SLIM_ENDPOINT:-http://slim-dataplane:46357}
+      - ENABLE_TRACING=${ENABLE_TRACING:-false}
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
+      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
+      - OTEL_EXPORTER_OTLP_TIMEOUT=${OTEL_EXPORTER_OTLP_TIMEOUT:-30000}
+    profiles:
+      - gitlab
       - all-agents
 
   # Weather Agent
@@ -707,7 +743,7 @@ services:
 
   # Backstage Plugin (Agent Forge)
   backstage-agent-forge:
-    image: ghcr.io/cnoe-io/backstage-plugin-agent-forge:latest
+    image: ghcr.io/cnoe-io/backstage-plugin-agent-forge:0.2.7
     container_name: backstage-agent-forge
     ports: ["13000:3000"]
     environment:
@@ -1086,6 +1122,7 @@ services:
       - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
       - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
       - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
+      - OTEL_EXPORTER_OTLP_TIMEOUT=${OTEL_EXPORTER_OTLP_TIMEOUT:-30000}
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
     volumes:

@@ -8,11 +8,11 @@ Mirrors the webloader ingestor pattern:
 
 import os
 import asyncio
+import json
 import re
 import time
 import traceback
-from typing import Set, List, Dict, Optional
-from urllib.parse import urlparse
+from typing import Set, List, Dict, Optional, Any
 from redis.asyncio import Redis
 from common.ingestor import IngestorBuilder, Client
 from common.models.rag import DataSourceInfo
@@ -29,7 +29,7 @@ from common.constants import (
     CONFLUENCE_INGESTOR_TYPE,
 )
 from common.utils import get_logger
-from loader import ConfluenceLoader, create_confluence_session, generate_datasource_id
+from loader import ConfluenceLoader, generate_datasource_id
 
 logger = get_logger(__name__)
 
@@ -59,8 +59,6 @@ RELOAD_INTERVAL = int(
 )  # 24 hours default
 MAX_CONCURRENCY = int(os.environ.get("CONFLUENCE_MAX_CONCURRENCY", "5"))
 MAX_INGESTION_TASKS = int(os.environ.get("CONFLUENCE_MAX_INGESTION_TASKS", "5"))
-CONFLUENCE_API_PAGE_LIMIT = 100  # Pages per API call
-RELOAD_RECENT_THRESHOLD = 60  # Seconds to skip recently updated datasources
 
 
 def _create_datasource_info(
@@ -68,9 +66,9 @@ def _create_datasource_info(
     ingestor_id: str,
     space_key: str,
     description: str,
-    page_ids: Optional[List[str]] = None,
+    page_configs: Optional[List[Dict[str, Any]]] = None,
 ) -> DataSourceInfo:
-    """Create DataSourceInfo with consistent metadata structure."""
+    """Create DataSourceInfo with page_configs metadata structure."""
     return DataSourceInfo(
         datasource_id=datasource_id,
         ingestor_id=ingestor_id,
@@ -78,120 +76,95 @@ def _create_datasource_info(
         source_type="confluence",
         metadata={
             "space_key": space_key,
-            "page_ids": page_ids,
+            "page_configs": page_configs or [],
             "confluence_url": CONFLUENCE_URL,
         },
-        last_updated=0,
+        last_updated=int(time.time()),
         default_chunk_size=1000,
         default_chunk_overlap=200,
     )
 
 
-def parse_confluence_spaces(spaces_config: str) -> Dict[str, Optional[List[str]]]:
-    """Parse CONFLUENCE_SPACES environment variable.
+def parse_confluence_spaces_json(spaces_config: str) -> Dict[str, List[Dict[str, Any]]]:
+    """Parse CONFLUENCE_SPACES environment variable as JSON.
 
-    Formats:
-    - "SPACE" -> {"SPACE": None}  # Entire space
-    - "SPACE:123" -> {"SPACE": ["123"]}  # Specific page
-    - "SPACE:123:456" -> {"SPACE": ["123", "456"]}  # Multiple pages
-    - "SPACE1,SPACE2:123,SPACE3" -> mixed formats
+    Format: JSON object mapping space keys to page configurations.
+    {
+        "SPACE_KEY": [
+            {"page_id": 123, "source": "url", "get_child_pages": false},
+            {"page_id": 456, "get_child_pages": true}
+        ],
+        "SPACE2": []
+    }
+
+    Empty array = fetch entire space.
 
     Returns:
-        Dict mapping space_key to page_ids (None = entire space)
+        Dict[space_key, List[page_configs]]
+
+    Raises:
+        ValueError: If JSON is invalid or schema doesn't match
     """
     if not spaces_config:
         return {}
 
-    result = {}
-    space_entries = spaces_config.split(",")
+    try:
+        config = json.loads(spaces_config)
+    except json.JSONDecodeError as e:
+        raise ValueError(f"CONFLUENCE_SPACES must be valid JSON: {e}")
 
-    for entry in space_entries:
-        entry = entry.strip()
-        if ":" in entry:
-            parts = entry.split(":", 1)
-            space_key = parts[0].strip()
-            pages = parts[1]
-            page_ids = [p.strip() for p in pages.split(":") if p.strip()]
-            result[space_key] = page_ids
+    if not isinstance(config, dict):
+        raise ValueError("CONFLUENCE_SPACES must be a JSON object")
+
+    # Validate structure
+    for space_key, page_configs in config.items():
+        if page_configs is None:
+            # Convert None to empty list
+            config[space_key] = []
+        elif isinstance(page_configs, list):
+            for idx, page_config in enumerate(page_configs):
+                if not isinstance(page_config, dict):
+                    raise ValueError(
+                        f"Space {space_key} page {idx}: must be object, got {type(page_config)}"
+                    )
+
+                # Validate required fields
+                if "page_id" not in page_config:
+                    raise ValueError(
+                        f"Space {space_key} page {idx}: missing required 'page_id' field"
+                    )
+
+                # Coerce page_id to string
+                page_config["page_id"] = str(page_config["page_id"])
+
+                # Set defaults for optional fields
+                if "get_child_pages" not in page_config:
+                    page_config["get_child_pages"] = False
+
+                if "source" not in page_config:
+                    page_config["source"] = None
         else:
-            result[entry] = None  # None = entire space
+            raise ValueError(
+                f"Space {space_key}: value must be list or null, got {type(page_configs)}"
+            )
 
-    return result
+    return config
 
 
-async def fetch_space_pages_http(
-    session, confluence_url: str, space_key: str, page_ids: Optional[List[str]] = None
-) -> List[Dict]:
-    """Fetch pages from Confluence space via REST API.
+async def track_fetch_failures(
+    job_manager: JobManager, job_id: str, failed_pages: List[tuple[str, str]]
+) -> None:
+    """Track fetch failures in job manager without incrementing progress.
 
-    Uses v1 API (/rest/api/content) which is more stable and widely supported.
-    If page_ids provided, fetch only those. Otherwise, enumerate all.
-    Uses pagination with limit=100.
+    Progress is tracked separately when pages are processed.
+
+    Args:
+        job_manager: Job manager instance
+        job_id: Job ID to update
+        failed_pages: List of (page_id, error_msg) tuples
     """
-    logger.info(
-        f"fetch_space_pages_http called with space_key={space_key}, page_ids={page_ids}"
-    )
-    pages = []
-
-    if page_ids:
-        # Fetch specific pages by ID
-        for page_id in page_ids:
-            try:
-                url = f"{confluence_url}/rest/api/content/{page_id}"
-                params = {"expand": "body.storage,version,space,history"}
-                async with session.get(url, params=params) as resp:
-                    if resp.status == 200:
-                        page = await resp.json()
-                        pages.append(page)
-                    else:
-                        text = await resp.text()
-                        logger.warning(
-                            f"Failed to fetch page {page_id}: {resp.status} - {text}"
-                        )
-            except Exception as e:
-                logger.error(f"Error fetching page {page_id}: {e}")
-    else:
-        # Enumerate all pages in space using v1 API
-        start = 0
-        limit = CONFLUENCE_API_PAGE_LIMIT
-
-        while True:
-            try:
-                url = f"{confluence_url}/rest/api/content"
-                params = {
-                    "spaceKey": space_key,
-                    "type": "page",
-                    "start": start,
-                    "limit": limit,
-                    "expand": "body.storage,version,space,history",
-                }
-                async with session.get(url, params=params) as resp:
-                    if resp.status == 200:
-                        data = await resp.json()
-                        batch = data.get("results", [])
-
-                        if not batch:
-                            break
-
-                        pages.extend(batch)
-                        start += len(batch)
-
-                        # Check if we've fetched all pages
-                        if len(batch) < limit:
-                            break
-                    else:
-                        text = await resp.text()
-                        logger.error(
-                            f"Error fetching pages from {space_key}: {resp.status} - {text}"
-                        )
-                        break
-            except Exception as e:
-                logger.error(f"Error enumerating {space_key}: {e}")
-                logger.error(traceback.format_exc())
-                break
-
-    logger.info(f"Fetched {len(pages)} pages from space {space_key}")
-    return pages
+    for failed_page_id, error_msg in failed_pages:
+        await job_manager.increment_failure(job_id=job_id, message=error_msg)
 
 
 async def process_page_ingestion(
@@ -209,7 +182,6 @@ async def process_page_ingestion(
         page_id = confluence_match.group(2)
 
         # Generate space-level datasource ID
-        domain = urlparse(ingest_request.url).netloc.replace(".", "_").replace("-", "_")
         datasource_id = generate_datasource_id(CONFLUENCE_URL, space_key)
 
         # Fetch space-level datasource
@@ -252,42 +224,52 @@ async def process_page_ingestion(
         )
         logger.info(f"Processing job: {job_id} for datasource: {datasource_id}")
 
-        # Create authenticated session
-        session = await create_confluence_session(
-            CONFLUENCE_URL, CONFLUENCE_USERNAME, CONFLUENCE_TOKEN, CONFLUENCE_SSL_VERIFY
-        )
+        # Use loader to fetch and ingest pages
+        async with ConfluenceLoader(
+            rag_client=client,
+            job_manager=job_manager,
+            datasource_info=datasource_info,
+            confluence_url=CONFLUENCE_URL,
+            username=CONFLUENCE_USERNAME,
+            token=CONFLUENCE_TOKEN,
+            verify_ssl=CONFLUENCE_SSL_VERIFY,
+            max_concurrency=MAX_CONCURRENCY,
+        ) as loader:
+            # Build page config for this ingestion
+            page_configs = [
+                {"page_id": page_id, "get_child_pages": ingest_request.get_child_pages}
+            ]
+            pages, failed_pages = await loader.load_pages(space_key, page_configs)
 
-        try:
-            # Fetch the single page
-            pages = await fetch_space_pages_http(
-                session, CONFLUENCE_URL, space_key, [page_id]
+            # Update job with total count (successful + failed)
+            total_count = len(pages) + len(failed_pages)
+            await job_manager.upsert_job(
+                job_id=job_id,
+                total=total_count,
+                message=f"Loaded {len(pages)} pages, {len(failed_pages)} failed",
             )
 
+            # Track fetch failures
+            await track_fetch_failures(job_manager, job_id, failed_pages)
+
+            # If no pages succeeded, mark job as failed
             if not pages:
-                logger.warning(f"No pages found for {ingest_request.url}")
+                await job_manager.upsert_job(
+                    job_id=job_id,
+                    status=JobStatus.FAILED,
+                    message=f"All page fetches failed for {ingest_request.url}",
+                )
+                logger.warning(f"All page fetches failed for {ingest_request.url}")
                 return
 
-            # Ingest the page
-            async with ConfluenceLoader(
-                rag_client=client,
-                job_manager=job_manager,
-                datasource_info=datasource_info,
-                confluence_url=CONFLUENCE_URL,
-                username=CONFLUENCE_USERNAME,
-                token=CONFLUENCE_TOKEN,
-                verify_ssl=CONFLUENCE_SSL_VERIFY,
-                max_concurrency=MAX_CONCURRENCY,
-            ) as loader:
-                await loader.ingest_pages(pages, job_id)
+            # Ingest the pages
+            await loader.ingest_pages(pages, job_id)
 
-            # Update datasource last_updated timestamp
-            datasource_info.last_updated = int(time.time())
-            await client.upsert_datasource(datasource_info)
+        # Update datasource last_updated timestamp
+        datasource_info.last_updated = int(time.time())
+        await client.upsert_datasource(datasource_info)
 
-            logger.info(f"Completed page ingestion for {ingest_request.url}")
-
-        finally:
-            await session.close()
+        logger.info(f"Completed page ingestion for {ingest_request.url}")
 
     except Exception as e:
         error_msg = f"Error processing Confluence page {ingest_request.url}: {str(e)}"
@@ -327,60 +309,55 @@ async def reload_datasource(
             )
             return
 
-        page_ids = datasource_info.metadata.get("page_ids")
+        page_configs = datasource_info.metadata.get("page_configs", [])
         logger.info(
-            f"Reloading datasource: {datasource_info.datasource_id} with page_ids: {page_ids}"
+            f"Reloading datasource: {datasource_info.datasource_id} with page_configs: {page_configs}"
         )
 
         try:
-            # Update last_updated timestamp
-            datasource_info.last_updated = int(time.time())
-            await client.upsert_datasource(datasource_info)
+            # Use loader to fetch and ingest pages
+            async with ConfluenceLoader(
+                rag_client=client,
+                job_manager=job_manager,
+                datasource_info=datasource_info,
+                confluence_url=CONFLUENCE_URL,
+                username=CONFLUENCE_USERNAME,
+                token=CONFLUENCE_TOKEN,
+                verify_ssl=CONFLUENCE_SSL_VERIFY,
+                max_concurrency=MAX_CONCURRENCY,
+            ) as loader:
+                # Load pages
+                pages, failed_pages = await loader.load_pages(space_key, page_configs)
 
-            # Create session and fetch pages
-            session = await create_confluence_session(
-                CONFLUENCE_URL,
-                CONFLUENCE_USERNAME,
-                CONFLUENCE_TOKEN,
-                CONFLUENCE_SSL_VERIFY,
-            )
-
-            try:
-                pages = await fetch_space_pages_http(
-                    session,
-                    CONFLUENCE_URL,
-                    space_key,
-                    page_ids,  # Pass page_ids so it only reloads those specific pages
-                )
-
-                if not pages:
-                    logger.warning(f"No pages found in {space_key}")
-                    return
-
-                # Create reload job with total
+                # Create reload job with total (successful + failed)
+                total_count = len(pages) + len(failed_pages)
                 job_response = await client.create_job(
                     datasource_id=datasource_info.datasource_id,
                     job_status=JobStatus.IN_PROGRESS,
-                    message=f"Reloading {len(pages)} pages from {space_key}",
-                    total=len(pages),
+                    message=f"Reloading {len(pages)} pages from {space_key}, {len(failed_pages)} failed to load",
+                    total=total_count,
                 )
                 job_id = job_response["job_id"]
 
-                # Ingest pages
-                async with ConfluenceLoader(
-                    rag_client=client,
-                    job_manager=job_manager,
-                    datasource_info=datasource_info,
-                    confluence_url=CONFLUENCE_URL,
-                    username=CONFLUENCE_USERNAME,
-                    token=CONFLUENCE_TOKEN,
-                    verify_ssl=CONFLUENCE_SSL_VERIFY,
-                    max_concurrency=MAX_CONCURRENCY,
-                ) as loader:
-                    await loader.ingest_pages(pages, job_id)
+                # Track fetch failures
+                await track_fetch_failures(job_manager, job_id, failed_pages)
 
-            finally:
-                await session.close()
+                # If no pages succeeded, mark job as failed
+                if not pages:
+                    await job_manager.upsert_job(
+                        job_id=job_id,
+                        status=JobStatus.FAILED,
+                        message=f"All page loads failed for {space_key}",
+                    )
+                    logger.warning(f"All page loads failed for {space_key}")
+                    return
+
+                # Ingest pages
+                await loader.ingest_pages(pages, job_id)
+
+            # Update datasource last_updated timestamp after successful reload
+            datasource_info.last_updated = int(time.time())
+            await client.upsert_datasource(datasource_info)
 
         except Exception as e:
             logger.error(f"Error reloading {datasource_info.datasource_id}: {e}")
@@ -401,104 +378,94 @@ async def periodic_reload(client: Client):
     try:
         # First, process any configured spaces from CONFLUENCE_SPACES env var
         if CONFLUENCE_SPACES:
-            logger.info(
-                f"Processing configured spaces from CONFLUENCE_SPACES: {CONFLUENCE_SPACES}"
-            )
-            spaces_config = parse_confluence_spaces(CONFLUENCE_SPACES)
+            spaces_config = parse_confluence_spaces_json(CONFLUENCE_SPACES)
+            logger.info(f"Processing {len(spaces_config)} configured Confluence spaces")
+            logger.debug(f"Full configuration: {spaces_config}")
 
-            # Create session
-            session = await create_confluence_session(
-                CONFLUENCE_URL,
-                CONFLUENCE_USERNAME,
-                CONFLUENCE_TOKEN,
-                CONFLUENCE_SSL_VERIFY,
-            )
+            # Process each configured space
+            for space_key, page_configs in spaces_config.items():
+                try:
+                    # Generate datasource ID
+                    datasource_id = generate_datasource_id(CONFLUENCE_URL, space_key)
 
-            try:
-                # Process each configured space
-                for space_key, page_ids in spaces_config.items():
-                    try:
-                        # Generate datasource ID
-                        datasource_id = generate_datasource_id(
-                            CONFLUENCE_URL, space_key
+                    # Fetch or create datasource
+                    datasources = await client.list_datasources(
+                        ingestor_id=client.ingestor_id
+                    )
+                    datasource_info = next(
+                        (ds for ds in datasources if ds.datasource_id == datasource_id),
+                        None,
+                    )
+
+                    if not datasource_info:
+                        # Create datasource
+                        logger.info(
+                            f"Creating datasource for configured space: {datasource_id}"
+                        )
+                        datasource_info = _create_datasource_info(
+                            datasource_id=datasource_id,
+                            ingestor_id=client.ingestor_id,
+                            space_key=space_key,
+                            description=f"Auto-synced Confluence space {space_key}",
+                            page_configs=page_configs,
+                        )
+                        await client.upsert_datasource(datasource_info)
+
+                    # Use loader to fetch and ingest pages
+                    async with ConfluenceLoader(
+                        rag_client=client,
+                        job_manager=job_manager,
+                        datasource_info=datasource_info,
+                        confluence_url=CONFLUENCE_URL,
+                        username=CONFLUENCE_USERNAME,
+                        token=CONFLUENCE_TOKEN,
+                        verify_ssl=CONFLUENCE_SSL_VERIFY,
+                        max_concurrency=MAX_CONCURRENCY,
+                    ) as loader:
+                        # Load pages
+                        pages, failed_pages = await loader.load_pages(
+                            space_key, page_configs
                         )
 
-                        # Fetch or create datasource
-                        datasources = await client.list_datasources(
-                            ingestor_id=client.ingestor_id
+                        # Create job with total (successful + failed)
+                        total_count = len(pages) + len(failed_pages)
+                        job_response = await client.create_job(
+                            datasource_id=datasource_id,
+                            job_status=JobStatus.IN_PROGRESS,
+                            message=f"Auto-syncing {len(pages)} pages from {space_key}, {len(failed_pages)} failed to load",
+                            total=total_count,
                         )
-                        datasource_info = next(
-                            (
-                                ds
-                                for ds in datasources
-                                if ds.datasource_id == datasource_id
-                            ),
-                            None,
-                        )
+                        job_id = job_response["job_id"]
 
-                        if not datasource_info:
-                            # Create datasource
-                            logger.info(
-                                f"Creating datasource for configured space: {datasource_id}"
-                            )
-                            datasource_info = _create_datasource_info(
-                                datasource_id=datasource_id,
-                                ingestor_id=client.ingestor_id,
-                                space_key=space_key,
-                                description=f"Auto-synced Confluence space {space_key}",
-                                page_ids=page_ids,
-                            )
-                            await client.upsert_datasource(datasource_info)
+                        # Track fetch failures
+                        await track_fetch_failures(job_manager, job_id, failed_pages)
 
-                        # Fetch pages
-                        pages = await fetch_space_pages_http(
-                            session, CONFLUENCE_URL, space_key, page_ids
-                        )
-
+                        # If no pages succeeded, mark job as failed and continue to next space
                         if not pages:
-                            logger.info(
-                                f"No pages found in configured space {space_key}"
+                            await job_manager.upsert_job(
+                                job_id=job_id,
+                                status=JobStatus.FAILED,
+                                message=f"All page loads failed for {space_key}",
                             )
+                            logger.warning(f"All page loads failed for {space_key}")
                             continue
 
                         logger.info(
                             f"Auto-syncing {len(pages)} pages from configured space {space_key}"
                         )
 
-                        # Create job with total
-                        job_response = await client.create_job(
-                            datasource_id=datasource_id,
-                            job_status=JobStatus.IN_PROGRESS,
-                            message=f"Auto-syncing {len(pages)} pages from {space_key}",
-                            total=len(pages),
-                        )
-                        job_id = job_response["job_id"]
-
                         # Ingest pages
-                        async with ConfluenceLoader(
-                            rag_client=client,
-                            job_manager=job_manager,
-                            datasource_info=datasource_info,
-                            confluence_url=CONFLUENCE_URL,
-                            username=CONFLUENCE_USERNAME,
-                            token=CONFLUENCE_TOKEN,
-                            verify_ssl=CONFLUENCE_SSL_VERIFY,
-                            max_concurrency=MAX_CONCURRENCY,
-                        ) as loader:
-                            await loader.ingest_pages(pages, job_id)
+                        await loader.ingest_pages(pages, job_id)
 
-                        # Update datasource last_updated
-                        datasource_info.last_updated = int(time.time())
-                        await client.upsert_datasource(datasource_info)
+                    # Update datasource last_updated
+                    datasource_info.last_updated = int(time.time())
+                    await client.upsert_datasource(datasource_info)
 
-                        logger.info(f"Completed auto-sync for space {space_key}")
+                    logger.info(f"Completed auto-sync for space {space_key}")
 
-                    except Exception as e:
-                        logger.error(f"Error auto-syncing space {space_key}: {e}")
-                        logger.error(traceback.format_exc())
-
-            finally:
-                await session.close()
+                except Exception as e:
+                    logger.error(f"Error auto-syncing space {space_key}: {e}")
+                    logger.error(traceback.format_exc())
 
         # Then reload any existing datasources that haven't been updated recently
         # (skip ones we just synced from CONFLUENCE_SPACES)
@@ -508,7 +475,7 @@ async def periodic_reload(client: Client):
         datasources_to_reload = [
             ds
             for ds in datasources
-            if (current_time - ds.last_updated) > RELOAD_RECENT_THRESHOLD
+            if (current_time - ds.last_updated) >= RELOAD_INTERVAL
         ]
 
         logger.info(

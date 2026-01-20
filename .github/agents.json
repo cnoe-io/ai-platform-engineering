@@ -6,6 +6,7 @@
     "backstage",
     "confluence",
     "github",
+    "gitlab",
     "jira",
     "komodor",
     "pagerduty",
