@@ -380,6 +380,12 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
         if not content:
             return
 
+        # FIX: If sub-agent already sent complete_result, don't send more streaming chunks
+        # The sub-agent's response is the authoritative final answer
+        if state.sub_agent_complete:
+            logger.info("🛑 Skipping streaming chunk - sub-agent already sent complete_result")
+            return
+
         is_tool_notification = self._is_tool_notification(content, event)
 
         # Accumulate non-notification content (unless DataPart already received)
@@ -418,14 +424,21 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
     async def _handle_stream_end(self, state: StreamState, task: A2ATask,
                                 event_queue: EventQueue):
         """Handle end of stream without explicit completion."""
+        # FIX: If sub-agent already sent complete_result, don't send duplicate
+        # The sub-agent's complete_result was already forwarded to the client
+        if state.sub_agent_complete:
+            await self._send_completion(event_queue, task)
+            logger.info(f"Task {task.id} completed (sub-agent already sent complete_result).")
+            return
+
         final_content, is_datapart = self._get_final_content(state)
 
         if not final_content and not is_datapart:
             return  # Nothing to send
 
-        # Determine artifact name based on whether sub-agent completed
-        artifact_name = 'complete_result' if state.sub_agent_complete else 'partial_result'
-        description = 'Complete result' if state.sub_agent_complete else 'Partial result (stream ended)'
+        # Only send accumulated content if sub-agent didn't complete
+        artifact_name = 'partial_result'
+        description = 'Partial result (stream ended)'
 
         if is_datapart:
             artifact = new_data_artifact(name=artifact_name, description=description, data=final_content)
