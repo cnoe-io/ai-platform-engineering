@@ -47,10 +47,17 @@ const iconMap: Record<string, React.ElementType> = {
 type FilterType = "all" | "task" | "artifact" | "tool" | "status";
 
 export function A2AStreamPanel() {
-  const { a2aEvents, isStreaming, clearA2AEvents } = useChatStore();
+  const { isStreaming, clearA2AEvents, activeConversationId, conversations } = useChatStore();
   const [filter, setFilter] = React.useState<FilterType>("all");
   const [expanded, setExpanded] = React.useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  // Get events for the active conversation (triggers re-render when conversations change)
+  const a2aEvents = React.useMemo(() => {
+    if (!activeConversationId) return [];
+    const conv = conversations.find(c => c.id === activeConversationId);
+    return conv?.a2aEvents || [];
+  }, [activeConversationId, conversations]);
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -156,7 +163,7 @@ export function A2AStreamPanel() {
         <Button
           variant="ghost"
           size="icon"
-          onClick={clearA2AEvents}
+          onClick={() => activeConversationId && clearA2AEvents(activeConversationId)}
           className="h-8 w-8"
           title="Clear events"
         >

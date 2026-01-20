@@ -8,7 +8,8 @@ import {
   Zap,
   PanelRightClose,
   PanelRightOpen,
-  Bug
+  Bug,
+  Loader2
 } from "lucide-react";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { ChatPanel } from "@/components/chat/ChatPanel";
@@ -28,6 +29,13 @@ import {
 } from "@/components/ui/resizable";
 import { cn } from "@/lib/utils";
 import { config } from "@/lib/config";
+import { useCAIPEHealth } from "@/hooks/use-caipe-health";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 function HomePage() {
   // Default to Use Cases gallery to showcase capabilities
@@ -39,6 +47,9 @@ function HomePage() {
 
   // Use centralized configuration for CAIPE URL
   const caipeUrl = config.caipeUrl;
+
+  // Health check for CAIPE supervisor (polls every 30 seconds)
+  const { status: healthStatus, url: healthUrl, secondsUntilNextCheck } = useCAIPEHealth();
 
   const handleSelectUseCase = useCallback(
     (prompt: string) => {
@@ -104,20 +115,43 @@ function HomePage() {
             {/* Powered By */}
             <TechStackButton variant="compact" />
 
-            {/* Connection Status - shows URL when ready, "Streaming" when active */}
-            <div
-              className={cn(
-                "flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium",
-                "bg-green-500/15 text-green-400 border border-green-500/30"
-              )}
-              title={`Connected to ${caipeUrl}`}
-            >
-              <div className={cn(
-                "h-2 w-2 rounded-full bg-green-400",
-                isStreaming && "animate-pulse"
-              )} />
-              {isStreaming ? "Streaming" : new URL(caipeUrl).host}
-            </div>
+            {/* Connection Status - shows health status with URL and countdown on hover */}
+            <TooltipProvider delayDuration={100}>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <div
+                    className={cn(
+                      "flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium cursor-help",
+                      healthStatus === "connected" && "bg-green-500/15 text-green-400 border border-green-500/30",
+                      healthStatus === "checking" && "bg-amber-500/15 text-amber-400 border border-amber-500/30",
+                      healthStatus === "disconnected" && "bg-red-500/15 text-red-400 border border-red-500/30"
+                    )}
+                  >
+                    {healthStatus === "checking" ? (
+                      <Loader2 className="h-3 w-3 animate-spin" />
+                    ) : (
+                      <div className={cn(
+                        "h-2 w-2 rounded-full",
+                        healthStatus === "connected" && "bg-green-400",
+                        healthStatus === "disconnected" && "bg-red-400",
+                        isStreaming && "animate-pulse"
+                      )} />
+                    )}
+                    {isStreaming ? "Streaming" : healthStatus === "connected" ? "Connected" : healthStatus === "checking" ? "Checking" : "Disconnected"}
+                  </div>
+                </TooltipTrigger>
+                <TooltipContent side="bottom" className="max-w-sm p-4">
+                  <div className="space-y-2">
+                    <div className="text-base font-semibold text-foreground">CAIPE Supervisor</div>
+                    <div className="text-sm text-foreground/80 break-all font-mono">{healthUrl}</div>
+                    <div className="text-sm text-foreground/70 flex items-center gap-2">
+                      <span className="inline-block w-2 h-2 rounded-full bg-green-400 animate-pulse" />
+                      Next check in {secondsUntilNextCheck}s
+                    </div>
+                  </div>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
           </div>
 
           {/* Context Panel Toggle */}

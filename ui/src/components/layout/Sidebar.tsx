@@ -16,7 +16,6 @@ import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useChatStore } from "@/store/chat-store";
 import { cn, formatDate, truncateText } from "@/lib/utils";
-import { config } from "@/lib/config";
 
 interface SidebarProps {
   activeTab: "chat" | "gallery";
@@ -219,25 +218,6 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse }: Sideb
         </div>
       )}
 
-      {/* Footer - Connection Status */}
-      <div className="p-2 border-t border-border/50">
-        <div
-          className={cn(
-            "flex items-center gap-2 px-2 py-1.5 rounded-md text-xs text-muted-foreground cursor-help",
-            collapsed && "justify-center"
-          )}
-          title={`CAIPE URL: ${config.caipeUrl}`}
-        >
-          <div className="w-2 h-2 rounded-full bg-green-500 shrink-0" />
-          {!collapsed && (
-            <div className="min-w-0 flex-1">
-              <span className="block truncate">
-                {config.caipeUrl.replace(/^https?:\/\//, '')}
-              </span>
-            </div>
-          )}
-        </div>
-      </div>
     </motion.div>
   );
 }
