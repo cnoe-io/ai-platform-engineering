@@ -21,6 +21,7 @@ import {
   ExternalLink,
   Copy,
   Check,
+  Download,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -139,6 +140,41 @@ export function A2AStreamPanel() {
     setTimeout(() => setCopiedEventId(null), 2000);
   };
 
+  const downloadEvents = () => {
+    if (a2aEvents.length === 0) return;
+
+    // Create a formatted JSON with all event details
+    const exportData = {
+      exportedAt: new Date().toISOString(),
+      conversationId: activeConversationId,
+      eventCount: a2aEvents.length,
+      events: a2aEvents.map((event, idx) => ({
+        index: idx,
+        id: event.id,
+        type: event.type,
+        timestamp: event.timestamp.toISOString(),
+        displayName: event.displayName,
+        displayContent: event.displayContent,
+        raw: event.raw,
+        artifact: event.artifact,
+        status: event.status,
+        isFinal: event.isFinal,
+        isLastChunk: event.isLastChunk,
+        shouldAppend: event.shouldAppend,
+      })),
+    };
+
+    const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `a2a-events-${activeConversationId}-${new Date().toISOString().replace(/[:.]/g, "-")}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <div className="h-full flex flex-col bg-card/30 backdrop-blur-sm">
       {/* Header */}
@@ -160,15 +196,27 @@ export function A2AStreamPanel() {
             </p>
           </div>
         </div>
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={() => activeConversationId && clearA2AEvents(activeConversationId)}
-          className="h-8 w-8"
-          title="Clear events"
-        >
-          <Trash2 className="h-4 w-4" />
-        </Button>
+        <div className="flex items-center gap-1">
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={downloadEvents}
+            className="h-8 w-8"
+            title="Download events as JSON"
+            disabled={a2aEvents.length === 0}
+          >
+            <Download className="h-4 w-4" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => activeConversationId && clearA2AEvents(activeConversationId)}
+            className="h-8 w-8"
+            title="Clear events"
+          >
+            <Trash2 className="h-4 w-4" />
+          </Button>
+        </div>
       </div>
 
       {/* Filters */}
