@@ -4,6 +4,9 @@
 """
 Unit tests for the fetch_url tool.
 
+Tests updated for string-based return format (simplified API).
+Tools return content directly or "ERROR: message" on failure.
+
 Tests cover:
 - URL validation
 - Successful fetches (text, raw)
@@ -16,7 +19,7 @@ Tests cover:
 
 import unittest
 from unittest.mock import Mock, patch
-from ai_platform_engineering.multi_agents.tools.fetch_url import fetch_url
+from ai_platform_engineering.utils.agent_tools import fetch_url
 
 
 class TestFetchUrlValidation(unittest.TestCase):
@@ -28,30 +31,29 @@ class TestFetchUrlValidation(unittest.TestCase):
             "url": "ftp://example.com/file.txt"
         })
 
-        self.assertFalse(result['success'])
-        self.assertIn('error', result)
-        self.assertIn('http://', result['message'].lower())
+        self.assertTrue(result.startswith("ERROR"))
+        self.assertIn("http://", result.lower())
         print("✓ Invalid URL scheme rejected")
 
     def test_empty_url(self):
         """Test handling of empty URL."""
         result = fetch_url.invoke({"url": ""})
 
-        self.assertFalse(result['success'])
+        self.assertTrue(result.startswith("ERROR"))
         print("✓ Empty URL rejected")
 
     def test_malformed_url(self):
         """Test handling of malformed URL."""
         result = fetch_url.invoke({"url": "not-a-url"})
 
-        self.assertFalse(result['success'])
+        self.assertTrue(result.startswith("ERROR"))
         print("✓ Malformed URL rejected")
 
 
 class TestFetchUrlSuccess(unittest.TestCase):
     """Test successful fetch operations with mocked responses."""
 
-    @patch('requests.get')
+    @patch('ai_platform_engineering.utils.agent_tools.fetch_url_tool.requests.get')
     def test_fetch_plain_text(self, mock_get):
         """Test fetching plain text content."""
         # Mock response
@@ -69,12 +71,11 @@ class TestFetchUrlSuccess(unittest.TestCase):
             "format": "text"
         })
 
-        self.assertTrue(result['success'])
-        self.assertEqual(result['content'], "Hello, world!")
-        self.assertEqual(result['status_code'], 200)
+        self.assertFalse(result.startswith("ERROR"))
+        self.assertEqual(result, "Hello, world!")
         print("✓ Plain text fetch works")
 
-    @patch('requests.get')
+    @patch('ai_platform_engineering.utils.agent_tools.fetch_url_tool.requests.get')
     def test_fetch_json_content(self, mock_get):
         """Test fetching JSON content."""
         mock_response = Mock()
@@ -90,13 +91,12 @@ class TestFetchUrlSuccess(unittest.TestCase):
             "url": "https://api.example.com/data"
         })
 
-        self.assertTrue(result['success'])
-        self.assertIn('"key"', result['content'])
-        self.assertEqual(result['format'], 'json')
+        self.assertFalse(result.startswith("ERROR"))
+        self.assertIn('"key"', result)
         print("✓ JSON content fetch works")
 
-    @patch('bs4.BeautifulSoup')
-    @patch('requests.get')
+    @patch('ai_platform_engineering.utils.agent_tools.fetch_url_tool.BeautifulSoup')
+    @patch('ai_platform_engineering.utils.agent_tools.fetch_url_tool.requests.get')
     def test_fetch_html_as_text(self, mock_get, mock_bs):
         """Test fetching HTML and converting to text."""
         html_content = "<html><body><h1>Title</h1><p>Paragraph</p></body></html>"
@@ -122,11 +122,11 @@ class TestFetchUrlSuccess(unittest.TestCase):
             "format": "text"
         })
 
-        self.assertTrue(result['success'])
-        self.assertIn('Title', result['content'])
+        self.assertFalse(result.startswith("ERROR"))
+        self.assertIn("Title", result)
         print("✓ HTML to text conversion works")
 
-    @patch('requests.get')
+    @patch('ai_platform_engineering.utils.agent_tools.fetch_url_tool.requests.get')
     def test_fetch_raw_html(self, mock_get):
         """Test fetching raw HTML content."""
         html_content = "<html><body><h1>Title</h1></body></html>"
@@ -145,23 +145,21 @@ class TestFetchUrlSuccess(unittest.TestCase):
             "format": "raw"
         })
 
-        self.assertTrue(result['success'])
-        self.assertIn('<html>', result['content'])
-        self.assertEqual(result['format'], 'html')
+        self.assertFalse(result.startswith("ERROR"))
+        self.assertIn('<html>', result)
         print("✓ Raw HTML fetch works")
 
 
 class TestFetchUrlErrors(unittest.TestCase):
     """Test error handling for various failure scenarios."""
 
-    @patch('requests.get')
+    @patch('ai_platform_engineering.utils.agent_tools.fetch_url_tool.requests.get')
     def test_http_404_error(self, mock_get):
         """Test handling of 404 Not Found."""
         import requests
 
         mock_response = Mock()
         mock_response.status_code = 404
-        mock_response.reason_phrase = "Not Found"
 
         # Create HTTPError with response
         http_error = requests.exceptions.HTTPError("404 Not Found")
@@ -172,12 +170,11 @@ class TestFetchUrlErrors(unittest.TestCase):
             "url": "https://example.com/notfound"
         })
 
-        self.assertFalse(result['success'])
-        self.assertEqual(result['status_code'], 404)
-        self.assertIn('404', result['message'])
+        self.assertTrue(result.startswith("ERROR"))
+        self.assertIn("404", result)
         print("✓ HTTP 404 error handled")
 
-    @patch('requests.get')
+    @patch('ai_platform_engineering.utils.agent_tools.fetch_url_tool.requests.get')
     def test_timeout_error(self, mock_get):
         """Test handling of timeout."""
         import requests
@@ -189,11 +186,11 @@ class TestFetchUrlErrors(unittest.TestCase):
             "timeout": 5
         })
 
-        self.assertFalse(result['success'])
-        self.assertIn('timed out', result['message'].lower())
+        self.assertTrue(result.startswith("ERROR"))
+        self.assertIn("timeout", result.lower())
         print("✓ Timeout error handled")
 
-    @patch('requests.get')
+    @patch('ai_platform_engineering.utils.agent_tools.fetch_url_tool.requests.get')
     def test_network_error(self, mock_get):
         """Test handling of network errors."""
         import requests
@@ -204,15 +201,14 @@ class TestFetchUrlErrors(unittest.TestCase):
             "url": "https://example.com/unreachable"
         })
 
-        self.assertFalse(result['success'])
-        self.assertIn('error', result)
+        self.assertTrue(result.startswith("ERROR"))
         print("✓ Network error handled")
 
 
 class TestFetchUrlFeatures(unittest.TestCase):
     """Test additional features like redirects and custom timeout."""
 
-    @patch('requests.get')
+    @patch('ai_platform_engineering.utils.agent_tools.fetch_url_tool.requests.get')
     def test_follows_redirects(self, mock_get):
         """Test that redirects are followed."""
         mock_response = Mock()
@@ -228,11 +224,11 @@ class TestFetchUrlFeatures(unittest.TestCase):
             "url": "https://example.com/redirect"
         })
 
-        self.assertTrue(result['success'])
-        self.assertEqual(result['url'], "https://example.com/final")
+        self.assertFalse(result.startswith("ERROR"))
+        self.assertEqual(result, "Final content")
         print("✓ Redirects are followed")
 
-    @patch('requests.get')
+    @patch('ai_platform_engineering.utils.agent_tools.fetch_url_tool.requests.get')
     def test_custom_timeout(self, mock_get):
         """Test custom timeout parameter."""
         mock_response = Mock()
@@ -249,7 +245,7 @@ class TestFetchUrlFeatures(unittest.TestCase):
             "timeout": 10
         })
 
-        self.assertTrue(result['success'])
+        self.assertFalse(result.startswith("ERROR"))
         # Verify requests.get was called with custom timeout
         mock_get.assert_called_once()
         call_kwargs = mock_get.call_args[1]
@@ -257,16 +253,15 @@ class TestFetchUrlFeatures(unittest.TestCase):
         print("✓ Custom timeout parameter works")
 
     def test_result_structure(self):
-        """Test that result has correct structure."""
+        """Test that result is a string (success or error)."""
         result = fetch_url.invoke({
             "url": "invalid-url"
         })
 
-        # Check required keys
-        self.assertIn('success', result)
-        self.assertIn('content', result)
-        self.assertIn('url', result)
-        self.assertIn('message', result)
+        # Result should be a string
+        self.assertIsInstance(result, str)
+        # For invalid URL, should be an error
+        self.assertTrue(result.startswith("ERROR"))
         print("✓ Result structure is correct")
 
 

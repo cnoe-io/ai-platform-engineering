@@ -4,6 +4,9 @@
 """
 Unit tests for the format_markdown tool.
 
+Tests updated for string-based return format (simplified API).
+Tools return formatted text directly or "ERROR: message" on failure.
+
 Tests cover:
 - Basic markdown formatting
 - Validation without formatting
@@ -35,10 +38,9 @@ More text."""
 
         result = format_markdown.invoke({"markdown_text": messy_md, "validate_only": False})
 
-        self.assertTrue(result['success'])
-        self.assertIn('formatted_text', result)
-        self.assertIsNotNone(result['formatted_text'])
-        self.assertIn('fixed_issues', result)
+        self.assertFalse(result.startswith("ERROR"))
+        self.assertIsInstance(result, str)
+        self.assertIn("Header", result)
         print("✓ Basic markdown formatting works")
 
     def test_validate_only_mode(self):
@@ -54,9 +56,8 @@ Some text.
 
         result = format_markdown.invoke({"markdown_text": good_md, "validate_only": True})
 
-        self.assertIn('validation', result)
-        self.assertIn('valid', result['validation'])
-        # Should report as valid or with minimal issues
+        self.assertIn("VALIDATION", result)
+        # Should report validation result
         print("✓ Validation mode works")
 
     def test_validate_only_with_issues(self):
@@ -69,9 +70,8 @@ Some text
 
         result = format_markdown.invoke({"markdown_text": bad_md, "validate_only": True})
 
-        self.assertIn('validation', result)
-        self.assertFalse(result['validation']['valid'])
-        self.assertGreater(result['validation']['issue_count'], 0)
+        self.assertIn("VALIDATION", result)
+        self.assertIn("Issues detected", result)
         print("✓ Validation detects issues")
 
     def test_table_formatting(self):
@@ -86,11 +86,9 @@ Some text
 
         result = format_markdown.invoke({"markdown_text": messy_table})
 
-        self.assertTrue(result['success'])
-        self.assertIn('formatted_text', result)
-        # Table should be properly aligned
-        formatted = result['formatted_text']
-        self.assertIn('|', formatted)
+        self.assertFalse(result.startswith("ERROR"))
+        # Table should be present
+        self.assertIn("|", result)
         print("✓ Table formatting works")
 
     def test_heading_hierarchy(self):
@@ -104,10 +102,9 @@ Some text."""
 
         result = format_markdown.invoke({"markdown_text": text})
 
-        self.assertTrue(result['success'])
-        formatted = result['formatted_text']
+        self.assertFalse(result.startswith("ERROR"))
         # Headings should have proper spacing
-        self.assertIn('# ', formatted)
+        self.assertIn("# ", result)
         print("✓ Heading formatting works")
 
     def test_code_block_preservation(self):
@@ -123,11 +120,10 @@ More text."""
 
         result = format_markdown.invoke({"markdown_text": text})
 
-        self.assertTrue(result['success'])
-        formatted = result['formatted_text']
+        self.assertFalse(result.startswith("ERROR"))
         # Code block should be preserved
-        self.assertIn('```', formatted)
-        self.assertIn('def hello', formatted)
+        self.assertIn("```", result)
+        self.assertIn("def hello", result)
         print("✓ Code block preservation works")
 
     def test_list_formatting(self):
@@ -148,16 +144,16 @@ More text."""
 
         result = format_markdown.invoke({"markdown_text": text})
 
-        self.assertTrue(result['success'])
-        self.assertIn('formatted_text', result)
+        self.assertFalse(result.startswith("ERROR"))
+        self.assertIsInstance(result, str)
         print("✓ List formatting works")
 
     def test_empty_input(self):
         """Test handling of empty input."""
         result = format_markdown.invoke({"markdown_text": ""})
 
-        # Should handle empty input gracefully
-        self.assertTrue(result['success'])
+        # Should handle empty input gracefully (empty or minimal output)
+        self.assertFalse(result.startswith("ERROR"))
         print("✓ Empty input handled")
 
     def test_special_characters(self):
@@ -171,10 +167,9 @@ Text with **bold** and *italic* and `code`.
 
         result = format_markdown.invoke({"markdown_text": text})
 
-        self.assertTrue(result['success'])
-        formatted = result['formatted_text']
+        self.assertFalse(result.startswith("ERROR"))
         # Special characters should be preserved
-        self.assertIn('🚀', formatted)
+        self.assertIn("🚀", result)
         print("✓ Special characters handled")
 
     def test_link_formatting(self):
@@ -189,22 +184,20 @@ Text with **bold** and *italic* and `code`.
 
         result = format_markdown.invoke({"markdown_text": text})
 
-        self.assertTrue(result['success'])
-        formatted = result['formatted_text']
+        self.assertFalse(result.startswith("ERROR"))
         # Links should be preserved
-        self.assertIn('[Link text]', formatted)
-        self.assertIn('https://example.com', formatted)
+        self.assertIn("[Link text]", result)
+        self.assertIn("https://example.com", result)
         print("✓ Link formatting works")
 
     def test_returns_correct_structure(self):
-        """Test that result has correct structure."""
+        """Test that result is a string."""
         text = "# Test"
         result = format_markdown.invoke({"markdown_text": text})
 
-        # Check required keys
-        self.assertIn('formatted_text', result)
-        self.assertIn('fixed_issues', result)
-        self.assertIn('message', result)
+        # Result should be a string
+        self.assertIsInstance(result, str)
+        self.assertIn("Test", result)
         print("✓ Result structure is correct")
 
 
@@ -218,7 +211,7 @@ class TestFormatMarkdownEdgeCases(unittest.TestCase):
 
         result = format_markdown.invoke({"markdown_text": long_text})
 
-        self.assertTrue(result['success'])
+        self.assertFalse(result.startswith("ERROR"))
         print("✓ Long text handled")
 
     def test_nested_structures(self):
@@ -238,7 +231,7 @@ class TestFormatMarkdownEdgeCases(unittest.TestCase):
 
         result = format_markdown.invoke({"markdown_text": text})
 
-        self.assertTrue(result['success'])
+        self.assertFalse(result.startswith("ERROR"))
         print("✓ Nested structures handled")
 
     def test_mixed_line_endings(self):
@@ -247,10 +240,9 @@ class TestFormatMarkdownEdgeCases(unittest.TestCase):
 
         result = format_markdown.invoke({"markdown_text": text})
 
-        self.assertTrue(result['success'])
+        self.assertFalse(result.startswith("ERROR"))
         print("✓ Mixed line endings handled")
 
 
 if __name__ == '__main__':
     unittest.main()
-

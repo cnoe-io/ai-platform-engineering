@@ -25,6 +25,7 @@ export default function IngestView() {
   const [checkForSiteMap, setCheckForSiteMap] = useState(true)
   const [sitemapMaxUrls, setSitemapMaxUrls] = useState(2000)
   const [description, setDescription] = useState('')
+  const [includeSubPages, setIncludeSubPages] = useState(false)
 
   // DataSources state
   const [dataSources, setDataSources] = useState<DataSourceInfo[]>([])
@@ -100,6 +101,12 @@ export default function IngestView() {
     setCurrentPage(1)
   }, [selectedSourceType])
 
+  // Reset includeSubPages when ingestType changes
+  useEffect(() => {
+    if (ingestType !== 'confluence') {
+      setIncludeSubPages(false)
+    }
+  }, [ingestType])
 
   useEffect(() => {
     fetchDataSources()
@@ -234,6 +241,7 @@ export default function IngestView() {
         sitemap_max_urls: sitemapMaxUrls,
         description: description,
         ingest_type: ingestType,
+        get_child_pages: ingestType === 'confluence' ? includeSubPages : undefined,
       })
       const { datasource_id, job_id, message } = response
       alert(`✅ ${message}`)
@@ -365,6 +373,19 @@ export default function IngestView() {
                   className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                 />
                 <span className="text-sm text-slate-600">Check for sitemap</span>
+              </label>
+            </div>
+          )}
+          {ingestType === 'confluence' && (
+            <div className="mt-2 ml-2">
+              <label className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={includeSubPages}
+                  onChange={(e) => setIncludeSubPages(e.target.checked)}
+                  className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                />
+                <span className="text-sm text-slate-600">Include child pages</span>
               </label>
             </div>
           )}

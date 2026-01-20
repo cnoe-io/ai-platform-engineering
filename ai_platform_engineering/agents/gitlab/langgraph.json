@@ -1,0 +1,13 @@
+{
+  "dockerfile_lines": [
+    "ENV PYTHONPATH=./agent_gitlab"
+  ],
+  "graphs": {
+    "graph": "agent_gitlab.graph:AGENT_GRAPH"
+  },
+  "env": "./.env",
+  "python_version": "3.11",
+  "dependencies": [
+    "."
+  ]
+}
