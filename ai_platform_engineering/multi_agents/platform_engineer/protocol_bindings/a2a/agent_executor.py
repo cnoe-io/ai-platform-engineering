@@ -175,11 +175,7 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
 
         Returns: (content, is_datapart)
 
-        Note: For multi-agent scenarios (sub_agents_completed > 1), supervisor
-        content is preferred as it contains the synthesis. For single-agent
-        scenarios, sub-agent content is preferred as it IS the final answer.
-
-        Extracts content after [FINAL ANSWER] marker to filter out
+        Note: Extracts content after [FINAL ANSWER] marker to filter out
         intermediate thinking/planning messages.
         """
         if state.sub_agent_datapart:
@@ -195,15 +191,10 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
         # Single agent or no supervisor content: use sub-agent content
         if state.sub_agent_content:
             raw_content = ''.join(state.sub_agent_content)
-            logger.debug(f"Using sub-agent content ({len(raw_content)} chars)")
             return self._extract_final_answer(raw_content), False
-
-        # Fallback to supervisor content even for single agent
         if state.supervisor_content:
             raw_content = ''.join(state.supervisor_content)
-            logger.debug(f"Fallback to supervisor content ({len(raw_content)} chars)")
             return self._extract_final_answer(raw_content), False
-
         return '', False
 
     def _is_tool_notification(self, content: str, event: dict) -> bool:
