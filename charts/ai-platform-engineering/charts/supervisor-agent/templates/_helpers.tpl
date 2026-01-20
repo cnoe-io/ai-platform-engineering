@@ -221,3 +221,96 @@ Determine if metrics are enabled - global takes precedence
     {{- end -}}
     {{- $enabled -}}
 {{- end -}}
+
+{{/*
+Determine if Gateway API is enabled - global value takes precedence
+*/}}
+{{- define "supervisorAgent.gatewayApi.enabled" -}}
+{{- if hasKey .Values "global" }}
+{{- if hasKey .Values.global "gatewayApi" }}
+{{- if hasKey .Values.global.gatewayApi "enabled" }}
+{{- .Values.global.gatewayApi.enabled }}
+{{- else }}
+{{- false }}
+{{- end }}
+{{- else }}
+{{- false }}
+{{- end }}
+{{- else }}
+{{- false }}
+{{- end }}
+{{- end }}
+
+{{/*
+Get Gateway name from global configuration
+*/}}
+{{- define "supervisorAgent.gatewayApi.gatewayName" -}}
+{{- $name := "" -}}
+{{- with .Values.global -}}
+{{- with .gatewayApi -}}
+{{- if hasKey . "gatewayName" -}}
+{{- $name = .gatewayName -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- $name -}}
+{{- end }}
+
+{{/*
+Get Gateway namespace from global configuration, default to release namespace
+*/}}
+{{- define "supervisorAgent.gatewayApi.gatewayNamespace" -}}
+{{- $namespace := .Release.Namespace -}}
+{{- with .Values.global -}}
+{{- with .gatewayApi -}}
+{{- if and (hasKey . "gatewayNamespace") .gatewayNamespace -}}
+{{- $namespace = .gatewayNamespace -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- $namespace -}}
+{{- end }}
+
+{{/*
+Map Ingress pathType to Gateway API HTTPRoute path match type
+Ingress: Prefix, Exact, ImplementationSpecific
+Gateway API: PathPrefix, Exact, RegularExpression
+*/}}
+{{- define "supervisorAgent.gatewayApi.pathType" -}}
+{{- $ingressType := . | default "Prefix" -}}
+{{- if eq $ingressType "Prefix" -}}
+PathPrefix
+{{- else if eq $ingressType "Exact" -}}
+Exact
+{{- else if eq $ingressType "ImplementationSpecific" -}}
+PathPrefix
+{{- else -}}
+PathPrefix
+{{- end -}}
+{{- end }}
+
+{{/*
+Determine if HTTPRoute should be rendered - enabled when ingress.enabled is true AND gatewayApi IS enabled
+*/}}
+{{- define "supervisorAgent.httproute.shouldRender" -}}
+{{- $ingressEnabled := include "supervisorAgent.ingress.enabled" . | eq "true" -}}
+{{- $gatewayEnabled := include "supervisorAgent.gatewayApi.enabled" . | eq "true" -}}
+{{- if and $ingressEnabled $gatewayEnabled -}}
+{{- true -}}
+{{- else -}}
+{{- false -}}
+{{- end -}}
+{{- end }}
+
+{{/*
+Determine if ingress should be rendered - enabled when ingress.enabled is true AND gatewayApi is NOT enabled
+*/}}
+{{- define "supervisorAgent.ingress.shouldRender" -}}
+{{- $ingressEnabled := include "supervisorAgent.ingress.enabled" . | eq "true" -}}
+{{- $gatewayEnabled := include "supervisorAgent.gatewayApi.enabled" . | eq "true" -}}
+{{- if and $ingressEnabled (not $gatewayEnabled) -}}
+{{- true -}}
+{{- else -}}
+{{- false -}}
+{{- end -}}
+{{- end }}

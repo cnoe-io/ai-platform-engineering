@@ -1,0 +1,48 @@
+{{- if include "supervisorAgent.httproute.shouldRender" . | eq "true" -}}
+{{- $fullName := include "supervisorAgent.fullname" . -}}
+{{- $svcPort := .Values.service.port -}}
+{{- $gatewayName := include "supervisorAgent.gatewayApi.gatewayName" . -}}
+{{- $gatewayNamespace := include "supervisorAgent.gatewayApi.gatewayNamespace" . -}}
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: {{ include "supervisorAgent.fullname" . }}
+  labels:
+    {{- include "supervisorAgent.labels" . | nindent 4 }}
+  {{- with .Values.ingress.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  parentRefs:
+  - name: {{ $gatewayName }}
+    {{- if ne $gatewayNamespace .Release.Namespace }}
+    namespace: {{ $gatewayNamespace }}
+    {{- end }}
+  {{- if .Values.ingress.hosts }}
+  hostnames:
+  {{- range .Values.ingress.hosts }}
+  - {{ . | quote }}
+  {{- end }}
+  {{- end }}
+  rules:
+  {{- if .Values.ingress.hosts }}
+  {{- range .Values.ingress.hosts }}
+  - matches:
+    - path:
+        type: PathPrefix
+        value: /
+    backendRefs:
+    - name: {{ $fullName }}
+      port: {{ $svcPort }}
+  {{- end }}
+  {{- else }}
+  - matches:
+    - path:
+        type: PathPrefix
+        value: /
+    backendRefs:
+    - name: {{ $fullName }}
+      port: {{ $svcPort }}
+  {{- end }}
+{{- end }}
