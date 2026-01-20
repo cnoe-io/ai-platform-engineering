@@ -90,7 +90,7 @@ export function ChatPanel({ endpoint }: ChatPanelProps) {
       endpoint,
       accessToken, // Pass JWT token for Bearer authentication
       onEvent: (event) => {
-        addA2AEvent(event);
+        addA2AEvent(event, convId!); // Store event in both global and per-conversation
         addEventToMessage(convId!, assistantMsgId, event);
 
         const newContent = event.displayContent;
@@ -142,15 +142,30 @@ export function ChatPanel({ endpoint }: ChatPanelProps) {
                                  artifactName === "final_result";
 
         // Handle content based on event type
-        if (event.type === "artifact" || event.type === "message") {
+        if (event.type === "message") {
+          // Message events from agents contain actual content - append it
+          console.log(`[A2A] 📨 MESSAGE event: +${newContent.length} chars, text: "${newContent.substring(0, 50)}..."`);
+          appendToMessage(convId!, assistantMsgId, newContent);
+        } else if (event.type === "artifact") {
           if (isCompleteResult) {
             // Complete results always REPLACE (this is the final accumulated text)
-            console.log(`[A2A] ✅ REPLACE with ${artifactName}: ${newContent.length} chars`);
+            // Also clear streaming state so markdown renders immediately
+            console.log(`[A2A] ✅ FINAL RESULT with ${artifactName}: ${newContent.length} chars`);
+            console.log(`[A2A] 🛑 Clearing streaming state for conversation: ${convId}`);
             updateMessage(convId!, assistantMsgId, { content: newContent, isFinal: true });
+            // Clear streaming state immediately so UI shows markdown AND tasks complete
+            setConversationStreaming(convId!, null);
+            console.log(`[A2A] ✅ Streaming state cleared - tasks should now show as completed`);
           } else if (artifactName === "streaming_result") {
-            // Append streaming chunks
-            console.log(`[A2A] APPEND streaming: +${newContent.length} chars, text: "${newContent.substring(0, 30)}..."`);
-            appendToMessage(convId!, assistantMsgId, newContent);
+            // Streaming chunks: respect the append flag from A2A
+            // First chunk (append=false) should REPLACE, subsequent (append=true) should APPEND
+            if (event.shouldAppend === false) {
+              console.log(`[A2A] REPLACE streaming (first chunk): ${newContent.length} chars`);
+              updateMessage(convId!, assistantMsgId, { content: newContent });
+            } else {
+              console.log(`[A2A] APPEND streaming: +${newContent.length} chars, text: "${newContent.substring(0, 30)}..."`);
+              appendToMessage(convId!, assistantMsgId, newContent);
+            }
           } else {
             // For other artifacts, append by default
             console.log(`[A2A] APPEND (${artifactName}): ${newContent.length} chars`);
@@ -431,7 +446,9 @@ function ChatMessage({
         </div>
 
         {/* Streaming state - Cursor/OpenAI style */}
-        {isStreaming && !message.isFinal ? (
+        {/* Show streaming view only if: streaming is active AND message is not final */}
+        {/* Once isFinal is true, ALWAYS show markdown regardless of streaming state */}
+        {isStreaming && !message.isFinal && message.role === "assistant" ? (
           <div className="space-y-2">
             {/* Show thinking indicator when no content yet */}
             {!message.content && (
@@ -608,7 +625,7 @@ function ChatMessage({
                         // Fenced code block
                         const language = match ? match[1] : "";
                         const shouldHighlight = match && language !== "text";
-                        
+
                         return (
                           <div className="my-4 rounded-lg overflow-hidden border border-border/30 bg-[#1e1e2e]">
                             <div className="flex items-center justify-between px-4 py-2 border-b border-border/20 bg-[#181825]">

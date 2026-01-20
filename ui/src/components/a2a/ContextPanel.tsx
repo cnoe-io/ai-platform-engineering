@@ -7,6 +7,10 @@ import {
   Bug,
   Loader2,
   ListTodo,
+  CheckCircle,
+  ChevronDown,
+  ChevronUp,
+  Wrench,
 } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
@@ -32,23 +36,65 @@ interface ContextPanelProps {
 }
 
 export function ContextPanel({ debugMode, onDebugModeChange }: ContextPanelProps) {
-  const { a2aEvents, isStreaming } = useChatStore();
+  const { isStreaming, activeConversationId, getActiveConversation, conversations } = useChatStore();
   // Default to tasks tab, switch to debug if debug mode is enabled
   const [activeTab, setActiveTab] = useState<"tasks" | "debug">(debugMode ? "debug" : "tasks");
+  // Collapse tool history after streaming ends
+  const [toolsCollapsed, setToolsCollapsed] = useState(false);
 
-  // Parse execution plan tasks from A2A events
+  // Get events for the active conversation (triggers re-render when conversations change)
+  const conversationEvents = useMemo(() => {
+    if (!activeConversationId) return [];
+    const conv = conversations.find(c => c.id === activeConversationId);
+    return conv?.a2aEvents || [];
+  }, [activeConversationId, conversations]);
+
+  // Check if streaming is truly active:
+  // 1. Global isStreaming must be true
+  // 2. AND the active conversation's last message must not be final
+  const isActuallyStreaming = useMemo(() => {
+    if (!isStreaming) return false;
+    const conversation = getActiveConversation();
+    if (!conversation) return false;
+    const lastMessage = conversation.messages[conversation.messages.length - 1];
+    // If the last message is marked as final, streaming is done
+    if (lastMessage?.isFinal) return false;
+    return true;
+  }, [isStreaming, getActiveConversation, activeConversationId]);
+
+  // Parse execution plan tasks from A2A events (per-conversation)
   // When streaming ends, mark all tasks as completed
   const executionTasks = useMemo(() => {
-    const tasks = parseExecutionTasks(a2aEvents);
+    const tasks = parseExecutionTasks(conversationEvents);
     // If streaming has ended and we have tasks, mark remaining as completed
-    if (!isStreaming && tasks.length > 0) {
+    if (!isActuallyStreaming && tasks.length > 0) {
       return tasks.map(task => ({
         ...task,
         status: task.status === "failed" ? "failed" : "completed" as const,
       }));
     }
     return tasks;
-  }, [a2aEvents, isStreaming]);
+  }, [conversationEvents, isActuallyStreaming]);
+
+  // Parse tool calls - show running during streaming, completed after
+  const { activeToolCalls, completedToolCalls } = useMemo(() => {
+    const allTools = parseToolCalls(conversationEvents);
+    if (isActuallyStreaming) {
+      // During streaming: show only running tools
+      return {
+        activeToolCalls: allTools.filter(t => t.status === "running"),
+        completedToolCalls: allTools.filter(t => t.status === "completed"),
+      };
+    } else {
+      // After streaming: mark ALL tools as completed for history
+      // (since streaming ended, all tools must have finished)
+      const completedTools = allTools.map(t => ({ ...t, status: "completed" as const }));
+      return {
+        activeToolCalls: [],
+        completedToolCalls: completedTools,
+      };
+    }
+  }, [conversationEvents, isActuallyStreaming]);
 
   // Sync tab with debug mode
   useEffect(() => {
@@ -58,8 +104,8 @@ export function ContextPanel({ debugMode, onDebugModeChange }: ContextPanelProps
   }, [debugMode]);
 
 
-  // Count events for badge
-  const eventCount = a2aEvents.length;
+  // Count events for badge (using conversation-specific events)
+  const eventCount = conversationEvents.length;
 
   return (
     <div className="h-full flex flex-col bg-card/30 backdrop-blur-sm">
@@ -122,15 +168,15 @@ export function ContextPanel({ debugMode, onDebugModeChange }: ContextPanelProps
             </TabsList>
           </Tabs>
 
-          <div className="flex items-center gap-2">
-            {/* Streaming indicator */}
-            {isStreaming && (
-              <div className="flex items-center gap-1.5 px-2 py-1 rounded-full bg-green-500/15 text-green-400 text-xs">
-                <Radio className="h-3 w-3 animate-pulse" />
-                Live
-              </div>
-            )}
-          </div>
+                <div className="flex items-center gap-2">
+                  {/* Streaming indicator */}
+                  {isActuallyStreaming && (
+                    <div className="flex items-center gap-1.5 px-2 py-1 rounded-full bg-green-500/15 text-green-400 text-xs">
+                      <Radio className="h-3 w-3 animate-pulse" />
+                      Live
+                    </div>
+                  )}
+                </div>
         </div>
       </div>
 
@@ -139,17 +185,17 @@ export function ContextPanel({ debugMode, onDebugModeChange }: ContextPanelProps
         {activeTab === "tasks" ? (
           /* Tasks Tab - Execution Plan (Default) */
           <ScrollArea className="h-full">
-            <div className="p-4 space-y-3">
+            <div className="p-4 space-y-4">
               {executionTasks.length > 0 ? (
                 <>
                   {/* Progress Header */}
                   <div className="space-y-2 mb-4">
                     <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                      <div className="flex items-center gap-2 text-xs text-foreground">
                         <ListTodo className="h-4 w-4 text-sky-400" />
                         <span className="font-medium">Execution Plan</span>
                       </div>
-                      <span className="text-xs font-medium">
+                      <span className="text-xs font-medium text-foreground/80">
                         {executionTasks.filter(t => t.status === "completed").length}/{executionTasks.length} completed
                       </span>
                     </div>
@@ -183,42 +229,37 @@ export function ContextPanel({ debugMode, onDebugModeChange }: ContextPanelProps
                             task.status === "failed" && "bg-red-500/10 border-red-500/30"
                           )}
                         >
-                          {/* Interactive Checkbox */}
-                          <div className="mt-0.5 relative">
-                            <input
-                              type="checkbox"
-                              checked={task.status === "completed"}
-                              readOnly
-                              className={cn(
-                                "appearance-none w-4 h-4 rounded border-2 cursor-pointer transition-all",
-                                task.status === "completed"
-                                  ? "bg-green-500 border-green-500"
-                                  : task.status === "in_progress"
-                                  ? "border-sky-400 animate-pulse"
-                                  : task.status === "failed"
-                                  ? "border-red-400"
-                                  : "border-muted-foreground/50 hover:border-muted-foreground"
-                              )}
-                            />
-                            {/* Checkmark overlay */}
-                            {task.status === "completed" && (
-                              <svg
-                                className="absolute inset-0 w-4 h-4 text-white pointer-events-none"
-                                fill="none"
-                                viewBox="0 0 24 24"
-                                stroke="currentColor"
-                                strokeWidth={3}
-                              >
-                                <path
-                                  strokeLinecap="round"
-                                  strokeLinejoin="round"
-                                  d="M5 13l4 4L19 7"
-                                />
-                              </svg>
-                            )}
-                            {/* Spinner overlay for in-progress */}
-                            {task.status === "in_progress" && (
-                              <Loader2 className="absolute inset-0 w-4 h-4 text-sky-400 animate-spin" />
+                          {/* Status Indicator */}
+                          <div className="mt-0.5 w-4 h-4 flex items-center justify-center">
+                            {task.status === "completed" ? (
+                              /* Completed - Green checkbox with checkmark */
+                              <div className="relative w-4 h-4">
+                                <div className="w-4 h-4 rounded bg-green-500" />
+                                <svg
+                                  className="absolute inset-0 w-4 h-4 text-white pointer-events-none"
+                                  fill="none"
+                                  viewBox="0 0 24 24"
+                                  stroke="currentColor"
+                                  strokeWidth={3}
+                                >
+                                  <path
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    d="M5 13l4 4L19 7"
+                                  />
+                                </svg>
+                              </div>
+                            ) : task.status === "in_progress" ? (
+                              /* In Progress - Spinner only, no box */
+                              <Loader2 className="w-4 h-4 text-sky-400 animate-spin" />
+                            ) : task.status === "failed" ? (
+                              /* Failed - Red X */
+                              <div className="w-4 h-4 rounded border-2 border-red-400 flex items-center justify-center">
+                                <span className="text-red-400 text-xs font-bold">✕</span>
+                              </div>
+                            ) : (
+                              /* Pending - Empty checkbox */
+                              <div className="w-4 h-4 rounded border-2 border-muted-foreground/50" />
                             )}
                           </div>
 
@@ -226,7 +267,12 @@ export function ContextPanel({ debugMode, onDebugModeChange }: ContextPanelProps
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2 mb-1.5">
                               {/* Agent Logo */}
-                              <AgentLogo agent={task.agent} size="sm" />
+                              <div className={cn(
+                                "transition-opacity",
+                                task.status === "completed" && "opacity-50"
+                              )}>
+                                <AgentLogo agent={task.agent} size="sm" />
+                              </div>
 
                               {/* Agent Name Badge with official color */}
                               {(() => {
@@ -234,12 +280,12 @@ export function ContextPanel({ debugMode, onDebugModeChange }: ContextPanelProps
                                 return (
                                   <span
                                     className={cn(
-                                      "text-[10px] font-semibold px-1.5 py-0.5 rounded",
-                                      task.status === "completed" && "opacity-60"
+                                      "text-[10px] font-semibold px-1.5 py-0.5 rounded transition-opacity",
+                                      task.status === "completed" && "opacity-50"
                                     )}
                                     style={{
-                                      backgroundColor: agentLogo ? `${agentLogo.color}20` : 'var(--muted)',
-                                      color: agentLogo?.color || 'var(--muted-foreground)',
+                                      backgroundColor: agentLogo ? `${agentLogo.color}30` : 'var(--muted)',
+                                      color: agentLogo?.color || 'hsl(var(--foreground))',
                                     }}
                                   >
                                     {agentLogo?.displayName || task.agent}
@@ -249,9 +295,9 @@ export function ContextPanel({ debugMode, onDebugModeChange }: ContextPanelProps
                             </div>
                             <p className={cn(
                               "text-sm leading-relaxed",
-                              task.status === "completed" && "text-muted-foreground line-through",
-                              task.status === "in_progress" && "text-foreground",
-                              task.status === "pending" && "text-muted-foreground"
+                              task.status === "completed" && "text-muted-foreground line-through decoration-2 opacity-60",
+                              task.status === "in_progress" && "text-foreground font-medium",
+                              task.status === "pending" && "text-foreground/80"
                             )}>
                               {task.description}
                             </p>
@@ -260,16 +306,186 @@ export function ContextPanel({ debugMode, onDebugModeChange }: ContextPanelProps
                       ))}
                     </AnimatePresence>
                   </div>
+
+                  {/* Active Tool Calls - Only shown during streaming */}
+                  {activeToolCalls.length > 0 && (
+                    <motion.div
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: 10 }}
+                      className="space-y-2 mt-4 pt-4 border-t border-border/30"
+                    >
+                      <div className="flex items-center gap-2 text-xs text-amber-400">
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        <span className="font-medium">Active Tool Calls</span>
+                      </div>
+                      <div className="space-y-1.5">
+                        {activeToolCalls.map((tool) => (
+                          <div
+                            key={tool.id}
+                            className="flex items-center gap-2 px-3 py-2 rounded-md bg-amber-500/10 border border-amber-500/20 text-sm"
+                          >
+                            <Loader2 className="h-3.5 w-3.5 text-amber-400 animate-spin shrink-0" />
+                            <span className="text-foreground/90 truncate">
+                              <span className="font-medium text-amber-400">{tool.agent}</span>
+                              <span className="text-foreground/60"> → </span>
+                              <span>{tool.tool}</span>
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </motion.div>
+                  )}
+
+                  {/* Completed Tool Calls - Collapsible after streaming */}
+                  {completedToolCalls.length > 0 && !isActuallyStreaming && (
+                    <motion.div
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      className="mt-4 pt-4 border-t border-border/30"
+                    >
+                      <button
+                        onClick={() => setToolsCollapsed(!toolsCollapsed)}
+                        className="w-full flex items-center justify-between text-xs text-muted-foreground hover:text-foreground transition-colors py-1"
+                      >
+                        <div className="flex items-center gap-2">
+                          <Wrench className="h-3.5 w-3.5" />
+                          <span className="font-medium">Tool Calls</span>
+                          <Badge variant="secondary" className="h-4 px-1.5 text-[10px]">
+                            {completedToolCalls.length}
+                          </Badge>
+                        </div>
+                        {toolsCollapsed ? (
+                          <ChevronDown className="h-3.5 w-3.5" />
+                        ) : (
+                          <ChevronUp className="h-3.5 w-3.5" />
+                        )}
+                      </button>
+                      <AnimatePresence>
+                        {!toolsCollapsed && (
+                          <motion.div
+                            initial={{ height: 0, opacity: 0 }}
+                            animate={{ height: "auto", opacity: 1 }}
+                            exit={{ height: 0, opacity: 0 }}
+                            transition={{ duration: 0.2 }}
+                            className="overflow-hidden"
+                          >
+                            <div className="space-y-1 mt-2">
+                              {completedToolCalls.map((tool) => (
+                                <div
+                                  key={tool.id}
+                                  className="flex items-center gap-2 px-3 py-1.5 rounded-md bg-muted/30 border border-border/30 text-sm"
+                                >
+                                  <CheckCircle className="h-3 w-3 text-green-400 shrink-0" />
+                                  <span className="text-foreground/70 truncate text-xs">
+                                    <span className="font-medium text-foreground/80">{tool.agent}</span>
+                                    <span className="text-foreground/40"> → </span>
+                                    <span>{tool.tool}</span>
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
+                    </motion.div>
+                  )}
                 </>
+              ) : activeToolCalls.length > 0 || completedToolCalls.length > 0 ? (
+                /* Tool calls without execution plan */
+                <div className="space-y-4">
+                  {/* Active tool calls during streaming */}
+                  {activeToolCalls.length > 0 && (
+                    <motion.div
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      className="space-y-2"
+                    >
+                      <div className="flex items-center gap-2 text-xs text-amber-400">
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        <span className="font-medium">Active Tool Calls</span>
+                      </div>
+                      <div className="space-y-1.5">
+                        {activeToolCalls.map((tool) => (
+                          <div
+                            key={tool.id}
+                            className="flex items-center gap-2 px-3 py-2 rounded-md bg-amber-500/10 border border-amber-500/20 text-sm"
+                          >
+                            <Loader2 className="h-3.5 w-3.5 text-amber-400 animate-spin shrink-0" />
+                            <span className="text-foreground/90 truncate">
+                              <span className="font-medium text-amber-400">{tool.agent}</span>
+                              <span className="text-foreground/60"> → </span>
+                              <span>{tool.tool}</span>
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </motion.div>
+                  )}
+
+                  {/* Completed tool calls - collapsible */}
+                  {completedToolCalls.length > 0 && !isActuallyStreaming && (
+                    <motion.div
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                    >
+                      <button
+                        onClick={() => setToolsCollapsed(!toolsCollapsed)}
+                        className="w-full flex items-center justify-between text-xs text-muted-foreground hover:text-foreground transition-colors py-1"
+                      >
+                        <div className="flex items-center gap-2">
+                          <Wrench className="h-3.5 w-3.5" />
+                          <span className="font-medium">Tool Calls</span>
+                          <Badge variant="secondary" className="h-4 px-1.5 text-[10px]">
+                            {completedToolCalls.length}
+                          </Badge>
+                        </div>
+                        {toolsCollapsed ? (
+                          <ChevronDown className="h-3.5 w-3.5" />
+                        ) : (
+                          <ChevronUp className="h-3.5 w-3.5" />
+                        )}
+                      </button>
+                      <AnimatePresence>
+                        {!toolsCollapsed && (
+                          <motion.div
+                            initial={{ height: 0, opacity: 0 }}
+                            animate={{ height: "auto", opacity: 1 }}
+                            exit={{ height: 0, opacity: 0 }}
+                            transition={{ duration: 0.2 }}
+                            className="overflow-hidden"
+                          >
+                            <div className="space-y-1 mt-2">
+                              {completedToolCalls.map((tool) => (
+                                <div
+                                  key={tool.id}
+                                  className="flex items-center gap-2 px-3 py-1.5 rounded-md bg-muted/30 border border-border/30 text-sm"
+                                >
+                                  <CheckCircle className="h-3 w-3 text-green-400 shrink-0" />
+                                  <span className="text-foreground/70 truncate text-xs">
+                                    <span className="font-medium text-foreground/80">{tool.agent}</span>
+                                    <span className="text-foreground/40"> → </span>
+                                    <span>{tool.tool}</span>
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
+                    </motion.div>
+                  )}
+                </div>
               ) : (
+                /* Empty state - no tasks and no active tools */
                 <div className="text-center py-12">
                   <div className="w-14 h-14 mx-auto mb-4 rounded-2xl bg-gradient-to-br from-sky-500/20 to-purple-500/20 flex items-center justify-center">
                     <ListTodo className="h-6 w-6 text-sky-400" />
                   </div>
-                  <p className="text-sm font-medium text-muted-foreground">
+                  <p className="text-sm font-medium text-foreground/80">
                     No active tasks
                   </p>
-                  <p className="text-xs text-muted-foreground/70 mt-1">
+                  <p className="text-xs text-foreground/60 mt-1">
                     Task plans will appear here during execution
                   </p>
                 </div>
@@ -285,12 +501,12 @@ export function ContextPanel({ debugMode, onDebugModeChange }: ContextPanelProps
   );
 }
 
-// Parse execution plan tasks from A2A events
+// Parse execution plan tasks from A2A events (ONLY from execution_plan artifacts, not tool notifications)
 function parseExecutionTasks(events: A2AEvent[]): ExecutionTask[] {
   const tasksMap = new Map<string, ExecutionTask>();
 
   events.forEach((event) => {
-    // Check for execution plan artifacts
+    // ONLY check for execution plan artifacts - NOT tool notifications
     if (event.artifact?.name === "execution_plan_update" ||
         event.artifact?.name === "execution_plan_status_update") {
 
@@ -323,38 +539,85 @@ function parseExecutionTasks(events: A2AEvent[]): ExecutionTask[] {
         });
       }
     }
+  });
 
-    // Also check tool notifications for task-like patterns
-    if (event.type === "tool_start" && event.displayContent) {
-      const text = event.displayContent;
-      // Match agent calls like "Calling Agent Search..."
-      const agentMatch = text.match(/(?:Calling|Starting|Running)\s+(?:Agent\s+)?(\w+)/i);
-      if (agentMatch) {
-        const taskId = `tool-${event.id}`;
-        if (!tasksMap.has(taskId)) {
-          tasksMap.set(taskId, {
-            id: taskId,
-            agent: agentMatch[1],
-            description: text,
-            status: "in_progress",
-            order: tasksMap.size,
-          });
-        }
+  // Sort by order
+  return Array.from(tasksMap.values()).sort((a, b) => a.order - b.order);
+}
+
+// Tool call interface
+interface ToolCall {
+  id: string;
+  agent: string;
+  tool: string;
+  status: "running" | "completed";
+  timestamp: number;
+}
+
+// Parse active tool calls from A2A events
+function parseToolCalls(events: A2AEvent[]): ToolCall[] {
+  const toolsMap = new Map<string, ToolCall>();
+
+  events.forEach((event, idx) => {
+    if (event.type === "tool_start") {
+      // Try to get tool name from artifact description (most reliable)
+      // Format: "Tool call started: {tool_name}"
+      const description = event.artifact?.description || "";
+      const text = event.displayContent || "";
+
+      let toolName = "Unknown Tool";
+      let agentName = "Agent";
+
+      // Parse from description: "Tool call started: list_pull_requests"
+      const descMatch = description.match(/Tool call (?:started|completed):\s*(.+)/i);
+      if (descMatch) {
+        toolName = descMatch[1].trim();
       }
+
+      // Try to get agent from displayContent: "🔧 Supervisor: Calling Agent Github..."
+      const agentMatch = text.match(/🔧?\s*(\w+):\s*(?:Calling|Tool)/i);
+      if (agentMatch) {
+        agentName = agentMatch[1];
+      }
+
+      // Also try pattern: "Github: Calling tool: List_Pull_Requests"
+      const fullMatch = text.match(/(\w+):\s*(?:Calling\s+)?(?:tool:\s*|Agent\s+)?(\w+)/i);
+      if (fullMatch && !descMatch) {
+        agentName = fullMatch[1];
+        toolName = fullMatch[2];
+      }
+
+      const toolId = `tool-${event.id}`;
+      toolsMap.set(toolId, {
+        id: toolId,
+        agent: agentName,
+        tool: toolName,
+        status: "running",
+        timestamp: idx,
+      });
     }
 
-    // Mark tool_end as completed
     if (event.type === "tool_end") {
-      // Find the matching in_progress task and mark it complete
-      for (const [id, task] of tasksMap) {
-        if (task.status === "in_progress" && id.startsWith("tool-")) {
-          task.status = "completed";
-          break;
+      // Get tool name from artifact description
+      const description = event.artifact?.description || "";
+      const descMatch = description.match(/Tool call (?:completed|started):\s*(.+)/i);
+      const toolName = descMatch ? descMatch[1].trim().toLowerCase() : "";
+
+      // Mark matching running tool as complete
+      for (const [, tool] of toolsMap) {
+        if (tool.status === "running") {
+          // Match by tool name if available, otherwise just mark the oldest running tool
+          if (toolName && tool.tool.toLowerCase() === toolName) {
+            tool.status = "completed";
+            break;
+          } else if (!toolName) {
+            tool.status = "completed";
+            break;
+          }
         }
       }
     }
   });
 
-  // Sort by order
-  return Array.from(tasksMap.values()).sort((a, b) => a.order - b.order);
+  return Array.from(toolsMap.values()).sort((a, b) => a.timestamp - b.timestamp);
 }
