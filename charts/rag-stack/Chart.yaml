@@ -2,7 +2,7 @@ apiVersion: v2
 name: rag-stack
 description: A complete RAG stack including web UI, server, agents, Redis, Neo4j and Milvus
 type: application
-version: 0.2.9 # Do NOT bump this. It will be updated automatically using the PR or release workflow
+version: 0.2.9-rc.helm.1 # Do NOT bump this. It will be updated automatically using the PR or release workflow
 appVersion: 0.2.9 # Do NOT modify. It will be updated automatically using the release workflow
 dependencies:
   - name: rag-server
@@ -27,7 +27,7 @@ dependencies:
     alias: neo4j
     condition: neo4j.enabled
   - name: rag-redis
-    version: 0.2.9 # Do NOT bump this. It will be updated automatically using the PR or release workflow
+    version: 0.2.9-rc.helm.1 # Do NOT bump this. It will be updated automatically using the PR or release workflow
     repository: "file://./charts/rag-redis"
     condition: rag-redis.enabled
   - name: milvus
