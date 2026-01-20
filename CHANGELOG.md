@@ -1,3 +1,9 @@
+## 0.2.10 (2026-01-20)
+
+### Fix
+
+- **redis**: use Recreate strategy with persistent volumes
+
 ## 0.2.9 (2026-01-20)
 
 ## 0.2.8-rc.12 (2026-01-20)
