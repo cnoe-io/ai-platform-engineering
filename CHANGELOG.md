@@ -1,3 +1,114 @@
+## 0.2.9 (2026-01-20)
+
+## 0.2.8-rc.12 (2026-01-20)
+
+### Fix
+
+- **executor**: prevent duplicate responses when sub-agent completes
+
+## 0.2.8-rc.11 (2026-01-19)
+
+### Feat
+
+- **supervisor**: add [FINAL ANSWER] marker to filter thinking messages
+
+### Fix
+
+- **supervisor**: add prominent [FINAL ANSWER] instruction to core constraints
+
+## 0.2.8-rc.10 (2026-01-16)
+
+### Fix
+
+- **tests**: update tool tests to match string-based return API
+- updates
+- wrong helm chart version committed by accident
+
+### Refactor
+
+- **executor**: simplify agent_executor and add streaming fix
+- **executor**: remove unused routing logic and dead code
+- **a2a**: remove redundant import aliases
+
+## 0.2.8-rc.9 (2026-01-16)
+
+### Feat
+
+- **tools**: consolidate utility tools into utils/agent_tools
+- **tools**: add git auth support and beads-github sync
+- **platform-engineer**: integrate new utility tools into deep agent
+- **tools**: add utility tools for git, grep, wget, curl, glob, and memory
+
+### Fix
+
+- use URL token injection for git authentication
+
+### Refactor
+
+- move git tools to utils with GitHub/GitLab support
+- **tools**: move git_* tools to GitHub agent
+- **tools**: move memory tool to separate PR
+
+## 0.2.8-rc.8 (2026-01-16)
+
+### Feat
+
+- **aws**: add tracing configuration and disable A2A framework tracing
+
+## 0.2.8-rc.7 (2026-01-16)
+
+### Fix
+
+- update comment
+- **a2a**: prevent streaming output duplication
+
+## 0.2.8-rc.6 (2026-01-13)
+
+### Fix
+
+- **rag**: Set correct RELOAD_INTERVAL for datasource refresh
+
+## 0.2.8-rc.5 (2026-01-13)
+
+### Feat
+
+- **rag**: Refactor Confluence ingestor to use json-based configuration
+
+## 0.2.8-rc.4 (2026-01-13)
+
+### Feat
+
+- **gitlab**: add GitLab agent configuration and minimal prompt config
+- **gitlab**: add GitLab agent
+
+### Fix
+
+- **gitlab**: remove unused task
+
+## 0.2.8-rc.3 (2026-01-13)
+
+### Feat
+
+- **beads**: add A2A Streaming Improvements epic and tasks
+- add beads (bd) issue tracking system
+
+### Fix
+
+- **tracing**: configure LangGraph model with agent name for proper observations
+
+## 0.2.8-rc.1 (2026-01-12)
+
+### Feat
+
+- use new helm chart GHCR oci://ghcr.io/cnoe-io/charts/* so it does not collide with legacy charts
+- new release pipeline to automate helm version and image tagging
+- **confluence-rag**: Implement confluence rag ingestor v2
+
+### Fix
+
+- **rag**: Allow discovery with fewer entities
+- inf loop bug; hf api token
+
 ## 0.2.8 (2025-12-22)
 
 ### Feat
