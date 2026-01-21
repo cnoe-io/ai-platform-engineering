@@ -1,3 +1,14 @@
+## 0.2.11 (2026-01-21)
+
+## 0.2.10-rc.1 (2026-01-21)
+
+### Fix
+
+- extract context_id from supervisor message metadata for conversation continuity
+- **ci**: make helm rc bump to directly trigger pre-release push
+- **ci**: force re-registration of workflow_run trigger
+- do not include agentForge CI in the finalise and fix arm64 build
+
 ## 0.2.10 (2026-01-20)
 
 ### Fix
