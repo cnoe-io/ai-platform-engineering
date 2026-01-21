@@ -1,6 +1,7 @@
 name: "[Pre-Release] Helm Chart"
 description: "Publish pre-release Helm charts"
 
+# Triggered when [CI][Helm] Auto-bump Chart Versions workflow completes
 on:
   workflow_run:
     workflows: ["[CI][Helm] Auto-bump Chart Versions"]
