@@ -142,6 +142,12 @@ dependencies:
     import-values: # This is used to automatically render ENABLE_RAG variable for the supervisor configmap
       - child: agentExports.data
         parent: global.enabledSubAgents.rag
+  # Agentgateway - AI gateway for agent routing
+  # https://kgateway.dev/docs/agentgateway/main/install/helm/
+  - name: agentgateway
+    version: v2.2.0-main
+    repository: oci://ghcr.io/kgateway-dev/charts/agentgateway
+    condition: global.agentgateway.enabled
   # Backstage plugin agent forge
   - name: backstage-plugin-agent-forge
     version: 0.2.12 # Do NOT bump this. It will be updated automatically using the PR or release workflow
