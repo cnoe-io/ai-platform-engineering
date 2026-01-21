@@ -37,6 +37,9 @@ global:
   metrics:
     enabled: false
 
+  agentgateway:
+    enabled: false
+
 # ServiceMonitor for scraping all ai-platform-engineering components
 # For agent metrics endpoints, use global.metrics.enabled above
 metrics:
