@@ -14,7 +14,9 @@ on:
 
 permissions:
   contents: write
-  pull-requests: read
+  pull-requests: write
+  packages: write
+  actions: read
 
 jobs:
   auto-bump-versions:
@@ -22,6 +24,9 @@ jobs:
     runs-on: ubuntu-latest
     # Don't run on commits made by this workflow (avoid infinite loop)
     if: github.actor != 'github-actions[bot]'
+    outputs:
+      new_commit: ${{ steps.status.outputs.new_commit }}
+      should_prerelease: ${{ steps.prerelease-check.outputs.should_run }}
     steps:
       - name: 📥 Checkout repository
         uses: actions/checkout@v6.0.1
@@ -424,21 +429,59 @@ jobs:
           # Determine if a new commit was made
           if [[ "${{ steps.commit.outputs.committed }}" == "true" ]]; then
             echo "new_commit=true" >> $GITHUB_OUTPUT
-            echo "🔄 New commit was made - downstream workflows should skip"
+            echo "🔄 New commit was made - pre-release will run on next trigger"
           else
             echo "new_commit=false" >> $GITHUB_OUTPUT
-            echo "✅ No new commit - downstream workflows can proceed"
+            echo "✅ No new commit - pre-release can proceed"
           fi
 
-          # Write status file for artifact
-          mkdir -p ${{ runner.temp }}/status
-          echo "new_commit=${{ steps.commit.outputs.committed == 'true' && 'true' || 'false' }}" > "${{ runner.temp }}/status/version-bump-status.txt"
-          echo "pr_number=${{ github.event.pull_request.number }}" >> "${{ runner.temp }}/status/version-bump-status.txt"
-          echo "head_sha=${{ github.event.pull_request.head.sha }}" >> "${{ runner.temp }}/status/version-bump-status.txt"
+      - name: 🔍 Check if pre-release should run
+        id: prerelease-check
+        if: github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          HEAD_REF="${{ github.head_ref }}"
+          REPO="${{ github.repository }}"
+          PR_NUMBER="${{ github.event.pull_request.number }}"
 
-      - name: 📦 Save commit status artifact
-        uses: actions/upload-artifact@v6
-        with:
-          name: version-bump-status
-          path: ${{ runner.temp }}/status/version-bump-status.txt
-          retention-days: 1
+          echo "🔍 Checking pre-release conditions..."
+          echo "  Branch: $HEAD_REF"
+          echo "  PR: #$PR_NUMBER"
+
+          SHOULD_RUN=false
+
+          # Check for prebuild/ branch
+          if [[ "$HEAD_REF" == prebuild/* ]]; then
+            echo "✅ Matched: prebuild/ branch"
+            SHOULD_RUN=true
+          fi
+
+          # Check for helm-prerelease label
+          LABELS=$(gh pr view "$PR_NUMBER" --json labels --jq '.labels[].name' 2>/dev/null | tr '\n' ',' || echo "")
+          echo "  Labels: $LABELS"
+
+          if [[ "$LABELS" == *"helm-prerelease"* ]]; then
+            echo "✅ Matched: helm-prerelease label"
+            SHOULD_RUN=true
+          fi
+
+          echo "should_run=$SHOULD_RUN" >> $GITHUB_OUTPUT
+
+          if [[ "$SHOULD_RUN" != "true" ]]; then
+            echo "ℹ️ Skipping pre-release - conditions not met (need prebuild/ branch or helm-prerelease label)"
+          fi
+
+  # Call pre-release workflow for PRs on prebuild/ branches or with helm-prerelease label
+  helm-pre-release:
+    name: Publish Pre-release Helm Charts
+    needs: auto-bump-versions
+    if: |
+      github.event_name == 'pull_request' &&
+      needs.auto-bump-versions.outputs.should_prerelease == 'true' &&
+      needs.auto-bump-versions.outputs.new_commit != 'true'
+    uses: ./.github/workflows/helm-pre-release.yml
+    with:
+      pr_number: ${{ github.event.pull_request.number }}
+      new_commit: ${{ needs.auto-bump-versions.outputs.new_commit == 'true' }}
+    secrets: inherit
