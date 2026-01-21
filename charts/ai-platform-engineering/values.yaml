@@ -1,4 +1,4 @@
-sunnyTesting: true
+# Test workflow_run trigger
 tags:
   basic: false
   complete: false
