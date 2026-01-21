@@ -145,7 +145,7 @@ dependencies:
   # Agentgateway - AI gateway for agent routing
   # https://kgateway.dev/docs/agentgateway/main/install/helm/
   - name: agentgateway
-    version: v2.2.0-main
+    version: v2.2.0-beta.6
     repository: oci://ghcr.io/kgateway-dev/charts/agentgateway
     condition: global.agentgateway.enabled
   # Backstage plugin agent forge
