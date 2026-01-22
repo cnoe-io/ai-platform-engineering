@@ -1,9 +1,9 @@
 "use client";
 
-import React, { useState, useRef, useEffect, useCallback } from "react";
+import React, { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { useSession } from "next-auth/react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Send, Square, User, Bot, Sparkles, Copy, Check, Loader2, ChevronDown, ChevronUp } from "lucide-react";
+import { Send, Square, User, Bot, Sparkles, Copy, Check, Loader2, ChevronDown, ChevronUp, ArrowDown } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
@@ -18,6 +18,7 @@ import { ChatMessage as ChatMessageType } from "@/types/a2a";
 import { config } from "@/lib/config";
 import { FeedbackButton, Feedback } from "./FeedbackButton";
 import { InlineAgentSelector, DEFAULT_AGENTS, CustomCall } from "./CustomCallButtons";
+import { SubAgentCard, groupEventsByAgent, getAgentDisplayOrder, isRealSubAgent } from "./SubAgentCard";
 
 interface ChatPanelProps {
   endpoint: string;
@@ -29,7 +30,13 @@ export function ChatPanel({ endpoint }: ChatPanelProps) {
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [selectedAgentPrompt, setSelectedAgentPrompt] = useState<string | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
-  const scrollRef = useRef<HTMLDivElement>(null);
+  const scrollViewportRef = useRef<HTMLDivElement>(null);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // Auto-scroll state
+  const [isUserScrolledUp, setIsUserScrolledUp] = useState(false);
+  const [showScrollButton, setShowScrollButton] = useState(false);
+  const isAutoScrollingRef = useRef(false);
 
   const {
     activeConversationId,
@@ -57,11 +64,71 @@ export function ChatPanel({ endpoint }: ChatPanelProps) {
     ? isConversationStreaming(activeConversationId)
     : false;
 
-  useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+  // Check if user is near the bottom of the scroll area
+  const isNearBottom = useCallback(() => {
+    const viewport = scrollViewportRef.current;
+    if (!viewport) return true;
+
+    const threshold = 100; // pixels from bottom
+    const { scrollTop, scrollHeight, clientHeight } = viewport;
+    return scrollHeight - scrollTop - clientHeight < threshold;
+  }, []);
+
+  // Scroll to bottom with smooth animation
+  const scrollToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
+    if (messagesEndRef.current) {
+      isAutoScrollingRef.current = true;
+      messagesEndRef.current.scrollIntoView({ behavior, block: "end" });
+      // Reset auto-scrolling flag after animation
+      setTimeout(() => {
+        isAutoScrollingRef.current = false;
+        setIsUserScrolledUp(false);
+        setShowScrollButton(false);
+      }, behavior === "smooth" ? 300 : 0);
     }
-  }, [conversation?.messages]);
+  }, []);
+
+  // Handle scroll events to detect user scrolling
+  const handleScroll = useCallback(() => {
+    // Ignore scroll events caused by auto-scrolling
+    if (isAutoScrollingRef.current) return;
+
+    const nearBottom = isNearBottom();
+    setIsUserScrolledUp(!nearBottom);
+    setShowScrollButton(!nearBottom);
+  }, [isNearBottom]);
+
+  // Set up scroll listener
+  useEffect(() => {
+    const viewport = scrollViewportRef.current;
+    if (!viewport) return;
+
+    viewport.addEventListener("scroll", handleScroll, { passive: true });
+    return () => viewport.removeEventListener("scroll", handleScroll);
+  }, [handleScroll]);
+
+  // Auto-scroll when new messages arrive (only if user hasn't scrolled up)
+  useEffect(() => {
+    if (!isUserScrolledUp) {
+      scrollToBottom("smooth");
+    }
+  }, [conversation?.messages?.length, isUserScrolledUp, scrollToBottom]);
+
+  // Auto-scroll during streaming when content updates (only if user hasn't scrolled up)
+  useEffect(() => {
+    if (isThisConversationStreaming && !isUserScrolledUp) {
+      // Use instant scroll during streaming for smoother experience
+      scrollToBottom("instant");
+    }
+  }, [conversation?.messages?.at(-1)?.content, isThisConversationStreaming, isUserScrolledUp, scrollToBottom]);
+
+  // Reset scroll state when conversation changes
+  useEffect(() => {
+    setIsUserScrolledUp(false);
+    setShowScrollButton(false);
+    // Scroll to bottom when switching conversations
+    setTimeout(() => scrollToBottom("instant"), 50);
+  }, [activeConversationId, scrollToBottom]);
 
   const handleCopy = async (content: string, id: string) => {
     await navigator.clipboard.writeText(content);
@@ -86,6 +153,9 @@ export function ChatPanel({ endpoint }: ChatPanelProps) {
     const assistantMsgId = addMessage(convId, { role: "assistant", content: "" });
 
     // Create A2A client for this request
+    // Track when we've received the complete result to prevent late events from corrupting it
+    let hasReceivedCompleteResult = false;
+
     const client = new A2AClient({
       endpoint,
       accessToken, // Pass JWT token for Bearer authentication
@@ -106,6 +176,7 @@ export function ChatPanel({ endpoint }: ChatPanelProps) {
           isFinal: event.isFinal,
           shouldAppend: event.shouldAppend,
           raw: event.raw?.result?.kind,
+          hasReceivedCompleteResult,
         });
 
         // Handle status events first (they signal stream end)
@@ -135,6 +206,13 @@ export function ChatPanel({ endpoint }: ChatPanelProps) {
           return;
         }
 
+        // GUARD: If we've already received a complete result, ignore subsequent content events
+        // This prevents late-arriving streaming chunks from overwriting the final result
+        if (hasReceivedCompleteResult) {
+          console.log(`[A2A] ⚠️ IGNORING late event after complete_result: ${artifactName}`);
+          return;
+        }
+
         // Determine if this is a complete/final result that should REPLACE content
         // complete_result and partial_result contain the FULL accumulated text
         const isCompleteResult = artifactName === "partial_result" ||
@@ -152,6 +230,8 @@ export function ChatPanel({ endpoint }: ChatPanelProps) {
             // Also clear streaming state so markdown renders immediately
             console.log(`[A2A] ✅ FINAL RESULT with ${artifactName}: ${newContent.length} chars`);
             console.log(`[A2A] 🛑 Clearing streaming state for conversation: ${convId}`);
+            // CRITICAL: Set flag BEFORE updating to prevent race conditions
+            hasReceivedCompleteResult = true;
             updateMessage(convId!, assistantMsgId, { content: newContent, isFinal: true });
             // Clear streaming state immediately so UI shows markdown AND tasks complete
             setConversationStreaming(convId!, null);
@@ -253,9 +333,9 @@ export function ChatPanel({ endpoint }: ChatPanelProps) {
   };
 
   return (
-    <div className="h-full flex flex-col bg-background">
+    <div className="h-full flex flex-col bg-background relative">
       {/* Messages Area */}
-      <ScrollArea className="flex-1" ref={scrollRef}>
+      <ScrollArea className="flex-1" viewportRef={scrollViewportRef}>
         <div className="max-w-5xl mx-auto px-6 py-6 space-y-8">
           {!conversation?.messages.length && (
             <div className="text-center py-20">
@@ -296,8 +376,34 @@ export function ChatPanel({ endpoint }: ChatPanelProps) {
               );
             })}
           </AnimatePresence>
+
+          {/* Invisible marker for scroll-to-bottom */}
+          <div ref={messagesEndRef} className="h-px" />
         </div>
       </ScrollArea>
+
+      {/* Scroll to bottom button */}
+      <AnimatePresence>
+        {showScrollButton && conversation?.messages.length && (
+          <motion.div
+            initial={{ opacity: 0, scale: 0.8, y: 10 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.8, y: 10 }}
+            transition={{ duration: 0.2 }}
+            className="absolute bottom-24 left-1/2 -translate-x-1/2 z-10"
+          >
+            <Button
+              onClick={() => scrollToBottom("smooth")}
+              size="sm"
+              variant="secondary"
+              className="rounded-full shadow-lg border border-border/50 gap-1.5 px-4 hover:bg-primary hover:text-primary-foreground transition-colors"
+            >
+              <ArrowDown className="h-4 w-4" />
+              <span className="text-xs font-medium">New messages</span>
+            </Button>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Input Area */}
       <div className="border-t border-border p-4">
@@ -369,6 +475,130 @@ export function ChatPanel({ endpoint }: ChatPanelProps) {
     </div>
   );
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// StreamingView Component - Shows sub-agent cards and raw streaming output
+// ─────────────────────────────────────────────────────────────────────────────
+
+interface StreamingViewProps {
+  message: ChatMessageType;
+  showRawStream: boolean;
+  setShowRawStream: (show: boolean) => void;
+}
+
+function StreamingView({ message, showRawStream, setShowRawStream }: StreamingViewProps) {
+  // Feature flag for sub-agent cards (experimental)
+  const enableSubAgentCards = config.enableSubAgentCards;
+
+  // Group events by source agent
+  const eventGroups = useMemo(() => {
+    return groupEventsByAgent(message.events);
+  }, [message.events]);
+
+  // Get display order - only real sub-agents (not internal tools)
+  const agentOrder = useMemo(() => {
+    return getAgentDisplayOrder(message.events);
+  }, [message.events]);
+
+  // Check if we have any real sub-agents to display
+  const hasSubAgents = enableSubAgentCards && agentOrder.length > 0;
+
+  return (
+    <div className="space-y-4">
+      {/* Show thinking indicator when no content yet */}
+      {!message.content && message.events.length === 0 && (
+        <motion.div
+          key="thinking"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          className="inline-flex items-center gap-2 px-4 py-3 rounded-xl bg-card border border-border/50"
+        >
+          <div className="relative">
+            <div className="w-2 h-2 bg-primary rounded-full animate-ping absolute" />
+            <div className="w-2 h-2 bg-primary rounded-full" />
+          </div>
+          <span className="text-sm text-muted-foreground">Thinking...</span>
+        </motion.div>
+      )}
+
+      {/* Sub-agent cards - shown when feature flag enabled and we have real sub-agents */}
+      {hasSubAgents && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          className="space-y-3"
+        >
+          {/* Grid layout for parallel agents */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {agentOrder.map(agentName => {
+              const events = eventGroups.get(agentName) || [];
+              if (events.length === 0) return null;
+
+              return (
+                <SubAgentCard
+                  key={agentName}
+                  agentName={agentName}
+                  events={events}
+                  isStreaming={true}
+                />
+              );
+            })}
+          </div>
+        </motion.div>
+      )}
+
+      {/* Raw streaming output - collapsible */}
+      {message.content && (
+        <motion.div
+          initial={{ opacity: 0, height: 0 }}
+          animate={{ opacity: 1, height: "auto" }}
+          className="mt-3"
+        >
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-xs font-medium text-muted-foreground">
+              {hasSubAgents ? "Supervisor Output" : "Streaming Output"}
+            </span>
+            <button
+              onClick={() => setShowRawStream(!showRawStream)}
+              className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+            >
+              {showRawStream ? (
+                <>
+                  <ChevronUp className="h-3 w-3" />
+                  <span>Collapse</span>
+                </>
+              ) : (
+                <>
+                  <ChevronDown className="h-3 w-3" />
+                  <span>Expand</span>
+                </>
+              )}
+            </button>
+          </div>
+
+          <AnimatePresence>
+            {showRawStream && (
+              <motion.div
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: "auto" }}
+                exit={{ opacity: 0, height: 0 }}
+                className="p-4 rounded-lg bg-card/80 border border-border/50 max-h-64 overflow-y-auto"
+              >
+                <pre className="text-sm text-foreground/80 font-mono whitespace-pre-wrap break-words leading-relaxed">
+                  {message.content}
+                </pre>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </motion.div>
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ChatMessage Component
+// ─────────────────────────────────────────────────────────────────────────────
 
 interface ChatMessageProps {
   message: ChatMessageType;
@@ -449,67 +679,11 @@ function ChatMessage({
         {/* Show streaming view only if: streaming is active AND message is not final */}
         {/* Once isFinal is true, ALWAYS show markdown regardless of streaming state */}
         {isStreaming && !message.isFinal && message.role === "assistant" ? (
-          <div className="space-y-2">
-            {/* Show thinking indicator when no content yet */}
-            {!message.content && (
-              <motion.div
-                key="thinking"
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                className="inline-flex items-center gap-2 px-4 py-3 rounded-xl bg-card border border-border/50"
-              >
-                <div className="relative">
-                  <div className="w-2 h-2 bg-primary rounded-full animate-ping absolute" />
-                  <div className="w-2 h-2 bg-primary rounded-full" />
-                </div>
-                <span className="text-sm text-muted-foreground">Thinking...</span>
-              </motion.div>
-            )}
-
-            {/* Streaming output - expanded by default */}
-            {message.content && (
-              <motion.div
-                initial={{ opacity: 0, height: 0 }}
-                animate={{ opacity: 1, height: "auto" }}
-                className="mt-3"
-              >
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-xs font-medium text-muted-foreground">Streaming Output</span>
-                  <button
-                    onClick={() => setShowRawStream(!showRawStream)}
-                    className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
-                  >
-                    {showRawStream ? (
-                      <>
-                        <ChevronUp className="h-3 w-3" />
-                        <span>Collapse</span>
-                      </>
-                    ) : (
-                      <>
-                        <ChevronDown className="h-3 w-3" />
-                        <span>Expand</span>
-                      </>
-                    )}
-                  </button>
-                </div>
-
-                <AnimatePresence>
-                  {showRawStream && (
-                    <motion.div
-                      initial={{ opacity: 0, height: 0 }}
-                      animate={{ opacity: 1, height: "auto" }}
-                      exit={{ opacity: 0, height: 0 }}
-                      className="p-4 rounded-lg bg-card/80 border border-border/50 max-h-64 overflow-y-auto"
-                    >
-                      <pre className="text-sm text-foreground/80 font-mono whitespace-pre-wrap break-words leading-relaxed">
-                        {message.content}
-                      </pre>
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-              </motion.div>
-            )}
-          </div>
+          <StreamingView
+            message={message}
+            showRawStream={showRawStream}
+            setShowRawStream={setShowRawStream}
+          />
         ) : (
           /* Final output - rendered as Markdown */
           <>

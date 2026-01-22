@@ -52,6 +52,7 @@ export function ContextPanel({ debugMode, onDebugModeChange }: ContextPanelProps
   // Check if streaming is truly active:
   // 1. Global isStreaming must be true
   // 2. AND the active conversation's last message must not be final
+  // 3. ALSO check if we have a complete_result in events (fallback detection)
   const isActuallyStreaming = useMemo(() => {
     if (!isStreaming) return false;
     const conversation = getActiveConversation();
@@ -59,8 +60,21 @@ export function ContextPanel({ debugMode, onDebugModeChange }: ContextPanelProps
     const lastMessage = conversation.messages[conversation.messages.length - 1];
     // If the last message is marked as final, streaming is done
     if (lastMessage?.isFinal) return false;
+
+    // FALLBACK: Check if we received a complete_result artifact
+    // This catches cases where isFinal wasn't properly set
+    const hasCompleteResult = conversationEvents.some(e =>
+      e.artifact?.name === "complete_result" ||
+      e.artifact?.name === "partial_result" ||
+      e.artifact?.name === "final_result"
+    );
+    if (hasCompleteResult) {
+      console.log("[ContextPanel] Detected complete_result - treating as not streaming");
+      return false;
+    }
+
     return true;
-  }, [isStreaming, getActiveConversation, activeConversationId]);
+  }, [isStreaming, getActiveConversation, activeConversationId, conversationEvents]);
 
   // Parse execution plan tasks from A2A events (per-conversation)
   // When streaming ends, mark all tasks as completed
@@ -274,18 +288,17 @@ export function ContextPanel({ debugMode, onDebugModeChange }: ContextPanelProps
                                 <AgentLogo agent={task.agent} size="sm" />
                               </div>
 
-                              {/* Agent Name Badge with official color */}
+                              {/* Agent Name Badge with theme-aware color */}
                               {(() => {
                                 const agentLogo = getAgentLogo(task.agent);
                                 return (
                                   <span
                                     className={cn(
-                                      "text-[10px] font-semibold px-1.5 py-0.5 rounded transition-opacity",
+                                      "text-[10px] font-semibold px-1.5 py-0.5 rounded transition-opacity text-foreground",
                                       task.status === "completed" && "opacity-50"
                                     )}
                                     style={{
                                       backgroundColor: agentLogo ? `${agentLogo.color}30` : 'var(--muted)',
-                                      color: agentLogo?.color || 'hsl(var(--foreground))',
                                     }}
                                   >
                                     {agentLogo?.displayName || task.agent}
@@ -307,94 +320,71 @@ export function ContextPanel({ debugMode, onDebugModeChange }: ContextPanelProps
                     </AnimatePresence>
                   </div>
 
-                  {/* Active Tool Calls - Only shown during streaming */}
-                  {activeToolCalls.length > 0 && (
+                  {/* Tool Calls Section - Shows both active and completed during streaming */}
+                  {(activeToolCalls.length > 0 || completedToolCalls.length > 0) && (
                     <motion.div
                       initial={{ opacity: 0, y: 10 }}
                       animate={{ opacity: 1, y: 0 }}
                       exit={{ opacity: 0, y: 10 }}
-                      className="space-y-2 mt-4 pt-4 border-t border-border/30"
+                      className="space-y-3 mt-4 pt-4 border-t border-border/30"
                     >
-                      <div className="flex items-center gap-2 text-xs text-amber-400">
-                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                        <span className="font-medium">Active Tool Calls</span>
-                      </div>
-                      <div className="space-y-1.5">
-                        {activeToolCalls.map((tool) => (
-                          <div
-                            key={tool.id}
-                            className="flex items-center gap-2 px-3 py-2 rounded-md bg-amber-500/10 border border-amber-500/20 text-sm"
-                          >
-                            <Loader2 className="h-3.5 w-3.5 text-amber-400 animate-spin shrink-0" />
-                            <span className="text-foreground/90 truncate">
-                              <span className="font-medium text-amber-400">{tool.agent}</span>
-                              <span className="text-foreground/60"> → </span>
-                              <span>{tool.tool}</span>
-                            </span>
+                      {/* Active Tool Calls */}
+                      {activeToolCalls.length > 0 && (
+                        <div className="space-y-2">
+                          <div className="flex items-center gap-2 text-xs text-amber-400">
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            <span className="font-medium">Active Tool Calls</span>
                           </div>
-                        ))}
-                      </div>
+                          <div className="space-y-1.5">
+                            {activeToolCalls.map((tool) => (
+                              <div
+                                key={tool.id}
+                                className="flex items-center gap-2 px-3 py-2 rounded-md bg-amber-500/10 border border-amber-500/20 text-sm"
+                              >
+                                <Loader2 className="h-3.5 w-3.5 text-amber-400 animate-spin shrink-0" />
+                                <span className="text-foreground/90 truncate">
+                                  <span className="font-medium text-amber-400">{tool.agent}</span>
+                                  <span className="text-foreground/60"> → </span>
+                                  <span>{tool.tool}</span>
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Completed Tool Calls - Always visible, collapsible after streaming */}
+                      {completedToolCalls.length > 0 && (
+                        <div className="space-y-1.5">
+                          <div className="flex items-center gap-2 text-xs text-green-400">
+                            <CheckCircle className="h-3.5 w-3.5" />
+                            <span className="font-medium">Completed ({completedToolCalls.length})</span>
+                          </div>
+                          <div className="space-y-1">
+                            {completedToolCalls.map((tool) => (
+                              <div
+                                key={tool.id}
+                                className="flex items-center gap-2 px-3 py-1.5 rounded-md bg-green-500/5 border border-green-500/20 text-sm"
+                              >
+                                <CheckCircle className="h-3 w-3 text-green-400 shrink-0" />
+                                <span className="text-foreground/70 truncate text-xs">
+                                  <span className="font-medium text-foreground/80">{tool.agent}</span>
+                                  <span className="text-foreground/40"> → </span>
+                                  <span>{tool.tool}</span>
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                     </motion.div>
                   )}
 
-                  {/* Completed Tool Calls - Collapsible after streaming */}
-                  {completedToolCalls.length > 0 && !isActuallyStreaming && (
-                    <motion.div
-                      initial={{ opacity: 0, y: 10 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      className="mt-4 pt-4 border-t border-border/30"
-                    >
-                      <button
-                        onClick={() => setToolsCollapsed(!toolsCollapsed)}
-                        className="w-full flex items-center justify-between text-xs text-muted-foreground hover:text-foreground transition-colors py-1"
-                      >
-                        <div className="flex items-center gap-2">
-                          <Wrench className="h-3.5 w-3.5" />
-                          <span className="font-medium">Tool Calls</span>
-                          <Badge variant="secondary" className="h-4 px-1.5 text-[10px]">
-                            {completedToolCalls.length}
-                          </Badge>
-                        </div>
-                        {toolsCollapsed ? (
-                          <ChevronDown className="h-3.5 w-3.5" />
-                        ) : (
-                          <ChevronUp className="h-3.5 w-3.5" />
-                        )}
-                      </button>
-                      <AnimatePresence>
-                        {!toolsCollapsed && (
-                          <motion.div
-                            initial={{ height: 0, opacity: 0 }}
-                            animate={{ height: "auto", opacity: 1 }}
-                            exit={{ height: 0, opacity: 0 }}
-                            transition={{ duration: 0.2 }}
-                            className="overflow-hidden"
-                          >
-                            <div className="space-y-1 mt-2">
-                              {completedToolCalls.map((tool) => (
-                                <div
-                                  key={tool.id}
-                                  className="flex items-center gap-2 px-3 py-1.5 rounded-md bg-muted/30 border border-border/30 text-sm"
-                                >
-                                  <CheckCircle className="h-3 w-3 text-green-400 shrink-0" />
-                                  <span className="text-foreground/70 truncate text-xs">
-                                    <span className="font-medium text-foreground/80">{tool.agent}</span>
-                                    <span className="text-foreground/40"> → </span>
-                                    <span>{tool.tool}</span>
-                                  </span>
-                                </div>
-                              ))}
-                            </div>
-                          </motion.div>
-                        )}
-                      </AnimatePresence>
-                    </motion.div>
-                  )}
                 </>
               ) : activeToolCalls.length > 0 || completedToolCalls.length > 0 ? (
-                /* Tool calls without execution plan */
+                /* Tool calls without execution plan - shows both active and completed */
                 <div className="space-y-4">
-                  {/* Active tool calls during streaming */}
+                  {/* Active tool calls */}
                   {activeToolCalls.length > 0 && (
                     <motion.div
                       initial={{ opacity: 0, y: 10 }}
@@ -423,56 +413,32 @@ export function ContextPanel({ debugMode, onDebugModeChange }: ContextPanelProps
                     </motion.div>
                   )}
 
-                  {/* Completed tool calls - collapsible */}
-                  {completedToolCalls.length > 0 && !isActuallyStreaming && (
+                  {/* Completed tool calls - always visible */}
+                  {completedToolCalls.length > 0 && (
                     <motion.div
                       initial={{ opacity: 0, y: 10 }}
                       animate={{ opacity: 1, y: 0 }}
+                      className="space-y-2"
                     >
-                      <button
-                        onClick={() => setToolsCollapsed(!toolsCollapsed)}
-                        className="w-full flex items-center justify-between text-xs text-muted-foreground hover:text-foreground transition-colors py-1"
-                      >
-                        <div className="flex items-center gap-2">
-                          <Wrench className="h-3.5 w-3.5" />
-                          <span className="font-medium">Tool Calls</span>
-                          <Badge variant="secondary" className="h-4 px-1.5 text-[10px]">
-                            {completedToolCalls.length}
-                          </Badge>
-                        </div>
-                        {toolsCollapsed ? (
-                          <ChevronDown className="h-3.5 w-3.5" />
-                        ) : (
-                          <ChevronUp className="h-3.5 w-3.5" />
-                        )}
-                      </button>
-                      <AnimatePresence>
-                        {!toolsCollapsed && (
-                          <motion.div
-                            initial={{ height: 0, opacity: 0 }}
-                            animate={{ height: "auto", opacity: 1 }}
-                            exit={{ height: 0, opacity: 0 }}
-                            transition={{ duration: 0.2 }}
-                            className="overflow-hidden"
+                      <div className="flex items-center gap-2 text-xs text-green-400">
+                        <CheckCircle className="h-3.5 w-3.5" />
+                        <span className="font-medium">Completed ({completedToolCalls.length})</span>
+                      </div>
+                      <div className="space-y-1">
+                        {completedToolCalls.map((tool) => (
+                          <div
+                            key={tool.id}
+                            className="flex items-center gap-2 px-3 py-1.5 rounded-md bg-green-500/5 border border-green-500/20 text-sm"
                           >
-                            <div className="space-y-1 mt-2">
-                              {completedToolCalls.map((tool) => (
-                                <div
-                                  key={tool.id}
-                                  className="flex items-center gap-2 px-3 py-1.5 rounded-md bg-muted/30 border border-border/30 text-sm"
-                                >
-                                  <CheckCircle className="h-3 w-3 text-green-400 shrink-0" />
-                                  <span className="text-foreground/70 truncate text-xs">
-                                    <span className="font-medium text-foreground/80">{tool.agent}</span>
-                                    <span className="text-foreground/40"> → </span>
-                                    <span>{tool.tool}</span>
-                                  </span>
-                                </div>
-                              ))}
-                            </div>
-                          </motion.div>
-                        )}
-                      </AnimatePresence>
+                            <CheckCircle className="h-3 w-3 text-green-400 shrink-0" />
+                            <span className="text-foreground/70 truncate text-xs">
+                              <span className="font-medium text-foreground/80">{tool.agent}</span>
+                              <span className="text-foreground/40"> → </span>
+                              <span>{tool.tool}</span>
+                            </span>
+                          </div>
+                        ))}
+                      </div>
                     </motion.div>
                   )}
                 </div>

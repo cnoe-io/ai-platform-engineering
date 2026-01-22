@@ -183,6 +183,15 @@ export class A2AClient {
         if (isToolStart) eventType = "tool_start";
         if (isToolEnd) eventType = "tool_end";
 
+        // Extract ALL text parts from artifact, not just the first one
+        const artifactText = artifact?.parts
+          ?.filter((p: { kind?: string }) => p.kind === "text" || !p.kind)
+          ?.map((p: { text?: string }) => p.text || "")
+          ?.join("") || "";
+
+        // Extract sourceAgent from artifact metadata for sub-agent message grouping
+        const sourceAgent = artifact?.metadata?.sourceAgent as string | undefined;
+
         return {
           ...baseEvent,
           type: eventType,
@@ -190,8 +199,10 @@ export class A2AClient {
           isLastChunk: result.lastChunk,
           // append flag from A2A: false = replace, true = append
           shouldAppend: result.append !== false, // default to append if not specified
+          // Source agent for grouping sub-agent messages
+          sourceAgent: sourceAgent || this.extractAgentFromDescription(artifact?.description),
           displayName: this.formatArtifactName(artifactName),
-          displayContent: artifact?.parts?.[0]?.text || "",
+          displayContent: artifactText,
           color: this.getArtifactColor(artifactName),
           icon: this.getArtifactIcon(artifactName),
         };
@@ -209,10 +220,12 @@ export class A2AClient {
         };
 
       case "message":
-        // Extract text from message parts (agent messages contain the actual content)
+        // Extract ALL text from message parts (agent messages contain the actual content)
         const messageParts = result.parts || [];
-        const messageTextPart = messageParts.find((p: { kind?: string }) => p.kind === "text");
-        const messageText = messageTextPart && "text" in messageTextPart ? (messageTextPart as { text: string }).text : "";
+        const messageText = messageParts
+          .filter((p: { kind?: string }) => p.kind === "text" || !p.kind)
+          .map((p: { text?: string }) => p.text || "")
+          .join("");
         const isAgentMessage = result.role === "agent";
 
         return {
@@ -269,6 +282,26 @@ export class A2AClient {
       execution_plan_status_update: "CircleDot",
     };
     return iconMap[name] || "Box";
+  }
+
+  /**
+   * Extract agent name from artifact description as fallback
+   * Handles patterns like "Tool call started: github" or "From github"
+   */
+  private extractAgentFromDescription(description?: string): string | undefined {
+    if (!description) return undefined;
+
+    // Pattern: "Tool call started: agentname" or "Tool call completed: agentname"
+    const toolCallMatch = description.match(/Tool call (?:started|completed): (\w+)/i);
+    if (toolCallMatch) return toolCallMatch[1].toLowerCase();
+
+    // Pattern: "From agentname"
+    const fromMatch = description.match(/From (\w+)/i);
+    if (fromMatch && fromMatch[1].toLowerCase() !== "sub-agent") {
+      return fromMatch[1].toLowerCase();
+    }
+
+    return undefined;
   }
 
   abort(): void {

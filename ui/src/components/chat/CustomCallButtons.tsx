@@ -45,6 +45,16 @@ export const DEFAULT_AGENTS: CustomCall[] = [
     ],
   },
   {
+    id: "rag",
+    label: "RAG",
+    prompt: "@rag",
+    suggestions: [
+      "Search knowledge base",
+      "Find documentation",
+      "Query indexed data",
+    ],
+  },
+  {
     id: "jira",
     label: "Jira",
     prompt: "@jira",
@@ -126,7 +136,7 @@ export function CustomCallButtons({
               } : undefined}
             >
               {/* Agent Icon from AGENT_LOGOS */}
-              <div className={cn("w-4 h-4", isSelected ? "text-white" : "")} style={!isSelected && agentLogo ? { color: agentLogo.color } : undefined}>
+              <div className={cn("w-4 h-4", isSelected ? "text-white" : "text-foreground")}>
                 {agentLogo?.icon || <span className="text-xs">{agent.label.charAt(0)}</span>}
               </div>
               {!compact && <span>{agent.label}</span>}
@@ -187,7 +197,7 @@ export function InlineAgentSelector({
   agents = DEFAULT_AGENTS,
 }: InlineAgentSelectorProps) {
   return (
-    <div className="flex items-center gap-1 px-1">
+    <div className="flex items-center gap-1.5 px-1">
       {agents.slice(0, 4).map((agent) => {
         const agentLogo = AGENT_LOGOS[agent.id];
         const isSelected = value === agent.prompt;
@@ -198,18 +208,20 @@ export function InlineAgentSelector({
             onClick={() => onChange(isSelected ? null : agent.prompt)}
             title={agent.label}
             className={cn(
-              "p-1.5 rounded-md transition-all",
+              "p-1 rounded-md transition-all",
               isSelected
-                ? "text-white"
-                : "text-muted-foreground hover:text-foreground hover:bg-muted"
+                ? "ring-2 ring-primary ring-offset-1 ring-offset-background"
+                : "hover:bg-muted/80 bg-muted/40"
             )}
             style={isSelected && agentLogo ? { backgroundColor: agentLogo.color } : undefined}
           >
             <div
-              className="w-4 h-4"
-              style={!isSelected && agentLogo ? { color: agentLogo.color } : undefined}
+              className={cn(
+                "w-5 h-5 rounded overflow-hidden",
+                !isSelected && "bg-white dark:bg-gray-200 p-0.5"
+              )}
             >
-              {agentLogo?.icon || <span className="text-xs font-bold">{agent.label.charAt(0)}</span>}
+              {agentLogo?.icon || <span className="text-xs font-bold text-foreground">{agent.label.charAt(0)}</span>}
             </div>
           </button>
         );

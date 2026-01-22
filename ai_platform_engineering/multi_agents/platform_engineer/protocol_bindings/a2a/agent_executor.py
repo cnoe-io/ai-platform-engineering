@@ -59,6 +59,10 @@ class StreamState:
     task_complete: bool = False
     user_input_required: bool = False
 
+    # Source agent tracking for sub-agent message grouping
+    current_agent: Optional[str] = None
+    agent_streaming_artifact_ids: Dict[str, str] = field(default_factory=dict)
+
 
 class AIPlatformEngineerA2AExecutor(AgentExecutor):
     """AI Platform Engineer A2A Executor."""
@@ -307,6 +311,16 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
         artifact_name = artifact_data.get('name', 'streaming_result')
         parts = artifact_data.get('parts', [])
 
+        # Extract sourceAgent from artifact metadata, event, or current state
+        existing_metadata = artifact_data.get('metadata', {})
+        source_agent = (
+            existing_metadata.get('sourceAgent') or
+            event.get('source_agent') or
+            state.current_agent or
+            'sub-agent'
+        )
+        logger.debug(f"📦 Sub-agent artifact from: {source_agent}")
+
         # Accumulate final results (complete_result, final_result, partial_result)
         if artifact_name in ('complete_result', 'final_result', 'partial_result'):
             state.sub_agents_completed += 1
@@ -330,11 +344,17 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                 elif part.get('data'):
                     artifact_parts.append(Part(root=DataPart(data=part['data'])))
 
+        # Create artifact with sourceAgent metadata for sub-agent message grouping
         artifact = Artifact(
             artifactId=artifact_data.get('artifactId'),
             name=artifact_name,
-            description=artifact_data.get('description', 'From sub-agent'),
-            parts=artifact_parts
+            description=artifact_data.get('description', f'From {source_agent}'),
+            parts=artifact_parts,
+            metadata={
+                'sourceAgent': source_agent,
+                'agentType': 'sub-agent',
+                **existing_metadata  # Preserve any other metadata
+            }
         )
 
         # Track artifact ID for append logic
@@ -408,14 +428,28 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
 
         is_tool_notification = self._is_tool_notification(content, event)
 
+        # Track current agent from tool_call events for sub-agent message grouping
+        if 'tool_call' in event:
+            tool_name = event['tool_call'].get('name', 'unknown')
+            state.current_agent = tool_name
+            logger.debug(f"🎯 Current agent set to: {tool_name}")
+        elif 'tool_result' in event:
+            # Tool completed - keep current agent for any remaining content
+            tool_name = event['tool_result'].get('name', state.current_agent)
+            logger.debug(f"✅ Tool completed: {tool_name}")
+
+        # Also detect agent from event metadata if provided
+        source_agent = event.get('source_agent') or state.current_agent or 'supervisor'
+
         # Accumulate non-notification content (unless DataPart already received)
         if not is_tool_notification and not state.sub_agent_datapart:
             state.supervisor_content.append(content)
 
-        # Create artifact
+        # Create artifact with sourceAgent metadata
         if is_tool_notification:
             artifact_name, description = self._get_artifact_name_for_notification(content, event)
             artifact = new_text_artifact(name=artifact_name, description=description, text=content)
+            artifact.metadata = {'sourceAgent': source_agent, 'agentType': 'notification'}
             use_append = False
             state.seen_artifact_ids.add(artifact.artifact_id)
         elif state.streaming_artifact_id is None:
@@ -425,6 +459,7 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                 description='Streaming result',
                 text=content,
             )
+            artifact.metadata = {'sourceAgent': source_agent, 'agentType': 'streaming'}
             state.streaming_artifact_id = artifact.artifact_id
             state.seen_artifact_ids.add(artifact.artifact_id)
             state.first_artifact_sent = True
@@ -437,6 +472,7 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                 text=content,
             )
             artifact.artifact_id = state.streaming_artifact_id
+            artifact.metadata = {'sourceAgent': source_agent, 'agentType': 'streaming'}
             use_append = True
 
         await self._send_artifact(event_queue, task, artifact, append=use_append)

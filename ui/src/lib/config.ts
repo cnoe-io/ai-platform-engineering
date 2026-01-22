@@ -14,12 +14,16 @@
 export interface Config {
   /** CAIPE A2A endpoint URL */
   caipeUrl: string;
+  /** RAG Server URL for knowledge base operations */
+  ragUrl: string;
   /** Whether we're in development mode */
   isDev: boolean;
   /** Whether we're in production mode */
   isProd: boolean;
   /** Whether SSO authentication is enabled */
   ssoEnabled: boolean;
+  /** Whether to show sub-agent streaming cards in chat (experimental) */
+  enableSubAgentCards: boolean;
 }
 
 /**
@@ -55,6 +59,33 @@ function getCaipeUrl(): string {
 }
 
 /**
+ * Get the RAG Server URL
+ *
+ * Priority:
+ * 1. NEXT_PUBLIC_RAG_URL (client-side accessible)
+ * 2. RAG_URL (server-side only)
+ * 3. Default: http://localhost:9446 (dev) or http://rag-server:9446 (prod/docker)
+ */
+function getRagUrl(): string {
+  // Client-side environment variable (must be prefixed with NEXT_PUBLIC_)
+  if (typeof process !== 'undefined' && process.env.NEXT_PUBLIC_RAG_URL) {
+    return process.env.NEXT_PUBLIC_RAG_URL;
+  }
+
+  // Server-side environment variable
+  if (typeof process !== 'undefined' && process.env.RAG_URL) {
+    return process.env.RAG_URL;
+  }
+
+  // Default based on environment
+  const isProduction = typeof process !== 'undefined' && process.env.NODE_ENV === 'production';
+
+  // In production (Docker), default to the service name
+  // In development, default to localhost
+  return isProduction ? 'http://rag-server:9446' : 'http://localhost:9446';
+}
+
+/**
  * Check if SSO is enabled
  * SSO is enabled when NEXT_PUBLIC_SSO_ENABLED is set to "true"
  */
@@ -66,13 +97,26 @@ function isSsoEnabled(): boolean {
 }
 
 /**
+ * Check if sub-agent cards are enabled (experimental feature)
+ * Disabled by default - set NEXT_PUBLIC_ENABLE_SUBAGENT_CARDS=true to enable
+ */
+function isSubAgentCardsEnabled(): boolean {
+  if (typeof process !== 'undefined' && process.env.NEXT_PUBLIC_ENABLE_SUBAGENT_CARDS) {
+    return process.env.NEXT_PUBLIC_ENABLE_SUBAGENT_CARDS === 'true';
+  }
+  return false; // Disabled by default
+}
+
+/**
  * Application configuration
  */
 export const config: Config = {
   caipeUrl: getCaipeUrl(),
+  ragUrl: getRagUrl(),
   isDev: typeof process !== 'undefined' && process.env.NODE_ENV === 'development',
   isProd: typeof process !== 'undefined' && process.env.NODE_ENV === 'production',
   ssoEnabled: isSsoEnabled(),
+  enableSubAgentCards: isSubAgentCardsEnabled(),
 };
 
 /**
@@ -89,9 +133,11 @@ export function logConfig(): void {
   if (config.isDev) {
     console.log('[CAIPE Config]', {
       caipeUrl: config.caipeUrl,
+      ragUrl: config.ragUrl,
       isDev: config.isDev,
       isProd: config.isProd,
       ssoEnabled: config.ssoEnabled,
+      enableSubAgentCards: config.enableSubAgentCards,
     });
   }
 }
