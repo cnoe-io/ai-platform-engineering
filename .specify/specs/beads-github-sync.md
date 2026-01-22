@@ -153,12 +153,13 @@ gh issue list --json number,state,labels | \
 - [ ] Document issue creation for remaining work
 - [ ] Add beads status updates to session completion
 
-### Phase 3: GitHub Sync Script
-- [ ] Create `scripts/beads-gh-sync.sh`
-- [ ] Implement export: beads → GitHub
-- [ ] Implement import: GitHub → beads
-- [ ] Add `--dry-run` mode for safety
-- [ ] Handle conflict resolution
+### Phase 3: GitHub Sync Script ✅
+- [x] Create `scripts/sync_beads_to_github.sh`
+- [x] Implement export: beads → GitHub
+- [ ] Implement import: GitHub → beads (not yet implemented)
+- [x] Add `--dry-run` mode for safety
+- [x] Handle duplicate detection via `beads-id` in issue body
+- [x] Makefile targets: `beads-gh-issues-sync`, `beads-gh-issues-sync-run`
 
 ### Phase 4: Documentation & Onboarding
 - [ ] Create team onboarding documentation
