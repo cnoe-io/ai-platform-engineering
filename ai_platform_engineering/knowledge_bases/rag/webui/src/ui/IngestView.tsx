@@ -16,12 +16,14 @@ import {
   WEBLOADER_INGESTOR_ID,
   CONFLUENCE_INGESTOR_ID
 } from '../api'
-import { getIconForType } from './typeConfig'
+import { getIconForType, ingestTypeConfigs, isIngestTypeAvailable } from './typeConfig'
+import { useUser } from '../contexts/UserContext'
 
 export default function IngestView() {
+  const { userInfo } = useUser()
   // Ingestion state
   const [url, setUrl] = useState('')
-  const [ingestType, setIngestType] = useState<'web' | 'confluence'>('web')
+  const [ingestType, setIngestType] = useState<string>('web')
   const [checkForSiteMap, setCheckForSiteMap] = useState(true)
   const [sitemapMaxUrls, setSitemapMaxUrls] = useState(2000)
   const [description, setDescription] = useState('')
@@ -112,6 +114,24 @@ export default function IngestView() {
     fetchDataSources()
     fetchIngestors()
   }, [])
+
+  // Effect to auto-select first available ingest type when ingestors load
+  useEffect(() => {
+    if (ingestors.length > 0) {
+      // Check if current ingestType is still available
+      const isCurrentTypeAvailable = isIngestTypeAvailable(ingestType, ingestors)
+      
+      if (!isCurrentTypeAvailable) {
+        // Find first available ingest type
+        const availableType = Object.keys(ingestTypeConfigs).find(type =>
+          isIngestTypeAvailable(type, ingestors)
+        )
+        if (availableType) {
+          setIngestType(availableType)
+        }
+      }
+    }
+  }, [ingestors])
 
   useEffect(() => {
     // Fetch jobs for each datasource
@@ -322,28 +342,34 @@ export default function IngestView() {
           <label className="block text-sm font-medium text-slate-700 mb-2">
             Ingest Type *
           </label>
-          <div className="flex gap-2">
-            <button
-              onClick={() => setIngestType('web')}
-              className={`px-4 py-2 rounded text-sm font-medium transition-colors ${
-                ingestType === 'web'
-                  ? 'bg-blue-500 text-white'
-                  : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
-              }`}
-            >
-              Web
-            </button>
-            <button
-              onClick={() => setIngestType('confluence')}
-              className={`px-4 py-2 rounded text-sm font-medium transition-colors ${
-                ingestType === 'confluence'
-                  ? 'bg-blue-500 text-white'
-                  : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
-              }`}
-            >
-              Confluence
-            </button>
+          <div className="flex gap-2 flex-wrap">
+            {Object.entries(ingestTypeConfigs).map(([type, config]) => {
+              const isAvailable = isIngestTypeAvailable(type, ingestors)
+              return (
+                <button
+                  key={type}
+                  onClick={() => isAvailable && setIngestType(type)}
+                  disabled={!isAvailable}
+                  className={`px-4 py-2 rounded text-sm font-medium transition-colors ${
+                    ingestType === type
+                      ? 'bg-blue-500 text-white'
+                      : isAvailable
+                        ? 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                        : 'bg-slate-50 text-slate-400 cursor-not-allowed'
+                  }`}
+                  title={!isAvailable ? `No ${config.requiredIngestorType} ingestor available` : `Ingest as ${config.label}`}
+                >
+                  {config.icon && <span className="mr-1">{config.icon}</span>}
+                  {config.label}
+                </button>
+              )
+            })}
           </div>
+          {ingestors.length === 0 && !loadingIngestors && (
+            <p className="text-xs text-amber-600 mt-2">
+              ⚠️ No ingestors detected. Please ensure ingestor services are running.
+            </p>
+          )}
         </div>
 
         {/* URL Input */}
@@ -359,7 +385,12 @@ export default function IngestView() {
               onChange={(e) => setUrl(e.target.value)}
               className="input flex-1"
             />
-            <button onClick={handleIngest} className="btn bg-brand-gradient hover:bg-brand-gradient-hover active:bg-brand-gradient-active text-white">
+            <button 
+              onClick={handleIngest} 
+              className="btn bg-brand-gradient hover:bg-brand-gradient-hover active:bg-brand-gradient-active text-white disabled:opacity-50 disabled:cursor-not-allowed"
+              disabled={!userInfo?.permissions.can_ingest}
+              title={!userInfo?.permissions.can_ingest ? 'Insufficient permissions to ingest data' : 'Ingest this URL'}
+            >
               Ingest
             </button>
           </div>
@@ -547,16 +578,16 @@ export default function IngestView() {
                             <button
                               onClick={(e) => { e.stopPropagation(); handleReloadDataSource(ds.datasource_id); }}
                               className="bg-orange-500 hover:bg-orange-700 text-white font-bold py-1 px-2 rounded text-xs disabled:opacity-50 disabled:cursor-not-allowed"
-                              disabled={hasActiveJob || !supportsReload}
-                              title={!supportsReload ? 'Reload not supported for this datasource type' : hasActiveJob ? 'Cannot reload while a job is active' : 'Reload this datasource'}
+                              disabled={hasActiveJob || !supportsReload || !userInfo?.permissions.can_ingest}
+                              title={!userInfo?.permissions.can_ingest ? 'Insufficient permissions to reload data' : !supportsReload ? 'Reload not supported for this datasource type' : hasActiveJob ? 'Cannot reload while a job is active' : 'Reload this datasource'}
                             >
                               Reload
                             </button>
                             <button 
                               onClick={(e) => { e.stopPropagation(); setShowDeleteDataSourceConfirm(ds.datasource_id); }} 
                               className="bg-red-500 hover:bg-red-700 text-white font-bold py-1 px-2 rounded text-xs disabled:opacity-50 disabled:cursor-not-allowed"
-                              disabled={hasActiveJob}
-                              title={hasActiveJob ? 'Cannot delete while a job is active' : 'Delete this datasource'}
+                              disabled={hasActiveJob || !userInfo?.permissions.can_delete}
+                              title={!userInfo?.permissions.can_delete ? 'Insufficient permissions to delete datasources' : hasActiveJob ? 'Cannot delete while a job is active' : 'Delete this datasource'}
                             >
                               Delete
                             </button>
@@ -685,8 +716,9 @@ export default function IngestView() {
                                           {isJobActive && (
                                             <button
                                               onClick={(e) => { e.stopPropagation(); handleTerminateJob(ds.datasource_id, job.job_id); }}
-                                              className="bg-red-500 hover:bg-red-700 text-white font-bold py-1 px-2 rounded text-xs flex-shrink-0"
-                                              title="Stop this job"
+                                              className="bg-red-500 hover:bg-red-700 text-white font-bold py-1 px-2 rounded text-xs flex-shrink-0 disabled:opacity-50 disabled:cursor-not-allowed"
+                                              disabled={!userInfo?.permissions.can_ingest}
+                                              title={!userInfo?.permissions.can_ingest ? 'Insufficient permissions to terminate jobs' : 'Stop this job'}
                                             >
                                               Stop
                                             </button>
@@ -859,8 +891,8 @@ export default function IngestView() {
                                 <button 
                                   onClick={(e) => { e.stopPropagation(); setShowDeleteIngestorConfirm(ingestor.ingestor_id); }} 
                                   className="bg-red-500 hover:bg-red-700 text-white font-bold py-1 px-2 rounded text-xs disabled:opacity-50 disabled:cursor-not-allowed"
-                                  disabled={isDefaultWebloader}
-                                  title={isDefaultWebloader ? 'Cannot delete default webloader ingestor' : 'Delete this ingestor (metadata only)'}
+                                  disabled={isDefaultWebloader || !userInfo?.permissions.can_delete}
+                                  title={!userInfo?.permissions.can_delete ? 'Insufficient permissions to delete ingestors' : isDefaultWebloader ? 'Cannot delete default webloader ingestor' : 'Delete this ingestor (metadata only)'}
                                 >
                                   Delete
                                 </button>
