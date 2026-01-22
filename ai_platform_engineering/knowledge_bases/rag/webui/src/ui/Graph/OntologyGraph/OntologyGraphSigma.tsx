@@ -33,6 +33,7 @@ import {
     fetchOntologyEntitiesBatch,
     fetchOntologyRelationsBatch
 } from '../../../api';
+import { useUser } from '../../../contexts/UserContext';
 
 interface EntityData {
     entity_type: string;
@@ -96,7 +97,8 @@ const Marquee = ({ text }: { text: string }) => {
     );
 };
 
-export default function OntologyGraphSigma({}: OntologyGraphProps) {
+export default function OntologyGraphSigma() {
+    const { userInfo } = useUser();
     // Graph instance - use MultiDirectedGraph to allow multiple edges between same nodes
     const graph = useMemo(() => new MultiDirectedGraph(), []);
     
@@ -1382,8 +1384,8 @@ export default function OntologyGraphSigma({}: OntologyGraphProps) {
                                             <button
                                                 onClick={() => setShowDeleteOntologyConfirm(true)}
                                                 className="px-2 py-1 text-xs rounded bg-red-500 hover:bg-red-600 text-white disabled:bg-gray-400 disabled:cursor-not-allowed"
-                                                disabled={isAgentActive || isLoadingAgentStatus}
-                                                title={isLoadingAgentStatus ? "Loading agent status..." : isAgentActive ? "Agent is currently active - please wait" : "Clear all ontology data"}>
+                                                disabled={isAgentActive || isLoadingAgentStatus || !userInfo?.permissions.can_delete}
+                                                title={!userInfo?.permissions.can_delete ? "Insufficient permissions to delete ontology" : isLoadingAgentStatus ? "Loading agent status..." : isAgentActive ? "Agent is currently active - please wait" : "Clear all ontology data"}>
                                                 Delete
                                             </button>
                                         </>

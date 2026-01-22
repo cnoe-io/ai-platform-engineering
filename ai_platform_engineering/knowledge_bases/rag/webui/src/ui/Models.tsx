@@ -37,3 +37,15 @@ export type DataSourceInfo = {
 	last_updated: number
 	metadata?: Record<string, unknown>
 }
+
+export type UserInfo = {
+	email: string
+	role: string
+	is_authenticated: boolean
+	groups: string[]
+	permissions: {
+		can_read: boolean
+		can_ingest: boolean
+		can_delete: boolean
+	}
+}

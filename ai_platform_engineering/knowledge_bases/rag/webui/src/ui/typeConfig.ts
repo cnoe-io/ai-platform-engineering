@@ -38,6 +38,55 @@ export const iconMap: { [key: string]: string } = {
 
 export const defaultColor = '#9E9E9E';
 
+// Mapping between ingest UI types and required ingestor types
+// This defines which ingestor types are needed for each UI option to be enabled
+export interface IngestTypeConfig {
+    label: string;              // Display label for the UI button
+    requiredIngestorType: string;  // Required ingestor type to enable this option
+    icon?: string;              // Optional icon override
+}
+
+export const ingestTypeConfigs: Record<string, IngestTypeConfig> = {
+    'web': {
+        label: 'Web',
+        requiredIngestorType: 'webloader',
+        icon: '🌐'
+    },
+    'confluence': {
+        label: 'Confluence',
+        requiredIngestorType: 'confluence',
+        icon: '📚️'
+    },
+    // Add future ingestor types here:
+    // 'github': {
+    //     label: 'GitHub',
+    //     requiredIngestorType: 'github',
+    //     icon: githubIcon
+    // },
+};
+
+// Helper function to check if an ingest type is available based on ingestors
+export const isIngestTypeAvailable = (
+    ingestType: string,
+    availableIngestors: { ingestor_type: string }[]
+): boolean => {
+    const config = ingestTypeConfigs[ingestType];
+    if (!config) return false;
+    
+    return availableIngestors.some(
+        ingestor => ingestor.ingestor_type === config.requiredIngestorType
+    );
+};
+
+// Helper function to get all available ingest types based on ingestors
+export const getAvailableIngestTypes = (
+    availableIngestors: { ingestor_type: string }[]
+): string[] => {
+    return Object.keys(ingestTypeConfigs).filter(ingestType =>
+        isIngestTypeAvailable(ingestType, availableIngestors)
+    );
+};
+
 // Helper function to get icon for a given type/label
 export const getIconForType = (label: string): string | null => {
     const lowerLabel = label.toLowerCase();
