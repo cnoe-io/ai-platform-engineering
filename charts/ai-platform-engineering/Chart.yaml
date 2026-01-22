@@ -142,7 +142,7 @@ dependencies:
     import-values: # This is used to automatically render ENABLE_RAG variable for the supervisor configmap
       - child: agentExports.data
         parent: global.enabledSubAgents.rag
-  # Agentgateway - AI gateway for agent routing
+  # Agentgateway - AI gateway for agent routing - sun
   # https://kgateway.dev/docs/agentgateway/main/install/helm/
   - name: agentgateway
     version: v2.2.0-beta.6
