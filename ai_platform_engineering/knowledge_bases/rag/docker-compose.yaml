@@ -40,7 +40,7 @@ services:
 
   rag_server:
     ports:
-      - "9446:9446"
+      - "${RAG_SERVER_PORT:-9446}:9446"
     environment:
         LOG_LEVEL: ${LOG_LEVEL:-INFO}
         REDIS_URL: redis://rag-redis:6379/0
@@ -55,6 +55,12 @@ services:
         # Embeddings configuration
         EMBEDDINGS_PROVIDER: ${EMBEDDINGS_PROVIDER:-azure-openai}
         EMBEDDINGS_MODEL: ${EMBEDDINGS_MODEL:-text-embedding-3-small}
+        # RBAC/Authentication configuration
+        ALLOW_UNAUTHENTICATED: ${ALLOW_UNAUTHENTICATED:-true}
+        RBAC_READONLY_GROUPS: ${RBAC_READONLY_GROUPS} # Groups that will be assigned the READONLY role
+        RBAC_INGESTONLY_GROUPS: ${RBAC_INGESTONLY_GROUPS} # Groups that will be assigned the INGESTONLY role
+        RBAC_ADMIN_GROUPS: ${RBAC_ADMIN_GROUPS} # Groups that will be assigned the ADMIN role
+        RBAC_DEFAULT_ROLE: ${RBAC_DEFAULT_ROLE:-readonly} # Default role if user is not in any of the groups
     restart: unless-stopped
     env_file:
       - ../../../.env
@@ -126,7 +132,7 @@ services:
     depends_on:
       - rag_server
     ports:
-      - "9447:80"
+      - "${WEBUI_PORT:-9447}:80" # comment out for no unauthenticated access
     profiles:
       - apps
       - rag_no_graph
@@ -187,6 +193,10 @@ services:
         CLUSTER_NAME: ${CLUSTER_NAME}
         KUBECONFIG: ${KUBECONFIG:-/home/app/.kube/config}
         KUBE_CONTEXT: ${KUBE_CONTEXT:-}
+        AWS_PROFILE: ${AWS_PROFILE:-}
+        AWS_DEFAULT_PROFILE: ${AWS_DEFAULT_PROFILE:-}
+        AWS_DEFAULT_REGION: ${AWS_DEFAULT_REGION:-us-east-2}
+        AWS_REGION: ${AWS_REGION:-}
         IN_CLUSTER: ${K8S_IN_CLUSTER:-false}
         RESOURCE_LIST: ${K8S_RESOURCE_LIST:-Certificate,ClusterIssuer,CronJob,DaemonSet,Deployment,Ingress,IngressClass,Issuer,Job,Namespace,Node,Service,StatefulSet,StorageClass}
         IGNORE_FIELD_LIST: ${K8S_IGNORE_FIELD_LIST:-metadata.annotations.kubectl.kubernetes.io,metadata.labels.app.kubernetes.io,metadata.managedFields,metadata.selfLink}
@@ -426,7 +436,19 @@ services:
 #####################
 # Test services
 #####################
-
+  oauth2-proxy:
+    container_name: oauth2-proxy
+    image: quay.io/oauth2-proxy/oauth2-proxy:v7.13.0
+    command: --config /oauth2-proxy.cfg
+    hostname: oauth2-proxy
+    volumes:
+      - "./oauth2-proxy.cfg:/oauth2-proxy.cfg"
+    restart: unless-stopped
+    ports:
+      - 9447:9447/tcp
+    profiles:
+      - oauth2
+      
   testwebsite:
     image: nginx:alpine
     container_name: test-website
