@@ -146,7 +146,7 @@ dependencies:
   # https://kgateway.dev/docs/agentgateway/main/install/helm/
   - name: agentgateway
     version: v2.2.0-beta.6
-    repository: oci://ghcr.io/kgateway-dev/charts/agentgateway
+    repository: oci://ghcr.io/kgateway-dev/charts
     condition: global.agentgateway.enabled
   # Backstage plugin agent forge
   - name: backstage-plugin-agent-forge
