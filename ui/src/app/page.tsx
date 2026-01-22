@@ -9,12 +9,14 @@ import {
   PanelRightClose,
   PanelRightOpen,
   Bug,
-  Loader2
+  Loader2,
+  Database
 } from "lucide-react";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { ChatPanel } from "@/components/chat/ChatPanel";
 import { ContextPanel } from "@/components/a2a/ContextPanel";
 import { UseCasesGallery } from "@/components/gallery/UseCasesGallery";
+import { KnowledgePanel } from "@/components/rag/KnowledgePanel";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { TechStackButton } from "@/components/tech-stack";
 import { UserMenu } from "@/components/user-menu";
@@ -39,7 +41,7 @@ import {
 
 function HomePage() {
   // Default to Use Cases gallery to showcase capabilities
-  const [activeTab, setActiveTab] = useState<"chat" | "gallery">("gallery");
+  const [activeTab, setActiveTab] = useState<"chat" | "gallery" | "knowledge">("gallery");
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [contextPanelVisible, setContextPanelVisible] = useState(true);
   const [debugMode, setDebugMode] = useState(false);
@@ -97,13 +99,25 @@ function HomePage() {
             <button
               onClick={() => setActiveTab("chat")}
               className={cn(
-                "px-4 py-1.5 rounded-full text-sm font-medium transition-all",
+                "flex items-center gap-1.5 px-4 py-1.5 rounded-full text-sm font-medium transition-all",
                 activeTab === "chat"
                   ? "bg-primary text-primary-foreground shadow-sm"
                   : "text-muted-foreground hover:text-foreground"
               )}
             >
-              Chat
+              💬 Chat
+            </button>
+            <button
+              onClick={() => setActiveTab("knowledge")}
+              className={cn(
+                "flex items-center gap-1.5 px-4 py-1.5 rounded-full text-sm font-medium transition-all",
+                activeTab === "knowledge"
+                  ? "bg-primary text-primary-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              <Database className="h-3.5 w-3.5" />
+              Knowledge Bases
             </button>
           </div>
         </div>
@@ -275,6 +289,16 @@ function HomePage() {
               </>
             )}
           </ResizablePanelGroup>
+        ) : activeTab === "knowledge" ? (
+          /* Knowledge Mode - RAG Interface */
+          <motion.div
+            key="knowledge"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            className="flex-1 overflow-hidden"
+          >
+            <KnowledgePanel />
+          </motion.div>
         ) : (
           /* Gallery Mode - Simple Layout without resizing */
           <>

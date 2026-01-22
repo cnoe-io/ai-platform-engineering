@@ -22,8 +22,12 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY ui .
 
 # Build arguments for configuration
-ARG CAIPE_URL=http://caipe-supervisor:8000
+# IMPORTANT: NEXT_PUBLIC_* variables are baked in at build time
+# For local dev, use localhost since the browser needs to reach these endpoints
+ARG CAIPE_URL=http://localhost:8000
+ARG RAG_URL=http://localhost:9446
 ENV NEXT_PUBLIC_CAIPE_URL=$CAIPE_URL
+ENV NEXT_PUBLIC_RAG_URL=$RAG_URL
 
 # Disable telemetry during build
 ENV NEXT_TELEMETRY_DISABLED=1
@@ -59,5 +63,7 @@ ENV PORT=3000
 ENV HOSTNAME="0.0.0.0"
 
 # Runtime environment variables can override build-time defaults
-# Set CAIPE_URL or NEXT_PUBLIC_CAIPE_URL at runtime
+# Set these at runtime:
+#   CAIPE_URL / NEXT_PUBLIC_CAIPE_URL - CAIPE supervisor A2A endpoint
+#   RAG_SERVER_URL / NEXT_PUBLIC_RAG_URL - RAG server for knowledge base
 CMD ["node", "server.js"]

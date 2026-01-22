@@ -771,8 +771,6 @@ services:
     build:
       context: .
       dockerfile: build/Dockerfile.caipe-ui
-      args:
-        - CAIPE_URL=http://caipe-supervisor:8000
     container_name: caipe-ui
     ports: ["3000:3000"]
     env_file:
@@ -781,8 +779,13 @@ services:
       - NODE_ENV=production
       # CAIPE supervisor A2A endpoint URL
       # Can be overridden with CAIPE_URL environment variable
-      - NEXT_PUBLIC_CAIPE_URL=${CAIPE_URL:-http://caipe-supervisor:8000}
-      - CAIPE_URL=${CAIPE_URL:-http://caipe-supervisor:8000}
+      - NEXT_PUBLIC_CAIPE_URL=${CAIPE_URL:-http://localhost:8000}
+      - CAIPE_URL=${CAIPE_URL:-http://localhost:8000}
+      # RAG Server URL for knowledge base API (internal Docker network)
+      - RAG_SERVER_URL=${RAG_SERVER_URL:-http://rag_server:9446}
+      - NEXT_PUBLIC_RAG_URL=${RAG_URL:-http://localhost:9446}
+      # RAG WebUI URL for iframe embedding (browser-accessible)
+      - NEXT_PUBLIC_RAG_WEBUI_URL=${RAG_WEBUI_URL:-http://localhost:9447}
       # NextAuth configuration (required for production)
       # Generate a secret with: openssl rand -base64 32
       - NEXTAUTH_SECRET=${NEXTAUTH_SECRET:-caipe-dev-secret-change-in-production}
@@ -874,6 +877,26 @@ services:
     depends_on: [rag_server]
     profiles:
       - rag
+      - graph_rag
+
+  # Dummy Graph Ingestor - for testing graph RAG with sample data
+  # Requires RAG services to be running first: docker compose -f docker-compose.dev.yaml --profile graph_rag up -d
+  # Then run: docker compose -f docker-compose.dev.yaml --profile dummy-ingestor up --build dummy-graph-ingestor
+  dummy-graph-ingestor:
+    build:
+      context: ./ai_platform_engineering/knowledge_bases/rag
+      dockerfile: ./build/Dockerfile.ingestors
+    image: dummy-graph-ingestor:local
+    container_name: dummy-ingestor
+    environment:
+      - RAG_SERVER_URL=http://rag_server:9446
+      - INGESTOR_TYPE=test_dummy_graph
+      - DUMMY_ENTITIES_FILE=/app/data/dummy_entities.json
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    volumes:
+      - ./ai_platform_engineering/knowledge_bases/rag/tests/rag_graph_test:/app/data:ro
+    profiles:
+      - dummy-ingestor
       - graph_rag
 
   # RAG Dependencies

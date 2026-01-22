@@ -18,8 +18,8 @@ import { useChatStore } from "@/store/chat-store";
 import { cn, formatDate, truncateText } from "@/lib/utils";
 
 interface SidebarProps {
-  activeTab: "chat" | "gallery";
-  onTabChange: (tab: "chat" | "gallery") => void;
+  activeTab: "chat" | "gallery" | "knowledge";
+  onTabChange: (tab: "chat" | "gallery" | "knowledge") => void;
   collapsed: boolean;
   onCollapse: (collapsed: boolean) => void;
 }

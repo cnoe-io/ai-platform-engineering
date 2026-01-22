@@ -81,6 +81,12 @@ export interface Message {
   timestamp?: string;
 }
 
+export interface ArtifactMetadata {
+  sourceAgent?: string;
+  agentType?: "supervisor" | "sub-agent" | "notification" | "streaming";
+  [key: string]: unknown;
+}
+
 export interface Artifact {
   artifactId: string;
   name: string;
@@ -88,7 +94,7 @@ export interface Artifact {
   parts: ArtifactPart[];
   index?: number;
   mimeType?: string;
-  metadata?: Record<string, unknown>;
+  metadata?: ArtifactMetadata;
 }
 
 export interface ArtifactPart {
@@ -122,6 +128,9 @@ export interface A2AEvent {
   isFinal?: boolean;
   isLastChunk?: boolean;
   shouldAppend?: boolean; // A2A append flag: true = append, false = replace
+
+  // Source agent tracking for sub-agent message grouping
+  sourceAgent?: string;
 
   // UI display helpers
   displayName: string;

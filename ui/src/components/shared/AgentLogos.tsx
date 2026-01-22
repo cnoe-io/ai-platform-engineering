@@ -78,7 +78,7 @@ export const AGENT_LOGOS: Record<string, AgentLogoConfig> = {
   github: {
     name: "github",
     displayName: "GitHub",
-    color: "#181717",
+    color: "#6e5494", // GitHub purple - visible in both light and dark modes
     // GitHub logo - uses currentColor to adapt to dark/light mode
     icon: (
       <svg viewBox="0 0 128 128" className="w-full h-full text-gray-800 dark:text-gray-200">
@@ -113,7 +113,7 @@ export const AGENT_LOGOS: Record<string, AgentLogoConfig> = {
   splunk: {
     name: "splunk",
     displayName: "Splunk",
-    color: "#000000",
+    color: "#65A637", // Splunk green - visible in both light and dark modes
     // Splunk logo with green accent
     icon: (
       <svg viewBox="0 0 128 128" className="w-full h-full">
@@ -135,7 +135,7 @@ export const AGENT_LOGOS: Record<string, AgentLogoConfig> = {
   confluence: {
     name: "confluence",
     displayName: "Confluence",
-    color: "#172B4D",
+    color: "#2684FF", // Confluence blue - visible in both light and dark modes
     // Confluence blue gradient logo
     icon: (
       <svg viewBox="0 0 128 128" className="w-full h-full">
@@ -191,6 +191,36 @@ export const AGENT_LOGOS: Record<string, AgentLogoConfig> = {
       </svg>
     )
   },
+  rag: {
+    name: "rag",
+    displayName: "RAG",
+    color: "#3B82F6", // Blue for knowledge/search
+    // RAG knowledge base icon - book with magnifying glass
+    icon: (
+      <svg viewBox="0 0 128 128" className="w-full h-full">
+        <circle fill="#3B82F6" cx="64" cy="64" r="58"/>
+        <path fill="#fff" d="M32 28h48a8 8 0 0 1 8 8v52a8 8 0 0 1-8 8H32a4 4 0 0 1-4-4V32a4 4 0 0 1 4-4z"/>
+        <path fill="#3B82F6" d="M40 44h32v4H40zm0 12h32v4H40zm0 12h20v4H40z"/>
+        <circle fill="none" stroke="#fff" strokeWidth="6" cx="82" cy="78" r="18"/>
+        <path fill="#fff" d="M94 90l14 14-6 6-14-14z"/>
+      </svg>
+    )
+  },
+  knowledge: {
+    name: "knowledge",
+    displayName: "Knowledge",
+    color: "#3B82F6",
+    // Alias for RAG
+    icon: (
+      <svg viewBox="0 0 128 128" className="w-full h-full">
+        <circle fill="#3B82F6" cx="64" cy="64" r="58"/>
+        <path fill="#fff" d="M32 28h48a8 8 0 0 1 8 8v52a8 8 0 0 1-8 8H32a4 4 0 0 1-4-4V32a4 4 0 0 1 4-4z"/>
+        <path fill="#3B82F6" d="M40 44h32v4H40zm0 12h32v4H40zm0 12h20v4H40z"/>
+        <circle fill="none" stroke="#fff" strokeWidth="6" cx="82" cy="78" r="18"/>
+        <path fill="#fff" d="M94 90l14 14-6 6-14-14z"/>
+      </svg>
+    )
+  },
 };
 
 // Normalize agent name for lookup
@@ -208,6 +238,7 @@ export function normalizeAgentName(name: string): string {
   if (normalized === "kubernetes" || normalized === "k8s") return "kubernetes";
   if (normalized === "caipe" || normalized.includes("platform")) return "caipe";
   if (normalized === "supervisor") return "supervisor";
+  if (normalized === "rag" || normalized === "knowledge" || normalized.includes("knowledge")) return "rag";
 
   return normalized;
 }
