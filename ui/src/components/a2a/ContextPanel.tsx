@@ -52,7 +52,8 @@ export function ContextPanel({ debugMode, onDebugModeChange }: ContextPanelProps
   // Check if streaming is truly active:
   // 1. Global isStreaming must be true
   // 2. AND the active conversation's last message must not be final
-  // 3. ALSO check if we have a complete_result in events (fallback detection)
+  // 3. ALSO check if we have a partial_result or final_result in events (fallback detection)
+  // NOTE: complete_result is INTERNAL (sub-agent → supervisor), not final for UI
   const isActuallyStreaming = useMemo(() => {
     if (!isStreaming) return false;
     const conversation = getActiveConversation();
@@ -61,15 +62,15 @@ export function ContextPanel({ debugMode, onDebugModeChange }: ContextPanelProps
     // If the last message is marked as final, streaming is done
     if (lastMessage?.isFinal) return false;
 
-    // FALLBACK: Check if we received a complete_result artifact
+    // FALLBACK: Check if we received a partial_result or final_result artifact
     // This catches cases where isFinal wasn't properly set
+    // NOTE: complete_result is internal (from sub-agents to supervisor) and should NOT trigger this
     const hasCompleteResult = conversationEvents.some(e =>
-      e.artifact?.name === "complete_result" ||
       e.artifact?.name === "partial_result" ||
       e.artifact?.name === "final_result"
     );
     if (hasCompleteResult) {
-      console.log("[ContextPanel] Detected complete_result - treating as not streaming");
+      console.log("[ContextPanel] Detected partial_result/final_result - treating as not streaming");
       return false;
     }
 
