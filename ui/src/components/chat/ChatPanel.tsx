@@ -156,6 +156,12 @@ export function ChatPanel({ endpoint }: ChatPanelProps) {
     // Track when we've received the complete result to prevent late events from corrupting it
     let hasReceivedCompleteResult = false;
 
+    // 🔧 DUAL-BUFFER ARCHITECTURE (matching agent-forge pattern)
+    // - persistentBuffer: NEVER reset, accumulates ALL content for complete history
+    // - displayContent: follows append flag, used for current display
+    // This ensures no content is lost when append=false arrives mid-stream
+    let persistentBuffer = "";
+
     const client = new A2AClient({
       endpoint,
       accessToken, // Pass JWT token for Bearer authentication
@@ -214,9 +220,13 @@ export function ChatPanel({ endpoint }: ChatPanelProps) {
         }
 
         // Determine if this is a complete/final result that should REPLACE content
-        // complete_result and partial_result contain the FULL accumulated text
+        // 🔧 MATCHING AGENT-FORGE BEHAVIOR:
+        // - partial_result: Sent when stream ends prematurely, contains ALL accumulated content
+        // - final_result: Sent on normal completion, contains ALL accumulated content
+        // - complete_result: INTERNAL artifact from sub-agents to supervisor, NOT final for UI
+        // Sub-agents send complete_result with their individual results, but the SUPERVISOR
+        // will send partial_result or final_result with the synthesized final answer
         const isCompleteResult = artifactName === "partial_result" ||
-                                 artifactName === "complete_result" ||
                                  artifactName === "final_result";
 
         // Handle content based on event type
@@ -236,16 +246,18 @@ export function ChatPanel({ endpoint }: ChatPanelProps) {
             // Clear streaming state immediately so UI shows markdown AND tasks complete
             setConversationStreaming(convId!, null);
             console.log(`[A2A] ✅ Streaming state cleared - tasks should now show as completed`);
-          } else if (artifactName === "streaming_result") {
-            // Streaming chunks: respect the append flag from A2A
-            // First chunk (append=false) should REPLACE, subsequent (append=true) should APPEND
-            if (event.shouldAppend === false) {
-              console.log(`[A2A] REPLACE streaming (first chunk): ${newContent.length} chars`);
-              updateMessage(convId!, assistantMsgId, { content: newContent });
-            } else {
-              console.log(`[A2A] APPEND streaming: +${newContent.length} chars, text: "${newContent.substring(0, 30)}..."`);
-              appendToMessage(convId!, assistantMsgId, newContent);
-            }
+          } else if (artifactName === "streaming_result" || artifactName === "complete_result") {
+            // 🔧 DUAL-BUFFER: Always accumulate to persistent buffer (for complete history)
+            // This ensures no content is lost when append=false arrives
+            // Note: complete_result from sub-agents is internal and should be accumulated,
+            // the supervisor will synthesize these and send partial_result/final_result
+            persistentBuffer += newContent;
+            console.log(`[A2A] 📦 PERSISTENT BUFFER (${artifactName}): ${persistentBuffer.length} chars total`);
+
+            // Update message with persistent buffer content (not just new chunk)
+            // This matches agent-forge behavior and ensures complete content
+            console.log(`[A2A] STREAMING: +${newContent.length} chars, total: ${persistentBuffer.length} chars`);
+            updateMessage(convId!, assistantMsgId, { content: persistentBuffer });
           } else {
             // For other artifacts, append by default
             console.log(`[A2A] APPEND (${artifactName}): ${newContent.length} chars`);
@@ -266,8 +278,17 @@ export function ChatPanel({ endpoint }: ChatPanelProps) {
       },
       onComplete: () => {
         console.log(`[A2A] ✅ onComplete called - stream ended. convId=${convId}, msgId=${assistantMsgId}`);
-        // Mark message as final if not already
-        updateMessage(convId!, assistantMsgId, { isFinal: true });
+        console.log(`[A2A] 📦 Final persistent buffer: ${persistentBuffer.length} chars`);
+
+        // 🔧 If we didn't receive a complete_result but have content in persistent buffer,
+        // use the persistent buffer as the final content (matches agent-forge behavior)
+        if (!hasReceivedCompleteResult && persistentBuffer.length > 0) {
+          console.log(`[A2A] 🔧 No complete_result received - using persistent buffer as final content`);
+          updateMessage(convId!, assistantMsgId, { content: persistentBuffer, isFinal: true });
+        } else {
+          // Mark message as final if not already
+          updateMessage(convId!, assistantMsgId, { isFinal: true });
+        }
         setConversationStreaming(convId!, null);
       },
     });
