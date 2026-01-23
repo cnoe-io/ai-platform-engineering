@@ -8,12 +8,16 @@ export interface A2AClientConfig {
   onEvent?: (event: A2AEvent) => void;
   onError?: (error: Error) => void;
   onComplete?: () => void;
+  /** Timeout in milliseconds for SSE stream inactivity. Default: 900000 (15 minutes) */
+  streamTimeoutMs?: number;
 }
+
+/** Default timeout: 15 minutes (900 seconds) for long-running A2A streams */
+const DEFAULT_STREAM_TIMEOUT_MS = 900000;
 
 export class A2AClient {
   private endpoint: string;
   private accessToken?: string;
-  // Keep abortController for manual abort capability, but don't use it for timeouts
   private abortController: AbortController | null = null;
 
   constructor(private config: A2AClientConfig) {
@@ -32,7 +36,11 @@ export class A2AClient {
     message: string,
     contextId?: string
   ): Promise<ReadableStreamDefaultReader<A2AEvent>> {
-    // Create AbortController for manual abort only (not for timeouts)
+    // Abort any previous request to prevent connection conflicts
+    if (this.abortController) {
+      console.log(`[A2A Client] 🔄 Aborting previous request before starting new one`);
+      this.abortController.abort();
+    }
     this.abortController = new AbortController();
 
     const request: A2ARequest = {
@@ -54,6 +62,8 @@ export class A2AClient {
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
       Accept: "text/event-stream",
+      // Request keep-alive to maintain SSE connection
+      "Connection": "keep-alive",
     };
 
     // Add Authorization header if access token is available
@@ -61,15 +71,22 @@ export class A2AClient {
       headers["Authorization"] = `Bearer ${this.accessToken}`;
     }
 
-    // NOTE: For SSE streaming, we intentionally do NOT pass AbortController signal
-    // to allow long-running streams to continue indefinitely (matching agent-forge behavior).
-    // The stream can still be manually aborted via the abort() method.
+    console.log(`[A2A Client] 📤 Sending message to ${this.endpoint}`);
+    console.log(`[A2A Client] 📤 contextId: ${contextId}`);
+
     const response = await fetch(this.endpoint, {
       method: "POST",
       headers,
       body: JSON.stringify(request),
-      // signal: this.abortController.signal, // Removed for SSE - allows indefinite streaming
+      signal: this.abortController.signal,
+      // Prevent caching and connection reuse issues
+      cache: "no-store",
+      // @ts-expect-error - keepalive is valid for fetch but not in all TS types
+      keepalive: false, // We want long-lived SSE, not keepalive which is for short requests
     });
+
+    console.log(`[A2A Client] 📥 Response status: ${response.status} ${response.statusText}`);
+    console.log(`[A2A Client] 📥 Response headers: Content-Type=${response.headers.get("content-type")}`);
 
     if (!response.ok) {
       throw new Error(`A2A request failed: ${response.statusText}`);
@@ -90,23 +107,79 @@ export class A2AClient {
     decoder: TextDecoder
   ): ReadableStreamDefaultReader<A2AEvent> {
     let buffer = "";
+    let eventCount = 0;
+    let lastEventTime = Date.now();
+    let receivedFinalResult = false;
+    
+    // Activity-based timeout (15 minutes default)
+    const timeoutMs = this.config.streamTimeoutMs ?? DEFAULT_STREAM_TIMEOUT_MS;
+    let activityTimeoutId: ReturnType<typeof setTimeout> | null = null;
+    
+    const resetActivityTimeout = () => {
+      if (activityTimeoutId) {
+        clearTimeout(activityTimeoutId);
+      }
+      activityTimeoutId = setTimeout(() => {
+        console.error(`[A2A Client] ⏰ Stream timeout after ${timeoutMs / 1000}s of inactivity. Events received: ${eventCount}`);
+        this.abort();
+      }, timeoutMs);
+    };
+    
+    const clearActivityTimeout = () => {
+      if (activityTimeoutId) {
+        clearTimeout(activityTimeoutId);
+        activityTimeoutId = null;
+      }
+    };
+    
+    // Start the activity timeout
+    resetActivityTimeout();
+    console.log(`[A2A Client] ⏱️ Stream timeout set to ${timeoutMs / 1000} seconds`);
 
     const stream = new ReadableStream<A2AEvent>({
       pull: async (controller) => {
         try {
+          // Log when we're waiting for data (helps detect stuck streams)
+          const readStartTime = Date.now();
           const { done, value } = await reader.read();
+          const readDuration = Date.now() - readStartTime;
+          
+          // Log if read took unusually long (possible network issue)
+          if (readDuration > 5000) {
+            console.log(`[A2A Client] ⏳ Read took ${readDuration}ms (possible network delay)`);
+          }
 
           if (done) {
+            clearActivityTimeout();
+            console.log(`[A2A Client] 🏁 Stream ended (done=true). Total events: ${eventCount}, receivedFinalResult: ${receivedFinalResult}`);
+            console.log(`[A2A Client] 🏁 Time since last event: ${Date.now() - lastEventTime}ms`);
+            if (!receivedFinalResult) {
+              console.warn(`[A2A Client] ⚠️ Stream ended WITHOUT receiving final_result!`);
+            }
             this.config.onComplete?.();
             controller.close();
             return;
           }
 
-          buffer += decoder.decode(value, { stream: true });
+          // Reset timeout on any data received
+          resetActivityTimeout();
+          
+          const chunk = decoder.decode(value, { stream: true });
+          buffer += chunk;
           const lines = buffer.split("\n");
           buffer = lines.pop() || "";
 
           for (const line of lines) {
+            // Handle keep-alive/heartbeat (empty lines or comments)
+            if (line.trim() === "" || line.startsWith(":")) {
+              lastEventTime = Date.now();
+              // Log heartbeat every 10 seconds of activity
+              if (eventCount > 0 && eventCount % 50 === 0) {
+                console.log(`[A2A Client] 💓 Stream alive - ${eventCount} events processed`);
+              }
+              continue;
+            }
+
             if (line.startsWith("data: ")) {
               const jsonStr = line.slice(6).trim();
               if (jsonStr) {
@@ -114,25 +187,44 @@ export class A2AClient {
                   const message: A2AMessage = JSON.parse(jsonStr);
                   const event = this.parseA2AMessage(message);
                   if (event) {
+                    eventCount++;
+                    lastEventTime = Date.now();
+                    
+                    // Track if we received final_result
+                    if (event.artifact?.name === "final_result" || event.artifact?.name === "partial_result") {
+                      receivedFinalResult = true;
+                      console.log(`[A2A Client] ✅ Received ${event.artifact.name} - event #${eventCount}`);
+                    }
+                    
+                    // Log progress every 100 events to track stream health
+                    if (eventCount % 100 === 0) {
+                      console.log(`[A2A Client] 📊 Progress: ${eventCount} events received`);
+                    }
+                    
                     this.config.onEvent?.(event);
                     controller.enqueue(event);
                   }
                 } catch (e) {
-                  console.error("Failed to parse A2A message:", e);
+                  console.error("[A2A Client] Failed to parse A2A message:", e, "Line:", line.substring(0, 200));
                 }
               }
             }
           }
         } catch (error) {
+          clearActivityTimeout();
           if (error instanceof Error && error.name === "AbortError") {
+            console.log(`[A2A Client] 🛑 Stream aborted. Total events: ${eventCount}`);
             controller.close();
             return;
           }
+          console.error(`[A2A Client] ❌ Stream error after ${eventCount} events:`, error);
           this.config.onError?.(error as Error);
           controller.error(error);
         }
       },
       cancel: () => {
+        clearActivityTimeout();
+        console.log(`[A2A Client] 🛑 Stream cancelled. Total events: ${eventCount}`);
         this.abort();
       },
     });
@@ -189,9 +281,12 @@ export class A2AClient {
         if (isToolEnd) eventType = "tool_end";
 
         // Extract ALL text parts from artifact, not just the first one
+        // A2A library uses parts[].root.text structure (Part -> TextPart)
         const artifactText = artifact?.parts
-          ?.filter((p: { kind?: string }) => p.kind === "text" || !p.kind)
-          ?.map((p: { text?: string }) => p.text || "")
+          ?.filter((p: { kind?: string; root?: { kind?: string } }) => 
+            p.kind === "text" || p.root?.kind === "text" || !p.kind)
+          ?.map((p: { text?: string; root?: { text?: string } }) => 
+            p.text || p.root?.text || "")
           ?.join("") || "";
 
         // Extract sourceAgent from artifact metadata for sub-agent message grouping
@@ -226,10 +321,13 @@ export class A2AClient {
 
       case "message":
         // Extract ALL text from message parts (agent messages contain the actual content)
+        // A2A library uses parts[].root.text structure (Part -> TextPart)
         const messageParts = result.parts || [];
         const messageText = messageParts
-          .filter((p: { kind?: string }) => p.kind === "text" || !p.kind)
-          .map((p: { text?: string }) => p.text || "")
+          .filter((p: { kind?: string; root?: { kind?: string } }) => 
+            p.kind === "text" || p.root?.kind === "text" || !p.kind)
+          .map((p: { text?: string; root?: { text?: string } }) => 
+            p.text || p.root?.text || "")
           .join("");
         const isAgentMessage = result.role === "agent";
 

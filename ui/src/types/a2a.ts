@@ -183,6 +183,8 @@ export interface ChatMessage {
   widgets?: Widget[];
   isFinal?: boolean;
   feedback?: MessageFeedback;
+  /** Turn ID links user message to its assistant response for event grouping */
+  turnId?: string;
 }
 
 // Input field configuration for use case forms

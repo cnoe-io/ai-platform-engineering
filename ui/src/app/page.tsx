@@ -151,7 +151,7 @@ function HomePage() {
                         isStreaming && "animate-pulse"
                       )} />
                     )}
-                    {isStreaming ? "Streaming" : healthStatus === "connected" ? "Connected" : healthStatus === "checking" ? "Checking" : "Disconnected"}
+                    {healthStatus === "connected" ? "Connected" : healthStatus === "checking" ? "Checking" : "Disconnected"}
                   </div>
                 </TooltipTrigger>
                 <TooltipContent side="bottom" className="max-w-sm p-4">

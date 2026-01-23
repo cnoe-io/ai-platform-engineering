@@ -4,29 +4,6 @@ import { Conversation, ChatMessage, A2AEvent, MessageFeedback } from "@/types/a2
 import { generateId } from "@/lib/utils";
 import { A2AClient } from "@/lib/a2a-client";
 
-// PERFORMANCE FIX: Clear corrupted localStorage before store initialization
-// This runs once on module load to prevent OOM crashes from legacy data
-const STORAGE_KEY = "caipe-chat-history";
-const MAX_STORAGE_SIZE = 5 * 1024 * 1024; // 5MB limit
-
-if (typeof window !== "undefined") {
-  try {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    if (stored) {
-      const sizeBytes = new Blob([stored]).size;
-      if (sizeBytes > MAX_STORAGE_SIZE) {
-        console.warn(
-          `[ChatStore] Clearing oversized localStorage (${(sizeBytes / 1024 / 1024).toFixed(1)}MB > ${MAX_STORAGE_SIZE / 1024 / 1024}MB limit)`
-        );
-        localStorage.removeItem(STORAGE_KEY);
-      }
-    }
-  } catch {
-    // If we can't even read it, clear it
-    localStorage.removeItem(STORAGE_KEY);
-  }
-}
-
 // Track streaming state per conversation
 interface StreamingState {
   conversationId: string;
@@ -41,11 +18,14 @@ interface ChatState {
   streamingConversations: Map<string, StreamingState>;
   a2aEvents: A2AEvent[];
   pendingMessage: string | null; // Message to auto-submit when ChatPanel mounts
+  
+  // Per-turn event tracking: selectedTurnId per conversation
+  selectedTurnIds: Map<string, string>; // conversationId -> turnId
 
   // Actions
   createConversation: () => string;
   setActiveConversation: (id: string) => void;
-  addMessage: (conversationId: string, message: Omit<ChatMessage, "id" | "timestamp" | "events">) => string;
+  addMessage: (conversationId: string, message: Omit<ChatMessage, "id" | "timestamp" | "events">, turnId?: string) => string;
   updateMessage: (conversationId: string, messageId: string, updates: Partial<ChatMessage>) => void;
   appendToMessage: (conversationId: string, messageId: string, content: string) => void;
   addEventToMessage: (conversationId: string, messageId: string, event: A2AEvent) => void;
@@ -62,6 +42,14 @@ interface ChatState {
   updateMessageFeedback: (conversationId: string, messageId: string, feedback: MessageFeedback) => void;
   setPendingMessage: (message: string | null) => void;
   consumePendingMessage: () => string | null;
+  
+  // Turn selection actions for per-message event tracking
+  setSelectedTurn: (conversationId: string, turnId: string | null) => void;
+  getSelectedTurnId: (conversationId?: string) => string | null;
+  getSelectedTurnEvents: (conversationId?: string) => A2AEvent[];
+  isMessageSelectable: () => boolean;
+  getTurnCount: (conversationId?: string) => number;
+  getCurrentTurnIndex: (conversationId?: string) => number;
 }
 
 export const useChatStore = create<ChatState>()(
@@ -73,6 +61,7 @@ export const useChatStore = create<ChatState>()(
       streamingConversations: new Map<string, StreamingState>(),
       a2aEvents: [],
       pendingMessage: null,
+      selectedTurnIds: new Map<string, string>(),
 
       createConversation: () => {
         const id = generateId();
@@ -102,29 +91,47 @@ export const useChatStore = create<ChatState>()(
         });
       },
 
-      addMessage: (conversationId, message) => {
+      addMessage: (conversationId, message, turnId) => {
         const messageId = generateId();
+        
+        // Generate turnId for user messages, use provided turnId for assistant messages
+        let messageTurnId = turnId;
+        if (message.role === "user" && !turnId) {
+          messageTurnId = generateId();
+        }
+        
         const newMessage: ChatMessage = {
           ...message,
           id: messageId,
           timestamp: new Date(),
           events: [],
+          turnId: messageTurnId,
         };
 
-        set((state) => ({
-          conversations: state.conversations.map((conv) =>
-            conv.id === conversationId
-              ? {
-                  ...conv,
-                  messages: [...conv.messages, newMessage],
-                  updatedAt: new Date(),
-                  title: conv.messages.length === 0 && message.role === "user"
-                    ? message.content.substring(0, 50)
-                    : conv.title,
-                }
-              : conv
-          ),
-        }));
+        set((state) => {
+          // Update selectedTurnIds when a new user message is added
+          const newSelectedTurnIds = new Map(state.selectedTurnIds);
+          if (message.role === "user" && messageTurnId) {
+            newSelectedTurnIds.set(conversationId, messageTurnId);
+            console.log(`[Store] New turn started: ${messageTurnId} for conversation ${conversationId}`);
+          }
+          
+          return {
+            conversations: state.conversations.map((conv) =>
+              conv.id === conversationId
+                ? {
+                    ...conv,
+                    messages: [...conv.messages, newMessage],
+                    updatedAt: new Date(),
+                    title: conv.messages.length === 0 && message.role === "user"
+                      ? message.content.substring(0, 50)
+                      : conv.title,
+                  }
+                : conv
+            ),
+            selectedTurnIds: newSelectedTurnIds,
+          };
+        });
 
         return messageId;
       },
@@ -163,15 +170,6 @@ export const useChatStore = create<ChatState>()(
       },
 
       addEventToMessage: (conversationId, messageId, event) => {
-        // PERFORMANCE: Limit events per message to prevent OOM
-        const MAX_MESSAGE_EVENTS = 100;
-
-        // Strip heavy 'raw' property
-        const lightEvent = {
-          ...event,
-          raw: undefined,
-        };
-
         set((state) => ({
           conversations: state.conversations.map((conv) =>
             conv.id === conversationId
@@ -179,10 +177,7 @@ export const useChatStore = create<ChatState>()(
                   ...conv,
                   messages: conv.messages.map((msg) =>
                     msg.id === messageId
-                      ? {
-                          ...msg,
-                          events: [...msg.events, lightEvent].slice(-MAX_MESSAGE_EVENTS),
-                        }
+                      ? { ...msg, events: [...msg.events, event] }
                       : msg
                   ),
                 }
@@ -200,13 +195,17 @@ export const useChatStore = create<ChatState>()(
           const newMap = new Map(prev.streamingConversations);
           if (state) {
             newMap.set(conversationId, state);
+            console.log(`[Store] Started streaming for conversation: ${conversationId}`);
           } else {
             newMap.delete(conversationId);
+            console.log(`[Store] Stopped streaming for conversation: ${conversationId}, remaining: ${newMap.size}`);
           }
           // Update global isStreaming based on whether any conversation is streaming
+          const newIsStreaming = newMap.size > 0;
+          console.log(`[Store] Global isStreaming: ${newIsStreaming}`);
           return {
             streamingConversations: newMap,
-            isStreaming: newMap.size > 0,
+            isStreaming: newIsStreaming,
           };
         });
       },
@@ -240,18 +239,9 @@ export const useChatStore = create<ChatState>()(
 
       addA2AEvent: (event, conversationId) => {
         const convId = conversationId || get().activeConversationId;
-        // PERFORMANCE: Limit events to prevent OOM (keep last 200 per conversation)
-        const MAX_EVENTS = 200;
-
-        // Strip the heavy 'raw' property from events before storing
-        const lightEvent = {
-          ...event,
-          raw: undefined, // Don't store raw JSON-RPC responses
-        };
-
         set((prev) => {
-          // Add to global events for current session display (limited)
-          const newGlobalEvents = [...prev.a2aEvents, lightEvent].slice(-MAX_EVENTS);
+          // Add to global events for current session display
+          const newGlobalEvents = [...prev.a2aEvents, event];
 
           // Also add to the specific conversation's events if we have a convId
           if (convId) {
@@ -259,10 +249,7 @@ export const useChatStore = create<ChatState>()(
               a2aEvents: newGlobalEvents,
               conversations: prev.conversations.map((conv) =>
                 conv.id === convId
-                  ? {
-                      ...conv,
-                      a2aEvents: [...conv.a2aEvents, lightEvent].slice(-MAX_EVENTS),
-                    }
+                  ? { ...conv, a2aEvents: [...conv.a2aEvents, event] }
                   : conv
               ),
             };
@@ -350,30 +337,115 @@ export const useChatStore = create<ChatState>()(
         }
         return message;
       },
+
+      // Turn selection actions for per-message event tracking
+      setSelectedTurn: (conversationId, turnId) => {
+        set((state) => {
+          const newSelectedTurnIds = new Map(state.selectedTurnIds);
+          if (turnId) {
+            newSelectedTurnIds.set(conversationId, turnId);
+          } else {
+            newSelectedTurnIds.delete(conversationId);
+          }
+          return { selectedTurnIds: newSelectedTurnIds };
+        });
+      },
+
+      getSelectedTurnId: (conversationId) => {
+        const state = get();
+        const convId = conversationId || state.activeConversationId;
+        if (!convId) return null;
+        return state.selectedTurnIds.get(convId) || null;
+      },
+
+      getSelectedTurnEvents: (conversationId) => {
+        const state = get();
+        const convId = conversationId || state.activeConversationId;
+        if (!convId) return [];
+
+        const conv = state.conversations.find((c) => c.id === convId);
+        if (!conv) return [];
+
+        const selectedTurnId = state.selectedTurnIds.get(convId);
+        if (!selectedTurnId) {
+          // No turn selected - return events from the most recent assistant message
+          const lastAssistantMsg = [...conv.messages].reverse().find((m) => m.role === "assistant");
+          return lastAssistantMsg?.events || [];
+        }
+
+        // Find the assistant message with the matching turnId
+        const assistantMessage = conv.messages.find(
+          (m) => m.role === "assistant" && m.turnId === selectedTurnId
+        );
+        return assistantMessage?.events || [];
+      },
+
+      isMessageSelectable: () => {
+        // Hard lock: no message selection while any conversation is streaming
+        const state = get();
+        return state.streamingConversations.size === 0;
+      },
+
+      getTurnCount: (conversationId) => {
+        const state = get();
+        const convId = conversationId || state.activeConversationId;
+        if (!convId) return 0;
+
+        const conv = state.conversations.find((c) => c.id === convId);
+        if (!conv) return 0;
+
+        // Count unique turnIds from user messages
+        const turnIds = new Set(
+          conv.messages.filter((m) => m.role === "user" && m.turnId).map((m) => m.turnId)
+        );
+        return turnIds.size;
+      },
+
+      getCurrentTurnIndex: (conversationId) => {
+        const state = get();
+        const convId = conversationId || state.activeConversationId;
+        if (!convId) return 0;
+
+        const conv = state.conversations.find((c) => c.id === convId);
+        if (!conv) return 0;
+
+        const selectedTurnId = state.selectedTurnIds.get(convId);
+        if (!selectedTurnId) return state.getTurnCount(convId);
+
+        // Get ordered list of turnIds
+        const turnIds = conv.messages
+          .filter((m) => m.role === "user" && m.turnId)
+          .map((m) => m.turnId!);
+        
+        const index = turnIds.indexOf(selectedTurnId);
+        return index === -1 ? turnIds.length : index + 1;
+      },
     }),
     {
-      name: STORAGE_KEY,
+      name: "caipe-chat-history",
       storage: createJSONStorage(() => localStorage),
-      // PERFORMANCE FIX: Only persist essential data, NOT events
-      // Events can be 900+ per query with large payloads - causes OOM
+      // IMPORTANT: Do NOT persist a2aEvents - they're too large (900+ per query)
+      // and cause localStorage overflow + browser crashes
       partialize: (state) => ({
         conversations: state.conversations.map((conv) => ({
           ...conv,
-          // DO NOT persist a2aEvents - they're huge and cause OOM
+          // Exclude a2aEvents from persistence - too large
           a2aEvents: [],
-          // Strip events from messages too - only content matters for history
+          // Exclude message.events from persistence - too large
           messages: conv.messages.map((msg) => ({
             ...msg,
-            events: [], // Don't persist per-message events
+            events: [], // Don't persist events, only final content
           })),
         })),
         activeConversationId: state.activeConversationId,
+        // Persist selectedTurnIds as an array of entries (Maps don't serialize well)
+        selectedTurnIdsArray: Array.from(state.selectedTurnIds.entries()),
       }),
       // Handle date serialization
       onRehydrateStorage: () => (state) => {
         if (state) {
           // Convert date strings back to Date objects
-          // Events are NOT persisted for performance, so initialize as empty
+          // Events are NOT persisted (too large) - start with empty arrays
           state.conversations = state.conversations.map((conv) => ({
             ...conv,
             createdAt: new Date(conv.createdAt),
@@ -388,6 +460,10 @@ export const useChatStore = create<ChatState>()(
 
           // Start with empty a2aEvents
           state.a2aEvents = [];
+          
+          // Restore selectedTurnIds from the persisted array
+          const storedArray = (state as unknown as { selectedTurnIdsArray?: [string, string][] }).selectedTurnIdsArray;
+          state.selectedTurnIds = new Map(storedArray || []);
         }
       },
     }
