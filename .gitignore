@@ -238,6 +238,9 @@ out/
 ui/.next/
 ui/out/
 
+# TypeScript build cache
+*.tsbuildinfo
+
 # Claude Code configuration
 .claude/
 
