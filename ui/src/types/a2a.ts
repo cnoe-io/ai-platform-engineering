@@ -185,6 +185,8 @@ export interface ChatMessage {
   feedback?: MessageFeedback;
   /** Turn ID links user message to its assistant response for event grouping */
   turnId?: string;
+  /** Raw accumulated stream content - never overwritten, always appended */
+  rawStreamContent?: string;
 }
 
 // Input field configuration for use case forms

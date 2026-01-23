@@ -254,20 +254,23 @@ export function ContextPanel({ debugMode, onDebugModeChange }: ContextPanelProps
                           transition={{ delay: idx * 0.05 }}
                           className={cn(
                             "flex items-start gap-3 p-3 rounded-lg border transition-all cursor-pointer",
-                            task.status === "completed" && "bg-green-500/10 border-green-500/30",
-                            task.status === "in_progress" && "bg-sky-500/10 border-sky-500/30",
+                            task.status === "completed" && "bg-emerald-500/15 border-emerald-500/40",
+                            task.status === "in_progress" && "bg-sky-500/15 border-sky-500/40",
                             task.status === "pending" && "bg-muted/30 border-border/50 hover:bg-muted/50",
-                            task.status === "failed" && "bg-red-500/10 border-red-500/30"
+                            task.status === "failed" && "bg-red-500/15 border-red-500/40"
                           )}
                         >
                           {/* Status Indicator */}
                           <div className="mt-0.5 w-4 h-4 flex items-center justify-center">
                             {task.status === "completed" ? (
-                              /* Completed - Green checkbox with checkmark */
+                              /* Completed - Vibrant green checkbox with checkmark and glow */
                               <div className="relative w-4 h-4">
-                                <div className="w-4 h-4 rounded bg-green-500" />
+                                <div 
+                                  className="w-4 h-4 rounded bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.6)]" 
+                                  style={{ backgroundColor: '#10B981' }}
+                                />
                                 <svg
-                                  className="absolute inset-0 w-4 h-4 text-white pointer-events-none"
+                                  className="absolute inset-0 w-4 h-4 text-white pointer-events-none drop-shadow-sm"
                                   fill="none"
                                   viewBox="0 0 24 24"
                                   stroke="currentColor"
@@ -281,16 +284,22 @@ export function ContextPanel({ debugMode, onDebugModeChange }: ContextPanelProps
                                 </svg>
                               </div>
                             ) : task.status === "in_progress" ? (
-                              /* In Progress - Spinner only, no box */
-                              <Loader2 className="w-4 h-4 text-sky-400 animate-spin" />
+                              /* In Progress - Vibrant blue spinner with glow */
+                              <Loader2 
+                                className="w-4 h-4 animate-spin" 
+                                style={{ color: '#0EA5E9', filter: 'drop-shadow(0 0 4px rgba(14,165,233,0.5))' }}
+                              />
                             ) : task.status === "failed" ? (
-                              /* Failed - Red X */
-                              <div className="w-4 h-4 rounded border-2 border-red-400 flex items-center justify-center">
-                                <span className="text-red-400 text-xs font-bold">✕</span>
+                              /* Failed - Vibrant red X with glow */
+                              <div 
+                                className="w-4 h-4 rounded border-2 flex items-center justify-center shadow-[0_0_6px_rgba(239,68,68,0.5)]"
+                                style={{ borderColor: '#EF4444' }}
+                              >
+                                <span className="text-xs font-bold" style={{ color: '#EF4444' }}>✕</span>
                               </div>
                             ) : (
-                              /* Pending - Empty checkbox */
-                              <div className="w-4 h-4 rounded border-2 border-muted-foreground/50" />
+                              /* Pending - Subtle empty checkbox */
+                              <div className="w-4 h-4 rounded border-2 border-muted-foreground/40" />
                             )}
                           </div>
 
@@ -348,19 +357,19 @@ export function ContextPanel({ debugMode, onDebugModeChange }: ContextPanelProps
                       {/* Active Tool Calls */}
                       {activeToolCalls.length > 0 && (
                         <div className="space-y-2">
-                          <div className="flex items-center gap-2 text-xs text-amber-400">
-                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                            <span className="font-medium">Active Tool Calls</span>
+                          <div className="flex items-center gap-2 text-xs" style={{ color: '#F59E0B' }}>
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" style={{ filter: 'drop-shadow(0 0 3px rgba(245,158,11,0.4))' }} />
+                            <span className="font-semibold">Active Tool Calls</span>
                           </div>
                           <div className="space-y-1.5">
                             {activeToolCalls.map((tool) => (
                               <div
                                 key={tool.id}
-                                className="flex items-center gap-2 px-3 py-2 rounded-md bg-amber-500/10 border border-amber-500/20 text-sm"
+                                className="flex items-center gap-2 px-3 py-2 rounded-md bg-amber-500/15 border border-amber-500/30 text-sm"
                               >
-                                <Loader2 className="h-3.5 w-3.5 text-amber-400 animate-spin shrink-0" />
+                                <Loader2 className="h-3.5 w-3.5 animate-spin shrink-0" style={{ color: '#F59E0B' }} />
                                 <span className="text-foreground/90 truncate">
-                                  <span className="font-medium text-amber-400">{tool.agent}</span>
+                                  <span className="font-medium" style={{ color: '#F59E0B' }}>{tool.agent}</span>
                                   <span className="text-foreground/60"> → </span>
                                   <span>{tool.tool}</span>
                                 </span>
@@ -373,17 +382,17 @@ export function ContextPanel({ debugMode, onDebugModeChange }: ContextPanelProps
                       {/* Completed Tool Calls - Always visible, collapsible after streaming */}
                       {completedToolCalls.length > 0 && (
                         <div className="space-y-1.5">
-                          <div className="flex items-center gap-2 text-xs text-green-400">
-                            <CheckCircle className="h-3.5 w-3.5" />
-                            <span className="font-medium">Completed ({completedToolCalls.length})</span>
+                          <div className="flex items-center gap-2 text-xs" style={{ color: '#10B981' }}>
+                            <CheckCircle className="h-3.5 w-3.5" style={{ filter: 'drop-shadow(0 0 3px rgba(16,185,129,0.4))' }} />
+                            <span className="font-semibold">Completed ({completedToolCalls.length})</span>
                           </div>
                           <div className="space-y-1">
                             {completedToolCalls.map((tool) => (
                               <div
                                 key={tool.id}
-                                className="flex items-center gap-2 px-3 py-1.5 rounded-md bg-green-500/5 border border-green-500/20 text-sm"
+                                className="flex items-center gap-2 px-3 py-1.5 rounded-md bg-emerald-500/10 border border-emerald-500/30 text-sm"
                               >
-                                <CheckCircle className="h-3 w-3 text-green-400 shrink-0" />
+                                <CheckCircle className="h-3 w-3 shrink-0" style={{ color: '#10B981' }} />
                                 <span className="text-foreground/70 truncate text-xs">
                                   <span className="font-medium text-foreground/80">{tool.agent}</span>
                                   <span className="text-foreground/40"> → </span>
