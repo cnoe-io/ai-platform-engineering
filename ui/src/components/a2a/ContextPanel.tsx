@@ -42,12 +42,22 @@ export function ContextPanel({ debugMode, onDebugModeChange }: ContextPanelProps
   // Collapse tool history after streaming ends
   const [toolsCollapsed, setToolsCollapsed] = useState(false);
 
-  // Get events for the active conversation (triggers re-render when conversations change)
-  const conversationEvents = useMemo(() => {
-    if (!activeConversationId) return [];
-    const conv = conversations.find(c => c.id === activeConversationId);
-    return conv?.a2aEvents || [];
+  // Get the active conversation
+  const conversation = useMemo(() => {
+    if (!activeConversationId) return null;
+    return conversations.find(c => c.id === activeConversationId) || null;
   }, [activeConversationId, conversations]);
+
+  // Get events for the active conversation
+  const conversationEvents = useMemo(() => {
+    return conversation?.a2aEvents || [];
+  }, [conversation]);
+
+  // Count turns (user messages = turns)
+  const turnCount = useMemo(() => {
+    if (!conversation) return 0;
+    return conversation.messages.filter(m => m.role === "user").length;
+  }, [conversation]);
 
   // Check if streaming is truly active:
   // 1. Global isStreaming must be true
@@ -184,6 +194,12 @@ export function ContextPanel({ debugMode, onDebugModeChange }: ContextPanelProps
           </Tabs>
 
                 <div className="flex items-center gap-2">
+                  {/* Turn counter */}
+                  {turnCount > 0 && (
+                    <div className="text-xs text-muted-foreground">
+                      Turn {turnCount}
+                    </div>
+                  )}
                   {/* Streaming indicator */}
                   {isActuallyStreaming && (
                     <div className="flex items-center gap-1.5 px-2 py-1 rounded-full bg-green-500/15 text-green-400 text-xs">
