@@ -106,6 +106,42 @@ See `values.yaml` for complete examples of:
 - Webex ingestor with spaces
 - Backstage ingestor
 
+## Authentication (Optional)
+
+OAuth2 Proxy integration for OIDC/OAuth2 authentication with group-based RBAC.
+
+**Important:** When enabling OAuth2 Proxy, disable the rag-webui direct ingress. Traffic must flow through OAuth2 Proxy.
+
+```yaml
+oauth2-proxy:
+  enabled: true
+  config:
+    clientID: "YOUR_CLIENT_ID"
+    clientSecret: "YOUR_CLIENT_SECRET"
+    cookieSecret: "BASE64_SECRET"  # openssl rand -base64 32 | head -c 32 | base64
+  extraArgs:
+    provider: "oidc"
+    oidc-issuer-url: "https://your-idp.com/oidc"
+    oidc-groups-claim: "groups"
+  ingress:
+    enabled: true
+    hosts:
+      - host: rag-webui.example.com
+
+rag-server:
+  rbac:
+    allowUnauthenticated: false
+    readonlyGroups: "viewers,engineers"
+    adminGroups: "admins"
+    defaultRole: "readonly"
+
+rag-webui:
+  ingress:
+    enabled: false  # Must be disabled when using oauth2-proxy
+```
+
+RBAC roles: `readonly` (search only), `ingestonly` (ingest only), `admin` (full access).
+
 ## Access Points
 
 | Service | URL | Description |
