@@ -31,7 +31,7 @@ RBAC_INGESTONLY_GROUPS = os.getenv("RBAC_INGESTONLY_GROUPS", "").split(",")
 RBAC_ADMIN_GROUPS = os.getenv("RBAC_ADMIN_GROUPS", "").split(",")
 RBAC_DEFAULT_ROLE = os.getenv("RBAC_DEFAULT_ROLE", Role.READONLY)
 
-logger.info(f"RBAC Configuration:")
+logger.info("RBAC Configuration:")
 logger.info(f"  ALLOW_UNAUTHENTICATED: {ALLOW_UNAUTHENTICATED}")
 logger.info(f"  RBAC_READONLY_GROUPS: {[g for g in RBAC_READONLY_GROUPS if g.strip()]}")
 logger.info(f"  RBAC_INGESTONLY_GROUPS: {[g for g in RBAC_INGESTONLY_GROUPS if g.strip()]}")
