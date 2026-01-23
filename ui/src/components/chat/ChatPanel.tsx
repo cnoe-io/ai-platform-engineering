@@ -3,7 +3,7 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { useSession } from "next-auth/react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Send, Square, User, Bot, Sparkles, Copy, Check, Loader2, ChevronDown, ChevronUp, ArrowDown } from "lucide-react";
+import { Send, Square, User, Bot, Sparkles, Copy, Check, Loader2, ChevronDown, ChevronUp, ArrowDown, RotateCcw } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
@@ -356,6 +356,12 @@ export function ChatPanel({ endpoint }: ChatPanelProps) {
     }
   }, [isThisConversationStreaming, activeConversationId, endpoint, accessToken, createConversation, clearA2AEvents, addMessage, appendToMessage, updateMessage, addEventToMessage, addA2AEvent, setConversationStreaming]);
 
+  // Retry handler - re-sends the message content
+  const handleRetry = useCallback((content: string) => {
+    if (isThisConversationStreaming) return; // Don't retry while streaming
+    submitMessage(content);
+  }, [isThisConversationStreaming, submitMessage]);
+
   // Wrapper for form submission that uses input state
   const handleSubmit = useCallback(async () => {
     if (!input.trim()) return;
@@ -415,6 +421,18 @@ export function ChatPanel({ endpoint }: ChatPanelProps) {
               const isLastMessage = index === conversation.messages.length - 1;
               const isAssistantStreaming = isThisConversationStreaming && msg.role === "assistant" && isLastMessage;
 
+              // For retry: if user message, use its content; if assistant, find preceding user message
+              const getRetryContent = () => {
+                if (msg.role === "user") return msg.content;
+                // Find the user message right before this assistant message
+                for (let i = index - 1; i >= 0; i--) {
+                  if (conversation.messages[i].role === "user") {
+                    return conversation.messages[i].content;
+                  }
+                }
+                return null;
+              };
+
               return (
                 <ChatMessage
                   key={msg.id}
@@ -422,6 +440,7 @@ export function ChatPanel({ endpoint }: ChatPanelProps) {
                   onCopy={handleCopy}
                   isCopied={copiedId === msg.id}
                   isStreaming={isAssistantStreaming}
+                  onRetry={getRetryContent() ? () => handleRetry(getRetryContent()!) : undefined}
                   feedback={msg.feedback}
                   onFeedbackChange={(feedback) => {
                     if (activeConversationId) {
@@ -666,6 +685,8 @@ interface ChatMessageProps {
   onCopy: (content: string, id: string) => void;
   isCopied: boolean;
   isStreaming?: boolean;
+  // Retry prompt
+  onRetry?: (content: string) => void;
   // Feedback props
   feedback?: Feedback;
   onFeedbackChange?: (feedback: Feedback) => void;
@@ -677,6 +698,7 @@ function ChatMessage({
   onCopy,
   isCopied,
   isStreaming = false,
+  onRetry,
   feedback,
   onFeedbackChange,
   onFeedbackSubmit,
@@ -761,15 +783,36 @@ function ChatMessage({
               {isUser ? (
                 <div className="relative">
                   <p className="whitespace-pre-wrap text-sm selection:bg-white/30 selection:text-white">{message.content}</p>
-                  {/* Copy button for user messages - shows on hover */}
+                  {/* Action buttons for user messages - shows on hover */}
                   <AnimatePresence>
                     {isHovered && (
                       <motion.div
                         initial={{ opacity: 0, scale: 0.9 }}
                         animate={{ opacity: 1, scale: 1 }}
                         exit={{ opacity: 0, scale: 0.9 }}
-                        className="absolute -left-2 top-1/2 -translate-y-1/2 -translate-x-full"
+                        className="absolute -left-2 top-1/2 -translate-y-1/2 -translate-x-full flex gap-1"
                       >
+                        {/* Retry button */}
+                        {onRetry && (
+                          <TooltipProvider>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-7 w-7 bg-card/80 border border-border/50 shadow-sm hover:bg-card"
+                                  onClick={() => onRetry(message.content)}
+                                >
+                                  <RotateCcw className="h-3 w-3 text-muted-foreground" />
+                                </Button>
+                              </TooltipTrigger>
+                              <TooltipContent side="left">
+                                Retry this prompt
+                              </TooltipContent>
+                            </Tooltip>
+                          </TooltipProvider>
+                        )}
+                        {/* Copy button */}
                         <TooltipProvider>
                           <Tooltip>
                             <TooltipTrigger asChild>
@@ -973,6 +1016,27 @@ function ChatMessage({
                 animate={{ opacity: isHovered ? 1 : 0.6 }}
                 className="flex items-center gap-2 mt-2"
               >
+                {/* Retry button */}
+                {onRetry && (
+                  <TooltipProvider>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7 text-muted-foreground hover:text-foreground hover:bg-muted"
+                          onClick={onRetry}
+                        >
+                          <RotateCcw className="h-3.5 w-3.5" />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        Regenerate response
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                )}
+
                 {/* Copy button */}
                 <TooltipProvider>
                   <Tooltip>
