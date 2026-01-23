@@ -268,10 +268,6 @@ class AIPlatformEngineerA2ABinding:
           # Format: {tool_name: response_content}
           accumulated_subagent_responses = {}
 
-          # Track current active agent for sub-agent message grouping
-          # This is used by the executor to add sourceAgent metadata to artifacts
-          current_agent: str | None = None
-
           # Check if token-by-token streaming is enabled (default: true)
           # When disabled, uses 'values' mode which waits for complete messages
           enable_streaming = os.getenv("ENABLE_STREAMING", "true").lower() == "true"
@@ -347,8 +343,6 @@ class AIPlatformEngineerA2ABinding:
                               logging.debug("Skipping tool call with empty name (streaming chunk)")
                               continue
 
-                          # Track current agent for sub-agent message grouping
-                          current_agent = tool_name
                           logging.debug(f"Tool call started (from AIMessageChunk): {tool_name}")
 
                           # Stream tool start notification to client with metadata
@@ -357,7 +351,6 @@ class AIPlatformEngineerA2ABinding:
                               "is_task_complete": False,
                               "require_user_input": False,
                               "content": f"🔧 Supervisor: Calling Agent {tool_name_formatted}...\n",
-                              "source_agent": tool_name,
                               "tool_call": {
                                   "name": tool_name,
                                   "status": "started",
@@ -395,14 +388,12 @@ class AIPlatformEngineerA2ABinding:
                       if match:
                           agent_name = match.group(1)
                           purpose = match.group(2)
-                          current_agent = agent_name.lower()  # Update current agent
                           logging.debug(f"Tool update detected: {agent_name} - {purpose}")
                           # Emit as tool_update event
                           yield {
                               "is_task_complete": False,
                               "require_user_input": False,
                               "content": content,
-                              "source_agent": current_agent,
                               "tool_update": {
                                   "name": agent_name.lower(),
                                   "purpose": purpose,
@@ -411,12 +402,11 @@ class AIPlatformEngineerA2ABinding:
                               }
                           }
                       else:
-                          # Regular content - include source_agent for grouping
+                          # Regular content - no special handling
                           yield {
                               "is_task_complete": False,
                               "require_user_input": False,
                               "content": content,
-                              "source_agent": current_agent or "supervisor",
                           }
 
               # Handle AIMessage with tool calls (tool start indicators)
@@ -435,8 +425,6 @@ class AIPlatformEngineerA2ABinding:
                           pending_tool_calls[tool_call_id] = tool_name
                           logging.debug(f"Tracked tool call: {tool_call_id} -> {tool_name}")
 
-                      # Track current agent for sub-agent message grouping
-                      current_agent = tool_name
                       logging.info(f"Tool call started: {tool_name}")
 
                       # Stream tool start notification to client with metadata
@@ -445,7 +433,6 @@ class AIPlatformEngineerA2ABinding:
                           "is_task_complete": False,
                           "require_user_input": False,
                           "content": f"🔧 Supervisor: Calling Agent {tool_name_formatted}...\n",
-                          "source_agent": tool_name,
                           "tool_call": {
                               "name": tool_name,
                               "status": "started",
@@ -507,7 +494,6 @@ class AIPlatformEngineerA2ABinding:
                           yield {
                               "is_task_complete": False,
                               "require_user_input": False,
-                              "source_agent": "supervisor",
                               "artifact": {
                                   "name": "execution_plan_update",
                                   "description": "TODO-based execution plan",
@@ -521,7 +507,6 @@ class AIPlatformEngineerA2ABinding:
                           yield {
                               "is_task_complete": False,
                               "require_user_input": False,
-                              "source_agent": "supervisor",
                               "artifact": {
                                   "name": "execution_plan_status_update",
                                   "description": "TODO progress update",
@@ -529,11 +514,10 @@ class AIPlatformEngineerA2ABinding:
                               }
                           }
                   elif tool_name in rag_tool_names:
-                    # For RAG tools, we don't want to stream the content, as its a LOT of text
+                    # For RAG tools, we don't want to stream the content, as its a LOT of text
                       yield {
                             "is_task_complete": False,
                             "require_user_input": False,
-                            "source_agent": tool_name,
                             "content": f"🔍 {tool_name}...",
                       }
                   # Stream other tool content normally (actual results for user)
@@ -541,7 +525,6 @@ class AIPlatformEngineerA2ABinding:
                       yield {
                           "is_task_complete": False,
                           "require_user_input": False,
-                          "source_agent": tool_name,
                           "content": tool_content + "\n",
                       }
 
@@ -550,7 +533,6 @@ class AIPlatformEngineerA2ABinding:
                   yield {
                       "is_task_complete": False,
                       "require_user_input": False,
-                      "source_agent": tool_name,
                       "content": f"✅ Supervisor: Agent task {tool_name_formatted} completed\n",
                       "tool_result": {
                           "name": tool_name,
