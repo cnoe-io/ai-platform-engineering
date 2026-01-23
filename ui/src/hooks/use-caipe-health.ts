@@ -28,60 +28,44 @@ export function useCAIPEHealth(): UseCAIPEHealthResult {
 
   const checkHealth = useCallback(async () => {
     setStatus("checking");
-    
+
     try {
-      // Try to reach the CAIPE supervisor
-      // We just need to check if it responds, even 401/403 means it's reachable
+      // Use the A2A agent card endpoint which supports GET
+      // Base URL is like http://localhost:8000, agent card is at /.well-known/agent.json
+      const baseUrl = url.replace(/\/$/, ''); // Remove trailing slash
+      const agentCardUrl = `${baseUrl}/.well-known/agent.json`;
+
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 5000);
 
-      await fetch(url, {
-        method: "OPTIONS",
+      const response = await fetch(agentCardUrl, {
+        method: "GET",
         signal: controller.signal,
-        mode: "no-cors", // Allow checking even with CORS restrictions
+        headers: {
+          "Accept": "application/json",
+        },
       });
 
       clearTimeout(timeoutId);
-      
-      // If we got here without error, the server is reachable
+
+      // Any HTTP response (even 4xx/5xx) means server is reachable
       setStatus("connected");
       setLastChecked(new Date());
       nextCheckTimeRef.current = Date.now() + POLL_INTERVAL_MS;
     } catch (error) {
-      // Try a regular fetch as fallback (might work if CORS is configured)
-      try {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 5000);
-
-        await fetch(url, {
-          method: "GET",
-          signal: controller.signal,
-          headers: {
-            "Accept": "application/json",
-          },
-        });
-
-        clearTimeout(timeoutId);
-
-        // Any response (including 401, 403, 404) means server is reachable
-        setStatus("connected");
-        setLastChecked(new Date());
-        nextCheckTimeRef.current = Date.now() + POLL_INTERVAL_MS;
-      } catch (fallbackError) {
-        // Check if it's a network error or timeout
-        if (fallbackError instanceof Error) {
-          if (fallbackError.name === "AbortError") {
-            setStatus("disconnected");
-          } else {
-            // Could be CORS error which actually means server is reachable
-            setStatus("connected");
-          }
-        } else {
-          setStatus("disconnected");
-        }
-        setLastChecked(new Date());
-        nextCheckTimeRef.current = Date.now() + POLL_INTERVAL_MS;
+      // Network error or timeout
+      if (error instanceof Error && error.name === "AbortError") {
+        // Timeout
+        setStatus("disconnected");
+      } else if (error instanceof TypeError) {
+        // Network error (server not reachable) or CORS
+        setStatus("disconnected");
+      } else {
+        // Other errors - assume disconnected
+        setStatus("disconnected");
       }
+      setLastChecked(new Date());
+      nextCheckTimeRef.current = Date.now() + POLL_INTERVAL_MS;
     }
   }, [url]);
 
