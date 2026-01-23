@@ -9,6 +9,7 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "@a2a-js/sdk": "^0.3.9",
     "@copilotkit/react-core": "^1.4.0",
     "@copilotkit/react-ui": "^1.4.0",
     "@radix-ui/react-dialog": "^1.1.4",
@@ -44,6 +45,7 @@
     "sigma": "^3.0.2",
     "tailwind-merge": "^2.6.0",
     "tailwindcss-animate": "^1.0.7",
+    "uuid": "^13.0.0",
     "zustand": "^5.0.3"
   },
   "devDependencies": {
@@ -53,6 +55,7 @@
     "@types/react": "^19.0.2",
     "@types/react-dom": "^19.0.2",
     "@types/react-syntax-highlighter": "^15.5.13",
+    "@types/uuid": "^10.0.0",
     "autoprefixer": "^10.4.20",
     "eslint": "^9.17.0",
     "eslint-config-next": "^16.1.1",
