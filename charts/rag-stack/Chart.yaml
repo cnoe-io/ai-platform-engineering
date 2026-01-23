@@ -34,3 +34,7 @@ dependencies:
     version: "5.0.2"
     repository: "https://zilliztech.github.io/milvus-helm/"
     condition: milvus.enabled
+  - name: oauth2-proxy
+    version: "~7.7.28"
+    repository: "https://oauth2-proxy.github.io/manifests"
+    condition: oauth2-proxy.enabled
