@@ -1,9 +1,13 @@
 "use client";
 
-import React, { useState, useRef, useEffect, useCallback, useMemo } from "react";
+import React, { useState, useRef, useEffect, useCallback, useMemo, memo } from "react";
 import { useSession } from "next-auth/react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Send, Square, User, Bot, Sparkles, Copy, Check, Loader2, ChevronDown, ChevronUp, ArrowDown } from "lucide-react";
+
+// Debug logging - disabled in production for performance
+const DEBUG = process.env.NODE_ENV === "development";
+const debugLog = DEBUG ? console.log.bind(console) : () => {};
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
@@ -172,22 +176,18 @@ export function ChatPanel({ endpoint }: ChatPanelProps) {
         const newContent = event.displayContent;
         const artifactName = event.artifact?.name || "";
 
-        // Debug: Log ALL events
-        console.log(`[A2A] Event received:`, {
+        // Debug: Log ALL events (disabled in production for performance)
+        debugLog(`[A2A] Event received:`, {
           type: event.type,
           artifact: artifactName,
           contentLength: newContent?.length || 0,
-          content: newContent ? newContent.substring(0, 100) : "(none)",
           lastChunk: event.isLastChunk,
           isFinal: event.isFinal,
-          shouldAppend: event.shouldAppend,
-          raw: event.raw?.result?.kind,
-          hasReceivedCompleteResult,
         });
 
         // Handle status events first (they signal stream end)
         if (event.type === "status" && event.isFinal) {
-          console.log(`[A2A] ✅ Final status received - marking message complete. convId=${convId}, msgId=${assistantMsgId}`);
+          debugLog(`[A2A] ✅ Final status received`);
           updateMessage(convId!, assistantMsgId, { isFinal: true });
           // Also ensure streaming state is cleared
           setConversationStreaming(convId!, null);
@@ -215,7 +215,6 @@ export function ChatPanel({ endpoint }: ChatPanelProps) {
         // GUARD: If we've already received a complete result, ignore subsequent content events
         // This prevents late-arriving streaming chunks from overwriting the final result
         if (hasReceivedCompleteResult) {
-          console.log(`[A2A] ⚠️ IGNORING late event after complete_result: ${artifactName}`);
           return;
         }
 
@@ -232,42 +231,35 @@ export function ChatPanel({ endpoint }: ChatPanelProps) {
         // Handle content based on event type
         if (event.type === "message") {
           // Message events from agents contain actual content - append it
-          console.log(`[A2A] 📨 MESSAGE event: +${newContent.length} chars, text: "${newContent.substring(0, 50)}..."`);
           appendToMessage(convId!, assistantMsgId, newContent);
         } else if (event.type === "artifact") {
           if (isCompleteResult) {
             // Complete results always REPLACE (this is the final accumulated text)
             // Also clear streaming state so markdown renders immediately
-            console.log(`[A2A] ✅ FINAL RESULT with ${artifactName}: ${newContent.length} chars`);
-            console.log(`[A2A] 🛑 Clearing streaming state for conversation: ${convId}`);
+            debugLog(`[A2A] ✅ FINAL RESULT: ${newContent.length} chars`);
             // CRITICAL: Set flag BEFORE updating to prevent race conditions
             hasReceivedCompleteResult = true;
             updateMessage(convId!, assistantMsgId, { content: newContent, isFinal: true });
             // Clear streaming state immediately so UI shows markdown AND tasks complete
             setConversationStreaming(convId!, null);
-            console.log(`[A2A] ✅ Streaming state cleared - tasks should now show as completed`);
           } else if (artifactName === "streaming_result" || artifactName === "complete_result") {
             // 🔧 DUAL-BUFFER: Always accumulate to persistent buffer (for complete history)
             // This ensures no content is lost when append=false arrives
             // Note: complete_result from sub-agents is internal and should be accumulated,
             // the supervisor will synthesize these and send partial_result/final_result
             persistentBuffer += newContent;
-            console.log(`[A2A] 📦 PERSISTENT BUFFER (${artifactName}): ${persistentBuffer.length} chars total`);
 
             // Update message with persistent buffer content (not just new chunk)
             // This matches agent-forge behavior and ensures complete content
-            console.log(`[A2A] STREAMING: +${newContent.length} chars, total: ${persistentBuffer.length} chars`);
             updateMessage(convId!, assistantMsgId, { content: persistentBuffer });
           } else {
             // For other artifacts, append by default
-            console.log(`[A2A] APPEND (${artifactName}): ${newContent.length} chars`);
             appendToMessage(convId!, assistantMsgId, newContent);
           }
         }
 
         // Mark message as final when stream ends (backup check)
         if (event.isLastChunk && !isCompleteResult) {
-          console.log(`[A2A] lastChunk received - marking message complete`);
           updateMessage(convId!, assistantMsgId, { isFinal: true });
         }
       },
@@ -277,13 +269,11 @@ export function ChatPanel({ endpoint }: ChatPanelProps) {
         setConversationStreaming(convId!, null);
       },
       onComplete: () => {
-        console.log(`[A2A] ✅ onComplete called - stream ended. convId=${convId}, msgId=${assistantMsgId}`);
-        console.log(`[A2A] 📦 Final persistent buffer: ${persistentBuffer.length} chars`);
+        debugLog(`[A2A] ✅ Stream complete, buffer: ${persistentBuffer.length} chars`);
 
         // 🔧 If we didn't receive a complete_result but have content in persistent buffer,
         // use the persistent buffer as the final content (matches agent-forge behavior)
         if (!hasReceivedCompleteResult && persistentBuffer.length > 0) {
-          console.log(`[A2A] 🔧 No complete_result received - using persistent buffer as final content`);
           updateMessage(convId!, assistantMsgId, { content: persistentBuffer, isFinal: true });
         } else {
           // Mark message as final if not already
@@ -390,7 +380,7 @@ export function ChatPanel({ endpoint }: ChatPanelProps) {
                   }}
                   onFeedbackSubmit={async (feedback) => {
                     // TODO: Send feedback to backend
-                    console.log("Feedback submitted:", { messageId: msg.id, feedback });
+                    debugLog("Feedback submitted:", { messageId: msg.id, feedback });
                     // Future: Send to /api/feedback endpoint
                   }}
                 />
@@ -507,7 +497,7 @@ interface StreamingViewProps {
   setShowRawStream: (show: boolean) => void;
 }
 
-function StreamingView({ message, showRawStream, setShowRawStream }: StreamingViewProps) {
+const StreamingView = memo(function StreamingView({ message, showRawStream, setShowRawStream }: StreamingViewProps) {
   // Feature flag for sub-agent cards (experimental)
   const enableSubAgentCards = config.enableSubAgentCards;
 
@@ -615,10 +605,10 @@ function StreamingView({ message, showRawStream, setShowRawStream }: StreamingVi
       )}
     </div>
   );
-}
+});
 
 // ─────────────────────────────────────────────────────────────────────────────
-// ChatMessage Component
+// ChatMessage Component (Memoized for performance)
 // ─────────────────────────────────────────────────────────────────────────────
 
 interface ChatMessageProps {
@@ -632,7 +622,7 @@ interface ChatMessageProps {
   onFeedbackSubmit?: (feedback: Feedback) => void;
 }
 
-function ChatMessage({
+const ChatMessage = memo(function ChatMessage({
   message,
   onCopy,
   isCopied,
@@ -973,4 +963,4 @@ function ChatMessage({
       </div>
     </motion.div>
   );
-}
+});

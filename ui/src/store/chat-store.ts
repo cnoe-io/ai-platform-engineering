@@ -4,6 +4,29 @@ import { Conversation, ChatMessage, A2AEvent, MessageFeedback } from "@/types/a2
 import { generateId } from "@/lib/utils";
 import { A2AClient } from "@/lib/a2a-client";
 
+// PERFORMANCE FIX: Clear corrupted localStorage before store initialization
+// This runs once on module load to prevent OOM crashes from legacy data
+const STORAGE_KEY = "caipe-chat-history";
+const MAX_STORAGE_SIZE = 5 * 1024 * 1024; // 5MB limit
+
+if (typeof window !== "undefined") {
+  try {
+    const stored = localStorage.getItem(STORAGE_KEY);
+    if (stored) {
+      const sizeBytes = new Blob([stored]).size;
+      if (sizeBytes > MAX_STORAGE_SIZE) {
+        console.warn(
+          `[ChatStore] Clearing oversized localStorage (${(sizeBytes / 1024 / 1024).toFixed(1)}MB > ${MAX_STORAGE_SIZE / 1024 / 1024}MB limit)`
+        );
+        localStorage.removeItem(STORAGE_KEY);
+      }
+    }
+  } catch {
+    // If we can't even read it, clear it
+    localStorage.removeItem(STORAGE_KEY);
+  }
+}
+
 // Track streaming state per conversation
 interface StreamingState {
   conversationId: string;
@@ -140,6 +163,15 @@ export const useChatStore = create<ChatState>()(
       },
 
       addEventToMessage: (conversationId, messageId, event) => {
+        // PERFORMANCE: Limit events per message to prevent OOM
+        const MAX_MESSAGE_EVENTS = 100;
+
+        // Strip heavy 'raw' property
+        const lightEvent = {
+          ...event,
+          raw: undefined,
+        };
+
         set((state) => ({
           conversations: state.conversations.map((conv) =>
             conv.id === conversationId
@@ -147,7 +179,10 @@ export const useChatStore = create<ChatState>()(
                   ...conv,
                   messages: conv.messages.map((msg) =>
                     msg.id === messageId
-                      ? { ...msg, events: [...msg.events, event] }
+                      ? {
+                          ...msg,
+                          events: [...msg.events, lightEvent].slice(-MAX_MESSAGE_EVENTS),
+                        }
                       : msg
                   ),
                 }
@@ -165,17 +200,13 @@ export const useChatStore = create<ChatState>()(
           const newMap = new Map(prev.streamingConversations);
           if (state) {
             newMap.set(conversationId, state);
-            console.log(`[Store] Started streaming for conversation: ${conversationId}`);
           } else {
             newMap.delete(conversationId);
-            console.log(`[Store] Stopped streaming for conversation: ${conversationId}, remaining: ${newMap.size}`);
           }
           // Update global isStreaming based on whether any conversation is streaming
-          const newIsStreaming = newMap.size > 0;
-          console.log(`[Store] Global isStreaming: ${newIsStreaming}`);
           return {
             streamingConversations: newMap,
-            isStreaming: newIsStreaming,
+            isStreaming: newMap.size > 0,
           };
         });
       },
@@ -209,9 +240,18 @@ export const useChatStore = create<ChatState>()(
 
       addA2AEvent: (event, conversationId) => {
         const convId = conversationId || get().activeConversationId;
+        // PERFORMANCE: Limit events to prevent OOM (keep last 200 per conversation)
+        const MAX_EVENTS = 200;
+
+        // Strip the heavy 'raw' property from events before storing
+        const lightEvent = {
+          ...event,
+          raw: undefined, // Don't store raw JSON-RPC responses
+        };
+
         set((prev) => {
-          // Add to global events for current session display
-          const newGlobalEvents = [...prev.a2aEvents, event];
+          // Add to global events for current session display (limited)
+          const newGlobalEvents = [...prev.a2aEvents, lightEvent].slice(-MAX_EVENTS);
 
           // Also add to the specific conversation's events if we have a convId
           if (convId) {
@@ -219,7 +259,10 @@ export const useChatStore = create<ChatState>()(
               a2aEvents: newGlobalEvents,
               conversations: prev.conversations.map((conv) =>
                 conv.id === convId
-                  ? { ...conv, a2aEvents: [...conv.a2aEvents, event] }
+                  ? {
+                      ...conv,
+                      a2aEvents: [...conv.a2aEvents, lightEvent].slice(-MAX_EVENTS),
+                    }
                   : conv
               ),
             };
@@ -309,14 +352,20 @@ export const useChatStore = create<ChatState>()(
       },
     }),
     {
-      name: "caipe-chat-history",
+      name: STORAGE_KEY,
       storage: createJSONStorage(() => localStorage),
-      // Persist conversations WITH a2aEvents for task/debug persistence
+      // PERFORMANCE FIX: Only persist essential data, NOT events
+      // Events can be 900+ per query with large payloads - causes OOM
       partialize: (state) => ({
         conversations: state.conversations.map((conv) => ({
           ...conv,
-          // Persist a2aEvents per conversation for task/debug panel
-          a2aEvents: conv.a2aEvents,
+          // DO NOT persist a2aEvents - they're huge and cause OOM
+          a2aEvents: [],
+          // Strip events from messages too - only content matters for history
+          messages: conv.messages.map((msg) => ({
+            ...msg,
+            events: [], // Don't persist per-message events
+          })),
         })),
         activeConversationId: state.activeConversationId,
       }),
@@ -324,23 +373,16 @@ export const useChatStore = create<ChatState>()(
       onRehydrateStorage: () => (state) => {
         if (state) {
           // Convert date strings back to Date objects
+          // Events are NOT persisted for performance, so initialize as empty
           state.conversations = state.conversations.map((conv) => ({
             ...conv,
             createdAt: new Date(conv.createdAt),
             updatedAt: new Date(conv.updatedAt),
-            // Restore a2aEvents with proper date objects
-            a2aEvents: (conv.a2aEvents || []).map((event) => ({
-              ...event,
-              timestamp: new Date(event.timestamp),
-            })),
+            a2aEvents: [], // Events not persisted
             messages: conv.messages.map((msg) => ({
               ...msg,
               timestamp: new Date(msg.timestamp),
-              // Restore event timestamps for message-level events
-              events: msg.events.map((event) => ({
-                ...event,
-                timestamp: new Date(event.timestamp),
-              })),
+              events: [], // Events not persisted
             })),
           }));
 

@@ -13,6 +13,7 @@ export interface A2AClientConfig {
 export class A2AClient {
   private endpoint: string;
   private accessToken?: string;
+  // Keep abortController for manual abort capability, but don't use it for timeouts
   private abortController: AbortController | null = null;
 
   constructor(private config: A2AClientConfig) {
@@ -31,6 +32,7 @@ export class A2AClient {
     message: string,
     contextId?: string
   ): Promise<ReadableStreamDefaultReader<A2AEvent>> {
+    // Create AbortController for manual abort only (not for timeouts)
     this.abortController = new AbortController();
 
     const request: A2ARequest = {
@@ -59,11 +61,14 @@ export class A2AClient {
       headers["Authorization"] = `Bearer ${this.accessToken}`;
     }
 
+    // NOTE: For SSE streaming, we intentionally do NOT pass AbortController signal
+    // to allow long-running streams to continue indefinitely (matching agent-forge behavior).
+    // The stream can still be manually aborted via the abort() method.
     const response = await fetch(this.endpoint, {
       method: "POST",
       headers,
       body: JSON.stringify(request),
-      signal: this.abortController.signal,
+      // signal: this.abortController.signal, // Removed for SSE - allows indefinite streaming
     });
 
     if (!response.ok) {
