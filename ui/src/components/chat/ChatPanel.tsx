@@ -187,16 +187,25 @@ export function ChatPanel({ endpoint }: ChatPanelProps) {
         try {
         eventCounter++;
         const eventNum = eventCounter;
-        
-        // 🔧 THROTTLE: Batch event storage instead of storing every single event
-        // Only store every Nth event to reduce state updates
-        if (eventNum % EVENT_BATCH_SIZE === 0 || event.artifact?.name === "final_result" || event.artifact?.name === "partial_result") {
-          addA2AEvent(event, convId!);
-          addEventToMessage(convId!, assistantMsgId, event);
-        }
 
         const newContent = event.displayContent;
         const artifactName = event.artifact?.name || "";
+        
+        // 🔧 THROTTLE: Batch event storage instead of storing every single event
+        // Only store every Nth event to reduce state updates
+        // BUT always store important events needed for Tasks panel and final results
+        const isImportantArtifact = 
+          artifactName === "final_result" ||
+          artifactName === "partial_result" ||
+          artifactName === "execution_plan_update" ||
+          artifactName === "execution_plan_status_update" ||
+          artifactName === "tool_notification_start" ||
+          artifactName === "tool_notification_end";
+        
+        if (eventNum % EVENT_BATCH_SIZE === 0 || isImportantArtifact || event.type === "tool_start" || event.type === "tool_end") {
+          addA2AEvent(event, convId!);
+          addEventToMessage(convId!, assistantMsgId, event);
+        }
 
         // 🔍 DEBUG: Condensed single-line logging (prevents console buffer overflow)
         // Only log every 50th event for streaming_result, always log important events
