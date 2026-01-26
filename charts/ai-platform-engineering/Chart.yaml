@@ -144,6 +144,9 @@ dependencies:
         parent: global.enabledSubAgents.rag
   # Agentgateway - AI gateway for agent routing
   # https://kgateway.dev/docs/agentgateway/main/install/helm/
+  # Prerequisites (must be installed cluster-wide before enabling):
+  #   1. Gateway API CRDs v1.4.0+: kubectl apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.4.0/standard-install.yaml
+  #   2. Istio CRDs v1.18+ (requires networking.istio.io/v1 API): helm template istio-base istio/base --version 1.24.0 | kubectl apply -f -
   - name: agentgateway-crds
     version: v2.2.0-beta.6
     repository: oci://ghcr.io/kgateway-dev/charts
