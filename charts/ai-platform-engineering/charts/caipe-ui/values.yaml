@@ -134,10 +134,49 @@ tolerations: []
 
 affinity: {}
 
-# Environment variables
+# Environment variables (non-sensitive configuration)
 env:
   # CAIPE Supervisor URL - should point to the supervisor-agent service
   NEXT_PUBLIC_A2A_BASE_URL: "http://ai-platform-engineering-supervisor-agent:8000"
-  # Optional: Authentication configuration
-  # NEXTAUTH_URL: "https://caipe-ui.example.com"
-  # NEXTAUTH_SECRET: ""  # Set via secret
+
+# ConfigMap for non-sensitive configuration
+# These values are mounted as environment variables to the pod
+config:
+  # Feature flags
+  NEXT_PUBLIC_ENABLE_SUBAGENT_CARDS: "true"
+  NEXT_PUBLIC_SSO_ENABLED: "true"
+  # NextAuth URL (non-sensitive)
+  NEXTAUTH_URL: "http://localhost:3000"
+  # Node environment
+  NODE_ENV: "production"
+
+# External Secrets configuration for sensitive data (OIDC credentials, NextAuth secret)
+# These secrets are fetched from your secret store (Vault, AWS Secrets Manager, etc.)
+# To enable: set externalSecrets.enabled=true and configure data section
+# See EXTERNAL_SECRETS.md for detailed instructions
+externalSecrets:
+  enabled: false  # Set to true to enable external secrets
+  apiVersion: "v1beta1"
+  secretStoreRef:
+    name: "vault"  # Your secret store name (replace with your SecretStore/ClusterSecretStore)
+    kind: "ClusterSecretStore"  # or "SecretStore" for namespace-scoped
+  data: []
+    # Example configuration (see values-external-secrets.yaml or EXTERNAL_SECRETS.md):
+    # - secretKey: NEXTAUTH_SECRET
+    #   remoteRef:
+    #     conversionStrategy: Default
+    #     decodingStrategy: None
+    #     key: dev/caipe-ui
+    #     property: NEXTAUTH_SECRET
+    # - secretKey: OIDC_ISSUER
+    #   remoteRef:
+    #     key: dev/caipe-ui
+    #     property: OIDC_ISSUER
+    # - secretKey: OIDC_CLIENT_ID
+    #   remoteRef:
+    #     key: dev/caipe-ui
+    #     property: OIDC_CLIENT_ID
+    # - secretKey: OIDC_CLIENT_SECRET
+    #   remoteRef:
+    #     key: dev/caipe-ui
+    #     property: OIDC_CLIENT_SECRET
