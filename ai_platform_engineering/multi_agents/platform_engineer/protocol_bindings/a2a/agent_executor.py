@@ -53,8 +53,9 @@ class StreamState:
     seen_artifact_ids: set = field(default_factory=set)
     first_artifact_sent: bool = False
 
-    # Completion flags
-    sub_agent_complete: bool = False
+    # Completion tracking
+    # Track count of completed sub-agents for multi-agent scenarios
+    sub_agents_completed: int = 0
     task_complete: bool = False
     user_input_required: bool = False
 
@@ -163,24 +164,42 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
 
     def _get_final_content(self, state: StreamState) -> tuple:
         """
-        Get final content with priority order:
-        1. Sub-agent DataPart (structured data)
-        2. Sub-agent text content
-        3. Supervisor accumulated content
+        Get final content with priority order for multi-agent scenarios:
+        1. Sub-agent DataPart (structured data - e.g., Jarvis forms)
+        2. Supervisor content (synthesis from multiple agents)
+        3. Sub-agent text content (single agent fallback)
 
         Returns: (content, is_datapart)
 
-        Note: Extracts content after [FINAL ANSWER] marker to filter out
+        Note: For multi-agent scenarios (sub_agents_completed > 1), supervisor
+        content is preferred as it contains the synthesis. For single-agent
+        scenarios, sub-agent content is preferred as it IS the final answer.
+
+        Extracts content after [FINAL ANSWER] marker to filter out
         intermediate thinking/planning messages.
         """
         if state.sub_agent_datapart:
             return state.sub_agent_datapart, True
+
+        # Multi-agent scenario: prefer supervisor synthesis
+        # The supervisor summarizes results from all sub-agents
+        if state.sub_agents_completed > 1 and state.supervisor_content:
+            raw_content = ''.join(state.supervisor_content)
+            logger.debug(f"Multi-agent scenario ({state.sub_agents_completed} agents): using supervisor synthesis ({len(raw_content)} chars)")
+            return self._extract_final_answer(raw_content), False
+
+        # Single agent or no supervisor content: use sub-agent content
         if state.sub_agent_content:
             raw_content = ''.join(state.sub_agent_content)
+            logger.debug(f"Using sub-agent content ({len(raw_content)} chars)")
             return self._extract_final_answer(raw_content), False
+
+        # Fallback to supervisor content even for single agent
         if state.supervisor_content:
             raw_content = ''.join(state.supervisor_content)
+            logger.debug(f"Fallback to supervisor content ({len(raw_content)} chars)")
             return self._extract_final_answer(raw_content), False
+
         return '', False
 
     def _is_tool_notification(self, content: str, event: dict) -> bool:
@@ -290,7 +309,8 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
 
         # Accumulate final results (complete_result, final_result, partial_result)
         if artifact_name in ('complete_result', 'final_result', 'partial_result'):
-            state.sub_agent_complete = True
+            state.sub_agents_completed += 1
+            logger.debug(f"Sub-agent completed with {artifact_name} (total completed: {state.sub_agents_completed})")
 
             for part in parts:
                 if isinstance(part, dict):
@@ -386,6 +406,12 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
         if not content:
             return
 
+        # NOTE: We no longer block streaming after sub-agent completion.
+        # For multi-agent scenarios, the supervisor needs to synthesize results
+        # from all sub-agents, so we must continue accumulating content.
+        # The _get_final_content() method handles choosing the right content
+        # based on whether it's a single-agent or multi-agent scenario.
+
         is_tool_notification = self._is_tool_notification(content, event)
 
         # Accumulate non-notification content (unless DataPart already received)
@@ -424,23 +450,36 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
     async def _handle_stream_end(self, state: StreamState, task: A2ATask,
                                 event_queue: EventQueue):
         """Handle end of stream without explicit completion."""
+        # For multi-agent scenarios, we need to send the supervisor's synthesis
+        # For single-agent scenarios where sub-agent already sent complete_result,
+        # we just need to send the completion status (content already forwarded)
+
         final_content, is_datapart = self._get_final_content(state)
 
-        if not final_content and not is_datapart:
-            return  # Nothing to send
+        # If we have accumulated content (supervisor synthesis or sub-agent content), send it
+        if final_content or is_datapart:
+            # Determine artifact name based on scenario
+            if state.sub_agents_completed > 1:
+                artifact_name = 'final_result'
+                description = 'Synthesized result from multiple agents'
+                logger.info(f"Sending multi-agent synthesis ({state.sub_agents_completed} agents)")
+            elif state.sub_agents_completed == 1:
+                # Single sub-agent already sent its result, but we may have additional content
+                artifact_name = 'final_result'
+                description = 'Final result'
+            else:
+                artifact_name = 'partial_result'
+                description = 'Partial result (stream ended)'
 
-        # Determine artifact name based on whether sub-agent completed
-        artifact_name = 'complete_result' if state.sub_agent_complete else 'partial_result'
-        description = 'Complete result' if state.sub_agent_complete else 'Partial result (stream ended)'
+            if is_datapart:
+                artifact = new_data_artifact(name=artifact_name, description=description, data=final_content)
+            else:
+                artifact = new_text_artifact(name=artifact_name, description=description, text=final_content)
 
-        if is_datapart:
-            artifact = new_data_artifact(name=artifact_name, description=description, data=final_content)
-        else:
-            artifact = new_text_artifact(name=artifact_name, description=description, text=final_content)
+            await self._send_artifact(event_queue, task, artifact, append=False, last_chunk=True)
 
-        await self._send_artifact(event_queue, task, artifact, append=False, last_chunk=True)
         await self._send_completion(event_queue, task)
-        logger.info(f"Task {task.id} completed (stream end).")
+        logger.info(f"Task {task.id} completed (stream end, {state.sub_agents_completed} sub-agents).")
 
     # ─────────────────────────────────────────────────────────────────────────
     # Main Execute Method
