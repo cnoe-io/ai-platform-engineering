@@ -94,7 +94,7 @@ export function AgentStreamBox({
 
   // Auto-scroll handler
   useEffect(() => {
-    const viewport = scrollAreaRef.current?.querySelector('[data-radix-scroll-area-viewport]') as HTMLElement;
+    const viewport = scrollAreaRef.current?.querySelector('[data-radix-scroll-area-viewport]') as HTMLDivElement;
     if (!viewport) return;
 
     viewportRef.current = viewport;
@@ -115,7 +115,7 @@ export function AgentStreamBox({
   useEffect(() => {
     if (isUserScrolled || !isExpanded) return;
 
-    const viewport = viewportRef.current || scrollAreaRef.current?.querySelector('[data-radix-scroll-area-viewport]') as HTMLElement;
+    const viewport = viewportRef.current || scrollAreaRef.current?.querySelector('[data-radix-scroll-area-viewport]') as HTMLDivElement;
     if (!viewport) return;
 
     isAutoScrollingRef.current = true;

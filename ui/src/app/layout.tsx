@@ -9,6 +9,7 @@ const inter = Inter({
   variable: "--font-inter",
   subsets: ["latin"],
   display: "swap",
+  fallback: ["system-ui", "arial"],
 });
 
 // Alternative: Source Sans 3 - Adobe's open source, excellent readability
@@ -16,6 +17,7 @@ const sourceSans = Source_Sans_3({
   variable: "--font-source-sans",
   subsets: ["latin"],
   display: "swap",
+  fallback: ["system-ui", "arial"],
 });
 
 // Alternative: IBM Plex Sans - Professional, used by IBM/Carbon
@@ -24,6 +26,7 @@ const ibmPlex = IBM_Plex_Sans({
   subsets: ["latin"],
   weight: ["300", "400", "500", "600", "700"],
   display: "swap",
+  fallback: ["system-ui", "arial"],
 });
 
 // Monospace: JetBrains Mono - Best for code, like VSCode
@@ -31,6 +34,7 @@ const jetbrainsMono = JetBrains_Mono({
   variable: "--font-mono",
   subsets: ["latin"],
   display: "swap",
+  fallback: ["monospace", "Courier New"],
 });
 
 export const metadata: Metadata = {
