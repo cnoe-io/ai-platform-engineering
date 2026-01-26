@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useCallback, useEffect, useMemo } from 'react';
+import { useTheme } from "next-themes";
 import { SigmaContainer, ControlsContainer, ZoomControl, FullScreenControl } from "@react-sigma/core";
 import { MultiDirectedGraph } from "graphology";
 import forceAtlas2 from "graphology-layout-forceatlas2";
@@ -23,6 +24,10 @@ const truncateLabel = (label: string, maxLength: number = 30): string => {
 };
 
 export default function OntologyGraphSigma({}: OntologyGraphProps) {
+    // Theme detection for label colors
+    const { resolvedTheme } = useTheme();
+    const isDarkMode = resolvedTheme === "dark" || resolvedTheme?.includes("night") || resolvedTheme === "midnight" || resolvedTheme === "nord";
+
     // Graph instance - use MultiDirectedGraph to allow multiple edges between same nodes
     const graph = useMemo(() => new MultiDirectedGraph(), []);
 
@@ -211,17 +216,27 @@ export default function OntologyGraphSigma({}: OntologyGraphProps) {
 
                 console.log(`Loaded ${entities.length} entities, ${relations.length} relations`);
 
+                // Clear any existing graph data before rebuilding
+                // This prevents duplicate node errors when useEffect runs multiple times
+                graph.clear();
+
                 // Build the graph
                 const entityTypes = new Set<string>();
                 const nodeDegrees = new Map<string, number>();
 
-                // Add nodes
+                // Add nodes (skip duplicates to prevent graph errors)
                 entities.forEach((entity: any) => {
                     const pk = entity.all_properties?._entity_pk || entity._entity_pk;
                     const entityType = entity.entity_type || entity.all_properties?._entity_type;
 
                     if (pk && entityType) {
                         const nodeId = generateNodeId(entityType, pk);
+
+                        // Skip if node already exists (handles duplicate entities in data)
+                        if (graph.hasNode(nodeId)) {
+                            return;
+                        }
+
                         const color = getColorForNode(entityType);
                         entityTypes.add(entityType);
 
@@ -307,6 +322,11 @@ export default function OntologyGraphSigma({}: OntologyGraphProps) {
                         ? primaryRelation.relation_name
                         : `... ×${groupRelations.length}`;
 
+                    // Skip if edge already exists (handles duplicates)
+                    if (graph.hasEdge(edgeKey)) {
+                        return;
+                    }
+
                     try {
                         graph.addEdgeWithKey(edgeKey, sourceNodeId, targetNodeId, {
                             label: truncateLabel(label, 40),
@@ -322,7 +342,10 @@ export default function OntologyGraphSigma({}: OntologyGraphProps) {
                         nodeDegrees.set(sourceNodeId, (nodeDegrees.get(sourceNodeId) || 0) + 1);
                         nodeDegrees.set(targetNodeId, (nodeDegrees.get(targetNodeId) || 0) + 1);
                     } catch (error) {
-                        console.error('Failed to add edge:', error);
+                        // Silently ignore duplicate edge errors, log others
+                        if (!(error instanceof Error && error.message.includes('already exists'))) {
+                            console.error('Failed to add edge:', error);
+                        }
                     }
                 });
 
@@ -461,13 +484,13 @@ export default function OntologyGraphSigma({}: OntologyGraphProps) {
                                 settings={{
                                     renderEdgeLabels: true,
                                     defaultEdgeType: "arrow",
-                                    labelRenderedSizeThreshold: 10,
-                                    labelDensity: 0.3,
-                                    labelGridCellSize: 150,
+                                    labelRenderedSizeThreshold: 1,  // Show labels on all nodes (was 10)
+                                    labelDensity: 1.0,  // Show all labels (was 0.3)
+                                    labelGridCellSize: 100,  // Smaller grid for better label placement
                                     labelFont: "Inter, system-ui, sans-serif",
                                     labelWeight: "600",
                                     labelSize: 12,
-                                    labelColor: { color: "#ffffff" },
+                                    labelColor: { color: isDarkMode ? "#ffffff" : "#1f2937" },  // White for dark mode, dark gray for light mode
                                     zIndex: true,
                                 }}
                             >

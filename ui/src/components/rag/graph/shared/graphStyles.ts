@@ -11,10 +11,26 @@ export const colorMap: { [key: string]: string } = {
     // Kubernetes colors
     'k8s': '#326ce5',
     'kubernetes': '#326ce5',
+    'pod': '#326ce5',
+    'deployment': '#326ce5',
+    'service': '#326ce5',
+    'namespace': '#326ce5',
+    'configmap': '#326ce5',
+    'secret': '#326ce5',
 
     // ArgoCD colors
     'argo': '#ef7b4d',
     'argocd': '#ef7b4d',
+
+    // Backstage colors
+    'backstage': '#36baa2',
+    'component': '#36baa2',
+    'system': '#36baa2',
+    'api': '#36baa2',
+    'resource': '#36baa2',
+    'domain': '#36baa2',
+    'group': '#36baa2',
+    'location': '#36baa2',
 
     // Jira colors
     'jira': '#0052cc',
@@ -28,10 +44,26 @@ export const colorMap: { [key: string]: string } = {
     // Database
     'db': '#10b981',
     'database': '#10b981',
+    'postgres': '#10b981',
+    'mysql': '#10b981',
+    'redis': '#dc382d',
 
     // User/Identity
     'user': '#8b5cf6',
     'identity': '#8b5cf6',
+    'team': '#8b5cf6',
+    'member': '#8b5cf6',
+
+    // S3/Storage
+    's3': '#569a31',
+    'bucket': '#569a31',
+    'storage': '#569a31',
+
+    // Networking
+    'vpc': '#ff5733',
+    'subnet': '#ff5733',
+    'route': '#ff5733',
+    'security': '#ff5733',
 
     // Default color
     'default': '#6b7280'

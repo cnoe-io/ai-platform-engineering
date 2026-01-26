@@ -238,6 +238,10 @@ out/
 ui/.next/
 ui/out/
 
+# Use case data storage (file-based)
+ui/data/
+data/
+
 # TypeScript build cache
 *.tsbuildinfo
 

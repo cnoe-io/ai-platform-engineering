@@ -6,9 +6,6 @@ import {
   Github,
   BookOpen,
   Zap,
-  PanelRightClose,
-  PanelRightOpen,
-  Bug,
   Loader2,
   Database
 } from "lucide-react";
@@ -24,11 +21,6 @@ import { SettingsPanel } from "@/components/settings-panel";
 import { AuthGuard } from "@/components/auth-guard";
 import { useChatStore } from "@/store/chat-store";
 import { Button } from "@/components/ui/button";
-import {
-  ResizablePanelGroup,
-  ResizablePanel,
-  ResizableHandle,
-} from "@/components/ui/resizable";
 import { cn } from "@/lib/utils";
 import { config } from "@/lib/config";
 import { useCAIPEHealth } from "@/hooks/use-caipe-health";
@@ -44,7 +36,9 @@ function HomePage() {
   const [activeTab, setActiveTab] = useState<"chat" | "gallery" | "knowledge">("gallery");
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [contextPanelVisible, setContextPanelVisible] = useState(true);
+  const [contextPanelCollapsed, setContextPanelCollapsed] = useState(false);
   const [debugMode, setDebugMode] = useState(false);
+  const [useCasesRefreshTrigger, setUseCasesRefreshTrigger] = useState(0);
   const { createConversation, setActiveConversation, setPendingMessage, isStreaming } = useChatStore();
 
   // Use centralized configuration for CAIPE URL
@@ -168,43 +162,6 @@ function HomePage() {
             </TooltipProvider>
           </div>
 
-          {/* Context Panel Toggle */}
-          {activeTab === "chat" && (
-            <div className="flex items-center gap-1">
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => setContextPanelVisible(!contextPanelVisible)}
-                className={cn(
-                  "gap-1.5 text-xs",
-                  contextPanelVisible && "bg-primary/10 text-primary"
-                )}
-              >
-                {contextPanelVisible ? (
-                  <PanelRightClose className="h-3.5 w-3.5" />
-                ) : (
-                  <PanelRightOpen className="h-3.5 w-3.5" />
-                )}
-                Output
-              </Button>
-
-              {/* Debug Toggle */}
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => setDebugMode(!debugMode)}
-                className={cn(
-                  "gap-1.5 text-xs",
-                  debugMode && "bg-amber-500/15 text-amber-400"
-                )}
-                title="Toggle Debug A2A Stream view"
-              >
-                <Bug className="h-3.5 w-3.5" />
-                Debug
-              </Button>
-            </div>
-          )}
-
           {/* Settings, Theme, Links & User */}
           <div className="flex items-center gap-1 border-l border-border pl-3">
             <SettingsPanel />
@@ -238,34 +195,17 @@ function HomePage() {
       {/* Main Content */}
       <div className="flex-1 flex overflow-hidden">
         {activeTab === "chat" ? (
-          /* Chat Mode - Resizable Panels */
-          <ResizablePanelGroup direction="horizontal" className="flex-1">
-            {/* Sidebar Panel */}
-            <ResizablePanel
-              defaultSize={sidebarCollapsed ? "64px" : "280px"}
-              minSize="64px"
-              maxSize="400px"
-              collapsible
-              collapsedSize="64px"
-              onResize={(size) => {
-                const isCollapsed = size.asPercentage <= 5;
-                if (isCollapsed !== sidebarCollapsed) {
-                  setSidebarCollapsed(isCollapsed);
-                }
-              }}
-            >
-              <Sidebar
-                activeTab={activeTab}
-                onTabChange={setActiveTab}
-                collapsed={sidebarCollapsed}
-                onCollapse={setSidebarCollapsed}
-              />
-            </ResizablePanel>
-
-            <ResizableHandle withHandle />
+          <>
+            {/* Sidebar - Fixed width, no resizable */}
+            <Sidebar
+              activeTab={activeTab}
+              onTabChange={setActiveTab}
+              collapsed={sidebarCollapsed}
+              onCollapse={setSidebarCollapsed}
+            />
 
             {/* Chat Panel */}
-            <ResizablePanel minSize="300px">
+            <div className="flex-1 min-w-0">
               <motion.div
                 key="chat"
                 initial={{ opacity: 0 }}
@@ -274,21 +214,18 @@ function HomePage() {
               >
                 <ChatPanel endpoint={caipeUrl} />
               </motion.div>
-            </ResizablePanel>
+            </div>
 
-            {/* Context/Output Panel */}
+            {/* Context/Output Panel - Fixed width, collapsible */}
             {contextPanelVisible && (
-              <>
-                <ResizableHandle withHandle />
-                <ResizablePanel defaultSize="380px" minSize="200px" maxSize="600px">
-                  <ContextPanel
-                    debugMode={debugMode}
-                    onDebugModeChange={setDebugMode}
-                  />
-                </ResizablePanel>
-              </>
+              <ContextPanel
+                debugMode={debugMode}
+                onDebugModeChange={setDebugMode}
+                collapsed={contextPanelCollapsed}
+                onCollapse={setContextPanelCollapsed}
+              />
             )}
-          </ResizablePanelGroup>
+          </>
         ) : activeTab === "knowledge" ? (
           /* Knowledge Mode - RAG Interface */
           <motion.div
@@ -307,6 +244,7 @@ function HomePage() {
               onTabChange={setActiveTab}
               collapsed={sidebarCollapsed}
               onCollapse={setSidebarCollapsed}
+              onUseCaseSaved={() => setUseCasesRefreshTrigger(prev => prev + 1)}
             />
             <motion.div
               key="gallery"
@@ -314,7 +252,10 @@ function HomePage() {
               animate={{ opacity: 1 }}
               className="flex-1 overflow-hidden"
             >
-              <UseCasesGallery onSelectUseCase={handleSelectUseCase} />
+              <UseCasesGallery 
+                onSelectUseCase={handleSelectUseCase}
+                refreshTrigger={useCasesRefreshTrigger}
+              />
             </motion.div>
           </>
         )}

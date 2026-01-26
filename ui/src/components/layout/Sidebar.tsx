@@ -1,6 +1,6 @@
 "use client";
 
-import React from "react";
+import React, { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   MessageSquare,
@@ -16,15 +16,17 @@ import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useChatStore } from "@/store/chat-store";
 import { cn, formatDate, truncateText } from "@/lib/utils";
+import { UseCaseBuilderDialog } from "@/components/gallery/UseCaseBuilder";
 
 interface SidebarProps {
   activeTab: "chat" | "gallery" | "knowledge";
   onTabChange: (tab: "chat" | "gallery" | "knowledge") => void;
   collapsed: boolean;
   onCollapse: (collapsed: boolean) => void;
+  onUseCaseSaved?: () => void;
 }
 
-export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse }: SidebarProps) {
+export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCaseSaved }: SidebarProps) {
   const {
     conversations,
     activeConversationId,
@@ -32,6 +34,7 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse }: Sideb
     createConversation,
     deleteConversation
   } = useChatStore();
+  const [useCaseBuilderOpen, setUseCaseBuilderOpen] = useState(false);
 
   const handleNewChat = () => {
     const id = createConversation();
@@ -81,15 +84,15 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse }: Sideb
 
       {/* Chat History */}
       {activeTab === "chat" && (
-        <div className="flex-1 overflow-hidden flex flex-col">
+        <div className="flex-1 overflow-hidden flex flex-col min-w-0">
           {!collapsed && (
-            <div className="px-3 py-2 flex items-center gap-2 text-xs text-muted-foreground uppercase tracking-wider">
+            <div className="px-3 py-2 flex items-center gap-2 text-xs text-muted-foreground uppercase tracking-wider shrink-0">
               <History className="h-3 w-3" />
               <span>History</span>
             </div>
           )}
 
-          <ScrollArea className="flex-1">
+          <ScrollArea className="flex-1 min-w-0">
             <div className="px-2 space-y-1 pb-4">
               <AnimatePresence mode="popLayout">
                 {conversations.map((conv, index) => (
@@ -167,56 +170,109 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse }: Sideb
         </div>
       )}
 
-      {/* Gallery mode - prominent info */}
-      {activeTab === "gallery" && !collapsed && (
-        <div className="flex-1 flex flex-col p-4">
-          {/* Prominent Use Cases info */}
-          <div className="relative overflow-hidden rounded-xl bg-gradient-to-br from-[hsl(173,80%,40%)]/20 via-[hsl(270,75%,60%)]/15 to-transparent border border-primary/20 p-4 mb-4">
-            <div className="relative">
-              <div className="w-10 h-10 mb-3 rounded-xl bg-gradient-to-br from-[hsl(173,80%,40%)] to-[hsl(270,75%,60%)] flex items-center justify-center shadow-lg shadow-primary/30">
-                <Sparkles className="h-5 w-5 text-white" />
-              </div>
-              <p className="text-sm font-semibold gradient-text">Explore Use Cases</p>
-              <p className="text-xs text-muted-foreground mt-1.5 leading-relaxed">
-                Pre-built platform engineering scenarios. Click any card to start a chat.
-              </p>
-            </div>
-          </div>
+      {/* Gallery mode - Use Cases info */}
+      {activeTab === "gallery" && (
+        <>
+          {collapsed ? (
+            /* Collapsed state - Show icon buttons */
+            <div className="flex-1 flex flex-col items-center gap-2 px-2 py-4">
+              {/* Use Case Builder Button */}
+              <Button
+                onClick={() => setUseCaseBuilderOpen(true)}
+                variant="ghost"
+                size="icon"
+                className="h-10 w-10 hover:bg-primary/10 hover:text-primary"
+                title="Create Use Case"
+              >
+                <Sparkles className="h-5 w-5" />
+              </Button>
 
-          {/* Quick Start Button */}
-          <Button
-            onClick={handleNewChat}
-            variant="outline"
-            className="w-full gap-2 border-dashed border-primary/30 hover:border-primary hover:bg-primary/5"
-          >
-            <Plus className="h-4 w-4" />
-            <span>Custom Query</span>
-          </Button>
+              {/* Custom Query Button */}
+              <Button
+                onClick={handleNewChat}
+                variant="ghost"
+                size="icon"
+                className="h-10 w-10 hover:bg-primary/10 hover:text-primary"
+                title="Custom Query"
+              >
+                <MessageSquare className="h-5 w-5" />
+              </Button>
+            </div>
+          ) : (
+            /* Expanded state - Full content */
+            <div className="flex-1 flex flex-col p-4">
+              {/* Prominent Use Cases info */}
+              <div className="relative overflow-hidden rounded-xl bg-gradient-to-br from-[hsl(173,80%,40%)]/20 via-[hsl(270,75%,60%)]/15 to-transparent border border-primary/20 p-4 mb-4">
+                <div className="relative">
+                  <div className="w-10 h-10 mb-3 rounded-xl bg-gradient-to-br from-[hsl(173,80%,40%)] to-[hsl(270,75%,60%)] flex items-center justify-center shadow-lg shadow-primary/30">
+                    <Sparkles className="h-5 w-5 text-white" />
+                  </div>
+                  <p className="text-sm font-semibold gradient-text">Explore Use Cases</p>
+                  <p className="text-xs text-muted-foreground mt-1.5 leading-relaxed">
+                    Pre-built platform engineering scenarios. Click any card to start a chat.
+                  </p>
+                </div>
+              </div>
 
-          {/* Categories Legend */}
-          <div className="mt-6">
-            <p className="text-xs text-muted-foreground uppercase tracking-wider mb-3">Categories</p>
-            <div className="space-y-2 text-xs">
-              <div className="flex items-center gap-2">
-                <div className="w-2 h-2 rounded-full bg-blue-500" />
-                <span className="text-muted-foreground">DevOps & Operations</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <div className="w-2 h-2 rounded-full bg-purple-500" />
-                <span className="text-muted-foreground">Development</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <div className="w-2 h-2 rounded-full bg-green-500" />
-                <span className="text-muted-foreground">Cloud & Security</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <div className="w-2 h-2 rounded-full bg-orange-500" />
-                <span className="text-muted-foreground">Project Management</span>
+              {/* Use Case Builder Button */}
+              <Button
+                onClick={() => setUseCaseBuilderOpen(true)}
+                variant="outline"
+                className="w-full gap-2 border-dashed border-primary/30 hover:border-primary hover:bg-primary/5 mb-4"
+              >
+                <Sparkles className="h-4 w-4" />
+                <span>Create Use Case</span>
+              </Button>
+
+              {/* Quick Start Button */}
+              <Button
+                onClick={handleNewChat}
+                variant="outline"
+                className="w-full gap-2 border-dashed border-primary/30 hover:border-primary hover:bg-primary/5"
+              >
+                <Plus className="h-4 w-4" />
+                <span>Custom Query</span>
+              </Button>
+
+              {/* Categories Legend */}
+              <div className="mt-6">
+                <p className="text-xs text-muted-foreground uppercase tracking-wider mb-3">Categories</p>
+                <div className="space-y-2 text-xs">
+                  <div className="flex items-center gap-2">
+                    <div className="w-2 h-2 rounded-full bg-blue-500" />
+                    <span className="text-muted-foreground">DevOps & Operations</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div className="w-2 h-2 rounded-full bg-purple-500" />
+                    <span className="text-muted-foreground">Development</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div className="w-2 h-2 rounded-full bg-green-500" />
+                    <span className="text-muted-foreground">Cloud & Security</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div className="w-2 h-2 rounded-full bg-orange-500" />
+                    <span className="text-muted-foreground">Project Management</span>
+                  </div>
+                </div>
               </div>
             </div>
-          </div>
-        </div>
+          )}
+        </>
       )}
+
+      {/* Use Case Builder Dialog */}
+      <UseCaseBuilderDialog
+        open={useCaseBuilderOpen}
+        onOpenChange={setUseCaseBuilderOpen}
+        onSuccess={() => {
+          console.log("Use case saved successfully");
+          // Trigger refresh of use cases gallery
+          if (onUseCaseSaved) {
+            onUseCaseSaved();
+          }
+        }}
+      />
 
     </motion.div>
   );
