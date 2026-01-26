@@ -52,7 +52,7 @@ export function UseCaseBuilder({ onSuccess, existingUseCase }: UseCaseBuilderPro
     systemPrompt: existingUseCase?.prompt || "",
     category: existingUseCase?.category || "",
     tags: existingUseCase?.tags?.join(", ") || "",
-    difficulty: (existingUseCase?.difficulty || "beginner") as const,
+    difficulty: existingUseCase?.difficulty || "beginner",
   });
   const [selectedAgents, setSelectedAgents] = useState<string[]>(existingUseCase?.expectedAgents || []);
   const [errors, setErrors] = useState<Record<string, string>>({});
