@@ -13,8 +13,9 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
-lib64/
+# Python lib directories (but not ui/src/lib/)
+/lib/
+/lib64/
 parts/
 sdist/
 var/
@@ -230,6 +231,19 @@ ai_platform_engineering/knowledge_bases/rag/webui/node_modules
 node_modules/
 # package-lock.json
 # package.json
+
+# Next.js
+.next/
+out/
+ui/.next/
+ui/out/
+
+# Use case data storage (file-based)
+ui/data/
+data/
+
+# TypeScript build cache
+*.tsbuildinfo
 
 # Claude Code configuration
 .claude/

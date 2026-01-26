@@ -1099,9 +1099,14 @@ class AIPlatformEngineerA2ABinding:
 
       # If content doesn't look like JSON, treat it as a working text update
       if not (content.startswith('{') or content.startswith('[')):
-        logging.info("Content appears to be plain text; returning working structured response.")
+        # Check if content contains [FINAL ANSWER] marker indicating task completion
+        is_final = '[FINAL ANSWER]' in content or '[FINAL_ANSWER]' in content
+        if is_final:
+          logging.info("Content contains [FINAL ANSWER] marker; returning completed structured response.")
+        else:
+          logging.info("Content appears to be plain text; returning working structured response.")
         return {
-          'is_task_complete': False,
+          'is_task_complete': is_final,
           'require_user_input': False,
           'content': content,
         }
@@ -1121,8 +1126,10 @@ class AIPlatformEngineerA2ABinding:
     except json.JSONDecodeError as e:
       logging.warning(f"Failed to decode content as JSON, returning working structured response: {e}")
       logging.warning(f"Content that failed to parse: {repr(content)}")
+      # Check if content contains [FINAL ANSWER] marker indicating task completion
+      is_final = '[FINAL ANSWER]' in content or '[FINAL_ANSWER]' in content
       return {
-        'is_task_complete': False,
+        'is_task_complete': is_final,
         'require_user_input': False,
         'content': content,
       }
