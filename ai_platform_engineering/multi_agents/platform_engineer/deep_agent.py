@@ -61,14 +61,14 @@ def response_format_tool(**kwargs):
     return str(kwargs)
 
 # RAG Configuration
-ENABLE_RAG = os.getenv("ENABLE_RAG", "false").lower() in ("true", "1", "yes")
+ENABLE_RAG = os.getenv("ENABLE_RAG", "false").lower() == "true"
 RAG_SERVER_URL = os.getenv("RAG_SERVER_URL", "http://localhost:9446").strip("/")
 RAG_CONNECTIVITY_RETRIES = 5
 RAG_CONNECTIVITY_WAIT_SECONDS = 10
 
 # Structured Response Configuration
 # When enabled, LLM uses ResponseFormat tool for final answers instead of [FINAL ANSWER] marker
-USE_STRUCTURED_RESPONSE = os.getenv("USE_STRUCTURED_RESPONSE", "false").lower() in ("true", "1", "yes")
+USE_STRUCTURED_RESPONSE = os.getenv("USE_STRUCTURED_RESPONSE", "false").lower() == "true"
 
 class AIPlatformEngineerMAS:
   def __init__(self):
@@ -302,6 +302,8 @@ class AIPlatformEngineerMAS:
     if USE_STRUCTURED_RESPONSE:
       all_tools.append(response_format_tool)
       logger.info("✅ Structured response mode enabled - added ResponseFormat tool")
+    else:
+      logger.info("❌ Structured response mode disabled - ResponseFormat tool not added and using [FINAL ANSWER] marker in prompt config")
 
     # Add RAG tools if initially loaded
     if self.rag_tools:

@@ -1305,11 +1305,14 @@ class AIPlatformEngineerA2ABinding:
       # Sending it again in the final response would cause duplication.
       #
       # Solution: Clear 'content' from final_response when in streaming mode.
-      # EXCEPTION: If content came from ResponseFormat tool, it's the REAL structured content
-      # and should NOT be cleared (the accumulated chunks were just the LLM "thinking" text)
+      # EXCEPTION 1: If content came from ResponseFormat tool, it's the REAL structured content
+      # EXCEPTION 2: If is_task_complete=True (from [FINAL ANSWER] marker), the content is the final answer
+      # In both cases, should NOT be cleared (the accumulated chunks were just the LLM "thinking" text)
       if accumulated_ai_content and len(accumulated_ai_content) > 1:
           if final_response.get('from_response_format_tool'):
               logging.info(f"✅ Keeping content from ResponseFormat tool (not clearing despite {len(accumulated_ai_content)} streamed chunks)")
+          elif final_response.get('is_task_complete'):
+              logging.info(f"✅ Keeping content - task is complete with [FINAL ANSWER] (not clearing despite {len(accumulated_ai_content)} streamed chunks)")
           else:
               logging.info(f"⏭️ Clearing content from final response - already streamed {len(accumulated_ai_content)} chunks")
               final_response['content'] = ''
@@ -1392,7 +1395,19 @@ class AIPlatformEngineerA2ABinding:
       content = ai_message if isinstance(ai_message, str) else str(ai_message)
 
       # Log the raw content for debugging
-      logging.info(f"Raw LLM content (fallback handling): {repr(content)}")
+
+      # CRITICAL: Check for [FINAL ANSWER] marker (used when USE_STRUCTURED_RESPONSE=false)
+      # This marker indicates the task is complete and the content after it is the final answer
+    #   final_answer_marker = "[FINAL ANSWER]"
+    #   if final_answer_marker in content:
+    #       marker_pos = content.find(final_answer_marker)
+    #       final_content = content[marker_pos + len(final_answer_marker):].strip()
+    #       logging.info(f"✅ Found [FINAL ANSWER] marker at position {marker_pos}, extracted {len(final_content)} chars")
+    #       return {
+    #           'is_task_complete': True,
+    #           'require_user_input': False,
+    #           'content': final_content,
+    #       }
 
       # Strip markdown code block formatting if present
       if content.startswith('```json') and content.endswith('```'):
@@ -1402,7 +1417,6 @@ class AIPlatformEngineerA2ABinding:
         content = content[3:-3].strip()  # Remove ``` at start and end
         logging.info("Stripped ``` formatting")
 
-      logging.info(f"Content after stripping: {repr(content)}")
 
       # If content doesn't look like JSON, treat it as a working text update
       if not (content.startswith('{') or content.startswith('[')):
