@@ -59,11 +59,20 @@ spec:
             - name: http
               containerPort: {{ .Values.service.port }}
               protocol: TCP
-          {{- if .Values.env }}
+          {{- if or .Values.env .Values.config .Values.externalSecrets.enabled }}
           env:
             {{- range $key, $value := .Values.env }}
             - name: {{ $key }}
               value: {{ $value | quote }}
+            {{- end }}
+          envFrom:
+            # Mount ConfigMap as environment variables (non-sensitive config)
+            - configMapRef:
+                name: {{ include "caipe-ui.fullname" . }}-config
+            {{- if .Values.externalSecrets.enabled }}
+            # Mount ExternalSecret as environment variables (sensitive data)
+            - secretRef:
+                name: {{ include "caipe-ui.fullname" . }}-secret
             {{- end }}
           {{- end }}
           {{- with .Values.livenessProbe }}
