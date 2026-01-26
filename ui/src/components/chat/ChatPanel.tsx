@@ -639,9 +639,10 @@ interface StreamingViewProps {
   message: ChatMessageType;
   showRawStream: boolean;
   setShowRawStream: (show: boolean) => void;
+  isStreaming?: boolean;
 }
 
-function StreamingView({ message, showRawStream, setShowRawStream }: StreamingViewProps) {
+function StreamingView({ message, showRawStream, setShowRawStream, isStreaming = false }: StreamingViewProps) {
   // Feature flag for sub-agent cards (experimental)
   const enableSubAgentCards = config.enableSubAgentCards;
 
@@ -1010,6 +1011,7 @@ function ChatMessage({
             message={message}
             showRawStream={showRawStream}
             setShowRawStream={setShowRawStream}
+            isStreaming={isStreaming}
           />
         ) : (
           /* Final output - rendered as Markdown */
