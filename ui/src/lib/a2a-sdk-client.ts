@@ -1,9 +1,9 @@
 /**
  * A2A SDK Client Wrapper
- * 
+ *
  * This module provides a wrapper around the official @a2a-js/sdk for the CAIPE UI.
  * It uses the same streaming pattern as agent-forge for consistent behavior.
- * 
+ *
  * Key features:
  * - Uses official @a2a-js/sdk (v0.3.9+)
  * - AsyncGenerator pattern for streaming (same as agent-forge)
@@ -62,6 +62,8 @@ export interface ParsedA2AEvent {
   contextId?: string;
   /** Task ID if present */
   taskId?: string;
+  /** Source agent name if present (from artifact metadata) */
+  sourceAgent?: string;
 }
 
 /**
@@ -91,7 +93,7 @@ export class A2ASDKClient {
    */
   setAccessToken(token: string | undefined): void {
     this.accessToken = token;
-    
+
     // Recreate transport with new token
     const fetchImpl = token
       ? this.createAuthenticatedFetch(token)
@@ -125,9 +127,9 @@ export class A2ASDKClient {
 
   /**
    * Send a message and stream the response using AsyncGenerator
-   * 
+   *
    * This is the same pattern agent-forge uses, ensuring consistent behavior.
-   * 
+   *
    * @param message The user's message text
    * @param contextId Optional context ID for conversation continuity
    * @returns AsyncGenerator that yields parsed A2A events
@@ -144,7 +146,7 @@ export class A2ASDKClient {
     this.abortController = new AbortController();
 
     const messageId = uuidv4();
-    
+
     const params: MessageSendParams = {
       message: {
         kind: "message",
@@ -159,7 +161,7 @@ export class A2ASDKClient {
     console.log(`[A2A SDK] 📤 contextId: ${contextId || "new conversation"}`);
 
     let eventCount = 0;
-    
+
     try {
       // Use the SDK's streaming method - returns AsyncGenerator
       const stream = this.transport.sendMessageStream(params, {
@@ -168,10 +170,10 @@ export class A2ASDKClient {
 
       for await (const event of stream) {
         eventCount++;
-        
+
         // Parse and yield the event
         const parsed = this.parseEvent(event, eventCount);
-        
+
         if (parsed) {
           yield parsed;
         }
@@ -210,7 +212,7 @@ export class A2ASDKClient {
   private parseEvent(event: A2AStreamEvent, eventNum: number): ParsedA2AEvent | null {
     // Determine event type
     const kind = (event as { kind?: string }).kind;
-    
+
     if (kind === "message") {
       return this.parseMessageEvent(event as Message, eventNum);
     } else if (kind === "task") {
@@ -230,7 +232,7 @@ export class A2ASDKClient {
    */
   private parseMessageEvent(msg: Message, eventNum: number): ParsedA2AEvent {
     const textContent = this.extractTextFromParts(msg.parts);
-    
+
     console.log(`[A2A SDK] #${eventNum} MESSAGE (${msg.role}): ${textContent.substring(0, 100)}...`);
 
     return {
@@ -251,13 +253,21 @@ export class A2ASDKClient {
 
     // Extract text from artifacts if present
     let textContent = "";
+    let artifactName: string | undefined = undefined;
     if (task.artifacts && task.artifacts.length > 0) {
-      // Look for final_result artifact first
+      // Look for execution plan artifacts first (for task/status rendering)
+      const executionPlanArtifact = task.artifacts.find(
+        a => a.name === "execution_plan_update" || a.name === "execution_plan_status_update"
+      );
+      // Then look for final_result artifact
       const finalArtifact = task.artifacts.find(a => a.name === "final_result");
-      const artifact = finalArtifact || task.artifacts[task.artifacts.length - 1];
-      
-      if (artifact && artifact.parts) {
-        textContent = this.extractTextFromParts(artifact.parts);
+      const artifact = executionPlanArtifact || finalArtifact || task.artifacts[task.artifacts.length - 1];
+
+      if (artifact) {
+        artifactName = artifact.name;
+        if (artifact.parts) {
+          textContent = this.extractTextFromParts(artifact.parts);
+        }
       }
     }
 
@@ -266,6 +276,7 @@ export class A2ASDKClient {
     return {
       raw: task,
       type: "task",
+      artifactName,
       displayContent: textContent,
       isFinal,
       shouldAppend: false, // Task events typically replace content
@@ -298,12 +309,15 @@ export class A2ASDKClient {
     const artifact = event.artifact;
     const artifactName = artifact?.name || "";
     const textContent = artifact?.parts ? this.extractTextFromParts(artifact.parts) : "";
-    
+
+    // Extract sourceAgent from artifact metadata
+    const sourceAgent = artifact?.metadata?.sourceAgent as string | undefined;
+
     // Determine if this is a final result
     const isFinalResult = artifactName === "final_result" || artifactName === "partial_result";
     const shouldAppend = event.append !== false;
 
-    console.log(`[A2A SDK] #${eventNum} ARTIFACT: ${artifactName} append=${shouldAppend} content=${textContent.length} chars`);
+    console.log(`[A2A SDK] #${eventNum} ARTIFACT: ${artifactName} append=${shouldAppend} content=${textContent.length} chars agent=${sourceAgent || 'none'}`);
 
     if (isFinalResult) {
       console.log(`[A2A SDK] 🎉 ${artifactName.toUpperCase()} RECEIVED!`);
@@ -318,6 +332,7 @@ export class A2ASDKClient {
       shouldAppend,
       contextId: event.contextId,
       taskId: event.taskId,
+      sourceAgent, // Include sourceAgent in parsed event
     };
   }
 
@@ -427,7 +442,7 @@ export function toStoreEvent(event: ParsedA2AEvent, eventId?: string): {
   icon: string;
 } {
   const artifactName = event.artifactName || "";
-  
+
   // Determine event type for store
   let storeType: "task" | "artifact" | "status" | "message" | "tool_start" | "tool_end" | "error" = "artifact";
   if (event.type === "task") storeType = "task";
@@ -436,10 +451,52 @@ export function toStoreEvent(event: ParsedA2AEvent, eventId?: string): {
   else if (artifactName === "tool_notification_start") storeType = "tool_start";
   else if (artifactName === "tool_notification_end") storeType = "tool_end";
 
-  // Extract artifact from raw event
+  // Extract artifact from raw event - ensure it has proper structure
   let artifact: unknown = undefined;
+  let extractedSourceAgent: string | undefined = event.sourceAgent;
+
+  // Handle TaskArtifactUpdateEvent (has artifact property)
   if (event.raw && "artifact" in event.raw) {
-    artifact = (event.raw as { artifact?: unknown }).artifact;
+    const rawArtifact = (event.raw as { artifact?: unknown }).artifact;
+    // Ensure artifact has name property for parsing
+    if (rawArtifact && typeof rawArtifact === "object") {
+      const artifactObj = rawArtifact as { name?: string; metadata?: { sourceAgent?: string } };
+      // Extract sourceAgent from artifact metadata if not already set
+      if (!extractedSourceAgent && artifactObj.metadata?.sourceAgent) {
+        extractedSourceAgent = artifactObj.metadata.sourceAgent;
+      }
+      artifact = {
+        ...rawArtifact,
+        name: artifactName || artifactObj.name,
+      };
+    } else {
+      artifact = rawArtifact;
+    }
+  }
+  // Handle Task events (has artifacts array)
+  else if (event.raw && "artifacts" in event.raw && Array.isArray((event.raw as { artifacts?: unknown[] }).artifacts)) {
+    const artifacts = (event.raw as { artifacts?: unknown[] }).artifacts || [];
+    // Find execution plan artifact if artifactName matches
+    if (artifactName && (artifactName === "execution_plan_update" || artifactName === "execution_plan_status_update")) {
+      const planArtifact = artifacts.find((a: unknown) =>
+        a && typeof a === "object" && "name" in a &&
+        ((a as { name?: string }).name === "execution_plan_update" || (a as { name?: string }).name === "execution_plan_status_update")
+      );
+      if (planArtifact) {
+        artifact = planArtifact;
+      }
+    }
+    // Otherwise use first artifact or last artifact
+    else if (artifacts.length > 0) {
+      artifact = artifacts[artifacts.length - 1];
+    }
+  }
+  // Fallback: create artifact structure from artifactName
+  else if (artifactName) {
+    artifact = {
+      name: artifactName,
+      parts: event.displayContent ? [{ kind: "text", text: event.displayContent }] : [],
+    };
   }
 
   return {
@@ -453,7 +510,7 @@ export function toStoreEvent(event: ParsedA2AEvent, eventId?: string): {
     isFinal: event.isFinal,
     isLastChunk: event.isFinal,
     shouldAppend: event.shouldAppend,
-    sourceAgent: undefined, // Could extract from artifact description if needed
+    sourceAgent: extractedSourceAgent, // Extract from parsed event or artifact metadata
     displayName: formatArtifactName(artifactName) || event.type,
     displayContent: event.displayContent,
     color: getArtifactColor(artifactName),

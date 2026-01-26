@@ -10,10 +10,13 @@ import {
   CheckCircle,
   ChevronDown,
   ChevronUp,
+  ChevronLeft,
+  ChevronRight,
   Wrench,
 } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useChatStore } from "@/store/chat-store";
 import { cn } from "@/lib/utils";
@@ -33,9 +36,16 @@ interface ExecutionTask {
 interface ContextPanelProps {
   debugMode: boolean;
   onDebugModeChange: (enabled: boolean) => void;
+  collapsed?: boolean;
+  onCollapse?: (collapsed: boolean) => void;
 }
 
-export function ContextPanel({ debugMode, onDebugModeChange }: ContextPanelProps) {
+export function ContextPanel({ 
+  debugMode, 
+  onDebugModeChange,
+  collapsed = false,
+  onCollapse
+}: ContextPanelProps) {
   const { isStreaming, activeConversationId, getActiveConversation, conversations } = useChatStore();
   // Default to tasks tab, switch to debug if debug mode is enabled
   const [activeTab, setActiveTab] = useState<"tasks" | "debug">(debugMode ? "debug" : "tasks");
@@ -133,87 +143,123 @@ export function ContextPanel({ debugMode, onDebugModeChange }: ContextPanelProps
   const eventCount = conversationEvents.length;
 
   return (
-    <div className="h-full flex flex-col bg-card/30 backdrop-blur-sm">
+    <motion.div
+      initial={false}
+      animate={{ width: collapsed ? 64 : 380 }}
+      transition={{ duration: 0.2 }}
+      className="h-full flex flex-col bg-card/30 backdrop-blur-sm border-l border-border/50 shrink-0 overflow-hidden"
+    >
       {/* Header with Tabs */}
       <div className="border-b border-border/50">
-        <div className="flex items-center justify-between px-3 py-2">
-          <Tabs
-            value={activeTab}
-            onValueChange={(v) => {
-              const tab = v as "tasks" | "debug";
-              setActiveTab(tab);
-              // Sync debug mode with tab selection
-              if (tab === "debug" && !debugMode) {
-                onDebugModeChange(true);
-              } else if (tab === "tasks" && debugMode) {
-                onDebugModeChange(false);
-              }
-            }}
-          >
-            <TabsList className="h-8 bg-muted/50">
-              <TabsTrigger
-                value="tasks"
-                className={cn(
-                  "text-xs gap-1.5 h-7 px-3",
-                  executionTasks.length > 0 && activeTab === "tasks" && "text-sky-400"
-                )}
+        <div className={cn(
+          "flex items-center py-2",
+          collapsed ? "justify-center px-2" : "justify-between px-3"
+        )}>
+          {collapsed ? (
+            /* Collapsed state - show collapse button */
+            onCollapse && (
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => onCollapse(!collapsed)}
+                className="h-8 w-8 hover:bg-muted shrink-0"
               >
-                <ListTodo className="h-3.5 w-3.5" />
-                Tasks
-                {executionTasks.length > 0 && (
-                  <Badge
-                    variant="secondary"
-                    className="ml-1 h-4 px-1 text-[10px] bg-sky-500/20 text-sky-400"
-                  >
-                    {executionTasks.length}
-                  </Badge>
-                )}
-              </TabsTrigger>
-              <TabsTrigger
-                value="debug"
-                className={cn(
-                  "text-xs gap-1.5 h-7 px-3",
-                  activeTab === "debug" && "text-amber-400"
-                )}
+                <ChevronLeft className="h-4 w-4" />
+              </Button>
+            )
+          ) : (
+            <>
+              <Tabs
+                value={activeTab}
+                onValueChange={(v) => {
+                  const tab = v as "tasks" | "debug";
+                  setActiveTab(tab);
+                  // Sync debug mode with tab selection
+                  if (tab === "debug" && !debugMode) {
+                    onDebugModeChange(true);
+                  } else if (tab === "tasks" && debugMode) {
+                    onDebugModeChange(false);
+                  }
+                }}
               >
-                <Bug className="h-3.5 w-3.5" />
-                A2A Debug
-                {eventCount > 0 && (
-                  <Badge
-                    variant="secondary"
+                <TabsList className="h-8 bg-muted/50">
+                  <TabsTrigger
+                    value="tasks"
                     className={cn(
-                      "ml-1 h-4 px-1 text-[10px]",
-                      activeTab === "debug" && "bg-amber-500/20 text-amber-400"
+                      "text-xs gap-1.5 h-7 px-3",
+                      executionTasks.length > 0 && activeTab === "tasks" && "text-sky-400"
                     )}
                   >
-                    {eventCount}
-                  </Badge>
-                )}
-              </TabsTrigger>
-            </TabsList>
-          </Tabs>
+                    <ListTodo className="h-3.5 w-3.5" />
+                    Tasks
+                    {executionTasks.length > 0 && (
+                      <Badge
+                        variant="secondary"
+                        className="ml-1 h-4 px-1 text-[10px] bg-sky-500/20 text-sky-400"
+                      >
+                        {executionTasks.length}
+                      </Badge>
+                    )}
+                  </TabsTrigger>
+                  <TabsTrigger
+                    value="debug"
+                    className={cn(
+                      "text-xs gap-1.5 h-7 px-3",
+                      activeTab === "debug" && "text-amber-400"
+                    )}
+                  >
+                    <Bug className="h-3.5 w-3.5" />
+                    A2A Debug
+                    {eventCount > 0 && (
+                      <Badge
+                        variant="secondary"
+                        className={cn(
+                          "ml-1 h-4 px-1 text-[10px]",
+                          activeTab === "debug" && "bg-amber-500/20 text-amber-400"
+                        )}
+                      >
+                        {eventCount}
+                      </Badge>
+                    )}
+                  </TabsTrigger>
+                </TabsList>
+              </Tabs>
 
-                <div className="flex items-center gap-2">
-                  {/* Turn counter */}
-                  {turnCount > 0 && (
-                    <div className="text-xs text-muted-foreground">
-                      Turn {turnCount}
-                    </div>
-                  )}
-                  {/* Streaming indicator */}
-                  {isActuallyStreaming && (
-                    <div className="flex items-center gap-1.5 px-2 py-1 rounded-full bg-green-500/15 text-green-400 text-xs">
-                      <Radio className="h-3 w-3 animate-pulse" />
-                      Live
-                    </div>
-                  )}
-                </div>
+              <div className="flex items-center gap-2">
+                {/* Turn counter */}
+                {turnCount > 0 && (
+                  <div className="text-xs text-muted-foreground">
+                    Turn {turnCount}
+                  </div>
+                )}
+                {/* Streaming indicator */}
+                {isActuallyStreaming && (
+                  <div className="flex items-center gap-1.5 px-2 py-1 rounded-full bg-green-500/15 text-green-400 text-xs">
+                    <Radio className="h-3 w-3 animate-pulse" />
+                    Live
+                  </div>
+                )}
+                {/* Collapse Toggle */}
+                {onCollapse && (
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => onCollapse(!collapsed)}
+                    className="h-8 w-8 hover:bg-muted shrink-0"
+                  >
+                    <ChevronRight className="h-4 w-4" />
+                  </Button>
+                )}
+              </div>
+            </>
+          )}
         </div>
       </div>
 
       {/* Content */}
-      <div className="flex-1 overflow-hidden">
-        {activeTab === "tasks" ? (
+      {!collapsed && (
+        <div className="flex-1 overflow-hidden">
+          {activeTab === "tasks" ? (
           /* Tasks Tab - Execution Plan (Default) */
           <ScrollArea className="h-full">
             <div className="p-4 space-y-4">
@@ -265,8 +311,8 @@ export function ContextPanel({ debugMode, onDebugModeChange }: ContextPanelProps
                             {task.status === "completed" ? (
                               /* Completed - Vibrant green checkbox with checkmark and glow */
                               <div className="relative w-4 h-4">
-                                <div 
-                                  className="w-4 h-4 rounded bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.6)]" 
+                                <div
+                                  className="w-4 h-4 rounded bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.6)]"
                                   style={{ backgroundColor: '#10B981' }}
                                 />
                                 <svg
@@ -285,13 +331,13 @@ export function ContextPanel({ debugMode, onDebugModeChange }: ContextPanelProps
                               </div>
                             ) : task.status === "in_progress" ? (
                               /* In Progress - Vibrant blue spinner with glow */
-                              <Loader2 
-                                className="w-4 h-4 animate-spin" 
+                              <Loader2
+                                className="w-4 h-4 animate-spin"
                                 style={{ color: '#0EA5E9', filter: 'drop-shadow(0 0 4px rgba(14,165,233,0.5))' }}
                               />
                             ) : task.status === "failed" ? (
                               /* Failed - Vibrant red X with glow */
-                              <div 
+                              <div
                                 className="w-4 h-4 rounded border-2 flex items-center justify-center shadow-[0_0_6px_rgba(239,68,68,0.5)]"
                                 style={{ borderColor: '#EF4444' }}
                               >
@@ -488,8 +534,9 @@ export function ContextPanel({ debugMode, onDebugModeChange }: ContextPanelProps
           /* A2A Debug Tab - Full Event Stream */
           <A2AStreamPanel />
         )}
-      </div>
-    </div>
+        </div>
+      )}
+    </motion.div>
   );
 }
 

@@ -81,7 +81,6 @@ export class A2AClient {
       signal: this.abortController.signal,
       // Prevent caching and connection reuse issues
       cache: "no-store",
-      // @ts-expect-error - keepalive is valid for fetch but not in all TS types
       keepalive: false, // We want long-lived SSE, not keepalive which is for short requests
     });
 
@@ -110,11 +109,11 @@ export class A2AClient {
     let eventCount = 0;
     let lastEventTime = Date.now();
     let receivedFinalResult = false;
-    
+
     // Activity-based timeout (15 minutes default)
     const timeoutMs = this.config.streamTimeoutMs ?? DEFAULT_STREAM_TIMEOUT_MS;
     let activityTimeoutId: ReturnType<typeof setTimeout> | null = null;
-    
+
     const resetActivityTimeout = () => {
       if (activityTimeoutId) {
         clearTimeout(activityTimeoutId);
@@ -124,14 +123,14 @@ export class A2AClient {
         this.abort();
       }, timeoutMs);
     };
-    
+
     const clearActivityTimeout = () => {
       if (activityTimeoutId) {
         clearTimeout(activityTimeoutId);
         activityTimeoutId = null;
       }
     };
-    
+
     // Start the activity timeout
     resetActivityTimeout();
     console.log(`[A2A Client] ⏱️ Stream timeout set to ${timeoutMs / 1000} seconds`);
@@ -143,7 +142,7 @@ export class A2AClient {
           const readStartTime = Date.now();
           const { done, value } = await reader.read();
           const readDuration = Date.now() - readStartTime;
-          
+
           // Log if read took unusually long (possible network issue)
           if (readDuration > 5000) {
             console.log(`[A2A Client] ⏳ Read took ${readDuration}ms (possible network delay)`);
@@ -163,7 +162,7 @@ export class A2AClient {
 
           // Reset timeout on any data received
           resetActivityTimeout();
-          
+
           const chunk = decoder.decode(value, { stream: true });
           buffer += chunk;
           const lines = buffer.split("\n");
@@ -189,18 +188,18 @@ export class A2AClient {
                   if (event) {
                     eventCount++;
                     lastEventTime = Date.now();
-                    
+
                     // Track if we received final_result
                     if (event.artifact?.name === "final_result" || event.artifact?.name === "partial_result") {
                       receivedFinalResult = true;
                       console.log(`[A2A Client] ✅ Received ${event.artifact.name} - event #${eventCount}`);
                     }
-                    
+
                     // Log progress every 100 events to track stream health
                     if (eventCount % 100 === 0) {
                       console.log(`[A2A Client] 📊 Progress: ${eventCount} events received`);
                     }
-                    
+
                     this.config.onEvent?.(event);
                     controller.enqueue(event);
                   }
@@ -283,9 +282,9 @@ export class A2AClient {
         // Extract ALL text parts from artifact, not just the first one
         // A2A library uses parts[].root.text structure (Part -> TextPart)
         const artifactText = artifact?.parts
-          ?.filter((p: { kind?: string; root?: { kind?: string } }) => 
+          ?.filter((p: { kind?: string; root?: { kind?: string } }) =>
             p.kind === "text" || p.root?.kind === "text" || !p.kind)
-          ?.map((p: { text?: string; root?: { text?: string } }) => 
+          ?.map((p: { text?: string; root?: { text?: string } }) =>
             p.text || p.root?.text || "")
           ?.join("") || "";
 
@@ -324,9 +323,9 @@ export class A2AClient {
         // A2A library uses parts[].root.text structure (Part -> TextPart)
         const messageParts = result.parts || [];
         const messageText = messageParts
-          .filter((p: { kind?: string; root?: { kind?: string } }) => 
+          .filter((p: { kind?: string; root?: { kind?: string } }) =>
             p.kind === "text" || p.root?.kind === "text" || !p.kind)
-          .map((p: { text?: string; root?: { text?: string } }) => 
+          .map((p: { text?: string; root?: { text?: string } }) =>
             p.text || p.root?.text || "")
           .join("");
         const isAgentMessage = result.role === "agent";

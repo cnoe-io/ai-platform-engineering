@@ -897,7 +897,6 @@ services:
       - ./ai_platform_engineering/knowledge_bases/rag/tests/rag_graph_test:/app/data:ro
     profiles:
       - dummy-ingestor
-      - graph_rag
 
   # RAG Dependencies
   neo4j:

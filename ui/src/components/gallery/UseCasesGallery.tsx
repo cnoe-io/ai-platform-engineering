@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Search,
@@ -22,6 +22,7 @@ import {
   GitPullRequest,
   X,
   ExternalLink,
+  Edit,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -30,6 +31,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { UseCase } from "@/types/a2a";
 import { cn } from "@/lib/utils";
+import { UseCaseBuilderDialog } from "./UseCaseBuilder";
 
 const iconMap: Record<string, React.ElementType> = {
   GitBranch,
@@ -189,29 +191,155 @@ const useCases: UseCase[] = [
   },
 ];
 
-const categories = ["All", ...new Set(useCases.map((uc) => uc.category))];
-
 interface UseCasesGalleryProps {
   onSelectUseCase: (prompt: string) => void;
+  refreshTrigger?: number; // Increment this to trigger a refresh
 }
 
-export function UseCasesGallery({ onSelectUseCase }: UseCasesGalleryProps) {
+export function UseCasesGallery({ onSelectUseCase, refreshTrigger }: UseCasesGalleryProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategory, setSelectedCategory] = useState("All");
   const [hoveredId, setHoveredId] = useState<string | null>(null);
+  const [savedUseCases, setSavedUseCases] = useState<UseCase[]>([]);
+  const [isLoadingSaved, setIsLoadingSaved] = useState(false);
+
+  // Fetch saved use cases from API
+  const fetchSavedUseCases = useCallback(async () => {
+    setIsLoadingSaved(true);
+    try {
+      const response = await fetch("/api/usecases");
+      if (response.ok) {
+        const data = await response.json();
+        // Transform saved use cases to match UseCase interface
+        const transformed = data.map((uc: any) => {
+          const category = uc.category || "Custom";
+          const tags = Array.isArray(uc.tags) ? uc.tags : [];
+          // Ensure category is included in tags if not already present
+          const finalTags = tags.includes(category) ? tags : [...tags, category];
+          
+          return {
+            ...uc,
+            thumbnail: uc.thumbnail || "Sparkles", // Default icon
+            // Ensure category matches expected format
+            category,
+            // Ensure tags includes category
+            tags: finalTags,
+            // Ensure expectedAgents is an array
+            expectedAgents: Array.isArray(uc.expectedAgents) ? uc.expectedAgents : [],
+          };
+        });
+        setSavedUseCases(transformed);
+      }
+    } catch (error) {
+      console.error("Error fetching saved use cases:", error);
+    } finally {
+      setIsLoadingSaved(false);
+    }
+  }, []);
+
+  // Fetch on mount and when refreshTrigger changes
+  useEffect(() => {
+    fetchSavedUseCases();
+  }, [fetchSavedUseCases, refreshTrigger]);
+
+  // Combine hardcoded and saved use cases
+  const allUseCases = [...useCases, ...savedUseCases];
+  const categories = ["All", ...new Set(allUseCases.map((uc) => uc.category))];
 
   // Input form state
   const [activeFormUseCase, setActiveFormUseCase] = useState<UseCase | null>(null);
   const [formValues, setFormValues] = useState<Record<string, string>>({});
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
+  
+  // Edit dialog state
+  const [editDialogOpen, setEditDialogOpen] = useState(false);
+  const [useCaseToEdit, setUseCaseToEdit] = useState<UseCase | null>(null);
 
-  // Handle use case click - show form if it has one, otherwise submit directly
-  const handleUseCaseClick = (useCase: UseCase) => {
+  // Extract placeholders from prompt (e.g., {{name}}, {{appName}}, {{name of the argocd app}})
+  const extractPlaceholders = (prompt: string): string[] => {
+    // Match {{...}} with any characters inside (including spaces, hyphens, etc.)
+    // but trim whitespace from the captured group
+    const placeholderRegex = /\{\{([^}]+)\}\}/g;
+    const matches = [];
+    let match;
+    while ((match = placeholderRegex.exec(prompt)) !== null) {
+      // Trim whitespace and normalize the placeholder name
+      const placeholder = match[1].trim();
+      if (placeholder) {
+        matches.push(placeholder);
+      }
+    }
+    return [...new Set(matches)]; // Remove duplicates
+  };
+
+  // Generate input form from placeholders if not already defined
+  const generateInputFormFromPlaceholders = (useCase: UseCase): UseCase["inputForm"] | null => {
+    // If use case already has an inputForm, use it
     if (useCase.inputForm) {
-      setActiveFormUseCase(useCase);
+      return useCase.inputForm;
+    }
+
+    // Extract placeholders from prompt
+    const placeholders = extractPlaceholders(useCase.prompt);
+    if (placeholders.length === 0) {
+      return null;
+    }
+
+    // Generate fields from placeholders
+    const fields = placeholders.map((placeholder) => {
+      // Convert placeholder name to label
+      // Handle camelCase, snake_case, kebab-case, and plain names with spaces
+      // For placeholders like "name of the argocd app", keep the original format but capitalize
+      let label = placeholder
+        .replace(/_/g, " ") // Replace underscores with spaces
+        .replace(/-/g, " ") // Replace hyphens with spaces
+        .replace(/([A-Z])/g, " $1") // Add space before capital letters
+        .replace(/\s+/g, " ") // Collapse multiple spaces
+        .trim();
+      
+      // Capitalize first letter of each word
+      label = label
+        .split(" ")
+        .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+        .join(" ");
+
+      // Determine field type based on placeholder name
+      let type: "text" | "url" | "number" = "text";
+      if (placeholder.toLowerCase().includes("url") || placeholder.toLowerCase().includes("link")) {
+        type = "url";
+      } else if (placeholder.toLowerCase().includes("count") || placeholder.toLowerCase().includes("number")) {
+        type = "number";
+      }
+
+      return {
+        name: placeholder,
+        label,
+        placeholder: `Enter ${label.toLowerCase()}`,
+        type,
+        required: true,
+      };
+    });
+
+    return {
+      title: useCase.title,
+      description: `Please provide the following information to proceed with "${useCase.title}"`,
+      fields,
+      submitLabel: "Start",
+    };
+  };
+
+  // Handle use case click - show form if it has one or has placeholders, otherwise submit directly
+  const handleUseCaseClick = (useCase: UseCase) => {
+    // Check if use case has inputForm or placeholders in prompt
+    const inputForm = generateInputFormFromPlaceholders(useCase);
+    
+    if (inputForm) {
+      // Create a use case with the generated input form
+      const useCaseWithForm = { ...useCase, inputForm };
+      setActiveFormUseCase(useCaseWithForm);
       // Initialize form values
       const initialValues: Record<string, string> = {};
-      useCase.inputForm.fields.forEach((field) => {
+      inputForm.fields.forEach((field) => {
         initialValues[field.name] = "";
       });
       setFormValues(initialValues);
@@ -248,9 +376,14 @@ export function UseCasesGallery({ onSelectUseCase }: UseCasesGalleryProps) {
     }
 
     // Replace placeholders in prompt with form values
+    // Need to escape special regex characters in the placeholder name
     let prompt = activeFormUseCase.prompt;
     Object.entries(formValues).forEach(([key, value]) => {
-      prompt = prompt.replace(new RegExp(`\\{\\{${key}\\}\\}`, "g"), value.trim());
+      // Escape special regex characters in the placeholder name
+      const escapedKey = key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      // Match the placeholder with any whitespace variations
+      const regex = new RegExp(`\\{\\{\\s*${escapedKey}\\s*\\}\\}`, "g");
+      prompt = prompt.replace(regex, value.trim());
     });
 
     // Close form and submit
@@ -265,7 +398,26 @@ export function UseCasesGallery({ onSelectUseCase }: UseCasesGalleryProps) {
     setFormErrors({});
   };
 
-  const filteredUseCases = useCases.filter((uc) => {
+  // Handle edit button click
+  const handleEditClick = (e: React.MouseEvent, useCase: UseCase) => {
+    e.stopPropagation(); // Prevent card click
+    // Only allow editing saved use cases (not hardcoded ones)
+    const isSavedUseCase = savedUseCases.some((uc) => uc.id === useCase.id);
+    if (isSavedUseCase) {
+      setUseCaseToEdit(useCase);
+      setEditDialogOpen(true);
+    }
+  };
+
+  // Handle edit dialog success
+  const handleEditSuccess = () => {
+    setEditDialogOpen(false);
+    setUseCaseToEdit(null);
+    // Trigger refresh to get updated use cases
+    fetchSavedUseCases();
+  };
+
+  const filteredUseCases = allUseCases.filter((uc) => {
     const matchesSearch =
       uc.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
       uc.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -286,7 +438,7 @@ export function UseCasesGallery({ onSelectUseCase }: UseCasesGalleryProps) {
   };
 
   // Featured use cases (first 3 or marked as featured)
-  const featuredUseCases = useCases.filter((uc) =>
+  const featuredUseCases = allUseCases.filter((uc) =>
     ["deploy-status", "incident-analysis", "release-readiness"].includes(uc.id)
   );
 
@@ -340,7 +492,7 @@ export function UseCasesGallery({ onSelectUseCase }: UseCasesGalleryProps) {
                 {cat}
                 {cat !== "All" && (
                   <Badge variant="secondary" className="ml-1.5 text-xs px-1.5">
-                    {useCases.filter((uc) => uc.category === cat).length}
+                    {allUseCases.filter((uc) => uc.category === cat).length}
                   </Badge>
                 )}
               </Button>
@@ -448,12 +600,26 @@ export function UseCasesGallery({ onSelectUseCase }: UseCasesGalleryProps) {
                             )}
                           />
                         </div>
-                        <Badge
-                          variant="outline"
-                          className={cn("text-xs font-medium", getDifficultyColor(useCase.difficulty))}
-                        >
-                          {useCase.difficulty}
-                        </Badge>
+                        <div className="flex items-center gap-2">
+                          {/* Edit button - only for saved use cases */}
+                          {savedUseCases.some((uc) => uc.id === useCase.id) && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-7 w-7 hover:bg-primary/10 hover:text-primary"
+                              onClick={(e) => handleEditClick(e, useCase)}
+                              title="Edit use case"
+                            >
+                              <Edit className="h-3.5 w-3.5" />
+                            </Button>
+                          )}
+                          <Badge
+                            variant="outline"
+                            className={cn("text-xs font-medium", getDifficultyColor(useCase.difficulty))}
+                          >
+                            {useCase.difficulty}
+                          </Badge>
+                        </div>
                       </div>
                       <CardTitle className="text-lg mt-4 group-hover:text-primary transition-colors">
                         {useCase.title}
@@ -597,8 +763,11 @@ export function UseCasesGallery({ onSelectUseCase }: UseCasesGalleryProps) {
                     <p className="text-xs text-muted-foreground mb-1">Preview:</p>
                     <p className="text-sm">
                       {activeFormUseCase.prompt.replace(
-                        /\{\{(\w+)\}\}/g,
-                        (_, key) => formValues[key]?.trim() || `{{${key}}}`
+                        /\{\{([^}]+)\}\}/g,
+                        (match, key) => {
+                          const trimmedKey = key.trim();
+                          return formValues[trimmedKey]?.trim() || match;
+                        }
                       ).substring(0, 150)}...
                     </p>
                   </div>
@@ -622,6 +791,23 @@ export function UseCasesGallery({ onSelectUseCase }: UseCasesGalleryProps) {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Edit Use Case Dialog */}
+      <UseCaseBuilderDialog
+        open={editDialogOpen}
+        onOpenChange={setEditDialogOpen}
+        onSuccess={handleEditSuccess}
+        existingUseCase={useCaseToEdit ? {
+          id: useCaseToEdit.id,
+          title: useCaseToEdit.title,
+          description: useCaseToEdit.description,
+          category: useCaseToEdit.category,
+          tags: useCaseToEdit.tags,
+          prompt: useCaseToEdit.prompt,
+          expectedAgents: useCaseToEdit.expectedAgents,
+          difficulty: useCaseToEdit.difficulty,
+        } : undefined}
+      />
     </div>
   );
 }

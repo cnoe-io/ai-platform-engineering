@@ -197,10 +197,20 @@ export function InlineAgentSelector({
   agents = DEFAULT_AGENTS,
 }: InlineAgentSelectorProps) {
   return (
-    <div className="flex items-center gap-1.5 px-1">
+    <div className="flex items-center gap-2.5 px-2">
       {agents.slice(0, 4).map((agent) => {
         const agentLogo = AGENT_LOGOS[agent.id];
         const isSelected = value === agent.prompt;
+
+        // Special handling for AWS - use light blue background to show orange logo
+        const getSelectedBackgroundColor = () => {
+          if (!isSelected || !agentLogo) return undefined;
+          // AWS orange (#FF9900) needs light blue background to be visible
+          if (agent.id === "aws") {
+            return "#93c5fd"; // Light blue background (blue-300)
+          }
+          return agentLogo.color;
+        };
 
         return (
           <button
@@ -208,20 +218,20 @@ export function InlineAgentSelector({
             onClick={() => onChange(isSelected ? null : agent.prompt)}
             title={agent.label}
             className={cn(
-              "p-1 rounded-md transition-all",
+              "p-2 rounded-lg transition-all",
               isSelected
-                ? "ring-2 ring-primary ring-offset-1 ring-offset-background"
+                ? "ring-2 ring-primary ring-offset-2 ring-offset-background"
                 : "hover:bg-muted/80 bg-muted/40"
             )}
-            style={isSelected && agentLogo ? { backgroundColor: agentLogo.color } : undefined}
+            style={isSelected && agentLogo ? { backgroundColor: getSelectedBackgroundColor() } : undefined}
           >
             <div
               className={cn(
-                "w-5 h-5 rounded overflow-hidden",
-                !isSelected && "bg-white dark:bg-gray-200 p-0.5"
+                "w-8 h-8 rounded overflow-hidden flex items-center justify-center",
+                !isSelected && "bg-white dark:bg-gray-200 p-1"
               )}
             >
-              {agentLogo?.icon || <span className="text-xs font-bold text-foreground">{agent.label.charAt(0)}</span>}
+              {agentLogo?.icon || <span className="text-sm font-bold text-foreground">{agent.label.charAt(0)}</span>}
             </div>
           </button>
         );
