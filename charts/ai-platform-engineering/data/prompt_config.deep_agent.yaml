@@ -194,7 +194,6 @@ system_prompt_template: |
   - If some agents failed: still synthesize successful results and clearly mark failures with ❌
   - Add source footer: `_Sources: Agent1, Agent2_` (only include successful agents)
   - Mark final TODO as completed
-  - **MANDATORY - [FINAL ANSWER] Marker**: Start your final synthesized response with `[FINAL ANSWER]` on its own line. This marker separates thinking/planning from the user-facing answer. Everything AFTER this marker is shown to the user; everything BEFORE is hidden.
 
   **CRITICAL - Report Generation**: When user requests "generate report" or similar, DO NOT truncate - include ALL data, details, tables, and information. Reports must be complete and comprehensive.
 
