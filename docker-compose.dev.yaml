@@ -21,7 +21,7 @@ services:
       dockerfile: build/Dockerfile
     container_name: caipe-supervisor
     volumes:
-      - ${PROMPT_CONFIG_PATH:-./charts/ai-platform-engineering/data/prompt_config.deep_agent.yaml}:/app/prompt_config.yaml
+      - ${PROMPT_CONFIG_PATH:-./charts/ai-platform-engineering/data/prompt_config.deep_agent.minimal.yaml}:/app/prompt_config.yaml
       - ./ai_platform_engineering:/app/ai_platform_engineering
     env_file:
       - .env
@@ -826,6 +826,8 @@ services:
       - ENABLE_GRAPH_RAG=${ENABLE_GRAPH_RAG:-true}
       - CLEANUP_INTERVAL=86400
       - EMBEDDINGS_MODEL=${EMBEDDINGS_MODEL:-text-embedding-3-large}
+      - MAX_DOCUMENTS_PER_INGEST=${MAX_DOCUMENTS_PER_INGEST:-25}
+      - MAX_INGESTION_CONCURRENCY=${MAX_INGESTION_CONCURRENCY:-10}
     restart: unless-stopped
     env_file: [.env]
     depends_on: [rag-redis]
@@ -897,6 +899,33 @@ services:
       - ./ai_platform_engineering/knowledge_bases/rag/tests/rag_graph_test:/app/data:ro
     profiles:
       - dummy-ingestor
+
+  backstage_ingestor:
+    build:
+      context: ./ai_platform_engineering/knowledge_bases/rag
+      dockerfile: ./build/Dockerfile.ingestors
+    container_name: backstage-ingestor
+    volumes:
+      - ./ai_platform_engineering/knowledge_bases/rag/ingestors/src/ingestors:/app/ingestors/src/ingestors
+      - ./ai_platform_engineering/knowledge_bases/rag/common/src/common:/app/common/src/common
+    environment:
+      - INGESTOR_TYPE=backstage
+      - BACKSTAGE_URL=${BACKSTAGE_URL}
+      - BACKSTAGE_API_TOKEN=${BACKSTAGE_API_TOKEN}
+      - RAG_SERVER_URL=http://rag_server:9446
+      - SYNC_INTERVAL=${BACKSTAGE_SYNC_INTERVAL:-86400}
+      - INIT_DELAY_SECONDS=${BACKSTAGE_INIT_DELAY_SECONDS:-0}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - EXIT_AFTER_FIRST_SYNC=${BACKSTAGE_EXIT_AFTER_FIRST_SYNC:-false}
+      - MAX_DOCUMENTS_PER_INGEST=${BACKSTAGE_MAX_DOCUMENTS_PER_INGEST:-25}
+      - MAX_INGESTION_CONCURRENCY=${BACKSTAGE_MAX_INGESTION_CONCURRENCY:-10}
+      - IGNORE_TYPES=${BACKSTAGE_IGNORE_TYPES:-api,component,domain,group,location,system,template,user}
+    env_file: [.env]
+    restart: unless-stopped
+    depends_on: [rag_server]
+    profiles:
+      - backstage-ingestor
+      - graph_rag
 
   # RAG Dependencies
   neo4j:
