@@ -21,7 +21,7 @@ services:
       dockerfile: build/Dockerfile
     container_name: caipe-supervisor
     volumes:
-      - ${PROMPT_CONFIG_PATH:-./charts/ai-platform-engineering/data/prompt_config.deep_agent.minimal.yaml}:/app/prompt_config.yaml
+      - ${PROMPT_CONFIG_PATH:-./charts/ai-platform-engineering/data/prompt_config.deep_agent.yaml}:/app/prompt_config.yaml
       - ./ai_platform_engineering:/app/ai_platform_engineering
     env_file:
       - .env
@@ -826,8 +826,6 @@ services:
       - ENABLE_GRAPH_RAG=${ENABLE_GRAPH_RAG:-true}
       - CLEANUP_INTERVAL=86400
       - EMBEDDINGS_MODEL=${EMBEDDINGS_MODEL:-text-embedding-3-large}
-      - MAX_DOCUMENTS_PER_INGEST=${MAX_DOCUMENTS_PER_INGEST:-25}
-      - MAX_INGESTION_CONCURRENCY=${MAX_INGESTION_CONCURRENCY:-10}
     restart: unless-stopped
     env_file: [.env]
     depends_on: [rag-redis]
