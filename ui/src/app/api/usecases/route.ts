@@ -127,9 +127,9 @@ async function getUseCasesFromMongoDB(): Promise<UseCase[]> {
   const client = await getMongoClient();
   try {
     const db = client.db();
-    const collection = db.collection("usecases");
+    const collection = db.collection<UseCase>("usecases");
     const useCases = await collection.find({}).sort({ createdAt: -1 }).toArray();
-    return useCases as UseCase[];
+    return useCases;
   } finally {
     await client.close();
   }
