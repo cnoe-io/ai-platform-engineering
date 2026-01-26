@@ -250,25 +250,7 @@ class GitLabAgent(BaseLangGraphAgent):
 
         error_str = str(underlying_error)
 
-        # Parse common GitLab API errors for better user messages
-        if "404 Not Found" in error_str or "404" in error_str:
-            # Extract project name from URL if possible
-            project_match = re.search(r'/projects/([^/]+/[^/]+)/', error_str)
-            project_name = project_match.group(1) if project_match else "project"
-            return f"Project '{project_name}' not found. Please check the group and project names are correct."
-        elif "401" in error_str or "403" in error_str:
-            return "GitLab authentication failed or insufficient permissions. Please check your GITLAB_TOKEN."
-        elif "rate limit" in error_str.lower() or "429" in error_str:
-            return "GitLab API rate limit exceeded. Please wait a few minutes before trying again."
-        elif "timeout" in error_str.lower() or "timed out" in error_str.lower():
-            return f"GitLab API request timed out for {tool_name}. The server may be slow or overloaded. Please try again."
-        elif "connection" in error_str.lower() or "connect" in error_str.lower():
-            return f"Failed to connect to GitLab API for {tool_name}. Please check your network connection."
-        elif "unhandled errors in a TaskGroup" in error_str:
-            # Generic TaskGroup error without specific cause
-            return f"GitLab API request failed for {tool_name}. The API may be temporarily unavailable. Please try again."
-        else:
-            return f"Error executing {tool_name}: {error_str}"
+        return f"Error executing {tool_name}: {error_str}"
 
     async def stream(
         self, query: str, sessionId: str, trace_id: str = None
