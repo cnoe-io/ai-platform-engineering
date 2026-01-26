@@ -9,6 +9,10 @@ spec:
   replicas: {{ .Values.replicaCount }}
   {{- end }}
   revisionHistoryLimit: {{ .Values.revisionHistoryLimit }}
+  {{- if .Values.persistence.enabled }}
+  strategy:
+    type: Recreate
+  {{- end }}
   selector:
     matchLabels:
       {{- include "rag-redis.selectorLabels" . | nindent 6 }}
@@ -41,6 +45,12 @@ spec:
           {{- end }}
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
+          {{- if .Values.persistence.enabled }}
+          lifecycle:
+            preStop:
+              exec:
+                command: ["redis-cli", "SHUTDOWN", "SAVE"]
+          {{- end }}
           command:
             - redis-server
             - --appendonly

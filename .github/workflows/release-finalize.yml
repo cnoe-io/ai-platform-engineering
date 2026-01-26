@@ -55,7 +55,6 @@ jobs:
             "[CI][MCP] Sub-Agents MCP Docker Build and Push"
             "[CI][A2A] CAIPE RAG Build and Push"
             "[CI][A2A] Supervisor Agent Docker Build and Push"
-            "[CI][AgentForge] Build and Push"
           )
 
           ALL_PASSED=true

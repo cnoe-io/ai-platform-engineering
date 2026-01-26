@@ -136,49 +136,88 @@ Closes #789
 Signed-off-by: Sri Aradhyula <sraradhy@cisco.com>
 ```
 
-## Architecture Decision Records (ADRs)
+## Documentation: Spec Kit vs ADRs
 
-### Location
+This project uses **two complementary documentation systems**:
+
+| System | Location | Purpose | Lifecycle |
+|--------|----------|---------|-----------|
+| **Spec Kit** | `.specify/specs/` | Planning & tracking active work | Living document, updated as work progresses |
+| **ADRs** | `docs/docs/changes/` | Decision rationale for posterity | Immutable once decision is made |
+
+### When to Use Spec Kit (Primary)
+
+**Spec Kit is the PRIMARY documentation for most changes.**
+
+✅ **Create a Spec for:**
+- New features (agents, MCP tools, UI features)
+- Bug fixes with implementation phases
+- Performance improvements
+- Multi-agent orchestration changes
+- Any work with acceptance criteria to track
+
+Specs track: WHAT we're building, HOW we're building it, STATUS of each phase
+
+### When to Use ADRs (Significant Decisions Only)
+
+**ADRs are for significant architectural decisions that need permanent historical record.**
+
+✅ **Create an ADR ONLY when:**
+- The decision has **lasting architectural impact**
+- Multiple alternatives were considered with **significant tradeoffs**
+- Future developers will ask **"why did we do it this way?"**
+- The decision affects **multiple components or teams**
+
+Examples requiring ADRs:
+- Choosing A2A protocol over alternatives
+- Adopting counter-based vs event-based streaming
+- Selecting pagination strategy for OOM protection
+
+❌ **Don't create ADR for:**
+- Standard bug fixes (use Spec Kit instead)
+- Minor optimizations
+- Dependency updates
+- Configuration changes
+
+### ADR Location
 
 **ALL ADRs MUST be created in**: `docs/docs/changes/`
 
 ```
 ai-platform-engineering/
-├── ai_platform_engineering/     # Source code
 ├── docs/
 │   └── docs/
 │       └── changes/            ← ADRs go here
-│           ├── .cursorrules
-│           ├── README.md
-│           └── YYYY-MM-DD-title.md
+│           ├── YYYY-MM-DD-title.md
 ```
 
-### Creating ADRs
+### Decision Flow
 
-When implementing significant changes:
-
-1. **Create ADR file** in `docs/docs/changes/`
-2. **Follow naming**: `YYYY-MM-DD-descriptive-title.md`
-3. **Use ADR template** from `.cursorrules` in that directory
-4. **Verify status**: Only mark 🟢 In-use if feature is deployed
-5. **Update README**: Add entry to `docs/docs/changes/README.md`
-
-### What Requires an ADR
-
-✅ Create ADR for:
-- Architecture changes (multi-agent system, supervisor pattern)
-- A2A protocol implementations/changes
-- MCP server implementations
-- Performance optimizations (OOM protection, pagination)
-- LLM agent design decisions
-- Context management strategies
-- New agent implementations
-
-❌ Don't create ADR for:
-- Minor bug fixes
-- Dependency updates
-- Code formatting
-- Configuration tweaks
+```
+New Work Item
+     │
+     ▼
+┌────────────────────┐
+│ Create Spec in     │  ← ALWAYS do this first
+│ .specify/specs/    │
+└────────────────────┘
+     │
+     ▼
+┌────────────────────────────────────┐
+│ Does this involve a significant    │
+│ architectural decision with        │
+│ lasting impact and tradeoffs?      │
+└────────────────────────────────────┘
+     │                    │
+    YES                  NO
+     │                    │
+     ▼                    ▼
+┌──────────────┐    ┌──────────────┐
+│ Also create  │    │ Spec is      │
+│ ADR in docs/ │    │ sufficient   │
+│ docs/changes │    │              │
+└──────────────┘    └──────────────┘
+```
 
 ## Code Style
 
@@ -421,6 +460,35 @@ event = TaskArtifactUpdateEvent(
 - Cache expensive operations
 - Batch similar requests
 
+## Spec Kit Usage
+
+**Location**: `.specify/specs/`
+
+### Creating a Spec
+
+1. Copy template: `.specify/templates/spec.md`
+2. Create file: `.specify/specs/<feature-name>.md`
+3. Fill in: Overview, Motivation, Design, Acceptance Criteria
+4. Link to: Related Issues, PRs (and ADR if one exists)
+5. **Update as work progresses** - mark acceptance criteria done
+
+### Spec Naming Convention
+
+- `multi-agent-synthesis.md` - Multi-agent features
+- `argocd-pagination.md` - Agent-specific features
+- `streaming-protocol.md` - Protocol changes
+- `ui-chat-interface.md` - UI features
+
+### Spec Kit Structure
+
+```
+.specify/
+├── memory/constitution.md    # Project principles (read-only)
+├── specs/                    # Feature specifications (create here)
+├── templates/spec.md         # Template for new specs
+└── scripts/                  # Automation scripts
+```
+
 ## Code Review Checklist
 
 Before submitting PR:
@@ -431,7 +499,8 @@ Before submitting PR:
 - [ ] Code formatted with Black
 - [ ] No Ruff linting errors
 - [ ] Type hints added
-- [ ] ADR created/updated in `docs/docs/changes/` (if applicable)
+- [ ] **Spec created/updated in `.specify/specs/`** (for any non-trivial change)
+- [ ] ADR created in `docs/docs/changes/` (only for significant architectural decisions)
 - [ ] Docstrings added for agents/tools
 - [ ] Performance impact considered
 - [ ] Memory usage tested
@@ -498,6 +567,7 @@ For questions:
 **Remember**:
 - ✅ Use conventional commits
 - ✅ Always sign off with DCO (`-s`)
-- ✅ Write ADRs in `docs/docs/changes/`
+- ✅ **Create/update Spec in `.specify/specs/`** (primary documentation)
+- ✅ Create ADR in `docs/docs/changes/` (only for significant architectural decisions)
 - ✅ Test agents before committing
 - ✅ Consider memory and performance impact
