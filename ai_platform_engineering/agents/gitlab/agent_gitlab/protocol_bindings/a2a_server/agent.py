@@ -14,7 +14,6 @@ and file operations that require shell command execution.
 
 import logging
 import os
-import re
 from typing import Dict, Any, Literal, AsyncIterable
 from dotenv import load_dotenv
 from pydantic import BaseModel
