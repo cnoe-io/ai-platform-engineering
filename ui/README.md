@@ -189,10 +189,12 @@ Pre-built scenarios for common platform engineering tasks:
 - **Animations**: Framer Motion
 - **Markdown**: react-markdown with syntax highlighting (Prism)
 - **Graph Visualization**: Sigma.js (@react-sigma/core)
-- **A2A Protocol**: Custom implementation (not using @a2a-js/sdk)
+- **A2A Protocol**: Using @a2a-js/sdk via A2ASDKClient wrapper
 - **A2UI Widgets**: Custom implementation following A2UI spec
 
-**Note**: While CopilotKit and AG-UI libraries are installed in package.json for reference, the UI uses custom implementations following the A2UI and AG-UI specifications.
+**Note**: 
+- **A2A SDK**: Uses official `@a2a-js/sdk` (v0.3.9+) via `A2ASDKClient` wrapper for agent communication
+- **CopilotKit & AG-UI**: Installed for reference, but UI uses custom widget implementations following A2UI and AG-UI specifications
 
 ### Building
 

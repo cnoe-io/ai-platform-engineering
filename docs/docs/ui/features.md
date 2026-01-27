@@ -463,9 +463,10 @@ The CAIPE UI follows an **implementation-over-library** approach for key protoco
 
 #### A2A Protocol
 - **Specification**: Google's Agent-to-Agent protocol
-- **Implementation**: Custom `A2AClient` class
-- **Why Custom**: Tailored for CAIPE's specific needs, full control over streaming, error handling, and retry logic
-- **Not using**: `@a2a-js/sdk` (installed for future compatibility)
+- **Implementation**: Official `@a2a-js/sdk` (v0.3.9+) via `A2ASDKClient` wrapper
+- **Why SDK**: Standards-compliant, maintained by A2A community, full protocol support
+- **Wrapper Benefits**: Tailored for CAIPE's UI needs while maintaining SDK compatibility
+- **Location**: `ui/src/lib/a2a-sdk-client.ts`
 
 #### A2UI & AG-UI
 - **Specifications**: A2UI declarative UI spec, AG-UI interaction patterns
