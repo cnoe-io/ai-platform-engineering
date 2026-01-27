@@ -1,9 +1,9 @@
 # ADR: Agent Executor Simplification Refactor
 
-**Status**: 🟡 In-review
-**Category**: Refactoring & Code Quality
-**Date**: January 16, 2026
-**Signed-off-by**: Sri Aradhyula <sraradhy@cisco.com>
+**Status**: 🟡 In-review  
+**Category**: Refactoring & Code Quality  
+**Date**: January 16, 2026  
+**Signed-off-by**: Sri Aradhyula &lt;sraradhy@cisco.com&gt;
 
 ## Overview / Summary
 

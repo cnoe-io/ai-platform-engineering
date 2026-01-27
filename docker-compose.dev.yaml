@@ -754,6 +754,60 @@ services:
       - all-agents
 
   ####################################################################################################
+  #                                      CAIPE UI                                                    #
+  ####################################################################################################
+  # CAIPE UI - A2A Message Visualizer with 3-panel layout
+  # Features: Chat history, Chat UI with final output, A2A message stream visualization
+  # Includes Use Cases gallery inspired by ag-ui composer
+  #
+  # Build: Uses build/Dockerfile.caipe-ui (Next.js standalone with Node.js server)
+  #
+  # Configuration:
+  #   CAIPE_URL: URL of the CAIPE supervisor A2A endpoint
+  #   - Default (dev): http://localhost:8000
+  #   - Default (docker): http://caipe-supervisor:8000
+  #   - Override with: CAIPE_URL=http://your-host:port
+  caipe-ui:
+    build:
+      context: .
+      dockerfile: build/Dockerfile.caipe-ui
+    container_name: caipe-ui
+    ports: ["3000:3000"]
+    env_file:
+      - .env
+    environment:
+      - NODE_ENV=production
+      # CAIPE supervisor A2A endpoint URL
+      # Can be overridden with CAIPE_URL environment variable
+      - NEXT_PUBLIC_CAIPE_URL=${CAIPE_URL:-http://localhost:8000}
+      - CAIPE_URL=${CAIPE_URL:-http://localhost:8000}
+      # RAG Server URL for knowledge base API (internal Docker network)
+      - RAG_SERVER_URL=${RAG_SERVER_URL:-http://rag_server:9446}
+      - NEXT_PUBLIC_RAG_URL=${RAG_URL:-http://localhost:9446}
+      # RAG WebUI URL for iframe embedding (browser-accessible)
+      - NEXT_PUBLIC_RAG_WEBUI_URL=${RAG_WEBUI_URL:-http://localhost:9447}
+      # NextAuth configuration (required for production)
+      # Generate a secret with: openssl rand -base64 32
+      - NEXTAUTH_SECRET=${NEXTAUTH_SECRET:-caipe-dev-secret-change-in-production}
+      - NEXTAUTH_URL=${NEXTAUTH_URL:-http://localhost:3000}
+      # SSO Configuration - reads from .env file
+      # Map OIDC_* variables from .env to CAIPE_UI_OIDC_* expected by the app
+      - CAIPE_UI_OIDC_ENABLED=${OIDC_ENABLED:-false}
+      - CAIPE_UI_OIDC_CLIENT_ID=${OIDC_CLIENT_ID:-}
+      - CAIPE_UI_OIDC_CLIENT_SECRET=${OIDC_CLIENT_SECRET:-}
+      - CAIPE_UI_OIDC_ISSUER=${OIDC_ISSUER:-}
+    depends_on:
+      - caipe-supervisor
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    profiles:
+      - caipe-ui
+
+  ####################################################################################################
   #                                      RAG Services                                                #
   ####################################################################################################
   rag_server:
@@ -823,6 +877,52 @@ services:
     depends_on: [rag_server]
     profiles:
       - rag
+      - graph_rag
+
+  # Dummy Graph Ingestor - for testing graph RAG with sample data
+  # Requires RAG services to be running first: docker compose -f docker-compose.dev.yaml --profile graph_rag up -d
+  # Then run: docker compose -f docker-compose.dev.yaml --profile dummy-ingestor up --build dummy-graph-ingestor
+  dummy-graph-ingestor:
+    build:
+      context: ./ai_platform_engineering/knowledge_bases/rag
+      dockerfile: ./build/Dockerfile.ingestors
+    image: dummy-graph-ingestor:local
+    container_name: dummy-ingestor
+    environment:
+      - RAG_SERVER_URL=http://rag_server:9446
+      - INGESTOR_TYPE=test_dummy_graph
+      - DUMMY_ENTITIES_FILE=/app/data/dummy_entities.json
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    volumes:
+      - ./ai_platform_engineering/knowledge_bases/rag/tests/rag_graph_test:/app/data:ro
+    profiles:
+      - dummy-ingestor
+
+  backstage_ingestor:
+    build:
+      context: ./ai_platform_engineering/knowledge_bases/rag
+      dockerfile: ./build/Dockerfile.ingestors
+    container_name: backstage-ingestor
+    volumes:
+      - ./ai_platform_engineering/knowledge_bases/rag/ingestors/src/ingestors:/app/ingestors/src/ingestors
+      - ./ai_platform_engineering/knowledge_bases/rag/common/src/common:/app/common/src/common
+    environment:
+      - INGESTOR_TYPE=backstage
+      - BACKSTAGE_URL=${BACKSTAGE_URL}
+      - BACKSTAGE_API_TOKEN=${BACKSTAGE_API_TOKEN}
+      - RAG_SERVER_URL=http://rag_server:9446
+      - SYNC_INTERVAL=${BACKSTAGE_SYNC_INTERVAL:-86400}
+      - INIT_DELAY_SECONDS=${BACKSTAGE_INIT_DELAY_SECONDS:-0}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - EXIT_AFTER_FIRST_SYNC=${BACKSTAGE_EXIT_AFTER_FIRST_SYNC:-false}
+      - MAX_DOCUMENTS_PER_INGEST=${BACKSTAGE_MAX_DOCUMENTS_PER_INGEST:-25}
+      - MAX_INGESTION_CONCURRENCY=${BACKSTAGE_MAX_INGESTION_CONCURRENCY:-10}
+      - IGNORE_TYPES=${BACKSTAGE_IGNORE_TYPES:-api,component,domain,group,location,system,template,user}
+    env_file: [.env]
+    restart: unless-stopped
+    depends_on: [rag_server]
+    profiles:
+      - backstage-ingestor
       - graph_rag
 
   # RAG Dependencies
