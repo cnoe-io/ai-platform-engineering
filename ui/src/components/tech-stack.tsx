@@ -11,16 +11,19 @@ interface TechItem {
   description: string;
   url: string;
   logo?: string;
-  category: "platform" | "protocol" | "framework" | "community";
+  category: "platform" | "protocol" | "frontend" | "backend" | "community";
 }
 
 const techStack: TechItem[] = [
+  // Platform
   {
     name: "CAIPE",
     description: "Community AI Platform Engineering - Multi-Agent System for Platform Engineers",
     url: "https://caipe.io",
     category: "platform",
   },
+  
+  // Protocols
   {
     name: "A2A Protocol",
     description: "Agent-to-Agent protocol for inter-agent communication (by Google)",
@@ -34,49 +37,105 @@ const techStack: TechItem[] = [
     category: "protocol",
   },
   {
-    name: "AG-UI",
-    description: "Agent-User Interaction Protocol for real-time AI experiences (by CopilotKit)",
-    url: "https://docs.ag-ui.com/",
+    name: "MCP",
+    description: "Model Context Protocol for AI tool integration (by Anthropic)",
+    url: "https://modelcontextprotocol.io/",
     category: "protocol",
   },
+  
+  // Frontend Stack
   {
-    name: "CopilotKit",
-    description: "Framework for building AI copilot experiences in React applications",
-    url: "https://docs.copilotkit.ai/",
-    category: "framework",
+    name: "Next.js 15",
+    description: "React framework with App Router and Server Components",
+    url: "https://nextjs.org/",
+    category: "frontend",
   },
+  {
+    name: "React 19",
+    description: "JavaScript library for building user interfaces",
+    url: "https://react.dev/",
+    category: "frontend",
+  },
+  {
+    name: "TypeScript",
+    description: "Typed superset of JavaScript for better developer experience",
+    url: "https://www.typescriptlang.org/",
+    category: "frontend",
+  },
+  {
+    name: "Tailwind CSS",
+    description: "Utility-first CSS framework for rapid UI development",
+    url: "https://tailwindcss.com/",
+    category: "frontend",
+  },
+  {
+    name: "Radix UI",
+    description: "Unstyled, accessible UI components for React",
+    url: "https://www.radix-ui.com/",
+    category: "frontend",
+  },
+  {
+    name: "Zustand",
+    description: "Lightweight state management for React applications",
+    url: "https://zustand-demo.pmnd.rs/",
+    category: "frontend",
+  },
+  {
+    name: "Framer Motion",
+    description: "Production-ready animation library for React",
+    url: "https://www.framer.com/motion/",
+    category: "frontend",
+  },
+  {
+    name: "Sigma.js",
+    description: "JavaScript library for graph visualization and analysis",
+    url: "https://www.sigmajs.org/",
+    category: "frontend",
+  },
+  {
+    name: "NextAuth.js",
+    description: "Authentication for Next.js applications with OAuth 2.0 support",
+    url: "https://next-auth.js.org/",
+    category: "frontend",
+  },
+  
+  // Backend Stack
+  {
+    name: "LangGraph",
+    description: "Framework for building stateful, multi-actor applications with LLMs",
+    url: "https://langchain-ai.github.io/langgraph/",
+    category: "backend",
+  },
+  {
+    name: "Python 3.11+",
+    description: "Backend agent implementation with asyncio support",
+    url: "https://www.python.org/",
+    category: "backend",
+  },
+  
+  // Community
   {
     name: "CNOE",
     description: "Cloud Native Operational Excellence - Open source IDP reference implementations",
     url: "https://cnoe.io/",
     category: "community",
   },
-  {
-    name: "LangGraph",
-    description: "Framework for building stateful, multi-actor applications with LLMs",
-    url: "https://langchain-ai.github.io/langgraph/",
-    category: "framework",
-  },
-  {
-    name: "MCP",
-    description: "Model Context Protocol for AI tool integration (by Anthropic)",
-    url: "https://modelcontextprotocol.io/",
-    category: "protocol",
-  },
 ];
 
 const categoryLabels: Record<TechItem["category"], string> = {
   platform: "Platform",
   protocol: "Protocols",
-  framework: "Frameworks",
+  frontend: "Frontend",
+  backend: "Backend",
   community: "Community",
 };
 
 const categoryColors: Record<TechItem["category"], string> = {
   platform: "from-[hsl(173,80%,40%)] to-[hsl(173,80%,30%)]",
   protocol: "from-purple-500 to-purple-600",
-  framework: "from-amber-500 to-amber-600",
-  community: "from-blue-500 to-blue-600",
+  frontend: "from-blue-500 to-blue-600",
+  backend: "from-orange-500 to-orange-600",
+  community: "from-green-500 to-green-600",
 };
 
 interface TechStackButtonProps {
@@ -148,7 +207,7 @@ export function TechStackButton({ variant = "floating" }: TechStackButtonProps) 
 
             {/* Content */}
             <div className="p-2 max-h-[50vh] overflow-y-auto">
-              {(["platform", "protocol", "framework", "community"] as const).map((category) => (
+              {(["platform", "protocol", "frontend", "backend", "community"] as const).map((category) => (
                 grouped[category] && (
                   <div key={category} className="mb-3 last:mb-0">
                     <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider px-2 mb-1">
