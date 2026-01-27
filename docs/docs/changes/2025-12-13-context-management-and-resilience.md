@@ -252,8 +252,8 @@ All new agents using `BaseLangGraphAgent` automatically get:
 
 - **Pre-flight check**: ~10ms (token counting only when approaching limit)
 - **LangMem summarization**: ~2-5s (calls LLM once to summarize)
-- **Tool output truncation**: <1ms (string operations)
-- **Queue tracking**: <1ms (boolean flag check)
+- **Tool output truncation**: &lt;1ms (string operations)
+- **Queue tracking**: &lt;1ms (boolean flag check)
 
 ### Benefits
 
@@ -310,7 +310,7 @@ All new agents using `BaseLangGraphAgent` automatically get:
 
 ## Author
 
-Sri Aradhyula <sraradhy@cisco.com>
+Sri Aradhyula &lt;sraradhy@cisco.com&gt;
 
 ## Reviewers
 
