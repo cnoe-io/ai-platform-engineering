@@ -33,10 +33,10 @@ npm run dev
 CAIPE_URL=http://my-caipe:8000 npm run dev
 
 # Docker - uses internal service name
-docker compose -f docker-compose.dev.yaml --profile ui up
+COMPOSE_PROFILES=caipe-ui docker compose -f docker-compose.dev.yaml up
 
 # Docker - custom endpoint
-CAIPE_URL=http://custom-supervisor:8000 docker compose -f docker-compose.dev.yaml --profile ui up
+CAIPE_URL=http://custom-supervisor:8000 COMPOSE_PROFILES=caipe-ui docker compose -f docker-compose.dev.yaml up
 ```
 
 #### Application Settings
@@ -259,35 +259,47 @@ SKIP_AUTH=false
 
 ### Docker Compose
 
-The UI is included in `docker-compose.dev.yaml`:
+The UI is included in `docker-compose.dev.yaml` under the `caipe-ui` profile:
 
 ```yaml
 services:
   caipe-ui:
     build:
-      context: ./ui
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: build/Dockerfile.caipe-ui
+    container_name: caipe-ui
     ports:
-      - "3001:3000"
+      - "3000:3000"
     environment:
-      - CAIPE_URL=http://caipe-supervisor:8000
+      - NODE_ENV=production
+      - CAIPE_URL=${CAIPE_URL:-http://caipe-supervisor:8000}
       - NEXTAUTH_SECRET=${NEXTAUTH_SECRET}
       - SKIP_AUTH=${SKIP_AUTH:-false}
       - USECASE_STORAGE_TYPE=${USECASE_STORAGE_TYPE:-file}
     profiles:
-      - ui
+      - caipe-ui
     depends_on:
       - caipe-supervisor
 ```
 
-**Start with Docker Compose**:
+**Start with Make** (Recommended):
 
 ```bash
-# Start UI only
-COMPOSE_PROFILES="ui" docker compose -f docker-compose.dev.yaml up
+# Run UI with Docker Compose (includes supervisor)
+make caipe-ui-docker-compose
+```
 
-# Start everything
-COMPOSE_PROFILES="all-agents,ui" docker compose -f docker-compose.dev.yaml up
+**Or with Docker Compose directly**:
+
+```bash
+# Using environment variable (recommended)
+COMPOSE_PROFILES=caipe-ui docker compose -f docker-compose.dev.yaml up
+
+# Or using --profile flag
+docker compose -f docker-compose.dev.yaml --profile caipe-ui up
+
+# Start everything (all agents + UI)
+COMPOSE_PROFILES="all-agents,caipe-ui" docker compose -f docker-compose.dev.yaml up
 ```
 
 ### Standalone Docker

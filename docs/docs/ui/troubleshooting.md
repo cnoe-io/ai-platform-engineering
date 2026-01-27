@@ -151,7 +151,9 @@ module.exports = {
 cat ui/.env.local | grep NEXTAUTH
 
 # Should match where UI is running:
-# NEXTAUTH_URL=http://localhost:3000
+# Local dev: NEXTAUTH_URL=http://localhost:3000
+# Docker: NEXTAUTH_URL=http://localhost:3000
+# Production: NEXTAUTH_URL=https://ui.example.com
 ```
 
 2. **Verify NEXTAUTH_SECRET is set:**
