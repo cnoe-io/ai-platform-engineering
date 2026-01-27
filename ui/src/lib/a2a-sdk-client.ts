@@ -271,6 +271,12 @@ export class A2ASDKClient {
       }
     }
 
+    // If no text content from artifacts, create a meaningful default message
+    if (!textContent) {
+      const status = task.status?.state || "unknown";
+      textContent = `Task ${status} (ID: ${task.id.substring(0, 8)}...)`;
+    }
+
     const isFinal = task.status?.state === "completed";
 
     return {
@@ -291,10 +297,16 @@ export class A2ASDKClient {
   private parseStatusEvent(event: TaskStatusUpdateEvent, eventNum: number): ParsedA2AEvent {
     console.log(`[A2A SDK] #${eventNum} STATUS: ${event.status?.state} final=${event.final}`);
 
+    // Create meaningful display content for status updates
+    const state = event.status?.state || "unknown";
+    const finalText = event.final ? " (final)" : "";
+    const taskIdShort = event.taskId ? ` - Task: ${event.taskId.substring(0, 8)}...` : "";
+    const displayContent = `Status: ${state}${finalText}${taskIdShort}`;
+
     return {
       raw: event,
       type: "status",
-      displayContent: "",
+      displayContent,
       isFinal: event.final === true || event.status?.state === "completed",
       shouldAppend: false,
       contextId: event.contextId,
