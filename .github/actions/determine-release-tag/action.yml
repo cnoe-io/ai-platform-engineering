@@ -35,8 +35,11 @@ runs:
         done
 
         if [ -z "$RUN_ID" ]; then
-          echo "❌ Could not find rc-tag.yml run for this commit"
-          exit 1
+          echo "⚠️  No rc-tag.yml run found for this commit"
+          echo "📝 This is expected for documentation-only or non-release changes"
+          echo "🏷️  Will build with 'latest' tag instead of RC tag"
+          echo "tag=" >> $GITHUB_OUTPUT
+          exit 0
         fi
 
         echo "⏳ Waiting for workflow run $RUN_ID to complete..."
