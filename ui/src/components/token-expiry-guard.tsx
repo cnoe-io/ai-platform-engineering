@@ -57,6 +57,25 @@ export function TokenExpiryGuard() {
       return; // Not authenticated
     }
 
+    // Check if token refresh failed
+    if (session.error === "RefreshTokenExpired" || session.error === "RefreshTokenError") {
+      console.error(`[TokenExpiryGuard] Token refresh failed: ${session.error}`);
+      setShowWarning(false);
+      setShowExpired(true);
+      
+      // Stop checking
+      if (checkIntervalRef.current) {
+        clearInterval(checkIntervalRef.current);
+        checkIntervalRef.current = null;
+      }
+
+      // Auto-redirect after 5 seconds
+      setTimeout(() => {
+        handleLogout();
+      }, 5000);
+      return;
+    }
+
     // Get expiresAt from session (NextAuth JWT)
     const expiresAt = session.user as unknown as { expiresAt?: number };
     const tokenExpiresAt = expiresAt?.expiresAt;
