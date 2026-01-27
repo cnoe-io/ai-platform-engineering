@@ -55,6 +55,80 @@ The server will be available at `http://localhost:9446`
 
 ## Configuration
 
+### RBAC/Authentication Settings
+
+The server supports role-based access control (RBAC) (currently integrated with OAuth2Proxy):
+
+```bash
+# Allow unauthenticated requests (for service-to-service communication)
+# When enabled, requests without OAuth2Proxy headers default to ADMIN role
+ALLOW_UNAUTHENTICATED=true
+
+# Group-to-role mappings (comma-separated group names)
+RBAC_READONLY_GROUPS=viewers,analysts
+RBAC_INGESTONLY_GROUPS=data-engineers,etl
+RBAC_ADMIN_GROUPS=admins,platform-team
+
+# Default role for authenticated users not in any configured group
+RBAC_DEFAULT_ROLE=readonly
+```
+
+#### Role Hierarchy
+
+The system defines three hierarchical roles:
+
+| Role | Level | Permissions |
+|------|-------|-------------|
+| **READONLY** | 1 | View all data, query documents, explore graphs |
+| **INGESTONLY** | 2 | READONLY + ingest data, manage ingestion jobs |
+| **ADMIN** | 3 | INGESTONLY + delete resources, bulk operations, ontology management |
+
+Higher roles inherit all permissions from lower roles.
+
+#### OAuth2Proxy Integration
+
+When OAuth2Proxy is deployed in front of the server, it sets these headers:
+
+- `X-Forwarded-Email`: User's email address
+- `X-Forwarded-Groups`: Comma-separated list of groups
+
+The server determines the user's role based on group membership:
+
+1. If user belongs to any `RBAC_ADMIN_GROUPS` → **ADMIN** role
+2. Else if user belongs to any `RBAC_INGESTONLY_GROUPS` → **INGESTONLY** role
+3. Else if user belongs to any `RBAC_READONLY_GROUPS` → **READONLY** role
+4. Else → Use `RBAC_DEFAULT_ROLE`
+
+#### Unauthenticated Access
+
+When `ALLOW_UNAUTHENTICATED=true`:
+- Requests WITHOUT X-Forwarded auth headers (e.g., from ingestors, internal services) default to **ADMIN** role
+- Useful for service-to-service communication within Kubernetes clusters
+
+When `ALLOW_UNAUTHENTICATED=false`:
+- All requests must have valid OAuth2Proxy headers
+- Unauthenticated requests receive HTTP 401
+
+#### User Info Endpoint
+
+The UI can call `GET /v1/user/info` to retrieve the current user's role and permissions:
+
+```json
+{
+  "email": "user@example.com",
+  "role": "ingestonly",
+  "is_authenticated": true,
+  "groups": ["data-engineers", "viewers"],
+  "permissions": {
+    "can_read": true,
+    "can_ingest": true,
+    "can_delete": false
+  }
+}
+```
+
+Use this endpoint to show/hide UI features based on user permissions.
+
 ### Core Connection Settings
 
 ```bash

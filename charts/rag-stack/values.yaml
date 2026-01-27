@@ -81,6 +81,16 @@ rag-server:
   sleepOnInitFailureSeconds: 180    # SLEEP_ON_INIT_FAILURE_SECONDS - how long to wait if init fails
   cleanupInterval: 86400            # CLEANUP_INTERVAL (24 hours) - cleans up stale data in databases
 
+  # RBAC/Authentication Configuration
+  # Configure when using OAuth2 Proxy for authentication
+  # Server enforces RBAC based on headers passed from OAuth2 Proxy (X-Forwarded-Groups)
+  rbac:
+    allowUnauthenticated: true        # ALLOW_UNAUTHENTICATED - allow access without authentication
+    readonlyGroups: ""                # RBAC_READONLY_GROUPS - comma-separated group names with read-only access
+    ingestonlyGroups: ""              # RBAC_INGESTONLY_GROUPS - comma-separated group names with ingest-only access
+    adminGroups: ""                   # RBAC_ADMIN_GROUPS - comma-separated group names with admin access
+    defaultRole: "readonly"           # RBAC_DEFAULT_ROLE - default role when user doesn't match any group
+
   # Web Ingestor sidecar configuration
   webIngestor:
     enabled: true
@@ -193,7 +203,7 @@ rag-webui:
   podAnnotations: {}
 
   ingress:
-    enabled: true
+    enabled: true  # IMPORTANT: Set to false when oauth2-proxy.enabled is true
     className: ""
     annotations: {}
     hosts:
@@ -210,6 +220,63 @@ rag-webui:
     limits:
       cpu: 500m
       memory: 512Mi
+
+# OAuth2 Proxy configuration for authentication
+# When enabled, provides OIDC/OAuth2 authentication for RAG WebUI
+# IMPORTANT: When enabling oauth2-proxy, set rag-webui.ingress.enabled to false
+oauth2-proxy:
+  enabled: false
+  
+  config:
+    # OAuth credentials - MUST be configured when enabled
+    # Can use existingSecret instead of storing values here
+    clientID: ""
+    clientSecret: ""
+    cookieSecret: ""  # Generate with: openssl rand -base64 32 | head -c 32 | base64
+    
+    # Email domains allowed to authenticate
+    configFile: |-
+      email_domains = [ "*" ]
+      reverse_proxy = true
+      upstreams = [ "http://rag-webui:80" ]
+      whitelist_domains = [".local", "localhost"]
+      pass_user_headers = true
+      scope = "openid email profile groups"
+    
+  # Additional OAuth2 Proxy arguments
+  extraArgs:
+    provider: "oidc"
+    oidc-issuer-url: ""  # REQUIRED: Your OIDC provider URL (e.g., https://sso.example.com/oidc/CLIENT_ID)
+    oidc-groups-claim: "groups"  # Header claim for group membership
+    cookie-domain: ""  # Optional: Set to your domain (e.g., .example.com)
+    cookie-secure: "false"  # Set to "true" in production with HTTPS
+    
+  # Service configuration
+  service:
+    type: ClusterIP
+    port: 80
+    
+  # Ingress for OAuth2 Proxy (this becomes the main entry point when enabled)
+  # Note: Disable rag-webui.ingress.enabled when using OAuth2 Proxy
+  ingress:
+    enabled: false
+    className: ""
+    annotations: {}
+    hosts:
+      - host: rag-webui.local
+        paths:
+          - path: /
+            pathType: Prefix
+    tls: []
+    
+  # Resource limits
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
 
 neo4j:
   enabled: true

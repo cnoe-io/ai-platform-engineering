@@ -4,7 +4,7 @@ import traceback
 import uuid
 from urllib.parse import urlparse
 from common import utils
-from fastapi import FastAPI, status, HTTPException, Query
+from fastapi import FastAPI, status, HTTPException, Query, Depends
 from fastapi.responses import JSONResponse
 from fastapi.encoders import jsonable_encoder
 from fastmcp import FastMCP
@@ -33,6 +33,8 @@ from common.models.server import (
     ConfluenceReloadRequest
 )
 from common.models.rag import DataSourceInfo, IngestorInfo, valid_metadata_keys
+from common.models.rbac import Role, UserContext, UserInfoResponse
+from server.rbac import get_current_user, require_role, has_permission
 from common.graph_db.neo4j.graph_db import Neo4jDB
 from common.graph_db.base import GraphDB
 from common.constants import (
@@ -244,11 +246,81 @@ def generate_ingestor_id(ingestor_name: str, ingestor_type: str) -> str:
 
 
 # ============================================================================
+# User Info Endpoint
+# ============================================================================
+
+@app.get(
+    "/v1/user/info",
+    response_model=UserInfoResponse,
+    tags=["Authentication"],
+    summary="Get current user information",
+    description="""
+    Retrieve the current user's authentication status, role, and permissions.
+    
+    This endpoint is used by the UI to:
+    - Display the logged-in user's email and role
+    - Show/hide features based on role-based permissions
+    - Enable/disable action buttons based on what the user can do
+    
+    **No specific role required** - any authenticated user (or unauthenticated if 
+    ALLOW_UNAUTHENTICATED is enabled) can access their own information.
+    
+    **Permissions explained:**
+    - `can_read`: Can query and view data (READONLY, INGESTONLY, ADMIN)
+    - `can_ingest`: Can ingest new data and manage ingestion jobs (INGESTONLY, ADMIN)
+    - `can_delete`: Can delete resources and perform bulk operations (ADMIN only)
+    """,
+    responses={
+        200: {
+            "description": "Successfully retrieved user information",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "email": "user@example.com",
+                        "role": "readonly",
+                        "is_authenticated": True,
+                        "groups": ["engineering", "platform-team"],
+                        "permissions": {
+                            "can_read": True,
+                            "can_ingest": False,
+                            "can_delete": False
+                        }
+                    }
+                }
+            }
+        },
+        401: {
+            "description": "Authentication required but not provided",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "detail": "Authentication required. Please ensure you are logged in through the authentication proxy."
+                    }
+                }
+            }
+        }
+    }
+)
+async def get_user_info(user: UserContext = Depends(get_current_user)):
+    """Get current user's authentication and role information."""
+    return UserInfoResponse(
+        email=user.email,
+        role=user.role,
+        is_authenticated=user.is_authenticated,
+        groups=user.groups,
+        permissions={
+            "can_read": has_permission(user.role, Role.READONLY),
+            "can_ingest": has_permission(user.role, Role.INGESTONLY),
+            "can_delete": has_permission(user.role, Role.ADMIN),
+        }
+    )
+
+# ============================================================================
 # Ingestor Endpoints
 # ============================================================================
 
 @app.get("/v1/ingestors")
-async def list_ingestors():
+async def list_ingestors(user: UserContext = Depends(require_role(Role.READONLY))):
     """
     Lists all ingestors in the database
     """
@@ -259,13 +331,16 @@ async def list_ingestors():
     return JSONResponse(status_code=status.HTTP_200_OK, content=jsonable_encoder(ingestors))
 
 @app.post("/v1/ingestor/heartbeat", response_model=IngestorPingResponse, status_code=status.HTTP_200_OK)
-async def ping_ingestor(ingestor_ping: IngestorPingRequest):
+async def ping_ingestor(
+    ingestor_ping: IngestorPingRequest,
+    user: UserContext = Depends(require_role(Role.INGESTONLY))
+):
     """
     Registers a heartbeat from a ingestor, creating or updating its entry
     """
     if not metadata_storage:
         raise HTTPException(status_code=500, detail="Server not initialized")
-    logger.info(f"Received heartbeat from ingestor: name={ingestor_ping.ingestor_name} type={ingestor_ping.ingestor_type}")
+    logger.info(f"Received heartbeat from ingestor: name={ingestor_ping.ingestor_name} type={ingestor_ping.ingestor_type} (by {user.email})")
     ingestor_id = generate_ingestor_id(ingestor_ping.ingestor_name, ingestor_ping.ingestor_type)
     ingestor_info = IngestorInfo(
         ingestor_id=ingestor_id,
@@ -283,7 +358,10 @@ async def ping_ingestor(ingestor_ping: IngestorPingRequest):
     )
 
 @app.delete("/v1/ingestor/delete")
-async def delete_ingestor(ingestor_id: str):
+async def delete_ingestor(
+    ingestor_id: str,
+    user: UserContext = Depends(require_role(Role.ADMIN))
+):
     """
     Deletes an ingestor from metadata storage, does not delete any associated datasources or data
     """
@@ -298,7 +376,7 @@ async def delete_ingestor(ingestor_id: str):
     if not ingestor_info:
         raise HTTPException(status_code=404, detail="Ingestor not found")
 
-    logger.info(f"Deleting ingestor: {ingestor_id}")
+    logger.warning(f"Deleting ingestor: {ingestor_id} (by {user.email})")
     await metadata_storage.delete_ingestor_info(ingestor_id) # remove metadata
 
 # ============================================================================
@@ -306,7 +384,10 @@ async def delete_ingestor(ingestor_id: str):
 # ============================================================================
 
 @app.post("/v1/datasource", status_code=status.HTTP_202_ACCEPTED)
-async def upsert_datasource(datasource_info: DataSourceInfo):
+async def upsert_datasource(
+    datasource_info: DataSourceInfo,
+    user: UserContext = Depends(require_role(Role.INGESTONLY))
+):
     """Create or update datasource metadata entry."""
     if not metadata_storage:
         raise HTTPException(status_code=500, detail="Server not initialized")
@@ -316,7 +397,10 @@ async def upsert_datasource(datasource_info: DataSourceInfo):
     return status.HTTP_202_ACCEPTED
 
 @app.delete("/v1/datasource", status_code=status.HTTP_200_OK)
-async def delete_datasource(datasource_id: str):
+async def delete_datasource(
+    datasource_id: str,
+    user: UserContext = Depends(require_role(Role.ADMIN))
+):
     """Delete datasource from vector storage and metadata."""
 
     # Check initialization
@@ -354,7 +438,10 @@ async def delete_datasource(datasource_id: str):
     return status.HTTP_200_OK
 
 @app.get("/v1/datasources")
-async def list_datasources(ingestor_id: Optional[str] = None):
+async def list_datasources(
+    ingestor_id: Optional[str] = None,
+    user: UserContext = Depends(require_role(Role.READONLY))
+):
     """List all stored datasources"""
     if not metadata_storage:
         raise HTTPException(status_code=500, detail="Server not initialized")
@@ -375,7 +462,10 @@ async def list_datasources(ingestor_id: Optional[str] = None):
 # Job Endpoints
 # ============================================================================
 @app.get("/v1/job/{job_id}")
-async def get_job(job_id: str):
+async def get_job(
+    job_id: str,
+    user: UserContext = Depends(require_role(Role.READONLY))
+):
     """Get the status of an ingestion job."""
     if not jobmanager:
         raise HTTPException(status_code=500, detail="Server not initialized")
@@ -387,7 +477,11 @@ async def get_job(job_id: str):
     return job_info
 
 @app.get("/v1/jobs/datasource/{datasource_id}")
-async def get_jobs_by_datasource(datasource_id: str, status_filter: Optional[JobStatus] = None):
+async def get_jobs_by_datasource(
+    datasource_id: str,
+    status_filter: Optional[JobStatus] = None,
+    user: UserContext = Depends(require_role(Role.READONLY))
+):
     """Get all jobs for a specific datasource, optionally filtered by status."""
     if not jobmanager:
         raise HTTPException(status_code=500, detail="Server not initialized")
@@ -403,7 +497,9 @@ async def create_job(
     datasource_id: str,
     job_status: Optional[JobStatus] = None,
     message: Optional[str] = None,
-    total: Optional[int] = None):
+    total: Optional[int] = None,
+    user: UserContext = Depends(require_role(Role.INGESTONLY))
+):
     """Create a new job for a datasource."""
     if not jobmanager or not metadata_storage:
         raise HTTPException(status_code=500, detail="Server not initialized")
@@ -436,7 +532,9 @@ async def update_job(
     job_id: str,
     job_status: Optional[JobStatus] = None,
     message: Optional[str] = None,
-    total: Optional[int] = None):
+    total: Optional[int] = None,
+    user: UserContext = Depends(require_role(Role.INGESTONLY))
+):
     """Update an existing job."""
     if not jobmanager:
         raise HTTPException(status_code=500, detail="Server not initialized")
@@ -462,7 +560,10 @@ async def update_job(
     return {"job_id": job_id, "datasource_id": existing_job.datasource_id}
 
 @app.post("/v1/job/{job_id}/terminate", status_code=status.HTTP_200_OK)
-async def terminate_job_endpoint(job_id: str):
+async def terminate_job_endpoint(
+    job_id: str,
+    user: UserContext = Depends(require_role(Role.ADMIN))
+):
     """Terminate an ingestion job."""
     if not jobmanager:
         raise HTTPException(status_code=500, detail="Server not initialized")
@@ -479,7 +580,11 @@ async def terminate_job_endpoint(job_id: str):
     return {"message": f"Job {job_id} has been terminated."}
 
 @app.post("/v1/job/{job_id}/increment-progress")
-async def increment_job_progress(job_id: str, increment: int = 1):
+async def increment_job_progress(
+    job_id: str,
+    increment: int = 1,
+    user: UserContext = Depends(require_role(Role.INGESTONLY))
+):
     """Increment the progress counter for a job."""
     if not jobmanager:
         raise HTTPException(status_code=500, detail="Server not initialized")
@@ -492,7 +597,11 @@ async def increment_job_progress(job_id: str, increment: int = 1):
     return {"job_id": job_id, "progress_counter": new_value}
 
 @app.post("/v1/job/{job_id}/increment-failure")
-async def increment_job_failure(job_id: str, increment: int = 1):
+async def increment_job_failure(
+    job_id: str,
+    increment: int = 1,
+    user: UserContext = Depends(require_role(Role.INGESTONLY))
+):
     """Increment the failure counter for a job."""
     if not jobmanager:
         raise HTTPException(status_code=500, detail="Server not initialized")
@@ -505,7 +614,11 @@ async def increment_job_failure(job_id: str, increment: int = 1):
     return {"job_id": job_id, "failed_counter": new_value}
 
 @app.post("/v1/job/{job_id}/add-errors")
-async def add_job_errors(job_id: str, error_messages: List[str]):
+async def add_job_errors(
+    job_id: str,
+    error_messages: List[str],
+    user: UserContext = Depends(require_role(Role.INGESTONLY))
+):
     """Add error messages to a job."""
     if not jobmanager:
         raise HTTPException(status_code=500, detail="Server not initialized")
@@ -529,7 +642,10 @@ async def add_job_errors(job_id: str, error_messages: List[str]):
 # ============================================================================
 
 @app.post("/v1/query", response_model=List[QueryResult])
-async def query_documents(query_request: QueryRequest):
+async def query_documents(
+    query_request: QueryRequest,
+    user: UserContext = Depends(require_role(Role.READONLY))
+):
     """Query for relevant documents using semantic search in the unified collection."""
 
     # Enforce max results limit
@@ -560,7 +676,10 @@ async def query_documents(query_request: QueryRequest):
 # ============================================================================
 
 @app.post("/v1/ingest/webloader/url", status_code=status.HTTP_202_ACCEPTED)
-async def ingest_url(url_request: UrlIngestRequest):
+async def ingest_url(
+    url_request: UrlIngestRequest,
+    user: UserContext = Depends(require_role(Role.INGESTONLY))
+):
     """Queue a URL for ingestion by the webloader ingestor."""
     if not metadata_storage or not jobmanager:
         raise HTTPException(status_code=500, detail="Server not initialized")
@@ -641,7 +760,10 @@ async def ingest_url(url_request: UrlIngestRequest):
 
 
 @app.post("/v1/ingest/webloader/reload", status_code=status.HTTP_202_ACCEPTED)
-async def reload_url(reload_request: UrlReloadRequest):
+async def reload_url(
+    reload_request: UrlReloadRequest,
+    user: UserContext = Depends(require_role(Role.INGESTONLY))
+):
     """Reloads a previously ingested URL by re-queuing it for ingestion."""
     if not metadata_storage or not jobmanager:
         raise HTTPException(status_code=500, detail="Server not initialized")
@@ -664,7 +786,7 @@ async def reload_url(reload_request: UrlReloadRequest):
     return {"datasource_id": reload_request.datasource_id, "message": "URL reload ingestion request queued"}
 
 @app.post("/v1/ingest/webloader/reload-all", status_code=status.HTTP_202_ACCEPTED)
-async def reload_all_urls():
+async def reload_all_urls(user: UserContext = Depends(require_role(Role.ADMIN))):
     """Reloads all previously ingested URLs by re-queuing them for ingestion."""
     if not metadata_storage or not jobmanager:
         raise HTTPException(status_code=500, detail="Server not initialized")
@@ -683,7 +805,10 @@ async def reload_all_urls():
     return {"message": "Reload all URLs request queued"}
 
 @app.post("/v1/ingest/confluence/page", status_code=status.HTTP_202_ACCEPTED)
-async def ingest_confluence_page(confluence_request: ConfluenceIngestRequest):
+async def ingest_confluence_page(
+    confluence_request: ConfluenceIngestRequest,
+    user: UserContext = Depends(require_role(Role.INGESTONLY))
+):
     """Queue a Confluence page for ingestion by the confluence ingestor."""
     if not metadata_storage or not jobmanager:
         raise HTTPException(status_code=500, detail="Server not initialized")
@@ -821,7 +946,10 @@ async def ingest_confluence_page(confluence_request: ConfluenceIngestRequest):
 
 
 @app.post("/v1/ingest/confluence/reload", status_code=status.HTTP_202_ACCEPTED)
-async def reload_confluence_page(reload_request: ConfluenceReloadRequest):
+async def reload_confluence_page(
+    reload_request: ConfluenceReloadRequest,
+    user: UserContext = Depends(require_role(Role.INGESTONLY))
+):
     """Reloads a previously ingested Confluence page by re-queuing it for ingestion."""
     if not metadata_storage or not jobmanager:
         raise HTTPException(status_code=500, detail="Server not initialized")
@@ -845,7 +973,7 @@ async def reload_confluence_page(reload_request: ConfluenceReloadRequest):
 
 
 @app.post("/v1/ingest/confluence/reload-all", status_code=status.HTTP_202_ACCEPTED)
-async def reload_all_confluence_pages():
+async def reload_all_confluence_pages(user: UserContext = Depends(require_role(Role.ADMIN))):
     """Reloads all previously ingested Confluence pages by re-queuing them for ingestion."""
     if not metadata_storage or not jobmanager:
         raise HTTPException(status_code=500, detail="Server not initialized")
@@ -865,7 +993,10 @@ async def reload_all_confluence_pages():
 
 
 @app.post("/v1/ingest")
-async def ingest_documents(ingest_request: DocumentIngestRequest):
+async def ingest_documents(
+    ingest_request: DocumentIngestRequest,
+    user: UserContext = Depends(require_role(Role.INGESTONLY))
+):
     """Updates/Ingests text and graph data to the appropriate databases"""
 
     if not vector_db or not metadata_storage or not ingestor or not jobmanager:
@@ -917,7 +1048,7 @@ async def ingest_documents(ingest_request: DocumentIngestRequest):
 # ============================================================================
 
 @app.get("/v1/graph/explore/entity_type")
-async def list_entity_types():
+async def list_entity_types(user: UserContext = Depends(require_role(Role.READONLY))):
     """
     Lists all entity types in the database
     """
@@ -934,7 +1065,8 @@ async def list_entity_types():
 async def fetch_data_entities_batch(
     offset: int = Query(0, description="Number of entities to skip (for pagination)", ge=0),
     limit: int = Query(100, description="Maximum number of entities to return", ge=1, le=1000),
-    entity_type: Optional[str] = Query(None, description="Optional filter by entity type")
+    entity_type: Optional[str] = Query(None, description="Optional filter by entity type"),
+    user: UserContext = Depends(require_role(Role.READONLY))
 ):
     """
     Fetch entities from the data graph in batches for efficient bulk processing.
@@ -966,7 +1098,8 @@ async def fetch_data_entities_batch(
 async def fetch_data_relations_batch(
     offset: int = Query(0, description="Number of relations to skip (for pagination)", ge=0),
     limit: int = Query(100, description="Maximum number of relations to return", ge=1, le=1000),
-    relation_name: Optional[str] = Query(None, description="Optional filter by relation name")
+    relation_name: Optional[str] = Query(None, description="Optional filter by relation name"),
+    user: UserContext = Depends(require_role(Role.READONLY))
 ):
     """
     Fetch relations from the data graph in batches for efficient bulk processing.
@@ -995,7 +1128,10 @@ async def fetch_data_relations_batch(
     )
 
 @app.post("/v1/graph/explore/data/entity/neighborhood")
-async def explore_data_entity_neighborhood(request: ExploreNeighborhoodRequest):
+async def explore_data_entity_neighborhood(
+    request: ExploreNeighborhoodRequest,
+    user: UserContext = Depends(require_role(Role.READONLY))
+):
     """
     Explore an entity and its neighborhood in the data graph up to a specified depth.
     Depth 0 returns just the entity, depth 1 includes direct neighbors, etc.
@@ -1014,7 +1150,8 @@ async def explore_data_entity_neighborhood(request: ExploreNeighborhoodRequest):
 
 @app.get("/v1/graph/explore/data/entity/start")
 async def get_random_start_nodes(
-    n: int = Query(10, description="Number of random nodes to fetch", ge=1, le=100)
+    n: int = Query(10, description="Number of random nodes to fetch", ge=1, le=100),
+    user: UserContext = Depends(require_role(Role.READONLY))
 ):
     """
     Fetch random starting nodes from the data graph.
@@ -1030,7 +1167,7 @@ async def get_random_start_nodes(
     return JSONResponse(status_code=status.HTTP_200_OK, content=jsonable_encoder(entities))
 
 @app.get("/v1/graph/explore/data/stats")
-async def get_data_graph_stats():
+async def get_data_graph_stats(user: UserContext = Depends(require_role(Role.READONLY))):
     """
     Get statistics about the data graph (node count, relation count).
     """
@@ -1051,7 +1188,8 @@ async def get_data_graph_stats():
 async def fetch_ontology_entities_batch(
     offset: int = Query(0, description="Number of entities to skip (for pagination)", ge=0),
     limit: int = Query(100, description="Maximum number of entities to return", ge=1, le=1000),
-    entity_type: Optional[str] = Query(None, description="Optional filter by entity type")
+    entity_type: Optional[str] = Query(None, description="Optional filter by entity type"),
+    user: UserContext = Depends(require_role(Role.READONLY))
 ):
     """
     Fetch entities from the ontology graph in batches for efficient bulk processing.
@@ -1083,7 +1221,8 @@ async def fetch_ontology_entities_batch(
 async def fetch_ontology_relations_batch(
     offset: int = Query(0, description="Number of relations to skip (for pagination)", ge=0),
     limit: int = Query(100, description="Maximum number of relations to return", ge=1, le=1000),
-    relation_name: Optional[str] = Query(None, description="Optional filter by relation name")
+    relation_name: Optional[str] = Query(None, description="Optional filter by relation name"),
+    user: UserContext = Depends(require_role(Role.READONLY))
 ):
     """
     Fetch relations from the ontology graph in batches for efficient bulk processing.
@@ -1112,7 +1251,10 @@ async def fetch_ontology_relations_batch(
     )
 
 @app.post("/v1/graph/explore/ontology/entity/neighborhood")
-async def explore_ontology_entity_neighborhood(request: ExploreNeighborhoodRequest):
+async def explore_ontology_entity_neighborhood(
+    request: ExploreNeighborhoodRequest,
+    user: UserContext = Depends(require_role(Role.READONLY))
+):
     """
     Explore an entity and its neighborhood in the ontology graph up to a specified depth.
     Depth 0 returns just the entity, depth 1 includes direct neighbors, etc.
@@ -1131,7 +1273,8 @@ async def explore_ontology_entity_neighborhood(request: ExploreNeighborhoodReque
 
 @app.get("/v1/graph/explore/ontology/entity/start")
 async def get_random_ontology_start_nodes(
-    n: int = Query(10, description="Number of random nodes to fetch", ge=1, le=100)
+    n: int = Query(10, description="Number of random nodes to fetch", ge=1, le=100),
+    user: UserContext = Depends(require_role(Role.READONLY))
 ):
     """
     Fetch random starting nodes from the ontology graph.
@@ -1147,7 +1290,7 @@ async def get_random_ontology_start_nodes(
     return JSONResponse(status_code=status.HTTP_200_OK, content=jsonable_encoder(entities))
 
 @app.get("/v1/graph/explore/ontology/stats")
-async def get_ontology_graph_stats():
+async def get_ontology_graph_stats(user: UserContext = Depends(require_role(Role.READONLY))):
     """
     Get statistics about the ontology graph (node count, relation count).
     """
@@ -1164,7 +1307,26 @@ async def get_ontology_graph_stats():
 # Ontology Agent Reverse Proxy
 # ====
 async def _reverse_proxy(request: Request):
-    """Reverse proxy to ontology agent service, which runs a separate FastAPI instance, and is responsible for handling ontology related requests."""
+    """
+    Reverse proxy to ontology agent service, which runs a separate FastAPI instance,
+    and is responsible for handling ontology related requests.
+    
+    Protected with ADMIN role - all ontology operations are admin-level operations
+    (accept/reject relations, regenerate ontology, etc.).
+    
+    This acts as a security gateway - the ontology agent service doesn't need
+    its own RBAC implementation since it's only accessible through this proxy.
+    """
+    # Manually invoke the RBAC check since app.add_route doesn't support Depends()
+    user = await get_current_user(request)
+    if not has_permission(user.role, Role.ADMIN):
+        raise HTTPException(
+            status_code=403,
+            detail=f"Insufficient permissions. Required role: {Role.ADMIN}, your role: {user.role}"
+        )
+    
+    logger.info(f"Ontology agent request by {user.email} to {request.url.path}")
+    
     url = httpx.URL(path=request.url.path,
                     query=request.url.query.encode("utf-8"))
     rp_req = ontology_agent_client.build_request(request.method, url,

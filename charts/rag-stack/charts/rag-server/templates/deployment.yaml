@@ -95,6 +95,20 @@ spec:
               value: {{ .Values.sleepOnInitFailureSeconds | quote }}
             - name: CLEANUP_INTERVAL
               value: {{ .Values.cleanupInterval | quote }}
+            
+            # RBAC/Authentication Configuration
+            {{- if .Values.rbac }}
+            - name: ALLOW_UNAUTHENTICATED
+              value: {{ .Values.rbac.allowUnauthenticated | quote }}
+            - name: RBAC_READONLY_GROUPS
+              value: {{ .Values.rbac.readonlyGroups | quote }}
+            - name: RBAC_INGESTONLY_GROUPS
+              value: {{ .Values.rbac.ingestonlyGroups | quote }}
+            - name: RBAC_ADMIN_GROUPS
+              value: {{ .Values.rbac.adminGroups | quote }}
+            - name: RBAC_DEFAULT_ROLE
+              value: {{ .Values.rbac.defaultRole | quote }}
+            {{- end }}
 
             {{- if .Values.env }}
             {{- range $key, $value := .Values.env }}

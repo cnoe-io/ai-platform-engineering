@@ -309,6 +309,27 @@ export const getOntologyRelationEvaluationsBatch = async (relationIds: string[])
 };
 
 // ============================================================================
+// User Info & RBAC API
+// ============================================================================
+
+export interface UserInfo {
+    email: string;
+    role: string;
+    is_authenticated: boolean;
+    groups: string[];
+    permissions: {
+        can_read: boolean;
+        can_ingest: boolean;
+        can_delete: boolean;
+    };
+}
+
+export const getUserInfo = async (): Promise<UserInfo> => {
+    const response = await api.get('/v1/user/info');
+    return response.data;
+};
+
+// ============================================================================
 // Debug/Development API
 // ============================================================================
 
