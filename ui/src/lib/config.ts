@@ -27,6 +27,24 @@ export interface Config {
 }
 
 /**
+ * Get runtime environment variable from window.__ENV__ (injected at container startup)
+ * Falls back to process.env for build-time values
+ */
+function getRuntimeEnv(key: string): string | undefined {
+  // Client-side: check window.__ENV__ first (runtime injection)
+  if (typeof window !== 'undefined' && (window as any).__ENV__) {
+    return (window as any).__ENV__[key];
+  }
+  
+  // Fallback to process.env (build-time or server-side)
+  if (typeof process !== 'undefined') {
+    return process.env[key];
+  }
+  
+  return undefined;
+}
+
+/**
  * Get the CAIPE A2A endpoint URL
  *
  * Priority:
@@ -35,9 +53,10 @@ export interface Config {
  * 3. Default: http://localhost:8000 (dev) or http://caipe-supervisor:8000 (prod/docker)
  */
 function getCaipeUrl(): string {
-  // Client-side environment variable (must be prefixed with NEXT_PUBLIC_)
-  if (typeof process !== 'undefined' && process.env.NEXT_PUBLIC_CAIPE_URL) {
-    return process.env.NEXT_PUBLIC_CAIPE_URL;
+  // Runtime or build-time environment variable
+  const envUrl = getRuntimeEnv('NEXT_PUBLIC_A2A_BASE_URL') || getRuntimeEnv('NEXT_PUBLIC_CAIPE_URL');
+  if (envUrl) {
+    return envUrl;
   }
 
   // Server-side environment variable
@@ -52,9 +71,6 @@ function getCaipeUrl(): string {
 
   // Default based on environment
   const isProduction = typeof process !== 'undefined' && process.env.NODE_ENV === 'production';
-
-  // In production (Docker), default to the service name
-  // In development, default to localhost
   return isProduction ? 'http://caipe-supervisor:8000' : 'http://localhost:8000';
 }
 
@@ -90,8 +106,9 @@ function getRagUrl(): string {
  * SSO is enabled when NEXT_PUBLIC_SSO_ENABLED is set to "true"
  */
 function isSsoEnabled(): boolean {
-  if (typeof process !== 'undefined' && process.env.NEXT_PUBLIC_SSO_ENABLED) {
-    return process.env.NEXT_PUBLIC_SSO_ENABLED === 'true';
+  const ssoEnv = getRuntimeEnv('NEXT_PUBLIC_SSO_ENABLED');
+  if (ssoEnv !== undefined) {
+    return ssoEnv === 'true';
   }
   return false;
 }
@@ -101,10 +118,11 @@ function isSsoEnabled(): boolean {
  * Disabled by default - set NEXT_PUBLIC_ENABLE_SUBAGENT_CARDS=true to enable
  */
 function isSubAgentCardsEnabled(): boolean {
-  if (typeof process !== 'undefined' && process.env.NEXT_PUBLIC_ENABLE_SUBAGENT_CARDS) {
-    return process.env.NEXT_PUBLIC_ENABLE_SUBAGENT_CARDS === 'true';
+  const cardsEnv = getRuntimeEnv('NEXT_PUBLIC_ENABLE_SUBAGENT_CARDS');
+  if (cardsEnv !== undefined) {
+    return cardsEnv === 'true';
   }
-  return false; // Disabled by default
+  return false;
 }
 
 /**
