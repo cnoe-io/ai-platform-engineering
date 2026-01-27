@@ -117,7 +117,7 @@ export interface ArtifactPart {
 export interface A2AEvent {
   id: string;
   timestamp: Date;
-  type: "task" | "artifact" | "status" | "message" | "tool_start" | "tool_end" | "error";
+  type: "task" | "artifact" | "status" | "message" | "tool_start" | "tool_end" | "execution_plan" | "error";
   raw: A2AMessage;
 
   // Parsed fields
