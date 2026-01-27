@@ -231,7 +231,7 @@ ui/
 | **Syntax Highlighting** | react-syntax-highlighter | Code block syntax highlighting |
 | **Graph Viz** | Sigma.js (@react-sigma/core) | Knowledge graph visualization |
 | **Auth** | NextAuth.js | OAuth 2.0 authentication |
-| **A2A Protocol** | Custom implementation | Agent-to-agent communication |
+| **A2A Protocol** | @a2a-js/sdk (v0.3.9+) | Standards-compliant agent-to-agent communication |
 | **TypeScript** | TypeScript 5.x | Type safety & developer experience |
 | **Linting** | ESLint | Code quality enforcement |
 | **Formatting** | Prettier (optional) | Code formatting consistency |
@@ -240,12 +240,15 @@ ui/
 
 | Protocol/Spec | Implementation | Purpose |
 |---------------|----------------|---------|
-| **A2A Protocol** | Custom client (`a2a-client.ts`) | Agent communication, streaming |
+| **A2A Protocol** | @a2a-js/sdk via A2ASDKClient | Agent communication, streaming |
 | **A2UI Spec** | Custom widgets | Declarative UI components |
 | **AG-UI Patterns** | Aligned (not using library) | Real-time AI interaction patterns |
 | **MCP** | Via CAIPE supervisor | Tool integration |
 
-**Important**: While CopilotKit and @a2a-js/sdk are in `package.json`, they are not currently used in the codebase. The UI implements custom solutions following the A2UI and AG-UI specifications.
+**Important**: 
+- **@a2a-js/sdk**: ACTIVELY USED via `A2ASDKClient` wrapper (`ui/src/lib/a2a-sdk-client.ts`) for standards-compliant A2A protocol communication
+- **CopilotKit**: Installed for reference; UI uses custom widget implementations following A2UI and AG-UI specifications
+- See `ui/src/components/chat/ChatPanel.tsx` for SDK usage example
 
 ### Key Design Patterns
 

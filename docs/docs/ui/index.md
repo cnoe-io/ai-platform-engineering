@@ -120,8 +120,8 @@ The UI follows a modern React architecture with these core principles:
 ### State & Data Flow
 - **State Management**: Zustand (lightweight, scalable)
 - **Authentication**: NextAuth.js (OAuth 2.0)
-- **A2A Protocol**: Custom implementation for agent-to-agent communication
-- **Real-time Streaming**: Server-Sent Events (SSE)
+- **A2A Protocol**: Official @a2a-js/sdk (v0.3.9+) via A2ASDKClient wrapper
+- **Real-time Streaming**: Server-Sent Events (SSE) via SDK's JsonRpcTransport
 
 ### UI/UX
 - **Animations**: Framer Motion (smooth transitions)
@@ -136,7 +136,9 @@ The UI follows a modern React architecture with these core principles:
 - **AG-UI Compatible**: Aligned with AG-UI patterns (CopilotKit)
 - **MCP Integration**: Model Context Protocol for AI tool integration
 
-**Note**: While CopilotKit and AG-UI libraries are referenced as inspiration, the UI uses custom implementations following the A2UI and AG-UI specifications rather than directly importing these frameworks.
+**Note**: 
+- **A2A SDK**: Uses official `@a2a-js/sdk` (v0.3.9+) via `A2ASDKClient` wrapper for standards-compliant agent communication
+- **CopilotKit & AG-UI**: Referenced as inspiration; UI uses custom widget implementations following A2UI and AG-UI specifications
 
 ## Core Components
 
