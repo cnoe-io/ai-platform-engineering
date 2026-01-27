@@ -1,6 +1,6 @@
 # CAIPE UI - A2A Message Visualizer
 
-A modern React-based UI for visualizing A2A (Agent-to-Agent) protocol messages with real-time streaming support. Built with Next.js, CopilotKit patterns, and inspired by AG-UI and A2UI specifications.
+A modern React-based UI for visualizing A2A (Agent-to-Agent) protocol messages with real-time streaming support. Built with Next.js 15, implementing custom A2A protocol client and A2UI widget specifications.
 
 ## Features
 
@@ -163,11 +163,16 @@ Pre-built scenarios for common platform engineering tasks:
 
 ### Tech Stack
 
-- **Framework**: Next.js 15 with App Router
+- **Framework**: Next.js 15 with App Router & React Server Components
 - **UI**: React 19, Tailwind CSS, Radix UI primitives
-- **State**: Zustand
+- **State**: Zustand (lightweight state management)
 - **Animations**: Framer Motion
-- **Markdown**: react-markdown with syntax highlighting
+- **Markdown**: react-markdown with syntax highlighting (Prism)
+- **Graph Visualization**: Sigma.js (@react-sigma/core)
+- **A2A Protocol**: Custom implementation (not using @a2a-js/sdk)
+- **A2UI Widgets**: Custom implementation following A2UI spec
+
+**Note**: While CopilotKit and AG-UI libraries are installed in package.json for reference, the UI uses custom implementations following the A2UI and AG-UI specifications.
 
 ### Building
 

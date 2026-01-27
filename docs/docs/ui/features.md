@@ -174,7 +174,7 @@ Real-time visualization of Agent-to-Agent protocol messages provides transparenc
 
 ### 5. A2UI Widget Support
 
-The UI implements the A2UI specification for declarative UI components that agents can render.
+The UI implements custom widgets following the A2UI specification for declarative UI components that agents can render. This is a custom implementation inspired by A2UI standards, not using the AG-UI or CopilotKit libraries directly.
 
 #### Available Widgets
 
@@ -454,6 +454,51 @@ WCAG 2.1 AA compliant features:
 - **Color Contrast**: Meets contrast requirements
 - **Alt Text**: Descriptive image alternatives
 - **Semantic HTML**: Proper heading hierarchy
+
+## Technology Choices & Implementation
+
+### Protocol Implementation Approach
+
+The CAIPE UI follows an **implementation-over-library** approach for key protocols:
+
+#### A2A Protocol
+- **Specification**: Google's Agent-to-Agent protocol
+- **Implementation**: Custom `A2AClient` class
+- **Why Custom**: Tailored for CAIPE's specific needs, full control over streaming, error handling, and retry logic
+- **Not using**: `@a2a-js/sdk` (installed for future compatibility)
+
+#### A2UI & AG-UI
+- **Specifications**: A2UI declarative UI spec, AG-UI interaction patterns
+- **Implementation**: Custom widget components in `components/a2a/widgets/`
+- **Why Custom**: Full control over styling, behavior, and integration with CAIPE's design system
+- **Not using**: `@copilotkit/react-ui` or `@ag-ui/client` libraries (installed for reference)
+
+#### Benefits of Custom Implementation
+1. **Performance**: No unnecessary abstractions or unused features
+2. **Flexibility**: Easy to extend and customize for CAIPE-specific needs
+3. **Maintainability**: Full understanding and control of the codebase
+4. **Bundle Size**: Smaller production builds
+5. **Standards Compliance**: Can still follow specifications without library lock-in
+
+### Architecture Decisions
+
+**State Management**: Zustand chosen over Redux/Context for:
+- Simpler API with less boilerplate
+- Better TypeScript support
+- Smaller bundle size
+- Easier testing
+
+**Styling**: Tailwind CSS chosen for:
+- Utility-first approach speeds development
+- Consistent design system
+- Excellent dark mode support
+- Tree-shaking for production
+
+**Components**: Radix UI primitives for:
+- Accessibility out-of-the-box
+- Unstyled (full control over appearance)
+- Composable and flexible
+- Well-maintained and documented
 
 ## Browser Support
 

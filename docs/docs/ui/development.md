@@ -189,17 +189,31 @@ ui/
 
 | Layer | Technology | Purpose |
 |-------|-----------|---------|
-| **Framework** | Next.js 15 | React framework with App Router |
+| **Framework** | Next.js 15 | React framework with App Router & RSC |
 | **UI Library** | React 19 | Component-based UI |
-| **Styling** | Tailwind CSS | Utility-first CSS |
-| **Components** | Radix UI | Accessible primitives |
+| **Styling** | Tailwind CSS | Utility-first CSS framework |
+| **Components** | Radix UI | Accessible, unstyled primitives |
 | **State** | Zustand | Lightweight state management |
-| **Forms** | React Hook Form | Form validation |
-| **API** | Fetch/SWR | Data fetching |
-| **Auth** | NextAuth.js | OAuth authentication |
-| **TypeScript** | TypeScript 5.x | Type safety |
-| **Linting** | ESLint | Code quality |
-| **Formatting** | Prettier | Code formatting |
+| **Animations** | Framer Motion | Smooth animations & transitions |
+| **Markdown** | react-markdown | Markdown rendering with remark-gfm |
+| **Syntax Highlighting** | react-syntax-highlighter | Code block syntax highlighting |
+| **Graph Viz** | Sigma.js (@react-sigma/core) | Knowledge graph visualization |
+| **Auth** | NextAuth.js | OAuth 2.0 authentication |
+| **A2A Protocol** | Custom implementation | Agent-to-agent communication |
+| **TypeScript** | TypeScript 5.x | Type safety & developer experience |
+| **Linting** | ESLint | Code quality enforcement |
+| **Formatting** | Prettier (optional) | Code formatting consistency |
+
+### Protocol Implementations
+
+| Protocol/Spec | Implementation | Purpose |
+|---------------|----------------|---------|
+| **A2A Protocol** | Custom client (`a2a-client.ts`) | Agent communication, streaming |
+| **A2UI Spec** | Custom widgets | Declarative UI components |
+| **AG-UI Patterns** | Aligned (not using library) | Real-time AI interaction patterns |
+| **MCP** | Via CAIPE supervisor | Tool integration |
+
+**Important**: While CopilotKit and @a2a-js/sdk are in `package.json`, they are not currently used in the codebase. The UI implements custom solutions following the A2UI and AG-UI specifications.
 
 ### Key Design Patterns
 
