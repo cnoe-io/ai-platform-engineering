@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Script from "next/script";
 import { Inter, JetBrains_Mono, Source_Sans_3, IBM_Plex_Sans } from "next/font/google";
 import { ThemeProvider } from "@/components/theme-provider";
 import { AuthProvider } from "@/components/auth-provider";
@@ -65,6 +66,7 @@ export default function RootLayout({
       <body
         className={`${inter.variable} ${sourceSans.variable} ${ibmPlex.variable} ${jetbrainsMono.variable} font-sans antialiased`}
       >
+        <Script src="/env-config.js" strategy="beforeInteractive" />
         <AuthProvider>
           <ThemeProvider
             attribute="data-theme"

@@ -22,7 +22,7 @@ import { AuthGuard } from "@/components/auth-guard";
 import { useChatStore } from "@/store/chat-store";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { config } from "@/lib/config";
+import { config, getConfig } from "@/lib/config";
 import { useCAIPEHealth } from "@/hooks/use-caipe-health";
 import {
   Tooltip,
@@ -41,8 +41,8 @@ function HomePage() {
   const [useCasesRefreshTrigger, setUseCasesRefreshTrigger] = useState(0);
   const { createConversation, setActiveConversation, setPendingMessage, isStreaming } = useChatStore();
 
-  // Use centralized configuration for CAIPE URL
-  const caipeUrl = config.caipeUrl;
+  // Use centralized configuration for CAIPE URL (use dynamic config for runtime injection)
+  const caipeUrl = getConfig('caipeUrl');
 
   // Health check for CAIPE supervisor (polls every 30 seconds)
   const { status: healthStatus, url: healthUrl, secondsUntilNextCheck } = useCAIPEHealth();
@@ -267,12 +267,11 @@ function HomePage() {
 
 // Wrap with AuthGuard when SSO is enabled
 export default function Home() {
-  if (config.ssoEnabled) {
-    return (
-      <AuthGuard>
-        <HomePage />
-      </AuthGuard>
-    );
-  }
-  return <HomePage />;
+  // Always wrap with AuthGuard - it will handle SSO check internally
+  // This prevents hydration mismatches
+  return (
+    <AuthGuard>
+      <HomePage />
+    </AuthGuard>
+  );
 }
