@@ -237,6 +237,8 @@ node_modules/
 out/
 ui/.next/
 ui/out/
+next-env.d.ts
+ui/next-env.d.ts
 
 # Use case data storage (file-based)
 ui/data/
