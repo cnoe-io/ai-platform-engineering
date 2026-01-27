@@ -13,12 +13,16 @@ This module provides:
 - Extensible design for future full RBAC system
 """
 import os
+import re
 from typing import List
 from fastapi import Depends, HTTPException, Request
 from common.models.rbac import Role, UserContext
 from common import utils
 
 logger = utils.get_logger(__name__)
+
+# Email validation regex (RFC 5322 simplified)
+EMAIL_REGEX = re.compile(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$')
 
 # ============================================================================
 # Configuration
@@ -30,6 +34,12 @@ RBAC_READONLY_GROUPS = os.getenv("RBAC_READONLY_GROUPS", "").split(",")
 RBAC_INGESTONLY_GROUPS = os.getenv("RBAC_INGESTONLY_GROUPS", "").split(",")
 RBAC_ADMIN_GROUPS = os.getenv("RBAC_ADMIN_GROUPS", "").split(",")
 RBAC_DEFAULT_ROLE = os.getenv("RBAC_DEFAULT_ROLE", Role.READONLY)
+
+# Validate RBAC_DEFAULT_ROLE at startup
+VALID_ROLES = {Role.READONLY, Role.INGESTONLY, Role.ADMIN}
+if RBAC_DEFAULT_ROLE not in VALID_ROLES:
+    logger.error(f"Invalid RBAC_DEFAULT_ROLE: '{RBAC_DEFAULT_ROLE}'. Must be one of: {VALID_ROLES}")
+    raise ValueError(f"Invalid RBAC_DEFAULT_ROLE: '{RBAC_DEFAULT_ROLE}'. Valid values are: {', '.join(VALID_ROLES)}")
 
 logger.info("RBAC Configuration:")
 logger.info(f"  ALLOW_UNAUTHENTICATED: {ALLOW_UNAUTHENTICATED}")
@@ -96,14 +106,21 @@ def determine_role_from_groups(user_groups: List[str]) -> str:
     
     # Most permissive role wins
     if any(group in admin_groups for group in user_groups):
+        matching_groups = [g for g in user_groups if g in admin_groups]
+        logger.info(f"Role determination: Assigned ADMIN role based on group membership: {matching_groups}")
         return Role.ADMIN
     
     if any(group in ingestonly_groups for group in user_groups):
+        matching_groups = [g for g in user_groups if g in ingestonly_groups]
+        logger.info(f"Role determination: Assigned INGESTONLY role based on group membership: {matching_groups}")
         return Role.INGESTONLY
     
     if any(group in readonly_groups for group in user_groups):
+        matching_groups = [g for g in user_groups if g in readonly_groups]
+        logger.info(f"Role determination: Assigned READONLY role based on group membership: {matching_groups}")
         return Role.READONLY
     
+    logger.info(f"Role determination: No group match found, assigned default role: {RBAC_DEFAULT_ROLE}")
     return RBAC_DEFAULT_ROLE
 
 
@@ -158,8 +175,17 @@ async def get_current_user(request: Request) -> UserContext:
             logger.warning("Authentication required but not provided")
             raise HTTPException(
                 status_code=401,
-                detail="Authentication required. No X-Forwarded-Email header found."
+                detail="Authentication required. Please ensure you are logged in through the authentication proxy."
             )
+    
+    # Validate email format
+    user_email = user_email.strip()
+    if not user_email or not EMAIL_REGEX.match(user_email):
+        logger.warning(f"Invalid email format received: {user_email[:50]}")  # Truncate for logging
+        raise HTTPException(
+            status_code=401,
+            detail="Authentication failed. Invalid email format received from authentication proxy."
+        )
     
     # Determine role from groups
     role = determine_role_from_groups(user_groups)
@@ -211,7 +237,11 @@ def require_role(required_role: str):
             )
             raise HTTPException(
                 status_code=403,
-                detail=f"Insufficient permissions. Required role: {required_role}, your role: {user.role}"
+                detail=(
+                    f"Insufficient permissions. This operation requires '{required_role}' role, "
+                    f"but you have '{user.role}' role. Please contact your administrator to request "
+                    f"the appropriate access level."
+                )
             )
         return user
     

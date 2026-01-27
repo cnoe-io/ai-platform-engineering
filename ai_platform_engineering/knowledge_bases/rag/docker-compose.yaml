@@ -56,11 +56,25 @@ services:
         EMBEDDINGS_PROVIDER: ${EMBEDDINGS_PROVIDER:-azure-openai}
         EMBEDDINGS_MODEL: ${EMBEDDINGS_MODEL:-text-embedding-3-small}
         # RBAC/Authentication configuration
+        # ALLOW_UNAUTHENTICATED: Optional (default: true). Set to "false" in production.
+        #   When true, allows unauthenticated service-to-service calls with ADMIN privileges.
+        #   WARNING: Only use "true" for development/testing. Production should use "false".
         ALLOW_UNAUTHENTICATED: ${ALLOW_UNAUTHENTICATED:-true}
-        RBAC_READONLY_GROUPS: ${RBAC_READONLY_GROUPS} # Groups that will be assigned the READONLY role
-        RBAC_INGESTONLY_GROUPS: ${RBAC_INGESTONLY_GROUPS} # Groups that will be assigned the INGESTONLY role
-        RBAC_ADMIN_GROUPS: ${RBAC_ADMIN_GROUPS} # Groups that will be assigned the ADMIN role
-        RBAC_DEFAULT_ROLE: ${RBAC_DEFAULT_ROLE:-readonly} # Default role if user is not in any of the groups
+        # RBAC_READONLY_GROUPS: Optional (default: empty). Comma-separated list of group names.
+        #   Users in these groups get READONLY role (can view/query data).
+        #   Example: "engineering-readonly,analysts,viewers"
+        RBAC_READONLY_GROUPS: ${RBAC_READONLY_GROUPS}
+        # RBAC_INGESTONLY_GROUPS: Optional (default: empty). Comma-separated list of group names.
+        #   Users in these groups get INGESTONLY role (READONLY + can ingest data).
+        #   Example: "data-team,ingestors"
+        RBAC_INGESTONLY_GROUPS: ${RBAC_INGESTONLY_GROUPS}
+        # RBAC_ADMIN_GROUPS: Optional (default: empty). Comma-separated list of group names.
+        #   Users in these groups get ADMIN role (full access including delete operations).
+        #   Example: "platform-admins,rag-admins"
+        RBAC_ADMIN_GROUPS: ${RBAC_ADMIN_GROUPS}
+        # RBAC_DEFAULT_ROLE: Optional (default: "readonly"). Must be one of: "readonly", "ingestonly", "admin".
+        #   Role assigned to authenticated users who don't match any of the above groups.
+        RBAC_DEFAULT_ROLE: ${RBAC_DEFAULT_ROLE:-readonly}
     restart: unless-stopped
     env_file:
       - ../../../.env
