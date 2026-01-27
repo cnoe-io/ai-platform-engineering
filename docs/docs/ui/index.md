@@ -96,13 +96,33 @@ The UI follows a modern React architecture with these core principles:
 
 ## Technology Stack
 
-- **Framework**: Next.js 15 with App Router
-- **UI Library**: React 19, Tailwind CSS
-- **Components**: Radix UI primitives, shadcn/ui patterns
-- **State Management**: Zustand
-- **Animations**: Framer Motion
-- **Markdown**: react-markdown with syntax highlighting
-- **Protocol**: A2A (Agent-to-Agent) protocol with SSE streaming
+### Core Framework
+- **Framework**: Next.js 15 (App Router, React Server Components)
+- **UI Library**: React 19
+- **Styling**: Tailwind CSS with custom design system
+- **Components**: Radix UI primitives (accessible, unstyled)
+- **Icons**: Lucide React
+
+### State & Data Flow
+- **State Management**: Zustand (lightweight, scalable)
+- **Authentication**: NextAuth.js (OAuth 2.0)
+- **A2A Protocol**: Custom implementation for agent-to-agent communication
+- **Real-time Streaming**: Server-Sent Events (SSE)
+
+### UI/UX
+- **Animations**: Framer Motion (smooth transitions)
+- **Markdown Rendering**: react-markdown with remark-gfm
+- **Syntax Highlighting**: react-syntax-highlighter with Prism
+- **Graph Visualization**: Sigma.js (@react-sigma/core) for knowledge graphs
+- **Resizable Panels**: react-resizable-panels
+
+### Protocols & Standards
+- **A2A Protocol**: Google's Agent-to-Agent protocol for inter-agent communication
+- **A2UI Specification**: Declarative UI widgets (custom implementation)
+- **AG-UI Compatible**: Aligned with AG-UI patterns (CopilotKit)
+- **MCP Integration**: Model Context Protocol for AI tool integration
+
+**Note**: While CopilotKit and AG-UI libraries are referenced as inspiration, the UI uses custom implementations following the A2UI and AG-UI specifications rather than directly importing these frameworks.
 
 ## Core Components
 
