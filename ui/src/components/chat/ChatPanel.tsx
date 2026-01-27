@@ -15,7 +15,7 @@ import { useChatStore } from "@/store/chat-store";
 import { A2ASDKClient, type ParsedA2AEvent, toStoreEvent } from "@/lib/a2a-sdk-client";
 import { cn } from "@/lib/utils";
 import { ChatMessage as ChatMessageType } from "@/types/a2a";
-import { config } from "@/lib/config";
+import { getConfig } from "@/lib/config";
 import { FeedbackButton, Feedback } from "./FeedbackButton";
 import { InlineAgentSelector, DEFAULT_AGENTS, CustomCall } from "./CustomCallButtons";
 import { SubAgentCard, groupEventsByAgent, getAgentDisplayOrder, isRealSubAgent } from "./SubAgentCard";
@@ -58,7 +58,8 @@ export function ChatPanel({ endpoint }: ChatPanelProps) {
   } = useChatStore();
 
   // Get access token from session (if SSO is enabled and user is authenticated)
-  const accessToken = config.ssoEnabled ? session?.accessToken : undefined;
+  const ssoEnabled = getConfig('ssoEnabled');
+  const accessToken = ssoEnabled ? session?.accessToken : undefined;
 
   const conversation = getActiveConversation();
 
@@ -644,7 +645,7 @@ interface StreamingViewProps {
 
 function StreamingView({ message, showRawStream, setShowRawStream, isStreaming = false }: StreamingViewProps) {
   // Feature flag for sub-agent cards (experimental)
-  const enableSubAgentCards = config.enableSubAgentCards;
+  const enableSubAgentCards = getConfig('enableSubAgentCards');
 
   // ═══════════════════════════════════════════════════════════════
   // AUTO-SCROLL with user override

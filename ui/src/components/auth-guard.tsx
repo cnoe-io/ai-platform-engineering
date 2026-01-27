@@ -3,7 +3,7 @@
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { config } from "@/lib/config";
+import { getConfig } from "@/lib/config";
 import { LoadingScreen } from "@/components/loading-screen";
 
 interface AuthGuardProps {
@@ -21,10 +21,21 @@ export function AuthGuard({ children }: AuthGuardProps) {
   const { data: session, status } = useSession();
   const router = useRouter();
   const [authChecked, setAuthChecked] = useState(false);
+  const [ssoEnabled, setSsoEnabled] = useState<boolean | null>(null);
+
+  // Check SSO status after hydration to avoid server/client mismatch
+  useEffect(() => {
+    const enabled = getConfig('ssoEnabled');
+    setSsoEnabled(enabled);
+  }, []);
 
   useEffect(() => {
     // Only redirect if SSO is enabled
-    if (!config.ssoEnabled) {
+    if (ssoEnabled === null) {
+      return; // Still checking SSO config
+    }
+
+    if (!ssoEnabled) {
       setAuthChecked(true);
       return;
     }
@@ -47,10 +58,15 @@ export function AuthGuard({ children }: AuthGuardProps) {
       }
       setAuthChecked(true);
     }
-  }, [status, session, router]);
+  }, [ssoEnabled, status, session, router]);
+
+  // If SSO config is still loading, show nothing to prevent hydration mismatch
+  if (ssoEnabled === null) {
+    return null;
+  }
 
   // If SSO is not enabled, render children directly
-  if (!config.ssoEnabled) {
+  if (!ssoEnabled) {
     return <>{children}</>;
   }
 
