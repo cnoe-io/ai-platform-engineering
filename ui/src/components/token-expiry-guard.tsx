@@ -11,7 +11,7 @@ import { motion, AnimatePresence } from "framer-motion";
 
 /**
  * TokenExpiryGuard Component
- * 
+ *
  * Monitors SSO token expiry and gracefully handles session expiration:
  * - Shows warning toast 5 minutes before expiry
  * - Shows critical alert when expired
@@ -62,7 +62,7 @@ export function TokenExpiryGuard() {
       console.error(`[TokenExpiryGuard] Token refresh failed: ${session.error}`);
       setShowWarning(false);
       setShowExpired(true);
-      
+
       // Stop checking
       if (checkIntervalRef.current) {
         clearInterval(checkIntervalRef.current);
@@ -101,7 +101,7 @@ export function TokenExpiryGuard() {
       console.error("[TokenExpiryGuard] Token expired! Forcing logout...");
       setShowWarning(false);
       setShowExpired(true);
-      
+
       // Stop checking
       if (checkIntervalRef.current) {
         clearInterval(checkIntervalRef.current);
@@ -171,7 +171,7 @@ export function TokenExpiryGuard() {
                     Session Expiring Soon
                   </h3>
                   <p className="text-sm text-muted-foreground mb-3">
-                    Your session will expire in <strong className="text-foreground">{timeRemaining}</strong>. 
+                    Your session will expire in <strong className="text-foreground">{timeRemaining}</strong>.
                     Please save your work and re-login to continue.
                   </p>
                   <div className="flex gap-2">

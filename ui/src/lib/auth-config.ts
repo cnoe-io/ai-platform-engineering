@@ -75,10 +75,10 @@ export function hasRequiredGroup(groups: string[]): boolean {
 
 /**
  * Refresh the access token using the refresh token
- * 
+ *
  * This function calls the OIDC token endpoint to exchange a refresh_token
  * for a new access_token and id_token.
- * 
+ *
  * @param token - The JWT token containing the refresh token
  * @returns Updated token with new access_token and expiry
  */
@@ -167,12 +167,12 @@ export const authOptions: NextAuthOptions = {
         : undefined,
       // Request offline_access to get refresh tokens (if enabled)
       // Falls back to warning-only mode if refresh tokens not available
-      authorization: { 
-        params: { 
-          scope: ENABLE_REFRESH_TOKEN 
-            ? "openid email profile groups offline_access" 
+      authorization: {
+        params: {
+          scope: ENABLE_REFRESH_TOKEN
+            ? "openid email profile groups offline_access"
             : "openid email profile groups"
-        } 
+        }
       },
       idToken: true,
       checks: ["pkce", "state"],
@@ -201,10 +201,10 @@ export const authOptions: NextAuthOptions = {
         token.idToken = account.id_token;
         token.refreshToken = account.refresh_token;
         token.expiresAt = account.expires_at;
-        
+
         const expiryDate = new Date((account.expires_at || 0) * 1000).toISOString();
         console.log("[Auth] Initial sign-in, token expires at:", expiryDate);
-        
+
         // Log whether refresh token support is available
         if (ENABLE_REFRESH_TOKEN) {
           if (account.refresh_token) {
@@ -237,14 +237,14 @@ export const authOptions: NextAuthOptions = {
       // Only attempt if refresh token support is enabled
       const now = Math.floor(Date.now() / 1000);
       const expiresAt = token.expiresAt as number | undefined;
-      
+
       if (ENABLE_REFRESH_TOKEN && expiresAt) {
         const timeUntilExpiry = expiresAt - now;
         const shouldRefresh = timeUntilExpiry < 5 * 60; // Refresh if less than 5 min remaining
 
         if (shouldRefresh) {
           console.log(`[Auth] Token expires in ${timeUntilExpiry}s, attempting refresh...`);
-          
+
           // Only attempt refresh if we have a refresh token
           if (token.refreshToken) {
             return await refreshAccessToken(token);
@@ -265,7 +265,7 @@ export const authOptions: NextAuthOptions = {
       session.error = token.error as string | undefined;
       session.groups = token.groups as string[];
       session.isAuthorized = token.isAuthorized as boolean;
-      
+
       // If token refresh failed, log the user out
       if (token.error === "RefreshTokenExpired" || token.error === "RefreshTokenError") {
         console.error(`[Auth] Session invalid due to: ${token.error}`);
@@ -301,7 +301,7 @@ export const authOptions: NextAuthOptions = {
           email: email,
           image: (profile.picture as string) || session.user?.image,
         };
-        
+
         // Add sub to session for display in user menu
         session.sub = sub;
       }

@@ -117,7 +117,7 @@ export class A2ASDKClient {
         // Handle 401 Unauthorized - token expired
         if (res.status === 401) {
           console.error("[A2A SDK] Received 401 - SSO token expired");
-          
+
           // Throw error to be caught by caller
           throw new Error(
             "Session expired: Your authentication token has expired. " +
@@ -190,7 +190,7 @@ export class A2ASDKClient {
           break;
         }
       }
-      
+
       // Log if stream ended without explicit completion signal
       console.log(`[A2A SDK] 📡 Stream ended naturally after ${eventCount} events`);
     } catch (error) {

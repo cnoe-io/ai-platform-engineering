@@ -252,7 +252,7 @@ function HomePage() {
               animate={{ opacity: 1 }}
               className="flex-1 overflow-hidden"
             >
-              <UseCasesGallery 
+              <UseCasesGallery
                 onSelectUseCase={handleSelectUseCase}
                 refreshTrigger={useCasesRefreshTrigger}
               />

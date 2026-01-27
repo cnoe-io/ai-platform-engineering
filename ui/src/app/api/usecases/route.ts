@@ -4,13 +4,13 @@ import path from "path";
 
 /**
  * POST /api/usecases
- * 
+ *
  * Save a use case to the backend.
- * 
+ *
  * Storage options (configured via environment variables):
  * 1. File-based storage (default) - Stores in JSON file
  * 2. MongoDB - Set USECASE_STORAGE_TYPE=mongodb and MONGODB_URI
- * 
+ *
  * Environment Variables:
  * - USECASE_STORAGE_TYPE: "file" (default) or "mongodb"
  * - MONGODB_URI: MongoDB connection string (required if using MongoDB)
@@ -228,7 +228,7 @@ export async function POST(request: NextRequest) {
 
 /**
  * GET /api/usecases
- * 
+ *
  * Retrieve all saved use cases from configured storage.
  */
 export async function GET() {
@@ -238,7 +238,7 @@ export async function GET() {
   } catch (error) {
     console.error("Error fetching use cases:", error);
     return NextResponse.json(
-      { 
+      {
         error: "Failed to fetch use cases",
         details: error instanceof Error ? error.message : "Unknown error"
       },
@@ -249,7 +249,7 @@ export async function GET() {
 
 /**
  * PUT /api/usecases?id=<useCaseId>
- * 
+ *
  * Update an existing use case.
  */
 export async function PUT(request: NextRequest) {
@@ -285,7 +285,7 @@ export async function PUT(request: NextRequest) {
     // Check if use case exists
     const allUseCases = await getAllUseCases();
     const existingUseCase = allUseCases.find((uc) => uc.id === id);
-    
+
     if (!existingUseCase) {
       return NextResponse.json(
         { error: "Use case not found" },
@@ -307,7 +307,7 @@ export async function PUT(request: NextRequest) {
   } catch (error) {
     console.error("Error updating use case:", error);
     return NextResponse.json(
-      { 
+      {
         error: "Failed to update use case",
         details: error instanceof Error ? error.message : "Unknown error"
       },

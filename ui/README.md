@@ -192,7 +192,7 @@ Pre-built scenarios for common platform engineering tasks:
 - **A2A Protocol**: Using @a2a-js/sdk via A2ASDKClient wrapper
 - **A2UI Widgets**: Custom implementation following A2UI spec
 
-**Note**: 
+**Note**:
 - **A2A SDK**: Uses official `@a2a-js/sdk` (v0.3.9+) via `A2ASDKClient` wrapper for agent communication
 - **CopilotKit & AG-UI**: Installed for reference, but UI uses custom widget implementations following A2UI and AG-UI specifications
 

@@ -187,7 +187,7 @@ export function UserMenu() {
                   showAdvanced && "rotate-90"
                 )} />
               </button>
-              
+
               <AnimatePresence>
                 {showAdvanced && (
                   <motion.div
@@ -216,7 +216,7 @@ export function UserMenu() {
                           <div className="bg-card rounded-md p-2 border border-border">
                             <div className="space-y-1 max-h-32 overflow-y-auto">
                               {session.groups.map((group, index) => (
-                                <div 
+                                <div
                                   key={index}
                                   className="text-xs font-mono text-muted-foreground break-all"
                                   title={group}

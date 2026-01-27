@@ -70,7 +70,7 @@ export function AuthGuard({ children }: AuthGuardProps) {
       // as tokens are auto-refreshed 5 minutes before expiry
       const jwtToken = session as unknown as { expiresAt?: number };
       const tokenExpiry = jwtToken.expiresAt;
-      
+
       if (tokenExpiry && isTokenExpired(tokenExpiry, 60)) {
         console.warn("[AuthGuard] Token expired without refresh, redirecting to login...");
         router.push("/login?session_expired=true");

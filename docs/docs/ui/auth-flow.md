@@ -25,19 +25,19 @@ sequenceDiagram
     User->>Browser: Click "Sign in with SSO"
     Browser->>NextJS: POST /api/auth/signin
     NextJS->>OIDC: Redirect to /authorize<br/>scope: openid email profile groups offline_access<br/>response_type: code<br/>redirect_uri: /api/auth/callback
-    
+
     Note over OIDC: User authenticates<br/>with SSO provider
 
     OIDC->>NextJS: Redirect with authorization code
     NextJS->>OIDC: POST /token<br/>grant_type: authorization_code<br/>code: [authorization_code]
     OIDC-->>NextJS: access_token, id_token, refresh_token<br/>expires_in: 3600 (1 hour)
-    
+
     Note over NextJS: JWT callback:<br/>1. Store tokens in JWT<br/>2. Extract user profile<br/>3. Check group membership<br/>4. Set expiry timestamp
 
     NextJS->>NextJS: Create encrypted session cookie
     NextJS->>Browser: Set-Cookie: next-auth.session-token
     Browser->>Browser: Redirect to / (home page)
-    
+
     Note over Browser: User is authenticated<br/>Session active
 ```
 
@@ -54,12 +54,12 @@ sequenceDiagram
 
     User->>Browser: Type message & send
     Browser->>Browser: useSession() hook<br/>Get access_token from session
-    
+
     Browser->>NextJS: Request session data
     NextJS-->>Browser: { accessToken, user, expiresAt }
-    
+
     Browser->>Backend: POST /message/stream<br/>Authorization: Bearer {access_token}<br/>Body: { message, contextId }
-    
+
     Note over Backend: Validate Bearer token<br/>(JWT signature, expiry, claims)
 
     alt Token Valid
@@ -84,15 +84,15 @@ sequenceDiagram
 
     Timer->>NextJS: Session request<br/>(useSession or getServerSession)
     NextJS->>NextJS: JWT callback triggered<br/>Check: expiresAt - now < 5min?
-    
+
     alt Token needs refresh
         NextJS->>OIDC: POST /token<br/>grant_type: refresh_token<br/>refresh_token: {refresh_token}<br/>client_id: {client_id}<br/>client_secret: {client_secret}
-        
+
         alt Refresh Success
             OIDC-->>NextJS: New access_token, id_token<br/>New refresh_token (optional)<br/>New expires_in
             NextJS->>NextJS: Update JWT with new tokens<br/>Update expiresAt timestamp
             NextJS-->>Browser: Updated session<br/>{ accessToken: new_token, ... }
-            
+
             Note over Browser: Seamless continuation<br/>User unaware of refresh
         else Refresh Failed
             OIDC-->>NextJS: 400 Bad Request<br/>error: invalid_grant
@@ -121,11 +121,11 @@ sequenceDiagram
         Timer->>Session: Get current session
         Session-->>Timer: { expiresAt, accessToken }
         Timer->>Timer: Calculate time until expiry<br/>timeLeft = expiresAt - now
-        
+
         alt 5 min warning (timeLeft < 300s)
             Timer->>Browser: Show warning toast<br/>"Session expiring in {time}"
             Browser-->>User: 🔔 Warning notification<br/>with "Re-login Now" button
-            
+
             alt User clicks "Re-login Now"
                 User->>Browser: Click button
                 Browser->>Browser: Redirect to /login
@@ -300,7 +300,7 @@ NEXTAUTH_URL=http://localhost:3000
 ### No Refresh Token Received
 **Symptom**: Warning system active, but no auto-refresh
 **Cause**: OIDC provider not issuing refresh token
-**Solution**: 
+**Solution**:
 1. Check if provider supports `offline_access` scope
 2. Verify client configuration allows refresh tokens
 3. Check logs: `[Auth] ⚠️ Refresh token not provided by OIDC provider`
