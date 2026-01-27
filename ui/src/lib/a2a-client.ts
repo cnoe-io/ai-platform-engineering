@@ -88,6 +88,15 @@ export class A2AClient {
     console.log(`[A2A Client] 📥 Response headers: Content-Type=${response.headers.get("content-type")}`);
 
     if (!response.ok) {
+      // Handle 401 Unauthorized - SSO token expired
+      if (response.status === 401) {
+        const errorMessage = 
+          "Session expired: Your authentication token has expired. " +
+          "Please save your work and log in again.";
+        console.error(`[A2A Client] ${errorMessage}`);
+        throw new Error(errorMessage);
+      }
+      
       throw new Error(`A2A request failed: ${response.statusText}`);
     }
 

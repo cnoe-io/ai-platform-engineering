@@ -3,6 +3,7 @@ import Script from "next/script";
 import { Inter, JetBrains_Mono, Source_Sans_3, IBM_Plex_Sans } from "next/font/google";
 import { ThemeProvider } from "@/components/theme-provider";
 import { AuthProvider } from "@/components/auth-provider";
+import { TokenExpiryGuard } from "@/components/token-expiry-guard";
 import "./globals.css";
 
 // Primary font: Inter - Used by OpenAI, clean and highly readable
@@ -75,6 +76,7 @@ export default function RootLayout({
             disableTransitionOnChange={false}
             themes={["light", "dark", "midnight", "nord", "tokyo"]}
           >
+            <TokenExpiryGuard />
             {children}
           </ThemeProvider>
         </AuthProvider>
