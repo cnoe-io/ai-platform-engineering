@@ -196,21 +196,9 @@ export function ChatPanel({ endpoint }: ChatPanelProps) {
         const artifactName = event.artifactName || "";
         const newContent = event.displayContent;
 
-        // 🔧 THROTTLE: Batch event storage
-        const isImportantArtifact =
-          artifactName === "final_result" ||
-          artifactName === "partial_result" ||
-          artifactName === "execution_plan_update" ||
-          artifactName === "execution_plan_status_update" ||
-          artifactName === "tool_notification_start" ||
-          artifactName === "tool_notification_end";
-
-        // Store events (batched for performance)
-        if (eventNum % EVENT_BATCH_SIZE === 0 || isImportantArtifact) {
-          // Convert ParsedA2AEvent to the full A2AEvent format expected by store
-          const storeEvent = toStoreEvent(event, `event-${eventNum}-${Date.now()}`);
-          addA2AEvent(storeEvent as Parameters<typeof addA2AEvent>[0], convId!);
-        }
+        // Store ALL events in A2A Debug (no batching)
+        const storeEvent = toStoreEvent(event, `event-${eventNum}-${Date.now()}`);
+        addA2AEvent(storeEvent as Parameters<typeof addA2AEvent>[0], convId!);
 
         // 🔍 DEBUG: Condensed logging
         const isImportantEvent = artifactName === "final_result" || artifactName === "partial_result" ||
@@ -237,16 +225,14 @@ export function ChatPanel({ endpoint }: ChatPanelProps) {
             rawStreamContent += `\n\n[${artifactName}]\n${newContent}`;
             hasReceivedCompleteResult = true;
             updateMessage(convId!, assistantMsgId, { content: accumulatedText, rawStreamContent, isFinal: true });
-            setConversationStreaming(convId!, null);
-            break; // Exit loop - we have the final result
+            // Don't break - continue to receive status-update event
           } else if (accumulatedText.length > 0) {
             // Fallback: use accumulated content
             console.log(`[A2A SDK] ⚠️ ${artifactName} empty - using accumulated content`);
             rawStreamContent += `\n\n[${artifactName}] (using accumulated content)`;
             hasReceivedCompleteResult = true;
             updateMessage(convId!, assistantMsgId, { content: accumulatedText, rawStreamContent, isFinal: true });
-            setConversationStreaming(convId!, null);
-            break;
+            // Don't break - continue to receive status-update event
           }
         }
 
@@ -255,6 +241,7 @@ export function ChatPanel({ endpoint }: ChatPanelProps) {
         // ═══════════════════════════════════════════════════════════════
         if (event.type === "status" && event.isFinal) {
           console.log(`[A2A SDK] 🏁 Stream complete (final status) - Event #${eventNum}`);
+          setConversationStreaming(convId!, null);
           break;
         }
 
