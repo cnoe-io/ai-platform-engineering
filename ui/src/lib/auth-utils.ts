@@ -4,7 +4,7 @@
 
 /**
  * Check if a JWT token is expired or will expire soon
- * 
+ *
  * @param expiresAt - Unix timestamp (in seconds) when token expires
  * @param bufferSeconds - How many seconds before expiry to consider token invalid (default: 60s)
  * @returns true if token is expired or will expire within buffer time
@@ -22,7 +22,7 @@ export function isTokenExpired(expiresAt: number | undefined, bufferSeconds: num
 
 /**
  * Get the number of seconds until token expires
- * 
+ *
  * @param expiresAt - Unix timestamp (in seconds) when token expires
  * @returns seconds until expiry (negative if already expired)
  */
@@ -37,12 +37,12 @@ export function getTimeUntilExpiry(expiresAt: number | undefined): number {
 
 /**
  * Format time until expiry in human-readable format
- * 
+ *
  * @param seconds - seconds until expiry
  * @returns formatted string like "5 minutes", "2 hours", etc.
  */
 export function formatTimeUntilExpiry(seconds: number): string {
-  if (seconds < 0) {
+  if (seconds <= 0) {
     return "expired";
   }
 
@@ -67,7 +67,7 @@ export function formatTimeUntilExpiry(seconds: number): string {
 /**
  * Calculate when to start warning user about token expiry
  * Returns timestamp when warning should start (5 minutes before expiry)
- * 
+ *
  * @param expiresAt - Unix timestamp (in seconds) when token expires
  * @returns Unix timestamp when to show warning (5 min before expiry)
  */

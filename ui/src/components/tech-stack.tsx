@@ -22,7 +22,7 @@ const techStack: TechItem[] = [
     url: "https://caipe.io",
     category: "platform",
   },
-  
+
   // Protocols
   {
     name: "A2A Protocol",
@@ -42,7 +42,7 @@ const techStack: TechItem[] = [
     url: "https://modelcontextprotocol.io/",
     category: "protocol",
   },
-  
+
   // Frontend Stack
   {
     name: "Next.js 15",
@@ -98,7 +98,7 @@ const techStack: TechItem[] = [
     url: "https://next-auth.js.org/",
     category: "frontend",
   },
-  
+
   // Backend Stack
   {
     name: "LangGraph",
@@ -112,7 +112,7 @@ const techStack: TechItem[] = [
     url: "https://www.python.org/",
     category: "backend",
   },
-  
+
   // Community
   {
     name: "CNOE",

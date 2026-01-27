@@ -245,7 +245,7 @@ ui/
 | **AG-UI Patterns** | Aligned (not using library) | Real-time AI interaction patterns |
 | **MCP** | Via CAIPE supervisor | Tool integration |
 
-**Important**: 
+**Important**:
 - **@a2a-js/sdk**: ACTIVELY USED via `A2ASDKClient` wrapper (`ui/src/lib/a2a-sdk-client.ts`) for standards-compliant A2A protocol communication
 - **CopilotKit**: Installed for reference; UI uses custom widget implementations following A2UI and AG-UI specifications
 - See `ui/src/components/chat/ChatPanel.tsx` for SDK usage example
@@ -277,7 +277,7 @@ export function useA2AStreaming(endpoint: string) {
 
   useEffect(() => {
     const eventSource = new EventSource(endpoint);
-    
+
     eventSource.onmessage = (event) => {
       const message = JSON.parse(event.data);
       setMessages(prev => [...prev, message]);
@@ -435,7 +435,7 @@ export async function GET(request: NextRequest) {
     const caipeUrl = process.env.CAIPE_URL || 'http://localhost:8000';
     const response = await fetch(`${caipeUrl}/.well-known/agent-card.json`);
     const data = await response.json();
-    
+
     return NextResponse.json(data);
   } catch (error) {
     console.error('Failed to fetch agents:', error);
@@ -511,11 +511,11 @@ describe('ChatInput', () => {
   it('should call onSend when submitted', () => {
     const onSend = jest.fn();
     render(<ChatInput onSend={onSend} />);
-    
+
     const input = screen.getByRole('textbox');
     fireEvent.change(input, { target: { value: 'Hello' } });
     fireEvent.submit(input);
-    
+
     expect(onSend).toHaveBeenCalledWith('Hello');
   });
 });

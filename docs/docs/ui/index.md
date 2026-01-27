@@ -136,7 +136,7 @@ The UI follows a modern React architecture with these core principles:
 - **AG-UI Compatible**: Aligned with AG-UI patterns (CopilotKit)
 - **MCP Integration**: Model Context Protocol for AI tool integration
 
-**Note**: 
+**Note**:
 - **A2A SDK**: Uses official `@a2a-js/sdk` (v0.3.9+) via `A2ASDKClient` wrapper for standards-compliant agent communication
 - **CopilotKit & AG-UI**: Referenced as inspiration; UI uses custom widget implementations following A2UI and AG-UI specifications
 
