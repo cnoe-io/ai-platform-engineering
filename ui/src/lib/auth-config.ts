@@ -12,7 +12,12 @@ import type { NextAuthOptions } from "next-auth";
  * - NEXT_PUBLIC_SSO_ENABLED: "true" to enable SSO, otherwise disabled
  * - OIDC_GROUP_CLAIM: The OIDC claim name for groups (default: auto-detect from memberOf, groups, etc.)
  * - OIDC_REQUIRED_GROUP: Group name required for access (default: "backstage-access")
+ * - OIDC_ENABLE_REFRESH_TOKEN: "true" to enable refresh token support (default: true if not set)
  */
+
+// Check if refresh token support should be enabled
+// Defaults to true for backward compatibility, but can be disabled if OIDC provider doesn't support it
+export const ENABLE_REFRESH_TOKEN = process.env.OIDC_ENABLE_REFRESH_TOKEN !== "false";
 
 // Group claim name - configurable via env var
 // If not set, will auto-detect from common claim names
@@ -160,8 +165,15 @@ export const authOptions: NextAuthOptions = {
       wellKnown: process.env.OIDC_ISSUER
         ? `${process.env.OIDC_ISSUER}/.well-known/openid-configuration`
         : undefined,
-      // Request offline_access to get refresh tokens for seamless token renewal
-      authorization: { params: { scope: "openid email profile groups offline_access" } },
+      // Request offline_access to get refresh tokens (if enabled)
+      // Falls back to warning-only mode if refresh tokens not available
+      authorization: { 
+        params: { 
+          scope: ENABLE_REFRESH_TOKEN 
+            ? "openid email profile groups offline_access" 
+            : "openid email profile groups"
+        } 
+      },
       idToken: true,
       checks: ["pkce", "state"],
       clientId: process.env.OIDC_CLIENT_ID,
@@ -190,8 +202,20 @@ export const authOptions: NextAuthOptions = {
         token.refreshToken = account.refresh_token;
         token.expiresAt = account.expires_at;
         
-        console.log("[Auth] Initial sign-in, token expires at:", 
-          new Date((account.expires_at || 0) * 1000).toISOString());
+        const expiryDate = new Date((account.expires_at || 0) * 1000).toISOString();
+        console.log("[Auth] Initial sign-in, token expires at:", expiryDate);
+        
+        // Log whether refresh token support is available
+        if (ENABLE_REFRESH_TOKEN) {
+          if (account.refresh_token) {
+            console.log("[Auth] ✅ Refresh token available - seamless token renewal enabled");
+          } else {
+            console.warn("[Auth] ⚠️  Refresh token not provided by OIDC provider - falling back to expiry warnings");
+            console.warn("[Auth] Hint: Ensure OIDC provider supports 'offline_access' scope");
+          }
+        } else {
+          console.log("[Auth] ℹ️  Refresh token support disabled (OIDC_ENABLE_REFRESH_TOKEN=false)");
+        }
       }
 
       // Extract and store groups from profile
@@ -210,25 +234,24 @@ export const authOptions: NextAuthOptions = {
       }
 
       // Check if token needs refresh (refresh 5 minutes before expiry)
+      // Only attempt if refresh token support is enabled
       const now = Math.floor(Date.now() / 1000);
       const expiresAt = token.expiresAt as number | undefined;
       
-      if (expiresAt) {
+      if (ENABLE_REFRESH_TOKEN && expiresAt) {
         const timeUntilExpiry = expiresAt - now;
         const shouldRefresh = timeUntilExpiry < 5 * 60; // Refresh if less than 5 min remaining
 
         if (shouldRefresh) {
-          console.log(`[Auth] Token expires in ${timeUntilExpiry}s, refreshing...`);
+          console.log(`[Auth] Token expires in ${timeUntilExpiry}s, attempting refresh...`);
           
           // Only attempt refresh if we have a refresh token
           if (token.refreshToken) {
             return await refreshAccessToken(token);
           } else {
-            console.warn("[Auth] No refresh token available, cannot refresh");
-            return {
-              ...token,
-              error: "RefreshTokenMissing",
-            };
+            console.warn("[Auth] No refresh token available, falling back to expiry warnings");
+            // Don't set error - just fall back to warning system
+            // This allows graceful degradation if provider doesn't support refresh tokens
           }
         }
       }
