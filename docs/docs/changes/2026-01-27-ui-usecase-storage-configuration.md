@@ -1,9 +1,9 @@
 # ADR: Use Case Storage Configuration for CAIPE UI
 
-**Status**: 🟢 In-use
-**Category**: Architecture & Design
-**Date**: January 27, 2026
-**Signed-off-by**: Sri Aradhyula <sraradhy@cisco.com>
+**Status**: 🟢 In-use  
+**Category**: Architecture & Design  
+**Date**: January 27, 2026  
+**Signed-off-by**: Sri Aradhyula &lt;sraradhy@cisco.com&gt;
 
 ## Overview / Summary
 
