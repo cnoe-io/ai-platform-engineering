@@ -10,6 +10,17 @@ redis_client = redis.from_url(redis_url, decode_responses=True)
 legacy_default_collection_name_graph = "graph_rag_default"
 delete_delay_seconds = int(os.getenv("DELETE_DELAY_SECONDS", "20"))
 
+async def _delete_all_nodes_batch(graph_db: Neo4jDB, name: str):
+    query = """
+    MATCH (n)
+    CALL {
+        WITH n
+        DETACH DELETE n
+    } IN TRANSACTIONS OF 1000 ROWS
+    """
+    await graph_db.raw_query(query)
+    print(f"  Deleted all nodes from {name} graph")
+
 async def clear_all():
     print("🛑 WARNING 🛑 This will DELETE ALL DATA in the Vector databases, Graph databases, and Redis. 🛑 Proceed with caution!🛑")
 
@@ -23,10 +34,10 @@ async def clear_all():
 
     if graph_rag_enabled:
         print("🛑 Deleting data from ontology graph...")
-        await ontology_graph_db.raw_query("MATCH (n) DETACH DELETE n")
+        await _delete_all_nodes_batch(ontology_graph_db, "ontology")
         
         print("🛑 Deleting data from data graph...")
-        await data_graph_db.raw_query("MATCH (n) DETACH DELETE n")
+        await _delete_all_nodes_batch(data_graph_db, "data")
     else:
         print("Graph RAG is disabled, skipping graph deletion.")
 

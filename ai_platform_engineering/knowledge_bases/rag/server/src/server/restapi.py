@@ -249,19 +249,60 @@ def generate_ingestor_id(ingestor_name: str, ingestor_type: str) -> str:
 # User Info Endpoint
 # ============================================================================
 
-@app.get("/v1/user/info", response_model=UserInfoResponse)
-async def get_user_info(user: UserContext = Depends(get_current_user)):
-    """
-    Get current user's authentication and role information.
+@app.get(
+    "/v1/user/info",
+    response_model=UserInfoResponse,
+    tags=["Authentication"],
+    summary="Get current user information",
+    description="""
+    Retrieve the current user's authentication status, role, and permissions.
     
     This endpoint is used by the UI to:
-    - Display user information
-    - Show/hide features based on role
-    - Enable/disable buttons based on permissions
+    - Display the logged-in user's email and role
+    - Show/hide features based on role-based permissions
+    - Enable/disable action buttons based on what the user can do
     
-    No specific role required - any authenticated (or unauthenticated if allowed)
-    user can access their own information.
-    """
+    **No specific role required** - any authenticated user (or unauthenticated if 
+    ALLOW_UNAUTHENTICATED is enabled) can access their own information.
+    
+    **Permissions explained:**
+    - `can_read`: Can query and view data (READONLY, INGESTONLY, ADMIN)
+    - `can_ingest`: Can ingest new data and manage ingestion jobs (INGESTONLY, ADMIN)
+    - `can_delete`: Can delete resources and perform bulk operations (ADMIN only)
+    """,
+    responses={
+        200: {
+            "description": "Successfully retrieved user information",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "email": "user@example.com",
+                        "role": "readonly",
+                        "is_authenticated": True,
+                        "groups": ["engineering", "platform-team"],
+                        "permissions": {
+                            "can_read": True,
+                            "can_ingest": False,
+                            "can_delete": False
+                        }
+                    }
+                }
+            }
+        },
+        401: {
+            "description": "Authentication required but not provided",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "detail": "Authentication required. Please ensure you are logged in through the authentication proxy."
+                    }
+                }
+            }
+        }
+    }
+)
+async def get_user_info(user: UserContext = Depends(get_current_user)):
+    """Get current user's authentication and role information."""
     return UserInfoResponse(
         email=user.email,
         role=user.role,
