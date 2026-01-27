@@ -1,7 +1,7 @@
 # CAIPE UI Makefile
 # Usage: make <target>
 
-.PHONY: help install dev build start clean lint format check run setup
+.PHONY: help install dev build start clean lint format check run setup test
 
 # Default target - runs the full setup
 .DEFAULT_GOAL := run
@@ -13,6 +13,7 @@ help:
 	@echo "  make dev        - Run development server (localhost:3000)"
 	@echo "  make build      - Build for production"
 	@echo "  make start      - Start production server"
+	@echo "  make test       - Run Jest unit tests"
 	@echo "  make clean      - Remove node_modules and .next"
 	@echo "  make lint       - Run linter"
 	@echo "  make format     - Format code with prettier"
@@ -62,6 +63,11 @@ format:
 check:
 	@echo "📝 Running type check..."
 	npx tsc --noEmit
+
+# Run tests
+test:
+	@echo "🧪 Running Jest tests..."
+	npm test
 
 # Setup environment (creates .env.local if not exists)
 setup:
