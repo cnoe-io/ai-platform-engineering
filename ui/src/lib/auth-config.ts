@@ -149,11 +149,17 @@ export const authOptions: NextAuthOptions = {
           (profile.username as string) ||
           session.user?.email;
 
+        // Extract sub (subject) for unique user identifier
+        const sub = (profile.sub as string) || (profile.id as string);
+
         session.user = {
           name: fullName,
           email: email,
           image: (profile.picture as string) || session.user?.image,
         };
+        
+        // Add sub to session for display in user menu
+        session.sub = sub;
       }
 
       return session;
@@ -178,6 +184,7 @@ declare module "next-auth" {
     error?: string;
     groups?: string[];
     isAuthorized?: boolean;
+    sub?: string; // User subject ID from OIDC
   }
 }
 
