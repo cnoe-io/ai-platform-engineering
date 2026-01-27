@@ -710,7 +710,7 @@ As the [A2UI specification evolves](https://a2ui.org/roadmap), CAIPE's implement
 ### Related Documentation
 
 - [UI Features](features.md) - Overview of UI capabilities
-- [A2A Protocol](../architecture/a2a-protocol.md) - A2A protocol details
+- [CAIPE Architecture](../architecture/index.md) - Architecture and A2A protocol details
 - [Development Guide](development.md) - Contributing to the UI
 
 ## FAQ
