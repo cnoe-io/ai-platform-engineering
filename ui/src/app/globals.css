@@ -1,0 +1,512 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ========================================
+   THEME SYSTEM - Multiple Dark & Light Themes
+   ======================================== */
+
+/* Base variables */
+:root {
+  --radius: 0.75rem;
+
+  /* Font size scale - adjustable via settings */
+  --font-size-base: 1rem;
+  --font-size-scale: 1;
+
+  /* A2A Protocol Event Colors - consistent across themes */
+  --a2a-task: 199 89% 48%;
+  --a2a-artifact: 270 75% 60%;
+  --a2a-status: 142 71% 45%;
+  --a2a-tool: 38 92% 50%;
+  --a2a-stream: 215 20% 55%;
+  --a2a-error: 0 72% 51%;
+
+  /* AG-UI inspired gradient colors */
+  --gradient-start: 173 80% 40%;
+  --gradient-mid: 270 75% 60%;
+  --gradient-end: 330 80% 55%;
+}
+
+/* ========================================
+   FONT SIZE SETTINGS
+   Applied via data-font-size attribute
+   ======================================== */
+[data-font-size="small"] {
+  --font-size-scale: 0.875;
+  font-size: 14px;
+}
+
+[data-font-size="medium"] {
+  --font-size-scale: 1;
+  font-size: 16px;
+}
+
+[data-font-size="large"] {
+  --font-size-scale: 1.125;
+  font-size: 18px;
+}
+
+[data-font-size="x-large"] {
+  --font-size-scale: 1.25;
+  font-size: 20px;
+}
+
+/* ========================================
+   FONT FAMILY SETTINGS
+   Applied via data-font-family attribute
+   ======================================== */
+[data-font-family="inter"] {
+  font-family: var(--font-inter), system-ui, sans-serif;
+}
+
+[data-font-family="source-sans"] {
+  font-family: var(--font-source-sans), system-ui, sans-serif;
+}
+
+[data-font-family="ibm-plex"] {
+  font-family: var(--font-ibm-plex), system-ui, sans-serif;
+}
+
+[data-font-family="system"] {
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+
+/* ========================================
+   DARK THEME (Default) - Deep Space
+   Best for most environments
+   ======================================== */
+:root,
+.dark,
+[data-theme="dark"] {
+  --background: 230 25% 5%;
+  --foreground: 210 40% 98%;
+  --card: 230 25% 7%;
+  --card-foreground: 210 40% 98%;
+  --popover: 230 25% 8%;
+  --popover-foreground: 210 40% 98%;
+  --primary: 173 80% 40%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 230 20% 12%;
+  --secondary-foreground: 210 40% 98%;
+  --muted: 230 20% 15%;
+  --muted-foreground: 215 20% 55%;
+  --accent: 230 20% 15%;
+  --accent-foreground: 210 40% 98%;
+  --destructive: 0 72% 51%;
+  --destructive-foreground: 210 40% 98%;
+  --border: 230 20% 18%;
+  --input: 230 20% 15%;
+  --ring: 173 80% 40%;
+}
+
+/* ========================================
+   LIGHT THEME - Clean & Professional
+   For bright environments
+   ======================================== */
+.light,
+[data-theme="light"] {
+  --background: 0 0% 99%;
+  --foreground: 224 71% 4%;
+  --card: 0 0% 100%;
+  --card-foreground: 224 71% 4%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 224 71% 4%;
+  --primary: 173 80% 35%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 220 14% 96%;
+  --secondary-foreground: 224 71% 4%;
+  --muted: 220 14% 96%;
+  --muted-foreground: 220 9% 46%;
+  --accent: 220 14% 96%;
+  --accent-foreground: 224 71% 4%;
+  --destructive: 0 84% 60%;
+  --destructive-foreground: 0 0% 100%;
+  --border: 220 13% 91%;
+  --input: 220 13% 91%;
+  --ring: 173 80% 35%;
+}
+
+/* ========================================
+   MIDNIGHT THEME - Pure Black
+   Perfect for OLED displays
+   ======================================== */
+[data-theme="midnight"] {
+  --background: 0 0% 0%;
+  --foreground: 0 0% 95%;
+  --card: 0 0% 3%;
+  --card-foreground: 0 0% 95%;
+  --popover: 0 0% 5%;
+  --popover-foreground: 0 0% 95%;
+  --primary: 173 80% 45%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 0 0% 8%;
+  --secondary-foreground: 0 0% 95%;
+  --muted: 0 0% 10%;
+  --muted-foreground: 0 0% 55%;
+  --accent: 0 0% 10%;
+  --accent-foreground: 0 0% 95%;
+  --destructive: 0 72% 51%;
+  --destructive-foreground: 0 0% 95%;
+  --border: 0 0% 15%;
+  --input: 0 0% 10%;
+  --ring: 173 80% 45%;
+}
+
+/* ========================================
+   NORD THEME - Arctic Cool
+   Inspired by Nord color palette
+   ======================================== */
+[data-theme="nord"] {
+  --background: 220 16% 14%;
+  --foreground: 219 28% 88%;
+  --card: 220 16% 16%;
+  --card-foreground: 219 28% 88%;
+  --popover: 220 16% 18%;
+  --popover-foreground: 219 28% 88%;
+  --primary: 193 43% 67%;
+  --primary-foreground: 220 16% 14%;
+  --secondary: 220 16% 20%;
+  --secondary-foreground: 219 28% 88%;
+  --muted: 220 16% 22%;
+  --muted-foreground: 219 14% 60%;
+  --accent: 220 16% 22%;
+  --accent-foreground: 219 28% 88%;
+  --destructive: 354 42% 56%;
+  --destructive-foreground: 219 28% 88%;
+  --border: 220 16% 25%;
+  --input: 220 16% 20%;
+  --ring: 193 43% 67%;
+
+  /* Nord-specific gradient */
+  --gradient-start: 193 43% 67%;
+  --gradient-mid: 213 32% 52%;
+  --gradient-end: 311 20% 63%;
+}
+
+/* ========================================
+   TOKYO NIGHT THEME
+   Vibrant purple-blue inspired by Tokyo
+   ======================================== */
+[data-theme="tokyo"] {
+  --background: 235 21% 11%;
+  --foreground: 225 20% 87%;
+  --card: 235 21% 13%;
+  --card-foreground: 225 20% 87%;
+  --popover: 235 21% 15%;
+  --popover-foreground: 225 20% 87%;
+  --primary: 267 84% 81%;
+  --primary-foreground: 235 21% 11%;
+  --secondary: 235 21% 17%;
+  --secondary-foreground: 225 20% 87%;
+  --muted: 235 21% 20%;
+  --muted-foreground: 225 10% 55%;
+  --accent: 235 21% 20%;
+  --accent-foreground: 225 20% 87%;
+  --destructive: 353 73% 68%;
+  --destructive-foreground: 225 20% 87%;
+  --border: 235 21% 22%;
+  --input: 235 21% 17%;
+  --ring: 267 84% 81%;
+
+  /* Tokyo Night gradient */
+  --gradient-start: 267 84% 81%;
+  --gradient-mid: 210 82% 71%;
+  --gradient-end: 353 73% 68%;
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-feature-settings: "rlig" 1, "calt" 1;
+  }
+
+  /* Modern focus ring */
+  *:focus-visible {
+    @apply outline-none ring-2 ring-ring ring-offset-2 ring-offset-background;
+  }
+}
+
+@layer components {
+  /* Glass morphism panels - AG-UI Dojo style */
+  .glass-panel {
+    @apply bg-card/80 backdrop-blur-xl border border-border/50;
+  }
+
+  /* Gradient text - CopilotKit style */
+  .gradient-text {
+    @apply bg-gradient-to-r from-[hsl(var(--gradient-start))] via-[hsl(var(--gradient-mid))] to-[hsl(var(--gradient-end))] bg-clip-text text-transparent;
+  }
+
+  /* Glow effect for primary elements */
+  .glow-primary {
+    box-shadow: 0 0 20px hsl(var(--primary) / 0.3), 0 0 40px hsl(var(--primary) / 0.1);
+  }
+
+  /* Subtle glow on hover */
+  .hover-glow:hover {
+    box-shadow: 0 0 15px hsl(var(--primary) / 0.2);
+  }
+
+  /* A2A Event badges with subtle glow */
+  .a2a-badge-task {
+    @apply bg-sky-500/15 text-sky-400 border border-sky-500/30;
+    box-shadow: 0 0 10px hsl(199 89% 48% / 0.15);
+  }
+
+  .a2a-badge-artifact {
+    @apply bg-purple-500/15 text-purple-400 border border-purple-500/30;
+    box-shadow: 0 0 10px hsl(270 75% 60% / 0.15);
+  }
+
+  .a2a-badge-status {
+    @apply bg-green-500/15 text-green-400 border border-green-500/30;
+    box-shadow: 0 0 10px hsl(142 71% 45% / 0.15);
+  }
+
+  .a2a-badge-tool {
+    @apply bg-amber-500/15 text-amber-400 border border-amber-500/30;
+    box-shadow: 0 0 10px hsl(38 92% 50% / 0.15);
+  }
+
+  /* Modern scrollbar */
+  .scrollbar-modern::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  .scrollbar-modern::-webkit-scrollbar-track {
+    @apply bg-transparent;
+  }
+
+  .scrollbar-modern::-webkit-scrollbar-thumb {
+    @apply bg-border rounded-full;
+  }
+
+  .scrollbar-modern::-webkit-scrollbar-thumb:hover {
+    @apply bg-muted-foreground/30;
+  }
+}
+
+/* Global scrollbar styling */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: hsl(var(--secondary));
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: hsl(var(--muted-foreground) / 0.2);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--muted-foreground) / 0.4);
+}
+
+/* Animations */
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.animate-spin {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes slideInFromBottom {
+  from {
+    transform: translateY(10px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@keyframes slideInFromLeft {
+  from {
+    transform: translateX(-10px);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes pulse-glow {
+  0%, 100% {
+    box-shadow: 0 0 10px hsl(var(--primary) / 0.3);
+  }
+  50% {
+    box-shadow: 0 0 20px hsl(var(--primary) / 0.5);
+  }
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+.animate-slide-in {
+  animation: slideInFromBottom 0.3s ease-out;
+}
+
+.animate-slide-in-left {
+  animation: slideInFromLeft 0.3s ease-out;
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.3s ease-out;
+}
+
+.animate-pulse-glow {
+  animation: pulse-glow 2s ease-in-out infinite;
+}
+
+/* Shimmer loading effect */
+.shimmer {
+  background: linear-gradient(
+    90deg,
+    hsl(var(--muted)) 0%,
+    hsl(var(--muted-foreground) / 0.1) 50%,
+    hsl(var(--muted)) 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+}
+
+/* A2A Stream item animation */
+.a2a-stream-item {
+  animation: slideInFromBottom 0.2s ease-out;
+}
+
+/* Typing indicator */
+.typing-indicator span {
+  animation: blink 1.4s infinite both;
+}
+
+.typing-indicator span:nth-child(2) {
+  animation-delay: 0.2s;
+}
+
+.typing-indicator span:nth-child(3) {
+  animation-delay: 0.4s;
+}
+
+@keyframes blink {
+  0%, 60%, 100% {
+    opacity: 0.3;
+  }
+  30% {
+    opacity: 1;
+  }
+}
+
+/* Markdown prose styling */
+.prose-invert {
+  --tw-prose-body: hsl(var(--foreground));
+  --tw-prose-headings: hsl(var(--foreground));
+  --tw-prose-links: hsl(var(--primary));
+  --tw-prose-code: hsl(var(--foreground));
+  --tw-prose-pre-bg: hsl(var(--muted));
+}
+
+.prose pre {
+  @apply bg-muted rounded-lg;
+}
+
+.prose code {
+  @apply bg-muted px-1.5 py-0.5 rounded text-sm font-mono;
+}
+
+.prose a {
+  @apply text-primary no-underline hover:underline;
+}
+
+.prose table {
+  @apply w-full;
+}
+
+.prose th {
+  @apply bg-muted text-left px-3 py-2 text-sm font-medium;
+}
+
+.prose td {
+  @apply border-t border-border px-3 py-2 text-sm;
+}
+
+/* Syntax highlighting overrides */
+pre code.hljs {
+  padding: 1rem;
+  border-radius: 0.5rem;
+  font-size: 0.875rem;
+}
+
+/* Selection styling */
+::selection {
+  background: hsl(var(--primary) / 0.3);
+  color: hsl(var(--foreground));
+}
+
+/* Focus-within for form groups */
+.focus-within-ring:focus-within {
+  @apply ring-2 ring-ring ring-offset-2 ring-offset-background;
+}
+
+/* Gradient border effect */
+.gradient-border {
+  position: relative;
+}
+
+.gradient-border::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  padding: 1px;
+  border-radius: inherit;
+  background: linear-gradient(
+    135deg,
+    hsl(var(--gradient-start)),
+    hsl(var(--gradient-mid)),
+    hsl(var(--gradient-end))
+  );
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+}
+
+/* Noise texture overlay for depth */
+.noise-overlay::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  opacity: 0.02;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%' height='100%' filter='url(%23noise)'/%3E%3C/svg%3E");
+  pointer-events: none;
+}

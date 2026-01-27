@@ -136,7 +136,7 @@ async def sync_backstage_entities(client: Client):
                 entity_type=f"Backstage{kind}",
                 all_properties=props,
                 primary_key_properties=["metadata.uid"],
-                additional_key_properties=[["metadata.name"], ["metadata.title"]]
+                additional_key_properties=[["metadata.name"]]
             )
             entities.append(entity)
             

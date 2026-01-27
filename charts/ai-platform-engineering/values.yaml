@@ -2,6 +2,7 @@ tags:
   basic: false
   complete: false
   backstage-agent-forge: false
+  caipe-ui: false
   agent-argocd: false
   agent-aws: false
   agent-backstage: false
@@ -35,6 +36,9 @@ global:
     enableGraphRag: true
 
   metrics:
+    enabled: false
+
+  caipeUi:
     enabled: false
 
 # ServiceMonitor for scraping all ai-platform-engineering components
@@ -280,6 +284,30 @@ backstage-plugin-agent-forge:
       - name: backend
         port: 7007
         protocol: TCP
+
+######### CAIPE UI configuration #########
+caipe-ui:
+  nameOverride: "caipe-ui"
+  image:
+    repository: "ghcr.io/cnoe-io/caipe-ui"
+    # tag defaults to .Chart.AppVersion when not specified
+    tag: ""
+    pullPolicy: "Always"
+  service:
+    port: 3000
+  ingress:
+    enabled: false
+    className: "nginx"
+    annotations: {}
+    hosts:
+      - host: caipe-ui.local
+        paths:
+          - path: /
+            pathType: Prefix
+    tls: []
+  env:
+    # CAIPE Supervisor URL - automatically configured to use the supervisor-agent service
+    NEXT_PUBLIC_A2A_BASE_URL: "http://ai-platform-engineering-supervisor-agent:8000"
 
 ######### RAG Stack configuration #########
 # RAG Stack - Complete stack including web, server, agent, Redis, and Milvus

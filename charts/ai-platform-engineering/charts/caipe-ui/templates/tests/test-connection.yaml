@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: "{{ include "caipe-ui.fullname" . }}-test-connection"
+  labels:
+    {{- include "caipe-ui.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": test
+spec:
+  containers:
+    - name: wget
+      image: busybox
+      command: ['wget']
+      args: ['{{ include "caipe-ui.fullname" . }}:{{ .Values.service.port }}/api/health']
+  restartPolicy: Never

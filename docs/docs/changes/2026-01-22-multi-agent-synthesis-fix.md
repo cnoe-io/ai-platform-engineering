@@ -1,8 +1,8 @@
 # Multi-Agent Synthesis Fix
 
-**Date**: 2026-01-22
-**Status**: 🟢 In-use
-**Author**: Sri Aradhyula <sraradhy@cisco.com>
+**Date**: 2026-01-22  
+**Status**: 🟢 In-use  
+**Author**: Sri Aradhyula &lt;sraradhy@cisco.com&gt;
 
 ## Summary
 
