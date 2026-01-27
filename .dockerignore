@@ -70,6 +70,9 @@ __pycache__/
 *.so
 .Python
 build/
+# Allow build directory files needed for Docker builds
+!build/Dockerfile*
+!build/*.sh
 develop-eggs/
 dist/
 downloads/
