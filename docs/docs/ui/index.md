@@ -24,13 +24,28 @@ The CAIPE UI serves as the primary graphical interface for platform engineers, S
 
 ## Quick Start
 
-### Using Docker Compose (Recommended)
+### Using Make (Recommended)
+
+```bash
+# From repository root - installs dependencies and runs dev server
+make caipe-ui
+
+# Or run with Docker Compose (includes supervisor)
+make caipe-ui-docker-compose
+```
+
+Visit [http://localhost:3000](http://localhost:3000)
+
+### Using Docker Compose
 
 ```bash
 # Start CAIPE supervisor + UI
+COMPOSE_PROFILES=caipe-ui docker compose -f docker-compose.dev.yaml up
+
+# Or with --profile flag
 docker compose -f docker-compose.dev.yaml --profile caipe-ui up
 
-# Or start everything
+# Or start everything (all agents + UI)
 COMPOSE_PROFILES="all-agents,caipe-ui" docker compose -f docker-compose.dev.yaml up
 ```
 
@@ -39,13 +54,12 @@ Visit [http://localhost:3000](http://localhost:3000)
 ### Local Development
 
 ```bash
-# Navigate to UI directory
+# From repository root
+make caipe-ui-dev
+
+# Or manually from ui directory
 cd ui
-
-# Install dependencies
 npm install
-
-# Run development server
 npm run dev
 ```
 
@@ -182,7 +196,7 @@ Declarative UI components for rich interactions:
 |----------|---------------|------------------|-------------|
 | `CAIPE_URL` | `http://localhost:8000` | `http://caipe-supervisor:8000` | CAIPE supervisor endpoint |
 | `NEXT_PUBLIC_CAIPE_URL` | Same as `CAIPE_URL` | Same as `CAIPE_URL` | Client-side accessible URL |
-| `NEXTAUTH_URL` | `http://localhost:3000` | `http://localhost:3001` | NextAuth base URL |
+| `NEXTAUTH_URL` | `http://localhost:3000` | `http://localhost:3000` | NextAuth base URL |
 | `NEXTAUTH_SECRET` | (required) | (required) | Secret for session encryption |
 | `OAUTH_CLIENT_ID` | (optional) | (optional) | OAuth client ID |
 | `OAUTH_CLIENT_SECRET` | (optional) | (optional) | OAuth client secret |
@@ -299,7 +313,7 @@ npx tsc --noEmit
 
 ### Starting a Chat Session
 
-1. Navigate to the UI (localhost:3000 or localhost:3001)
+1. Navigate to the UI at [http://localhost:3000](http://localhost:3000)
 2. Login with OAuth (or skip in development mode)
 3. Click on a use case from the gallery, or type a custom prompt
 4. Watch the agents work in real-time in the right panel

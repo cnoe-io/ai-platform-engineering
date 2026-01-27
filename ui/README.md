@@ -17,13 +17,27 @@ A modern React-based UI for visualizing A2A (Agent-to-Agent) protocol messages w
 
 ## Quick Start
 
+### Using Make (Recommended)
+
+```bash
+# From repository root - installs dependencies and runs dev server
+make caipe-ui
+
+# Or run with Docker Compose (includes supervisor)
+make caipe-ui-docker-compose
+```
+
+Visit [http://localhost:3000](http://localhost:3000)
+
 ### Development
 
 ```bash
-# Install dependencies
-npm install
+# From repository root
+make caipe-ui-dev
 
-# Run development server
+# Or manually from ui directory
+cd ui
+npm install
 npm run dev
 ```
 
@@ -32,11 +46,17 @@ Visit [http://localhost:3000](http://localhost:3000)
 ### Docker
 
 ```bash
-# Build and run with Docker Compose
-docker compose -f docker-compose.dev.yaml --profile ui up --build caipe-ui
+# Using Make
+make caipe-ui-docker-compose
+
+# Or using Docker Compose directly
+COMPOSE_PROFILES=caipe-ui docker compose -f docker-compose.dev.yaml up
+
+# Or with --profile flag
+docker compose -f docker-compose.dev.yaml --profile caipe-ui up --build
 ```
 
-Visit [http://localhost:3001](http://localhost:3001)
+Visit [http://localhost:3000](http://localhost:3000)
 
 ## Configuration
 
@@ -192,15 +212,31 @@ npm run lint
 
 ## Docker Compose Integration
 
-The UI is included in `docker-compose.dev.yaml` with the `ui` profile:
+The UI is included in `docker-compose.dev.yaml` with the `caipe-ui` profile:
 
 ```bash
-# Start CAIPE supervisor + UI
-docker compose -f docker-compose.dev.yaml --profile ui up
+# Using Make (recommended)
+make caipe-ui-docker-compose
 
-# Start everything including UI
-docker compose -f docker-compose.dev.yaml --profile all-agents --profile ui up
+# Or using Docker Compose with COMPOSE_PROFILES
+COMPOSE_PROFILES=caipe-ui docker compose -f docker-compose.dev.yaml up
+
+# Or with --profile flag
+docker compose -f docker-compose.dev.yaml --profile caipe-ui up
+
+# Start everything (all agents + UI)
+COMPOSE_PROFILES="all-agents,caipe-ui" docker compose -f docker-compose.dev.yaml up
 ```
+
+### Available Make Targets
+
+- `make caipe-ui` - Install dependencies and run dev server (local development)
+- `make caipe-ui-install` - Install UI dependencies only
+- `make caipe-ui-build` - Build UI for production
+- `make caipe-ui-dev` - Run UI in development mode
+- `make caipe-ui-docker-compose` - Run UI with Docker Compose (includes supervisor)
+- `make build-caipe-ui` - Build Docker image locally
+- `make run-caipe-ui-docker` - Run UI container (requires supervisor running)
 
 ## Contributing
 

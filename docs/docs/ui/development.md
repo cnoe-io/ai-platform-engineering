@@ -31,13 +31,20 @@ This guide is for developers who want to contribute to the CAIPE UI, extend its 
 
 ```bash
 git clone https://github.com/cnoe-io/ai-platform-engineering.git
-cd ai-platform-engineering/ui
+cd ai-platform-engineering
 ```
 
 ### 2. Install Dependencies
 
+Using Make (Recommended):
 ```bash
-# Install all dependencies
+# From repository root
+make caipe-ui-install
+```
+
+Or manually:
+```bash
+cd ui
 npm install
 
 # Or use clean install for CI/reproducible builds
@@ -46,7 +53,7 @@ npm ci
 
 ### 3. Configure Environment
 
-Create a `.env.local` file in the `ui/` directory:
+Create a `.env.local` file in the `ui/` directory from the repository root:
 
 ```bash
 # ui/.env.local
@@ -73,8 +80,15 @@ DEBUG=a2a:*,chat:*
 
 ### 4. Start Development Server
 
+Using Make (Recommended):
 ```bash
-# Start Next.js development server
+# From repository root - runs UI dev server only
+make caipe-ui-dev
+```
+
+Or manually:
+```bash
+cd ui
 npm run dev
 ```
 
@@ -84,16 +98,34 @@ Visit [http://localhost:3000](http://localhost:3000)
 
 In a separate terminal, start the CAIPE supervisor:
 
+Using Make:
 ```bash
-# From repository root
-cd ..
-docker compose -f docker-compose.dev.yaml --profile caipe-supervisor up
+make caipe-supervisor
+```
+
+Or using Docker Compose:
+```bash
+docker compose -f docker-compose.dev.yaml up caipe-supervisor
 ```
 
 Or start everything including agents:
 
 ```bash
-COMPOSE_PROFILES="all-agents" docker compose -f docker-compose.dev.yaml up
+# Using environment variable
+COMPOSE_PROFILES=all-agents docker compose -f docker-compose.dev.yaml up
+
+# Or using --profile flag
+docker compose -f docker-compose.dev.yaml --profile all-agents up
+```
+
+### Alternative: Run Everything Together
+
+```bash
+# Run UI + Supervisor using Make
+make caipe-ui-docker-compose
+
+# This is equivalent to:
+docker compose -f docker-compose.dev.yaml --profile caipe-ui up --build
 ```
 
 ## Project Structure
