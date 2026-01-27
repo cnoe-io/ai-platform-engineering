@@ -34,3 +34,13 @@ global.ResizeObserver = class ResizeObserver {
   observe() {}
   unobserve() {}
 }
+
+// Mock fetch for Node.js environment
+global.fetch = jest.fn(() =>
+  Promise.resolve({
+    ok: true,
+    status: 200,
+    json: async () => ({}),
+    text: async () => '',
+  })
+)

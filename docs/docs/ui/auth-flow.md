@@ -157,16 +157,16 @@ graph TB
     end
 
     subgraph "Next.js SSR (NextAuth.js)"
-        F[/api/auth/signin]
-        G[/api/auth/callback]
+        F["POST /api/auth/signin"]
+        G["GET /api/auth/callback"]
         H[JWT Callback]
         I[Session Callback]
         J[Session Cookie]
     end
 
     subgraph "OIDC Provider"
-        K[/authorize Endpoint]
-        L[/token Endpoint]
+        K["GET /authorize Endpoint"]
+        L["POST /token Endpoint"]
     end
 
     subgraph "CAIPE Backend"
