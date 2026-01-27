@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { getConfig } from "@/lib/config";
 import { LoadingScreen } from "@/components/loading-screen";
+import { isTokenExpired } from "@/lib/auth-utils";
 
 interface AuthGuardProps {
   children: React.ReactNode;
@@ -49,13 +50,24 @@ export function AuthGuard({ children }: AuthGuardProps) {
       return;
     }
 
-    // User is authenticated, check authorization
+    // User is authenticated, check authorization and token expiry
     if (status === "authenticated") {
       // Check if user is authorized (has required group)
       if (session?.isAuthorized === false) {
         router.push("/unauthorized");
         return;
       }
+
+      // Check if token is expired or about to expire (60s buffer)
+      const jwtToken = session as unknown as { expiresAt?: number };
+      const tokenExpiry = jwtToken.expiresAt;
+      
+      if (tokenExpiry && isTokenExpired(tokenExpiry, 60)) {
+        console.warn("[AuthGuard] Token expired, redirecting to login...");
+        router.push("/login?session_expired=true");
+        return;
+      }
+
       setAuthChecked(true);
     }
   }, [ssoEnabled, status, session, router]);
