@@ -9,6 +9,14 @@ A modern React-based UI for visualizing A2A (Agent-to-Agent) protocol messages w
   - **Center Panel**: Chat interface with final output rendering
   - **Right Panel**: Real-time A2A message stream visualization
 
+- **URL-based Routing**: Navigate between three main views via clean URLs:
+  - `/use-cases` - Browse and execute common platform engineering scenarios
+  - `/chat` - Interactive chat interface with A2A streaming
+  - `/knowledge-bases` - RAG interface with nested routes:
+    - `/knowledge-bases/ingest` - Manage data sources and ingestion jobs
+    - `/knowledge-bases/search` - Search the knowledge base with hybrid search
+    - `/knowledge-bases/graph` - Visualize knowledge graph (ontology & data)
+  
 - **Use Cases Gallery**: Browse and execute common platform engineering scenarios
 - **A2A Spec Conformant**: Full support for A2A protocol events (task, artifact-update, status-update)
 - **A2UI Widget Support**: Declarative UI components following [A2UI v0.8 spec](https://a2ui.org/) (buttons, forms, cards, lists, tables, etc.)
@@ -100,9 +108,24 @@ CAIPE_URL=http://my-caipe:8000 docker compose -f docker-compose.dev.yaml --profi
 ui/
 ├── src/
 │   ├── app/                    # Next.js app router
+│   │   ├── (app)/              # Main app route group
+│   │   │   ├── use-cases/      # Use cases gallery route
+│   │   │   │   └── page.tsx
+│   │   │   ├── chat/           # Chat interface route
+│   │   │   │   └── page.tsx
+│   │   │   ├── knowledge-bases/# RAG interface routes
+│   │   │   │   ├── ingest/     # Data source management
+│   │   │   │   │   └── page.tsx
+│   │   │   │   ├── search/     # Knowledge base search
+│   │   │   │   │   └── page.tsx
+│   │   │   │   ├── graph/      # Graph visualization
+│   │   │   │   │   └── page.tsx
+│   │   │   │   ├── layout.tsx  # KB layout with tabs
+│   │   │   │   └── page.tsx    # Redirect to /ingest
+│   │   │   └── layout.tsx      # Shared layout for app routes
 │   │   ├── globals.css         # Global styles (Tailwind + custom)
 │   │   ├── layout.tsx          # Root layout
-│   │   └── page.tsx            # Main page with 3-panel layout
+│   │   └── page.tsx            # Root redirect to use-cases
 │   ├── components/
 │   │   ├── a2a/                # A2A visualization components
 │   │   │   ├── A2AStreamPanel.tsx   # Real-time event stream
@@ -113,7 +136,13 @@ ui/
 │   │   ├── gallery/            # Use cases gallery
 │   │   │   └── UseCasesGallery.tsx  # Gallery grid
 │   │   ├── layout/             # Layout components
+│   │   │   ├── AppHeader.tsx        # Shared header with navigation
 │   │   │   └── Sidebar.tsx          # Navigation sidebar
+│   │   ├── rag/                # RAG/Knowledge base components
+│   │   │   ├── IngestView.tsx       # Data ingestion UI
+│   │   │   ├── SearchView.tsx       # Search interface
+│   │   │   ├── GraphView.tsx        # Graph visualization
+│   │   │   └── graph/               # Sigma.js graph components
 │   │   └── ui/                 # Shared UI components (shadcn/ui style)
 │   ├── hooks/                  # Custom React hooks
 │   ├── lib/                    # Utilities and clients
@@ -127,6 +156,20 @@ ui/
 ├── package.json
 └── README.md
 ```
+
+### Routing Structure
+
+The application uses Next.js App Router with the following URL structure:
+
+- `/` - Redirects to `/use-cases`
+- `/use-cases` - Use Cases Gallery (default landing page)
+- `/chat` - Chat interface with A2A streaming
+- `/knowledge-bases` - RAG interface with nested routes:
+  - `/knowledge-bases/ingest` - Data source management (default)
+  - `/knowledge-bases/search` - Hybrid search (semantic + keyword)
+  - `/knowledge-bases/graph` - Knowledge graph visualization
+
+All routes share a common header with navigation pills for switching between main views. The knowledge bases section has its own sub-navigation with tabs for the three RAG views.
 
 ## A2A Protocol Support
 
