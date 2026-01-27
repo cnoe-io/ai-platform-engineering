@@ -241,7 +241,7 @@ USECASE_STORAGE_TYPE=mongodb
 MONGODB_URI=mongodb://localhost:27017/caipe
 ```
 
-See [Use Case Storage Configuration](../../../ui/USECASE_STORAGE.md) for details.
+See [Use Case Storage Configuration ADR](../changes/2026-01-27-ui-usecase-storage-configuration.md) for details.
 
 ## Development
 
@@ -404,8 +404,8 @@ export CAIPE_URL=http://localhost:8000
 
 - [User Interfaces Overview](../getting-started/user-interfaces.md)
 - [Quick Start Guide](../getting-started/quick-start.md)
-- [A2A Protocol Specification](../architecture/a2a-protocol.md)
-- [Workshop: Hands-on Training](../workshop/index.md)
+- [A2A Protocol Specification](https://google.github.io/A2A/) (external)
+- [Workshop: Mars Colony Hands-on Training](../workshop/00-caipeintro.md)
 
 ## Contributing
 
