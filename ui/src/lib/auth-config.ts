@@ -68,6 +68,89 @@ export function hasRequiredGroup(groups: string[]): boolean {
   });
 }
 
+/**
+ * Refresh the access token using the refresh token
+ * 
+ * This function calls the OIDC token endpoint to exchange a refresh_token
+ * for a new access_token and id_token.
+ * 
+ * @param token - The JWT token containing the refresh token
+ * @returns Updated token with new access_token and expiry
+ */
+async function refreshAccessToken(token: {
+  accessToken?: string;
+  refreshToken?: string;
+  expiresAt?: number;
+  [key: string]: unknown;
+}) {
+  try {
+    const issuer = process.env.OIDC_ISSUER;
+    const clientId = process.env.OIDC_CLIENT_ID;
+    const clientSecret = process.env.OIDC_CLIENT_SECRET;
+
+    if (!issuer || !clientId || !clientSecret) {
+      console.error("[Auth] Missing OIDC configuration for token refresh");
+      return {
+        ...token,
+        error: "RefreshTokenMissingConfig",
+      };
+    }
+
+    if (!token.refreshToken) {
+      console.error("[Auth] No refresh token available");
+      return {
+        ...token,
+        error: "RefreshTokenMissing",
+      };
+    }
+
+    // Get the token endpoint from the OIDC issuer
+    const tokenEndpoint = `${issuer}/protocol/openid-connect/token`;
+
+    console.log("[Auth] Refreshing access token...");
+
+    const response = await fetch(tokenEndpoint, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: new URLSearchParams({
+        client_id: clientId,
+        client_secret: clientSecret,
+        grant_type: "refresh_token",
+        refresh_token: token.refreshToken as string,
+      }),
+    });
+
+    const refreshedTokens = await response.json();
+
+    if (!response.ok) {
+      console.error("[Auth] Token refresh failed:", refreshedTokens);
+      return {
+        ...token,
+        error: "RefreshTokenExpired",
+      };
+    }
+
+    console.log("[Auth] Token refreshed successfully");
+
+    return {
+      ...token,
+      accessToken: refreshedTokens.access_token,
+      idToken: refreshedTokens.id_token,
+      expiresAt: Math.floor(Date.now() / 1000) + (refreshedTokens.expires_in || 3600),
+      refreshToken: refreshedTokens.refresh_token ?? token.refreshToken, // Use new refresh token if provided
+      error: undefined, // Clear any previous errors
+    };
+  } catch (error) {
+    console.error("[Auth] Error refreshing access token:", error);
+    return {
+      ...token,
+      error: "RefreshTokenError",
+    };
+  }
+}
+
 export const authOptions: NextAuthOptions = {
   providers: [
     {
@@ -77,8 +160,8 @@ export const authOptions: NextAuthOptions = {
       wellKnown: process.env.OIDC_ISSUER
         ? `${process.env.OIDC_ISSUER}/.well-known/openid-configuration`
         : undefined,
-      // Request groups/memberOf scope if available
-      authorization: { params: { scope: "openid email profile groups" } },
+      // Request offline_access to get refresh tokens for seamless token renewal
+      authorization: { params: { scope: "openid email profile groups offline_access" } },
       idToken: true,
       checks: ["pkce", "state"],
       clientId: process.env.OIDC_CLIENT_ID,
@@ -99,13 +182,16 @@ export const authOptions: NextAuthOptions = {
     },
   ],
   callbacks: {
-    async jwt({ token, account, profile }) {
-      // Persist the OAuth access_token and id_token to the token right after signin
+    async jwt({ token, account, profile, trigger }) {
+      // Initial sign in - persist the OAuth tokens
       if (account) {
         token.accessToken = account.access_token;
         token.idToken = account.id_token;
         token.refreshToken = account.refresh_token;
         token.expiresAt = account.expires_at;
+        
+        console.log("[Auth] Initial sign-in, token expires at:", 
+          new Date((account.expires_at || 0) * 1000).toISOString());
       }
 
       // Extract and store groups from profile
@@ -118,6 +204,35 @@ export const authOptions: NextAuthOptions = {
         token.isAuthorized = hasRequiredGroup(groups);
       }
 
+      // Return early if this is a forced update
+      if (trigger === "update") {
+        return token;
+      }
+
+      // Check if token needs refresh (refresh 5 minutes before expiry)
+      const now = Math.floor(Date.now() / 1000);
+      const expiresAt = token.expiresAt as number | undefined;
+      
+      if (expiresAt) {
+        const timeUntilExpiry = expiresAt - now;
+        const shouldRefresh = timeUntilExpiry < 5 * 60; // Refresh if less than 5 min remaining
+
+        if (shouldRefresh) {
+          console.log(`[Auth] Token expires in ${timeUntilExpiry}s, refreshing...`);
+          
+          // Only attempt refresh if we have a refresh token
+          if (token.refreshToken) {
+            return await refreshAccessToken(token);
+          } else {
+            console.warn("[Auth] No refresh token available, cannot refresh");
+            return {
+              ...token,
+              error: "RefreshTokenMissing",
+            };
+          }
+        }
+      }
+
       return token;
     },
     async session({ session, token }) {
@@ -127,6 +242,12 @@ export const authOptions: NextAuthOptions = {
       session.error = token.error as string | undefined;
       session.groups = token.groups as string[];
       session.isAuthorized = token.isAuthorized as boolean;
+      
+      // If token refresh failed, log the user out
+      if (token.error === "RefreshTokenExpired" || token.error === "RefreshTokenError") {
+        console.error(`[Auth] Session invalid due to: ${token.error}`);
+        session.error = token.error;
+      }
 
       // Pass user info from token profile to session
       // Handle various OIDC provider claim formats (Duo, Okta, Azure AD, etc.)

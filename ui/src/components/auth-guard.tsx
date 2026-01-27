@@ -52,6 +52,13 @@ export function AuthGuard({ children }: AuthGuardProps) {
 
     // User is authenticated, check authorization and token expiry
     if (status === "authenticated") {
+      // Check if token refresh failed
+      if (session?.error === "RefreshTokenExpired" || session?.error === "RefreshTokenError") {
+        console.warn("[AuthGuard] Token refresh failed, redirecting to login...");
+        router.push("/login?session_expired=true");
+        return;
+      }
+
       // Check if user is authorized (has required group)
       if (session?.isAuthorized === false) {
         router.push("/unauthorized");
@@ -59,11 +66,13 @@ export function AuthGuard({ children }: AuthGuardProps) {
       }
 
       // Check if token is expired or about to expire (60s buffer)
+      // Note: With refresh token support, this should rarely trigger
+      // as tokens are auto-refreshed 5 minutes before expiry
       const jwtToken = session as unknown as { expiresAt?: number };
       const tokenExpiry = jwtToken.expiresAt;
       
       if (tokenExpiry && isTokenExpired(tokenExpiry, 60)) {
-        console.warn("[AuthGuard] Token expired, redirecting to login...");
+        console.warn("[AuthGuard] Token expired without refresh, redirecting to login...");
         router.push("/login?session_expired=true");
         return;
       }
