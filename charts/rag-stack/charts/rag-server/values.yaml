@@ -24,6 +24,16 @@ uiUrl: "http://localhost:9447"    # UI_URL - WebUI URL for health check response
 sleepOnInitFailureSeconds: 180    # SLEEP_ON_INIT_FAILURE_SECONDS - sleep duration on init failure before shutdown
 cleanupInterval: 86400            # CLEANUP_INTERVAL - cleanup interval for stale data (24 hours)
 
+# RBAC/Authentication Configuration
+# Configure when using OAuth2 Proxy for authentication
+# Server enforces RBAC based on headers passed from OAuth2 Proxy (X-Forwarded-Groups)
+rbac:
+  allowUnauthenticated: true        # ALLOW_UNAUTHENTICATED - allow access without authentication
+  readonlyGroups: ""                # RBAC_READONLY_GROUPS - comma-separated group names with read-only access
+  ingestonlyGroups: ""              # RBAC_INGESTONLY_GROUPS - comma-separated group names with ingest-only access
+  adminGroups: ""                   # RBAC_ADMIN_GROUPS - comma-separated group names with admin access
+  defaultRole: "readonly"           # RBAC_DEFAULT_ROLE - default role when user doesn't match any group
+
 image:
   # Prefer the prebuilt image; if building in-cluster is needed, adjust CI
   repository: "ghcr.io/cnoe-io/caipe-rag-server"
