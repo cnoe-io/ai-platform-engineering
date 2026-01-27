@@ -3,12 +3,12 @@
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 
-export default function Home() {
+export default function KnowledgeBases() {
   const router = useRouter();
   
   useEffect(() => {
-    // Redirect to use-cases by default
-    router.replace("/use-cases");
+    // Redirect to ingest by default
+    router.replace("/knowledge-bases/ingest");
   }, [router]);
 
   return null;
