@@ -177,7 +177,7 @@ MONGODB_URI=mongodb://mongo1:27017,mongo2:27017,mongo3:27017/caipe?replicaSet=rs
 - ❌ Requires MongoDB installation
 - ❌ Additional dependency
 
-See [Use Case Storage Documentation](../../../ui/USECASE_STORAGE.md) for migration and troubleshooting.
+See [Use Case Storage Configuration (ADR)](../changes/2026-01-27-ui-usecase-storage-configuration.md) for detailed configuration, migration, and troubleshooting.
 
 ### Logging and Debugging
 
