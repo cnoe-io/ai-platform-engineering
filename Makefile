@@ -17,7 +17,8 @@ APP_NAME ?= ai-platform-engineering
 	test-rag-unit test-rag-coverage test-rag-memory test-rag-scale validate lock-all help \
 	beads-gh-issues-sync beads-gh-issues-sync-run beads-list beads-ready beads-sync \
 	caipe-ui caipe-ui-install caipe-ui-build caipe-ui-dev \
-	build-caipe-ui run-caipe-ui-docker caipe-ui-docker-compose
+	build-caipe-ui run-caipe-ui-docker caipe-ui-docker-compose \
+	docs docs-install docs-build docs-dev docs-start docs-serve
 
 .DEFAULT_GOAL := run
 
@@ -157,6 +158,29 @@ run-caipe-ui-docker: build-caipe-ui ## Run CAIPE UI container locally (requires 
 caipe-ui-docker-compose: ## Run CAIPE UI with docker-compose (includes supervisor)
 	@echo "Starting CAIPE UI with docker-compose..."
 	docker compose -f docker-compose.dev.yaml --profile caipe-ui up --build
+
+## ========== Documentation (Docusaurus) ==========
+
+docs: docs-install docs-start ## Install dependencies and start documentation development server
+
+docs-install: ## Install documentation site dependencies
+	@echo "Installing documentation dependencies..."
+	@cd docs && npm install
+
+docs-build: docs-install ## Build documentation static site
+	@echo "Building documentation site..."
+	@cd docs && npm run build
+
+docs-dev: ## Start documentation development server with auto-reload
+	@echo "Starting documentation development server..."
+	@echo "Site will be available at http://localhost:3001"
+	@cd docs && npm run start -- --port 3001
+
+docs-start: docs-dev ## Alias for docs-dev (start documentation development server)
+
+docs-serve: docs-build ## Serve documentation static site
+	@echo "Serving documentation static site..."
+	@cd docs && npm run serve
 
 ## ========== Lint ==========
 
