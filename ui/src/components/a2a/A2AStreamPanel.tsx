@@ -45,7 +45,7 @@ const iconMap: Record<string, React.ElementType> = {
   MessageSquare,
 };
 
-type FilterType = "all" | "task" | "artifact" | "tool" | "status";
+type FilterType = "all" | "task" | "artifact" | "tool" | "execution_plan" | "status";
 
 export function A2AStreamPanel() {
   const { isStreaming, clearA2AEvents, activeConversationId, conversations } = useChatStore();
@@ -77,6 +77,7 @@ export function A2AStreamPanel() {
     task: a2aEvents.filter(e => e.type === "task").length,
     artifact: a2aEvents.filter(e => e.type === "artifact").length,
     tool: a2aEvents.filter(e => e.type === "tool_start" || e.type === "tool_end").length,
+    execution_plan: a2aEvents.filter(e => e.type === "execution_plan").length,
     status: a2aEvents.filter(e => e.type === "status").length,
   };
 
@@ -103,6 +104,13 @@ export function A2AStreamPanel() {
           border: "border-amber-500/30",
           icon: "text-amber-400",
           badge: "a2a-badge-tool",
+        };
+      case "execution_plan":
+        return {
+          bg: "bg-cyan-500/10",
+          border: "border-cyan-500/30",
+          icon: "text-cyan-400",
+          badge: "a2a-badge-execution-plan",
         };
       case "status":
         return {
@@ -221,7 +229,7 @@ export function A2AStreamPanel() {
 
       {/* Filters */}
       <div className="flex items-center gap-1 p-2 border-b border-border/50 overflow-x-auto scrollbar-modern">
-        {(["all", "task", "artifact", "tool", "status"] as FilterType[]).map((f) => (
+        {(["all", "task", "artifact", "tool", "execution_plan", "status"] as FilterType[]).map((f) => (
           <button
             key={f}
             onClick={() => setFilter(f)}
@@ -232,7 +240,7 @@ export function A2AStreamPanel() {
                 : "bg-muted/50 text-muted-foreground hover:bg-muted hover:text-foreground"
             )}
           >
-            <span className="capitalize">{f}</span>
+            <span className="capitalize">{f === "execution_plan" ? "Plan" : f}</span>
             {eventCounts[f] > 0 && (
               <span className={cn(
                 "px-1.5 py-0.5 rounded-full text-[10px]",

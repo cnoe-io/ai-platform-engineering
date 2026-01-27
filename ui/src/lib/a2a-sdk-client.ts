@@ -184,6 +184,9 @@ export class A2ASDKClient {
           break;
         }
       }
+      
+      // Log if stream ended without explicit completion signal
+      console.log(`[A2A SDK] 📡 Stream ended naturally after ${eventCount} events`);
     } catch (error) {
       if ((error as Error).name === "AbortError") {
         console.log(`[A2A SDK] Stream aborted after ${eventCount} events`);
@@ -271,6 +274,12 @@ export class A2ASDKClient {
       }
     }
 
+    // If no text content from artifacts, create a meaningful default message
+    if (!textContent) {
+      const status = task.status?.state || "unknown";
+      textContent = `Task ${status} (ID: ${task.id.substring(0, 8)}...)`;
+    }
+
     const isFinal = task.status?.state === "completed";
 
     return {
@@ -291,10 +300,16 @@ export class A2ASDKClient {
   private parseStatusEvent(event: TaskStatusUpdateEvent, eventNum: number): ParsedA2AEvent {
     console.log(`[A2A SDK] #${eventNum} STATUS: ${event.status?.state} final=${event.final}`);
 
+    // Create meaningful display content for status updates
+    const state = event.status?.state || "unknown";
+    const finalText = event.final ? " (final)" : "";
+    const taskIdShort = event.taskId ? ` - Task: ${event.taskId.substring(0, 8)}...` : "";
+    const displayContent = `Status: ${state}${finalText}${taskIdShort}`;
+
     return {
       raw: event,
       type: "status",
-      displayContent: "",
+      displayContent,
       isFinal: event.final === true || event.status?.state === "completed",
       shouldAppend: false,
       contextId: event.contextId,
@@ -427,7 +442,7 @@ function getArtifactIcon(artifactName: string): string {
 export function toStoreEvent(event: ParsedA2AEvent, eventId?: string): {
   id: string;
   timestamp: Date;
-  type: "task" | "artifact" | "status" | "message" | "tool_start" | "tool_end" | "error";
+  type: "task" | "artifact" | "status" | "message" | "tool_start" | "tool_end" | "execution_plan" | "error";
   raw: unknown;
   taskId?: string;
   contextId?: string;
@@ -444,12 +459,13 @@ export function toStoreEvent(event: ParsedA2AEvent, eventId?: string): {
   const artifactName = event.artifactName || "";
 
   // Determine event type for store
-  let storeType: "task" | "artifact" | "status" | "message" | "tool_start" | "tool_end" | "error" = "artifact";
+  let storeType: "task" | "artifact" | "status" | "message" | "tool_start" | "tool_end" | "execution_plan" | "error" = "artifact";
   if (event.type === "task") storeType = "task";
   else if (event.type === "status") storeType = "status";
   else if (event.type === "message") storeType = "message";
   else if (artifactName === "tool_notification_start") storeType = "tool_start";
   else if (artifactName === "tool_notification_end") storeType = "tool_end";
+  else if (artifactName === "execution_plan_update" || artifactName === "execution_plan_status_update") storeType = "execution_plan";
 
   // Extract artifact from raw event - ensure it has proper structure
   let artifact: unknown = undefined;
