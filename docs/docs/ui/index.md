@@ -132,9 +132,11 @@ The UI follows a modern React architecture with these core principles:
 
 ### Protocols & Standards
 - **A2A Protocol**: Google's Agent-to-Agent protocol for inter-agent communication
-- **A2UI Specification**: Declarative UI widgets (custom implementation)
+- **A2UI Specification**: Declarative UI widgets (custom implementation following [A2UI v0.8](https://a2ui.org/))
 - **AG-UI Compatible**: Aligned with AG-UI patterns (CopilotKit)
 - **MCP Integration**: Model Context Protocol for AI tool integration
+
+See [A2UI Integration Guide](a2ui-integration.md) for detailed documentation on the A2UI implementation.
 
 **Note**:
 - **A2A SDK**: Uses official `@a2a-js/sdk` (v0.3.9+) via `A2ASDKClient` wrapper for standards-compliant agent communication
@@ -402,9 +404,14 @@ export CAIPE_URL=http://localhost:8000
 
 ## Next Steps
 
+- [Features and Components](features.md) - Detailed feature documentation
+- [A2UI Integration](a2ui-integration.md) - Declarative UI protocol implementation
+- [Configuration Guide](configuration.md) - Environment and setup
+- [Development Guide](development.md) - Contributing to the UI
 - [User Interfaces Overview](../getting-started/user-interfaces.md)
 - [Quick Start Guide](../getting-started/quick-start.md)
 - [A2A Protocol Specification](https://google.github.io/A2A/) (external)
+- [A2UI Specification](https://a2ui.org/) (external)
 - [Workshop: Mars Colony Hands-on Training](../workshop/00-caipeintro.md)
 
 ## Contributing
