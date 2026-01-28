@@ -29,7 +29,7 @@ export function AppHeader() {
   const { isStreaming } = useChatStore();
 
   // Health check for CAIPE supervisor (polls every 30 seconds)
-  const { status: healthStatus, url: healthUrl, secondsUntilNextCheck, agents } = useCAIPEHealth();
+  const { status: healthStatus, url: healthUrl, secondsUntilNextCheck, agents, tags } = useCAIPEHealth();
 
   const getActiveTab = () => {
     if (pathname?.startsWith("/chat")) return "chat";
@@ -137,19 +137,30 @@ export function AppHeader() {
                   {agents.length > 0 && (
                     <div>
                       <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">
-                        Connected Agents ({agents.length})
+                        {agents[0].name}
                       </div>
-                      <div className="space-y-1">
-                        {agents.map((agent, idx) => (
-                          <div key={idx} className="flex items-start gap-2 text-xs">
-                            <span className="inline-block w-1.5 h-1.5 rounded-full bg-green-400 mt-1 shrink-0" />
-                            <div className="min-w-0">
-                              <div className="font-medium text-foreground">{agent.name}</div>
-                              {agent.description && (
-                                <div className="text-muted-foreground text-xs line-clamp-1">{agent.description}</div>
-                              )}
-                            </div>
-                          </div>
+                      {agents[0].description && (
+                        <div className="text-xs text-muted-foreground mb-2">
+                          {agents[0].description}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  
+                  {tags.length > 0 && (
+                    <div>
+                      <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
+                        Connected Integrations ({tags.length})
+                      </div>
+                      <div className="flex flex-wrap gap-1.5">
+                        {tags.map((tag, idx) => (
+                          <span
+                            key={idx}
+                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-medium bg-primary/10 text-primary border border-primary/20"
+                          >
+                            <span className="inline-block w-1 h-1 rounded-full bg-green-400" />
+                            {tag}
+                          </span>
                         ))}
                       </div>
                     </div>
