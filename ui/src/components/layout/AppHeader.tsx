@@ -64,7 +64,7 @@ export function AppHeader() {
             className={cn(
               "flex items-center gap-1.5 px-4 py-1.5 rounded-full text-sm font-medium transition-all",
               activeTab === "gallery"
-                ? "bg-gradient-to-r from-[hsl(173,80%,40%)] to-[hsl(270,75%,60%)] text-white shadow-sm"
+                ? "gradient-primary text-white shadow-sm"
                 : "text-muted-foreground hover:text-foreground"
             )}
           >
