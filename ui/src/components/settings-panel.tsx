@@ -33,14 +33,60 @@ const themes = [
   { id: "tokyo", label: "Tokyo Night", description: "Vibrant purple" },
 ] as const;
 
+// Gradient theme options
+const gradientThemes = [
+  { 
+    id: "default", 
+    label: "Default (Teal → Purple)", 
+    description: "Original vibrant gradient",
+    from: "hsl(173,80%,40%)", 
+    to: "hsl(270,75%,60%)",
+    preview: "from-[hsl(173,80%,40%)] to-[hsl(270,75%,60%)]"
+  },
+  { 
+    id: "minimal", 
+    label: "Minimal (Gray → Dark Gray)", 
+    description: "Subtle, professional",
+    from: "hsl(220,10%,40%)", 
+    to: "hsl(220,10%,25%)",
+    preview: "from-gray-600 to-gray-800"
+  },
+  { 
+    id: "professional", 
+    label: "Professional (Blue → Navy)", 
+    description: "Corporate, trustworthy",
+    from: "hsl(210,60%,50%)", 
+    to: "hsl(210,80%,30%)",
+    preview: "from-blue-500 to-blue-800"
+  },
+  { 
+    id: "ocean", 
+    label: "Ocean (Cyan → Blue)", 
+    description: "Cool, calming",
+    from: "hsl(195,80%,45%)", 
+    to: "hsl(220,80%,45%)",
+    preview: "from-cyan-500 to-blue-600"
+  },
+  { 
+    id: "sunset", 
+    label: "Sunset (Orange → Pink)", 
+    description: "Warm, energetic",
+    from: "hsl(30,80%,55%)", 
+    to: "hsl(340,70%,55%)",
+    preview: "from-orange-500 to-pink-500"
+  },
+] as const;
+
 type FontSize = typeof fontSizes[number]["id"];
 type FontFamily = typeof fontFamilies[number]["id"];
+type GradientTheme = typeof gradientThemes[number]["id"];
 
 export function SettingsPanel() {
   const [open, setOpen] = useState(false);
   const { theme, setTheme } = useTheme();
   const [fontSize, setFontSize] = useState<FontSize>("medium");
   const [fontFamily, setFontFamily] = useState<FontFamily>("inter");
+  const [gradientTheme, setGradientTheme] = useState<GradientTheme>("default");
   const [mounted, setMounted] = useState(false);
 
   // Load settings from localStorage
@@ -48,6 +94,7 @@ export function SettingsPanel() {
     setMounted(true);
     const savedFontSize = localStorage.getItem("caipe-font-size") as FontSize | null;
     const savedFontFamily = localStorage.getItem("caipe-font-family") as FontFamily | null;
+    const savedGradientTheme = localStorage.getItem("caipe-gradient-theme") as GradientTheme | null;
 
     if (savedFontSize) {
       setFontSize(savedFontSize);
@@ -56,6 +103,13 @@ export function SettingsPanel() {
     if (savedFontFamily) {
       setFontFamily(savedFontFamily);
       document.documentElement.setAttribute("data-font-family", savedFontFamily);
+    }
+    if (savedGradientTheme) {
+      setGradientTheme(savedGradientTheme);
+      applyGradientTheme(savedGradientTheme);
+    } else {
+      // Apply default theme
+      applyGradientTheme("default");
     }
   }, []);
 
@@ -71,6 +125,22 @@ export function SettingsPanel() {
     setFontFamily(family);
     localStorage.setItem("caipe-font-family", family);
     document.documentElement.setAttribute("data-font-family", family);
+  };
+
+  // Apply gradient theme
+  const applyGradientTheme = (themeId: GradientTheme) => {
+    const selectedTheme = gradientThemes.find(t => t.id === themeId);
+    if (selectedTheme) {
+      document.documentElement.style.setProperty("--gradient-from", selectedTheme.from);
+      document.documentElement.style.setProperty("--gradient-to", selectedTheme.to);
+      document.documentElement.setAttribute("data-gradient-theme", themeId);
+    }
+  };
+
+  const handleGradientThemeChange = (themeId: GradientTheme) => {
+    setGradientTheme(themeId);
+    localStorage.setItem("caipe-gradient-theme", themeId);
+    applyGradientTheme(themeId);
   };
 
   if (!mounted) return null;
@@ -219,6 +289,49 @@ export function SettingsPanel() {
                         </div>
                         {theme === option.id && (
                           <Check className="h-4 w-4 text-primary" />
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                </section>
+
+                {/* Gradient Theme Section */}
+                <section>
+                  <div className="flex items-center gap-2 mb-3">
+                    <Palette className="h-4 w-4 text-muted-foreground" />
+                    <h3 className="font-medium">Gradient Theme</h3>
+                  </div>
+                  <p className="text-xs text-muted-foreground mb-3">
+                    Choose the gradient style used throughout the interface
+                  </p>
+                  <div className="space-y-2">
+                    {gradientThemes.map((option) => (
+                      <button
+                        key={option.id}
+                        onClick={() => handleGradientThemeChange(option.id)}
+                        className={cn(
+                          "w-full flex items-center justify-between px-3 py-2.5 rounded-lg border transition-all text-left",
+                          gradientTheme === option.id
+                            ? "border-primary bg-primary/10"
+                            : "border-border hover:border-primary/50 hover:bg-muted/50"
+                        )}
+                      >
+                        <div className="flex items-center gap-3 flex-1 min-w-0">
+                          <div
+                            className={cn(
+                              "w-10 h-10 rounded-lg bg-gradient-to-br shrink-0",
+                              option.preview
+                            )}
+                          />
+                          <div className="flex-1 min-w-0">
+                            <span className="text-sm font-medium block truncate">{option.label}</span>
+                            <span className="text-xs text-muted-foreground block truncate">
+                              {option.description}
+                            </span>
+                          </div>
+                        </div>
+                        {gradientTheme === option.id && (
+                          <Check className="h-4 w-4 text-primary ml-2 shrink-0" />
                         )}
                       </button>
                     ))}
