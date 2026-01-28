@@ -3,100 +3,62 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth-config';
 
 /**
- * User Info API Endpoint
+ * User Info API Endpoint - Proxy to RAG Server
  *
- * Returns current user's authentication and authorization information
- * from the NextAuth session. This mimics the RAG server's /v1/user/info
- * endpoint for compatibility with the old UI.
+ * This endpoint proxies to the RAG server's /v1/user/info endpoint.
+ * The RAG server determines role and permissions based on the RBAC headers
+ * we inject from the NextAuth session.
  *
- * Response Format:
- * {
- *   email: string;
- *   role: string;
- *   is_authenticated: boolean;
- *   groups: string[];
- *   permissions: {
- *     can_read: boolean;
- *     can_ingest: boolean;
- *     can_delete: boolean;
- *   };
- * }
+ * This ensures single source of truth for RBAC logic.
  */
 
-// Role definitions from RAG server rbac.py
-const ROLE_READONLY = 'READONLY';
-const ROLE_INGESTONLY = 'INGESTONLY';
-const ROLE_ADMIN = 'ADMIN';
-
-// Environment configuration
-const RBAC_READONLY_GROUPS = (process.env.RBAC_READONLY_GROUPS || '').split(',').filter(g => g.trim());
-const RBAC_INGESTONLY_GROUPS = (process.env.RBAC_INGESTONLY_GROUPS || '').split(',').filter(g => g.trim());
-const RBAC_ADMIN_GROUPS = (process.env.RBAC_ADMIN_GROUPS || '').split(',').filter(g => g.trim());
-const RBAC_DEFAULT_ROLE = process.env.RBAC_DEFAULT_ROLE || ROLE_READONLY;
-
-/**
- * Determine user's role based on group membership
- * Matches the logic from RAG server's rbac.py::determine_role_from_groups()
- */
-function determineRoleFromGroups(userGroups: string[]): string {
-  // Most permissive role wins
-  if (userGroups.some(group => RBAC_ADMIN_GROUPS.includes(group))) {
-    return ROLE_ADMIN;
-  }
-  
-  if (userGroups.some(group => RBAC_INGESTONLY_GROUPS.includes(group))) {
-    return ROLE_INGESTONLY;
-  }
-  
-  if (userGroups.some(group => RBAC_READONLY_GROUPS.includes(group))) {
-    return ROLE_READONLY;
-  }
-  
-  return RBAC_DEFAULT_ROLE;
+function getRagServerUrl(): string {
+  return process.env.RAG_SERVER_URL ||
+         process.env.NEXT_PUBLIC_RAG_URL ||
+         'http://localhost:9446';
 }
 
-/**
- * Calculate permissions based on role
- */
-function getPermissionsForRole(role: string) {
-  return {
-    can_read: true, // All roles can read
-    can_ingest: role === ROLE_INGESTONLY || role === ROLE_ADMIN,
-    can_delete: role === ROLE_ADMIN,
+async function getRbacHeaders(): Promise<Record<string, string>> {
+  const session = await getServerSession(authOptions);
+  
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
   };
+
+  // Only inject headers if user is authenticated
+  if (session?.user?.email) {
+    headers['X-Forwarded-Email'] = session.user.email;
+    headers['X-Forwarded-User'] = session.user.email;
+    
+    if (session.groups && session.groups.length > 0) {
+      headers['X-Forwarded-Groups'] = session.groups.join(',');
+    } else {
+      headers['X-Forwarded-Groups'] = '';
+    }
+  }
+
+  return headers;
 }
 
 export async function GET() {
-  const session = await getServerSession(authOptions);
+  const ragServerUrl = getRagServerUrl();
+  const targetUrl = `${ragServerUrl}/v1/user/info`;
+  const headers = await getRbacHeaders();
 
-  // Unauthenticated user
-  if (!session || !session.user?.email) {
+  try {
+    const response = await fetch(targetUrl, {
+      method: 'GET',
+      headers,
+    });
+
+    const data = await response.json();
+    return NextResponse.json(data, { status: response.status });
+  } catch (error) {
+    console.error('[User Info] Error fetching from RAG server:', error);
     return NextResponse.json(
-      {
-        email: 'unauthenticated',
-        role: ROLE_READONLY,
-        is_authenticated: false,
-        groups: [],
-        permissions: {
-          can_read: false,
-          can_ingest: false,
-          can_delete: false,
-        },
-      },
-      { status: 401 }
+      { error: 'Failed to fetch user info from RAG server', details: String(error) },
+      { status: 502 }
     );
   }
-
-  // Authenticated user
-  const userGroups = session.groups || [];
-  const role = determineRoleFromGroups(userGroups);
-  const permissions = getPermissionsForRole(role);
-
-  return NextResponse.json({
-    email: session.user.email,
-    role,
-    is_authenticated: true,
-    groups: userGroups,
-    permissions,
-  });
 }
+
