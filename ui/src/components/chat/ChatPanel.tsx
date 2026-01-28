@@ -1014,7 +1014,7 @@ function ChatMessage({
           "w-9 h-9 rounded-xl flex items-center justify-center shrink-0 shadow-sm",
           isUser
             ? "bg-primary"
-            : "bg-gradient-to-br from-[hsl(270,75%,60%)] to-[hsl(330,80%,55%)]",
+            : "gradient-primary-br",
           isStreaming && "animate-pulse"
         )}
       >
