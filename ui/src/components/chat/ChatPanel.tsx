@@ -13,7 +13,7 @@ import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useChatStore } from "@/store/chat-store";
-import { A2ASDKClient, type ParsedA2AEvent, toStoreEvent } from "@/lib/a2a-sdk-client";
+import { A2ASDKClient, type ParsedA2AEvent, type HITLFormData, type HITLDecision, toStoreEvent } from "@/lib/a2a-sdk-client";
 import { cn } from "@/lib/utils";
 import { ChatMessage as ChatMessageType } from "@/types/a2a";
 import { getConfig } from "@/lib/config";
@@ -22,9 +22,18 @@ import { DEFAULT_AGENTS, CustomCall } from "./CustomCallButtons";
 import { AGENT_LOGOS } from "@/components/shared/AgentLogos";
 import { SubAgentCard, groupEventsByAgent, getAgentDisplayOrder, isRealSubAgent } from "./SubAgentCard";
 import { AgentStreamBox } from "./AgentStreamBox";
+import { MetadataInputForm, type InputField } from "./MetadataInputForm";
 
 interface ChatPanelProps {
   endpoint: string;
+}
+
+// State for HITL forms
+interface PendingHITLForm {
+  messageId: string;
+  formData: HITLFormData;
+  contextId?: string;
+  taskId?: string;
 }
 
 export function ChatPanel({ endpoint }: ChatPanelProps) {
@@ -38,6 +47,9 @@ export function ChatPanel({ endpoint }: ChatPanelProps) {
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const scrollViewportRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // HITL form state
+  const [pendingHITLForm, setPendingHITLForm] = useState<PendingHITLForm | null>(null);
 
   // Auto-scroll state
   const [isUserScrolledUp, setIsUserScrolledUp] = useState(false);
@@ -164,6 +176,69 @@ export function ChatPanel({ endpoint }: ChatPanelProps) {
   const submitMessage = useCallback(async (messageToSend: string) => {
     if (!messageToSend.trim() || isThisConversationStreaming) return;
 
+    // ═══════════════════════════════════════════════════════════════
+    // HITL HANDLING: If user types in chat while form is pending,
+    // treat as a rejection with the user's message as the reason
+    // ═══════════════════════════════════════════════════════════════
+    if (pendingHITLForm) {
+      console.log("[HITL] User typed in chat while form pending - sending as rejection");
+      
+      const toolName = pendingHITLForm.formData.toolName || 'CAIPEAgentResponse';
+      const contextId = pendingHITLForm.contextId || activeConversationId;
+      
+      // Clear the pending form
+      setPendingHITLForm(null);
+      
+      // Send as reject type with user's message as the reason
+      const decision: HITLDecision = {
+        type: 'reject',
+        actionName: toolName,
+        message: messageToSend,
+      };
+      
+      // Create conversation if needed
+      let convId = activeConversationId;
+      if (!convId) {
+        convId = createConversation();
+      }
+      
+      // Clear previous events and add user message
+      clearA2AEvents(convId);
+      const turnId = `turn-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+      addMessage(convId, { role: "user", content: messageToSend }, turnId);
+      const assistantMsgId = addMessage(convId, { role: "assistant", content: "" }, turnId);
+      
+      // Create client and send response
+      const client = new A2ASDKClient({ endpoint, accessToken });
+      
+      setConversationStreaming(convId, {
+        conversationId: convId,
+        messageId: assistantMsgId,
+        client: { abort: () => client.abort() },
+      });
+      
+      try {
+        let accumulatedText = "";
+        for await (const event of client.sendHITLResponse(contextId || convId, [decision])) {
+          const newContent = event.displayContent;
+          if (event.type === "status" && event.isFinal) break;
+          if (newContent) {
+            accumulatedText += newContent;
+            updateMessage(convId, assistantMsgId, { content: accumulatedText });
+          }
+        }
+        updateMessage(convId, assistantMsgId, { content: accumulatedText || "Understood.", isFinal: true });
+      } catch (error) {
+        console.error("[HITL] Response error:", error);
+        updateMessage(convId, assistantMsgId, { 
+          content: `Error: ${(error as Error).message}`, 
+          isFinal: true 
+        });
+      }
+      setConversationStreaming(convId, null);
+      return;
+    }
+
     // Create conversation if needed
     let convId = activeConversationId;
     if (!convId) {
@@ -258,7 +333,36 @@ export function ChatPanel({ endpoint }: ChatPanelProps) {
         }
 
         // ═══════════════════════════════════════════════════════════════
-        // PRIORITY 2: Handle status events (completion signals)
+        // PRIORITY 2: Handle HITL forms (input-required status OR caipe_form artifact)
+        // ═══════════════════════════════════════════════════════════════
+        const isHITLEvent = event.requiresInput || 
+                           (event.hitlFormData && event.hitlFormData.requiresInput) ||
+                           artifactName === "caipe_form";
+        
+        if (isHITLEvent) {
+          console.log(`[A2A SDK] 📋 HITL FORM REQUIRED - Event #${eventNum}, artifactName=${artifactName}, hasFormData=${!!event.hitlFormData}`);
+          const formData = event.hitlFormData;
+          if (formData && formData.inputFields && formData.inputFields.length > 0) {
+            console.log(`[A2A SDK] 📋 Setting pending form: ${formData.toolName} with ${formData.inputFields.length} fields`);
+            setPendingHITLForm({
+              messageId: assistantMsgId,
+              formData,
+              contextId: event.contextId || convId,
+              taskId: event.taskId,
+            });
+            // Update message to show form is pending
+            updateMessage(convId!, assistantMsgId, { 
+              content: accumulatedText || "Please provide the required information below:", 
+              rawStreamContent,
+            });
+          } else if (artifactName === "caipe_form") {
+            // The artifact was detected but form data wasn't extracted - log for debugging
+            console.warn(`[A2A SDK] 📋 caipe_form artifact found but no formData extracted. Event:`, event);
+          }
+        }
+
+        // ═══════════════════════════════════════════════════════════════
+        // PRIORITY 3: Handle status events (completion signals)
         // ═══════════════════════════════════════════════════════════════
         if (event.type === "status" && event.isFinal) {
           console.log(`[A2A SDK] 🏁 Stream complete (final status) - Event #${eventNum}`);
@@ -343,7 +447,7 @@ export function ChatPanel({ endpoint }: ChatPanelProps) {
       appendToMessage(convId, assistantMsgId, `\n\n**Error:** ${(error as Error).message || "Failed to connect to A2A endpoint"}`);
       setConversationStreaming(convId, null);
     }
-  }, [isThisConversationStreaming, activeConversationId, endpoint, accessToken, createConversation, clearA2AEvents, addMessage, appendToMessage, updateMessage, addEventToMessage, addA2AEvent, setConversationStreaming]);
+  }, [isThisConversationStreaming, activeConversationId, endpoint, accessToken, createConversation, clearA2AEvents, addMessage, appendToMessage, updateMessage, addEventToMessage, addA2AEvent, setConversationStreaming, pendingHITLForm]);
 
   // Handle queued messages after streaming completes
   useEffect(() => {
@@ -471,6 +575,198 @@ export function ChatPanel({ endpoint }: ChatPanelProps) {
     }
   }, [input]);
 
+  // Handle HITL form submission with proper decision types
+  const handleHITLFormSubmit = useCallback(async (
+    formData: Record<string, string>,
+    decisionType: 'approve' | 'edit' = 'approve'
+  ) => {
+    if (!pendingHITLForm || !activeConversationId) return;
+
+    console.log("[HITL] Form submitted:", { formData, decisionType });
+    
+    // Add simple user message indicating form submission
+    const turnId = `turn-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+    addMessage(activeConversationId, { 
+      role: "user", 
+      content: "Form submitted." 
+    }, turnId);
+
+    // Add assistant message placeholder with same turnId
+    const assistantMsgId = addMessage(activeConversationId, { role: "assistant", content: "" }, turnId);
+
+    // Clear the pending form
+    const toolName = pendingHITLForm.formData.toolName || 'CAIPEAgentResponse';
+    const contextId = pendingHITLForm.contextId || activeConversationId;
+    setPendingHITLForm(null);
+
+    // Create A2A SDK client for the resume request
+    const client = new A2ASDKClient({
+      endpoint,
+      accessToken,
+    });
+
+    // Build the decision with form values
+    // The backend expects: { metadata: { input_fields: [...with values...] } }
+    const inputFieldsWithValues = pendingHITLForm.formData.inputFields?.map(field => ({
+      ...field,
+      value: formData[field.field_name] || '',
+    })) || [];
+
+    const decision: HITLDecision = {
+      type: decisionType === 'edit' ? 'edit' : 'approve',
+      actionName: toolName,
+      args: {
+        args: {
+          metadata: {
+            input_fields: inputFieldsWithValues,
+          },
+          user_inputs: formData,
+        },
+      },
+    };
+
+    // Mark this conversation as streaming
+    setConversationStreaming(activeConversationId, {
+      conversationId: activeConversationId,
+      messageId: assistantMsgId,
+      client: { abort: () => client.abort() },
+    });
+
+    let accumulatedText = "";
+    let rawStreamContent = "";
+    let eventCounter = 0;
+    let hasReceivedCompleteResult = false;
+
+    try {
+      // Send the HITL response
+      for await (const event of client.sendHITLResponse(contextId, [decision])) {
+        eventCounter++;
+        const artifactName = event.artifactName || "";
+        const newContent = event.displayContent;
+
+        // Store events
+        const storeEvent = toStoreEvent(event, `event-${eventCounter}-${Date.now()}`);
+        addA2AEvent(storeEvent as Parameters<typeof addA2AEvent>[0], activeConversationId);
+
+        // Handle final result
+        if (artifactName === "partial_result" || artifactName === "final_result") {
+          if (newContent) {
+            accumulatedText = newContent;
+            hasReceivedCompleteResult = true;
+            updateMessage(activeConversationId, assistantMsgId, { 
+              content: accumulatedText, 
+              rawStreamContent, 
+              isFinal: true 
+            });
+          }
+        }
+
+        // Handle completion
+        if (event.type === "status" && event.isFinal) {
+          setConversationStreaming(activeConversationId, null);
+          break;
+        }
+
+        // Accumulate content
+        if (newContent && !hasReceivedCompleteResult) {
+          accumulatedText += newContent;
+          rawStreamContent += newContent;
+          updateMessage(activeConversationId, assistantMsgId, { content: accumulatedText, rawStreamContent });
+        }
+      }
+
+      // Finalize
+      if (!hasReceivedCompleteResult && accumulatedText.length > 0) {
+        updateMessage(activeConversationId, assistantMsgId, { 
+          content: accumulatedText, 
+          rawStreamContent, 
+          isFinal: true 
+        });
+      }
+      setConversationStreaming(activeConversationId, null);
+
+    } catch (error) {
+      console.error("[HITL] Resume error:", error);
+      appendToMessage(activeConversationId, assistantMsgId, 
+        `\n\n**Error:** ${(error as Error).message || "Failed to resume"}`);
+      setConversationStreaming(activeConversationId, null);
+    }
+  }, [pendingHITLForm, activeConversationId, endpoint, accessToken, addMessage, updateMessage, 
+      appendToMessage, addA2AEvent, setConversationStreaming]);
+
+  // Cancel HITL form (reject)
+  const handleHITLFormCancel = useCallback(async () => {
+    if (!pendingHITLForm || !activeConversationId) return;
+    
+    console.log("[HITL] Form cancelled (reject)");
+    
+    // Add a message indicating the form was cancelled
+    const turnId = `turn-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+    addMessage(activeConversationId, { 
+      role: "user", 
+      content: "Form cancelled." 
+    }, turnId);
+
+    // Add assistant message placeholder
+    const assistantMsgId = addMessage(activeConversationId, { role: "assistant", content: "" }, turnId);
+
+    // Clear the pending form
+    const toolName = pendingHITLForm.formData.toolName || 'CAIPEAgentResponse';
+    const contextId = pendingHITLForm.contextId || activeConversationId;
+    setPendingHITLForm(null);
+
+    // Create A2A SDK client for the reject request
+    const client = new A2ASDKClient({
+      endpoint,
+      accessToken,
+    });
+
+    const decision: HITLDecision = {
+      type: 'reject',
+      actionName: toolName,
+      message: "User cancelled the form request",
+    };
+
+    // Mark as streaming
+    setConversationStreaming(activeConversationId, {
+      conversationId: activeConversationId,
+      messageId: assistantMsgId,
+      client: { abort: () => client.abort() },
+    });
+
+    try {
+      let accumulatedText = "";
+      
+      for await (const event of client.sendHITLResponse(contextId, [decision])) {
+        const newContent = event.displayContent;
+        
+        if (event.type === "status" && event.isFinal) {
+          break;
+        }
+
+        if (newContent) {
+          accumulatedText += newContent;
+          updateMessage(activeConversationId, assistantMsgId, { content: accumulatedText });
+        }
+      }
+
+      updateMessage(activeConversationId, assistantMsgId, { 
+        content: accumulatedText || "Form cancelled. Let me know how else I can help.", 
+        isFinal: true 
+      });
+      setConversationStreaming(activeConversationId, null);
+
+    } catch (error) {
+      console.error("[HITL] Cancel error:", error);
+      updateMessage(activeConversationId, assistantMsgId, { 
+        content: "Form cancelled.", 
+        isFinal: true 
+      });
+      setConversationStreaming(activeConversationId, null);
+    }
+  }, [pendingHITLForm, activeConversationId, endpoint, accessToken, addMessage, updateMessage, 
+      setConversationStreaming]);
+
   const handleKeyDown = (e: React.KeyboardEvent) => {
     // Close mention menu on Escape
     if (e.key === "Escape" && showMentionMenu) {
@@ -555,6 +851,40 @@ export function ChatPanel({ endpoint }: ChatPanelProps) {
               );
             })}
           </AnimatePresence>
+
+          {/* HITL Form - displayed when agent requires user input */}
+          {pendingHITLForm && pendingHITLForm.formData.inputFields && (
+            <motion.div
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="flex gap-3"
+            >
+              {/* Bot Avatar */}
+              <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0 shadow-sm bg-gradient-to-br from-amber-500 to-orange-500">
+                <Bot className="h-4 w-4 text-white" />
+              </div>
+              
+              {/* Form Content */}
+              <div className="flex-1 max-w-full">
+                <div className="text-xs font-medium text-muted-foreground mb-1.5">
+                  CAIPE - Input Required
+                </div>
+                <MetadataInputForm
+                  messageId={pendingHITLForm.messageId}
+                  inputFields={pendingHITLForm.formData.inputFields.map(field => ({
+                    field_name: field.field_name,
+                    field_description: field.field_description,
+                    field_values: field.field_values,
+                    required: field.required,  // Pass required flag (defaults to true if not specified)
+                    default_value: field.default_value,  // Pass default value for pre-population
+                  }))}
+                  onSubmit={(data) => handleHITLFormSubmit(data, 'edit')}
+                  onCancel={handleHITLFormCancel}
+                  disabled={isThisConversationStreaming}
+                />
+              </div>
+            </motion.div>
+          )}
 
           {/* Invisible marker for scroll-to-bottom */}
           <div ref={messagesEndRef} className="h-px" />
@@ -676,11 +1006,13 @@ export function ChatPanel({ endpoint }: ChatPanelProps) {
                 onChange={handleInputChange}
                 onKeyDown={handleKeyDown}
                 placeholder={
-                  isThisConversationStreaming
-                    ? queuedMessages.length >= 3
-                      ? "Queue full (3/3). Send or cancel messages to queue more, or Cmd+Enter to force send..."
-                      : `Type to queue message (${queuedMessages.length}/3), or Cmd+Enter to force send...`
-                    : "Ask CAIPE anything or type @ to mention an agent..."
+                  pendingHITLForm
+                    ? "Type here to skip the form and provide your own response..."
+                    : isThisConversationStreaming
+                      ? queuedMessages.length >= 3
+                        ? "Queue full (3/3). Send or cancel messages to queue more, or Cmd+Enter to force send..."
+                        : `Type to queue message (${queuedMessages.length}/3), or Cmd+Enter to force send...`
+                      : "Ask CAIPE anything or type @ to mention an agent..."
                 }
                 className="flex-1 bg-transparent resize-none outline-none px-3 py-2.5 text-sm"
                 minRows={1}
