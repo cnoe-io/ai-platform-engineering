@@ -3,15 +3,66 @@
 import React, { useState, useRef, useEffect } from "react";
 import { useSession, signIn, signOut } from "next-auth/react";
 import { motion, AnimatePresence } from "framer-motion";
-import { User, LogIn, LogOut, ChevronDown, Shield, Users, Hash, Code, ChevronRight } from "lucide-react";
+import { User, LogIn, LogOut, ChevronDown, Shield, Users, Hash, Code, ChevronRight, Layers, ExternalLink } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { getConfig } from "@/lib/config";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+
+// Tech Stack Data
+interface TechItem {
+  name: string;
+  description: string;
+  url: string;
+  category: "platform" | "protocol" | "frontend" | "backend" | "community";
+}
+
+const techStack: TechItem[] = [
+  { name: "CAIPE", description: "Community AI Platform Engineering - Multi-Agent System for Platform Engineers", url: "https://caipe.io", category: "platform" },
+  { name: "A2A Protocol", description: "Agent-to-Agent protocol for inter-agent communication (by Google)", url: "https://google.github.io/A2A/", category: "protocol" },
+  { name: "A2UI", description: "Agent-to-User Interface specification for declarative UI widgets", url: "https://a2ui.org/", category: "protocol" },
+  { name: "MCP", description: "Model Context Protocol for AI tool integration (by Anthropic)", url: "https://modelcontextprotocol.io/", category: "protocol" },
+  { name: "Next.js 15", description: "React framework with App Router and Server Components", url: "https://nextjs.org/", category: "frontend" },
+  { name: "React 19", description: "JavaScript library for building user interfaces", url: "https://react.dev/", category: "frontend" },
+  { name: "TypeScript", description: "Typed superset of JavaScript for better developer experience", url: "https://www.typescriptlang.org/", category: "frontend" },
+  { name: "Tailwind CSS", description: "Utility-first CSS framework for rapid UI development", url: "https://tailwindcss.com/", category: "frontend" },
+  { name: "Radix UI", description: "Unstyled, accessible UI components for React", url: "https://www.radix-ui.com/", category: "frontend" },
+  { name: "Zustand", description: "Lightweight state management for React applications", url: "https://zustand-demo.pmnd.rs/", category: "frontend" },
+  { name: "Framer Motion", description: "Production-ready animation library for React", url: "https://www.framer.com/motion/", category: "frontend" },
+  { name: "Sigma.js", description: "JavaScript library for graph visualization and analysis", url: "https://www.sigmajs.org/", category: "frontend" },
+  { name: "NextAuth.js", description: "Authentication for Next.js applications with OAuth 2.0 support", url: "https://next-auth.js.org/", category: "frontend" },
+  { name: "LangGraph", description: "Framework for building stateful, multi-actor applications with LLMs", url: "https://langchain-ai.github.io/langgraph/", category: "backend" },
+  { name: "Python 3.11+", description: "Backend agent implementation with asyncio support", url: "https://www.python.org/", category: "backend" },
+  { name: "CNOE", description: "Cloud Native Operational Excellence - Open source IDP reference implementations", url: "https://cnoe.io/", category: "community" },
+];
+
+const categoryLabels: Record<TechItem["category"], string> = {
+  platform: "Platform",
+  protocol: "Protocols",
+  frontend: "Frontend",
+  backend: "Backend",
+  community: "Community",
+};
+
+const categoryColors: Record<TechItem["category"], string> = {
+  platform: "gradient-primary-br",
+  protocol: "bg-gradient-to-br from-purple-500 to-purple-600",
+  frontend: "bg-gradient-to-br from-blue-500 to-blue-600",
+  backend: "bg-gradient-to-br from-orange-500 to-orange-600",
+  community: "bg-gradient-to-br from-green-500 to-green-600",
+};
 
 export function UserMenu() {
   const { data: session, status } = useSession();
   const [open, setOpen] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const [aboutOpen, setAboutOpen] = useState(false);
   const [ssoEnabled, setSsoEnabled] = useState<boolean | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -275,6 +326,23 @@ export function UserMenu() {
               </AnimatePresence>
             </div>
 
+            {/* About Section */}
+            <div className="border-b border-border">
+              <button
+                onClick={() => {
+                  setAboutOpen(true);
+                  setOpen(false);
+                }}
+                className="w-full flex items-center justify-between px-4 py-2 text-xs font-medium hover:bg-muted/50 transition-colors"
+              >
+                <div className="flex items-center gap-2">
+                  <Layers className="h-3.5 w-3.5" />
+                  <span>About</span>
+                </div>
+                <ChevronRight className="h-3.5 w-3.5" />
+              </button>
+            </div>
+
             {/* Actions */}
             <div className="p-1.5">
               <button
@@ -291,6 +359,84 @@ export function UserMenu() {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* About Dialog */}
+      <Dialog open={aboutOpen} onOpenChange={setAboutOpen}>
+        <DialogContent className="max-w-2xl max-h-[80vh] p-0">
+          <DialogHeader className="p-6 pb-4 border-b border-border">
+            <div className="flex items-center gap-3">
+              <div className="p-2 rounded-xl gradient-primary-br">
+                <Layers className="h-5 w-5 text-white" />
+              </div>
+              <div>
+                <DialogTitle>About CAIPE</DialogTitle>
+                <DialogDescription>
+                  Technology Stack - Powered by open standards
+                </DialogDescription>
+              </div>
+            </div>
+          </DialogHeader>
+          
+          <div className="p-6 overflow-y-auto max-h-[60vh]">
+            {(["platform", "protocol", "frontend", "backend", "community"] as const).map((category) => {
+              const items = techStack.filter(item => item.category === category);
+              if (items.length === 0) return null;
+              
+              return (
+                <div key={category} className="mb-6 last:mb-0">
+                  <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">
+                    {categoryLabels[category]}
+                  </h3>
+                  <div className="space-y-2">
+                    {items.map((tech) => (
+                      <a
+                        key={tech.name}
+                        href={tech.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex items-start gap-3 p-3 rounded-lg hover:bg-muted/50 transition-colors group border border-transparent hover:border-border"
+                      >
+                        <div className={cn(
+                          "w-10 h-10 rounded-lg flex items-center justify-center shrink-0 text-white text-xs font-bold",
+                          categoryColors[tech.category]
+                        )}>
+                          {tech.name.slice(0, 2).toUpperCase()}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className="font-medium text-sm group-hover:text-primary transition-colors">
+                              {tech.name}
+                            </span>
+                            <ExternalLink className="h-3 w-3 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
+                          </div>
+                          <p className="text-xs text-muted-foreground leading-relaxed">
+                            {tech.description}
+                          </p>
+                        </div>
+                      </a>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          <div className="p-4 border-t border-border bg-muted/20">
+            <p className="text-xs text-center text-muted-foreground">
+              Built with ❤️ by the{" "}
+              <a
+                href="https://cnoe.io/"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-primary hover:underline"
+              >
+                CNOE
+              </a>{" "}
+              community
+            </p>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
