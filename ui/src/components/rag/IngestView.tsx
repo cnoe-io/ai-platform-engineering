@@ -7,6 +7,7 @@
  * - Added "use client" directive for Next.js
  * - Changed import paths for local modules
  * - Added dark mode classes
+ * - Added RBAC permission checks
  */
 
 import React, { useEffect, useMemo, useState, useCallback } from 'react'
@@ -28,6 +29,7 @@ import {
   CONFLUENCE_INGESTOR_ID
 } from './api/index'
 import { getIconForType, ingestTypeConfigs, isIngestTypeAvailable } from './typeConfig'
+import { useRagPermissions } from '@/hooks/useRagPermissions'
 
 // Helper component to render icon (either emoji or SVG image)
 const IconRenderer = ({ icon, className = "w-5 h-5" }: { icon: string; className?: string }) => {
@@ -48,6 +50,8 @@ const IconRenderer = ({ icon, className = "w-5 h-5" }: { icon: string; className
 }
 
 export default function IngestView() {
+  const { permissions } = useRagPermissions()
+  
   // Ingestion state
   const [url, setUrl] = useState('')
   const [ingestType, setIngestType] = useState<string>('web')
@@ -402,7 +406,9 @@ export default function IngestView() {
             />
             <button
               onClick={handleIngest}
-              className="px-6 py-2 bg-primary hover:bg-primary/90 text-primary-foreground rounded-md transition-colors"
+              className="px-6 py-2 bg-primary hover:bg-primary/90 text-primary-foreground rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              disabled={!permissions.can_ingest}
+              title={!permissions.can_ingest ? 'Insufficient permissions to ingest data' : 'Ingest this URL'}
             >
               Ingest
             </button>
@@ -589,16 +595,16 @@ export default function IngestView() {
                             <button
                               onClick={(e) => { e.stopPropagation(); handleReloadDataSource(ds.datasource_id); }}
                               className="bg-orange-500 hover:bg-orange-600 text-white font-bold py-1 px-2 rounded text-xs disabled:opacity-50 disabled:cursor-not-allowed"
-                              disabled={hasActiveJob || !supportsReload}
-                              title={!supportsReload ? 'Reload not supported for this datasource type' : hasActiveJob ? 'Cannot reload while a job is active' : 'Reload this datasource'}
+                              disabled={hasActiveJob || !supportsReload || !permissions.can_ingest}
+                              title={!permissions.can_ingest ? 'Insufficient permissions to reload data' : !supportsReload ? 'Reload not supported for this datasource type' : hasActiveJob ? 'Cannot reload while a job is active' : 'Reload this datasource'}
                             >
                               Reload
                             </button>
                             <button
                               onClick={(e) => { e.stopPropagation(); setShowDeleteDataSourceConfirm(ds.datasource_id); }}
                               className="bg-destructive hover:bg-destructive/90 text-destructive-foreground font-bold py-1 px-2 rounded text-xs disabled:opacity-50 disabled:cursor-not-allowed"
-                              disabled={hasActiveJob}
-                              title={hasActiveJob ? 'Cannot delete while a job is active' : 'Delete this datasource'}
+                              disabled={hasActiveJob || !permissions.can_delete}
+                              title={!permissions.can_delete ? 'Insufficient permissions to delete datasources' : hasActiveJob ? 'Cannot delete while a job is active' : 'Delete this datasource'}
                             >
                               Delete
                             </button>
@@ -727,8 +733,9 @@ export default function IngestView() {
                                           {isJobActive && (
                                             <button
                                               onClick={(e) => { e.stopPropagation(); handleTerminateJob(ds.datasource_id, job.job_id); }}
-                                              className="bg-destructive hover:bg-destructive/90 text-destructive-foreground font-bold py-1 px-2 rounded text-xs flex-shrink-0"
-                                              title="Stop this job"
+                                              className="bg-destructive hover:bg-destructive/90 text-destructive-foreground font-bold py-1 px-2 rounded text-xs flex-shrink-0 disabled:opacity-50 disabled:cursor-not-allowed"
+                                              disabled={!permissions.can_ingest}
+                                              title={!permissions.can_ingest ? 'Insufficient permissions to terminate jobs' : 'Stop this job'}
                                             >
                                               Stop
                                             </button>
@@ -898,8 +905,8 @@ export default function IngestView() {
                                 <button
                                   onClick={(e) => { e.stopPropagation(); setShowDeleteIngestorConfirm(ingestor.ingestor_id); }}
                                   className="bg-destructive hover:bg-destructive/90 text-destructive-foreground font-bold py-1 px-2 rounded text-xs disabled:opacity-50 disabled:cursor-not-allowed"
-                                  disabled={isDefaultWebloader}
-                                  title={isDefaultWebloader ? 'Cannot delete default webloader ingestor' : 'Delete this ingestor (metadata only)'}
+                                  disabled={isDefaultWebloader || !permissions.can_delete}
+                                  title={!permissions.can_delete ? 'Insufficient permissions to delete ingestors' : isDefaultWebloader ? 'Cannot delete default webloader ingestor' : 'Delete this ingestor (metadata only)'}
                                 >
                                   Delete
                                 </button>
