@@ -577,23 +577,29 @@ export function ChatPanel({ endpoint }: ChatPanelProps) {
               minRows={1}
               maxRows={10}
             />
-            {/* Send button - always visible, shows force send when streaming */}
-            <Button
-              size="icon"
-              onClick={() => handleSubmit(isThisConversationStreaming)}
-              disabled={!input.trim()}
-              variant={isThisConversationStreaming ? "outline" : "default"}
-              className="shrink-0"
-              title={
-                isThisConversationStreaming
-                  ? queuedMessages.length >= 3
-                    ? "Queue full (3/3). Force send (Cmd+Enter) to stop and send immediately"
-                    : `Force send (Cmd+Enter) - ${queuedMessages.length}/3 queued`
-                  : "Send message"
-              }
-            >
-              <Send className="h-4 w-4" />
-            </Button>
+            {/* Send/Stop button - toggles based on streaming state */}
+            {isThisConversationStreaming ? (
+              <Button
+                size="icon"
+                onClick={handleStop}
+                variant="destructive"
+                className="shrink-0"
+                title="Stop generating"
+              >
+                <Square className="h-4 w-4" />
+              </Button>
+            ) : (
+              <Button
+                size="icon"
+                onClick={() => handleSubmit(false)}
+                disabled={!input.trim()}
+                variant="default"
+                className="shrink-0"
+                title="Send message"
+              >
+                <Send className="h-4 w-4" />
+              </Button>
+            )}
           </div>
 
           {/* Selected agent indicator */}
@@ -947,27 +953,6 @@ function ChatMessage({
             <>
               <span className="text-xs font-medium">CAIPE</span>
               <div className="flex items-center gap-2">
-                {/* Stop button - shown when streaming */}
-                {isStreaming && onStop && (
-                  <TooltipProvider>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <Button
-                          variant="destructive"
-                          size="sm"
-                          onClick={onStop}
-                          className="h-6 px-2 text-xs"
-                        >
-                          <Square className="h-3 w-3 mr-1" />
-                          Stop
-                        </Button>
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        Stop generating response
-                      </TooltipContent>
-                    </Tooltip>
-                  </TooltipProvider>
-                )}
                 {/* Collapse button - shown when not streaming and content is long */}
                 {!isStreaming && displayContent && displayContent.length > 300 && (
                   <button
@@ -1266,27 +1251,6 @@ function ChatMessage({
                 animate={{ opacity: isHovered ? 1 : 0.6 }}
                 className="flex items-center gap-2 mt-2"
               >
-                {/* Stop button - shown when streaming */}
-                {isStreaming && onStop && (
-                  <TooltipProvider>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <Button
-                          variant="destructive"
-                          size="sm"
-                          onClick={onStop}
-                          className="h-7 px-2 text-xs"
-                        >
-                          <Square className="h-3 w-3 mr-1" />
-                          Stop
-                        </Button>
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        Stop generating response
-                      </TooltipContent>
-                    </Tooltip>
-                  </TooltipProvider>
-                )}
                 {/* Collapse button - bottom right */}
                 {!isStreaming && displayContent && displayContent.length > 300 && (
                   <TooltipProvider>
