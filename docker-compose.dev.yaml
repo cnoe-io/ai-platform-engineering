@@ -100,6 +100,30 @@ services:
     command: platform-engineer
 
   ####################################################################################################
+  #                                          MongoDB                                                 #
+  ####################################################################################################
+  mongodb:
+    image: mongo:7.0
+    container_name: caipe-mongodb-dev
+    ports:
+      - "27017:27017"  # Expose MongoDB port to host
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=${MONGODB_ROOT_USERNAME:-admin}
+      - MONGO_INITDB_ROOT_PASSWORD=${MONGODB_ROOT_PASSWORD:-changeme}
+      - MONGO_INITDB_DATABASE=${MONGODB_DATABASE:-caipe}
+    volumes:
+      - mongodb_data:/data/db
+      - mongodb_config:/data/configdb
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+    profiles:
+      - caipe-ui-mongodb
+
+  ####################################################################################################
   #                                      SLIM Transport                                              #
   ####################################################################################################
   slim-dataplane:
@@ -1237,6 +1261,10 @@ services:
       - evaluation
 
 volumes:
+  mongodb_data:
+    driver: local
+  mongodb_config:
+    driver: local
   langfuse_postgres_data:
     driver: local
   langfuse_clickhouse_data:
