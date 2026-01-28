@@ -27,12 +27,30 @@ import {
   WEBLOADER_INGESTOR_ID,
   CONFLUENCE_INGESTOR_ID
 } from './api/index'
-import { getIconForType } from './typeConfig'
+import { getIconForType, ingestTypeConfigs, isIngestTypeAvailable } from './typeConfig'
+
+// Helper component to render icon (either emoji or SVG image)
+const IconRenderer = ({ icon, className = "w-5 h-5" }: { icon: string; className?: string }) => {
+  const isEmoji = !icon.startsWith('/')
+  
+  if (isEmoji) {
+    return <span className="text-lg">{icon}</span>
+  }
+  
+  return (
+    <img 
+      src={icon} 
+      alt="" 
+      className={className}
+      style={{ display: 'inline-block' }}
+    />
+  )
+}
 
 export default function IngestView() {
   // Ingestion state
   const [url, setUrl] = useState('')
-  const [ingestType, setIngestType] = useState<'web' | 'confluence'>('web')
+  const [ingestType, setIngestType] = useState<string>('web')
   const [checkForSiteMap, setCheckForSiteMap] = useState(true)
   const [sitemapMaxUrls, setSitemapMaxUrls] = useState(2000)
   const [description, setDescription] = useState('')
@@ -116,6 +134,24 @@ export default function IngestView() {
     fetchDataSources()
     fetchIngestors()
   }, [])
+
+  // Effect to auto-select first available ingest type when ingestors load
+  useEffect(() => {
+    if (ingestors.length > 0) {
+      // Check if current ingestType is still available
+      const isCurrentTypeAvailable = isIngestTypeAvailable(ingestType, ingestors)
+      
+      if (!isCurrentTypeAvailable) {
+        // Find first available ingest type
+        const availableType = Object.keys(ingestTypeConfigs).find(type =>
+          isIngestTypeAvailable(type, ingestors)
+        )
+        if (availableType) {
+          setIngestType(availableType)
+        }
+      }
+    }
+  }, [ingestors, ingestType])
 
   useEffect(() => {
     const fetchAllJobs = async () => {
@@ -317,28 +353,38 @@ export default function IngestView() {
           <label className="block text-sm font-medium text-foreground mb-2">
             Ingest Type *
           </label>
-          <div className="flex gap-2">
-            <button
-              onClick={() => setIngestType('web')}
-              className={`px-4 py-2 rounded text-sm font-medium transition-colors ${
-                ingestType === 'web'
-                  ? 'bg-primary text-primary-foreground'
-                  : 'bg-muted text-muted-foreground hover:bg-muted/80'
-              }`}
-            >
-              Web
-            </button>
-            <button
-              onClick={() => setIngestType('confluence')}
-              className={`px-4 py-2 rounded text-sm font-medium transition-colors ${
-                ingestType === 'confluence'
-                  ? 'bg-primary text-primary-foreground'
-                  : 'bg-muted text-muted-foreground hover:bg-muted/80'
-              }`}
-            >
-              Confluence
-            </button>
+          <div className="flex gap-2 flex-wrap">
+            {Object.entries(ingestTypeConfigs).map(([type, config]) => {
+              const isAvailable = isIngestTypeAvailable(type, ingestors)
+              return (
+                <button
+                  key={type}
+                  onClick={() => isAvailable && setIngestType(type)}
+                  disabled={!isAvailable}
+                  className={`px-3 py-1.5 rounded text-xs font-medium transition-colors ${
+                    ingestType === type
+                      ? 'bg-primary text-primary-foreground'
+                      : isAvailable
+                        ? 'bg-muted text-muted-foreground hover:bg-muted/80'
+                        : 'bg-muted/50 text-muted-foreground/50 cursor-not-allowed'
+                  }`}
+                  title={!isAvailable ? `No ${config.requiredIngestorType} ingestor available` : `Ingest as ${config.label}`}
+                >
+                  {config.icon && (
+                    <span className="mr-1.5 inline-flex items-center">
+                      <IconRenderer icon={config.icon} className="w-3.5 h-3.5" />
+                    </span>
+                  )}
+                  {config.label}
+                </button>
+              )
+            })}
           </div>
+          {ingestors.length === 0 && !loadingIngestors && (
+            <p className="text-xs text-orange-600 dark:text-orange-400 mt-2">
+              ⚠️ No ingestors detected. Please ensure ingestor services are running.
+            </p>
+          )}
         </div>
 
         {/* URL Input */}
@@ -459,17 +505,19 @@ export default function IngestView() {
             </button>
             {sourceTypes.map(type => {
               const count = dataSources.filter(ds => ds.source_type === type).length
+              const icon = getIconForType(type)
               return (
                 <button
                   key={type}
                   onClick={() => setSelectedSourceType(type)}
-                  className={`px-2.5 py-1 rounded text-xs font-medium transition-colors ${
+                  className={`px-2.5 py-1 rounded text-xs font-medium transition-colors inline-flex items-center gap-1.5 ${
                     selectedSourceType === type
                       ? 'bg-primary text-primary-foreground'
                       : 'bg-muted text-muted-foreground hover:bg-muted/80'
                   }`}
                 >
-                  {type} ({count})
+                  {icon && <IconRenderer icon={icon} className="w-3.5 h-3.5" />}
+                  <span>{type} ({count})</span>
                 </button>
               )
             })}
@@ -513,7 +561,7 @@ export default function IngestView() {
                           <span className="text-muted-foreground font-mono text-sm select-none">
                             {isExpanded ? '−' : '+'}
                           </span>
-                          {icon && <span className="text-lg">{icon}</span>}
+                          {icon && <IconRenderer icon={icon} className="w-5 h-5" />}
                           <span className="max-w-xs truncate">
                             {ds.datasource_id.length > 50 ? `${ds.datasource_id.substring(0, 50)}...` : ds.datasource_id}
                           </span>
@@ -839,7 +887,7 @@ export default function IngestView() {
                                 <span className="text-muted-foreground font-mono text-sm select-none">
                                   {isExpanded ? '−' : '+'}
                                 </span>
-                                {icon && <span className="text-base">{icon}</span>}
+                                {icon && <IconRenderer icon={icon} className="w-4 h-4" />}
                                 {ingestor.ingestor_name}
                               </td>
                               <td className="px-3 py-2">{ingestor.ingestor_type}</td>
