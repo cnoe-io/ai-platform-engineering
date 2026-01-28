@@ -122,28 +122,28 @@ export default function GraphView({ exploreEntityData, onExploreComplete }: Grap
     // Graph RAG is enabled - show the graph interface
     return (
         <div className="relative h-full bg-muted/50 overflow-hidden flex flex-col">
-            {/* Tab Navigation - Prominent toggle at top right */}
-            <div className="absolute top-4 right-4 z-20">
-                <div className="flex bg-card rounded-lg shadow-lg border-2 border-border overflow-hidden backdrop-blur-sm">
+            {/* Tab Navigation - Centered at top */}
+            <div className="absolute top-6 left-1/2 -translate-x-1/2 z-20">
+                <div className="flex bg-card rounded-md shadow-md border border-border overflow-hidden backdrop-blur-sm">
                     <button
                         onClick={() => setActiveView('ontology')}
-                        className={`px-5 py-2.5 text-sm font-semibold transition-all duration-200 flex items-center gap-2 ${
+                        className={`px-3 py-1.5 text-xs font-medium transition-all duration-200 flex items-center gap-1.5 ${
                             activeView === 'ontology'
                                 ? 'bg-primary text-primary-foreground shadow-inner'
                                 : 'bg-card text-muted-foreground hover:bg-muted hover:text-foreground'
                         }`}
                     >
-                        <span className="text-lg">🌐</span> Ontology
+                        <span className="text-sm">🌐</span> Ontology
                     </button>
                     <button
                         onClick={() => setActiveView('data')}
-                        className={`px-5 py-2.5 text-sm font-semibold transition-all duration-200 flex items-center gap-2 ${
+                        className={`px-3 py-1.5 text-xs font-medium transition-all duration-200 flex items-center gap-1.5 ${
                             activeView === 'data'
                                 ? 'bg-primary text-primary-foreground shadow-inner'
                                 : 'bg-card text-muted-foreground hover:bg-muted hover:text-foreground'
                         }`}
                     >
-                        <span className="text-lg">📊</span> Data
+                        <span className="text-sm">📊</span> Data
                     </button>
                 </div>
             </div>

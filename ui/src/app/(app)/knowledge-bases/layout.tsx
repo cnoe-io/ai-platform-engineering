@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button";
 import { config } from "@/lib/config";
 import { getHealthStatus } from "@/components/rag/api";
 import { cn } from "@/lib/utils";
+import { RagAuthIndicator } from "@/components/rag/RagAuthBanner";
 
 export default function KnowledgeBasesLayout({
   children,
@@ -146,13 +147,19 @@ export default function KnowledgeBasesLayout({
             </Link>
           </nav>
 
-          {/* Connection Status */}
-          <div className="flex items-center gap-2">
-            <span className={cn(
-              "h-2 w-2 rounded-full",
-              ragHealth === "connected" ? "bg-emerald-500" : "bg-destructive"
-            )} />
-            <span className="text-xs uppercase tracking-wide text-muted-foreground">{ragHealth}</span>
+          {/* Connection Status & Auth */}
+          <div className="flex items-center gap-4">
+            {/* Auth Status */}
+            <RagAuthIndicator />
+            
+            {/* Connection Status */}
+            <div className="flex items-center gap-2">
+              <span className={cn(
+                "h-2 w-2 rounded-full",
+                ragHealth === "connected" ? "bg-emerald-500" : "bg-destructive"
+              )} />
+              <span className="text-xs uppercase tracking-wide text-muted-foreground">{ragHealth}</span>
+            </div>
           </div>
         </div>
       </div>
