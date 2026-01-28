@@ -11,7 +11,6 @@ import {
   Database
 } from "lucide-react";
 import { ThemeToggle } from "@/components/theme-toggle";
-import { TechStackButton } from "@/components/tech-stack";
 import { UserMenu } from "@/components/user-menu";
 import { SettingsPanel } from "@/components/settings-panel";
 import { Button } from "@/components/ui/button";
@@ -101,11 +100,8 @@ export function AppHeader() {
 
       {/* Status & Actions */}
       <div className="flex items-center gap-3">
-        {/* Powered By + Connection Status */}
+        {/* Connection Status */}
         <div className="flex items-center gap-2">
-          {/* Powered By */}
-          <TechStackButton variant="compact" />
-
           {/* Connection Status - shows health status with URL and countdown on hover */}
           <TooltipProvider delayDuration={100}>
             <Tooltip>
