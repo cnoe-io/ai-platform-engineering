@@ -1,6 +1,177 @@
-## 0.2.12 (2026-01-22)
+## 0.2.13 (2026-01-28)
 
-## 0.2.11-rc.1 (2026-01-22)
+### Feat
+
+- **ui**: add user context tracking to backend messages
+- **ui**: add Popover component
+- **ui**: display integration tags in connection status
+- **ui**: enhance user menu and connection status
+- **ui**: add horizontal scroll to markdown tables
+- **ui**: add advanced theme settings with gradient controls
+- **ui**: move Tech section to user menu as 'About'
+- **ui**: apply gradient themes across all pages, icons, and widgets
+- **ui**: add gradient theme selector with 5 theme options
+- **ui**: implement @mention autocomplete for agent selection
+- **ui**: move stop button to text input area
+- **ui**: enhance textbox focus state with stronger visual feedback
+- **ui**: replace textarea with auto-growing textarea component
+- **ui**: add ui path routing
+- **tests**: add Make targets for CAIPE UI tests
+- **ui**: make OIDC refresh token support optional and gracefully degrade
+- **ui**: implement OIDC refresh token support for seamless authentication
+
+### Fix
+
+- **ui**: prevent session expiry flickering between modal and redirect
+- **ui**: convert connection status tooltip to popover
+- **ui**: font family selection now applies correctly
+- **ui**: rename 'Advanced' to 'OIDC Token' in user menu
+- **ui**: use CSS variables for background gradients and gradient text
+- **ui**: apply gradient theme CSS variables to components
+- **ui**: completely disable resume auto-scroll button during streaming
+- **ui**: prevent auto-scroll button from appearing during fast streaming
+- **ui**: remove outer box highlight on textarea focus
+- **ui**: move copy and retry buttons to bottom of user messages
+- **ui**: align message padding with input section
+- **docs**: fix broken link in a2ui-integration.md
+- **tests**: fix failing Jest tests and add fetch mock
+- **ui**: handle SSO token expiry gracefully with user notifications
+
+## 0.2.12-rc.4 (2026-01-27)
+
+### Feat
+
+- **docs**: add CAIPE UI section to sidebar navigation
+- **makefile**: add documentation site targets
+- **ui**: enhance A2A debug panel with execution plan and full event streaming
+
+### Fix
+
+- **ci**: handle docs-only changes gracefully in CAIPE UI workflow
+- **docs**: resolve MDX build errors and broken links
+- **ui**: add display content for empty task and status events
+
+### Refactor
+
+- **ui**: update tech stack to show only actively used technologies
+
+## 0.2.12-rc.3 (2026-01-27)
+
+### Feat
+
+- **ui**: implement runtime configuration and enhance SSO user menu
+
+## 0.2.12-rc.2 (2026-01-26)
+
+### Feat
+
+- **helm**: add external secrets and configmap support for caipe-ui
+
+### Fix
+
+- **gitlab**: remove unused import
+- **docker**: remove extra code
+- **helm**: fix small issues with backstage ingestor docker compose and code
+- correct condition
+- **caipe-ui**: bump chart version
+
+## 0.2.12-rc.1 (2026-01-26)
+
+### Feat
+
+- **usecases**: add edit functionality and fix placeholder detection
+- **ui**: migrate to @a2a-js/sdk and improve streaming UX
+- **ui**: add retry button to regenerate responses
+- **a2a**: improve streaming reliability and UI performance
+- **helm**: add caipe-ui subchart with ingress support
+- **ui**: add RAG integration, layout settings, and dark mode improvements
+- **helm**: add caipe-ui subchart with ingress support
+- **ui**: add download button for A2A events in debug panel
+- **ui**: persist tool notifications with collapsible history
+- add Docker build targets and fix nginx.conf
+- **ci**: add CAIPE UI Docker build workflow and reorganize Dockerfile
+- add caipe-ui make targets for running the UI
+- **ui**: add visual feedback to JSON copy button in A2A debug
+- **ui**: add Linux logo and fix favicon
+- **ui**: update IntegrationOrbit with official full-color logos
+- **ui**: add GitHub PR Review use case with input form
+- **ui**: use full-color original SVG logos in task list
+- **ui**: add official agent logos to task list and agent selector
+- **ui**: implement agent-forge features - feedback, copy, tasks, agent selection
+- **ui**: persist A2A events, tasks, and output to localStorage
+- **ui**: implement per-conversation streaming state
+- **ui**: add Tasks tab to ContextPanel for execution plan display
+- **ui**: expand streaming output by default during streaming
+- **ui**: full-width two-panel layout for login and logout
+- **ui**: add integration orbit animation to logout page
+- **ui**: update integration logos with accurate SVG icons
+- **ui**: disable panel resizing on Use Cases tab
+- **ui**: add resizable panels for sidebar, chat, and context
+- **ui**: show descriptive tool notifications with wrench emoji
+- **ui**: show connected URL in status indicator
+- **ui**: persist chat history to localStorage
+- **ui**: add branded loading screen component
+- **ui**: add logout page and improve auth flow
+- **ui**: add font options and settings panel
+- **ui**: make OIDC group claim configurable
+- **ui**: add OIDC SSO with group-based authorization
+- add caipe-ui using a2ui, copilotkit
+
+### Fix
+
+- **ui**: resolve all TypeScript build errors for CI
+- **ui**: add mongodb dependency and fix TypeScript type errors
+- **a2a**: detect [FINAL ANSWER] marker to send final_result artifacts
+- **ui**: always store task and tool events for Tasks panel
+- **ui**: treat complete_result as internal artifact, not final result
+- **ui**: change caipe-ui port to 3000
+- **ui**: read OIDC config from .env file
+- **ui**: cleaner code block styling without text highlighting
+- **ui**: improve code block detection and add copy button
+- **ui**: fix multiple TypeScript errors for production build
+- **ui**: provide initial value for useRef in tooltip
+- **ui**: update PanelSize API - use asPercentage instead of percentage
+- **ui**: properly handle status-update events to mark message final
+- **ui**: properly handle complete_result with full content replacement
+- **ui**: always append streaming chunks, only replace for final result
+- **ui**: handle A2A message events for complete content streaming
+- **ui**: handle partial_result artifact as complete content
+- **ui**: remove tool notification badges from chat panel
+- **ui**: clear A2A events when deleting active conversation
+- **ui**: use A2A append flag for proper streaming behavior
+- **ui**: replace content for complete_result artifacts
+- **ui**: prevent duplicate content and auto-complete tasks
+- **ui**: improve tool notifications in chat panel
+- **ui**: improve SSO redirect and integration orbit logos
+- **ui**: improve Backstage logo to fit container
+- **ui**: change ArgoCD logo background to dark color
+- **ui**: resolve hydration mismatch in IntegrationOrbit
+- **ui**: add missing lib/ files and fix UUID generation for A2A
+- **ui**: auto-submit message when selecting a use case
+- **ui**: match agent-forge feedback button behavior exactly
+- **ui**: place contextId inside message for A2A conversation continuity
+- **ui**: prevent raw JSON toggle from closing A2A event card
+- **ui**: pass thread ID for multi-turn conversations & fix user attributes
+- **ui**: blend animation and panel backgrounds seamlessly
+- **ui**: add turbopack config for Next.js 16
+- **ui**: update resizable panels to use v4 API
+- **ui**: pass user name and email from OIDC profile to session
+- **ui**: make font preview section respond to selection
+- **ui**: fix settings panel not showing
+- **ui**: fix React child rendering error in ContextPanel
+- **ui**: add spin animation and improve login loading screen
+- **rbac**: add email validation, audit logging, role validation, and improve documentation
+
+### Refactor
+
+- **ui**: remove [FINAL ANSWER] logic, display streamed content as-is
+- **ui**: simplify ContextPanel with Tasks as default tab
+
+### Perf
+
+- **ui**: optimize chat performance and prevent OOM issues
+
+## 0.2.12 (2026-01-22)
 
 ### Feat
 
@@ -13,11 +184,19 @@
 
 ## 0.2.11 (2026-01-21)
 
+### Feat
+
+- add authn to rag-stack chart
+- add role/userinfo to ui, fix ingestor type not availalbe
+- add RBAC to rag server endpoints
+
 ### Fix
 
 - extract context_id from supervisor message metadata for conversation continuity
 - **ci**: make helm rc bump to directly trigger pre-release push
 - **ci**: force re-registration of workflow_run trigger
+- lint issues
+- add missing models
 - do not include agentForge CI in the finalise and fix arm64 build
 
 ## 0.2.10 (2026-01-20)
