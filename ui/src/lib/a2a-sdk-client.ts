@@ -38,6 +38,8 @@ export interface A2ASDKClientConfig {
   endpoint: string;
   /** JWT access token for Bearer authentication */
   accessToken?: string;
+  /** User email for tracking who is making requests */
+  userEmail?: string;
   /** Timeout in milliseconds for requests (default: 300000 = 5 minutes) */
   timeoutMs?: number;
 }
@@ -72,10 +74,12 @@ export interface ParsedA2AEvent {
 export class A2ASDKClient {
   private transport: JsonRpcTransport;
   private accessToken?: string;
+  private userEmail?: string;
   private abortController: AbortController | null = null;
 
   constructor(config: A2ASDKClientConfig) {
     this.accessToken = config.accessToken;
+    this.userEmail = config.userEmail;
 
     // Create fetch with authentication if token provided
     const fetchImpl = this.accessToken
@@ -153,17 +157,24 @@ export class A2ASDKClient {
 
     const messageId = uuidv4();
 
+    // Prepend user context if email is available
+    // This enables agents to track which user is making the request
+    const messageWithContext = this.userEmail
+      ? `by user: ${this.userEmail}\n\n${message}`
+      : message;
+
     const params: MessageSendParams = {
       message: {
         kind: "message",
         messageId,
         role: "user",
-        parts: [{ kind: "text", text: message }],
+        parts: [{ kind: "text", text: messageWithContext }],
         ...(contextId && { contextId }),
       },
     };
 
     console.log(`[A2A SDK] 📤 Sending message to endpoint`);
+    console.log(`[A2A SDK] 📤 User: ${this.userEmail || "anonymous"}`);
     console.log(`[A2A SDK] 📤 contextId: ${contextId || "new conversation"}`);
 
     let eventCount = 0;

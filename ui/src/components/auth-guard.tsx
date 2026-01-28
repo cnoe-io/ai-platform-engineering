@@ -52,6 +52,17 @@ export function AuthGuard({ children }: AuthGuardProps) {
 
     // User is authenticated, check authorization and token expiry
     if (status === "authenticated") {
+      // Check if TokenExpiryGuard is already handling expiry (prevents flickering)
+      const isTokenExpiryHandling = typeof window !== 'undefined' 
+        ? sessionStorage.getItem('token-expiry-handling') === 'true'
+        : false;
+
+      if (isTokenExpiryHandling) {
+        // Let TokenExpiryGuard handle the expiry with its modal
+        console.log("[AuthGuard] TokenExpiryGuard is handling expiry, skipping redirect");
+        return;
+      }
+
       // Check if token refresh failed
       if (session?.error === "RefreshTokenExpired" || session?.error === "RefreshTokenError") {
         console.warn("[AuthGuard] Token refresh failed, redirecting to login...");

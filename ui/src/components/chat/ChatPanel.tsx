@@ -181,9 +181,11 @@ export function ChatPanel({ endpoint }: ChatPanelProps) {
     const assistantMsgId = addMessage(convId, { role: "assistant", content: "" }, turnId);
 
     // Create A2A SDK client for this request
+    // Include user email so agents know who is making the request
     const client = new A2ASDKClient({
       endpoint,
       accessToken,
+      userEmail: session?.user?.email,
     });
 
     // ═══════════════════════════════════════════════════════════════
