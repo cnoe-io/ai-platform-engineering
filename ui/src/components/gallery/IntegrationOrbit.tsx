@@ -278,7 +278,7 @@ export function IntegrationOrbit() {
 
       {/* Center CAIPE Logo */}
       <motion.div
-        className="absolute z-20 w-24 h-24 rounded-2xl bg-gradient-to-br from-[hsl(173,80%,40%)] via-[hsl(270,75%,60%)] to-[hsl(330,80%,55%)] flex items-center justify-center shadow-2xl shadow-primary/50"
+        className="absolute z-20 w-24 h-24 rounded-2xl gradient-primary-br flex items-center justify-center shadow-2xl shadow-primary/50"
         animate={{
           scale: [1, 1.05, 1],
           boxShadow: [

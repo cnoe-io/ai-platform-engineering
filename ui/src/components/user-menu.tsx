@@ -119,7 +119,7 @@ export function UserMenu() {
             className="h-6 w-6 rounded-full"
           />
         ) : (
-          <div className="h-6 w-6 rounded-full bg-gradient-to-br from-primary to-purple-500 flex items-center justify-center">
+          <div className="h-6 w-6 rounded-full gradient-primary-br flex items-center justify-center">
             <span className="text-[10px] font-medium text-white">{userInitials}</span>
           </div>
         )}
@@ -149,7 +149,7 @@ export function UserMenu() {
                     className="h-10 w-10 rounded-full"
                   />
                 ) : (
-                  <div className="h-10 w-10 rounded-full bg-gradient-to-br from-primary to-purple-500 flex items-center justify-center">
+                  <div className="h-10 w-10 rounded-full gradient-primary-br flex items-center justify-center">
                     <span className="text-sm font-medium text-white">{userInitials}</span>
                   </div>
                 )}
