@@ -202,7 +202,7 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
             /* Expanded state - Full content */
             <div className="flex-1 flex flex-col p-4">
               {/* Prominent Use Cases info */}
-              <div 
+              <div
                 className="relative overflow-hidden rounded-xl border border-primary/20 p-4 mb-4"
                 style={{
                   background: `linear-gradient(to bottom right, color-mix(in srgb, var(--gradient-from) 20%, transparent), color-mix(in srgb, var(--gradient-to) 15%, transparent), transparent)`

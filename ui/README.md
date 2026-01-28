@@ -16,7 +16,7 @@ A modern React-based UI for visualizing A2A (Agent-to-Agent) protocol messages w
     - `/knowledge-bases/ingest` - Manage data sources and ingestion jobs
     - `/knowledge-bases/search` - Search the knowledge base with hybrid search
     - `/knowledge-bases/graph` - Visualize knowledge graph (ontology & data)
-  
+
 - **Use Cases Gallery**: Browse and execute common platform engineering scenarios
 - **A2A Spec Conformant**: Full support for A2A protocol events (task, artifact-update, status-update)
 - **A2UI Widget Support**: Declarative UI components following [A2UI v0.8 spec](https://a2ui.org/) (buttons, forms, cards, lists, tables, etc.)
