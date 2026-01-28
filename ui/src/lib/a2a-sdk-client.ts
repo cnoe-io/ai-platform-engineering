@@ -114,9 +114,15 @@ export class A2ASDKClient {
         Authorization: `Bearer ${token}`,
       }),
       shouldRetryWithHeaders: async (_req, res) => {
-        // Could implement token refresh logic here
+        // Handle 401 Unauthorized - token expired
         if (res.status === 401) {
-          console.warn("[A2A SDK] Received 401 - token may be expired");
+          console.error("[A2A SDK] Received 401 - SSO token expired");
+
+          // Throw error to be caught by caller
+          throw new Error(
+            "Session expired: Your authentication token has expired. " +
+            "Please save your work and log in again."
+          );
         }
         return undefined; // No retry for now
       },
@@ -184,7 +190,7 @@ export class A2ASDKClient {
           break;
         }
       }
-      
+
       // Log if stream ended without explicit completion signal
       console.log(`[A2A SDK] 📡 Stream ended naturally after ${eventCount} events`);
     } catch (error) {

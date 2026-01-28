@@ -274,6 +274,11 @@ const sidebars: SidebarsConfig = {
         },
         {
           type: 'doc',
+          id: 'ui/auth-flow',
+          label: 'Authentication Flow',
+        },
+        {
+          type: 'doc',
           id: 'ui/configuration',
           label: 'Configuration',
         },

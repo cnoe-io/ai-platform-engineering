@@ -1,8 +1,8 @@
 # ADR: Use Case Storage Configuration for CAIPE UI
 
-**Status**: 🟢 In-use  
-**Category**: Architecture & Design  
-**Date**: January 27, 2026  
+**Status**: 🟢 In-use
+**Category**: Architecture & Design
+**Date**: January 27, 2026
 **Signed-off-by**: Sri Aradhyula &lt;sraradhy@cisco.com&gt;
 
 ## Overview / Summary
@@ -34,7 +34,7 @@ Implemented a plugin-based storage backend that can be switched via environment 
 const storageType = process.env.USECASE_STORAGE_TYPE || 'file';
 
 // Dynamic storage backend loading
-const storage = storageType === 'mongodb' 
+const storage = storageType === 'mongodb'
   ? new MongoDBStorage(process.env.MONGODB_URI)
   : new FileStorage(process.env.USECASE_STORAGE_PATH);
 ```

@@ -11,7 +11,7 @@ A modern React-based UI for visualizing A2A (Agent-to-Agent) protocol messages w
 
 - **Use Cases Gallery**: Browse and execute common platform engineering scenarios
 - **A2A Spec Conformant**: Full support for A2A protocol events (task, artifact-update, status-update)
-- **A2UI Widget Support**: Declarative UI components (buttons, forms, cards, lists, tables, etc.)
+- **A2UI Widget Support**: Declarative UI components following [A2UI v0.8 spec](https://a2ui.org/) (buttons, forms, cards, lists, tables, etc.)
 - **Real-time Streaming**: Live visualization of SSE events with filters and inspection
 - **Real-time Streaming**: Displays all streamed content as it arrives
 
@@ -153,7 +153,7 @@ The UI supports the full A2A protocol specification:
 
 ### A2UI Widget Support
 
-The UI includes a widget catalog for A2UI declarative UI:
+The UI includes a widget catalog for [A2UI](https://a2ui.org/) declarative UI (v0.8 specification):
 
 - **Button**: Clickable actions
 - **Form**: Input forms with validation
@@ -163,6 +163,8 @@ The UI includes a widget catalog for A2UI declarative UI:
 - **Progress**: Progress bars
 - **Select**: Dropdown selection
 - **Input**: Text input fields
+
+**Status**: Fully implemented but currently dormant. See [A2UI Integration Guide](../docs/docs/ui/a2ui-integration.md) for activation instructions and detailed documentation.
 
 ## Use Cases Gallery
 
@@ -190,10 +192,11 @@ Pre-built scenarios for common platform engineering tasks:
 - **Markdown**: react-markdown with syntax highlighting (Prism)
 - **Graph Visualization**: Sigma.js (@react-sigma/core)
 - **A2A Protocol**: Using @a2a-js/sdk via A2ASDKClient wrapper
-- **A2UI Widgets**: Custom implementation following A2UI spec
+- **A2UI Widgets**: Custom implementation following [A2UI v0.8 spec](https://a2ui.org/)
 
-**Note**: 
+**Note**:
 - **A2A SDK**: Uses official `@a2a-js/sdk` (v0.3.9+) via `A2ASDKClient` wrapper for agent communication
+- **A2UI**: Custom React renderer following official [A2UI specification](https://a2ui.org/) - see [documentation](../docs/docs/ui/a2ui-integration.md)
 - **CopilotKit & AG-UI**: Installed for reference, but UI uses custom widget implementations following A2UI and AG-UI specifications
 
 ### Building

@@ -1,0 +1,188 @@
+{
+  "metadata": {
+    "name": "argocd-version",
+    "description": "ArgoCD version query - tests tool call and simple response",
+    "query": "show argocd version",
+    "capturedAt": "2026-01-27T12:00:00.000Z",
+    "endpoint": "http://localhost:8000",
+    "contextId": "test-context-argocd",
+    "messageId": "test-message-argocd",
+    "totalEvents": 8
+  },
+  "events": [
+    {
+      "eventNumber": 1,
+      "timestamp": "2026-01-27T12:00:00.100Z",
+      "kind": "task",
+      "event": {
+        "kind": "task",
+        "id": "task-argocd-001",
+        "contextId": "test-context-argocd",
+        "status": {
+          "state": "working"
+        },
+        "artifacts": []
+      }
+    },
+    {
+      "eventNumber": 2,
+      "timestamp": "2026-01-27T12:00:00.200Z",
+      "kind": "artifact-update",
+      "event": {
+        "kind": "artifact-update",
+        "taskId": "task-argocd-001",
+        "contextId": "test-context-argocd",
+        "artifact": {
+          "name": "tool_notification_start",
+          "description": "Calling ArgoCD version tool",
+          "parts": [
+            {
+              "kind": "text",
+              "text": "🔧 Fetching ArgoCD version..."
+            }
+          ],
+          "metadata": {
+            "sourceAgent": "argocd"
+          }
+        },
+        "append": false
+      }
+    },
+    {
+      "eventNumber": 3,
+      "timestamp": "2026-01-27T12:00:01.500Z",
+      "kind": "artifact-update",
+      "event": {
+        "kind": "artifact-update",
+        "taskId": "task-argocd-001",
+        "contextId": "test-context-argocd",
+        "artifact": {
+          "name": "tool_notification_end",
+          "description": "ArgoCD version tool completed",
+          "parts": [
+            {
+              "kind": "text",
+              "text": "✅ ArgoCD version retrieved"
+            }
+          ],
+          "metadata": {
+            "sourceAgent": "argocd"
+          }
+        },
+        "append": false
+      }
+    },
+    {
+      "eventNumber": 4,
+      "timestamp": "2026-01-27T12:00:01.600Z",
+      "kind": "artifact-update",
+      "event": {
+        "kind": "artifact-update",
+        "taskId": "task-argocd-001",
+        "contextId": "test-context-argocd",
+        "artifact": {
+          "name": "streaming_result",
+          "parts": [
+            {
+              "kind": "text",
+              "text": "The ArgoCD version is "
+            }
+          ],
+          "metadata": {
+            "sourceAgent": "supervisor"
+          }
+        },
+        "append": false
+      }
+    },
+    {
+      "eventNumber": 5,
+      "timestamp": "2026-01-27T12:00:01.700Z",
+      "kind": "artifact-update",
+      "event": {
+        "kind": "artifact-update",
+        "taskId": "task-argocd-001",
+        "contextId": "test-context-argocd",
+        "artifact": {
+          "name": "streaming_result",
+          "parts": [
+            {
+              "kind": "text",
+              "text": "**v2.12.3**.\n\nThis is a stable release running in your cluster."
+            }
+          ],
+          "metadata": {
+            "sourceAgent": "supervisor"
+          }
+        },
+        "append": true
+      }
+    },
+    {
+      "eventNumber": 6,
+      "timestamp": "2026-01-27T12:00:01.800Z",
+      "kind": "artifact-update",
+      "event": {
+        "kind": "artifact-update",
+        "taskId": "task-argocd-001",
+        "contextId": "test-context-argocd",
+        "artifact": {
+          "name": "final_result",
+          "parts": [
+            {
+              "kind": "text",
+              "text": "The ArgoCD version is **v2.12.3**.\n\nThis is a stable release running in your cluster."
+            }
+          ],
+          "metadata": {
+            "sourceAgent": "supervisor"
+          }
+        },
+        "append": false
+      }
+    },
+    {
+      "eventNumber": 7,
+      "timestamp": "2026-01-27T12:00:01.900Z",
+      "kind": "status-update",
+      "event": {
+        "kind": "status-update",
+        "taskId": "task-argocd-001",
+        "contextId": "test-context-argocd",
+        "status": {
+          "state": "completed",
+          "message": "Successfully retrieved ArgoCD version"
+        },
+        "final": false
+      }
+    },
+    {
+      "eventNumber": 8,
+      "timestamp": "2026-01-27T12:00:02.000Z",
+      "kind": "status-update",
+      "event": {
+        "kind": "status-update",
+        "taskId": "task-argocd-001",
+        "contextId": "test-context-argocd",
+        "status": {
+          "state": "completed"
+        },
+        "final": true
+      }
+    }
+  ],
+  "summary": {
+    "eventsByKind": {
+      "task": 1,
+      "artifact-update": 5,
+      "status-update": 2
+    },
+    "artifactTypes": [
+      "tool_notification_start",
+      "tool_notification_end",
+      "streaming_result",
+      "final_result"
+    ],
+    "finalStatus": "completed"
+  }
+}

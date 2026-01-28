@@ -216,7 +216,7 @@ export function UseCasesGallery({ onSelectUseCase, refreshTrigger }: UseCasesGal
           const tags = Array.isArray(uc.tags) ? uc.tags : [];
           // Ensure category is included in tags if not already present
           const finalTags = tags.includes(category) ? tags : [...tags, category];
-          
+
           return {
             ...uc,
             thumbnail: uc.thumbnail || "Sparkles", // Default icon
@@ -250,7 +250,7 @@ export function UseCasesGallery({ onSelectUseCase, refreshTrigger }: UseCasesGal
   const [activeFormUseCase, setActiveFormUseCase] = useState<UseCase | null>(null);
   const [formValues, setFormValues] = useState<Record<string, string>>({});
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
-  
+
   // Edit dialog state
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [useCaseToEdit, setUseCaseToEdit] = useState<UseCase | null>(null);
@@ -296,7 +296,7 @@ export function UseCasesGallery({ onSelectUseCase, refreshTrigger }: UseCasesGal
         .replace(/([A-Z])/g, " $1") // Add space before capital letters
         .replace(/\s+/g, " ") // Collapse multiple spaces
         .trim();
-      
+
       // Capitalize first letter of each word
       label = label
         .split(" ")
@@ -332,7 +332,7 @@ export function UseCasesGallery({ onSelectUseCase, refreshTrigger }: UseCasesGal
   const handleUseCaseClick = (useCase: UseCase) => {
     // Check if use case has inputForm or placeholders in prompt
     const inputForm = generateInputFormFromPlaceholders(useCase);
-    
+
     if (inputForm) {
       // Create a use case with the generated input form
       const useCaseWithForm = { ...useCase, inputForm };

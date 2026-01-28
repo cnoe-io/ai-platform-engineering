@@ -2,10 +2,10 @@
 
 /**
  * A2A Debug Test Script
- * 
+ *
  * Tests A2A event streaming from the backend to verify event structure
  * and identify missing events in the UI.
- * 
+ *
  * Usage:
  *   node test-a2a-debug.js
  *   node test-a2a-debug.js "your custom message"
@@ -59,7 +59,7 @@ async function testA2AStream() {
     for await (const event of stream) {
       eventCount++;
       const kind = event.kind || 'unknown';
-      
+
       // Track events by kind
       if (eventsByKind[kind]) {
         eventsByKind[kind].push(event);

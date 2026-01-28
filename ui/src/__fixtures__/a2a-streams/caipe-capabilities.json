@@ -1,0 +1,301 @@
+{
+  "metadata": {
+    "name": "caipe-capabilities",
+    "description": "CAIPE capabilities query - tests agent self-description and multi-agent coordination",
+    "query": "what can caipe do?",
+    "capturedAt": "2026-01-27T12:10:00.000Z",
+    "endpoint": "http://localhost:8000",
+    "contextId": "test-context-caipe",
+    "messageId": "test-message-caipe",
+    "totalEvents": 15
+  },
+  "events": [
+    {
+      "eventNumber": 1,
+      "timestamp": "2026-01-27T12:10:00.100Z",
+      "kind": "task",
+      "event": {
+        "kind": "task",
+        "id": "task-caipe-001",
+        "contextId": "test-context-caipe",
+        "status": {
+          "state": "working"
+        },
+        "artifacts": []
+      }
+    },
+    {
+      "eventNumber": 2,
+      "timestamp": "2026-01-27T12:10:00.200Z",
+      "kind": "artifact-update",
+      "event": {
+        "kind": "artifact-update",
+        "taskId": "task-caipe-001",
+        "contextId": "test-context-caipe",
+        "artifact": {
+          "name": "execution_plan_update",
+          "description": "Planning response about CAIPE capabilities",
+          "parts": [
+            {
+              "kind": "text",
+              "text": "## Execution Plan\n\n1. List all available agents\n2. Describe integration capabilities\n3. Provide example use cases\n4. Explain multi-agent orchestration"
+            }
+          ],
+          "metadata": {
+            "sourceAgent": "supervisor"
+          }
+        },
+        "append": false
+      }
+    },
+    {
+      "eventNumber": 3,
+      "timestamp": "2026-01-27T12:10:00.500Z",
+      "kind": "artifact-update",
+      "event": {
+        "kind": "artifact-update",
+        "taskId": "task-caipe-001",
+        "contextId": "test-context-caipe",
+        "artifact": {
+          "name": "streaming_result",
+          "parts": [
+            {
+              "kind": "text",
+              "text": "# CAIPE - Community AI Platform Engineering\n\n"
+            }
+          ],
+          "metadata": {
+            "sourceAgent": "supervisor"
+          }
+        },
+        "append": false
+      }
+    },
+    {
+      "eventNumber": 4,
+      "timestamp": "2026-01-27T12:10:00.600Z",
+      "kind": "artifact-update",
+      "event": {
+        "kind": "artifact-update",
+        "taskId": "task-caipe-001",
+        "contextId": "test-context-caipe",
+        "artifact": {
+          "name": "streaming_result",
+          "parts": [
+            {
+              "kind": "text",
+              "text": "I'm an AI Platform Engineer that coordinates specialized agents to help with platform operations.\n\n"
+            }
+          ],
+          "metadata": {
+            "sourceAgent": "supervisor"
+          }
+        },
+        "append": true
+      }
+    },
+    {
+      "eventNumber": 5,
+      "timestamp": "2026-01-27T12:10:00.700Z",
+      "kind": "artifact-update",
+      "event": {
+        "kind": "artifact-update",
+        "taskId": "task-caipe-001",
+        "contextId": "test-context-caipe",
+        "artifact": {
+          "name": "streaming_result",
+          "parts": [
+            {
+              "kind": "text",
+              "text": "## 🤖 Connected Agents\n\n"
+            }
+          ],
+          "metadata": {
+            "sourceAgent": "supervisor"
+          }
+        },
+        "append": true
+      }
+    },
+    {
+      "eventNumber": 6,
+      "timestamp": "2026-01-27T12:10:00.800Z",
+      "kind": "artifact-update",
+      "event": {
+        "kind": "artifact-update",
+        "taskId": "task-caipe-001",
+        "contextId": "test-context-caipe",
+        "artifact": {
+          "name": "streaming_result",
+          "parts": [
+            {
+              "kind": "text",
+              "text": "- **ArgoCD** - Kubernetes GitOps deployment management\n- **GitHub** - Source code and repository operations\n- **Jira** - Issue tracking and project management\n- **AWS** - Cloud infrastructure operations\n- **Slack** - Team communication and notifications\n- **PagerDuty** - Incident management and on-call scheduling\n- **Backstage** - Developer portal and service catalog\n- **Splunk** - Log search and analysis\n- **Komodor** - Kubernetes troubleshooting\n- **Confluence** - Documentation and knowledge base\n\n"
+            }
+          ],
+          "metadata": {
+            "sourceAgent": "supervisor"
+          }
+        },
+        "append": true
+      }
+    },
+    {
+      "eventNumber": 7,
+      "timestamp": "2026-01-27T12:10:00.900Z",
+      "kind": "artifact-update",
+      "event": {
+        "kind": "artifact-update",
+        "taskId": "task-caipe-001",
+        "contextId": "test-context-caipe",
+        "artifact": {
+          "name": "streaming_result",
+          "parts": [
+            {
+              "kind": "text",
+              "text": "## 🎯 What I Can Do\n\n"
+            }
+          ],
+          "metadata": {
+            "sourceAgent": "supervisor"
+          }
+        },
+        "append": true
+      }
+    },
+    {
+      "eventNumber": 8,
+      "timestamp": "2026-01-27T12:10:01.000Z",
+      "kind": "artifact-update",
+      "event": {
+        "kind": "artifact-update",
+        "taskId": "task-caipe-001",
+        "contextId": "test-context-caipe",
+        "artifact": {
+          "name": "streaming_result",
+          "parts": [
+            {
+              "kind": "text",
+              "text": "**Deployment & GitOps:**\n- Sync and manage ArgoCD applications\n- Check deployment status\n- View application health\n\n**Code & Repositories:**\n- List pull requests and issues\n- Search code repositories\n- Get commit history\n\n**Incident Management:**\n- Find who's on-call\n- Search logs for errors\n- Track incident tickets\n\n**Cloud Operations:**\n- List AWS resources (EC2, S3, EKS, etc.)\n- Check cloud costs\n- Monitor infrastructure\n\n**Communication:**\n- Send notifications to Slack\n- Post updates to Webex\n- Create documentation in Confluence\n\n"
+            }
+          ],
+          "metadata": {
+            "sourceAgent": "supervisor"
+          }
+        },
+        "append": true
+      }
+    },
+    {
+      "eventNumber": 9,
+      "timestamp": "2026-01-27T12:10:01.100Z",
+      "kind": "artifact-update",
+      "event": {
+        "kind": "artifact-update",
+        "taskId": "task-caipe-001",
+        "contextId": "test-context-caipe",
+        "artifact": {
+          "name": "streaming_result",
+          "parts": [
+            {
+              "kind": "text",
+              "text": "## 💡 Example Queries\n\n- \"Show ArgoCD applications in prod\"\n- \"Find PRs with 'bug' label\"\n- \"Who's on call for platform team?\"\n- \"List EC2 instances in us-west-2\"\n- \"Search logs for 500 errors in last hour\"\n- \"Send deployment summary to #platform channel\"\n\n"
+            }
+          ],
+          "metadata": {
+            "sourceAgent": "supervisor"
+          }
+        },
+        "append": true
+      }
+    },
+    {
+      "eventNumber": 10,
+      "timestamp": "2026-01-27T12:10:01.200Z",
+      "kind": "artifact-update",
+      "event": {
+        "kind": "artifact-update",
+        "taskId": "task-caipe-001",
+        "contextId": "test-context-caipe",
+        "artifact": {
+          "name": "streaming_result",
+          "parts": [
+            {
+              "kind": "text",
+              "text": "I use the **A2A Protocol** (Agent-to-Agent) to communicate with specialized sub-agents, providing you with a unified interface to your entire platform."
+            }
+          ],
+          "metadata": {
+            "sourceAgent": "supervisor"
+          }
+        },
+        "append": true
+      }
+    },
+    {
+      "eventNumber": 11,
+      "timestamp": "2026-01-27T12:10:01.300Z",
+      "kind": "artifact-update",
+      "event": {
+        "kind": "artifact-update",
+        "taskId": "task-caipe-001",
+        "contextId": "test-context-caipe",
+        "artifact": {
+          "name": "final_result",
+          "parts": [
+            {
+              "kind": "text",
+              "text": "# CAIPE - Community AI Platform Engineering\n\nI'm an AI Platform Engineer that coordinates specialized agents to help with platform operations.\n\n## 🤖 Connected Agents\n\n- **ArgoCD** - Kubernetes GitOps deployment management\n- **GitHub** - Source code and repository operations\n- **Jira** - Issue tracking and project management\n- **AWS** - Cloud infrastructure operations\n- **Slack** - Team communication and notifications\n- **PagerDuty** - Incident management and on-call scheduling\n- **Backstage** - Developer portal and service catalog\n- **Splunk** - Log search and analysis\n- **Komodor** - Kubernetes troubleshooting\n- **Confluence** - Documentation and knowledge base\n\n## 🎯 What I Can Do\n\n**Deployment & GitOps:**\n- Sync and manage ArgoCD applications\n- Check deployment status\n- View application health\n\n**Code & Repositories:**\n- List pull requests and issues\n- Search code repositories\n- Get commit history\n\n**Incident Management:**\n- Find who's on-call\n- Search logs for errors\n- Track incident tickets\n\n**Cloud Operations:**\n- List AWS resources (EC2, S3, EKS, etc.)\n- Check cloud costs\n- Monitor infrastructure\n\n**Communication:**\n- Send notifications to Slack\n- Post updates to Webex\n- Create documentation in Confluence\n\n## 💡 Example Queries\n\n- \"Show ArgoCD applications in prod\"\n- \"Find PRs with 'bug' label\"\n- \"Who's on call for platform team?\"\n- \"List EC2 instances in us-west-2\"\n- \"Search logs for 500 errors in last hour\"\n- \"Send deployment summary to #platform channel\"\n\nI use the **A2A Protocol** (Agent-to-Agent) to communicate with specialized sub-agents, providing you with a unified interface to your entire platform."
+            }
+          ],
+          "metadata": {
+            "sourceAgent": "supervisor"
+          }
+        },
+        "append": false
+      }
+    },
+    {
+      "eventNumber": 12,
+      "timestamp": "2026-01-27T12:10:01.950Z",
+      "kind": "status-update",
+      "event": {
+        "kind": "status-update",
+        "taskId": "task-caipe-001",
+        "contextId": "test-context-caipe",
+        "status": {
+          "state": "completed",
+          "message": "Provided CAIPE capabilities overview"
+        },
+        "final": false
+      }
+    },
+    {
+      "eventNumber": 13,
+      "timestamp": "2026-01-27T12:10:02.000Z",
+      "kind": "status-update",
+      "event": {
+        "kind": "status-update",
+        "taskId": "task-caipe-001",
+        "contextId": "test-context-caipe",
+        "status": {
+          "state": "completed"
+        },
+        "final": true
+      }
+    }
+  ],
+  "summary": {
+    "eventsByKind": {
+      "task": 1,
+      "artifact-update": 8,
+      "status-update": 2
+    },
+    "artifactTypes": [
+      "execution_plan_update",
+      "streaming_result",
+      "final_result"
+    ],
+    "finalStatus": "completed"
+  }
+}

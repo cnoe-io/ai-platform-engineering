@@ -1,0 +1,282 @@
+{
+  "metadata": {
+    "name": "github-profile",
+    "description": "GitHub profile query - tests external API integration and sub-agent collaboration",
+    "query": "show my github profile for sriaradhyula",
+    "capturedAt": "2026-01-27T12:05:00.000Z",
+    "endpoint": "http://localhost:8000",
+    "contextId": "test-context-github",
+    "messageId": "test-message-github",
+    "totalEvents": 12
+  },
+  "events": [
+    {
+      "eventNumber": 1,
+      "timestamp": "2026-01-27T12:05:00.100Z",
+      "kind": "task",
+      "event": {
+        "kind": "task",
+        "id": "task-github-001",
+        "contextId": "test-context-github",
+        "status": {
+          "state": "working"
+        },
+        "artifacts": []
+      }
+    },
+    {
+      "eventNumber": 2,
+      "timestamp": "2026-01-27T12:05:00.200Z",
+      "kind": "artifact-update",
+      "event": {
+        "kind": "artifact-update",
+        "taskId": "task-github-001",
+        "contextId": "test-context-github",
+        "artifact": {
+          "name": "execution_plan_update",
+          "description": "Execution plan created",
+          "parts": [
+            {
+              "kind": "text",
+              "text": "## Execution Plan\n\n1. Route to GitHub agent\n2. Fetch user profile for sriaradhyula\n3. Format and return profile information"
+            }
+          ],
+          "metadata": {
+            "sourceAgent": "supervisor"
+          }
+        },
+        "append": false
+      }
+    },
+    {
+      "eventNumber": 3,
+      "timestamp": "2026-01-27T12:05:00.300Z",
+      "kind": "artifact-update",
+      "event": {
+        "kind": "artifact-update",
+        "taskId": "task-github-001",
+        "contextId": "test-context-github",
+        "artifact": {
+          "name": "tool_notification_start",
+          "description": "Routing to GitHub agent",
+          "parts": [
+            {
+              "kind": "text",
+              "text": "🔀 Routing query to GitHub agent..."
+            }
+          ],
+          "metadata": {
+            "sourceAgent": "supervisor"
+          }
+        },
+        "append": false
+      }
+    },
+    {
+      "eventNumber": 4,
+      "timestamp": "2026-01-27T12:05:00.500Z",
+      "kind": "artifact-update",
+      "event": {
+        "kind": "artifact-update",
+        "taskId": "task-github-001",
+        "contextId": "test-context-github",
+        "artifact": {
+          "name": "tool_notification_start",
+          "description": "Fetching GitHub user profile",
+          "parts": [
+            {
+              "kind": "text",
+              "text": "🔧 Calling GitHub API: GET /users/sriaradhyula"
+            }
+          ],
+          "metadata": {
+            "sourceAgent": "github"
+          }
+        },
+        "append": false
+      }
+    },
+    {
+      "eventNumber": 5,
+      "timestamp": "2026-01-27T12:05:01.200Z",
+      "kind": "artifact-update",
+      "event": {
+        "kind": "artifact-update",
+        "taskId": "task-github-001",
+        "contextId": "test-context-github",
+        "artifact": {
+          "name": "tool_notification_end",
+          "description": "GitHub API call completed",
+          "parts": [
+            {
+              "kind": "text",
+              "text": "✅ Profile data retrieved"
+            }
+          ],
+          "metadata": {
+            "sourceAgent": "github"
+          }
+        },
+        "append": false
+      }
+    },
+    {
+      "eventNumber": 6,
+      "timestamp": "2026-01-27T12:05:01.300Z",
+      "kind": "artifact-update",
+      "event": {
+        "kind": "artifact-update",
+        "taskId": "task-github-001",
+        "contextId": "test-context-github",
+        "artifact": {
+          "name": "streaming_result",
+          "parts": [
+            {
+              "kind": "text",
+              "text": "# GitHub Profile: sriaradhyula\n\n"
+            }
+          ],
+          "metadata": {
+            "sourceAgent": "github"
+          }
+        },
+        "append": false
+      }
+    },
+    {
+      "eventNumber": 7,
+      "timestamp": "2026-01-27T12:05:01.400Z",
+      "kind": "artifact-update",
+      "event": {
+        "kind": "artifact-update",
+        "taskId": "task-github-001",
+        "contextId": "test-context-github",
+        "artifact": {
+          "name": "streaming_result",
+          "parts": [
+            {
+              "kind": "text",
+              "text": "**Name:** Sri Aradhyula\n**Username:** sriaradhyula\n**Location:** San Jose, CA\n"
+            }
+          ],
+          "metadata": {
+            "sourceAgent": "github"
+          }
+        },
+        "append": true
+      }
+    },
+    {
+      "eventNumber": 8,
+      "timestamp": "2026-01-27T12:05:01.500Z",
+      "kind": "artifact-update",
+      "event": {
+        "kind": "artifact-update",
+        "taskId": "task-github-001",
+        "contextId": "test-context-github",
+        "artifact": {
+          "name": "streaming_result",
+          "parts": [
+            {
+              "kind": "text",
+              "text": "**Bio:** Platform Engineer at Cisco\n**Public Repos:** 42\n**Followers:** 156\n"
+            }
+          ],
+          "metadata": {
+            "sourceAgent": "github"
+          }
+        },
+        "append": true
+      }
+    },
+    {
+      "eventNumber": 9,
+      "timestamp": "2026-01-27T12:05:01.600Z",
+      "kind": "artifact-update",
+      "event": {
+        "kind": "artifact-update",
+        "taskId": "task-github-001",
+        "contextId": "test-context-github",
+        "artifact": {
+          "name": "streaming_result",
+          "parts": [
+            {
+              "kind": "text",
+              "text": "\n**Recent Activity:**\n- Contributed to cnoe-io/ai-platform-engineering\n- Active in platform engineering community"
+            }
+          ],
+          "metadata": {
+            "sourceAgent": "github"
+          }
+        },
+        "append": true
+      }
+    },
+    {
+      "eventNumber": 10,
+      "timestamp": "2026-01-27T12:05:01.700Z",
+      "kind": "artifact-update",
+      "event": {
+        "kind": "artifact-update",
+        "taskId": "task-github-001",
+        "contextId": "test-context-github",
+        "artifact": {
+          "name": "final_result",
+          "parts": [
+            {
+              "kind": "text",
+              "text": "# GitHub Profile: sriaradhyula\n\n**Name:** Sri Aradhyula\n**Username:** sriaradhyula\n**Location:** San Jose, CA\n**Bio:** Platform Engineer at Cisco\n**Public Repos:** 42\n**Followers:** 156\n\n**Recent Activity:**\n- Contributed to cnoe-io/ai-platform-engineering\n- Active in platform engineering community"
+            }
+          ],
+          "metadata": {
+            "sourceAgent": "github"
+          }
+        },
+        "append": false
+      }
+    },
+    {
+      "eventNumber": 11,
+      "timestamp": "2026-01-27T12:05:01.800Z",
+      "kind": "status-update",
+      "event": {
+        "kind": "status-update",
+        "taskId": "task-github-001",
+        "contextId": "test-context-github",
+        "status": {
+          "state": "completed",
+          "message": "Successfully retrieved GitHub profile"
+        },
+        "final": false
+      }
+    },
+    {
+      "eventNumber": 12,
+      "timestamp": "2026-01-27T12:05:01.900Z",
+      "kind": "status-update",
+      "event": {
+        "kind": "status-update",
+        "taskId": "task-github-001",
+        "contextId": "test-context-github",
+        "status": {
+          "state": "completed"
+        },
+        "final": true
+      }
+    }
+  ],
+  "summary": {
+    "eventsByKind": {
+      "task": 1,
+      "artifact-update": 7,
+      "status-update": 2
+    },
+    "artifactTypes": [
+      "tool_notification_start",
+      "tool_notification_end",
+      "streaming_result",
+      "final_result"
+    ],
+    "finalStatus": "completed"
+  }
+}
