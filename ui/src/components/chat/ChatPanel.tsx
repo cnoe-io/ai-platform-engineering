@@ -18,7 +18,8 @@ import { cn } from "@/lib/utils";
 import { ChatMessage as ChatMessageType } from "@/types/a2a";
 import { getConfig } from "@/lib/config";
 import { FeedbackButton, Feedback } from "./FeedbackButton";
-import { InlineAgentSelector, DEFAULT_AGENTS, CustomCall } from "./CustomCallButtons";
+import { DEFAULT_AGENTS, CustomCall } from "./CustomCallButtons";
+import { AGENT_LOGOS } from "@/components/shared/AgentLogos";
 import { SubAgentCard, groupEventsByAgent, getAgentDisplayOrder, isRealSubAgent } from "./SubAgentCard";
 import { AgentStreamBox } from "./AgentStreamBox";
 
@@ -30,8 +31,10 @@ export function ChatPanel({ endpoint }: ChatPanelProps) {
   const { data: session } = useSession();
   const [input, setInput] = useState("");
   const [copiedId, setCopiedId] = useState<string | null>(null);
-  const [selectedAgentPrompt, setSelectedAgentPrompt] = useState<string | null>(null);
   const [queuedMessages, setQueuedMessages] = useState<string[]>([]);
+  const [showMentionMenu, setShowMentionMenu] = useState(false);
+  const [mentionFilter, setMentionFilter] = useState("");
+  const [mentionPosition, setMentionPosition] = useState({ top: 0, left: 0 });
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const scrollViewportRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -350,16 +353,12 @@ export function ChatPanel({ endpoint }: ChatPanelProps) {
 
     // If streaming and not force sending, queue the message (up to 3)
     if (isThisConversationStreaming && !forceSend) {
-      const baseMessage = input.trim();
-      const message = selectedAgentPrompt
-        ? `${selectedAgentPrompt} ${baseMessage}`
-        : baseMessage;
+      const message = input.trim();
       
       // Add to queue if under limit
       if (queuedMessages.length < 3) {
         setQueuedMessages(prev => [...prev, message]);
         setInput("");
-        setSelectedAgentPrompt(null);
       } else {
         // Queue is full - show feedback or prevent action
         console.log("Queue is full (3/3). Send or cancel messages to queue more.");
@@ -376,17 +375,13 @@ export function ChatPanel({ endpoint }: ChatPanelProps) {
       await new Promise(resolve => setTimeout(resolve, 100));
     }
 
-    // Prepend agent prompt if selected
-    const baseMessage = input.trim();
-    const message = selectedAgentPrompt
-      ? `${selectedAgentPrompt} ${baseMessage}`
-      : baseMessage;
+    // Send message as-is (users can use @agent syntax naturally)
+    const message = input.trim();
 
     setInput("");
-    setSelectedAgentPrompt(null); // Clear after sending
 
     await submitMessage(message);
-  }, [input, selectedAgentPrompt, submitMessage, isThisConversationStreaming, queuedMessages]);
+  }, [input, submitMessage, isThisConversationStreaming, queuedMessages]);
 
   // Auto-submit pending message from use case selection
   useEffect(() => {
@@ -402,7 +397,70 @@ export function ChatPanel({ endpoint }: ChatPanelProps) {
     }
   };
 
+  // Handle @mention detection
+  const handleInputChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const newValue = e.target.value;
+    setInput(newValue);
+
+    // Check for @ mention trigger
+    const cursorPos = e.target.selectionStart;
+    const textBeforeCursor = newValue.slice(0, cursorPos);
+    const lastAtSymbol = textBeforeCursor.lastIndexOf('@');
+    
+    if (lastAtSymbol !== -1) {
+      // Check if @ is at start of word (preceded by space or at beginning)
+      const charBeforeAt = lastAtSymbol > 0 ? textBeforeCursor[lastAtSymbol - 1] : ' ';
+      const isAtWordStart = charBeforeAt === ' ' || charBeforeAt === '\n';
+      
+      if (isAtWordStart) {
+        const textAfterAt = textBeforeCursor.slice(lastAtSymbol + 1);
+        // Only show if no space after @ (still typing the mention)
+        if (!textAfterAt.includes(' ') && !textAfterAt.includes('\n')) {
+          setMentionFilter(textAfterAt.toLowerCase());
+          setShowMentionMenu(true);
+          return;
+        }
+      }
+    }
+    
+    setShowMentionMenu(false);
+  }, []);
+
+  // Handle mention selection
+  const handleMentionSelect = useCallback((agent: CustomCall) => {
+    if (!inputRef.current) return;
+    
+    const cursorPos = inputRef.current.selectionStart;
+    const textBeforeCursor = input.slice(0, cursorPos);
+    const lastAtSymbol = textBeforeCursor.lastIndexOf('@');
+    
+    if (lastAtSymbol !== -1) {
+      const textBeforeAt = input.slice(0, lastAtSymbol);
+      const textAfterCursor = input.slice(cursorPos);
+      const newText = textBeforeAt + agent.prompt + ' ' + textAfterCursor;
+      
+      setInput(newText);
+      setShowMentionMenu(false);
+      
+      // Set cursor position after the mention
+      setTimeout(() => {
+        if (inputRef.current) {
+          const newCursorPos = textBeforeAt.length + agent.prompt.length + 1;
+          inputRef.current.selectionStart = newCursorPos;
+          inputRef.current.selectionEnd = newCursorPos;
+          inputRef.current.focus();
+        }
+      }, 0);
+    }
+  }, [input]);
+
   const handleKeyDown = (e: React.KeyboardEvent) => {
+    // Close mention menu on Escape
+    if (e.key === "Escape" && showMentionMenu) {
+      setShowMentionMenu(false);
+      return;
+    }
+    
     // Force send: Cmd/Ctrl + Enter
     if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
       e.preventDefault();
@@ -410,7 +468,8 @@ export function ChatPanel({ endpoint }: ChatPanelProps) {
       return;
     }
     // Normal send: Enter (only if not streaming, otherwise queue)
-    if (e.key === "Enter" && !e.shiftKey) {
+    // Don't send if mention menu is open
+    if (e.key === "Enter" && !e.shiftKey && !showMentionMenu) {
       e.preventDefault();
       handleSubmit(false);
     }
@@ -551,32 +610,65 @@ export function ChatPanel({ endpoint }: ChatPanelProps) {
             </div>
           )}
 
-          <div className="relative flex items-center gap-3 bg-card rounded-xl border border-border p-3 transition-all duration-200">
-            {/* Agent Selector */}
-            <div className="border-r border-border pr-2">
-              <InlineAgentSelector
-                value={selectedAgentPrompt}
-                onChange={setSelectedAgentPrompt}
-              />
-            </div>
+          <div className="relative">
+            {/* @mention autocomplete menu */}
+            <AnimatePresence>
+              {showMentionMenu && (
+                <motion.div
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: 8 }}
+                  className="absolute bottom-full left-0 right-0 mb-2 bg-card border border-border rounded-xl shadow-lg overflow-hidden z-50"
+                >
+                  <div className="p-2 border-b border-border">
+                    <p className="text-xs text-muted-foreground font-medium">Select an agent:</p>
+                  </div>
+                  <div className="max-h-64 overflow-y-auto">
+                    {DEFAULT_AGENTS
+                      .filter(agent => 
+                        agent.label.toLowerCase().includes(mentionFilter) ||
+                        agent.id.toLowerCase().includes(mentionFilter)
+                      )
+                      .map((agent) => {
+                        const agentLogo = AGENT_LOGOS[agent.id];
+                        return (
+                          <button
+                            key={agent.id}
+                            onClick={() => handleMentionSelect(agent)}
+                            className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-muted/80 transition-colors text-left"
+                          >
+                            <div className="w-8 h-8 rounded-lg overflow-hidden flex items-center justify-center bg-white dark:bg-gray-200 p-1 shrink-0">
+                              {agentLogo?.icon || <span className="text-sm font-bold">{agent.label.charAt(0)}</span>}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-medium text-foreground">{agent.label}</p>
+                              <p className="text-xs text-muted-foreground">{agent.prompt}</p>
+                            </div>
+                          </button>
+                        );
+                      })}
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
 
-            <TextareaAutosize
-              ref={inputRef}
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder={selectedAgentPrompt
-                ? `Ask ${DEFAULT_AGENTS.find(a => a.prompt === selectedAgentPrompt)?.label || 'agent'}...`
-                : isThisConversationStreaming
-                  ? queuedMessages.length >= 3
-                    ? "Queue full (3/3). Send or cancel messages to queue more, or Cmd+Enter to force send..."
-                    : `Type to queue message (${queuedMessages.length}/3), or Cmd+Enter to force send...`
-                  : "Ask CAIPE anything..."
-              }
-              className="flex-1 bg-transparent resize-none outline-none px-3 py-2.5 text-sm"
-              minRows={1}
-              maxRows={10}
-            />
+            <div className="relative flex items-center gap-3 bg-card rounded-xl border border-border p-3 transition-all duration-200">
+              <TextareaAutosize
+                ref={inputRef}
+                value={input}
+                onChange={handleInputChange}
+                onKeyDown={handleKeyDown}
+                placeholder={
+                  isThisConversationStreaming
+                    ? queuedMessages.length >= 3
+                      ? "Queue full (3/3). Send or cancel messages to queue more, or Cmd+Enter to force send..."
+                      : `Type to queue message (${queuedMessages.length}/3), or Cmd+Enter to force send...`
+                    : "Ask CAIPE anything or type @ to mention an agent..."
+                }
+                className="flex-1 bg-transparent resize-none outline-none px-3 py-2.5 text-sm"
+                minRows={1}
+                maxRows={10}
+              />
             {/* Send/Stop button - toggles based on streaming state */}
             {isThisConversationStreaming ? (
               <Button
@@ -600,23 +692,8 @@ export function ChatPanel({ endpoint }: ChatPanelProps) {
                 <Send className="h-4 w-4" />
               </Button>
             )}
-          </div>
-
-          {/* Selected agent indicator */}
-          {selectedAgentPrompt && (
-            <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              <span>Targeting:</span>
-              <span className="px-2 py-0.5 rounded-md bg-primary/10 text-primary font-medium">
-                {DEFAULT_AGENTS.find(a => a.prompt === selectedAgentPrompt)?.label || selectedAgentPrompt}
-              </span>
-              <button
-                onClick={() => setSelectedAgentPrompt(null)}
-                className="text-muted-foreground hover:text-foreground"
-              >
-                ×
-              </button>
             </div>
-          )}
+          </div>
 
           <p className="text-xs text-muted-foreground text-center">
             CAIPE can make mistakes. Verify important information.
