@@ -379,7 +379,7 @@ export function UseCaseBuilder({ onSuccess, existingUseCase }: UseCaseBuilderPro
           <Button
             type="submit"
             disabled={isSubmitting}
-            className="w-full gap-2 bg-gradient-to-r from-[hsl(173,80%,40%)] to-[hsl(270,75%,60%)] hover:opacity-90 text-white"
+            className="w-full gap-2 gradient-primary hover:opacity-90 text-white"
           >
             {isSubmitting ? (
               <>
@@ -439,7 +439,7 @@ export function UseCaseBuilderDialog({
       <DialogContent className="max-w-2xl p-0 overflow-hidden" style={{ maxHeight: '90vh', display: 'flex', flexDirection: 'column' }}>
         <DialogHeader className="shrink-0 px-6 pt-6 pb-4 border-b border-border/50">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-[hsl(173,80%,40%)] to-[hsl(270,75%,60%)] flex items-center justify-center shadow-lg shadow-primary/30">
+            <div className="w-10 h-10 rounded-xl gradient-primary-br flex items-center justify-center shadow-lg shadow-primary/30">
               <Sparkles className="h-5 w-5 text-white" />
             </div>
             <div>

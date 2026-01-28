@@ -14,7 +14,7 @@ export function LoadingScreen({ message = "Loading..." }: LoadingScreenProps) {
   return (
     <div className="min-h-screen flex flex-col items-center justify-center bg-background relative overflow-hidden">
       {/* Background gradient */}
-      <div className="absolute inset-0 bg-gradient-to-br from-[hsl(173,80%,40%)]/10 via-transparent to-[hsl(270,75%,60%)]/10" />
+      <div className="absolute inset-0 bg-gradient-to-br from-primary/10 via-transparent to-primary/10" />
       <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-primary/5 via-transparent to-transparent" />
 
       <div className="relative z-10 flex flex-col items-center gap-6">
@@ -22,21 +22,17 @@ export function LoadingScreen({ message = "Loading..." }: LoadingScreenProps) {
         <div className="relative">
           {/* Spinning glow ring */}
           <div
-            className="absolute inset-[-8px] rounded-3xl opacity-30"
+            className="absolute inset-[-8px] rounded-3xl opacity-30 gradient-primary-br"
             style={{
-              background: 'linear-gradient(135deg, hsl(173,80%,40%), hsl(270,75%,60%), hsl(330,80%,55%))',
               animation: 'spin 3s linear infinite',
             }}
           />
           {/* Blur glow */}
           <div
-            className="absolute inset-[-4px] rounded-2xl blur-xl opacity-40"
-            style={{
-              background: 'linear-gradient(135deg, hsl(173,80%,40%), hsl(270,75%,60%))',
-            }}
+            className="absolute inset-[-4px] rounded-2xl blur-xl opacity-40 gradient-primary"
           />
           {/* Logo container */}
-          <div className="relative w-20 h-20 rounded-2xl bg-gradient-to-br from-[hsl(173,80%,40%)] via-[hsl(270,75%,60%)] to-[hsl(330,80%,55%)] flex items-center justify-center shadow-2xl">
+          <div className="relative w-20 h-20 rounded-2xl gradient-primary-br flex items-center justify-center shadow-2xl">
             <img src="/logo.svg" alt="CAIPE" className="h-12 w-12" />
           </div>
         </div>

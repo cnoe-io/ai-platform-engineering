@@ -447,12 +447,12 @@ export function UseCasesGallery({ onSelectUseCase, refreshTrigger }: UseCasesGal
       {/* Hero Header with Gradient */}
       <div className="relative overflow-hidden border-b border-border">
         {/* Gradient Background */}
-        <div className="absolute inset-0 bg-gradient-to-br from-[hsl(173,80%,40%)]/20 via-[hsl(270,75%,60%)]/10 to-transparent" />
+        <div className="absolute inset-0 bg-gradient-to-br from-primary/20 via-primary/10 to-transparent" />
         <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-primary/10 via-transparent to-transparent" />
 
         <div className="relative px-8 py-8">
           <div className="flex items-center gap-3 mb-3">
-            <div className="p-2.5 rounded-xl bg-gradient-to-br from-[hsl(173,80%,40%)] to-[hsl(270,75%,60%)] shadow-lg shadow-primary/30">
+            <div className="p-2.5 rounded-xl gradient-primary-br shadow-lg shadow-primary/30">
               <Zap className="h-6 w-6 text-white" />
             </div>
             <div>
@@ -519,7 +519,7 @@ export function UseCasesGallery({ onSelectUseCase, refreshTrigger }: UseCasesGal
                   onClick={() => handleUseCaseClick(useCase)}
                   className="flex items-center gap-3 p-4 rounded-xl bg-card border border-border/50 hover:border-primary hover:shadow-lg hover:shadow-primary/10 transition-all text-left group"
                 >
-                  <div className="p-2 rounded-lg bg-gradient-to-br from-[hsl(173,80%,40%)] to-[hsl(270,75%,60%)] shrink-0 group-hover:scale-110 transition-transform">
+                  <div className="p-2 rounded-lg gradient-primary-br shrink-0 group-hover:scale-110 transition-transform">
                     <Icon className="h-4 w-4 text-white" />
                   </div>
                   <div className="min-w-0">
@@ -579,7 +579,7 @@ export function UseCasesGallery({ onSelectUseCase, refreshTrigger }: UseCasesGal
                   >
                     {/* Gradient accent bar */}
                     <div className={cn(
-                      "h-1 w-full bg-gradient-to-r from-[hsl(173,80%,40%)] via-[hsl(270,75%,60%)] to-[hsl(330,80%,55%)] transition-opacity duration-300",
+                      "h-1 w-full gradient-primary transition-opacity duration-300",
                       isHovered ? "opacity-100" : "opacity-30"
                     )} />
 
@@ -589,7 +589,7 @@ export function UseCasesGallery({ onSelectUseCase, refreshTrigger }: UseCasesGal
                           className={cn(
                             "p-2.5 rounded-xl transition-all duration-300",
                             isHovered
-                              ? "bg-gradient-to-br from-[hsl(173,80%,40%)] to-[hsl(270,75%,60%)] shadow-lg shadow-primary/30 scale-110"
+                              ? "gradient-primary-br shadow-lg shadow-primary/30 scale-110"
                               : "bg-primary/15"
                           )}
                         >
@@ -698,13 +698,13 @@ export function UseCasesGallery({ onSelectUseCase, refreshTrigger }: UseCasesGal
               onClick={(e) => e.stopPropagation()}
             >
               {/* Header gradient */}
-              <div className="h-1.5 w-full bg-gradient-to-r from-[hsl(173,80%,40%)] via-[hsl(270,75%,60%)] to-[hsl(330,80%,55%)]" />
+              <div className="h-1.5 w-full gradient-primary" />
 
               <div className="p-6">
                 {/* Header */}
                 <div className="flex items-start justify-between mb-6">
                   <div className="flex items-center gap-3">
-                    <div className="p-2.5 rounded-xl bg-gradient-to-br from-[hsl(173,80%,40%)] to-[hsl(270,75%,60%)] shadow-lg">
+                    <div className="p-2.5 rounded-xl gradient-primary-br shadow-lg">
                       <GitPullRequest className="h-5 w-5 text-white" />
                     </div>
                     <div>
@@ -780,7 +780,7 @@ export function UseCasesGallery({ onSelectUseCase, refreshTrigger }: UseCasesGal
                   </Button>
                   <Button
                     onClick={handleFormSubmit}
-                    className="bg-gradient-to-r from-[hsl(173,80%,40%)] to-[hsl(270,75%,60%)] text-white hover:opacity-90"
+                    className="gradient-primary text-white hover:opacity-90"
                   >
                     <Rocket className="h-4 w-4 mr-2" />
                     {activeFormUseCase.inputForm.submitLabel || "Submit"}

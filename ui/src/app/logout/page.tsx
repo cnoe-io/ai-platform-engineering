@@ -46,9 +46,9 @@ export default function LogoutPage() {
   return (
     <div className="min-h-screen flex bg-background relative overflow-hidden">
       {/* Full-page background gradients that span both panels */}
-      <div className="absolute inset-0 bg-gradient-to-br from-[hsl(173,80%,40%)]/8 via-transparent to-[hsl(270,75%,60%)]/8" />
-      <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_30%_50%,_var(--tw-gradient-stops))] from-[hsl(173,80%,40%)]/10 via-transparent to-transparent" />
-      <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_70%_50%,_var(--tw-gradient-stops))] from-[hsl(270,75%,60%)]/8 via-transparent to-transparent" />
+      <div className="absolute inset-0 bg-gradient-to-br from-primary/8 via-transparent to-primary/8" />
+      <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_30%_50%,_var(--tw-gradient-stops))] from-primary/10 via-transparent to-transparent" />
+      <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_70%_50%,_var(--tw-gradient-stops))] from-primary/8 via-transparent to-transparent" />
 
       {/* Left Panel - Integration Animation */}
       <div className="hidden lg:flex lg:w-1/2 relative items-center justify-center">
@@ -81,7 +81,7 @@ export default function LogoutPage() {
           <div className="bg-card border border-border rounded-2xl shadow-2xl overflow-hidden">
           {/* Header */}
           <div className="p-8 text-center border-b border-border bg-muted/30">
-            <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-gradient-to-br from-[hsl(173,80%,40%)] via-[hsl(270,75%,60%)] to-[hsl(330,80%,55%)] flex items-center justify-center">
+            <div className="w-16 h-16 mx-auto mb-4 rounded-2xl gradient-primary-br flex items-center justify-center">
               <img src="/logo.svg" alt="CAIPE" className="h-10 w-10" />
             </div>
             <h1 className="text-2xl font-bold gradient-text">CAIPE</h1>
@@ -121,7 +121,7 @@ export default function LogoutPage() {
                 <div className="space-y-3">
                   <Button
                     onClick={handleBackToLogin}
-                    className="w-full h-11 gap-2 bg-gradient-to-r from-[hsl(173,80%,40%)] to-[hsl(270,75%,60%)] hover:opacity-90 transition-opacity"
+                    className="w-full h-11 gap-2 gradient-primary text-white hover:opacity-90 transition-opacity"
                   >
                     <LogOut className="h-4 w-4" />
                     Sign In Again
