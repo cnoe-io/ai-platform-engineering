@@ -902,7 +902,7 @@ function ChatMessage({
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0 }}
       className={cn(
-        "flex gap-3 group",
+        "flex gap-3 group px-3",
         isUser ? "flex-row-reverse" : "flex-row"
       )}
       onMouseEnter={() => setIsHovered(true)}
