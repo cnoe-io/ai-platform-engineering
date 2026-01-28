@@ -8,6 +8,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
+import TextareaAutosize from "react-textarea-autosize";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -17,7 +18,8 @@ import { cn } from "@/lib/utils";
 import { ChatMessage as ChatMessageType } from "@/types/a2a";
 import { getConfig } from "@/lib/config";
 import { FeedbackButton, Feedback } from "./FeedbackButton";
-import { InlineAgentSelector, DEFAULT_AGENTS, CustomCall } from "./CustomCallButtons";
+import { DEFAULT_AGENTS, CustomCall } from "./CustomCallButtons";
+import { AGENT_LOGOS } from "@/components/shared/AgentLogos";
 import { SubAgentCard, groupEventsByAgent, getAgentDisplayOrder, isRealSubAgent } from "./SubAgentCard";
 import { AgentStreamBox } from "./AgentStreamBox";
 
@@ -29,8 +31,10 @@ export function ChatPanel({ endpoint }: ChatPanelProps) {
   const { data: session } = useSession();
   const [input, setInput] = useState("");
   const [copiedId, setCopiedId] = useState<string | null>(null);
-  const [selectedAgentPrompt, setSelectedAgentPrompt] = useState<string | null>(null);
   const [queuedMessages, setQueuedMessages] = useState<string[]>([]);
+  const [showMentionMenu, setShowMentionMenu] = useState(false);
+  const [mentionFilter, setMentionFilter] = useState("");
+  const [mentionPosition, setMentionPosition] = useState({ top: 0, left: 0 });
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const scrollViewportRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -73,10 +77,12 @@ export function ChatPanel({ endpoint }: ChatPanelProps) {
     const viewport = scrollViewportRef.current;
     if (!viewport) return true;
 
-    const threshold = 100; // pixels from bottom
+    // During streaming, use a much larger threshold to prevent false positives
+    // when content updates faster than scroll can complete
+    const threshold = isThisConversationStreaming ? 300 : 100; // pixels from bottom
     const { scrollTop, scrollHeight, clientHeight } = viewport;
     return scrollHeight - scrollTop - clientHeight < threshold;
-  }, []);
+  }, [isThisConversationStreaming]);
 
   // Scroll to bottom with smooth animation
   const scrollToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
@@ -97,10 +103,19 @@ export function ChatPanel({ endpoint }: ChatPanelProps) {
     // Ignore scroll events caused by auto-scrolling
     if (isAutoScrollingRef.current) return;
 
+    // COMPLETELY DISABLE scroll button during streaming to prevent false positives
+    // from content updating faster than scroll can complete
+    if (isThisConversationStreaming) {
+      // Don't show scroll button at all during streaming
+      setShowScrollButton(false);
+      return;
+    }
+
+    // Normal behavior when not streaming
     const nearBottom = isNearBottom();
     setIsUserScrolledUp(!nearBottom);
     setShowScrollButton(!nearBottom);
-  }, [isNearBottom]);
+  }, [isNearBottom, isThisConversationStreaming]);
 
   // Set up scroll listener
   useEffect(() => {
@@ -118,13 +133,17 @@ export function ChatPanel({ endpoint }: ChatPanelProps) {
     }
   }, [conversation?.messages?.length, isUserScrolledUp, scrollToBottom]);
 
-  // Auto-scroll during streaming when content updates (only if user hasn't scrolled up)
+  // Hide scroll button and auto-scroll during streaming
   useEffect(() => {
-    if (isThisConversationStreaming && !isUserScrolledUp) {
-      // Use instant scroll during streaming for smoother experience
+    if (isThisConversationStreaming) {
+      // Hide scroll button immediately when streaming starts
+      setShowScrollButton(false);
+      setIsUserScrolledUp(false);
+      // Always auto-scroll during streaming (no user control to prevent button flashing)
+      // Use instant scroll for smoother experience
       scrollToBottom("instant");
     }
-  }, [conversation?.messages?.at(-1)?.content, isThisConversationStreaming, isUserScrolledUp, scrollToBottom]);
+  }, [conversation?.messages?.at(-1)?.content, isThisConversationStreaming, scrollToBottom]);
 
   // Reset scroll state when conversation changes
   useEffect(() => {
@@ -349,16 +368,12 @@ export function ChatPanel({ endpoint }: ChatPanelProps) {
 
     // If streaming and not force sending, queue the message (up to 3)
     if (isThisConversationStreaming && !forceSend) {
-      const baseMessage = input.trim();
-      const message = selectedAgentPrompt
-        ? `${selectedAgentPrompt} ${baseMessage}`
-        : baseMessage;
+      const message = input.trim();
       
       // Add to queue if under limit
       if (queuedMessages.length < 3) {
         setQueuedMessages(prev => [...prev, message]);
         setInput("");
-        setSelectedAgentPrompt(null);
       } else {
         // Queue is full - show feedback or prevent action
         console.log("Queue is full (3/3). Send or cancel messages to queue more.");
@@ -375,17 +390,13 @@ export function ChatPanel({ endpoint }: ChatPanelProps) {
       await new Promise(resolve => setTimeout(resolve, 100));
     }
 
-    // Prepend agent prompt if selected
-    const baseMessage = input.trim();
-    const message = selectedAgentPrompt
-      ? `${selectedAgentPrompt} ${baseMessage}`
-      : baseMessage;
+    // Send message as-is (users can use @agent syntax naturally)
+    const message = input.trim();
 
     setInput("");
-    setSelectedAgentPrompt(null); // Clear after sending
 
     await submitMessage(message);
-  }, [input, selectedAgentPrompt, submitMessage, isThisConversationStreaming, queuedMessages]);
+  }, [input, submitMessage, isThisConversationStreaming, queuedMessages]);
 
   // Auto-submit pending message from use case selection
   useEffect(() => {
@@ -401,7 +412,70 @@ export function ChatPanel({ endpoint }: ChatPanelProps) {
     }
   };
 
+  // Handle @mention detection
+  const handleInputChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const newValue = e.target.value;
+    setInput(newValue);
+
+    // Check for @ mention trigger
+    const cursorPos = e.target.selectionStart;
+    const textBeforeCursor = newValue.slice(0, cursorPos);
+    const lastAtSymbol = textBeforeCursor.lastIndexOf('@');
+    
+    if (lastAtSymbol !== -1) {
+      // Check if @ is at start of word (preceded by space or at beginning)
+      const charBeforeAt = lastAtSymbol > 0 ? textBeforeCursor[lastAtSymbol - 1] : ' ';
+      const isAtWordStart = charBeforeAt === ' ' || charBeforeAt === '\n';
+      
+      if (isAtWordStart) {
+        const textAfterAt = textBeforeCursor.slice(lastAtSymbol + 1);
+        // Only show if no space after @ (still typing the mention)
+        if (!textAfterAt.includes(' ') && !textAfterAt.includes('\n')) {
+          setMentionFilter(textAfterAt.toLowerCase());
+          setShowMentionMenu(true);
+          return;
+        }
+      }
+    }
+    
+    setShowMentionMenu(false);
+  }, []);
+
+  // Handle mention selection
+  const handleMentionSelect = useCallback((agent: CustomCall) => {
+    if (!inputRef.current) return;
+    
+    const cursorPos = inputRef.current.selectionStart;
+    const textBeforeCursor = input.slice(0, cursorPos);
+    const lastAtSymbol = textBeforeCursor.lastIndexOf('@');
+    
+    if (lastAtSymbol !== -1) {
+      const textBeforeAt = input.slice(0, lastAtSymbol);
+      const textAfterCursor = input.slice(cursorPos);
+      const newText = textBeforeAt + agent.prompt + ' ' + textAfterCursor;
+      
+      setInput(newText);
+      setShowMentionMenu(false);
+      
+      // Set cursor position after the mention
+      setTimeout(() => {
+        if (inputRef.current) {
+          const newCursorPos = textBeforeAt.length + agent.prompt.length + 1;
+          inputRef.current.selectionStart = newCursorPos;
+          inputRef.current.selectionEnd = newCursorPos;
+          inputRef.current.focus();
+        }
+      }, 0);
+    }
+  }, [input]);
+
   const handleKeyDown = (e: React.KeyboardEvent) => {
+    // Close mention menu on Escape
+    if (e.key === "Escape" && showMentionMenu) {
+      setShowMentionMenu(false);
+      return;
+    }
+    
     // Force send: Cmd/Ctrl + Enter
     if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
       e.preventDefault();
@@ -409,7 +483,8 @@ export function ChatPanel({ endpoint }: ChatPanelProps) {
       return;
     }
     // Normal send: Enter (only if not streaming, otherwise queue)
-    if (e.key === "Enter" && !e.shiftKey) {
+    // Don't send if mention menu is open
+    if (e.key === "Enter" && !e.shiftKey && !showMentionMenu) {
       e.preventDefault();
       handleSubmit(false);
     }
@@ -550,65 +625,90 @@ export function ChatPanel({ endpoint }: ChatPanelProps) {
             </div>
           )}
 
-          <div className="relative flex items-center gap-3 bg-card rounded-xl border border-border p-3">
-            {/* Agent Selector */}
-            <div className="border-r border-border pr-2">
-              <InlineAgentSelector
-                value={selectedAgentPrompt}
-                onChange={setSelectedAgentPrompt}
+          <div className="relative">
+            {/* @mention autocomplete menu */}
+            <AnimatePresence>
+              {showMentionMenu && (
+                <motion.div
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: 8 }}
+                  className="absolute bottom-full left-0 right-0 mb-2 bg-card border border-border rounded-xl shadow-lg overflow-hidden z-50"
+                >
+                  <div className="p-2 border-b border-border">
+                    <p className="text-xs text-muted-foreground font-medium">Select an agent:</p>
+                  </div>
+                  <div className="max-h-64 overflow-y-auto">
+                    {DEFAULT_AGENTS
+                      .filter(agent => 
+                        agent.label.toLowerCase().includes(mentionFilter) ||
+                        agent.id.toLowerCase().includes(mentionFilter)
+                      )
+                      .map((agent) => {
+                        const agentLogo = AGENT_LOGOS[agent.id];
+                        return (
+                          <button
+                            key={agent.id}
+                            onClick={() => handleMentionSelect(agent)}
+                            className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-muted/80 transition-colors text-left"
+                          >
+                            <div className="w-8 h-8 rounded-lg overflow-hidden flex items-center justify-center bg-white dark:bg-gray-200 p-1 shrink-0">
+                              {agentLogo?.icon || <span className="text-sm font-bold">{agent.label.charAt(0)}</span>}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-medium text-foreground">{agent.label}</p>
+                              <p className="text-xs text-muted-foreground">{agent.prompt}</p>
+                            </div>
+                          </button>
+                        );
+                      })}
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            <div className="relative flex items-center gap-3 bg-card rounded-xl border border-border p-3 transition-all duration-200">
+              <TextareaAutosize
+                ref={inputRef}
+                value={input}
+                onChange={handleInputChange}
+                onKeyDown={handleKeyDown}
+                placeholder={
+                  isThisConversationStreaming
+                    ? queuedMessages.length >= 3
+                      ? "Queue full (3/3). Send or cancel messages to queue more, or Cmd+Enter to force send..."
+                      : `Type to queue message (${queuedMessages.length}/3), or Cmd+Enter to force send...`
+                    : "Ask CAIPE anything or type @ to mention an agent..."
+                }
+                className="flex-1 bg-transparent resize-none outline-none px-3 py-2.5 text-sm"
+                minRows={1}
+                maxRows={10}
               />
-            </div>
-
-            <textarea
-              ref={inputRef}
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder={selectedAgentPrompt
-                ? `Ask ${DEFAULT_AGENTS.find(a => a.prompt === selectedAgentPrompt)?.label || 'agent'}...`
-                : isThisConversationStreaming
-                  ? queuedMessages.length >= 3
-                    ? "Queue full (3/3). Send or cancel messages to queue more, or Cmd+Enter to force send..."
-                    : `Type to queue message (${queuedMessages.length}/3), or Cmd+Enter to force send...`
-                  : "Ask CAIPE anything..."
-              }
-              className="flex-1 bg-transparent resize-none outline-none min-h-[52px] max-h-[200px] px-3 py-2.5 text-sm"
-              rows={1}
-            />
-            {/* Send button - always visible, shows force send when streaming */}
-            <Button
-              size="icon"
-              onClick={() => handleSubmit(isThisConversationStreaming)}
-              disabled={!input.trim()}
-              variant={isThisConversationStreaming ? "outline" : "default"}
-              className="shrink-0"
-              title={
-                isThisConversationStreaming
-                  ? queuedMessages.length >= 3
-                    ? "Queue full (3/3). Force send (Cmd+Enter) to stop and send immediately"
-                    : `Force send (Cmd+Enter) - ${queuedMessages.length}/3 queued`
-                  : "Send message"
-              }
-            >
-              <Send className="h-4 w-4" />
-            </Button>
-          </div>
-
-          {/* Selected agent indicator */}
-          {selectedAgentPrompt && (
-            <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              <span>Targeting:</span>
-              <span className="px-2 py-0.5 rounded-md bg-primary/10 text-primary font-medium">
-                {DEFAULT_AGENTS.find(a => a.prompt === selectedAgentPrompt)?.label || selectedAgentPrompt}
-              </span>
-              <button
-                onClick={() => setSelectedAgentPrompt(null)}
-                className="text-muted-foreground hover:text-foreground"
+            {/* Send/Stop button - toggles based on streaming state */}
+            {isThisConversationStreaming ? (
+              <Button
+                size="icon"
+                onClick={handleStop}
+                variant="destructive"
+                className="shrink-0"
+                title="Stop generating"
               >
-                ×
-              </button>
+                <Square className="h-4 w-4" />
+              </Button>
+            ) : (
+              <Button
+                size="icon"
+                onClick={() => handleSubmit(false)}
+                disabled={!input.trim()}
+                variant="default"
+                className="shrink-0"
+                title="Send message"
+              >
+                <Send className="h-4 w-4" />
+              </Button>
+            )}
             </div>
-          )}
+          </div>
 
           <p className="text-xs text-muted-foreground text-center">
             CAIPE can make mistakes. Verify important information.
@@ -902,7 +1002,7 @@ function ChatMessage({
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0 }}
       className={cn(
-        "flex gap-3 group",
+        "flex gap-3 group px-3",
         isUser ? "flex-row-reverse" : "flex-row"
       )}
       onMouseEnter={() => setIsHovered(true)}
@@ -914,7 +1014,7 @@ function ChatMessage({
           "w-9 h-9 rounded-xl flex items-center justify-center shrink-0 shadow-sm",
           isUser
             ? "bg-primary"
-            : "bg-gradient-to-br from-[hsl(270,75%,60%)] to-[hsl(330,80%,55%)]",
+            : "gradient-primary-br",
           isStreaming && "animate-pulse"
         )}
       >
@@ -945,27 +1045,6 @@ function ChatMessage({
             <>
               <span className="text-xs font-medium">CAIPE</span>
               <div className="flex items-center gap-2">
-                {/* Stop button - shown when streaming */}
-                {isStreaming && onStop && (
-                  <TooltipProvider>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <Button
-                          variant="destructive"
-                          size="sm"
-                          onClick={onStop}
-                          className="h-6 px-2 text-xs"
-                        >
-                          <Square className="h-3 w-3 mr-1" />
-                          Stop
-                        </Button>
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        Stop generating response
-                      </TooltipContent>
-                    </Tooltip>
-                  </TooltipProvider>
-                )}
                 {/* Collapse button - shown when not streaming and content is long */}
                 {!isStreaming && displayContent && displayContent.length > 300 && (
                   <button
@@ -1015,62 +1094,8 @@ function ChatMessage({
               )}
             >
               {isUser ? (
-                <div className="relative">
+                <div>
                   <p className="whitespace-pre-wrap text-sm selection:bg-white/30 selection:text-white">{message.content}</p>
-                  {/* Action buttons for user messages - shows on hover */}
-                  <AnimatePresence>
-                    {isHovered && (
-                      <motion.div
-                        initial={{ opacity: 0, scale: 0.9 }}
-                        animate={{ opacity: 1, scale: 1 }}
-                        exit={{ opacity: 0, scale: 0.9 }}
-                        className="absolute -left-2 top-1/2 -translate-y-1/2 -translate-x-full flex gap-1"
-                      >
-                        {/* Retry button */}
-                        {onRetry && (
-                          <TooltipProvider>
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  className="h-7 w-7 bg-card/80 border border-border/50 shadow-sm hover:bg-card"
-                                  onClick={() => onRetry()}
-                                >
-                                  <RotateCcw className="h-3 w-3 text-muted-foreground" />
-                                </Button>
-                              </TooltipTrigger>
-                              <TooltipContent side="left">
-                                Retry this prompt
-                              </TooltipContent>
-                            </Tooltip>
-                          </TooltipProvider>
-                        )}
-                        {/* Copy button */}
-                        <TooltipProvider>
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className="h-7 w-7 bg-card/80 border border-border/50 shadow-sm hover:bg-card"
-                                onClick={() => onCopy(message.content, message.id)}
-                              >
-                                {isCopied ? (
-                                  <Check className="h-3 w-3 text-green-500" />
-                                ) : (
-                                  <Copy className="h-3 w-3 text-muted-foreground" />
-                                )}
-                              </Button>
-                            </TooltipTrigger>
-                            <TooltipContent side="left">
-                              {isCopied ? "Copied!" : "Copy message"}
-                            </TooltipContent>
-                          </Tooltip>
-                        </TooltipProvider>
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
                 </div>
               ) : (
                 <div className="prose-container">
@@ -1258,34 +1283,66 @@ function ChatMessage({
               )}
             </div>
 
-            {/* Actions */}
+            {/* Actions for user messages */}
+            {isUser && (
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: isHovered ? 1 : 0.6 }}
+                className="flex items-center gap-2 mt-2 justify-end"
+              >
+                {/* Retry button */}
+                {onRetry && (
+                  <TooltipProvider>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7 text-primary-foreground/70 hover:text-primary-foreground hover:bg-primary/20"
+                          onClick={onRetry}
+                        >
+                          <RotateCcw className="h-3.5 w-3.5" />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        Retry this prompt
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                )}
+
+                {/* Copy button */}
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7 text-primary-foreground/70 hover:text-primary-foreground hover:bg-primary/20"
+                        onClick={() => onCopy(message.content, message.id)}
+                      >
+                        {isCopied ? (
+                          <Check className="h-3.5 w-3.5 text-green-400" />
+                        ) : (
+                          <Copy className="h-3.5 w-3.5" />
+                        )}
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      {isCopied ? "Copied!" : "Copy message"}
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              </motion.div>
+            )}
+
+            {/* Actions for assistant messages */}
             {!isUser && displayContent && (
               <motion.div
                 initial={{ opacity: 0 }}
                 animate={{ opacity: isHovered ? 1 : 0.6 }}
                 className="flex items-center gap-2 mt-2"
               >
-                {/* Stop button - shown when streaming */}
-                {isStreaming && onStop && (
-                  <TooltipProvider>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <Button
-                          variant="destructive"
-                          size="sm"
-                          onClick={onStop}
-                          className="h-7 px-2 text-xs"
-                        >
-                          <Square className="h-3 w-3 mr-1" />
-                          Stop
-                        </Button>
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        Stop generating response
-                      </TooltipContent>
-                    </Tooltip>
-                  </TooltipProvider>
-                )}
                 {/* Collapse button - bottom right */}
                 {!isStreaming && displayContent && displayContent.length > 300 && (
                   <TooltipProvider>

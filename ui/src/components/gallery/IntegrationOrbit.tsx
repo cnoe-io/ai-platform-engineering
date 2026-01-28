@@ -244,9 +244,9 @@ export function IntegrationOrbit() {
       <svg className="absolute inset-0 w-full h-full" style={{ zIndex: 0 }}>
         <defs>
           <linearGradient id="lineGradient" x1="0%" y1="0%" x2="100%" y2="0%">
-            <stop offset="0%" stopColor="hsl(173,80%,40%)" stopOpacity="0.3" />
-            <stop offset="50%" stopColor="hsl(270,75%,60%)" stopOpacity="0.5" />
-            <stop offset="100%" stopColor="hsl(330,80%,55%)" stopOpacity="0.3" />
+            <stop offset="0%" style={{ stopColor: 'var(--gradient-from)', stopOpacity: 0.3 }} />
+            <stop offset="50%" style={{ stopColor: 'var(--gradient-to)', stopOpacity: 0.5 }} />
+            <stop offset="100%" style={{ stopColor: 'var(--gradient-from)', stopOpacity: 0.3 }} />
           </linearGradient>
         </defs>
         {/* Animated orbit rings */}
@@ -278,7 +278,7 @@ export function IntegrationOrbit() {
 
       {/* Center CAIPE Logo */}
       <motion.div
-        className="absolute z-20 w-24 h-24 rounded-2xl bg-gradient-to-br from-[hsl(173,80%,40%)] via-[hsl(270,75%,60%)] to-[hsl(330,80%,55%)] flex items-center justify-center shadow-2xl shadow-primary/50"
+        className="absolute z-20 w-24 h-24 rounded-2xl gradient-primary-br flex items-center justify-center shadow-2xl shadow-primary/50"
         animate={{
           scale: [1, 1.05, 1],
           boxShadow: [

@@ -187,7 +187,7 @@ export function TechStackButton({ variant = "floating" }: TechStackButtonProps) 
             {/* Header */}
             <div className="flex items-center justify-between p-3 border-b border-border bg-muted/30">
               <div className="flex items-center gap-2">
-                <div className="p-1.5 rounded-lg bg-gradient-to-br from-[hsl(173,80%,40%)] to-[hsl(270,75%,60%)]">
+                <div className="p-1.5 rounded-lg gradient-primary-br">
                   <Layers className="h-4 w-4 text-white" />
                 </div>
                 <div>
@@ -289,7 +289,7 @@ export function TechStackButton({ variant = "floating" }: TechStackButtonProps) 
         whileTap={{ scale: 0.98 }}
       >
         <span className={cn(
-          "rounded-full bg-gradient-to-r from-[hsl(173,80%,40%)] to-[hsl(270,75%,60%)]",
+          "rounded-full gradient-primary",
           isCompact ? "w-1.5 h-1.5" : "w-2 h-2"
         )} />
         <span className="text-xs font-medium">{isCompact ? "Tech" : "Powered By"}</span>
