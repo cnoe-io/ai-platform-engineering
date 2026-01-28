@@ -124,6 +124,8 @@ class MongoDBManager:
         Indexes:
         - users: email (unique), created_at
         - conversations: created_by, created_at, updated_at, shared_with.user_id, visibility
+        - audit_logs: timestamp, actor.user_id, resource.id, action
+        - notifications: recipient_id, status, created_at
         """
         if not self.db:
             raise RuntimeError("Database not connected")
@@ -142,6 +144,21 @@ class MongoDBManager:
             await conversations.create_index([("shared_with.user_id", ASCENDING)])
             await conversations.create_index([("visibility", ASCENDING)])
             await conversations.create_index([("tags", ASCENDING)])
+            
+            # Audit logs collection indexes
+            audit_logs = self.db.audit_logs
+            await audit_logs.create_index([("timestamp", DESCENDING)])
+            await audit_logs.create_index([("actor.user_id", ASCENDING)])
+            await audit_logs.create_index([("resource.id", ASCENDING)])
+            await audit_logs.create_index([("action", ASCENDING)])
+            await audit_logs.create_index([("action_type", ASCENDING)])
+            
+            # Notifications collection indexes
+            notifications = self.db.notifications
+            await audit_logs.create_index([("recipient_id", ASCENDING)])
+            await notifications.create_index([("status", ASCENDING)])
+            await notifications.create_index([("created_at", DESCENDING)])
+            await notifications.create_index([("recipient_id", ASCENDING), ("status", ASCENDING)])
             
             logger.info("MongoDB indexes created successfully")
             
