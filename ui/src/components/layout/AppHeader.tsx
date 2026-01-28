@@ -29,7 +29,7 @@ export function AppHeader() {
   const { isStreaming } = useChatStore();
 
   // Health check for CAIPE supervisor (polls every 30 seconds)
-  const { status: healthStatus, url: healthUrl, secondsUntilNextCheck } = useCAIPEHealth();
+  const { status: healthStatus, url: healthUrl, secondsUntilNextCheck, agents } = useCAIPEHealth();
 
   const getActiveTab = () => {
     if (pathname?.startsWith("/chat")) return "chat";
@@ -127,11 +127,35 @@ export function AppHeader() {
                   {healthStatus === "connected" ? "Connected" : healthStatus === "checking" ? "Checking" : "Disconnected"}
                 </div>
               </TooltipTrigger>
-              <TooltipContent side="bottom" className="max-w-sm p-4">
-                <div className="space-y-2">
-                  <div className="text-base font-semibold text-foreground">CAIPE Supervisor</div>
-                  <div className="text-sm text-foreground/80 break-all font-mono">{healthUrl}</div>
-                  <div className="text-sm text-foreground/70 flex items-center gap-2">
+              <TooltipContent side="bottom" className="max-w-md p-4">
+                <div className="space-y-3">
+                  <div>
+                    <div className="text-base font-semibold text-foreground">CAIPE Supervisor</div>
+                    <div className="text-sm text-foreground/80 break-all font-mono">{healthUrl}</div>
+                  </div>
+                  
+                  {agents.length > 0 && (
+                    <div>
+                      <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">
+                        Connected Agents ({agents.length})
+                      </div>
+                      <div className="space-y-1">
+                        {agents.map((agent, idx) => (
+                          <div key={idx} className="flex items-start gap-2 text-xs">
+                            <span className="inline-block w-1.5 h-1.5 rounded-full bg-green-400 mt-1 shrink-0" />
+                            <div className="min-w-0">
+                              <div className="font-medium text-foreground">{agent.name}</div>
+                              {agent.description && (
+                                <div className="text-muted-foreground text-xs line-clamp-1">{agent.description}</div>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  
+                  <div className="text-sm text-foreground/70 flex items-center gap-2 pt-1 border-t border-border/50">
                     <span className="inline-block w-2 h-2 rounded-full bg-green-400 animate-pulse" />
                     Next check in {secondsUntilNextCheck}s
                   </div>
@@ -147,10 +171,10 @@ export function AppHeader() {
           <ThemeToggle />
           <Button variant="ghost" size="icon" className="h-8 w-8" asChild>
             <a
-              href="https://caipe.io"
+              href="https://cnoe-io.github.io/ai-platform-engineering/ui/"
               target="_blank"
               rel="noopener noreferrer"
-              title="caipe.io"
+              title="Documentation"
             >
               <BookOpen className="h-4 w-4" />
             </a>

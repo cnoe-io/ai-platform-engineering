@@ -61,7 +61,7 @@ const categoryColors: Record<TechItem["category"], string> = {
 export function UserMenu() {
   const { data: session, status } = useSession();
   const [open, setOpen] = useState(false);
-  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [tokenOpen, setTokenOpen] = useState(false);
   const [aboutOpen, setAboutOpen] = useState(false);
   const [ssoEnabled, setSsoEnabled] = useState<boolean | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -223,110 +223,24 @@ export function UserMenu() {
               </div>
             </div>
 
-            {/* OIDC Token Info Toggle */}
+            {/* OIDC Token Section */}
             <div className="border-b border-border">
               <button
-                onClick={() => setShowAdvanced(!showAdvanced)}
+                onClick={() => {
+                  setTokenOpen(true);
+                  setOpen(false);
+                }}
                 className="w-full flex items-center justify-between px-4 py-2 text-xs font-medium hover:bg-muted/50 transition-colors"
               >
                 <div className="flex items-center gap-2">
                   <Code className="h-3.5 w-3.5" />
                   <span>OIDC Token</span>
                 </div>
-                <ChevronRight className={cn(
-                  "h-3.5 w-3.5 transition-transform",
-                  showAdvanced && "rotate-90"
-                )} />
+                <ChevronRight className="h-3.5 w-3.5" />
               </button>
-
-              <AnimatePresence>
-                {showAdvanced && (
-                  <motion.div
-                    initial={{ height: 0, opacity: 0 }}
-                    animate={{ height: "auto", opacity: 1 }}
-                    exit={{ height: 0, opacity: 0 }}
-                    transition={{ duration: 0.2 }}
-                    className="overflow-hidden"
-                  >
-                    <div className="p-3 bg-muted/30 space-y-3">
-                      {/* MemberOf Groups */}
-                      {session?.groups && session.groups.length > 0 && (
-                        <div>
-                          <div className="mb-2">
-                            <div className="flex items-center gap-2 mb-0.5">
-                              <Users className="h-3.5 w-3.5 text-muted-foreground" />
-                              <span className="text-xs font-semibold">Group Memberships</span>
-                              <span className="text-[10px] text-muted-foreground/70">
-                                ({session.groups.length})
-                              </span>
-                            </div>
-                            <p className="text-[10px] text-muted-foreground/70 ml-5">
-                              OIDC groups from memberOf claim
-                            </p>
-                          </div>
-                          <div className="bg-card rounded-md p-2 border border-border">
-                            <div className="space-y-1 max-h-32 overflow-y-auto">
-                              {session.groups.map((group, index) => (
-                                <div
-                                  key={index}
-                                  className="text-xs font-mono text-muted-foreground break-all"
-                                  title={group}
-                                >
-                                  • {group}
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-                        </div>
-                      )}
-
-                      {/* Decoded JWT Token */}
-                      {decodedToken && (
-                        <div>
-                          <div className="flex items-center gap-2 mb-2">
-                            <Code className="h-3.5 w-3.5 text-muted-foreground" />
-                            <span className="text-xs font-semibold">JWT Claims (ID Token)</span>
-                          </div>
-                          <div className="bg-card rounded-md p-2 border border-border">
-                            <pre className="text-[10px] font-mono text-muted-foreground whitespace-pre-wrap break-all max-h-48 overflow-y-auto">
-                              {JSON.stringify(decodedToken, null, 2)}
-                            </pre>
-                          </div>
-                        </div>
-                      )}
-
-                      {/* Copy Tokens */}
-                      <div className="flex gap-2 pt-2">
-                        {session?.accessToken && (
-                          <button
-                            onClick={() => {
-                              navigator.clipboard.writeText(session.accessToken || '');
-                            }}
-                            className="flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 text-[10px] rounded-md bg-card hover:bg-muted border border-border transition-colors"
-                          >
-                            <Code className="h-3 w-3" />
-                            Copy Access Token
-                          </button>
-                        )}
-                        {session?.idToken && (
-                          <button
-                            onClick={() => {
-                              navigator.clipboard.writeText(session.idToken || '');
-                            }}
-                            className="flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 text-[10px] rounded-md bg-card hover:bg-muted border border-border transition-colors"
-                          >
-                            <Code className="h-3 w-3" />
-                            Copy ID Token
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  </motion.div>
-                )}
-              </AnimatePresence>
             </div>
 
-            {/* About Section */}
+            {/* Built with Section */}
             <div className="border-b border-border">
               <button
                 onClick={() => {
@@ -337,7 +251,7 @@ export function UserMenu() {
               >
                 <div className="flex items-center gap-2">
                   <Layers className="h-3.5 w-3.5" />
-                  <span>About</span>
+                  <span>Built with</span>
                 </div>
                 <ChevronRight className="h-3.5 w-3.5" />
               </button>
@@ -360,7 +274,100 @@ export function UserMenu() {
         )}
       </AnimatePresence>
 
-      {/* About Dialog */}
+      {/* OIDC Token Dialog */}
+      <Dialog open={tokenOpen} onOpenChange={setTokenOpen}>
+        <DialogContent className="max-w-2xl max-h-[80vh] p-0">
+          <DialogHeader className="p-6 pb-4 border-b border-border">
+            <div className="flex items-center gap-3">
+              <div className="p-2 rounded-xl gradient-primary-br">
+                <Code className="h-5 w-5 text-white" />
+              </div>
+              <div>
+                <DialogTitle>OIDC Token Information</DialogTitle>
+                <DialogDescription>
+                  View authentication tokens and group memberships
+                </DialogDescription>
+              </div>
+            </div>
+          </DialogHeader>
+          
+          <div className="p-6 overflow-y-auto max-h-[60vh] space-y-6">
+            {/* MemberOf Groups */}
+            {session?.groups && session.groups.length > 0 && (
+              <div>
+                <div className="mb-3">
+                  <div className="flex items-center gap-2 mb-1">
+                    <Users className="h-4 w-4 text-muted-foreground" />
+                    <span className="text-sm font-semibold">Group Memberships</span>
+                    <span className="text-xs text-muted-foreground/70">
+                      ({session.groups.length})
+                    </span>
+                  </div>
+                  <p className="text-xs text-muted-foreground/70 ml-6">
+                    OIDC groups from memberOf claim
+                  </p>
+                </div>
+                <div className="bg-muted/30 rounded-lg p-4 border border-border">
+                  <div className="space-y-2 max-h-48 overflow-y-auto">
+                    {session.groups.map((group, index) => (
+                      <div
+                        key={index}
+                        className="text-sm font-mono text-foreground/80 break-all"
+                        title={group}
+                      >
+                        • {group}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Decoded JWT Token */}
+            {decodedToken && (
+              <div>
+                <div className="flex items-center gap-2 mb-3">
+                  <Code className="h-4 w-4 text-muted-foreground" />
+                  <span className="text-sm font-semibold">JWT Claims (ID Token)</span>
+                </div>
+                <div className="bg-muted/30 rounded-lg p-4 border border-border">
+                  <pre className="text-xs font-mono text-foreground/80 whitespace-pre-wrap break-all max-h-96 overflow-y-auto">
+                    {JSON.stringify(decodedToken, null, 2)}
+                  </pre>
+                </div>
+              </div>
+            )}
+
+            {/* Copy Tokens */}
+            <div className="flex gap-3">
+              {session?.accessToken && (
+                <button
+                  onClick={() => {
+                    navigator.clipboard.writeText(session.accessToken || '');
+                  }}
+                  className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 text-sm rounded-lg gradient-primary-br text-white hover:opacity-90 transition-opacity"
+                >
+                  <Code className="h-4 w-4" />
+                  Copy Access Token
+                </button>
+              )}
+              {session?.idToken && (
+                <button
+                  onClick={() => {
+                    navigator.clipboard.writeText(session.idToken || '');
+                  }}
+                  className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 text-sm rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
+                >
+                  <Code className="h-4 w-4" />
+                  Copy ID Token
+                </button>
+              )}
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Built with Dialog */}
       <Dialog open={aboutOpen} onOpenChange={setAboutOpen}>
         <DialogContent className="max-w-2xl max-h-[80vh] p-0">
           <DialogHeader className="p-6 pb-4 border-b border-border">
@@ -369,7 +376,7 @@ export function UserMenu() {
                 <Layers className="h-5 w-5 text-white" />
               </div>
               <div>
-                <DialogTitle>About CAIPE</DialogTitle>
+                <DialogTitle>Built with</DialogTitle>
                 <DialogDescription>
                   Technology Stack - Powered by open standards
                 </DialogDescription>
