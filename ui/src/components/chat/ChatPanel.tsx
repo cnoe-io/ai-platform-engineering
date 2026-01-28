@@ -185,7 +185,7 @@ export function ChatPanel({ endpoint }: ChatPanelProps) {
     const client = new A2ASDKClient({
       endpoint,
       accessToken,
-      userEmail: session?.user?.email,
+      userEmail: session?.user?.email ?? undefined,
     });
 
     // ═══════════════════════════════════════════════════════════════
