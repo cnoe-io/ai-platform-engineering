@@ -1017,62 +1017,8 @@ function ChatMessage({
               )}
             >
               {isUser ? (
-                <div className="relative">
+                <div>
                   <p className="whitespace-pre-wrap text-sm selection:bg-white/30 selection:text-white">{message.content}</p>
-                  {/* Action buttons for user messages - shows on hover */}
-                  <AnimatePresence>
-                    {isHovered && (
-                      <motion.div
-                        initial={{ opacity: 0, scale: 0.9 }}
-                        animate={{ opacity: 1, scale: 1 }}
-                        exit={{ opacity: 0, scale: 0.9 }}
-                        className="absolute -left-2 top-1/2 -translate-y-1/2 -translate-x-full flex gap-1"
-                      >
-                        {/* Retry button */}
-                        {onRetry && (
-                          <TooltipProvider>
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  className="h-7 w-7 bg-card/80 border border-border/50 shadow-sm hover:bg-card"
-                                  onClick={() => onRetry()}
-                                >
-                                  <RotateCcw className="h-3 w-3 text-muted-foreground" />
-                                </Button>
-                              </TooltipTrigger>
-                              <TooltipContent side="left">
-                                Retry this prompt
-                              </TooltipContent>
-                            </Tooltip>
-                          </TooltipProvider>
-                        )}
-                        {/* Copy button */}
-                        <TooltipProvider>
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className="h-7 w-7 bg-card/80 border border-border/50 shadow-sm hover:bg-card"
-                                onClick={() => onCopy(message.content, message.id)}
-                              >
-                                {isCopied ? (
-                                  <Check className="h-3 w-3 text-green-500" />
-                                ) : (
-                                  <Copy className="h-3 w-3 text-muted-foreground" />
-                                )}
-                              </Button>
-                            </TooltipTrigger>
-                            <TooltipContent side="left">
-                              {isCopied ? "Copied!" : "Copy message"}
-                            </TooltipContent>
-                          </Tooltip>
-                        </TooltipProvider>
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
                 </div>
               ) : (
                 <div className="prose-container">
@@ -1260,7 +1206,60 @@ function ChatMessage({
               )}
             </div>
 
-            {/* Actions */}
+            {/* Actions for user messages */}
+            {isUser && (
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: isHovered ? 1 : 0.6 }}
+                className="flex items-center gap-2 mt-2 justify-end"
+              >
+                {/* Retry button */}
+                {onRetry && (
+                  <TooltipProvider>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7 text-primary-foreground/70 hover:text-primary-foreground hover:bg-primary/20"
+                          onClick={onRetry}
+                        >
+                          <RotateCcw className="h-3.5 w-3.5" />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        Retry this prompt
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                )}
+
+                {/* Copy button */}
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7 text-primary-foreground/70 hover:text-primary-foreground hover:bg-primary/20"
+                        onClick={() => onCopy(message.content, message.id)}
+                      >
+                        {isCopied ? (
+                          <Check className="h-3.5 w-3.5 text-green-400" />
+                        ) : (
+                          <Copy className="h-3.5 w-3.5" />
+                        )}
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      {isCopied ? "Copied!" : "Copy message"}
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              </motion.div>
+            )}
+
+            {/* Actions for assistant messages */}
             {!isUser && displayContent && (
               <motion.div
                 initial={{ opacity: 0 }}
