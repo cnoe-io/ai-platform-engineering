@@ -172,7 +172,7 @@ export function UserMenu() {
               </div>
             </div>
 
-            {/* Advanced Info Toggle */}
+            {/* OIDC Token Info Toggle */}
             <div className="border-b border-border">
               <button
                 onClick={() => setShowAdvanced(!showAdvanced)}
@@ -180,7 +180,7 @@ export function UserMenu() {
               >
                 <div className="flex items-center gap-2">
                   <Code className="h-3.5 w-3.5" />
-                  <span>Advanced</span>
+                  <span>OIDC Token</span>
                 </div>
                 <ChevronRight className={cn(
                   "h-3.5 w-3.5 transition-transform",
