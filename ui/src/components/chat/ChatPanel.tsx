@@ -551,7 +551,7 @@ export function ChatPanel({ endpoint }: ChatPanelProps) {
             </div>
           )}
 
-          <div className="relative flex items-center gap-3 bg-card rounded-xl border border-border p-3 focus-within:ring-1 focus-within:ring-primary transition-all">
+          <div className="relative flex items-center gap-3 bg-card rounded-xl border border-border p-3 focus-within:ring-2 focus-within:ring-primary focus-within:border-primary focus-within:shadow-lg focus-within:shadow-primary/20 transition-all duration-200">
             {/* Agent Selector */}
             <div className="border-r border-border pr-2">
               <InlineAgentSelector
