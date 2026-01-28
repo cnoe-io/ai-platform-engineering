@@ -7,11 +7,19 @@ export type HealthStatus = "checking" | "connected" | "disconnected";
 
 const POLL_INTERVAL_MS = 30000; // 30 seconds
 
+interface AgentInfo {
+  name: string;
+  description?: string;
+  tags?: string[];
+}
+
 interface UseCAIPEHealthResult {
   status: HealthStatus;
   url: string;
   lastChecked: Date | null;
   secondsUntilNextCheck: number;
+  agents: AgentInfo[];
+  tags: string[];
   checkNow: () => void;
 }
 
@@ -23,6 +31,8 @@ export function useCAIPEHealth(): UseCAIPEHealthResult {
   const [status, setStatus] = useState<HealthStatus>("checking");
   const [lastChecked, setLastChecked] = useState<Date | null>(null);
   const [secondsUntilNextCheck, setSecondsUntilNextCheck] = useState(0);
+  const [agents, setAgents] = useState<AgentInfo[]>([]);
+  const [tags, setTags] = useState<string[]>([]);
   const nextCheckTimeRef = useRef<number>(Date.now() + POLL_INTERVAL_MS);
   const url = config.caipeUrl;
 
@@ -52,6 +62,60 @@ export function useCAIPEHealth(): UseCAIPEHealthResult {
       setStatus("connected");
       setLastChecked(new Date());
       nextCheckTimeRef.current = Date.now() + POLL_INTERVAL_MS;
+
+      // Try to parse agent card to get available agents and tags
+      if (response.ok) {
+        try {
+          const agentCard = await response.json();
+          const availableAgents: AgentInfo[] = [];
+          const allTags: string[] = [];
+          
+          // Extract tags from skills array
+          if (agentCard.skills && Array.isArray(agentCard.skills)) {
+            agentCard.skills.forEach((skill: any) => {
+              if (skill.tags && Array.isArray(skill.tags)) {
+                allTags.push(...skill.tags);
+              }
+              // Also add skill as an agent
+              availableAgents.push({
+                name: skill.name || skill.id || 'Unknown',
+                description: skill.description,
+                tags: skill.tags
+              });
+            });
+          }
+          
+          // Legacy: Extract agents from other structures
+          if (agentCard.agents && Array.isArray(agentCard.agents)) {
+            availableAgents.push(...agentCard.agents.map((agent: any) => ({
+              name: agent.name || agent.id || 'Unknown',
+              description: agent.description,
+              tags: agent.tags
+            })));
+          } else if (agentCard.capabilities && Array.isArray(agentCard.capabilities)) {
+            availableAgents.push(...agentCard.capabilities.map((cap: any) => ({
+              name: cap.name || cap.type || 'Unknown',
+              description: cap.description
+            })));
+          } else if (agentCard.name && availableAgents.length === 0) {
+            // Single agent (supervisor) - only if no skills found
+            availableAgents.push({
+              name: agentCard.name,
+              description: agentCard.description
+            });
+          }
+          
+          // Remove duplicates from tags and sort
+          const uniqueTags = Array.from(new Set(allTags)).sort();
+          
+          setAgents(availableAgents);
+          setTags(uniqueTags);
+        } catch (parseError) {
+          // Failed to parse agent card, but server is still reachable
+          setAgents([]);
+          setTags([]);
+        }
+      }
     } catch (error) {
       // Network error or timeout
       if (error instanceof Error && error.name === "AbortError") {
@@ -94,6 +158,8 @@ export function useCAIPEHealth(): UseCAIPEHealthResult {
     url,
     lastChecked,
     secondsUntilNextCheck,
+    agents,
+    tags,
     checkNow: checkHealth,
   };
 }

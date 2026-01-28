@@ -45,6 +45,7 @@
     "react-markdown": "^9.0.1",
     "react-resizable-panels": "^4.4.1",
     "react-syntax-highlighter": "^15.6.1",
+    "react-textarea-autosize": "^8.5.9",
     "remark-gfm": "^4.0.0",
     "sigma": "^3.0.2",
     "tailwind-merge": "^2.6.0",
