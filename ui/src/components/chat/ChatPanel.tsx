@@ -8,6 +8,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
+import TextareaAutosize from "react-textarea-autosize";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -550,7 +551,7 @@ export function ChatPanel({ endpoint }: ChatPanelProps) {
             </div>
           )}
 
-          <div className="relative flex items-center gap-3 bg-card rounded-xl border border-border p-3">
+          <div className="relative flex items-center gap-3 bg-card rounded-xl border border-border p-3 focus-within:ring-1 focus-within:ring-primary transition-all">
             {/* Agent Selector */}
             <div className="border-r border-border pr-2">
               <InlineAgentSelector
@@ -559,7 +560,7 @@ export function ChatPanel({ endpoint }: ChatPanelProps) {
               />
             </div>
 
-            <textarea
+            <TextareaAutosize
               ref={inputRef}
               value={input}
               onChange={(e) => setInput(e.target.value)}
@@ -572,8 +573,9 @@ export function ChatPanel({ endpoint }: ChatPanelProps) {
                     : `Type to queue message (${queuedMessages.length}/3), or Cmd+Enter to force send...`
                   : "Ask CAIPE anything..."
               }
-              className="flex-1 bg-transparent resize-none outline-none min-h-[52px] max-h-[200px] px-3 py-2.5 text-sm"
-              rows={1}
+              className="flex-1 bg-transparent resize-none outline-none px-3 py-2.5 text-sm"
+              minRows={1}
+              maxRows={10}
             />
             {/* Send button - always visible, shows force send when streaming */}
             <Button
