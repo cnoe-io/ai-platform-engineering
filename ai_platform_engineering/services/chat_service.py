@@ -44,15 +44,26 @@ class ChatService:
     - Conversation CRUD
     - Message management
     - Sharing and access control
+    - Audit logging integration
+    - Notification integration
     """
     
-    def __init__(self, mongodb: MongoDBManager):
+    def __init__(
+        self,
+        mongodb: MongoDBManager,
+        audit_service: Optional["AuditService"] = None,
+        notification_service: Optional["NotificationService"] = None,
+    ):
         """Initialize chat service.
         
         Args:
             mongodb: MongoDB manager instance
+            audit_service: Audit service for logging (optional)
+            notification_service: Notification service (optional)
         """
         self.mongodb = mongodb
+        self.audit_service = audit_service
+        self.notification_service = notification_service
     
     # ========================================================================
     # User Management
@@ -440,6 +451,7 @@ class ChatService:
         conversation_id: UUID,
         user_id: UUID,
         request: ShareConversationRequest,
+        metadata: Optional[dict] = None,
     ) -> ShareStatus:
         """Share conversation with other users.
         
@@ -447,6 +459,7 @@ class ChatService:
             conversation_id: Conversation UUID
             user_id: User ID (must be creator)
             request: Share request with user emails
+            metadata: Additional context (IP, user agent, etc.)
             
         Returns:
             Share status
@@ -461,8 +474,13 @@ class ChatService:
         if not conv_doc:
             raise ValueError(f"Conversation not found: {conversation_id}")
         
+        conversation = Conversation(**conv_doc)
+        
         if conv_doc["created_by"] != user_id:
             raise ValueError("Only conversation creator can share")
+        
+        # Get sharer info for audit/notifications
+        sharer = await self.get_user_by_id(user_id)
         
         # Look up users by email
         shared_users = []
@@ -483,6 +501,29 @@ class ChatService:
                 permissions=request.permissions,
             )
             shared_users.append(shared_user)
+            
+            # Audit log: Record share action
+            if self.audit_service:
+                await self.audit_service.log_share_action(
+                    action="share",
+                    actor_id=user_id,
+                    actor_email=sharer.email,
+                    conversation_id=conversation_id,
+                    target_user_id=user.id,
+                    target_user_email=user.email,
+                    permissions=request.permissions,
+                    metadata=metadata,
+                )
+            
+            # Notification: Notify user they've been granted access
+            if self.notification_service:
+                await self.notification_service.create_share_notification(
+                    recipient_id=user.id,
+                    shared_by=sharer,
+                    conversation_id=conversation_id,
+                    conversation_title=conversation.title,
+                    permissions=request.permissions,
+                )
         
         # Update conversation (add to shared_with, avoid duplicates)
         await conversations.update_one(
@@ -545,6 +586,7 @@ class ChatService:
         conversation_id: UUID,
         user_id: UUID,
         remove_user_id: UUID,
+        metadata: Optional[dict] = None,
     ) -> bool:
         """Remove user's access to a conversation.
         
@@ -552,6 +594,7 @@ class ChatService:
             conversation_id: Conversation UUID
             user_id: User ID (must be creator or removing self)
             remove_user_id: User ID to remove
+            metadata: Additional context (IP, user agent, etc.)
             
         Returns:
             True if removed, False if not found
@@ -572,6 +615,10 @@ class ChatService:
         if not (is_creator or is_removing_self):
             raise ValueError("Only creator can remove others, or users can remove themselves")
         
+        # Get users for audit logging
+        actor = await self.get_user_by_id(user_id)
+        removed_user = await self.get_user_by_id(remove_user_id)
+        
         # Remove from shared_with array
         result = await conversations.update_one(
             {"_id": conversation_id},
@@ -583,6 +630,19 @@ class ChatService:
         
         if result.modified_count > 0:
             logger.info(f"Removed user {remove_user_id} from conversation {conversation_id}")
+            
+            # Audit log: Record unshare action
+            if self.audit_service and actor and removed_user:
+                await self.audit_service.log_share_action(
+                    action="unshare",
+                    actor_id=user_id,
+                    actor_email=actor.email,
+                    conversation_id=conversation_id,
+                    target_user_id=remove_user_id,
+                    target_user_email=removed_user.email,
+                    metadata=metadata,
+                )
+            
             return True
         
         return False
