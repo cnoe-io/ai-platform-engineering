@@ -7,6 +7,10 @@ import os
 from typing import Literal
 from pydantic import BaseModel
 
+# Ensure .env is loaded before accessing env vars
+from dotenv import load_dotenv
+load_dotenv()
+
 from ai_platform_engineering.utils.a2a_common.base_langgraph_agent import BaseLangGraphAgent
 from ai_platform_engineering.utils.subagent_prompts import load_subagent_prompt_config
 from cnoe_agent_utils.tracing import trace_agent_stream
@@ -48,13 +52,24 @@ class BackstageAgent(BaseLangGraphAgent):
 
     def get_mcp_config(self, server_path: str) -> dict:
         """Return MCP configuration for Backstage."""
+        import logging
+        logger = logging.getLogger(__name__)
+        
         backstage_api_token = os.getenv("BACKSTAGE_API_TOKEN")
+        backstage_url = os.getenv("BACKSTAGE_URL")
+        
+        logger.info(f"[BackstageAgent] BACKSTAGE_URL from env: {backstage_url}")
+        logger.info(f"[BackstageAgent] BACKSTAGE_API_TOKEN present: {bool(backstage_api_token)}")
+        
         if not backstage_api_token:
             raise ValueError("BACKSTAGE_API_TOKEN must be set as an environment variable.")
 
-        backstage_url = os.getenv("BACKSTAGE_URL")
         if not backstage_url:
             raise ValueError("BACKSTAGE_URL must be set as an environment variable.")
+        
+        # Validate URL has protocol
+        if not backstage_url.startswith(("http://", "https://")):
+            raise ValueError(f"BACKSTAGE_URL must start with http:// or https://, got: {backstage_url}")
 
         return {
             "command": "uv",
@@ -62,6 +77,8 @@ class BackstageAgent(BaseLangGraphAgent):
             "env": {
                 "BACKSTAGE_API_TOKEN": backstage_api_token,
                 "BACKSTAGE_URL": backstage_url,
+                # Also set BACKSTAGE_API_URL since client.py checks it first
+                "BACKSTAGE_API_URL": backstage_url,
             },
             "transport": "stdio",
         }

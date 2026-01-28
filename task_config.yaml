@@ -1,0 +1,489 @@
+# Self-Service Tasks Configuration for Platform Engineer Deep Agent
+# 
+# Each task maps to a quick action that users can trigger. Tasks are composed
+# of steps that delegate work to specialized subagents.
+#
+# All tasks use filesystem-based state passing:
+#   1. CAIPE subagent collects user input and writes to /request.txt
+#   2. Subsequent subagents read from filesystem, execute operations, write results
+#   3. Notifications read from filesystem to send confirmation messages
+#
+# Environment Variable Substitution:
+#   Values like ${VAR_NAME} are substituted from environment variables at runtime.
+#   See deploy/.env.example for required variables.
+#
+# Required Environment Variables:
+#   GITHUB_ORGS              - Comma-separated list of allowed GitHub organizations
+#   WORKFLOWS_REPO           - Repository containing GitHub Actions workflows (org/repo)
+#   GROUPS_AUTOMATION_REPO   - Repository for group management automation (org/repo)
+#   GROUPS_PATH              - Path to groups directory in the automation repo (e.g., groups)
+#   GROUPS_FILE_PATTERN      - File pattern for group files (e.g., *.yaml)
+#   DEFAULT_AWS_REGIONS      - Comma-separated list of allowed AWS regions
+#   EMAIL_DOMAIN             - Corporate email domain (e.g., company.com)
+#
+# Subagents used in self-service tasks:
+#   - caipe: User input collection via forms
+#   - github: GitHub operations via gh CLI (also handles group management workflows)
+#   - aws: AWS resource provisioning via workflow triggers
+#   - argocd: ArgoCD deployments via workflow triggers
+#   - aigateway: LLM API key management
+#   - webex: Webex notifications
+#   - jira: Jira ticket operations (when needed)
+#
+# Note: Group management operations are handled via GitHub workflows triggered
+# by the GitHub subagent using gh CLI.
+#
+# Note: Backstage subagent is available for general catalog queries but not
+# used in self-service tasks. Self-service workflows trigger GitHub Actions
+# which handle Backstage catalog registration automatically.
+
+# =============================================================================
+# GitHub Operations
+# =============================================================================
+
+Create GitHub Repo:
+  tasks:
+    - display_text: "Collect repository details from user"
+      llm_prompt: >
+        Collect the following information from the user and write to /request.txt:
+        - repo_name (required): Repository name (lowercase, no spaces, max 50 chars, use hyphens)
+        - org_name (required): GitHub organization (one of: ${GITHUB_ORGS})
+        - description (optional): Brief description of the repository
+        - template (optional): Template to use (none, template-base-repo, template-python-service, template-go-service)
+        - jira_issue_id (optional): Existing JIRA ticket ID
+        - user_email (required): Requester's email
+        
+        Format as key=value on each line. Write to /request.txt.
+      subagent: "caipe"
+
+    - display_text: "Check if repository exists"
+      llm_prompt: >
+        Read /request.txt to get repo_name and org_name.
+        Use gh CLI to check if the repository already exists:
+        gh repo view {org_name}/{repo_name}
+        
+        Write result to /check_result.txt:
+        - If repo exists: exists=true
+        - If repo does not exist: exists=false
+        
+        If exists=true, stop workflow and inform user.
+      subagent: "github"
+
+    - display_text: "Trigger repo creation workflow"
+      llm_prompt: >
+        Read /request.txt and /check_result.txt.
+        If exists=false, trigger the GitHub workflow using gh CLI:
+        
+        gh workflow run create-repo-add-backstage-component \
+          --repo ${WORKFLOWS_REPO} \
+          -f REPO_NAME={repo_name} \
+          -f ORG_NAME={org_name} \
+          -f PROJECT_NAME={project_name} \
+          -f DESCRIPTION="{description}" \
+          -f TEMPLATE_NAME={template} \
+          -f USER_EMAIL={user_email}
+        
+        Write the workflow run URL to /workflow_result.txt
+      subagent: "github"
+
+    - display_text: "Send notification"
+      llm_prompt: >
+        Read /request.txt and /workflow_result.txt.
+        Send a Webex message to user_email confirming the repository creation request.
+        Include:
+        - Repository name and organization
+        - Workflow run URL for tracking
+        - Expected completion time (typically 2-5 minutes)
+      subagent: "webex"
+
+
+# =============================================================================
+# AWS Operations
+# =============================================================================
+
+Create EC2 Instance:
+  tasks:
+    - display_text: "Collect EC2 instance details"
+      llm_prompt: >
+        Collect the following information from the user and write to /request.txt:
+        - instance_name (required): Name tag for the instance
+        - instance_type (required): EC2 instance type (t3.micro, t3.small, t3.medium)
+        - vpc_name (required): VPC name for the instance
+        - region (required): AWS region (one of: ${DEFAULT_AWS_REGIONS})
+        - account_name (required): AWS account name
+        - project_name (required): Project for tagging and cost allocation
+        - purpose (optional): Brief description of instance purpose
+        - user_email (required): Requester's email
+        
+        Format as key=value on each line. Write to /request.txt.
+      subagent: "caipe"
+
+    - display_text: "Trigger EC2 creation workflow"
+      llm_prompt: >
+        Read /request.txt.
+        Trigger the EC2 creation workflow using gh CLI:
+        
+        gh workflow run ec2-creation-submit-approval \
+          --repo ${WORKFLOWS_REPO} \
+          -f RESOURCE_NAME={instance_name} \
+          -f INSTANCE_TYPE={instance_type} \
+          -f VPC_NAME={vpc_name} \
+          -f REGION={region} \
+          -f ACCOUNT_NAME={account_name} \
+          -f PROJECT_NAME={project_name} \
+          -f USER_EMAIL={user_email}
+        
+        Write workflow run URL to /workflow_result.txt
+      subagent: "aws"
+
+    - display_text: "Send notification"
+      llm_prompt: >
+        Read /request.txt and /workflow_result.txt.
+        Send a Webex message to user_email with:
+        - EC2 instance request submitted
+        - Workflow run URL for tracking
+        - Note: Requires approval before provisioning
+      subagent: "webex"
+
+
+Create EKS Cluster:
+  tasks:
+    - display_text: "Collect EKS cluster details"
+      llm_prompt: >
+        Collect the following information from the user and write to /request.txt:
+        - cluster_name (required): Name of the EKS cluster
+        - kubernetes_version (required): K8s version (1.28, 1.29, 1.30)
+        - region (required): AWS region (one of: ${DEFAULT_AWS_REGIONS})
+        - node_count (required): Number of worker nodes (1-10)
+        - node_instance_type (required): Instance type for nodes (t3.medium, t3.large)
+        - project_name (required): Project for tagging
+        - user_email (required): Requester's email
+        
+        Format as key=value on each line. Write to /request.txt.
+      subagent: "caipe"
+
+    - display_text: "Trigger EKS creation workflow"
+      llm_prompt: >
+        Read /request.txt.
+        Trigger the EKS creation workflow using gh CLI:
+        
+        gh workflow run ephemeral-eks-creation-submit-approval \
+          --repo ${WORKFLOWS_REPO} \
+          -f CLUSTER_NAME={cluster_name} \
+          -f K8S_VERSION={kubernetes_version} \
+          -f INSTANCE_TYPE={node_instance_type} \
+          -f NODE_COUNT={node_count} \
+          -f REGION={region} \
+          -f PROJECT_NAME={project_name} \
+          -f USER_EMAIL={user_email}
+        
+        Write workflow run URL to /workflow_result.txt
+      subagent: "aws"
+
+    - display_text: "Send notification"
+      llm_prompt: >
+        Read /request.txt and /workflow_result.txt.
+        Send a Webex message to user_email with:
+        - EKS cluster request submitted
+        - Workflow run URL for tracking
+        - Note: Requires approval, provisioning takes 15-20 minutes
+      subagent: "webex"
+
+
+Create S3 Bucket:
+  tasks:
+    - display_text: "Collect S3 bucket details"
+      llm_prompt: >
+        Collect the following information from the user and write to /request.txt:
+        - bucket_name (required): Globally unique bucket name
+        - region (required): AWS region (one of: ${DEFAULT_AWS_REGIONS})
+        - versioning (optional): Enable versioning (true/false, default: false)
+        - encryption (optional): Enable encryption (true/false, default: true)
+        - project_name (required): Project for tagging
+        - user_email (required): Requester's email
+        
+        Format as key=value on each line. Write to /request.txt.
+      subagent: "caipe"
+
+    - display_text: "Trigger S3 creation workflow"
+      llm_prompt: >
+        Read /request.txt.
+        Trigger the S3 creation workflow using gh CLI:
+        
+        gh workflow run s3-creation-submit-approval \
+          --repo ${WORKFLOWS_REPO} \
+          -f RESOURCE_NAME={bucket_name} \
+          -f REGION={region} \
+          -f VERSIONING={versioning} \
+          -f ENCRYPTION={encryption} \
+          -f PROJECT_NAME={project_name} \
+          -f USER_EMAIL={user_email}
+        
+        Write workflow run URL to /workflow_result.txt
+      subagent: "aws"
+
+    - display_text: "Send notification"
+      llm_prompt: >
+        Read /request.txt and /workflow_result.txt.
+        Send a Webex message to user_email with:
+        - S3 bucket request submitted
+        - Workflow run URL for tracking
+        - Note: Requires approval before creation
+      subagent: "webex"
+
+# =============================================================================
+# ArgoCD Operations
+# =============================================================================
+
+Deploy App to Common Cluster:
+  tasks:
+    - display_text: "Collect deployment details"
+      llm_prompt: >
+        Collect the following information from the user and write to /request.txt:
+        - app_name (required): Name of the ArgoCD application
+        - project_name (required): Backstage project name
+        - repo_name (required): GitHub repository name containing manifests
+        - org_name (required): GitHub organization (one of: ${GITHUB_ORGS})
+        - namespace (required): Kubernetes namespace for deployment
+        - environment (required): Target environment (dev, staging, prod)
+        - deployment_env (optional): Deployment environment (a, b, c) - default: a
+        - helm_chart_version (optional): Helm chart version to deploy
+        - auto_approve (optional): Auto-approve deployment (true/false) - default: true
+        - jira_issue_id (optional): JIRA issue ID for tracking
+        - user_email (required): Requester's email
+        
+        Format as key=value on each line. Write to /request.txt.
+      subagent: "caipe"
+
+    - display_text: "Trigger ArgoCD deployment workflow"
+      llm_prompt: >
+        Read /request.txt.
+        Trigger the ArgoCD deployment workflow using gh CLI:
+        
+        gh workflow run deploy-app-to-common-cluster \
+          --repo ${WORKFLOWS_REPO} \
+          -f APP_NAME={app_name} \
+          -f PROJECT_NAME={project_name} \
+          -f REPO_NAME={repo_name} \
+          -f APP_NAMESPACE={namespace} \
+          -f ENVIRONMENT={environment} \
+          -f DEPLOYMENT_ENV={deployment_env} \
+          -f APP_HELM_CHART_VERSION={helm_chart_version} \
+          -f AUTO_APPROVE={auto_approve} \
+          -f JIRA_TICKET={jira_issue_id} \
+          -f USER_EMAIL={user_email}
+        
+        Write workflow run URL to /workflow_result.txt
+      subagent: "argocd"
+
+    - display_text: "Send notification"
+      llm_prompt: >
+        Read /request.txt and /workflow_result.txt.
+        Send a Webex message to user_email with:
+        - ArgoCD deployment request submitted
+        - Application name and target namespace
+        - Workflow run URL for tracking
+        - Expected sync time (typically 2-5 minutes)
+      subagent: "webex"
+
+
+# =============================================================================
+# AI Gateway Operations
+# =============================================================================
+
+Create LLM API Key:
+  tasks:
+    - display_text: "Collect API key details"
+      llm_prompt: >
+        Collect the following information from the user and write to /request.txt:
+        - provider (required): LLM provider (openai, anthropic, bedrock)
+        - model (required): Model name (gpt-4o, claude-3-sonnet, etc.)
+        - key_name (optional): Friendly name for the API key
+        - user_email (required): User's corporate email for the API key
+        
+        If user is unsure about models, note that you will list available options.
+        Format as key=value on each line. Write to /request.txt.
+      subagent: "caipe"
+
+    - display_text: "List available models"
+      llm_prompt: >
+        Read /request.txt to get the provider.
+        Use list_available_models tool to get available models for the provider.
+        Write the list to /models_list.txt for reference.
+        If user's model is valid, proceed. Otherwise, prompt for correction.
+      subagent: "aigateway"
+
+    - display_text: "Create API key"
+      llm_prompt: >
+        Read /request.txt to get provider, model, key_name, and user_email.
+        Use create_llm_api_key tool to generate the virtual key.
+        Write the API key details to /api_key_result.txt:
+        - api_key: the generated key
+        - base_url: the AI Gateway URL to use
+        - model: the model alias
+      subagent: "aigateway"
+
+    - display_text: "Send credentials via Webex"
+      llm_prompt: >
+        Read /request.txt and /api_key_result.txt.
+        Send a Webex message to user_email with:
+        - The generated API key
+        - Base URL for AI Gateway
+        - Sample Python code using the key
+        - Sample curl command
+        - Security reminder: keep the key confidential
+      subagent: "webex"
+
+
+Get LLM Spend Activity:
+  tasks:
+    - display_text: "Collect spend query details"
+      llm_prompt: >
+        Collect the following information from the user and write to /request.txt:
+        - user_email (required): Email to check spend for
+        - start_date (optional): Start date in YYYY-MM-DD format
+        - end_date (optional): End date in YYYY-MM-DD format
+        
+        If no dates provided, default to current month.
+        Format as key=value on each line. Write to /request.txt.
+      subagent: "caipe"
+
+    - display_text: "Get spend report"
+      llm_prompt: >
+        Read /request.txt to get user_email, start_date, end_date.
+        Use get_user_spend_activity tool to retrieve usage and spending data.
+        Format results as a markdown table showing:
+        - Model used
+        - Token count (input/output)
+        - Cost per model
+        - Total spend
+        Write to /spend_result.txt and display to user.
+      subagent: "aigateway"
+
+
+# =============================================================================
+# Group Management Operations (via GitHub Workflows)
+# =============================================================================
+# Group management operations are implemented through GitHub workflows.
+# The GitHub subagent triggers these workflows using gh CLI.
+
+Add Users to Group:
+  tasks:
+    - display_text: "Collect group and user details"
+      llm_prompt: >
+        Collect the following information from the user and write to /request.txt:
+        - group_name (required): Group name to add users to
+        - user_emails (required): Comma-separated list of corporate email addresses
+        - requested_by (required): Email of the requester
+        
+        If user doesn't know the group name, suggest running "List Groups" first.
+        Format as key=value on each line. Write to /request.txt.
+      subagent: "caipe"
+
+    - display_text: "Trigger group update workflow"
+      llm_prompt: >
+        Read /request.txt to get group_name, user_emails, requested_by.
+        Trigger the group update workflow using gh CLI:
+        
+        gh workflow run add-users-to-group \
+          --repo ${GROUPS_AUTOMATION_REPO} \
+          -f GROUP_NAME={group_name} \
+          -f USER_EMAILS={user_emails} \
+          -f REQUESTED_BY={requested_by}
+        
+        Write the workflow run URL to /group_result.txt
+      subagent: "github"
+
+    - display_text: "Send notification"
+      llm_prompt: >
+        Read /request.txt and /group_result.txt.
+        Send a Webex message to requested_by with:
+        - Workflow run URL for tracking the PR creation
+        - Users being added to the group
+        - Note: A PR will be created that needs approval before changes take effect
+      subagent: "webex"
+
+
+Invite Users to GitHub Org:
+  tasks:
+    - display_text: "Collect invitation details"
+      llm_prompt: >
+        Collect the following information from the user and write to /request.txt:
+        - org_name (required): GitHub organization (one of: ${GITHUB_ORGS})
+        - user_emails (required): Comma-separated list of corporate email addresses to invite
+        - requested_by (required): Email of the requester
+        
+        Format as key=value on each line. Write to /request.txt.
+      subagent: "caipe"
+
+    - display_text: "Trigger GitHub org invitation workflow"
+      llm_prompt: >
+        Read /request.txt to get org_name, user_emails, requested_by.
+        Trigger the GitHub org invitation workflow using gh CLI:
+        
+        gh workflow run invite-users-to-github-org \
+          --repo ${GROUPS_AUTOMATION_REPO} \
+          -f ORG_NAME={org_name} \
+          -f USER_EMAILS={user_emails} \
+          -f REQUESTED_BY={requested_by}
+        
+        Write the workflow run URL to /invite_result.txt
+      subagent: "github"
+
+    - display_text: "Send notification"
+      llm_prompt: >
+        Read /request.txt and /invite_result.txt.
+        Send a Webex message to requested_by confirming:
+        - Workflow run URL for tracking
+        - Users will receive GitHub org invitations via email
+        - A PR will be created to add users to the org's group
+      subagent: "webex"
+
+
+List Groups:
+  tasks:
+    - display_text: "Collect filter criteria"
+      llm_prompt: >
+        Collect the following information from the user and write to /request.txt:
+        - filter_prefix (optional): Filter groups by prefix or team name
+        - limit (optional): Maximum number of groups to return (default: 50)
+        
+        Format as key=value on each line. Write to /request.txt.
+      subagent: "caipe"
+
+    - display_text: "List available groups from repository"
+      llm_prompt: >
+        Read /request.txt to get filter_prefix and limit.
+        Use gh CLI to list groups from the groups automation repository:
+        
+        gh api repos/${GROUPS_AUTOMATION_REPO}/contents/${GROUPS_PATH} \
+          --jq '.[].name' | head -n {limit}
+        
+        If filter_prefix is provided, filter the results.
+        Write results to /groups_result.txt with group names.
+        Display formatted list to user.
+      subagent: "github"
+
+
+Find Users in Groups:
+  tasks:
+    - display_text: "Collect user emails"
+      llm_prompt: >
+        Collect the following information from the user and write to /request.txt:
+        - user_emails (required): Comma-separated list of corporate email addresses to search
+        
+        Format as key=value on each line. Write to /request.txt.
+      subagent: "caipe"
+
+    - display_text: "Search for user group memberships"
+      llm_prompt: >
+        Read /request.txt to get user_emails.
+        For each user, search for their membership in the groups automation repo:
+        
+        gh search code "{user_id}" --repo ${GROUPS_AUTOMATION_REPO} \
+          --filename "${GROUPS_FILE_PATTERN}" --json path,textMatches
+        
+        Extract the group names from the paths and compile a list.
+        Write results to /memberships_result.txt showing each user and their groups.
+        Display formatted results to user.
+      subagent: "github"

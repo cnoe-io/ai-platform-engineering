@@ -342,8 +342,22 @@ def generate_platform_skill_examples(config: Dict[str, Any], platform_registry) 
     
     return agent_skill_examples
 
-def generate_platform_system_prompt(config: Dict[str, Any], agents: Dict[str, Any]) -> str:
-    """Generate dynamic system prompt for platform engineer based on available tools."""
+def generate_platform_system_prompt(
+    config: Dict[str, Any], 
+    agents: Dict[str, Any],
+    rag_instructions: str = ""
+) -> str:
+    """
+    Generate dynamic system prompt for platform engineer based on available tools.
+    
+    Args:
+        config: Prompt configuration dictionary loaded from prompt_config.yaml
+        agents: Dictionary mapping agent names to agent cards with 'description' key
+        rag_instructions: Optional RAG instructions to inject into the prompt
+        
+    Returns:
+        Formatted system prompt with routing instructions for all agents
+    """
     agent_prompts = config.get("agent_prompts", {})
     tool_instructions = []
     
@@ -385,10 +399,21 @@ def generate_platform_system_prompt(config: Dict[str, Any], agents: Dict[str, An
     tool_instructions_str = "\n\n".join(tool_instructions)
     yaml_template = config.get("system_prompt_template")
     
-    logger.info(f"System Prompt Template: {yaml_template}")
+    logger.debug(f"System Prompt Template length: {len(yaml_template) if yaml_template else 0}")
     
     if yaml_template:
-        return yaml_template.format(tool_instructions=tool_instructions_str)
+        # Use format with all known placeholders
+        try:
+            return yaml_template.format(
+                tool_instructions=tool_instructions_str,
+                rag_instructions=rag_instructions
+            )
+        except KeyError as e:
+            # If there are unknown placeholders, try partial formatting
+            logger.warning(f"Template has unknown placeholder: {e}, using partial format")
+            result = yaml_template.replace("{tool_instructions}", tool_instructions_str)
+            result = result.replace("{rag_instructions}", rag_instructions)
+            return result
     else:
         return f"""
 You are an AI Platform Engineer, a multi-agent system designed to manage operations across various tools.
