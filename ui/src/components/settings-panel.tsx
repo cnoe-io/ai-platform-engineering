@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { Settings, X, Type, Palette, Monitor, Check, Sparkles, Zap, Square } from "lucide-react";
+import { Settings, X, Type, Palette, Monitor, Check } from "lucide-react";
 import { useTheme } from "next-themes";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -77,42 +77,9 @@ const gradientThemes = [
   },
 ] as const;
 
-// Gradient Intensity options
-const gradientIntensities = [
-  { id: "subtle", label: "Subtle", value: 0.7, description: "Understated" },
-  { id: "normal", label: "Normal", value: 1.0, description: "Balanced" },
-  { id: "vibrant", label: "Vibrant", value: 1.0, description: "Bold & bright" },
-] as const;
-
-// Border Radius options
-const borderRadiusOptions = [
-  { id: "sharp", label: "Sharp", value: "4px", description: "Minimal corners" },
-  { id: "rounded", label: "Rounded", value: "8px", description: "Default" },
-  { id: "soft", label: "Soft", value: "12px", description: "Extra smooth" },
-] as const;
-
-// Animation Speed options
-const animationSpeeds = [
-  { id: "slow", label: "Slow", value: 1.5, description: "Relaxed" },
-  { id: "normal", label: "Normal", value: 1.0, description: "Default" },
-  { id: "fast", label: "Fast", value: 0.6, description: "Snappy" },
-  { id: "instant", label: "Instant", value: 0.1, description: "No animations" },
-] as const;
-
-// Density options
-const densityOptions = [
-  { id: "compact", label: "Compact", description: "More content visible" },
-  { id: "comfortable", label: "Comfortable", description: "Balanced spacing" },
-  { id: "spacious", label: "Spacious", description: "Generous padding" },
-] as const;
-
 type FontSize = typeof fontSizes[number]["id"];
 type FontFamily = typeof fontFamilies[number]["id"];
 type GradientTheme = typeof gradientThemes[number]["id"];
-type GradientIntensity = typeof gradientIntensities[number]["id"];
-type BorderRadius = typeof borderRadiusOptions[number]["id"];
-type AnimationSpeed = typeof animationSpeeds[number]["id"];
-type Density = typeof densityOptions[number]["id"];
 
 export function SettingsPanel() {
   const [open, setOpen] = useState(false);
@@ -120,10 +87,6 @@ export function SettingsPanel() {
   const [fontSize, setFontSize] = useState<FontSize>("medium");
   const [fontFamily, setFontFamily] = useState<FontFamily>("inter");
   const [gradientTheme, setGradientTheme] = useState<GradientTheme>("default");
-  const [gradientIntensity, setGradientIntensity] = useState<GradientIntensity>("normal");
-  const [borderRadius, setBorderRadius] = useState<BorderRadius>("rounded");
-  const [animationSpeed, setAnimationSpeed] = useState<AnimationSpeed>("normal");
-  const [density, setDensity] = useState<Density>("comfortable");
   const [mounted, setMounted] = useState(false);
 
   // Load settings from localStorage
@@ -132,10 +95,6 @@ export function SettingsPanel() {
     const savedFontSize = localStorage.getItem("caipe-font-size") as FontSize | null;
     const savedFontFamily = localStorage.getItem("caipe-font-family") as FontFamily | null;
     const savedGradientTheme = localStorage.getItem("caipe-gradient-theme") as GradientTheme | null;
-    const savedGradientIntensity = localStorage.getItem("caipe-gradient-intensity") as GradientIntensity | null;
-    const savedBorderRadius = localStorage.getItem("caipe-border-radius") as BorderRadius | null;
-    const savedAnimationSpeed = localStorage.getItem("caipe-animation-speed") as AnimationSpeed | null;
-    const savedDensity = localStorage.getItem("caipe-density") as Density | null;
 
     if (savedFontSize) {
       setFontSize(savedFontSize);
@@ -149,31 +108,8 @@ export function SettingsPanel() {
       setGradientTheme(savedGradientTheme);
       applyGradientTheme(savedGradientTheme);
     } else {
+      // Apply default theme
       applyGradientTheme("default");
-    }
-    if (savedGradientIntensity) {
-      setGradientIntensity(savedGradientIntensity);
-      applyGradientIntensity(savedGradientIntensity);
-    } else {
-      applyGradientIntensity("normal");
-    }
-    if (savedBorderRadius) {
-      setBorderRadius(savedBorderRadius);
-      applyBorderRadius(savedBorderRadius);
-    } else {
-      applyBorderRadius("rounded");
-    }
-    if (savedAnimationSpeed) {
-      setAnimationSpeed(savedAnimationSpeed);
-      applyAnimationSpeed(savedAnimationSpeed);
-    } else {
-      applyAnimationSpeed("normal");
-    }
-    if (savedDensity) {
-      setDensity(savedDensity);
-      applyDensity(savedDensity);
-    } else {
-      applyDensity("comfortable");
     }
   }, []);
 
@@ -205,62 +141,6 @@ export function SettingsPanel() {
     setGradientTheme(themeId);
     localStorage.setItem("caipe-gradient-theme", themeId);
     applyGradientTheme(themeId);
-  };
-
-  // Apply gradient intensity
-  const applyGradientIntensity = (intensityId: GradientIntensity) => {
-    const intensity = gradientIntensities.find(i => i.id === intensityId);
-    if (intensity) {
-      document.documentElement.style.setProperty("--gradient-intensity", intensity.value.toString());
-      document.documentElement.setAttribute("data-gradient-intensity", intensityId);
-    }
-  };
-
-  const handleGradientIntensityChange = (intensityId: GradientIntensity) => {
-    setGradientIntensity(intensityId);
-    localStorage.setItem("caipe-gradient-intensity", intensityId);
-    applyGradientIntensity(intensityId);
-  };
-
-  // Apply border radius
-  const applyBorderRadius = (radiusId: BorderRadius) => {
-    const radius = borderRadiusOptions.find(r => r.id === radiusId);
-    if (radius) {
-      document.documentElement.style.setProperty("--radius", radius.value);
-      document.documentElement.setAttribute("data-border-radius", radiusId);
-    }
-  };
-
-  const handleBorderRadiusChange = (radiusId: BorderRadius) => {
-    setBorderRadius(radiusId);
-    localStorage.setItem("caipe-border-radius", radiusId);
-    applyBorderRadius(radiusId);
-  };
-
-  // Apply animation speed
-  const applyAnimationSpeed = (speedId: AnimationSpeed) => {
-    const speed = animationSpeeds.find(s => s.id === speedId);
-    if (speed) {
-      document.documentElement.style.setProperty("--animation-speed", speed.value.toString());
-      document.documentElement.setAttribute("data-animation-speed", speedId);
-    }
-  };
-
-  const handleAnimationSpeedChange = (speedId: AnimationSpeed) => {
-    setAnimationSpeed(speedId);
-    localStorage.setItem("caipe-animation-speed", speedId);
-    applyAnimationSpeed(speedId);
-  };
-
-  // Apply density
-  const applyDensity = (densityId: Density) => {
-    document.documentElement.setAttribute("data-density", densityId);
-  };
-
-  const handleDensityChange = (densityId: Density) => {
-    setDensity(densityId);
-    localStorage.setItem("caipe-density", densityId);
-    applyDensity(densityId);
   };
 
   if (!mounted) return null;
@@ -452,150 +332,6 @@ export function SettingsPanel() {
                         </div>
                         {gradientTheme === option.id && (
                           <Check className="h-4 w-4 text-primary ml-2 shrink-0" />
-                        )}
-                      </button>
-                    ))}
-                  </div>
-                </section>
-
-                {/* Gradient Intensity Section */}
-                <section>
-                  <div className="flex items-center gap-2 mb-3">
-                    <Sparkles className="h-4 w-4 text-muted-foreground" />
-                    <h3 className="font-medium">Gradient Intensity</h3>
-                  </div>
-                  <p className="text-xs text-muted-foreground mb-3">
-                    Control how vibrant gradient colors appear
-                  </p>
-                  <div className="grid grid-cols-3 gap-2">
-                    {gradientIntensities.map((option) => (
-                      <button
-                        key={option.id}
-                        onClick={() => handleGradientIntensityChange(option.id)}
-                        className={cn(
-                          "flex flex-col items-center gap-2 px-3 py-3 rounded-lg border transition-all",
-                          gradientIntensity === option.id
-                            ? "border-primary bg-primary/10"
-                            : "border-border hover:border-primary/50 hover:bg-muted/50"
-                        )}
-                      >
-                        <div 
-                          className="w-full h-8 rounded gradient-primary relative overflow-hidden"
-                        >
-                          <div 
-                            className="absolute inset-0 bg-background"
-                            style={{ opacity: option.id === "subtle" ? 0.4 : option.id === "vibrant" ? 0 : 0.2 }}
-                          />
-                        </div>
-                        <div className="text-center">
-                          <span className="text-xs font-medium block">{option.label}</span>
-                          <span className="text-[10px] text-muted-foreground">{option.description}</span>
-                        </div>
-                        {gradientIntensity === option.id && (
-                          <Check className="h-3 w-3 text-primary" />
-                        )}
-                      </button>
-                    ))}
-                  </div>
-                </section>
-
-                {/* Border Radius Section */}
-                <section>
-                  <div className="flex items-center gap-2 mb-3">
-                    <Square className="h-4 w-4 text-muted-foreground" />
-                    <h3 className="font-medium">Corner Roundness</h3>
-                  </div>
-                  <p className="text-xs text-muted-foreground mb-3">
-                    Adjust the roundness of UI elements
-                  </p>
-                  <div className="grid grid-cols-3 gap-2">
-                    {borderRadiusOptions.map((option) => (
-                      <button
-                        key={option.id}
-                        onClick={() => handleBorderRadiusChange(option.id)}
-                        className={cn(
-                          "flex flex-col items-center gap-2 px-3 py-3 rounded-lg border transition-all",
-                          borderRadius === option.id
-                            ? "border-primary bg-primary/10"
-                            : "border-border hover:border-primary/50 hover:bg-muted/50"
-                        )}
-                      >
-                        <div 
-                          className="w-12 h-12 bg-primary/20 border-2 border-primary"
-                          style={{ borderRadius: option.value }}
-                        />
-                        <div className="text-center">
-                          <span className="text-xs font-medium block">{option.label}</span>
-                          <span className="text-[10px] text-muted-foreground">{option.description}</span>
-                        </div>
-                        {borderRadius === option.id && (
-                          <Check className="h-3 w-3 text-primary" />
-                        )}
-                      </button>
-                    ))}
-                  </div>
-                </section>
-
-                {/* Animation Speed Section */}
-                <section>
-                  <div className="flex items-center gap-2 mb-3">
-                    <Zap className="h-4 w-4 text-muted-foreground" />
-                    <h3 className="font-medium">Animation Speed</h3>
-                  </div>
-                  <p className="text-xs text-muted-foreground mb-3">
-                    Control transition and animation timing
-                  </p>
-                  <div className="grid grid-cols-2 gap-2">
-                    {animationSpeeds.map((option) => (
-                      <button
-                        key={option.id}
-                        onClick={() => handleAnimationSpeedChange(option.id)}
-                        className={cn(
-                          "flex items-center justify-between px-3 py-2.5 rounded-lg border transition-all",
-                          animationSpeed === option.id
-                            ? "border-primary bg-primary/10"
-                            : "border-border hover:border-primary/50 hover:bg-muted/50"
-                        )}
-                      >
-                        <div>
-                          <span className="text-sm font-medium block">{option.label}</span>
-                          <span className="text-xs text-muted-foreground">{option.description}</span>
-                        </div>
-                        {animationSpeed === option.id && (
-                          <Check className="h-4 w-4 text-primary" />
-                        )}
-                      </button>
-                    ))}
-                  </div>
-                </section>
-
-                {/* Density Section */}
-                <section>
-                  <div className="flex items-center gap-2 mb-3">
-                    <Monitor className="h-4 w-4 text-muted-foreground" />
-                    <h3 className="font-medium">Density</h3>
-                  </div>
-                  <p className="text-xs text-muted-foreground mb-3">
-                    Adjust spacing and padding throughout the interface
-                  </p>
-                  <div className="space-y-2">
-                    {densityOptions.map((option) => (
-                      <button
-                        key={option.id}
-                        onClick={() => handleDensityChange(option.id)}
-                        className={cn(
-                          "w-full flex items-center justify-between px-3 py-2.5 rounded-lg border transition-all text-left",
-                          density === option.id
-                            ? "border-primary bg-primary/10"
-                            : "border-border hover:border-primary/50 hover:bg-muted/50"
-                        )}
-                      >
-                        <div>
-                          <span className="text-sm font-medium block">{option.label}</span>
-                          <span className="text-xs text-muted-foreground">{option.description}</span>
-                        </div>
-                        {density === option.id && (
-                          <Check className="h-4 w-4 text-primary" />
                         )}
                       </button>
                     ))}
