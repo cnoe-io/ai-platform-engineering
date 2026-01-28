@@ -231,7 +231,7 @@ describe('TokenExpiryGuard', () => {
 
   it('should check token expiry periodically', async () => {
     const futureExpiry = Math.floor(Date.now() / 1000) + 600
-    
+
     // Track when checkTokenExpiry is called by spying on console.warn
     const consoleSpy = jest.spyOn(console, 'warn').mockImplementation()
 
@@ -257,7 +257,7 @@ describe('TokenExpiryGuard', () => {
     // Component should still be checking (no warning or errors)
     // Just verify no errors were thrown and component is still mounted
     expect(mockSignOut).not.toHaveBeenCalled()
-    
+
     consoleSpy.mockRestore()
   })
 
