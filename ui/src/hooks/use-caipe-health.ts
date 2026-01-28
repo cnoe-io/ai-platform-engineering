@@ -10,6 +10,7 @@ const POLL_INTERVAL_MS = 30000; // 30 seconds
 interface AgentInfo {
   name: string;
   description?: string;
+  tags?: string[];
 }
 
 interface UseCAIPEHealthResult {
@@ -18,6 +19,7 @@ interface UseCAIPEHealthResult {
   lastChecked: Date | null;
   secondsUntilNextCheck: number;
   agents: AgentInfo[];
+  tags: string[];
   checkNow: () => void;
 }
 
@@ -30,6 +32,7 @@ export function useCAIPEHealth(): UseCAIPEHealthResult {
   const [lastChecked, setLastChecked] = useState<Date | null>(null);
   const [secondsUntilNextCheck, setSecondsUntilNextCheck] = useState(0);
   const [agents, setAgents] = useState<AgentInfo[]>([]);
+  const [tags, setTags] = useState<string[]>([]);
   const nextCheckTimeRef = useRef<number>(Date.now() + POLL_INTERVAL_MS);
   const url = config.caipeUrl;
 
@@ -60,38 +63,57 @@ export function useCAIPEHealth(): UseCAIPEHealthResult {
       setLastChecked(new Date());
       nextCheckTimeRef.current = Date.now() + POLL_INTERVAL_MS;
 
-      // Try to parse agent card to get available agents
+      // Try to parse agent card to get available agents and tags
       if (response.ok) {
         try {
           const agentCard = await response.json();
-          // Extract available agents from the agent card
-          // The agent card may have different structures, try to be flexible
           const availableAgents: AgentInfo[] = [];
+          const allTags: string[] = [];
           
+          // Extract tags from skills array
+          if (agentCard.skills && Array.isArray(agentCard.skills)) {
+            agentCard.skills.forEach((skill: any) => {
+              if (skill.tags && Array.isArray(skill.tags)) {
+                allTags.push(...skill.tags);
+              }
+              // Also add skill as an agent
+              availableAgents.push({
+                name: skill.name || skill.id || 'Unknown',
+                description: skill.description,
+                tags: skill.tags
+              });
+            });
+          }
+          
+          // Legacy: Extract agents from other structures
           if (agentCard.agents && Array.isArray(agentCard.agents)) {
-            // If agents is an array of objects with name/description
             availableAgents.push(...agentCard.agents.map((agent: any) => ({
               name: agent.name || agent.id || 'Unknown',
-              description: agent.description
+              description: agent.description,
+              tags: agent.tags
             })));
           } else if (agentCard.capabilities && Array.isArray(agentCard.capabilities)) {
-            // Alternative: capabilities array
             availableAgents.push(...agentCard.capabilities.map((cap: any) => ({
               name: cap.name || cap.type || 'Unknown',
               description: cap.description
             })));
-          } else if (agentCard.name) {
-            // Single agent (supervisor)
+          } else if (agentCard.name && availableAgents.length === 0) {
+            // Single agent (supervisor) - only if no skills found
             availableAgents.push({
               name: agentCard.name,
               description: agentCard.description
             });
           }
           
+          // Remove duplicates from tags and sort
+          const uniqueTags = Array.from(new Set(allTags)).sort();
+          
           setAgents(availableAgents);
+          setTags(uniqueTags);
         } catch (parseError) {
           // Failed to parse agent card, but server is still reachable
           setAgents([]);
+          setTags([]);
         }
       }
     } catch (error) {
@@ -137,6 +159,7 @@ export function useCAIPEHealth(): UseCAIPEHealthResult {
     lastChecked,
     secondsUntilNextCheck,
     agents,
+    tags,
     checkNow: checkHealth,
   };
 }
