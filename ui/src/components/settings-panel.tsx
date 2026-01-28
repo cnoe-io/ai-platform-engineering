@@ -98,11 +98,11 @@ export function SettingsPanel() {
 
     if (savedFontSize) {
       setFontSize(savedFontSize);
-      document.documentElement.setAttribute("data-font-size", savedFontSize);
+      document.body.setAttribute("data-font-size", savedFontSize);
     }
     if (savedFontFamily) {
       setFontFamily(savedFontFamily);
-      document.documentElement.setAttribute("data-font-family", savedFontFamily);
+      document.body.setAttribute("data-font-family", savedFontFamily);
     }
     if (savedGradientTheme) {
       setGradientTheme(savedGradientTheme);
@@ -117,14 +117,14 @@ export function SettingsPanel() {
   const handleFontSizeChange = (size: FontSize) => {
     setFontSize(size);
     localStorage.setItem("caipe-font-size", size);
-    document.documentElement.setAttribute("data-font-size", size);
+    document.body.setAttribute("data-font-size", size);
   };
 
   // Apply font family
   const handleFontFamilyChange = (family: FontFamily) => {
     setFontFamily(family);
     localStorage.setItem("caipe-font-family", family);
-    document.documentElement.setAttribute("data-font-family", family);
+    document.body.setAttribute("data-font-family", family);
   };
 
   // Apply gradient theme
