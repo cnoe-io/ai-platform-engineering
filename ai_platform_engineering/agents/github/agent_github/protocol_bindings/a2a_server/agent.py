@@ -17,7 +17,7 @@ from pydantic import BaseModel
 
 from ai_platform_engineering.utils.a2a_common.base_langgraph_agent import BaseLangGraphAgent
 from ai_platform_engineering.utils.subagent_prompts import load_subagent_prompt_config
-from agent_github.tools import get_gh_cli_tool
+from ai_platform_engineering.agents.github.agent_github.tools import get_gh_cli_tool
 
 logger = logging.getLogger(__name__)
 

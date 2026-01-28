@@ -85,9 +85,18 @@ agent_prompts:
       - Aurora/RDS PostgreSQL database queries and operations
       - AWS Support case management and Trusted Advisor recommendations
       - AWS Knowledge Base queries for service information and best practices
+  aigateway:
+    system_prompt: |
+      If the user's prompt is related to AI Gateway or LiteLLM operations, such as creating LLM API keys, checking user spend and activity, listing available AI models, or managing API access, assign the task to the AIGateway agent.
   backstage:
     system_prompt: |
       If the user's prompt is related to Backstage operations, such as get backstage project, service, assign the task to the Backstage agent.
+  caipe:
+    system_prompt: |
+      If the user interaction requires collecting structured input via forms, requesting user confirmation, or handling human-in-the-loop workflows, use the CAIPE agent to manage the interaction.
+  myid:
+    system_prompt: |
+      If the user's prompt is related to MyID or Active Directory operations, such as adding users to MyID groups, inviting users to GitHub organizations, listing MyID groups, or finding users in AD groups, assign the task to the MyID agent.
   confluence:
     system_prompt: |
       If the user's prompt is related to Confluence operations, such as creating a new Confluence page, updating an existing page, retrieving the content of a page, or searching for pages, assign the task to the Confluence agent.
@@ -122,6 +131,10 @@ agent_prompts:
 agent_skill_examples:
   general:
     - "What can you do?"
+  aigateway:
+    - "Create an LLM API key for my project"
+    - "Check my API spend this month"
+    - "List available AI models"
   argocd:
     - "Get the status of applications"
     - "Sync an application to the latest version"
@@ -160,6 +173,11 @@ agent_skill_examples:
   komodor:
     - "Show health risks for clusters"
     - "Trigger a root cause analysis"
+  myid:
+    - "Add users to a MyID group"
+    - "Invite users to the GitHub organization"
+    - "List my MyID groups"
+    - "Find users in an AD group"
   webex:
     - "Send a message to a room"
     - "Get recent messages from a room"
