@@ -7,11 +7,17 @@ export type HealthStatus = "checking" | "connected" | "disconnected";
 
 const POLL_INTERVAL_MS = 30000; // 30 seconds
 
+interface AgentInfo {
+  name: string;
+  description?: string;
+}
+
 interface UseCAIPEHealthResult {
   status: HealthStatus;
   url: string;
   lastChecked: Date | null;
   secondsUntilNextCheck: number;
+  agents: AgentInfo[];
   checkNow: () => void;
 }
 
@@ -23,6 +29,7 @@ export function useCAIPEHealth(): UseCAIPEHealthResult {
   const [status, setStatus] = useState<HealthStatus>("checking");
   const [lastChecked, setLastChecked] = useState<Date | null>(null);
   const [secondsUntilNextCheck, setSecondsUntilNextCheck] = useState(0);
+  const [agents, setAgents] = useState<AgentInfo[]>([]);
   const nextCheckTimeRef = useRef<number>(Date.now() + POLL_INTERVAL_MS);
   const url = config.caipeUrl;
 
@@ -52,6 +59,41 @@ export function useCAIPEHealth(): UseCAIPEHealthResult {
       setStatus("connected");
       setLastChecked(new Date());
       nextCheckTimeRef.current = Date.now() + POLL_INTERVAL_MS;
+
+      // Try to parse agent card to get available agents
+      if (response.ok) {
+        try {
+          const agentCard = await response.json();
+          // Extract available agents from the agent card
+          // The agent card may have different structures, try to be flexible
+          const availableAgents: AgentInfo[] = [];
+          
+          if (agentCard.agents && Array.isArray(agentCard.agents)) {
+            // If agents is an array of objects with name/description
+            availableAgents.push(...agentCard.agents.map((agent: any) => ({
+              name: agent.name || agent.id || 'Unknown',
+              description: agent.description
+            })));
+          } else if (agentCard.capabilities && Array.isArray(agentCard.capabilities)) {
+            // Alternative: capabilities array
+            availableAgents.push(...agentCard.capabilities.map((cap: any) => ({
+              name: cap.name || cap.type || 'Unknown',
+              description: cap.description
+            })));
+          } else if (agentCard.name) {
+            // Single agent (supervisor)
+            availableAgents.push({
+              name: agentCard.name,
+              description: agentCard.description
+            });
+          }
+          
+          setAgents(availableAgents);
+        } catch (parseError) {
+          // Failed to parse agent card, but server is still reachable
+          setAgents([]);
+        }
+      }
     } catch (error) {
       // Network error or timeout
       if (error instanceof Error && error.name === "AbortError") {
@@ -94,6 +136,7 @@ export function useCAIPEHealth(): UseCAIPEHealthResult {
     url,
     lastChecked,
     secondsUntilNextCheck,
+    agents,
     checkNow: checkHealth,
   };
 }
