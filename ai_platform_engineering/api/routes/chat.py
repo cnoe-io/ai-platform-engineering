@@ -31,18 +31,33 @@ from ai_platform_engineering.database.models import (
     UpdateUserPreferencesRequest,
 )
 from ai_platform_engineering.services.chat_service import ChatService
+from ai_platform_engineering.services.audit_service import AuditService
+from ai_platform_engineering.services.notification_service import NotificationService
 
 logger = logging.getLogger(__name__)
 
-# Create router
+# Create routers
 router = APIRouter(prefix="/api/chat", tags=["chat"])
 users_router = APIRouter(prefix="/api/users", tags=["users"])
+notifications_router = APIRouter(prefix="/api/notifications", tags=["notifications"])
 
 
-# Dependency to get chat service
+# Dependency to get services
 def get_chat_service(mongodb: MongoDBManager = Depends(get_mongodb)) -> ChatService:
-    """Get chat service instance."""
-    return ChatService(mongodb)
+    """Get chat service instance with audit and notification services."""
+    audit_service = AuditService(mongodb)
+    notification_service = NotificationService(mongodb)
+    return ChatService(mongodb, audit_service, notification_service)
+
+
+def get_audit_service(mongodb: MongoDBManager = Depends(get_mongodb)) -> AuditService:
+    """Get audit service instance."""
+    return AuditService(mongodb)
+
+
+def get_notification_service(mongodb: MongoDBManager = Depends(get_mongodb)) -> NotificationService:
+    """Get notification service instance."""
+    return NotificationService(mongodb)
 
 
 # Dependency to get current user (mock for now, will integrate with NextAuth)
@@ -483,4 +498,178 @@ async def update_preferences(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to update preferences: {str(e)}",
+        )
+
+
+# ============================================================================
+# Notifications
+# ============================================================================
+
+@notifications_router.get("/")
+async def get_notifications(
+    status: Optional[Literal["unread", "read", "archived"]] = None,
+    limit: int = 50,
+    current_user: User = Depends(get_current_user),
+    service: NotificationService = Depends(get_notification_service),
+):
+    """Get notifications for current user.
+    
+    Args:
+        status: Filter by status
+        limit: Maximum number of notifications
+        current_user: Authenticated user
+        service: Notification service
+        
+    Returns:
+        List of notifications
+    """
+    try:
+        notifications = await service.get_user_notifications(
+            user_id=current_user.id,
+            status=status,
+            limit=limit,
+        )
+        return JSONResponse(content={
+            "notifications": [
+                {**n, "_id": str(n["_id"]), "recipient_id": str(n["recipient_id"])}
+                for n in notifications
+            ]
+        })
+    except Exception as e:
+        logger.error(f"Failed to get notifications: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get notifications: {str(e)}",
+        )
+
+
+@notifications_router.get("/unread/count")
+async def get_unread_count(
+    current_user: User = Depends(get_current_user),
+    service: NotificationService = Depends(get_notification_service),
+):
+    """Get count of unread notifications.
+    
+    Args:
+        current_user: Authenticated user
+        service: Notification service
+        
+    Returns:
+        Unread count
+    """
+    try:
+        count = await service.get_unread_count(user_id=current_user.id)
+        return JSONResponse(content={"count": count})
+    except Exception as e:
+        logger.error(f"Failed to get unread count: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get unread count: {str(e)}",
+        )
+
+
+@notifications_router.put("/{notification_id}/read")
+async def mark_notification_as_read(
+    notification_id: UUID,
+    current_user: User = Depends(get_current_user),
+    service: NotificationService = Depends(get_notification_service),
+):
+    """Mark notification as read.
+    
+    Args:
+        notification_id: Notification UUID
+        current_user: Authenticated user
+        service: Notification service
+        
+    Returns:
+        Success response
+    """
+    try:
+        marked = await service.mark_as_read(
+            notification_id=notification_id,
+            user_id=current_user.id,
+        )
+        
+        if not marked:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Notification not found",
+            )
+        
+        return JSONResponse(content={"success": True, "message": "Notification marked as read"})
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to mark notification as read: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to mark notification as read: {str(e)}",
+        )
+
+
+@notifications_router.put("/mark-all-read")
+async def mark_all_notifications_as_read(
+    current_user: User = Depends(get_current_user),
+    service: NotificationService = Depends(get_notification_service),
+):
+    """Mark all notifications as read.
+    
+    Args:
+        current_user: Authenticated user
+        service: Notification service
+        
+    Returns:
+        Success response with count
+    """
+    try:
+        count = await service.mark_all_as_read(user_id=current_user.id)
+        return JSONResponse(content={
+            "success": True,
+            "message": f"{count} notifications marked as read",
+            "count": count,
+        })
+    except Exception as e:
+        logger.error(f"Failed to mark all as read: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to mark all as read: {str(e)}",
+        )
+
+
+@notifications_router.delete("/{notification_id}")
+async def delete_notification(
+    notification_id: UUID,
+    current_user: User = Depends(get_current_user),
+    service: NotificationService = Depends(get_notification_service),
+):
+    """Delete a notification.
+    
+    Args:
+        notification_id: Notification UUID
+        current_user: Authenticated user
+        service: Notification service
+        
+    Returns:
+        Success response
+    """
+    try:
+        deleted = await service.delete_notification(
+            notification_id=notification_id,
+            user_id=current_user.id,
+        )
+        
+        if not deleted:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Notification not found",
+            )
+        
+        return JSONResponse(content={"success": True, "message": "Notification deleted"})
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to delete notification: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to delete notification: {str(e)}",
         )
