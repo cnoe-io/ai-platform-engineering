@@ -1227,24 +1227,26 @@ function ChatMessage({
                           {children}
                         </blockquote>
                       ),
-                      // Tables
+                      // Tables - with horizontal scroll for wide tables
                       table: ({ children }) => (
-                        <div className="overflow-x-auto my-3 rounded-lg border border-border/50 w-full">
-                          <table className="w-full text-sm">
-                            {children}
-                          </table>
+                        <div className="my-3 overflow-x-auto rounded-lg border border-border/50 w-full">
+                          <div className="min-w-max">
+                            <table className="w-full text-sm">
+                              {children}
+                            </table>
+                          </div>
                         </div>
                       ),
                       thead: ({ children }) => (
                         <thead className="bg-muted/50">{children}</thead>
                       ),
                       th: ({ children }) => (
-                        <th className="px-3 py-2 text-left font-semibold text-foreground border-b border-border/50 break-words">
+                        <th className="px-3 py-2 text-left font-semibold text-foreground border-b border-border/50 whitespace-nowrap">
                           {children}
                         </th>
                       ),
                       td: ({ children }) => (
-                        <td className="px-3 py-2 border-b border-border/30 text-foreground/90 break-words align-top">
+                        <td className="px-3 py-2 border-b border-border/30 text-foreground/90 align-top">
                           {children}
                         </td>
                       ),
