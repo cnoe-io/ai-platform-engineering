@@ -239,9 +239,12 @@
     @apply bg-card/80 backdrop-blur-xl border border-border/50;
   }
 
-  /* Gradient text - CopilotKit style */
+  /* Gradient text - Uses theme gradient colors */
   .gradient-text {
-    @apply bg-gradient-to-r from-[hsl(var(--gradient-start))] via-[hsl(var(--gradient-mid))] to-[hsl(var(--gradient-end))] bg-clip-text text-transparent;
+    background: linear-gradient(to right, var(--gradient-from), var(--gradient-to));
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
   }
 
   /* Glow effect for primary elements */

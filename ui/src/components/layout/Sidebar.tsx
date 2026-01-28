@@ -202,7 +202,12 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
             /* Expanded state - Full content */
             <div className="flex-1 flex flex-col p-4">
               {/* Prominent Use Cases info */}
-              <div className="relative overflow-hidden rounded-xl bg-gradient-to-br from-primary/20 via-primary/15 to-transparent border border-primary/20 p-4 mb-4">
+              <div 
+                className="relative overflow-hidden rounded-xl border border-primary/20 p-4 mb-4"
+                style={{
+                  background: `linear-gradient(to bottom right, color-mix(in srgb, var(--gradient-from) 20%, transparent), color-mix(in srgb, var(--gradient-to) 15%, transparent), transparent)`
+                }}
+              >
                 <div className="relative">
                   <div className="w-10 h-10 mb-3 rounded-xl gradient-primary-br flex items-center justify-center shadow-lg shadow-primary/30">
                     <Sparkles className="h-5 w-5 text-white" />

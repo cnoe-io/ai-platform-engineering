@@ -14,8 +14,18 @@ export function LoadingScreen({ message = "Loading..." }: LoadingScreenProps) {
   return (
     <div className="min-h-screen flex flex-col items-center justify-center bg-background relative overflow-hidden">
       {/* Background gradient */}
-      <div className="absolute inset-0 bg-gradient-to-br from-primary/10 via-transparent to-primary/10" />
-      <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-primary/5 via-transparent to-transparent" />
+      <div 
+        className="absolute inset-0" 
+        style={{
+          background: `linear-gradient(to bottom right, color-mix(in srgb, var(--gradient-from) 10%, transparent), transparent, color-mix(in srgb, var(--gradient-to) 10%, transparent))`
+        }}
+      />
+      <div 
+        className="absolute inset-0" 
+        style={{
+          background: `radial-gradient(ellipse at center, color-mix(in srgb, var(--gradient-from) 5%, transparent), transparent)`
+        }}
+      />
 
       <div className="relative z-10 flex flex-col items-center gap-6">
         {/* Logo with glow effect */}
