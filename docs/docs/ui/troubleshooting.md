@@ -474,7 +474,7 @@ npm run build
 module.exports = {
   // Disable source maps in production
   productionBrowserSourceMaps: false,
-  
+
   // Enable SWC minification
   swcMinify: true,
 };
@@ -585,7 +585,7 @@ performance.getEntriesByType('navigation')[0]
 ```typescript
 useEffect(() => {
   const eventSource = new EventSource(url);
-  
+
   // ✅ Always clean up
   return () => {
     eventSource.close();
@@ -599,7 +599,7 @@ useEffect(() => {
 useEffect(() => {
   const handler = () => { /* ... */ };
   window.addEventListener('resize', handler);
-  
+
   // ✅ Clean up
   return () => {
     window.removeEventListener('resize', handler);
@@ -612,7 +612,7 @@ useEffect(() => {
 ```typescript
 useEffect(() => {
   const interval = setInterval(() => { /* ... */ }, 1000);
-  
+
   // ✅ Clean up
   return () => {
     clearInterval(interval);

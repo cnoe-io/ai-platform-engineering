@@ -174,7 +174,9 @@ Real-time visualization of Agent-to-Agent protocol messages provides transparenc
 
 ### 5. A2UI Widget Support
 
-The UI implements custom widgets following the A2UI specification for declarative UI components that agents can render. This is a custom implementation inspired by A2UI standards, not using the AG-UI or CopilotKit libraries directly.
+The UI implements custom widgets following the [A2UI specification](https://a2ui.org/) for declarative UI components that agents can render. This is a custom implementation inspired by A2UI v0.8 standards, not using the AG-UI or CopilotKit libraries directly.
+
+**Status**: The A2UI renderer is fully implemented but currently dormant. See [A2UI Integration Guide](a2ui-integration.md) for detailed documentation on implementation, activation, and usage.
 
 #### Available Widgets
 
@@ -469,10 +471,11 @@ The CAIPE UI follows an **implementation-over-library** approach for key protoco
 - **Location**: `ui/src/lib/a2a-sdk-client.ts`
 
 #### A2UI & AG-UI
-- **Specifications**: A2UI declarative UI spec, AG-UI interaction patterns
+- **Specifications**: [A2UI v0.8](https://a2ui.org/) declarative UI spec, AG-UI interaction patterns
 - **Implementation**: Custom widget components in `components/a2a/widgets/`
 - **Why Custom**: Full control over styling, behavior, and integration with CAIPE's design system
 - **Not using**: `@copilotkit/react-ui` or `@ag-ui/client` libraries (installed for reference)
+- **Documentation**: See [A2UI Integration Guide](a2ui-integration.md) for complete details
 
 #### Benefits of Custom Implementation
 1. **Performance**: No unnecessary abstractions or unused features

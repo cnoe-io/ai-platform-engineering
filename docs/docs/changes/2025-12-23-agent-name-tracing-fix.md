@@ -1,8 +1,8 @@
 # ADR: Agent Name Tracing Fix for LangGraph Observations
 
-**Status**: 🟢 In-use  
-**Category**: Bug Fixes & Performance  
-**Date**: December 23, 2025  
+**Status**: 🟢 In-use
+**Category**: Bug Fixes & Performance
+**Date**: December 23, 2025
 **Signed-off-by**: Sri Aradhyula &lt;sraradhy@cisco.com&gt;
 
 ## Overview / Summary

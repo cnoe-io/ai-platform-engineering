@@ -16,7 +16,7 @@ APP_NAME ?= ai-platform-engineering
 	lint lint-fix test test-compose-generator test-compose-generator-coverage \
 	test-rag-unit test-rag-coverage test-rag-memory test-rag-scale validate lock-all help \
 	beads-gh-issues-sync beads-gh-issues-sync-run beads-list beads-ready beads-sync \
-	caipe-ui caipe-ui-install caipe-ui-build caipe-ui-dev \
+	caipe-ui caipe-ui-install caipe-ui-build caipe-ui-dev caipe-ui-tests caipe-ui-test \
 	build-caipe-ui run-caipe-ui-docker caipe-ui-docker-compose \
 	docs docs-install docs-build docs-dev docs-start docs-serve
 
@@ -132,6 +132,12 @@ caipe-ui-build: caipe-ui-install ## Build CAIPE UI for production
 caipe-ui-dev: ## Run CAIPE UI in development mode
 	@echo "Starting CAIPE UI development server..."
 	@cd ui && npm run dev
+
+caipe-ui-tests: ## Run CAIPE UI Jest tests
+	@echo "Running CAIPE UI tests..."
+	@cd ui && npm test
+
+caipe-ui-test: caipe-ui-tests ## Alias for caipe-ui-tests
 
 # Docker targets for CAIPE UI
 CAIPE_UI_IMAGE ?= caipe-ui

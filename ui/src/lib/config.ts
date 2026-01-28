@@ -29,7 +29,7 @@ export interface Config {
 /**
  * Get runtime environment variable from window.__ENV__ (injected at container startup)
  * Falls back to process.env for build-time values
- * 
+ *
  * Note: In Next.js, process.env.NEXT_PUBLIC_* cannot be accessed dynamically.
  * We must map each variable explicitly.
  */
@@ -38,7 +38,7 @@ function getRuntimeEnv(key: string): string | undefined {
   if (typeof window !== 'undefined' && (window as any).__ENV__) {
     return (window as any).__ENV__[key];
   }
-  
+
   // Fallback to process.env (build-time replacements by Next.js)
   // Next.js replaces these at build time, so we must access them directly
   if (typeof process !== 'undefined') {
@@ -55,7 +55,7 @@ function getRuntimeEnv(key: string): string | undefined {
         return undefined;
     }
   }
-  
+
   return undefined;
 }
 

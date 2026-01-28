@@ -15,6 +15,7 @@ function LoginContent() {
   const searchParams = useSearchParams();
   const [isLoading, setIsLoading] = useState(false);
   const error = searchParams.get("error");
+  const sessionExpired = searchParams.get("session_expired") === "true";
   const callbackUrl = searchParams.get("callbackUrl") || "/";
 
   // Redirect if already logged in
@@ -88,8 +89,27 @@ function LoginContent() {
 
             {/* Content */}
             <div className="p-8">
+              {/* Session Expired Message */}
+              {sessionExpired && (
+                <motion.div
+                  initial={{ opacity: 0, y: -10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="mb-6 p-4 rounded-lg bg-amber-500/10 border border-amber-500/30 flex items-start gap-3"
+                >
+                  <AlertCircle className="h-5 w-5 text-amber-500 shrink-0 mt-0.5" />
+                  <div>
+                    <p className="text-sm font-medium text-amber-500">
+                      Session Expired
+                    </p>
+                    <p className="text-xs text-amber-500/80 mt-1">
+                      Your authentication session has expired. Please sign in again to continue.
+                    </p>
+                  </div>
+                </motion.div>
+              )}
+
               {/* Error Message */}
-              {error && (
+              {error && !sessionExpired && (
                 <motion.div
                   initial={{ opacity: 0, y: -10 }}
                   animate={{ opacity: 1, y: 0 }}

@@ -45,7 +45,7 @@ const DIFFICULTY_LEVELS = [
 
 export function UseCaseBuilder({ onSuccess, existingUseCase }: UseCaseBuilderProps) {
   const isEditMode = !!existingUseCase;
-  
+
   const [formData, setFormData] = useState({
     title: existingUseCase?.title || "",
     description: existingUseCase?.description || "",
@@ -129,10 +129,10 @@ export function UseCaseBuilder({ onSuccess, existingUseCase }: UseCaseBuilderPro
         difficulty: formData.difficulty,
       };
 
-      const url = isEditMode 
+      const url = isEditMode
         ? `/api/usecases?id=${existingUseCase!.id}`
         : "/api/usecases";
-      
+
       const response = await fetch(url, {
         method: isEditMode ? "PUT" : "POST",
         headers: {
@@ -147,7 +147,7 @@ export function UseCaseBuilder({ onSuccess, existingUseCase }: UseCaseBuilderPro
       }
 
       setSubmitStatus("success");
-      
+
       // Reset form only if creating new use case
       if (!isEditMode) {
         setFormData({
@@ -447,7 +447,7 @@ export function UseCaseBuilderDialog({
                 {isEditMode ? "Edit Use Case" : "Use Case Builder"}
               </DialogTitle>
               <DialogDescription>
-                {isEditMode 
+                {isEditMode
                   ? "Update the use case details, system prompt, and agent configurations"
                   : "Create custom use cases with system prompts and agent configurations"
                 }
