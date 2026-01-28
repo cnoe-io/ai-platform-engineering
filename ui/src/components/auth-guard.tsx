@@ -30,6 +30,18 @@ export function AuthGuard({ children }: AuthGuardProps) {
     setSsoEnabled(enabled);
   }, []);
 
+  // Timeout fallback: If auth check takes too long (10s), force authChecked to prevent infinite loading
+  useEffect(() => {
+    if (ssoEnabled && status !== "loading" && !authChecked) {
+      const timeoutId = setTimeout(() => {
+        console.warn("[AuthGuard] Auth check timeout - forcing authChecked to prevent stuck state");
+        setAuthChecked(true);
+      }, 10000); // 10 second timeout
+
+      return () => clearTimeout(timeoutId);
+    }
+  }, [ssoEnabled, status, authChecked]);
+
   useEffect(() => {
     // Only redirect if SSO is enabled
     if (ssoEnabled === null) {
@@ -60,18 +72,24 @@ export function AuthGuard({ children }: AuthGuardProps) {
       if (isTokenExpiryHandling) {
         // Let TokenExpiryGuard handle the expiry with its modal
         console.log("[AuthGuard] TokenExpiryGuard is handling expiry, skipping redirect");
+        // Still set authChecked to true to prevent infinite loading
+        setAuthChecked(true);
         return;
       }
 
       // Check if token refresh failed
       if (session?.error === "RefreshTokenExpired" || session?.error === "RefreshTokenError") {
         console.warn("[AuthGuard] Token refresh failed, redirecting to login...");
+        // Set authChecked before redirect to prevent stuck state
+        setAuthChecked(true);
         router.push("/login?session_expired=true");
         return;
       }
 
       // Check if user is authorized (has required group)
       if (session?.isAuthorized === false) {
+        // Set authChecked before redirect to prevent stuck state
+        setAuthChecked(true);
         router.push("/unauthorized");
         return;
       }
@@ -84,8 +102,15 @@ export function AuthGuard({ children }: AuthGuardProps) {
 
       if (tokenExpiry && isTokenExpired(tokenExpiry, 60)) {
         console.warn("[AuthGuard] Token expired without refresh, redirecting to login...");
+        // Set authChecked before redirect to prevent stuck state
+        setAuthChecked(true);
         router.push("/login?session_expired=true");
         return;
+      }
+
+      // Clear any stale token-expiry-handling flag (auth check passed)
+      if (typeof window !== 'undefined') {
+        sessionStorage.removeItem('token-expiry-handling');
       }
 
       setAuthChecked(true);
