@@ -77,10 +77,12 @@ export function ChatPanel({ endpoint }: ChatPanelProps) {
     const viewport = scrollViewportRef.current;
     if (!viewport) return true;
 
-    const threshold = 100; // pixels from bottom
+    // During streaming, use a much larger threshold to prevent false positives
+    // when content updates faster than scroll can complete
+    const threshold = isThisConversationStreaming ? 300 : 100; // pixels from bottom
     const { scrollTop, scrollHeight, clientHeight } = viewport;
     return scrollHeight - scrollTop - clientHeight < threshold;
-  }, []);
+  }, [isThisConversationStreaming]);
 
   // Scroll to bottom with smooth animation
   const scrollToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
@@ -101,10 +103,28 @@ export function ChatPanel({ endpoint }: ChatPanelProps) {
     // Ignore scroll events caused by auto-scrolling
     if (isAutoScrollingRef.current) return;
 
-    const nearBottom = isNearBottom();
-    setIsUserScrolledUp(!nearBottom);
-    setShowScrollButton(!nearBottom);
-  }, [isNearBottom]);
+    // During streaming, be more lenient before showing scroll button
+    // to avoid false positives from fast content updates
+    if (isThisConversationStreaming) {
+      // Only update state if we're significantly away from bottom
+      const viewport = scrollViewportRef.current;
+      if (!viewport) return;
+      
+      const { scrollTop, scrollHeight, clientHeight } = viewport;
+      const distanceFromBottom = scrollHeight - scrollTop - clientHeight;
+      
+      // Only show button if user has scrolled up significantly (more than 500px)
+      if (distanceFromBottom > 500) {
+        setIsUserScrolledUp(true);
+        setShowScrollButton(true);
+      }
+    } else {
+      // Normal behavior when not streaming
+      const nearBottom = isNearBottom();
+      setIsUserScrolledUp(!nearBottom);
+      setShowScrollButton(!nearBottom);
+    }
+  }, [isNearBottom, isThisConversationStreaming]);
 
   // Set up scroll listener
   useEffect(() => {
