@@ -26,7 +26,7 @@ import {
   terminateJob,
   WEBLOADER_INGESTOR_ID,
   CONFLUENCE_INGESTOR_ID
-} from './api'
+} from './api/index'
 import { getIconForType } from './typeConfig'
 
 export default function IngestView() {
@@ -793,6 +793,153 @@ export default function IngestView() {
           </div>
         )}
         </details>
+      </section>
+
+      {/* Ingestors Section */}
+      <section className="bg-card rounded-lg shadow-sm border border-border mb-6 p-5">
+        {ingestors.length > 0 || loadingIngestors ? (
+          <details className="group">
+            <summary className="cursor-pointer text-base font-semibold text-foreground hover:text-foreground/80 flex items-center justify-between">
+              <span>Ingestors ({ingestors.length})</span>
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={(e) => { e.stopPropagation(); fetchIngestors(); }}
+                  disabled={loadingIngestors}
+                  className="px-3 py-1 bg-muted hover:bg-muted/80 text-muted-foreground rounded text-sm transition-colors disabled:opacity-50"
+                >
+                  {loadingIngestors ? 'Refreshing...' : 'Refresh'}
+                </button>
+                <span className="text-xs text-muted-foreground group-open:rotate-180 transition-transform">▼</span>
+              </div>
+            </summary>
+            <div className="mt-4">
+              {loadingIngestors ? (
+                <p className="text-muted-foreground text-xs">Loading ingestors...</p>
+              ) : ingestors.length > 0 ? (
+                <div className="overflow-x-auto">
+                  <table className="min-w-full text-xs text-left text-muted-foreground">
+                    <thead className="text-xs text-foreground uppercase bg-muted">
+                      <tr>
+                        <th scope="col" className="px-3 py-2">Ingestor</th>
+                        <th scope="col" className="px-3 py-2">Type</th>
+                        <th scope="col" className="px-3 py-2">Last Seen</th>
+                        <th scope="col" className="px-3 py-2">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {ingestors.map(ingestor => {
+                        const isExpanded = expandedIngestors.has(ingestor.ingestor_id)
+                        const isDefaultWebloader = ingestor.ingestor_id === WEBLOADER_INGESTOR_ID
+                        const icon = getIconForType(ingestor.ingestor_type);
+
+                        return (
+                          <React.Fragment key={ingestor.ingestor_id}>
+                            <tr className="bg-card border-b border-border hover:bg-muted/50 cursor-pointer text-xs" onClick={() => toggleIngestor(ingestor.ingestor_id)}>
+                              <td className="px-3 py-2 font-medium text-foreground whitespace-nowrap flex items-center gap-2" title={ingestor.ingestor_id}>
+                                <span className="text-muted-foreground font-mono text-sm select-none">
+                                  {isExpanded ? '−' : '+'}
+                                </span>
+                                {icon && <span className="text-base">{icon}</span>}
+                                {ingestor.ingestor_name}
+                              </td>
+                              <td className="px-3 py-2">{ingestor.ingestor_type}</td>
+                              <td className="px-3 py-2" title={ingestor.last_seen ? new Date(ingestor.last_seen * 1000).toLocaleString() : 'Never'}>
+                                {ingestor.last_seen ? formatRelativeTime(ingestor.last_seen) : 'Never'}
+                              </td>
+                              <td className="px-3 py-2">
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); setShowDeleteIngestorConfirm(ingestor.ingestor_id); }}
+                                  className="bg-destructive hover:bg-destructive/90 text-destructive-foreground font-bold py-1 px-2 rounded text-xs disabled:opacity-50 disabled:cursor-not-allowed"
+                                  disabled={isDefaultWebloader}
+                                  title={isDefaultWebloader ? 'Cannot delete default webloader ingestor' : 'Delete this ingestor (metadata only)'}
+                                >
+                                  Delete
+                                </button>
+                              </td>
+                            </tr>
+                            {isExpanded && (
+                              <tr className="bg-muted/30">
+                                <td colSpan={4} className="p-4">
+                                  <div className="bg-card rounded-lg p-4 shadow-sm border border-border">
+                                    <div className="grid grid-cols-2 gap-4 text-xs mb-4">
+                                      <div>
+                                        <p className="text-xs font-medium text-muted-foreground mb-1">Ingestor ID</p>
+                                        <p className="font-mono text-xs text-foreground break-all">{ingestor.ingestor_id}</p>
+                                      </div>
+                                      <div>
+                                        <p className="text-xs font-medium text-muted-foreground mb-1">Name</p>
+                                        <p className="text-foreground">{ingestor.ingestor_name}</p>
+                                      </div>
+                                      <div>
+                                        <p className="text-xs font-medium text-muted-foreground mb-1">Type</p>
+                                        <p className="text-foreground">{ingestor.ingestor_type}</p>
+                                      </div>
+                                      <div>
+                                        <p className="text-xs font-medium text-muted-foreground mb-1">Last Seen</p>
+                                        <p className="text-foreground">
+                                          {ingestor.last_seen ? new Date(ingestor.last_seen * 1000).toLocaleString() : 'Never'}
+                                        </p>
+                                      </div>
+                                    </div>
+
+                                    {ingestor.description && (
+                                      <div className="mb-4">
+                                        <p className="text-xs font-medium text-muted-foreground mb-1">Description</p>
+                                        <p className="text-sm text-foreground bg-muted/50 p-3 rounded">{ingestor.description}</p>
+                                      </div>
+                                    )}
+
+                                    {ingestor.metadata && Object.keys(ingestor.metadata).length > 0 && (
+                                      <details className="rounded-lg bg-muted/50 p-3">
+                                        <summary className="cursor-pointer text-xs font-semibold text-foreground hover:text-foreground/80">
+                                          Metadata ({Object.keys(ingestor.metadata).length} {Object.keys(ingestor.metadata).length === 1 ? 'field' : 'fields'})
+                                        </summary>
+                                        <div className="mt-2">
+                                          <SyntaxHighlighter
+                                            language="json"
+                                            style={vscDarkPlus}
+                                            customStyle={{
+                                              margin: 0,
+                                              borderRadius: '0.375rem',
+                                              fontSize: '0.75rem',
+                                              maxHeight: '300px'
+                                            }}
+                                          >
+                                            {JSON.stringify(ingestor.metadata, null, 2)}
+                                          </SyntaxHighlighter>
+                                        </div>
+                                      </details>
+                                    )}
+                                  </div>
+                                </td>
+                              </tr>
+                            )}
+                          </React.Fragment>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <p className="text-muted-foreground text-xs">No ingestors found.</p>
+              )}
+            </div>
+          </details>
+        ) : (
+          <div>
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-base font-semibold text-foreground">Ingestors</h3>
+              <button
+                onClick={() => fetchIngestors()}
+                disabled={loadingIngestors}
+                className="px-3 py-1 bg-muted hover:bg-muted/80 text-muted-foreground rounded text-sm transition-colors disabled:opacity-50"
+              >
+                {loadingIngestors ? 'Refreshing...' : 'Refresh'}
+              </button>
+            </div>
+            <p className="text-muted-foreground">No ingestors found. Ingestors are background services that process and ingest data from various sources.</p>
+          </div>
+        )}
       </section>
 
       {/* Delete Data Source Confirmation Dialog */}
