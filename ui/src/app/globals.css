@@ -536,3 +536,33 @@ pre code.hljs {
   background-clip: text;
   -webkit-text-fill-color: transparent;
 }
+
+/* ========================================
+   MARKDOWN TABLE SCROLLING
+   ======================================== */
+
+/* Ensure tables can scroll horizontally */
+.overflow-x-auto {
+  overflow-x: auto;
+  overflow-y: visible;
+  -webkit-overflow-scrolling: touch; /* Smooth scrolling on iOS */
+}
+
+/* Add subtle scroll indicator shadow */
+.overflow-x-auto::-webkit-scrollbar {
+  height: 8px;
+}
+
+.overflow-x-auto::-webkit-scrollbar-track {
+  background: hsl(var(--muted));
+  border-radius: 4px;
+}
+
+.overflow-x-auto::-webkit-scrollbar-thumb {
+  background: hsl(var(--muted-foreground) / 0.3);
+  border-radius: 4px;
+}
+
+.overflow-x-auto::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--muted-foreground) / 0.5);
+}
