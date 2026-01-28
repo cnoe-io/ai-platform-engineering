@@ -1,3 +1,9 @@
+## 0.2.14 (2026-01-28)
+
+### Fix
+
+- **ui**: resolve TypeScript build error blocking CI
+
 ## 0.2.13 (2026-01-28)
 
 ### Feat
@@ -19,66 +25,11 @@
 - **tests**: add Make targets for CAIPE UI tests
 - **ui**: make OIDC refresh token support optional and gracefully degrade
 - **ui**: implement OIDC refresh token support for seamless authentication
-
-### Fix
-
-- **ui**: prevent session expiry flickering between modal and redirect
-- **ui**: convert connection status tooltip to popover
-- **ui**: font family selection now applies correctly
-- **ui**: rename 'Advanced' to 'OIDC Token' in user menu
-- **ui**: use CSS variables for background gradients and gradient text
-- **ui**: apply gradient theme CSS variables to components
-- **ui**: completely disable resume auto-scroll button during streaming
-- **ui**: prevent auto-scroll button from appearing during fast streaming
-- **ui**: remove outer box highlight on textarea focus
-- **ui**: move copy and retry buttons to bottom of user messages
-- **ui**: align message padding with input section
-- **docs**: fix broken link in a2ui-integration.md
-- **tests**: fix failing Jest tests and add fetch mock
-- **ui**: handle SSO token expiry gracefully with user notifications
-
-## 0.2.12-rc.4 (2026-01-27)
-
-### Feat
-
 - **docs**: add CAIPE UI section to sidebar navigation
 - **makefile**: add documentation site targets
 - **ui**: enhance A2A debug panel with execution plan and full event streaming
-
-### Fix
-
-- **ci**: handle docs-only changes gracefully in CAIPE UI workflow
-- **docs**: resolve MDX build errors and broken links
-- **ui**: add display content for empty task and status events
-
-### Refactor
-
-- **ui**: update tech stack to show only actively used technologies
-
-## 0.2.12-rc.3 (2026-01-27)
-
-### Feat
-
 - **ui**: implement runtime configuration and enhance SSO user menu
-
-## 0.2.12-rc.2 (2026-01-26)
-
-### Feat
-
 - **helm**: add external secrets and configmap support for caipe-ui
-
-### Fix
-
-- **gitlab**: remove unused import
-- **docker**: remove extra code
-- **helm**: fix small issues with backstage ingestor docker compose and code
-- correct condition
-- **caipe-ui**: bump chart version
-
-## 0.2.12-rc.1 (2026-01-26)
-
-### Feat
-
 - **usecases**: add edit functionality and fix placeholder detection
 - **ui**: migrate to @a2a-js/sdk and improve streaming UX
 - **ui**: add retry button to regenerate responses
@@ -119,6 +70,28 @@
 
 ### Fix
 
+- **ui**: prevent session expiry flickering between modal and redirect
+- **ui**: convert connection status tooltip to popover
+- **ui**: font family selection now applies correctly
+- **ui**: rename 'Advanced' to 'OIDC Token' in user menu
+- **ui**: use CSS variables for background gradients and gradient text
+- **ui**: apply gradient theme CSS variables to components
+- **ui**: completely disable resume auto-scroll button during streaming
+- **ui**: prevent auto-scroll button from appearing during fast streaming
+- **ui**: remove outer box highlight on textarea focus
+- **ui**: move copy and retry buttons to bottom of user messages
+- **ui**: align message padding with input section
+- **docs**: fix broken link in a2ui-integration.md
+- **tests**: fix failing Jest tests and add fetch mock
+- **ui**: handle SSO token expiry gracefully with user notifications
+- **ci**: handle docs-only changes gracefully in CAIPE UI workflow
+- **docs**: resolve MDX build errors and broken links
+- **ui**: add display content for empty task and status events
+- **gitlab**: remove unused import
+- **docker**: remove extra code
+- **helm**: fix small issues with backstage ingestor docker compose and code
+- correct condition
+- **caipe-ui**: bump chart version
 - **ui**: resolve all TypeScript build errors for CI
 - **ui**: add mongodb dependency and fix TypeScript type errors
 - **a2a**: detect [FINAL ANSWER] marker to send final_result artifacts
@@ -164,6 +137,7 @@
 
 ### Refactor
 
+- **ui**: update tech stack to show only actively used technologies
 - **ui**: remove [FINAL ANSWER] logic, display streamed content as-is
 - **ui**: simplify ContextPanel with Tasks as default tab
 
