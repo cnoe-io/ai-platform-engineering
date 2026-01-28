@@ -201,6 +201,12 @@ export const authOptions: NextAuthOptions = {
         token.idToken = account.id_token;
         token.refreshToken = account.refresh_token;
         token.expiresAt = account.expires_at;
+        
+        // Calculate refresh token expiry if refresh_expires_in is provided
+        // Some OIDC providers (like Keycloak) include this field
+        if (account.refresh_expires_in) {
+          token.refreshTokenExpiresAt = Math.floor(Date.now() / 1000) + (account.refresh_expires_in as number);
+        }
 
         const expiryDate = new Date((account.expires_at || 0) * 1000).toISOString();
         console.log("[Auth] Initial sign-in, token expires at:", expiryDate);
@@ -209,6 +215,10 @@ export const authOptions: NextAuthOptions = {
         if (ENABLE_REFRESH_TOKEN) {
           if (account.refresh_token) {
             console.log("[Auth] ✅ Refresh token available - seamless token renewal enabled");
+            if (token.refreshTokenExpiresAt) {
+              const refreshExpiryDate = new Date(token.refreshTokenExpiresAt * 1000).toISOString();
+              console.log("[Auth] Refresh token expires at:", refreshExpiryDate);
+            }
           } else {
             console.warn("[Auth] ⚠️  Refresh token not provided by OIDC provider - falling back to expiry warnings");
             console.warn("[Auth] Hint: Ensure OIDC provider supports 'offline_access' scope");
@@ -265,6 +275,11 @@ export const authOptions: NextAuthOptions = {
       session.error = token.error as string | undefined;
       session.groups = token.groups as string[];
       session.isAuthorized = token.isAuthorized as boolean;
+      session.expiresAt = token.expiresAt as number | undefined;
+      
+      // Pass refresh token metadata (NOT the token itself - security)
+      session.hasRefreshToken = !!token.refreshToken;
+      session.refreshTokenExpiresAt = token.refreshTokenExpiresAt as number | undefined;
 
       // If token refresh failed, log the user out
       if (token.error === "RefreshTokenExpired" || token.error === "RefreshTokenError") {
@@ -329,6 +344,9 @@ declare module "next-auth" {
     groups?: string[];
     isAuthorized?: boolean;
     sub?: string; // User subject ID from OIDC
+    expiresAt?: number; // Access token expiry (Unix timestamp)
+    hasRefreshToken?: boolean; // Whether refresh token is available
+    refreshTokenExpiresAt?: number; // Refresh token expiry (Unix timestamp)
   }
 }
 
@@ -338,6 +356,7 @@ declare module "next-auth/jwt" {
     idToken?: string;
     refreshToken?: string;
     expiresAt?: number;
+    refreshTokenExpiresAt?: number;
     error?: string;
     profile?: Record<string, unknown>;
     groups?: string[];

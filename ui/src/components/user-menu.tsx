@@ -3,7 +3,7 @@
 import React, { useState, useRef, useEffect } from "react";
 import { useSession, signIn, signOut } from "next-auth/react";
 import { motion, AnimatePresence } from "framer-motion";
-import { User, LogIn, LogOut, ChevronDown, Shield, Users, Hash, Code, ChevronRight, Layers, ExternalLink } from "lucide-react";
+import { User, LogIn, LogOut, ChevronDown, Shield, Users, Hash, Code, ChevronRight, Layers, ExternalLink, Clock, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { getConfig } from "@/lib/config";
@@ -285,13 +285,91 @@ export function UserMenu() {
               <div>
                 <DialogTitle>OIDC Token Information</DialogTitle>
                 <DialogDescription>
-                  View authentication tokens and group memberships
+                  View authentication tokens and group memberships. Refresh tokens are not displayed for security.
                 </DialogDescription>
               </div>
             </div>
           </DialogHeader>
           
           <div className="p-6 overflow-y-auto max-h-[60vh] space-y-6">
+            {/* Token Expiry Information */}
+            <div>
+              <div className="flex items-center gap-2 mb-3">
+                <Clock className="h-4 w-4 text-muted-foreground" />
+                <span className="text-sm font-semibold">Token Information</span>
+              </div>
+              <div className="space-y-3">
+                {/* Access Token Expiry */}
+                {session?.expiresAt && (
+                  <div className="bg-muted/30 rounded-lg p-3 border border-border">
+                    <div className="flex items-start gap-2">
+                      <Code className="h-4 w-4 text-muted-foreground mt-0.5 flex-shrink-0" />
+                      <div className="flex-1">
+                        <div className="text-xs font-medium mb-1">Access Token</div>
+                        <div className="text-xs text-muted-foreground">
+                          Expires: {new Date(session.expiresAt * 1000).toLocaleString()}
+                        </div>
+                        <div className="text-xs text-muted-foreground/70 mt-1">
+                          {(() => {
+                            const now = Math.floor(Date.now() / 1000);
+                            const remaining = session.expiresAt - now;
+                            const hours = Math.floor(remaining / 3600);
+                            const minutes = Math.floor((remaining % 3600) / 60);
+                            return remaining > 0 
+                              ? `${hours}h ${minutes}m remaining`
+                              : 'Expired';
+                          })()}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Refresh Token Info */}
+                <div className="bg-muted/30 rounded-lg p-3 border border-border">
+                  <div className="flex items-start gap-2">
+                    <RefreshCw className="h-4 w-4 text-muted-foreground mt-0.5 flex-shrink-0" />
+                    <div className="flex-1">
+                      <div className="text-xs font-medium mb-1">Refresh Token</div>
+                      {session?.hasRefreshToken ? (
+                        <>
+                          <div className="text-xs text-green-600 dark:text-green-500 font-medium mb-1">
+                            ✓ Available - Auto-renewal enabled
+                          </div>
+                          {session.refreshTokenExpiresAt ? (
+                            <>
+                              <div className="text-xs text-muted-foreground">
+                                Expires: {new Date(session.refreshTokenExpiresAt * 1000).toLocaleString()}
+                              </div>
+                              <div className="text-xs text-muted-foreground/70 mt-1">
+                                {(() => {
+                                  const now = Math.floor(Date.now() / 1000);
+                                  const remaining = session.refreshTokenExpiresAt - now;
+                                  const days = Math.floor(remaining / 86400);
+                                  const hours = Math.floor((remaining % 86400) / 3600);
+                                  return remaining > 0 
+                                    ? `${days}d ${hours}h remaining`
+                                    : 'Expired';
+                                })()}
+                              </div>
+                            </>
+                          ) : (
+                            <div className="text-xs text-muted-foreground/70">
+                              Expiry information not provided by OIDC provider
+                            </div>
+                          )}
+                        </>
+                      ) : (
+                        <div className="text-xs text-yellow-600 dark:text-yellow-500">
+                          Not available - Token will expire without renewal
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
             {/* MemberOf Groups */}
             {session?.groups && session.groups.length > 0 && (
               <div>
