@@ -37,6 +37,10 @@ export function TokenExpiryGuard() {
   const handleLogout = useCallback(async () => {
     setShowWarning(false);
     setShowExpired(false);
+    // Clear the flag when logging out
+    if (typeof window !== 'undefined') {
+      sessionStorage.removeItem('token-expiry-handling');
+    }
     await signOut({ callbackUrl: "/login" });
   }, []);
 
@@ -62,6 +66,11 @@ export function TokenExpiryGuard() {
       console.error(`[TokenExpiryGuard] Token refresh failed: ${session.error}`);
       setShowWarning(false);
       setShowExpired(true);
+
+      // Set flag to prevent AuthGuard from also redirecting (prevents flickering)
+      if (typeof window !== 'undefined') {
+        sessionStorage.setItem('token-expiry-handling', 'true');
+      }
 
       // Stop checking
       if (checkIntervalRef.current) {
@@ -101,6 +110,11 @@ export function TokenExpiryGuard() {
       console.error("[TokenExpiryGuard] Token expired! Forcing logout...");
       setShowWarning(false);
       setShowExpired(true);
+
+      // Set flag to prevent AuthGuard from also redirecting (prevents flickering)
+      if (typeof window !== 'undefined') {
+        sessionStorage.setItem('token-expiry-handling', 'true');
+      }
 
       // Stop checking
       if (checkIntervalRef.current) {
