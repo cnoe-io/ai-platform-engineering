@@ -244,9 +244,9 @@ export function IntegrationOrbit() {
       <svg className="absolute inset-0 w-full h-full" style={{ zIndex: 0 }}>
         <defs>
           <linearGradient id="lineGradient" x1="0%" y1="0%" x2="100%" y2="0%">
-            <stop offset="0%" stopColor="hsl(173,80%,40%)" stopOpacity="0.3" />
-            <stop offset="50%" stopColor="hsl(270,75%,60%)" stopOpacity="0.5" />
-            <stop offset="100%" stopColor="hsl(330,80%,55%)" stopOpacity="0.3" />
+            <stop offset="0%" style={{ stopColor: 'var(--gradient-from)', stopOpacity: 0.3 }} />
+            <stop offset="50%" style={{ stopColor: 'var(--gradient-to)', stopOpacity: 0.5 }} />
+            <stop offset="100%" style={{ stopColor: 'var(--gradient-from)', stopOpacity: 0.3 }} />
           </linearGradient>
         </defs>
         {/* Animated orbit rings */}

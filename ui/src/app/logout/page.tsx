@@ -46,9 +46,24 @@ export default function LogoutPage() {
   return (
     <div className="min-h-screen flex bg-background relative overflow-hidden">
       {/* Full-page background gradients that span both panels */}
-      <div className="absolute inset-0 bg-gradient-to-br from-primary/8 via-transparent to-primary/8" />
-      <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_30%_50%,_var(--tw-gradient-stops))] from-primary/10 via-transparent to-transparent" />
-      <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_70%_50%,_var(--tw-gradient-stops))] from-primary/8 via-transparent to-transparent" />
+      <div 
+        className="absolute inset-0" 
+        style={{
+          background: `linear-gradient(to bottom right, color-mix(in srgb, var(--gradient-from) 8%, transparent), transparent, color-mix(in srgb, var(--gradient-to) 8%, transparent))`
+        }}
+      />
+      <div 
+        className="absolute inset-0" 
+        style={{
+          background: `radial-gradient(ellipse at 30% 50%, color-mix(in srgb, var(--gradient-from) 10%, transparent), transparent)`
+        }}
+      />
+      <div 
+        className="absolute inset-0" 
+        style={{
+          background: `radial-gradient(ellipse at 70% 50%, color-mix(in srgb, var(--gradient-to) 8%, transparent), transparent)`
+        }}
+      />
 
       {/* Left Panel - Integration Animation */}
       <div className="hidden lg:flex lg:w-1/2 relative items-center justify-center">
