@@ -447,8 +447,8 @@ export function UseCasesGallery({ onSelectUseCase, refreshTrigger }: UseCasesGal
       {/* Hero Header with Gradient */}
       <div className="relative overflow-hidden border-b border-border">
         {/* Gradient Background */}
-        <div 
-          className="absolute inset-0" 
+        <div
+          className="absolute inset-0"
           style={{
             background: `linear-gradient(to bottom right, color-mix(in srgb, var(--gradient-from) 20%, transparent) 0%, color-mix(in srgb, var(--gradient-to) 10%, transparent) 50%, transparent 100%)`
           }}
