@@ -14,7 +14,7 @@ import { CameraController, SigmaInstanceCapture, GraphDragController, GraphEvent
 import { getColorForNode, getSigmaEdgeStyle, EvaluationResult, getEvaluationResult } from '../shared/graphStyles';
 import { generateNodeId, generateRelationId, extractRelationId, generateEdgeKey } from '../shared/graphUtils';
 import { getOntologyGraphStats, getOntologyEntitiesBatch, getOntologyRelationsBatch, regenerateOntology, clearOntology, getOntologyAgentStatus } from '../../api';
-import { useRagPermissions } from '@/hooks/useRagPermissions';
+import { useRagPermissions, Permission } from '@/hooks/useRagPermissions';
 
 interface OntologyGraphProps {}
 
@@ -25,7 +25,7 @@ const truncateLabel = (label: string, maxLength: number = 30): string => {
 };
 
 export default function OntologyGraphSigma({}: OntologyGraphProps) {
-    const { permissions } = useRagPermissions();
+    const { hasPermission } = useRagPermissions();
     
     // Theme detection for label colors
     const { resolvedTheme } = useTheme();
@@ -550,18 +550,18 @@ export default function OntologyGraphSigma({}: OntologyGraphProps) {
                                 </button>
                                 <button
                                     onClick={handleReanalyze}
-                                    disabled={isReanalyzing || !permissions.can_ingest}
+                                    disabled={isReanalyzing || !hasPermission(Permission.INGEST)}
                                     className="px-3 py-1.5 text-xs rounded-md bg-purple-500 hover:bg-purple-600 text-white font-medium flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
-                                    title={!permissions.can_ingest ? 'Insufficient permissions to re-analyse ontology' : 'Re-analyse ontology relationships'}
+                                    title={!hasPermission(Permission.INGEST) ? 'Insufficient permissions to re-analyse ontology' : 'Re-analyse ontology relationships'}
                                 >
                                     <RotateCcw className={`h-3 w-3 ${isReanalyzing ? 'animate-spin' : ''}`} />
                                     Re-analyse
                                 </button>
                                 <button
                                     onClick={handleDelete}
-                                    disabled={isDeleting || !permissions.can_delete}
+                                    disabled={isDeleting || !hasPermission(Permission.DELETE)}
                                     className="px-3 py-1.5 text-xs rounded-md bg-red-500 hover:bg-red-600 text-white font-medium flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
-                                    title={!permissions.can_delete ? 'Insufficient permissions to delete ontology' : 'Delete ontology'}
+                                    title={!hasPermission(Permission.DELETE) ? 'Insufficient permissions to delete ontology' : 'Delete ontology'}
                                 >
                                     <Trash2 className="h-3 w-3" />
                                     Delete
