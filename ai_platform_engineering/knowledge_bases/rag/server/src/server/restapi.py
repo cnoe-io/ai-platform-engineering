@@ -34,7 +34,7 @@ from common.models.server import (
 )
 from common.models.rag import DataSourceInfo, IngestorInfo, valid_metadata_keys
 from common.models.rbac import Role, UserContext, UserInfoResponse
-from server.rbac import get_current_user, require_role, has_permission
+from server.rbac import get_current_user, require_role, has_permission, get_permissions
 from common.graph_db.neo4j.graph_db import Neo4jDB
 from common.graph_db.base import GraphDB
 from common.constants import (
@@ -263,12 +263,12 @@ def generate_ingestor_id(ingestor_name: str, ingestor_type: str) -> str:
     - Enable/disable action buttons based on what the user can do
     
     **No specific role required** - any authenticated user (or unauthenticated if 
-    ALLOW_UNAUTHENTICATED is enabled) can access their own information.
+    RBAC_DEFAULT_UNAUTHENTICATED_ROLE is set) can access their own information.
     
-    **Permissions explained:**
-    - `can_read`: Can query and view data (READONLY, INGESTONLY, ADMIN)
-    - `can_ingest`: Can ingest new data and manage ingestion jobs (INGESTONLY, ADMIN)
-    - `can_delete`: Can delete resources and perform bulk operations (ADMIN only)
+    **Permissions list:**
+    - `read`: Can query and view data (READONLY, INGESTONLY, ADMIN)
+    - `ingest`: Can ingest new data and manage ingestion jobs (INGESTONLY, ADMIN)
+    - `delete`: Can delete resources and perform bulk operations (ADMIN only)
     """,
     responses={
         200: {
@@ -280,11 +280,7 @@ def generate_ingestor_id(ingestor_name: str, ingestor_type: str) -> str:
                         "role": "readonly",
                         "is_authenticated": True,
                         "groups": ["engineering", "platform-team"],
-                        "permissions": {
-                            "can_read": True,
-                            "can_ingest": False,
-                            "can_delete": False
-                        }
+                        "permissions": ["read"]
                     }
                 }
             }
@@ -308,11 +304,7 @@ async def get_user_info(user: UserContext = Depends(get_current_user)):
         role=user.role,
         is_authenticated=user.is_authenticated,
         groups=user.groups,
-        permissions={
-            "can_read": has_permission(user.role, Role.READONLY),
-            "can_ingest": has_permission(user.role, Role.INGESTONLY),
-            "can_delete": has_permission(user.role, Role.ADMIN),
-        }
+        permissions=get_permissions(user.role)
     )
 
 # ============================================================================

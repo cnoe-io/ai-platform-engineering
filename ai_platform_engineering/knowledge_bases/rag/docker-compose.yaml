@@ -56,10 +56,24 @@ services:
         EMBEDDINGS_PROVIDER: ${EMBEDDINGS_PROVIDER:-azure-openai}
         EMBEDDINGS_MODEL: ${EMBEDDINGS_MODEL:-text-embedding-3-small}
         # RBAC/Authentication configuration
-        # ALLOW_UNAUTHENTICATED: Optional (default: true). Set to "false" in production.
-        #   When true, allows unauthenticated service-to-service calls with ADMIN privileges.
-        #   WARNING: Only use "true" for development/testing. Production should use "false".
-        ALLOW_UNAUTHENTICATED: ${ALLOW_UNAUTHENTICATED:-true}
+        # OIDC JWT validation for UI tokens
+        OIDC_ISSUER: ${OIDC_ISSUER}
+        OIDC_CLIENT_ID: ${OIDC_CLIENT_ID}
+        # Group claim configuration (optional - auto-detects if not set)
+        OIDC_GROUP_CLAIM: ${OIDC_GROUP_CLAIM}
+        
+        # Ingestor OIDC configuration (for OAuth2 client credentials)
+        INGESTOR_OIDC_ISSUER: ${INGESTOR_OIDC_ISSUER}
+        INGESTOR_OIDC_CLIENT_ID: ${INGESTOR_OIDC_CLIENT_ID}
+        
+        # Trusted network access (optional - for local development)
+        ALLOW_TRUSTED_NETWORK: ${ALLOW_TRUSTED_NETWORK:-true}
+        TRUSTED_NETWORK_CIDRS: ${TRUSTED_NETWORK_CIDRS:-127.0.0.0/8,172.16.0.0/12}
+        TRUSTED_NETWORK_DEFAULT_ROLE: ${TRUSTED_NETWORK_DEFAULT_ROLE:-admin}
+        # TRUSTED_NETWORK_TOKEN: ${TRUSTED_NETWORK_TOKEN}  # Optional shared secret
+        
+        # RBAC role assignment by group
+        RBAC_DEFAULT_AUTHENTICATED_ROLE: ${RBAC_DEFAULT_AUTHENTICATED_ROLE:-readonly}
         # RBAC_READONLY_GROUPS: Optional (default: empty). Comma-separated list of group names.
         #   Users in these groups get READONLY role (can view/query data).
         #   Example: "engineering-readonly,analysts,viewers"
@@ -72,9 +86,6 @@ services:
         #   Users in these groups get ADMIN role (full access including delete operations).
         #   Example: "platform-admins,rag-admins"
         RBAC_ADMIN_GROUPS: ${RBAC_ADMIN_GROUPS}
-        # RBAC_DEFAULT_ROLE: Optional (default: "readonly"). Must be one of: "readonly", "ingestonly", "admin".
-        #   Role assigned to authenticated users who don't match any of the above groups.
-        RBAC_DEFAULT_ROLE: ${RBAC_DEFAULT_ROLE:-readonly}
     restart: unless-stopped
     env_file:
       - ../../../.env
@@ -95,6 +106,10 @@ services:
         SYNC_INTERVAL: 86400 # 24 hours
         EXIT_AFTER_FIRST_SYNC: false
         RAG_SERVER_URL: ${RAG_SERVER_URL:-http://rag_server:9446}
+        # Ingestor OAuth2 client credentials (optional - uses trusted network if not set)
+        INGESTOR_OIDC_ISSUER: ${INGESTOR_OIDC_ISSUER}
+        INGESTOR_OIDC_CLIENT_ID: ${INGESTOR_OIDC_CLIENT_ID}
+        INGESTOR_OIDC_CLIENT_SECRET: ${INGESTOR_OIDC_CLIENT_SECRET}
         MAX_CONCURRENT_JOBS: ${WEBLOADER_INGESTOR_MAX_CONCURRENT_JOBS:-10}
     restart: unless-stopped
     depends_on:
@@ -449,20 +464,7 @@ services:
   
 #####################
 # Test services
-#####################
-  oauth2-proxy:
-    container_name: oauth2-proxy
-    image: quay.io/oauth2-proxy/oauth2-proxy:v7.13.0
-    command: --config /oauth2-proxy.cfg
-    hostname: oauth2-proxy
-    volumes:
-      - "./oauth2-proxy.cfg:/oauth2-proxy.cfg"
-    restart: unless-stopped
-    ports:
-      - 9447:9447/tcp
-    profiles:
-      - oauth2
-      
+#####################      
   testwebsite:
     image: nginx:alpine
     container_name: test-website

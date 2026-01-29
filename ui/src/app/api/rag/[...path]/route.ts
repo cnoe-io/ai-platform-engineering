@@ -1,20 +1,45 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { getServerSession } from 'next-auth';
+import { authOptions } from '@/lib/auth-config';
 
 /**
- * RAG API Proxy
+ * RAG API Proxy with JWT Bearer Token
  *
- * Proxies requests from /api/rag/* to the RAG server.
- * This allows the browser to access the RAG server without CORS issues.
+ * Proxies requests from /api/rag/* to the RAG server with JWT authentication.
+ * The RAG server validates the JWT token and extracts user identity/groups.
+ *
+ * Authentication:
+ * - Authorization: Bearer {access_token}
  *
  * Example:
- *   /api/rag/healthz -> RAG_SERVER_URL/healthz
- *   /api/rag/v1/query -> RAG_SERVER_URL/v1/query
+ *   /api/rag/healthz -> RAG_SERVER_URL/healthz (with Bearer token)
+ *   /api/rag/v1/query -> RAG_SERVER_URL/v1/query (with Bearer token)
  */
 
 function getRagServerUrl(): string {
   return process.env.RAG_SERVER_URL ||
          process.env.NEXT_PUBLIC_RAG_URL ||
          'http://localhost:9446';
+}
+
+/**
+ * Get auth headers from the current session
+ * 
+ * @returns Headers object with Authorization Bearer token for RAG server
+ */
+async function getRbacHeaders(): Promise<Record<string, string>> {
+  const session = await getServerSession(authOptions);
+  
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  };
+
+  // Pass access token as Bearer token
+  if (session?.accessToken) {
+    headers['Authorization'] = `Bearer ${session.accessToken}`;
+  }
+
+  return headers;
 }
 
 export async function GET(
@@ -32,12 +57,13 @@ export async function GET(
     targetUrl.searchParams.append(key, value);
   });
 
+  // Get auth headers from session
+  const headers = await getRbacHeaders();
+
   try {
     const response = await fetch(targetUrl.toString(), {
       method: 'GET',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers,
     });
 
     const data = await response.json();
@@ -60,6 +86,9 @@ export async function POST(
   const targetPath = path.join('/');
   const targetUrl = `${ragServerUrl}/${targetPath}`;
 
+  // Get auth headers from session
+  const headers = await getRbacHeaders();
+
   try {
     // Handle empty body POST requests (e.g., terminate job)
     let body: unknown = undefined;
@@ -75,9 +104,7 @@ export async function POST(
 
     const fetchOptions: RequestInit = {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers,
     };
 
     if (body !== undefined) {
@@ -117,12 +144,13 @@ export async function DELETE(
     targetUrl.searchParams.append(key, value);
   });
 
+  // Get auth headers from session
+  const headers = await getRbacHeaders();
+
   try {
     const response = await fetch(targetUrl.toString(), {
       method: 'DELETE',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers,
     });
 
     if (response.status === 204) {

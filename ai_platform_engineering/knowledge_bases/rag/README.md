@@ -20,7 +20,7 @@
 ## Quick Start
 
 ```bash
-# Start all services (direct access, no authentication)
+# Start all services (development mode with trusted network access)
 docker compose --profile apps up
 ```
 
@@ -29,40 +29,36 @@ docker compose --profile apps up
 - API Docs: [http://localhost:9446/docs](http://localhost:9446/docs)
 - Neo4j Browser: [http://localhost:7474](http://localhost:7474)
 
-### Quick start with auth (Optional)
+### Authentication
 
-To add authentication (via OAuth2 Proxy):
+**Development (Trusted Network - Default):**
+Services trust localhost connections without authentication.
+
+**Production (OIDC/OAuth2):**
+Configure environment variables for JWT-based authentication:
 
 ```bash
-# Start with OAuth2 proxy
-WEBUI_PORT=9448 docker compose --profile apps --profile oauth2 up
+# UI authentication (OIDC)
+OIDC_ISSUER=https://your-keycloak.com/realms/production
+OIDC_CLIENT_ID=rag-ui
+OIDC_CLIENT_SECRET=xxx
+OIDC_GROUP_CLAIM=groups  # Optional: auto-detects if empty
+
+# Ingestor authentication (OAuth2 client credentials)
+INGESTOR_OIDC_ISSUER=https://your-keycloak.com/realms/production
+INGESTOR_OIDC_CLIENT_ID=rag-ingestor
+INGESTOR_OIDC_CLIENT_SECRET=xxx
+
+# Disable trusted network in production
+ALLOW_TRUSTED_NETWORK=false
+
+# Role-based access control (map groups to roles)
+RBAC_ADMIN_GROUPS=rag-admins,platform-admins
+RBAC_INGESTONLY_GROUPS=rag-ingestors
+RBAC_READONLY_GROUPS=rag-readers
 ```
 
-- Authenticated access: [http://localhost:9447](http://localhost:9447) (via OAuth2 Proxy)
-- Direct access: [http://localhost:9448](http://localhost:9448) (bypasses auth)
-- OAuth2-only mode: Set `WEBUI_PORT=0` to disable direct access
-
-**Configuration:**
-
-Create `oauth2-proxy.cfg` file in the rag folder with your OIDC provider settings:
-
-```ini
-http_address="0.0.0.0:9447"
-cookie_secret="<random-string>"
-email_domains="example.com"
-reverse_proxy="true"
-upstreams="http://webui:80"
-whitelist_domains=["localhost:9447", "127.0.0.1:9447"]
-
-# Your OIDC provider settings
-client_id="YOUR_CLIENT_ID"
-client_secret="YOUR_CLIENT_SECRET"
-oidc_issuer_url="https://your-provider.com/oidc"
-provider="oidc"
-redirect_url="http://localhost:9447/oauth2/callback"
-```
-
-For full configuration options, see [OAuth2 Proxy documentation](https://oauth2-proxy.github.io/oauth2-proxy/).
+**Supported OIDC Providers:** Keycloak, Azure AD, Okta, AWS Cognito
 
 If you have Claude code, VS code, Cursor etc. you can connect upto the MCP server running at http://localhost:9446/mcp
 
@@ -91,7 +87,7 @@ DEFAULT port configurations between components:
 
 **Web UI (Port 9447):**
 - Connects to Server over `9446` (REST)
-- If Oauth2Proxy is enabled, it acts as reverse proxy to the web ui.
+- If authentication proxy is enabled, it acts as reverse proxy to the web ui.
 
 **CAIPE Agent (MCP):**
 - Connects to Server over `9446` (MCP tools)
