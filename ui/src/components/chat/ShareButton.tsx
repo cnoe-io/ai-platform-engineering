@@ -47,47 +47,24 @@ export function ShareButton({
   return (
     <>
       <TooltipProvider>
-        <div className="flex items-center gap-1">
-          {/* Quick copy link button */}
+        {/* Single share button that opens dialog */}
+        {isOwner && (
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
                 variant="ghost"
-                size="sm"
-                onClick={handleQuickCopy}
-                className="h-8 px-2"
+                size="icon"
+                onClick={handleOpenDialog}
+                className="h-6 w-6"
               >
-                {copied ? (
-                  <Check className="h-4 w-4 text-green-500" />
-                ) : (
-                  <Copy className="h-4 w-4" />
-                )}
+                <Share2 className="h-3 w-3" />
               </Button>
             </TooltipTrigger>
             <TooltipContent>
-              <p>{copied ? "Link copied!" : "Copy link"}</p>
+              <p>Share</p>
             </TooltipContent>
           </Tooltip>
-
-          {/* Share settings button (owner only) */}
-          {isOwner && (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={handleOpenDialog}
-                  className="h-8 px-2"
-                >
-                  <Share2 className="h-4 w-4" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>
-                <p>Share settings</p>
-              </TooltipContent>
-            </Tooltip>
-          )}
-        </div>
+        )}
       </TooltipProvider>
 
       {/* Share dialog */}
