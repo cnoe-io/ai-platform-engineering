@@ -102,6 +102,47 @@ services:
   ####################################################################################################
   #                                          MongoDB                                                 #
   ####################################################################################################
+  # MongoDB for CAIPE UI chat history and user settings
+  mongodb:
+    image: mongo:7.0
+    container_name: caipe-mongodb-dev
+    ports:
+      - "27017:27017"
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=${MONGODB_ROOT_USERNAME:-admin}
+      - MONGO_INITDB_ROOT_PASSWORD=${MONGODB_ROOT_PASSWORD:-changeme}
+      - MONGO_INITDB_DATABASE=${MONGODB_DATABASE:-caipe}
+    volumes:
+      - mongodb_data:/data/db
+      - mongodb_config:/data/configdb
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+    profiles:
+      - caipe-ui
+      - caipe-ui-mongodb
+
+  # MongoDB Admin UI
+  mongo-express:
+    image: mongo-express:latest
+    container_name: caipe-mongo-express-dev
+    ports:
+      - "8081:8081"
+    environment:
+      - ME_CONFIG_MONGODB_ADMINUSERNAME=${MONGODB_ROOT_USERNAME:-admin}
+      - ME_CONFIG_MONGODB_ADMINPASSWORD=${MONGODB_ROOT_PASSWORD:-changeme}
+      - ME_CONFIG_MONGODB_URL=mongodb://${MONGODB_ROOT_USERNAME:-admin}:${MONGODB_ROOT_PASSWORD:-changeme}@mongodb:27017/
+      - ME_CONFIG_BASICAUTH=false
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    profiles:
+      - caipe-ui
+      - caipe-ui-mongo-express
+
   ####################################################################################################
   #                                      SLIM Transport                                              #
   ####################################################################################################
@@ -1237,6 +1278,10 @@ services:
       - evaluation
 
 volumes:
+  mongodb_data:
+    driver: local
+  mongodb_config:
+    driver: local
   langfuse_postgres_data:
     driver: local
   langfuse_clickhouse_data:
