@@ -42,9 +42,15 @@ export function ShareDialog({
       if (response.ok) {
         const data = await response.json();
         setSharedWith(data.data?.sharing?.shared_with || []);
+      } else if (response.status === 404) {
+        // Conversation doesn't exist in MongoDB (legacy local conversation)
+        alert("This conversation cannot be shared because it was created before MongoDB integration. Please create a new conversation to use sharing features.");
+        onOpenChange(false);
       }
     } catch (err) {
       console.error("Failed to load sharing info:", err);
+      alert("Unable to load conversation. It may not exist in the database. Please create a new conversation.");
+      onOpenChange(false);
     }
   };
 
@@ -94,9 +100,16 @@ export function ShareDialog({
       setEmailInput("");
       setSearchResults([]);
       setNoResults(false);
-    } catch (err) {
+    } catch (err: any) {
       console.error("Failed to share:", err);
-      alert("Failed to share conversation");
+      const errorMessage = err?.message || "Failed to share conversation";
+      
+      if (errorMessage.includes("not found") || errorMessage.includes("404")) {
+        alert("This conversation doesn't exist in the database. Please create a new conversation to use sharing features.");
+        onOpenChange(false);
+      } else {
+        alert(`Failed to share: ${errorMessage}`);
+      }
     } finally {
       setLoading(false);
     }
