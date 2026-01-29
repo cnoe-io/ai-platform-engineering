@@ -15,9 +15,10 @@ import type { Conversation } from '@/types/mongodb';
 // POST /api/chat/conversations/[id]/pin
 export const POST = withErrorHandler(async (
   request: NextRequest,
-  { params }: { params: { id: string } }
+  context: { params: Promise<{ id: string }> }
 ) => {
   return withAuth(request, async (req, user) => {
+    const params = await context.params;
     const conversationId = params.id;
 
     if (!validateUUID(conversationId)) {
