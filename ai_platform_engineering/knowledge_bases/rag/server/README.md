@@ -57,21 +57,35 @@ The server will be available at `http://localhost:9446`
 
 ### RBAC/Authentication Settings
 
-The server supports role-based access control (RBAC) (currently integrated with OAuth2Proxy):
+The server supports role-based access control (RBAC) integrated with authentication proxies via forwarded headers:
 
 ```bash
-# Allow unauthenticated requests (for service-to-service communication)
-# When enabled, requests without OAuth2Proxy headers default to ADMIN role
-ALLOW_UNAUTHENTICATED=true
+# Default role for unauthenticated requests (no auth headers)
+# Set to empty string "" to reject unauthenticated requests (recommended for production)
+# Set to "readonly", "ingestonly", or "admin" to allow unauthenticated access
+# Default: "admin" (for service-to-service communication in development)
+RBAC_DEFAULT_UNAUTHENTICATED_ROLE=admin
+
+# Default role for authenticated users not in any configured group
+# Default: "readonly"
+RBAC_DEFAULT_AUTHENTICATED_ROLE=readonly
 
 # Group-to-role mappings (comma-separated group names)
 RBAC_READONLY_GROUPS=viewers,analysts
 RBAC_INGESTONLY_GROUPS=data-engineers,etl
 RBAC_ADMIN_GROUPS=admins,platform-team
-
-# Default role for authenticated users not in any configured group
-RBAC_DEFAULT_ROLE=readonly
 ```
+
+**⚠️ WARNING: Service-to-Service Authentication**
+
+When `RBAC_DEFAULT_UNAUTHENTICATED_ROLE` is set to a role (e.g., "admin"), unauthenticated requests are allowed with that role. This is useful for:
+- Service-to-service communication within Kubernetes clusters
+- Ingestor services that don't have OAuth credentials
+- Development and testing environments
+
+**However, this may break ingestors if you set it to an empty string in production.** Ensure your ingestors can authenticate through your authentication proxy or keep this setting configured appropriately.
+
+**Production recommendation:** Use empty string (`RBAC_DEFAULT_UNAUTHENTICATED_ROLE=""`) and ensure all services authenticate properly through your authentication proxy.
 
 #### Role Hierarchy
 
@@ -85,9 +99,9 @@ The system defines three hierarchical roles:
 
 Higher roles inherit all permissions from lower roles.
 
-#### OAuth2Proxy Integration
+#### Authentication Proxy Integration
 
-When OAuth2Proxy is deployed in front of the server, it sets these headers:
+When an authentication proxy is deployed in front of the server, it sets these headers:
 
 - `X-Forwarded-Email`: User's email address
 - `X-Forwarded-Groups`: Comma-separated list of groups
@@ -97,17 +111,28 @@ The server determines the user's role based on group membership:
 1. If user belongs to any `RBAC_ADMIN_GROUPS` → **ADMIN** role
 2. Else if user belongs to any `RBAC_INGESTONLY_GROUPS` → **INGESTONLY** role
 3. Else if user belongs to any `RBAC_READONLY_GROUPS` → **READONLY** role
-4. Else → Use `RBAC_DEFAULT_ROLE`
+4. Else → Use `RBAC_DEFAULT_AUTHENTICATED_ROLE`
 
 #### Unauthenticated Access
 
-When `ALLOW_UNAUTHENTICATED=true`:
-- Requests WITHOUT X-Forwarded auth headers (e.g., from ingestors, internal services) default to **ADMIN** role
-- Useful for service-to-service communication within Kubernetes clusters
+The behavior for requests without authentication headers depends on `RBAC_DEFAULT_UNAUTHENTICATED_ROLE`:
 
-When `ALLOW_UNAUTHENTICATED=false`:
-- All requests must have valid OAuth2Proxy headers
+**When `RBAC_DEFAULT_UNAUTHENTICATED_ROLE=""` (empty string):**
+- All requests must have valid authentication headers
 - Unauthenticated requests receive HTTP 401
+- **Recommended for production environments**
+
+**When `RBAC_DEFAULT_UNAUTHENTICATED_ROLE="admin"` (or "readonly"/"ingestonly"):**
+- Requests WITHOUT X-Forwarded auth headers get the specified role
+- Useful for service-to-service communication within Kubernetes clusters
+- **Required if ingestors don't have OAuth credentials**
+- Default for development/testing
+
+**⚠️ Security Considerations:**
+- Setting `RBAC_DEFAULT_UNAUTHENTICATED_ROLE` allows bypassing authentication
+- Only use in trusted networks (e.g., internal Kubernetes services)
+- For production with external access, use `RBAC_DEFAULT_UNAUTHENTICATED_ROLE=""`
+- If ingestors need access, ensure they can authenticate through your authentication proxy
 
 #### User Info Endpoint
 
@@ -119,13 +144,14 @@ The UI can call `GET /v1/user/info` to retrieve the current user's role and perm
   "role": "ingestonly",
   "is_authenticated": true,
   "groups": ["data-engineers", "viewers"],
-  "permissions": {
-    "can_read": true,
-    "can_ingest": true,
-    "can_delete": false
-  }
+  "permissions": ["read", "ingest"]
 }
 ```
+
+**Permissions by role:**
+- `readonly`: `["read"]`
+- `ingestonly`: `["read", "ingest"]`
+- `admin`: `["read", "ingest", "delete"]`
 
 Use this endpoint to show/hide UI features based on user permissions.
 

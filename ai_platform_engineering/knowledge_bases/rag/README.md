@@ -38,13 +38,13 @@ To add authentication (via OAuth2 Proxy):
 WEBUI_PORT=9448 docker compose --profile apps --profile oauth2 up
 ```
 
-- Authenticated access: [http://localhost:9447](http://localhost:9447) (via OAuth2 Proxy)
+- Authenticated access: [http://localhost:9447](http://localhost:9447) (via authentication proxy)
 - Direct access: [http://localhost:9448](http://localhost:9448) (bypasses auth)
-- OAuth2-only mode: Set `WEBUI_PORT=0` to disable direct access
+- Auth-only mode: Set `WEBUI_PORT=0` to disable direct access
 
 **Configuration:**
 
-Create `oauth2-proxy.cfg` file in the rag folder with your OIDC provider settings:
+Create an authentication proxy configuration (example using OAuth2 Proxy):
 
 ```ini
 http_address="0.0.0.0:9447"
@@ -62,7 +62,7 @@ provider="oidc"
 redirect_url="http://localhost:9447/oauth2/callback"
 ```
 
-For full configuration options, see [OAuth2 Proxy documentation](https://oauth2-proxy.github.io/oauth2-proxy/).
+**Note:** The server expects `X-Forwarded-Email` and `X-Forwarded-Groups` headers from your authentication proxy. Other authentication proxies that provide these headers (e.g., Nginx with auth_request, Traefik ForwardAuth) can also be used.
 
 If you have Claude code, VS code, Cursor etc. you can connect upto the MCP server running at http://localhost:9446/mcp
 
@@ -91,7 +91,7 @@ DEFAULT port configurations between components:
 
 **Web UI (Port 9447):**
 - Connects to Server over `9446` (REST)
-- If Oauth2Proxy is enabled, it acts as reverse proxy to the web ui.
+- If authentication proxy is enabled, it acts as reverse proxy to the web ui.
 
 **CAIPE Agent (MCP):**
 - Connects to Server over `9446` (MCP tools)

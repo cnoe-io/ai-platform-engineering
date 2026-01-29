@@ -56,10 +56,16 @@ services:
         EMBEDDINGS_PROVIDER: ${EMBEDDINGS_PROVIDER:-azure-openai}
         EMBEDDINGS_MODEL: ${EMBEDDINGS_MODEL:-text-embedding-3-small}
         # RBAC/Authentication configuration
-        # ALLOW_UNAUTHENTICATED: Optional (default: true). Set to "false" in production.
-        #   When true, allows unauthenticated service-to-service calls with ADMIN privileges.
-        #   WARNING: Only use "true" for development/testing. Production should use "false".
-        ALLOW_UNAUTHENTICATED: ${ALLOW_UNAUTHENTICATED:-true}
+        # RBAC_DEFAULT_UNAUTHENTICATED_ROLE: Optional (default: "admin"). Role for unauthenticated requests.
+        #   Set to empty string "" to reject unauthenticated requests (production recommended).
+        #   Set to "readonly", "ingestonly", or "admin" to allow unauthenticated access with that role.
+        #   WARNING: When set, allows service-to-service calls without authentication.
+        #   This may break ingestors if they rely on unauthenticated access - ensure ingestors
+        #   can authenticate or keep this set to a role (e.g., "admin" for development).
+        RBAC_DEFAULT_UNAUTHENTICATED_ROLE: ${RBAC_DEFAULT_UNAUTHENTICATED_ROLE:-admin}
+        # RBAC_DEFAULT_AUTHENTICATED_ROLE: Optional (default: "readonly"). Role for authenticated users
+        #   who don't match any configured group. Must be one of: "readonly", "ingestonly", "admin".
+        RBAC_DEFAULT_AUTHENTICATED_ROLE: ${RBAC_DEFAULT_AUTHENTICATED_ROLE:-readonly}
         # RBAC_READONLY_GROUPS: Optional (default: empty). Comma-separated list of group names.
         #   Users in these groups get READONLY role (can view/query data).
         #   Example: "engineering-readonly,analysts,viewers"
@@ -72,9 +78,6 @@ services:
         #   Users in these groups get ADMIN role (full access including delete operations).
         #   Example: "platform-admins,rag-admins"
         RBAC_ADMIN_GROUPS: ${RBAC_ADMIN_GROUPS}
-        # RBAC_DEFAULT_ROLE: Optional (default: "readonly"). Must be one of: "readonly", "ingestonly", "admin".
-        #   Role assigned to authenticated users who don't match any of the above groups.
-        RBAC_DEFAULT_ROLE: ${RBAC_DEFAULT_ROLE:-readonly}
     restart: unless-stopped
     env_file:
       - ../../../.env
