@@ -1,6 +1,6 @@
 "use client";
 
-import { useSession } from "next-auth/react";
+import { useSession, signOut } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { getConfig } from "@/lib/config";
@@ -23,12 +23,71 @@ export function AuthGuard({ children }: AuthGuardProps) {
   const router = useRouter();
   const [authChecked, setAuthChecked] = useState(false);
   const [ssoEnabled, setSsoEnabled] = useState<boolean | null>(null);
+  const [loadingTimeout, setLoadingTimeout] = useState(false);
+  const [autoResetInitiated, setAutoResetInitiated] = useState(false);
 
   // Check SSO status after hydration to avoid server/client mismatch
   useEffect(() => {
     const enabled = getConfig('ssoEnabled');
     setSsoEnabled(enabled);
   }, []);
+
+  // Check for corrupted session cookies on mount
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    
+    // Check if session cookie is oversized (Chrome limit is 4096 bytes)
+    const cookies = document.cookie;
+    const sessionCookie = cookies.split(';').find(c => c.trim().startsWith('next-auth.session-token='));
+    
+    if (sessionCookie && sessionCookie.length > 4096) {
+      console.error(`[AuthGuard] Session cookie is too large (${sessionCookie.length} bytes), auto-clearing...`);
+      localStorage.clear();
+      sessionStorage.clear();
+      document.cookie.split(";").forEach((c) => {
+        document.cookie = c.replace(/^ +/, "").replace(/=.*/, "=;expires=" + new Date().toUTCString() + ";path=/");
+      });
+      window.location.href = '/login?session_reset=auto';
+    }
+  }, []);
+
+  // Enhanced timeout mechanism - if stuck for more than 5 seconds, show cancel button
+  // If stuck for more than 15 seconds, auto-reset and redirect
+  useEffect(() => {
+    if ((status === "authenticated" || status === "loading") && !authChecked) {
+      // Show cancel button after 5 seconds
+      const timeoutButton = setTimeout(() => {
+        console.warn("[AuthGuard] Authorization check taking too long - showing reset option");
+        setLoadingTimeout(true);
+      }, 5000); // 5 seconds
+
+      // Auto-reset after 15 seconds if still stuck
+      const timeoutReset = setTimeout(() => {
+        if (!authChecked && !autoResetInitiated) {
+          console.error("[AuthGuard] Authorization stuck for 15s - auto-resetting session...");
+          setAutoResetInitiated(true);
+          
+          // Clear everything
+          if (typeof window !== 'undefined') {
+            localStorage.clear();
+            sessionStorage.clear();
+            // Clear all cookies
+            document.cookie.split(";").forEach((c) => {
+              document.cookie = c.replace(/^ +/, "").replace(/=.*/, "=;expires=" + new Date().toUTCString() + ";path=/");
+            });
+          }
+          
+          // Force redirect to login
+          window.location.href = '/login?session_reset=auto';
+        }
+      }, 15000); // 15 seconds
+
+      return () => {
+        clearTimeout(timeoutButton);
+        clearTimeout(timeoutReset);
+      };
+    }
+  }, [status, authChecked, autoResetInitiated]);
 
   useEffect(() => {
     // Only redirect if SSO is enabled
@@ -99,8 +158,32 @@ export function AuthGuard({ children }: AuthGuardProps) {
   if (status === "loading" || !authChecked) {
     const message = status === "loading"
       ? "Checking authentication..."
-      : "Verifying authorization...";
-    return <LoadingScreen message={message} />;
+      : loadingTimeout 
+        ? "Session verification stuck - click below to reset"
+        : "Verifying authorization...";
+    
+    const handleCancel = async () => {
+      console.log("[AuthGuard] User manually resetting session...");
+      // Clear everything including cookies
+      if (typeof window !== 'undefined') {
+        localStorage.clear();
+        sessionStorage.clear();
+        // Clear all cookies
+        document.cookie.split(";").forEach((c) => {
+          document.cookie = c.replace(/^ +/, "").replace(/=.*/, "=;expires=" + new Date().toUTCString() + ";path=/");
+        });
+      }
+      // Force redirect to login instead of using signOut (which might also be stuck)
+      window.location.href = '/login?session_reset=manual';
+    };
+    
+    return (
+      <LoadingScreen 
+        message={message} 
+        showCancel={loadingTimeout}
+        onCancel={handleCancel}
+      />
+    );
   }
 
   // If not authenticated and SSO is enabled, show nothing (redirect will happen)
