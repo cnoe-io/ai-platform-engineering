@@ -18,7 +18,7 @@ const techStack: TechItem[] = [
   // Platform
   {
     name: "CAIPE",
-    description: "Community AI Platform Engineering - Multi-Agent System for Platform Engineers",
+    description: "Multi-Agent Collaboration & Workflow Automation - AI agents and native apps collaborating across tools and teams to get work done",
     url: "https://caipe.io",
     category: "platform",
   },

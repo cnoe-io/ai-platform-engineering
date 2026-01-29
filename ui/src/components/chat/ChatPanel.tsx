@@ -505,8 +505,11 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle }: ChatP
                 <Sparkles className="h-8 w-8 text-white" />
               </div>
               <h2 className="text-2xl font-bold mb-2">Welcome to CAIPE</h2>
-              <p className="text-muted-foreground max-w-md mx-auto">
-                Ask anything about your platform. I can help with ArgoCD, AWS, GitHub, Jira, and more.
+              <p className="text-muted-foreground max-w-md mx-auto mb-1">
+                Multi-Agent Collaboration & Workflow Automation
+              </p>
+              <p className="text-sm text-muted-foreground/80 max-w-lg mx-auto">
+                AI agents and native apps collaborating across tools and teams to get work done.
               </p>
             </div>
           )}
