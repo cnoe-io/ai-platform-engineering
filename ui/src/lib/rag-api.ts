@@ -48,16 +48,34 @@ export interface QueryResult {
   metadata: Record<string, unknown>;
 }
 
+/**
+ * Permission constants for RAG operations.
+ * Use these instead of magic strings to avoid typos.
+ */
+export const Permission = {
+  READ: 'read',
+  INGEST: 'ingest',
+  DELETE: 'delete',
+} as const;
+
+export type PermissionType = typeof Permission[keyof typeof Permission];
+
 export interface UserInfo {
   email: string;
   role: string;
   is_authenticated: boolean;
   groups: string[];
-  permissions: {
-    can_read: boolean;
-    can_ingest: boolean;
-    can_delete: boolean;
-  };
+  permissions: PermissionType[];
+}
+
+/**
+ * Helper to check if user has a specific permission.
+ * 
+ * @example
+ * hasPermission(userInfo, Permission.DELETE)
+ */
+export function hasPermission(userInfo: UserInfo | null, permission: PermissionType): boolean {
+  return userInfo?.permissions.includes(permission) ?? false;
 }
 
 // ============================================================================

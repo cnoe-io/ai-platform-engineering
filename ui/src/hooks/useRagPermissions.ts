@@ -3,10 +3,16 @@
  * 
  * Provides user's RAG permissions and loading state.
  * Automatically fetches on mount and caches the result.
+ * 
+ * @example
+ * const { userInfo, permissions, hasPermission } = useRagPermissions();
+ * <button disabled={!hasPermission(Permission.DELETE)}>Delete</button>
  */
 
 import { useEffect, useState } from 'react';
-import { getUserInfo, type UserInfo } from '@/lib/rag-api';
+import { getUserInfo, hasPermission as checkPermission, Permission, type UserInfo, type PermissionType } from '@/lib/rag-api';
+
+export { Permission } from '@/lib/rag-api';
 
 export function useRagPermissions() {
   const [userInfo, setUserInfo] = useState<UserInfo | null>(null);
@@ -42,13 +48,15 @@ export function useRagPermissions() {
     };
   }, []);
 
+  // Helper function bound to current userInfo
+  const hasPermission = (permission: PermissionType) => {
+    return checkPermission(userInfo, permission);
+  };
+
   return {
     userInfo,
-    permissions: userInfo?.permissions ?? {
-      can_read: false,
-      can_ingest: false,
-      can_delete: false,
-    },
+    permissions: userInfo?.permissions ?? [],
+    hasPermission,
     isLoading,
     error,
   };

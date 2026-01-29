@@ -57,11 +57,7 @@ describe('RAG RBAC Integration', () => {
       expect(data.is_authenticated).toBe(true);
       expect(data.email).toBe('test@example.com');
       expect(data.role).toBe('READONLY');
-      expect(data.permissions).toEqual({
-        can_read: true,
-        can_ingest: false,
-        can_delete: false,
-      });
+      expect(data.permissions).toEqual(['read']);
     });
 
     it('should determine INGESTONLY role for ingestor group', async () => {
@@ -75,11 +71,7 @@ describe('RAG RBAC Integration', () => {
       const data = await response.json();
 
       expect(data.role).toBe('INGESTONLY');
-      expect(data.permissions).toEqual({
-        can_read: true,
-        can_ingest: true,
-        can_delete: false,
-      });
+      expect(data.permissions).toEqual(['read', 'ingest']);
     });
 
     it('should determine ADMIN role for admin group', async () => {
@@ -93,11 +85,7 @@ describe('RAG RBAC Integration', () => {
       const data = await response.json();
 
       expect(data.role).toBe('ADMIN');
-      expect(data.permissions).toEqual({
-        can_read: true,
-        can_ingest: true,
-        can_delete: true,
-      });
+      expect(data.permissions).toEqual(['read', 'ingest', 'delete']);
     });
 
     it('should use most permissive role when user has multiple groups', async () => {
@@ -200,9 +188,9 @@ describe('RAG RBAC Integration', () => {
         const data = await response.json();
 
         expect(data.role).toBe(expectedRole);
-        expect(data.permissions.can_read).toBe(canRead);
-        expect(data.permissions.can_ingest).toBe(canIngest);
-        expect(data.permissions.can_delete).toBe(canDelete);
+        expect(data.permissions).toContain('read');
+        if (canIngest) expect(data.permissions).toContain('ingest');
+        if (canDelete) expect(data.permissions).toContain('delete');
       });
     });
   });

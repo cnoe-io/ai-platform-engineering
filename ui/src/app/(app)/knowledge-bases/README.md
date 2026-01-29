@@ -53,10 +53,12 @@ Type-safe client library for all RAG operations. Automatically includes session 
 React hook that fetches and caches user permissions. Use for conditional rendering.
 
 ```typescript
-const { permissions } = useRagPermissions();
+import { useRagPermissions, Permission } from '@/hooks/useRagPermissions';
 
-<button disabled={!permissions.can_ingest}>Ingest</button>
-<button disabled={!permissions.can_delete}>Delete</button>
+const { userInfo, hasPermission, isLoading } = useRagPermissions();
+
+<button disabled={!hasPermission(Permission.INGEST)}>Ingest</button>
+<button disabled={!hasPermission(Permission.DELETE)}>Delete</button>
 ```
 
 ### IngestView (`src/components/rag/IngestView.tsx`)
@@ -65,18 +67,20 @@ Main UI for document ingestion with permission-based feature visibility.
 ## Usage
 
 ```typescript
-import { useRagPermissions } from '@/hooks/useRagPermissions';
+import { useRagPermissions, Permission } from '@/hooks/useRagPermissions';
 import { ingestUrl } from '@/lib/rag-api';
 
 function MyComponent() {
-  const { permissions } = useRagPermissions();
+  const { hasPermission } = useRagPermissions();
 
   // Conditional UI rendering
   return (
     <>
-      {permissions.can_ingest && <IngestButton />}
-      <button disabled={!permissions.can_delete}>Delete</button>
+      {hasPermission(Permission.INGEST) && <IngestButton />}
+      <button disabled={!hasPermission(Permission.DELETE)}>Delete</button>
     </>
+  );
+}
   );
 }
 
