@@ -52,17 +52,6 @@ export function AuthGuard({ children }: AuthGuardProps) {
 
     // User is authenticated, check authorization and token expiry
     if (status === "authenticated") {
-      // Check if TokenExpiryGuard is already handling expiry (prevents flickering)
-      const isTokenExpiryHandling = typeof window !== 'undefined' 
-        ? sessionStorage.getItem('token-expiry-handling') === 'true'
-        : false;
-
-      if (isTokenExpiryHandling) {
-        // Let TokenExpiryGuard handle the expiry with its modal
-        console.log("[AuthGuard] TokenExpiryGuard is handling expiry, skipping redirect");
-        return;
-      }
-
       // Check if token refresh failed
       if (session?.error === "RefreshTokenExpired" || session?.error === "RefreshTokenError") {
         console.warn("[AuthGuard] Token refresh failed, redirecting to login...");
@@ -77,8 +66,6 @@ export function AuthGuard({ children }: AuthGuardProps) {
       }
 
       // Check if token is expired or about to expire (60s buffer)
-      // Note: With refresh token support, this should rarely trigger
-      // as tokens are auto-refreshed 5 minutes before expiry
       const jwtToken = session as unknown as { expiresAt?: number };
       const tokenExpiry = jwtToken.expiresAt;
 
@@ -88,7 +75,13 @@ export function AuthGuard({ children }: AuthGuardProps) {
         return;
       }
 
+      // Clear any stale token-expiry-handling flag
+      if (typeof window !== 'undefined') {
+        sessionStorage.removeItem('token-expiry-handling');
+      }
+
       setAuthChecked(true);
+      console.log("[AuthGuard] ✅ Authorization complete, rendering app");
     }
   }, [ssoEnabled, status, session, router]);
 
