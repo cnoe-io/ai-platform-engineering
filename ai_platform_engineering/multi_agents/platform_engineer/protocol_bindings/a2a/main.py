@@ -35,10 +35,6 @@ from ai_platform_engineering.multi_agents.platform_engineer.prompts import (
 )
 from ai_platform_engineering.multi_agents.platform_engineer import platform_registry
 
-# MongoDB chat history imports
-from ai_platform_engineering.database.mongodb import mongodb_lifespan
-from ai_platform_engineering.api.routes.chat import router as chat_router, users_router, notifications_router
-
 logger = logging.getLogger(__name__)
 
 def get_version():
@@ -144,30 +140,13 @@ request_handler = DefaultRequestHandler(
   push_sender= push_sender
 )
 
-# Build A2A Starlette app (primary app)
+# Build A2A Starlette app
 a2a_server = A2AStarletteApplication(
   agent_card=get_agent_card(host, port, external_url),
   http_handler=request_handler
 )
 
 app = a2a_server.build()
-
-# Add chat history API routes to Starlette app
-# Note: Using Starlette routes, not FastAPI
-from starlette.routing import Mount
-from fastapi import FastAPI
-
-# Create FastAPI sub-app for MongoDB chat API
-chat_app = FastAPI(
-  title="Chat History API",
-  lifespan=mongodb_lifespan
-)
-chat_app.include_router(chat_router)
-chat_app.include_router(users_router)
-chat_app.include_router(notifications_router)
-
-# Mount FastAPI chat app under /api prefix
-app.mount("/api", chat_app)
 
 ################################################################################
 # Add authentication middleware if enabled
