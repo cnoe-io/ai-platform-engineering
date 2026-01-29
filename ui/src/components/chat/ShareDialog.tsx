@@ -24,6 +24,7 @@ export function ShareDialog({
   const [sharedWith, setSharedWith] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [noResults, setNoResults] = useState(false);
 
   const shareUrl = `${typeof window !== 'undefined' ? window.location.origin : ''}/chat/${conversationId}`;
 
@@ -51,17 +52,26 @@ export function ShareDialog({
     const searchUsers = async () => {
       if (emailInput.length < 2) {
         setSearchResults([]);
+        setNoResults(false);
         return;
       }
 
       setSearching(true);
+      setNoResults(false);
       try {
         const users = await apiClient.searchUsers(emailInput);
         // Filter out already shared users
-        setSearchResults(users.filter(u => !sharedWith.includes(u.email)));
+        const filteredUsers = users.filter(u => !sharedWith.includes(u.email));
+        setSearchResults(filteredUsers);
+        
+        // Show no results message if empty
+        if (filteredUsers.length === 0 && emailInput.length > 2) {
+          setNoResults(true);
+        }
       } catch (err) {
         console.error("Search failed:", err);
         setSearchResults([]);
+        setNoResults(true);
       } finally {
         setSearching(false);
       }
@@ -82,12 +92,25 @@ export function ShareDialog({
       setSharedWith([...sharedWith, email]);
       setEmailInput("");
       setSearchResults([]);
+      setNoResults(false);
     } catch (err) {
       console.error("Failed to share:", err);
       alert("Failed to share conversation");
     } finally {
       setLoading(false);
     }
+  };
+
+  // Handle sharing by email directly (for users not yet in system)
+  const handleShareByEmail = async () => {
+    // Simple email validation
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(emailInput)) {
+      alert("Please enter a valid email address");
+      return;
+    }
+
+    await handleShare(emailInput);
   };
 
   const handleCopyLink = async () => {
@@ -165,7 +188,7 @@ export function ShareDialog({
             />
             
             {/* Search results dropdown */}
-            {searchResults.length > 0 && (
+            {(searchResults.length > 0 || noResults) && emailInput.length >= 2 && (
               <div className="absolute top-full left-0 right-0 mt-1 bg-background border rounded-md shadow-lg max-h-48 overflow-y-auto z-10">
                 {searchResults.map((user) => (
                   <button
@@ -185,6 +208,25 @@ export function ShareDialog({
                     </div>
                   </button>
                 ))}
+                
+                {/* No results - offer to share by email */}
+                {noResults && !searching && (
+                  <div className="px-3 py-4">
+                    <p className="text-sm text-muted-foreground mb-2">
+                      User not found in system
+                    </p>
+                    <button
+                      onClick={handleShareByEmail}
+                      disabled={loading}
+                      className="w-full px-3 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 text-sm font-medium"
+                    >
+                      Share with {emailInput}
+                    </button>
+                    <p className="text-xs text-muted-foreground mt-2">
+                      They'll get access when they log in
+                    </p>
+                  </div>
+                )}
               </div>
             )}
 
