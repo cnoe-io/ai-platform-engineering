@@ -16,26 +16,6 @@ const nextConfig: NextConfig = {
     },
   },
 
-  // Proxy API requests to backend server (MongoDB chat history API)
-  async rewrites() {
-    const backendUrl = process.env.NEXT_PUBLIC_CAIPE_URL || process.env.CAIPE_URL || "http://localhost:8000";
-    
-    return [
-      {
-        source: "/api/chat/:path*",
-        destination: `${backendUrl}/api/chat/:path*`,
-      },
-      {
-        source: "/api/users/:path*",
-        destination: `${backendUrl}/api/users/:path*`,
-      },
-      {
-        source: "/api/notifications/:path*",
-        destination: `${backendUrl}/api/notifications/:path*`,
-      },
-    ];
-  },
-
   // Turbopack is default in Next.js 16 - empty config silences migration warning
   turbopack: {},
 

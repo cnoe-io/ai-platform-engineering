@@ -3,7 +3,6 @@ import { persist, createJSONStorage } from "zustand/middleware";
 import { Conversation, ChatMessage, A2AEvent, MessageFeedback } from "@/types/a2a";
 import { generateId } from "@/lib/utils";
 import { A2AClient } from "@/lib/a2a-client";
-import { getChatAPI, Conversation as MongoConversation } from "@/lib/chat-api";
 
 // Track streaming state per conversation
 interface StreamingState {
@@ -51,11 +50,6 @@ interface ChatState {
   isMessageSelectable: () => boolean;
   getTurnCount: (conversationId?: string) => number;
   getCurrentTurnIndex: (conversationId?: string) => number;
-
-  // MongoDB integration
-  loadConversationFromMongoDB: (mongoConversation: MongoConversation) => Promise<void>;
-  syncConversationToMongoDB: (conversationId: string) => Promise<void>;
-  syncMessageToMongoDB: (conversationId: string, message: ChatMessage) => Promise<void>;
 }
 
 export const useChatStore = create<ChatState>()(
@@ -425,91 +419,6 @@ export const useChatStore = create<ChatState>()(
         
         const index = turnIds.indexOf(selectedTurnId);
         return index === -1 ? turnIds.length : index + 1;
-      },
-
-      // ============================================================================
-      // MongoDB Integration
-      // ============================================================================
-
-      loadConversationFromMongoDB: async (mongoConversation: MongoConversation) => {
-        // Convert MongoDB conversation to local store format
-        const conversation: Conversation = {
-          id: mongoConversation._id,
-          title: mongoConversation.title,
-          createdAt: new Date(mongoConversation.created_at),
-          updatedAt: new Date(mongoConversation.updated_at),
-          messages: mongoConversation.messages.map((msg) => ({
-            id: msg.id,
-            role: msg.role,
-            content: msg.content,
-            timestamp: new Date(msg.timestamp),
-            events: [],
-            turnId: msg.turn_id,
-            isFinal: msg.is_final,
-            feedback: msg.feedback,
-          })),
-          a2aEvents: [],
-        };
-
-        set((state) => {
-          // Check if conversation already exists
-          const existingIndex = state.conversations.findIndex(
-            (c) => c.id === conversation.id
-          );
-
-          if (existingIndex >= 0) {
-            // Update existing conversation
-            const updatedConversations = [...state.conversations];
-            updatedConversations[existingIndex] = conversation;
-            return { conversations: updatedConversations };
-          } else {
-            // Add new conversation
-            return {
-              conversations: [conversation, ...state.conversations],
-            };
-          }
-        });
-      },
-
-      syncConversationToMongoDB: async (conversationId: string) => {
-        const state = get();
-        const conversation = state.conversations.find((c) => c.id === conversationId);
-        
-        if (!conversation) {
-          console.error(`Conversation ${conversationId} not found`);
-          return;
-        }
-
-        try {
-          const chatAPI = getChatAPI();
-          
-          // Update conversation title
-          await chatAPI.updateConversation(conversationId, {
-            title: conversation.title,
-          });
-          
-          console.log(`Synced conversation ${conversationId} to MongoDB`);
-        } catch (error) {
-          console.error(`Failed to sync conversation ${conversationId}:`, error);
-        }
-      },
-
-      syncMessageToMongoDB: async (conversationId: string, message: ChatMessage) => {
-        try {
-          const chatAPI = getChatAPI();
-          
-          // Add message to MongoDB
-          await chatAPI.addMessage(conversationId, {
-            role: message.role,
-            content: message.content,
-            turn_id: message.turnId,
-            is_final: message.isFinal,
-          });
-          
-          console.log(`Synced message ${message.id} to MongoDB`);
-        } catch (error) {
-          console.error(`Failed to sync message ${message.id}:`, error);
-        }
       },
     }),
     {
