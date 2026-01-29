@@ -38,9 +38,8 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
   const [useCaseBuilderOpen, setUseCaseBuilderOpen] = useState(false);
 
   const handleNewChat = () => {
-    const id = createConversation();
-    setActiveConversation(id);
-    onTabChange("chat");
+    // Navigate to /chat which will create a MongoDB conversation
+    window.location.href = '/chat';
   };
 
   return (
