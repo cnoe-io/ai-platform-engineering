@@ -7,17 +7,20 @@ Role Hierarchy:
 - ADMIN: INGESTONLY + can delete resources and perform bulk operations
 
 This module provides:
-- User context extraction from authentication proxy headers (X-Forwarded-*)
+- User context extraction from JWT tokens (Bearer authentication)
+- Trusted network access (IP-based or header-based)
 - Role determination from group membership
 - FastAPI dependencies for role-based endpoint protection
-- Extensible design for future full RBAC system
 """
 import os
 import re
-from typing import List
+import ipaddress
+from typing import List, Dict, Any
 from fastapi import Depends, HTTPException, Request
+from jose import JWTError
 from common.models.rbac import Role, UserContext
 from common import utils
+from server.auth import get_auth_manager, AuthManager
 
 logger = utils.get_logger(__name__)
 
@@ -36,10 +39,25 @@ RBAC_ADMIN_GROUPS = os.getenv("RBAC_ADMIN_GROUPS", "").split(",")
 # Default role for authenticated users (those with OAuth headers) who don't match any group
 RBAC_DEFAULT_AUTHENTICATED_ROLE = os.getenv("RBAC_DEFAULT_AUTHENTICATED_ROLE", Role.READONLY)
 
-# Default role for unauthenticated requests (no OAuth headers)
-# If empty string, unauthenticated requests are rejected with 401
-# If set to a role (readonly/ingestonly/admin), unauthenticated requests get that role
-RBAC_DEFAULT_UNAUTHENTICATED_ROLE = os.getenv("RBAC_DEFAULT_UNAUTHENTICATED_ROLE", Role.ADMIN)
+# Trusted network configuration (replaces RBAC_DEFAULT_UNAUTHENTICATED_ROLE)
+ALLOW_TRUSTED_NETWORK = os.getenv("ALLOW_TRUSTED_NETWORK", "false").lower() in ("true", "1", "yes")
+TRUSTED_NETWORK_CIDRS_STR = os.getenv("TRUSTED_NETWORK_CIDRS", "127.0.0.0/8")
+TRUSTED_NETWORK_TOKEN = os.getenv("TRUSTED_NETWORK_TOKEN", "")
+TRUSTED_NETWORK_DEFAULT_ROLE = os.getenv("TRUSTED_NETWORK_DEFAULT_ROLE", Role.ADMIN)
+
+# Parse CIDR ranges for trusted networks
+TRUSTED_NETWORK_CIDRS = []
+if ALLOW_TRUSTED_NETWORK and TRUSTED_NETWORK_CIDRS_STR:
+    for cidr_str in TRUSTED_NETWORK_CIDRS_STR.split(","):
+        cidr_str = cidr_str.strip()
+        if cidr_str:
+            try:
+                TRUSTED_NETWORK_CIDRS.append(ipaddress.ip_network(cidr_str))
+            except ValueError as e:
+                logger.error(f"Invalid CIDR in TRUSTED_NETWORK_CIDRS: '{cidr_str}' - {e}")
+
+# Group claim configuration (matches UI configuration)
+OIDC_GROUP_CLAIM = os.getenv("OIDC_GROUP_CLAIM", "")
 
 # Validate roles at startup
 VALID_ROLES = {Role.READONLY, Role.INGESTONLY, Role.ADMIN}
@@ -48,20 +66,21 @@ if RBAC_DEFAULT_AUTHENTICATED_ROLE not in VALID_ROLES:
     logger.error(f"Invalid RBAC_DEFAULT_AUTHENTICATED_ROLE: '{RBAC_DEFAULT_AUTHENTICATED_ROLE}'. Must be one of: {VALID_ROLES}")
     raise ValueError(f"Invalid RBAC_DEFAULT_AUTHENTICATED_ROLE: '{RBAC_DEFAULT_AUTHENTICATED_ROLE}'. Valid values are: {', '.join(VALID_ROLES)}")
 
-if RBAC_DEFAULT_UNAUTHENTICATED_ROLE and RBAC_DEFAULT_UNAUTHENTICATED_ROLE not in VALID_ROLES:
-    logger.error(f"Invalid RBAC_DEFAULT_UNAUTHENTICATED_ROLE: '{RBAC_DEFAULT_UNAUTHENTICATED_ROLE}'. Must be empty or one of: {VALID_ROLES}")
-    raise ValueError(f"Invalid RBAC_DEFAULT_UNAUTHENTICATED_ROLE: '{RBAC_DEFAULT_UNAUTHENTICATED_ROLE}'. Valid values are: empty string or {', '.join(VALID_ROLES)}")
-
-# Determine if unauthenticated access is allowed
-ALLOW_UNAUTHENTICATED = bool(RBAC_DEFAULT_UNAUTHENTICATED_ROLE)
+if TRUSTED_NETWORK_DEFAULT_ROLE not in VALID_ROLES:
+    logger.error(f"Invalid TRUSTED_NETWORK_DEFAULT_ROLE: '{TRUSTED_NETWORK_DEFAULT_ROLE}'. Must be one of: {VALID_ROLES}")
+    raise ValueError(f"Invalid TRUSTED_NETWORK_DEFAULT_ROLE: '{TRUSTED_NETWORK_DEFAULT_ROLE}'. Valid values are: {', '.join(VALID_ROLES)}")
 
 logger.info("RBAC Configuration:")
 logger.info(f"  RBAC_READONLY_GROUPS: {[g for g in RBAC_READONLY_GROUPS if g.strip()]}")
 logger.info(f"  RBAC_INGESTONLY_GROUPS: {[g for g in RBAC_INGESTONLY_GROUPS if g.strip()]}")
 logger.info(f"  RBAC_ADMIN_GROUPS: {[g for g in RBAC_ADMIN_GROUPS if g.strip()]}")
 logger.info(f"  RBAC_DEFAULT_AUTHENTICATED_ROLE: {RBAC_DEFAULT_AUTHENTICATED_ROLE}")
-logger.info(f"  RBAC_DEFAULT_UNAUTHENTICATED_ROLE: {RBAC_DEFAULT_UNAUTHENTICATED_ROLE if RBAC_DEFAULT_UNAUTHENTICATED_ROLE else '(disabled - will reject unauthenticated requests)'}")
-logger.info(f"  Unauthenticated access allowed: {ALLOW_UNAUTHENTICATED}")
+logger.info(f"  ALLOW_TRUSTED_NETWORK: {ALLOW_TRUSTED_NETWORK}")
+if ALLOW_TRUSTED_NETWORK:
+    logger.info(f"  TRUSTED_NETWORK_CIDRS: {[str(cidr) for cidr in TRUSTED_NETWORK_CIDRS]}")
+    logger.info(f"  TRUSTED_NETWORK_TOKEN: {'(set)' if TRUSTED_NETWORK_TOKEN else '(not set)'}")
+    logger.info(f"  TRUSTED_NETWORK_DEFAULT_ROLE: {TRUSTED_NETWORK_DEFAULT_ROLE}")
+logger.info(f"  OIDC_GROUP_CLAIM: {OIDC_GROUP_CLAIM if OIDC_GROUP_CLAIM else '(auto-detect)'}")
 
 # ============================================================================
 # Role Hierarchy and Permission Logic
@@ -177,79 +196,203 @@ def determine_role_from_groups(user_groups: List[str]) -> str:
 
 
 # ============================================================================
-# FastAPI Dependencies
+# Claim Extraction (matches UI logic)
 # ============================================================================
 
-async def get_current_user(request: Request) -> UserContext:
+def extract_email_from_claims(claims: Dict[str, Any]) -> str:
     """
-    Extract user context from authentication proxy headers.
+    Extract email from JWT claims with fallback chain.
+    Matches the logic used in UI for consistency.
     
-    The authentication proxy sets these headers:
-    - X-Forwarded-Email: user email
-    - X-Forwarded-Groups: comma-separated list of groups
-    - X-Forwarded-User: username (fallback if no email)
+    Priority order:
+    1. email claim (standard OIDC)
+    2. preferred_username (common in Keycloak, Azure AD)
+    3. upn (User Principal Name - Microsoft)
+    4. sub (subject - last resort, usually opaque ID)
     
-    If RBAC_DEFAULT_UNAUTHENTICATED_ROLE is set and no headers are present,
-    returns an unauthenticated user context with the specified role
-    (for service-to-service communication).
+    Args:
+        claims: JWT token claims
+        
+    Returns:
+        Email or user identifier string
+    """
+    return (
+        claims.get("email") or 
+        claims.get("preferred_username") or 
+        claims.get("upn") or
+        claims.get("sub") or
+        "unknown"
+    )
+
+
+def extract_groups_from_claims(claims: Dict[str, Any]) -> List[str]:
+    """
+    Extract groups from JWT claims with configurable claim name.
+    Mirrors the logic in ui/src/lib/auth-config.ts extractGroups()
+    
+    Uses OIDC_GROUP_CLAIM if set, otherwise tries common claim names.
+    
+    Args:
+        claims: JWT token claims
+        
+    Returns:
+        List of group names
+    """
+    # Default group claim names to try (in order)
+    default_group_claims = ["memberOf", "groups", "group", "roles", "cognito:groups"]
+    
+    # If explicit group claim is configured, use only that
+    if OIDC_GROUP_CLAIM:
+        value = claims.get(OIDC_GROUP_CLAIM)
+        if isinstance(value, list):
+            return [str(g) for g in value]
+        elif isinstance(value, str):
+            # Split on comma or whitespace
+            return [g.strip() for g in re.split(r'[,\s]+', value) if g.strip()]
+        else:
+            logger.warning(f"Group claim '{OIDC_GROUP_CLAIM}' not found in token")
+            return []
+    
+    # Auto-detect: Try common group claim names in order
+    for claim_name in default_group_claims:
+        value = claims.get(claim_name)
+        if isinstance(value, list):
+            return [str(g) for g in value]
+        elif isinstance(value, str):
+            return [g.strip() for g in re.split(r'[,\s]+', value) if g.strip()]
+    
+    # No groups found
+    logger.debug("No group claims found in token")
+    return []
+
+
+# ============================================================================
+# Trusted Network Access
+# ============================================================================
+
+def is_trusted_request(request: Request) -> bool:
+    """
+    Check if request comes from trusted network.
+    
+    Checks:
+    1. Source IP against CIDR ranges (TRUSTED_NETWORK_CIDRS)
+    2. X-Trust-Token header (TRUSTED_NETWORK_TOKEN)
     
     Args:
         request: FastAPI request object
         
     Returns:
+        True if request is from trusted network, False otherwise
+    """
+    if not ALLOW_TRUSTED_NETWORK:
+        return False
+    
+    # Option 1: Check source IP against CIDR ranges
+    if TRUSTED_NETWORK_CIDRS and request.client:
+        try:
+            client_ip = ipaddress.ip_address(request.client.host)
+            for cidr in TRUSTED_NETWORK_CIDRS:
+                if client_ip in cidr:
+                    logger.debug(f"Request from trusted network: {client_ip} in {cidr}")
+                    return True
+        except ValueError as e:
+            logger.warning(f"Invalid client IP address: {request.client.host} - {e}")
+    
+    # Option 2: Check for trusted header
+    if TRUSTED_NETWORK_TOKEN:
+        trust_token = request.headers.get("X-Trust-Token")
+        if trust_token == TRUSTED_NETWORK_TOKEN:
+            logger.debug("Request authenticated via X-Trust-Token header")
+            return True
+    
+    return False
+
+
+# ============================================================================
+# FastAPI Dependencies
+# ============================================================================
+
+async def get_current_user(
+    request: Request,
+    auth_manager: AuthManager = Depends(get_auth_manager)
+) -> UserContext:
+    """
+    Extract user context from JWT token or trusted network.
+    
+    Authentication flow:
+    1. Check if request is from trusted network (if enabled)
+    2. Extract Bearer token from Authorization header
+    3. Validate JWT against configured OIDC providers
+    4. Extract email and groups from token claims
+    5. Determine role from group membership
+    
+    Args:
+        request: FastAPI request object
+        auth_manager: Auth manager with OIDC providers
+        
+    Returns:
         UserContext with authentication and role information
         
     Raises:
-        HTTPException(401): If authentication is required but not provided
+        HTTPException(401): If authentication fails
     """
-    # Debug: Log all request headers
-    logger.debug("=== Request Headers ===")
-    for header_name, header_value in request.headers.items():
-        if header_name.lower().startswith("x-forwarded-"):
-            logger.debug(f"  {header_name}: {header_value}")
-    logger.debug("======================")
-    
-    user_email = request.headers.get("X-Forwarded-Email")
-    user_groups_raw = request.headers.get("X-Forwarded-Groups", "")
-    user_groups = [g.strip() for g in user_groups_raw.split(",") if g.strip()]
-    
-    if not user_email:
-        # No authentication headers present
-        if ALLOW_UNAUTHENTICATED:
-            logger.debug(f"Unauthenticated request allowed with role: {RBAC_DEFAULT_UNAUTHENTICATED_ROLE}")
-            return UserContext(
-                email="unauthenticated",
-                groups=[],
-                role=RBAC_DEFAULT_UNAUTHENTICATED_ROLE,
-                is_authenticated=False
-            )
-        else:
-            logger.warning("Authentication required but not provided (RBAC_DEFAULT_UNAUTHENTICATED_ROLE not set)")
-            raise HTTPException(
-                status_code=401,
-                detail="Authentication required. Please ensure you are logged in through the authentication proxy."
-            )
-    
-    # Validate email format
-    user_email = user_email.strip()
-    if not user_email or not EMAIL_REGEX.match(user_email):
-        logger.warning(f"Invalid email format received: {user_email[:50]}")  # Truncate for logging
-        raise HTTPException(
-            status_code=401,
-            detail="Authentication failed. Invalid email format received from authentication proxy."
+    # Check for trusted network access first (if enabled)
+    if is_trusted_request(request):
+        logger.info(f"Trusted network request from {request.client.host if request.client else 'unknown'}")
+        return UserContext(
+            email="trusted-network",
+            groups=[],
+            role=TRUSTED_NETWORK_DEFAULT_ROLE,
+            is_authenticated=False
         )
     
+    # Extract Bearer token
+    auth_header = request.headers.get("Authorization")
+    if not auth_header:
+        raise HTTPException(
+            status_code=401,
+            detail="Missing Authorization header. Please provide a valid Bearer token."
+        )
+    
+    if not auth_header.startswith("Bearer "):
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid Authorization header format. Expected 'Bearer <token>'."
+        )
+    
+    token = auth_header[7:]  # Remove "Bearer " prefix
+    
+    # Validate token against configured providers
+    try:
+        provider, claims = await auth_manager.validate_token(token)
+        logger.debug(f"Token validated by provider '{provider.name}'")
+    except JWTError as e:
+        logger.warning(f"Token validation failed: {e}")
+        raise HTTPException(
+            status_code=401,
+            detail=f"Invalid or expired token: {str(e)}"
+        )
+    
+    # Extract email and groups from claims
+    email = extract_email_from_claims(claims)
+    groups = extract_groups_from_claims(claims)
+    
+    # Validate email format
+    if email and email != "unknown" and not EMAIL_REGEX.match(email):
+        logger.warning(f"Invalid email format in token claims: {email[:50]}")
+        # Don't fail - use it anyway as identifier
+    
     # Determine role from groups
-    role = determine_role_from_groups(user_groups)
+    role = determine_role_from_groups(groups)
     
     user_context = UserContext(
-        email=user_email,
-        groups=user_groups,
+        email=email,
+        groups=groups,
         role=role,
         is_authenticated=True
     )
     
-    logger.debug(f"User authenticated: {user_email}, role: {role}, groups: {user_groups}")
+    logger.debug(f"User authenticated: {email}, role: {role}, groups: {groups}")
     return user_context
 
 
