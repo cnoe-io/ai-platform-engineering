@@ -900,8 +900,7 @@ services:
     restart: unless-stopped
     depends_on: [rag_server]
     profiles:
-      - rag
-      - graph_rag
+      - web_ingestor
 
   # Dummy Graph Ingestor - for testing graph RAG with sample data
   # Requires RAG services to be running first: docker compose -f docker-compose.dev.yaml --profile graph_rag up -d
@@ -947,8 +946,6 @@ services:
     depends_on: [rag_server]
     profiles:
       - backstage-ingestor
-      - graph_rag
-
   # RAG Dependencies
   neo4j:
     image: neo4j:latest
