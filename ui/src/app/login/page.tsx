@@ -98,7 +98,7 @@ function LoginContent() {
               </div>
               <h1 className="text-2xl font-bold gradient-text">CAIPE</h1>
               <p className="text-sm text-muted-foreground mt-1">
-                Community AI Platform Engineering
+                Multi-Agent Collaboration & Workflow Automation
               </p>
             </div>
 
