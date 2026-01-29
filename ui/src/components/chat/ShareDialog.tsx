@@ -126,8 +126,8 @@ export function ShareDialog({
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-      <div className="bg-background rounded-lg shadow-lg w-full max-w-md p-6 m-4">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+      <div className="bg-background rounded-lg shadow-xl w-full max-w-md p-6 mx-auto my-auto">
         {/* Header */}
         <div className="flex items-start justify-between mb-4">
           <div>
