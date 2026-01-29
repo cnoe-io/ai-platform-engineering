@@ -122,6 +122,7 @@ services:
       start_period: 40s
     profiles:
       - caipe-ui-mongodb
+      - caipe-ui
 
   ####################################################################################################
   #                                      SLIM Transport                                              #
