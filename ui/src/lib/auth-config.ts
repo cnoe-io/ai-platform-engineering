@@ -232,7 +232,15 @@ export const authOptions: NextAuthOptions = {
       if (profile) {
         // Cast profile to Record for storage and group extraction
         const profileData = profile as unknown as Record<string, unknown>;
-        token.profile = profileData;
+        
+        // Only store essential profile info to reduce JWT size
+        token.profile = {
+          sub: profileData.sub,
+          email: profileData.email,
+          name: profileData.fullname || profileData.name || profileData.preferred_username,
+          // Don't store the entire profile - it can be huge
+        };
+        
         const groups = extractGroups(profileData);
         token.groups = groups;
         token.isAuthorized = hasRequiredGroup(groups);
@@ -331,6 +339,19 @@ export const authOptions: NextAuthOptions = {
   session: {
     strategy: "jwt",
     maxAge: 24 * 60 * 60, // 24 hours
+  },
+  cookies: {
+    sessionToken: {
+      name: `next-auth.session-token`,
+      options: {
+        httpOnly: true,
+        sameSite: 'lax',
+        path: '/',
+        secure: process.env.NODE_ENV === 'production',
+        // Reduce session cookie size by not storing everything in cookie
+        maxAge: 24 * 60 * 60, // 24 hours
+      },
+    },
   },
   debug: process.env.NODE_ENV === "development",
 };
