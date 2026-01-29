@@ -18,9 +18,10 @@ import type { Conversation, UpdateConversationRequest } from '@/types/mongodb';
 // GET /api/chat/conversations/[id]
 export const GET = withErrorHandler(async (
   request: NextRequest,
-  { params }: { params: { id: string } }
+  context: { params: Promise<{ id: string }> }
 ) => {
   return withAuth(request, async (req, user) => {
+    const params = await context.params;
     const conversationId = params.id;
 
     if (!validateUUID(conversationId)) {
@@ -40,9 +41,10 @@ export const GET = withErrorHandler(async (
 // PUT /api/chat/conversations/[id]
 export const PUT = withErrorHandler(async (
   request: NextRequest,
-  { params }: { params: { id: string } }
+  context: { params: Promise<{ id: string }> }
 ) => {
   return withAuth(request, async (req, user) => {
+    const params = await context.params;
     const conversationId = params.id;
     const body: UpdateConversationRequest = await request.json();
 
@@ -84,9 +86,10 @@ export const PUT = withErrorHandler(async (
 // DELETE /api/chat/conversations/[id]
 export const DELETE = withErrorHandler(async (
   request: NextRequest,
-  { params }: { params: { id: string } }
+  context: { params: Promise<{ id: string }> }
 ) => {
   return withAuth(request, async (req, user) => {
+    const params = await context.params;
     const conversationId = params.id;
 
     if (!validateUUID(conversationId)) {

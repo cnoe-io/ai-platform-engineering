@@ -19,9 +19,10 @@ import type { Message, AddMessageRequest, Conversation } from '@/types/mongodb';
 // GET /api/chat/conversations/[id]/messages
 export const GET = withErrorHandler(async (
   request: NextRequest,
-  { params }: { params: { id: string } }
+  context: { params: Promise<{ id: string }> }
 ) => {
   return withAuth(request, async (req, user) => {
+    const params = await context.params;
     const conversationId = params.id;
 
     if (!validateUUID(conversationId)) {
@@ -51,9 +52,10 @@ export const GET = withErrorHandler(async (
 // POST /api/chat/conversations/[id]/messages
 export const POST = withErrorHandler(async (
   request: NextRequest,
-  { params }: { params: { id: string } }
+  context: { params: Promise<{ id: string }> }
 ) => {
   return withAuth(request, async (req, user) => {
+    const params = await context.params;
     const conversationId = params.id;
     const body: AddMessageRequest = await request.json();
 

@@ -14,9 +14,10 @@ import type { Message, UpdateMessageRequest } from '@/types/mongodb';
 // PUT /api/chat/messages/[id]
 export const PUT = withErrorHandler(async (
   request: NextRequest,
-  { params }: { params: { id: string } }
+  context: { params: Promise<{ id: string }> }
 ) => {
   return withAuth(request, async (req, user) => {
+    const params = await context.params;
     const messageId = params.id;
     const body: UpdateMessageRequest = await request.json();
 
