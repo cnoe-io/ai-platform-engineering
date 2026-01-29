@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
@@ -10,9 +10,9 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { config } from "@/lib/config";
-import { getHealthStatus } from "@/components/rag/api";
 import { cn } from "@/lib/utils";
 import { RagAuthIndicator } from "@/components/rag/RagAuthBanner";
+import { useRAGHealth } from "@/hooks/use-rag-health";
 
 export default function KnowledgeBasesLayout({
   children,
@@ -20,38 +20,9 @@ export default function KnowledgeBasesLayout({
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
-  const [ragHealth, setRagHealth] = useState<
-    "connected" | "disconnected" | "checking"
-  >("checking");
-  const [ragHealthDetails, setRagHealthDetails] = useState<string | null>(null);
-  const [graphRagEnabled, setGraphRagEnabled] = useState<boolean>(true);
-
-  const checkRagHealth = async () => {
-    setRagHealth("checking");
-    setRagHealthDetails(null);
-    try {
-      const data = await getHealthStatus();
-      if (data.status === "healthy") {
-        setRagHealth("connected");
-        setGraphRagEnabled(data.config?.graph_rag_enabled ?? true);
-      } else {
-        setRagHealth("disconnected");
-        setRagHealthDetails(`RAG server reported unhealthy: ${JSON.stringify(data)}`);
-      }
-    } catch (error: unknown) {
-      console.error("[RAG] Error checking health:", error);
-      setRagHealth("disconnected");
-      setRagHealthDetails(
-        error instanceof Error ? error.message : "Unknown error"
-      );
-    }
-  };
-
-  useEffect(() => {
-    checkRagHealth();
-    const interval = setInterval(checkRagHealth, 30000);
-    return () => clearInterval(interval);
-  }, []);
+  
+  // Use the shared RAG health hook
+  const { status: ragHealth, graphRagEnabled, checkNow: checkRagHealth } = useRAGHealth();
 
   const getActiveTab = () => {
     if (pathname?.includes("/ingest")) return "ingest";
@@ -72,11 +43,6 @@ export default function KnowledgeBasesLayout({
           Unable to connect to the RAG server at{" "}
           <span className="font-mono text-sm text-foreground">{config.ragUrl}</span>
         </p>
-        {ragHealthDetails && (
-          <p className="text-sm text-destructive mb-4 max-w-md break-all">
-            Error: {ragHealthDetails}
-          </p>
-        )}
         <Button
           onClick={checkRagHealth}
           className="mt-4 flex items-center gap-2"
@@ -101,7 +67,7 @@ export default function KnowledgeBasesLayout({
   // Connected - show tabbed interface
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
-      {/* Compact Tab Navigation with connection status */}
+      {/* Compact Tab Navigation */}
       <div className="flex-shrink-0 w-full px-6 py-2 border-b border-border bg-card/50">
         <div className="flex items-center justify-between">
           {/* Tab Navigation */}
@@ -147,20 +113,8 @@ export default function KnowledgeBasesLayout({
             </Link>
           </nav>
 
-          {/* Connection Status & Auth */}
-          <div className="flex items-center gap-4">
-            {/* Auth Status */}
-            <RagAuthIndicator />
-            
-            {/* Connection Status */}
-            <div className="flex items-center gap-2">
-              <span className={cn(
-                "h-2 w-2 rounded-full",
-                ragHealth === "connected" ? "bg-emerald-500" : "bg-destructive"
-              )} />
-              <span className="text-xs uppercase tracking-wide text-muted-foreground">{ragHealth}</span>
-            </div>
-          </div>
+          {/* Auth Status */}
+          <RagAuthIndicator />
         </div>
       </div>
 

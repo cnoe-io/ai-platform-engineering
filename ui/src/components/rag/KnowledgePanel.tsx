@@ -8,7 +8,7 @@
  * Full screen layout with theme-compatible dark mode.
  */
 
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useState, useCallback } from "react";
 import {
   Loader2,
   WifiOff,
@@ -16,7 +16,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { config } from "@/lib/config";
-import { getHealthStatus } from "./api";
+import { useRAGHealth } from "@/hooks/use-rag-health";
 import SearchView from "./SearchView";
 import IngestView from "./IngestView";
 import GraphView from "./GraphView";
@@ -25,39 +25,10 @@ type TabType = "ingest" | "search" | "graph";
 
 export function KnowledgePanel() {
   const [activeTab, setActiveTab] = useState<TabType>("ingest");
-  const [ragHealth, setRagHealth] = useState<
-    "connected" | "disconnected" | "checking"
-  >("checking");
-  const [ragHealthDetails, setRagHealthDetails] = useState<string | null>(null);
-  const [graphRagEnabled, setGraphRagEnabled] = useState<boolean>(true);
   const [exploreEntityData, setExploreEntityData] = useState<{ entityType: string; primaryKey: string } | null>(null);
 
-  const checkRagHealth = async () => {
-    setRagHealth("checking");
-    setRagHealthDetails(null);
-    try {
-      const data = await getHealthStatus();
-      if (data.status === "healthy") {
-        setRagHealth("connected");
-        setGraphRagEnabled(data.config?.graph_rag_enabled ?? true);
-      } else {
-        setRagHealth("disconnected");
-        setRagHealthDetails(`RAG server reported unhealthy: ${JSON.stringify(data)}`);
-      }
-    } catch (error: unknown) {
-      console.error("[RAG] Error checking health:", error);
-      setRagHealth("disconnected");
-      setRagHealthDetails(
-        error instanceof Error ? error.message : "Unknown error"
-      );
-    }
-  };
-
-  useEffect(() => {
-    checkRagHealth();
-    const interval = setInterval(checkRagHealth, 30000);
-    return () => clearInterval(interval);
-  }, []);
+  // Use the shared RAG health hook
+  const { status: ragHealth, graphRagEnabled, checkNow: checkRagHealth } = useRAGHealth();
 
   // Handle explore entity from search
   const handleExploreEntity = useCallback((entityType: string, primaryKey: string) => {
@@ -79,11 +50,6 @@ export function KnowledgePanel() {
           Unable to connect to the RAG server at{" "}
           <span className="font-mono text-sm text-foreground">{config.ragUrl}</span>
         </p>
-        {ragHealthDetails && (
-          <p className="text-sm text-destructive mb-4 max-w-md break-all">
-            Error: {ragHealthDetails}
-          </p>
-        )}
         <Button
           onClick={checkRagHealth}
           className="mt-4 flex items-center gap-2"
@@ -108,53 +74,44 @@ export function KnowledgePanel() {
   // Connected - show tabbed interface (full screen layout)
   return (
     <div className="h-full flex flex-col bg-background">
-      {/* Compact Tab Navigation with connection status */}
+      {/* Compact Tab Navigation */}
       <div className="flex-shrink-0 w-full px-6 py-2 border-b border-border bg-card/50">
-        <div className="flex items-center justify-between">
-          {/* Tab Navigation */}
-          <nav className="flex gap-6" aria-label="Tabs">
-            <button
-              onClick={() => setActiveTab('ingest')}
-              className={`shrink-0 py-2 text-sm font-semibold transition-all duration-200 flex items-center gap-2 border-b-2 ${
-                activeTab === 'ingest'
-                  ? 'border-primary text-primary'
-                  : 'border-transparent text-muted-foreground hover:text-foreground'
-              }`}
-            >
-              <span>🗃️</span> Data Sources
-            </button>
-            <button
-              onClick={() => setActiveTab('search')}
-              className={`shrink-0 py-2 text-sm font-semibold transition-all duration-200 flex items-center gap-2 border-b-2 ${
-                activeTab === 'search'
-                  ? 'border-primary text-primary'
-                  : 'border-transparent text-muted-foreground hover:text-foreground'
-              }`}
-            >
-              <span>🔍</span> Search
-            </button>
-            <button
-              onClick={graphRagEnabled ? () => setActiveTab('graph') : undefined}
-              disabled={!graphRagEnabled}
-              className={`shrink-0 py-2 text-sm font-semibold transition-all duration-200 flex items-center gap-2 border-b-2 ${
-                !graphRagEnabled
-                  ? 'border-transparent text-muted-foreground/50 cursor-not-allowed'
-                  : activeTab === 'graph'
-                  ? 'border-primary text-primary'
-                  : 'border-transparent text-muted-foreground hover:text-foreground'
-              }`}
-              title={!graphRagEnabled ? 'Graph RAG is disabled' : ''}
-            >
-              <span>✳</span> Graph
-            </button>
-          </nav>
-
-          {/* Connection Status */}
-          <div className="flex items-center gap-2">
-            <span className={`h-2 w-2 rounded-full ${ragHealth === 'connected' ? 'bg-emerald-500' : 'bg-destructive'}`}></span>
-            <span className="text-xs uppercase tracking-wide text-muted-foreground">{ragHealth}</span>
-          </div>
-        </div>
+        <nav className="flex gap-6" aria-label="Tabs">
+          <button
+            onClick={() => setActiveTab('ingest')}
+            className={`shrink-0 py-2 text-sm font-semibold transition-all duration-200 flex items-center gap-2 border-b-2 ${
+              activeTab === 'ingest'
+                ? 'border-primary text-primary'
+                : 'border-transparent text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            <span>🗃️</span> Data Sources
+          </button>
+          <button
+            onClick={() => setActiveTab('search')}
+            className={`shrink-0 py-2 text-sm font-semibold transition-all duration-200 flex items-center gap-2 border-b-2 ${
+              activeTab === 'search'
+                ? 'border-primary text-primary'
+                : 'border-transparent text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            <span>🔍</span> Search
+          </button>
+          <button
+            onClick={graphRagEnabled ? () => setActiveTab('graph') : undefined}
+            disabled={!graphRagEnabled}
+            className={`shrink-0 py-2 text-sm font-semibold transition-all duration-200 flex items-center gap-2 border-b-2 ${
+              !graphRagEnabled
+                ? 'border-transparent text-muted-foreground/50 cursor-not-allowed'
+                : activeTab === 'graph'
+                ? 'border-primary text-primary'
+                : 'border-transparent text-muted-foreground hover:text-foreground'
+            }`}
+            title={!graphRagEnabled ? 'Graph RAG is disabled' : ''}
+          >
+            <span>✳</span> Graph
+          </button>
+        </nav>
       </div>
 
       {/* Tab Content - full width */}
