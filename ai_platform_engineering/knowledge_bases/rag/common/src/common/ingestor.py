@@ -19,6 +19,10 @@ logger = utils.get_logger(__name__)
 class Client():
     """
     Client bindings for RAG server REST API - handles ingestor lifecycle and data ingestion
+    
+    Supports two authentication modes:
+    1. OAuth2 Client Credentials (production) - via INGESTOR_OIDC_* env vars
+    2. Trusted Network (development) - no authentication required
     """
     def __init__(self, ingestor_name: str, ingestor_type: str, ingestor_description: str = "", ingestor_metadata: Optional[Dict[str, Any]] = {}):
         self.server_addr = os.getenv("RAG_SERVER_URL", "http://localhost:9446")
@@ -35,6 +39,21 @@ class Client():
 
         self._ping_task: Optional[asyncio.Task] = None
         self._ping_interval = int(os.getenv("INGESTOR_PING_INTERVAL_SECONDS", "120"))  # Default 2 minutes
+        
+        # OAuth2 client credentials configuration
+        self.oidc_issuer = os.getenv("INGESTOR_OIDC_ISSUER")
+        self.oidc_client_id = os.getenv("INGESTOR_OIDC_CLIENT_ID")
+        self.oidc_client_secret = os.getenv("INGESTOR_OIDC_CLIENT_SECRET")
+        
+        # Token cache
+        self._access_token: Optional[str] = None
+        self._token_expiry: Optional[float] = None
+        
+        # Determine authentication mode
+        if self.oidc_issuer and self.oidc_client_id and self.oidc_client_secret:
+            logger.info(f"Ingestor '{self.ingestor_name}' using OAuth2 client credentials authentication")
+        else:
+            logger.info(f"Ingestor '{self.ingestor_name}' using trusted network mode (no authentication)")
         
         # Note: Health check will be done during initialize() with aiohttp
     
@@ -74,6 +93,79 @@ class Client():
             self._ping_task = None
         logger.info(f"Ingestor {self.ingestor_name} shutdown complete")
     
+    async def _get_access_token(self) -> Optional[str]:
+        """
+        Get valid OAuth2 access token using client credentials flow.
+        
+        Token is cached and automatically refreshed before expiry.
+        Returns None if OAuth2 is not configured (trusted network mode).
+        
+        Returns:
+            Access token string or None
+        """
+        # Check if OAuth2 is configured
+        if not self.oidc_issuer or not self.oidc_client_id or not self.oidc_client_secret:
+            # Trusted network mode - no token needed
+            return None
+        
+        # Check if cached token is still valid (with 60s buffer)
+        if self._access_token and self._token_expiry:
+            if time.time() < self._token_expiry - 60:
+                logger.debug(f"Using cached access token for ingestor '{self.ingestor_name}'")
+                return self._access_token
+        
+        # Fetch new token via client credentials grant
+        token_endpoint = f"{self.oidc_issuer}/protocol/openid-connect/token"
+        logger.info(f"Fetching new access token from {token_endpoint}")
+        
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    token_endpoint,
+                    data={
+                        "grant_type": "client_credentials",
+                        "client_id": self.oidc_client_id,
+                        "client_secret": self.oidc_client_secret,
+                        "scope": "openid"
+                    },
+                    headers={"Content-Type": "application/x-www-form-urlencoded"}
+                ) as resp:
+                    resp.raise_for_status()
+                    token_data = await resp.json()
+                    
+                    self._access_token = token_data["access_token"]
+                    expires_in = token_data.get("expires_in", 3600)
+                    self._token_expiry = time.time() + expires_in
+                    
+                    logger.info(f"Access token acquired for ingestor '{self.ingestor_name}', expires in {expires_in}s")
+                    return self._access_token
+                    
+        except aiohttp.ClientError as e:
+            logger.error(f"Failed to fetch access token: {e}")
+            raise
+        except Exception as e:
+            logger.error(f"Unexpected error fetching access token: {e}")
+            raise
+    
+    async def _get_auth_headers(self) -> Dict[str, str]:
+        """
+        Get authentication headers for RAG server requests.
+        
+        Returns headers with Authorization Bearer token if OAuth2 is configured,
+        otherwise returns basic headers for trusted network mode.
+        
+        Returns:
+            Dictionary of HTTP headers
+        """
+        headers = {'Content-Type': 'application/json'}
+        
+        # Get access token (None if trusted network mode)
+        token = await self._get_access_token()
+        if token:
+            headers['Authorization'] = f'Bearer {token}'
+        
+        return headers
+    
     async def _perform_ping(self) -> Dict[str, Any]:
         """
         Internal method to perform ping and update ingestor_id
@@ -85,10 +177,12 @@ class Client():
             metadata=self.ingestor_metadata
         )
         
+        headers = await self._get_auth_headers()
+        
         async with aiohttp.ClientSession() as session:
             async with session.post(
                 url=f"{self.server_addr}/v1/ingestor/heartbeat",
-                headers={'Content-Type': 'application/json'},
+                headers=headers,
                 json=ping_request.model_dump()
             ) as resp:
                 resp.raise_for_status()
@@ -256,10 +350,12 @@ class Client():
             fresh_until=fresh_until
         )
         
+        headers = await self._get_auth_headers()
+        
         async with aiohttp.ClientSession() as session:
             async with session.post(
                 url=f"{self.server_addr}/v1/ingest",
-                headers={'Content-Type': 'application/json'},
+                headers=headers,
                 json=ingest_request.model_dump()
             ) as resp:
                 resp.raise_for_status()
@@ -276,10 +372,12 @@ class Client():
         if ingestor_id:
             params["ingestor_id"] = ingestor_id
         
+        headers = await self._get_auth_headers()
+        
         async with aiohttp.ClientSession() as session:
             async with session.get(
                 url=f"{self.server_addr}/v1/datasources",
-                headers={'Content-Type': 'application/json'},
+                headers=headers,
                 params=params
             ) as resp:
                 resp.raise_for_status()
@@ -292,10 +390,12 @@ class Client():
         Create or update a datasource
         :param datasource_info: Datasource information
         """
+        headers = await self._get_auth_headers()
+        
         async with aiohttp.ClientSession() as session:
             async with session.post(
                 url=f"{self.server_addr}/v1/datasource",
-                headers={'Content-Type': 'application/json'},
+                headers=headers,
                 json=datasource_info.model_dump()
             ) as resp:
                 resp.raise_for_status()
@@ -318,10 +418,12 @@ class Client():
         if total is not None:
             params["total"] = str(total)  # Convert to string for query params
         
+        headers = await self._get_auth_headers()
+        
         async with aiohttp.ClientSession() as session:
             async with session.post(
                 url=f"{self.server_addr}/v1/job",
-                headers={'Content-Type': 'application/json'},
+                headers=headers,
                 params=params
             ) as resp:
                 resp.raise_for_status()
@@ -345,10 +447,12 @@ class Client():
         if total is not None:
             params["total"] = str(total)  # Convert to string for query params
         
+        headers = await self._get_auth_headers()
+        
         async with aiohttp.ClientSession() as session:
             async with session.patch(
                 url=f"{self.server_addr}/v1/job/{job_id}",
-                headers={'Content-Type': 'application/json'},
+                headers=headers,
                 params=params
             ) as resp:
                 resp.raise_for_status()
@@ -360,10 +464,12 @@ class Client():
         :param job_id: Job ID
         :return: Job details
         """
+        headers = await self._get_auth_headers()
+        
         async with aiohttp.ClientSession() as session:
             async with session.get(
                 url=f"{self.server_addr}/v1/job/{job_id}",
-                headers={'Content-Type': 'application/json'}
+                headers=headers
             ) as resp:
                 resp.raise_for_status()
                 job_data = await resp.json()
@@ -376,10 +482,12 @@ class Client():
         :param increment: Amount to increment by
         :return: Updated progress information
         """
+        headers = await self._get_auth_headers()
+        
         async with aiohttp.ClientSession() as session:
             async with session.post(
                 url=f"{self.server_addr}/v1/job/{job_id}/increment-progress",
-                headers={'Content-Type': 'application/json'},
+                headers=headers,
                 params={"increment": increment}
             ) as resp:
                 resp.raise_for_status()
@@ -392,10 +500,12 @@ class Client():
         :param increment: Amount to increment by
         :return: Updated failure information
         """
+        headers = await self._get_auth_headers()
+        
         async with aiohttp.ClientSession() as session:
             async with session.post(
                 url=f"{self.server_addr}/v1/job/{job_id}/increment-failure",
-                headers={'Content-Type': 'application/json'},
+                headers=headers,
                 params={"increment": increment}
             ) as resp:
                 resp.raise_for_status()
@@ -408,10 +518,12 @@ class Client():
         :param error_messages: List of error messages to add
         :return: Error addition response
         """
+        headers = await self._get_auth_headers()
+        
         async with aiohttp.ClientSession() as session:
             async with session.post(
                 url=f"{self.server_addr}/v1/job/{job_id}/add-errors",
-                headers={'Content-Type': 'application/json'},
+                headers=headers,
                 json=error_messages
             ) as resp:
                 resp.raise_for_status()
@@ -438,10 +550,12 @@ class Client():
             entity_pk=entity_pk
         )
         
+        headers = await self._get_auth_headers()
+        
         async with aiohttp.ClientSession() as session:
             async with session.post(
                 url=f"{self.server_addr}/v1/graph/explore/data/entity",
-                headers={'Content-Type': 'application/json'},
+                headers=headers,
                 json=explore_request.model_dump()
             ) as resp:
                 resp.raise_for_status()
