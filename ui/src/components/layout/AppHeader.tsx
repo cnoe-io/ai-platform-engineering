@@ -68,7 +68,7 @@ export function AppHeader() {
         {/* Logo */}
         <div
           className="flex items-center gap-2.5 cursor-default"
-          title="Community AI Platform Engineering"
+          title="Multi-Agent Collaboration & Workflow Automation"
         >
           <img
             src="/logo.svg"
