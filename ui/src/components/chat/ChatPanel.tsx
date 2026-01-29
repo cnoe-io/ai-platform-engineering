@@ -25,10 +25,9 @@ import { AgentStreamBox } from "./AgentStreamBox";
 
 interface ChatPanelProps {
   endpoint: string;
-  conversationId?: string; // Optional UUID for shareable links
 }
 
-export function ChatPanel({ endpoint, conversationId: propConversationId }: ChatPanelProps) {
+export function ChatPanel({ endpoint }: ChatPanelProps) {
   const { data: session } = useSession();
   const [input, setInput] = useState("");
   const [copiedId, setCopiedId] = useState<string | null>(null);
@@ -60,7 +59,6 @@ export function ChatPanel({ endpoint, conversationId: propConversationId }: Chat
     cancelConversationRequest,
     updateMessageFeedback,
     consumePendingMessage,
-    syncMessageToMongoDB,
   } = useChatStore();
 
   // Get access token from session (if SSO is enabled and user is authenticated)
@@ -177,17 +175,7 @@ export function ChatPanel({ endpoint, conversationId: propConversationId }: Chat
 
     // Add user message - generate turnId for this request/response pair
     const turnId = `turn-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
-    const userMsgId = addMessage(convId, { role: "user", content: messageToSend }, turnId);
-
-    // Get the user message for MongoDB sync
-    const userMessage = getActiveConversation()?.messages.find(m => m.id === userMsgId);
-    
-    // Sync user message to MongoDB (async, don't block)
-    if (userMessage) {
-      syncMessageToMongoDB(convId, userMessage).catch(err => 
-        console.error("Failed to sync user message to MongoDB:", err)
-      );
-    }
+    addMessage(convId, { role: "user", content: messageToSend }, turnId);
 
     // Add assistant message placeholder with same turnId
     const assistantMsgId = addMessage(convId, { role: "assistant", content: "" }, turnId);
@@ -221,7 +209,6 @@ export function ChatPanel({ endpoint, conversationId: propConversationId }: Chat
     try {
       // ═══════════════════════════════════════════════════════════════
       // AGENT-FORGE PATTERN: for await loop over async generator
-      // Pass conversation UUID as contextId for thread continuity
       // ═══════════════════════════════════════════════════════════════
       for await (const event of client.sendMessageStream(messageToSend, convId)) {
         eventCounter++;
@@ -350,14 +337,6 @@ export function ChatPanel({ endpoint, conversationId: propConversationId }: Chat
 
       // Always clear streaming state
       setConversationStreaming(convId!, null);
-
-      // Sync final assistant message to MongoDB (async, don't block)
-      const assistantMessage = getActiveConversation()?.messages.find(m => m.id === assistantMsgId);
-      if (assistantMessage && assistantMessage.isFinal) {
-        syncMessageToMongoDB(convId!, assistantMessage).catch(err => 
-          console.error("Failed to sync assistant message to MongoDB:", err)
-        );
-      }
 
     } catch (error) {
       console.error("[A2A SDK] Stream error:", error);
