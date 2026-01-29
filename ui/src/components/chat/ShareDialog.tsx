@@ -26,6 +26,7 @@ export function ShareDialog({
   const [loading, setLoading] = useState(false);
   const [copied, setCopied] = useState(false);
   const [noResults, setNoResults] = useState(false);
+  const [isLegacyConversation, setIsLegacyConversation] = useState(false);
 
   const shareUrl = `${typeof window !== 'undefined' ? window.location.origin : ''}/chat/${conversationId}`;
 
@@ -42,15 +43,14 @@ export function ShareDialog({
       if (response.ok) {
         const data = await response.json();
         setSharedWith(data.data?.sharing?.shared_with || []);
+        setIsLegacyConversation(false);
       } else if (response.status === 404) {
         // Conversation doesn't exist in MongoDB (legacy local conversation)
-        alert("This conversation cannot be shared because it was created before MongoDB integration. Please create a new conversation to use sharing features.");
-        onOpenChange(false);
+        setIsLegacyConversation(true);
       }
     } catch (err) {
       console.error("Failed to load sharing info:", err);
-      alert("Unable to load conversation. It may not exist in the database. Please create a new conversation.");
-      onOpenChange(false);
+      setIsLegacyConversation(true);
     }
   };
 
@@ -170,7 +170,37 @@ export function ShareDialog({
           </button>
         </div>
 
-        {/* Copy link section */}
+        {/* Legacy conversation message */}
+        {isLegacyConversation ? (
+          <div className="py-8">
+            <div className="flex flex-col items-center text-center gap-4">
+              <div className="w-16 h-16 rounded-full bg-yellow-500/10 flex items-center justify-center">
+                <Mail className="h-8 w-8 text-yellow-500" />
+              </div>
+              <div>
+                <h3 className="font-semibold mb-2">Legacy Conversation</h3>
+                <p className="text-sm text-muted-foreground mb-4">
+                  This conversation was created before MongoDB integration and cannot be shared.
+                </p>
+                <p className="text-sm text-muted-foreground">
+                  Please create a new conversation to use sharing features.
+                </p>
+              </div>
+              <button
+                onClick={() => {
+                  onOpenChange(false);
+                  // Navigate to new chat
+                  window.location.href = '/chat';
+                }}
+                className="px-4 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90"
+              >
+                Create New Conversation
+              </button>
+            </div>
+          </div>
+        ) : (
+          <>
+            {/* Copy link section */}
         <div className="mb-6">
           <label className="text-sm font-medium mb-2 block">Share Link</label>
           <div className="flex items-center gap-2">
@@ -296,16 +326,20 @@ export function ShareDialog({
             </div>
           </div>
         )}
+          </>
+        )}
 
-        {/* Footer actions */}
-        <div className="mt-6 flex justify-end gap-2">
-          <button
-            onClick={() => onOpenChange(false)}
-            className="px-4 py-2 text-sm border rounded-md hover:bg-muted"
-          >
-            Close
-          </button>
-        </div>
+        {/* Footer actions - only show for non-legacy conversations */}
+        {!isLegacyConversation && (
+          <div className="mt-6 flex justify-end gap-2">
+            <button
+              onClick={() => onOpenChange(false)}
+              className="px-4 py-2 text-sm border rounded-md hover:bg-muted"
+            >
+              Close
+            </button>
+          </div>
+        )}
       </div>
     </div>,
     document.body
