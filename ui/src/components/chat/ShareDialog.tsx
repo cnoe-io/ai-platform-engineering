@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
+import { createPortal } from "react-dom";
 import { X, UserPlus, Copy, Check, Mail, Trash2 } from "lucide-react";
 import { apiClient } from "@/lib/api-client";
 import type { UserPublicInfo } from "@/types/mongodb";
@@ -123,11 +124,23 @@ export function ShareDialog({
     }
   };
 
-  if (!open) return null;
+  if (!open || typeof document === 'undefined') return null;
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div className="bg-background rounded-lg shadow-xl w-full max-w-md p-6 mx-auto my-auto">
+  // Render modal as a portal at document body level
+  return createPortal(
+    <div 
+      className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50 p-4"
+      onClick={(e) => {
+        // Close dialog when clicking backdrop
+        if (e.target === e.currentTarget) {
+          onOpenChange(false);
+        }
+      }}
+    >
+      <div 
+        className="bg-background rounded-lg shadow-xl w-full max-w-md p-6 mx-auto my-auto"
+        onClick={(e) => e.stopPropagation()} // Prevent closing when clicking inside dialog
+      >
         {/* Header */}
         <div className="flex items-start justify-between mb-4">
           <div>
@@ -281,6 +294,7 @@ export function ShareDialog({
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
