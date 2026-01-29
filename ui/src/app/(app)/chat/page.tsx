@@ -13,15 +13,19 @@ function ChatPage() {
   useEffect(() => {
     async function createNewConversation() {
       try {
+        console.log("[NewChat] Creating new conversation in MongoDB...");
+        
         // Create new conversation in MongoDB
         const conversation = await apiClient.createConversation({
           title: "New Conversation",
         });
 
-        // Redirect to UUID-based URL
-        router.push(`/chat/${conversation._id}`);
+        console.log("[NewChat] Created conversation with ID:", conversation._id);
+
+        // Redirect to UUID-based URL with replace to avoid history issues
+        router.replace(`/chat/${conversation._id}`);
       } catch (error) {
-        console.error("Failed to create conversation:", error);
+        console.error("[NewChat] Failed to create conversation:", error);
         setCreating(false);
       }
     }
