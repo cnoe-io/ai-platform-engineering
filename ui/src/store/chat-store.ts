@@ -3,6 +3,7 @@ import { persist, createJSONStorage } from "zustand/middleware";
 import { Conversation, ChatMessage, A2AEvent, MessageFeedback } from "@/types/a2a";
 import { generateId } from "@/lib/utils";
 import { A2AClient } from "@/lib/a2a-client";
+import { apiClient } from "@/lib/api-client";
 
 // Track streaming state per conversation
 interface StreamingState {
@@ -79,6 +80,16 @@ export const useChatStore = create<ChatState>()(
           activeConversationId: id,
           a2aEvents: [], // Clear global events for new conversation
         }));
+
+        // Sync to MongoDB asynchronously (don't block UI)
+        apiClient.createConversation({
+          _id: id,
+          title: newConversation.title,
+          metadata: {},
+        }).catch((error) => {
+          console.error('[ChatStore] Failed to sync conversation to MongoDB:', error);
+          // Don't fail the UI, conversation still works locally
+        });
 
         return id;
       },
