@@ -7,7 +7,7 @@ Role Hierarchy:
 - ADMIN: INGESTONLY + can delete resources and perform bulk operations
 
 This module provides:
-- User context extraction from OAuth2Proxy headers
+- User context extraction from authentication proxy headers (X-Forwarded-*)
 - Role determination from group membership
 - FastAPI dependencies for role-based endpoint protection
 - Extensible design for future full RBAC system
@@ -29,24 +29,39 @@ EMAIL_REGEX = re.compile(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$')
 # ============================================================================
 
 # Environment variables for RBAC configuration
-ALLOW_UNAUTHENTICATED = os.getenv("ALLOW_UNAUTHENTICATED", "false").lower() in ("true", "1", "yes")
 RBAC_READONLY_GROUPS = os.getenv("RBAC_READONLY_GROUPS", "").split(",")
 RBAC_INGESTONLY_GROUPS = os.getenv("RBAC_INGESTONLY_GROUPS", "").split(",")
 RBAC_ADMIN_GROUPS = os.getenv("RBAC_ADMIN_GROUPS", "").split(",")
-RBAC_DEFAULT_ROLE = os.getenv("RBAC_DEFAULT_ROLE", Role.READONLY)
 
-# Validate RBAC_DEFAULT_ROLE at startup
+# Default role for authenticated users (those with OAuth headers) who don't match any group
+RBAC_DEFAULT_AUTHENTICATED_ROLE = os.getenv("RBAC_DEFAULT_AUTHENTICATED_ROLE", Role.READONLY)
+
+# Default role for unauthenticated requests (no OAuth headers)
+# If empty string, unauthenticated requests are rejected with 401
+# If set to a role (readonly/ingestonly/admin), unauthenticated requests get that role
+RBAC_DEFAULT_UNAUTHENTICATED_ROLE = os.getenv("RBAC_DEFAULT_UNAUTHENTICATED_ROLE", Role.ADMIN)
+
+# Validate roles at startup
 VALID_ROLES = {Role.READONLY, Role.INGESTONLY, Role.ADMIN}
-if RBAC_DEFAULT_ROLE not in VALID_ROLES:
-    logger.error(f"Invalid RBAC_DEFAULT_ROLE: '{RBAC_DEFAULT_ROLE}'. Must be one of: {VALID_ROLES}")
-    raise ValueError(f"Invalid RBAC_DEFAULT_ROLE: '{RBAC_DEFAULT_ROLE}'. Valid values are: {', '.join(VALID_ROLES)}")
+
+if RBAC_DEFAULT_AUTHENTICATED_ROLE not in VALID_ROLES:
+    logger.error(f"Invalid RBAC_DEFAULT_AUTHENTICATED_ROLE: '{RBAC_DEFAULT_AUTHENTICATED_ROLE}'. Must be one of: {VALID_ROLES}")
+    raise ValueError(f"Invalid RBAC_DEFAULT_AUTHENTICATED_ROLE: '{RBAC_DEFAULT_AUTHENTICATED_ROLE}'. Valid values are: {', '.join(VALID_ROLES)}")
+
+if RBAC_DEFAULT_UNAUTHENTICATED_ROLE and RBAC_DEFAULT_UNAUTHENTICATED_ROLE not in VALID_ROLES:
+    logger.error(f"Invalid RBAC_DEFAULT_UNAUTHENTICATED_ROLE: '{RBAC_DEFAULT_UNAUTHENTICATED_ROLE}'. Must be empty or one of: {VALID_ROLES}")
+    raise ValueError(f"Invalid RBAC_DEFAULT_UNAUTHENTICATED_ROLE: '{RBAC_DEFAULT_UNAUTHENTICATED_ROLE}'. Valid values are: empty string or {', '.join(VALID_ROLES)}")
+
+# Determine if unauthenticated access is allowed
+ALLOW_UNAUTHENTICATED = bool(RBAC_DEFAULT_UNAUTHENTICATED_ROLE)
 
 logger.info("RBAC Configuration:")
-logger.info(f"  ALLOW_UNAUTHENTICATED: {ALLOW_UNAUTHENTICATED}")
 logger.info(f"  RBAC_READONLY_GROUPS: {[g for g in RBAC_READONLY_GROUPS if g.strip()]}")
 logger.info(f"  RBAC_INGESTONLY_GROUPS: {[g for g in RBAC_INGESTONLY_GROUPS if g.strip()]}")
 logger.info(f"  RBAC_ADMIN_GROUPS: {[g for g in RBAC_ADMIN_GROUPS if g.strip()]}")
-logger.info(f"  RBAC_DEFAULT_ROLE: {RBAC_DEFAULT_ROLE}")
+logger.info(f"  RBAC_DEFAULT_AUTHENTICATED_ROLE: {RBAC_DEFAULT_AUTHENTICATED_ROLE}")
+logger.info(f"  RBAC_DEFAULT_UNAUTHENTICATED_ROLE: {RBAC_DEFAULT_UNAUTHENTICATED_ROLE if RBAC_DEFAULT_UNAUTHENTICATED_ROLE else '(disabled - will reject unauthenticated requests)'}")
+logger.info(f"  Unauthenticated access allowed: {ALLOW_UNAUTHENTICATED}")
 
 # ============================================================================
 # Role Hierarchy and Permission Logic
@@ -81,6 +96,43 @@ def has_permission(user_role: str, required_role: str) -> bool:
     user_level = _ROLE_HIERARCHY.get(user_role, 0)
     required_level = _ROLE_HIERARCHY.get(required_role, 0)
     return user_level >= required_level
+
+
+def get_permissions(user_role: str) -> List[str]:
+    """
+    Get all permissions the user has based on their role.
+    
+    Permissions are hierarchical based on role:
+    - READONLY: ["read"]
+    - INGESTONLY: ["read", "ingest"]
+    - ADMIN: ["read", "ingest", "delete"]
+    
+    Args:
+        user_role: The user's current role
+        
+    Returns:
+        List of permission strings (without "can_" prefix)
+        
+    Examples:
+        get_permissions(Role.READONLY) -> ["read"]
+        get_permissions(Role.INGESTONLY) -> ["read", "ingest"]
+        get_permissions(Role.ADMIN) -> ["read", "ingest", "delete"]
+    """
+    permissions = []
+    
+    # All roles can read
+    if has_permission(user_role, Role.READONLY):
+        permissions.append("read")
+    
+    # INGESTONLY and ADMIN can ingest
+    if has_permission(user_role, Role.INGESTONLY):
+        permissions.append("ingest")
+    
+    # Only ADMIN can delete
+    if has_permission(user_role, Role.ADMIN):
+        permissions.append("delete")
+    
+    return permissions
 
 
 def determine_role_from_groups(user_groups: List[str]) -> str:
@@ -120,8 +172,8 @@ def determine_role_from_groups(user_groups: List[str]) -> str:
         logger.info(f"Role determination: Assigned READONLY role based on group membership: {matching_groups}")
         return Role.READONLY
     
-    logger.info(f"Role determination: No group match found, assigned default role: {RBAC_DEFAULT_ROLE}")
-    return RBAC_DEFAULT_ROLE
+    logger.info(f"Role determination: No group match found, assigned default authenticated role: {RBAC_DEFAULT_AUTHENTICATED_ROLE}")
+    return RBAC_DEFAULT_AUTHENTICATED_ROLE
 
 
 # ============================================================================
@@ -130,15 +182,15 @@ def determine_role_from_groups(user_groups: List[str]) -> str:
 
 async def get_current_user(request: Request) -> UserContext:
     """
-    Extract user context from OAuth2Proxy headers.
+    Extract user context from authentication proxy headers.
     
-    OAuth2Proxy sets these headers:
+    The authentication proxy sets these headers:
     - X-Forwarded-Email: user email
     - X-Forwarded-Groups: comma-separated list of groups
     - X-Forwarded-User: username (fallback if no email)
     
-    If ALLOW_UNAUTHENTICATED is enabled and no headers are present,
-    returns an unauthenticated user context with ADMIN role
+    If RBAC_DEFAULT_UNAUTHENTICATED_ROLE is set and no headers are present,
+    returns an unauthenticated user context with the specified role
     (for service-to-service communication).
     
     Args:
@@ -164,15 +216,15 @@ async def get_current_user(request: Request) -> UserContext:
     if not user_email:
         # No authentication headers present
         if ALLOW_UNAUTHENTICATED:
-            logger.debug("Unauthenticated request allowed (service-to-service)")
+            logger.debug(f"Unauthenticated request allowed with role: {RBAC_DEFAULT_UNAUTHENTICATED_ROLE}")
             return UserContext(
                 email="unauthenticated",
                 groups=[],
-                role=Role.ADMIN,  # Unauthenticated svc-to-svc gets full access
+                role=RBAC_DEFAULT_UNAUTHENTICATED_ROLE,
                 is_authenticated=False
             )
         else:
-            logger.warning("Authentication required but not provided")
+            logger.warning("Authentication required but not provided (RBAC_DEFAULT_UNAUTHENTICATED_ROLE not set)")
             raise HTTPException(
                 status_code=401,
                 detail="Authentication required. Please ensure you are logged in through the authentication proxy."

@@ -36,4 +36,4 @@ class UserInfoResponse(BaseModel):
     role: str
     is_authenticated: bool
     groups: List[str]
-    permissions: dict
+    permissions: List[str]  # List of permissions: ["read", "ingest", "delete"]
