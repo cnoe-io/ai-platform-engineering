@@ -73,10 +73,10 @@ function LoginContent() {
             className="text-center mt-8 max-w-sm px-4"
           >
             <h2 className="text-2xl font-bold gradient-text mb-3">
-              Multi-Agent Platform Engineering
+              Multi-Agent Collaboration & Workflow Automation
             </h2>
             <p className="text-muted-foreground">
-              Connect your platform tools and let AI agents collaborate to solve complex operations tasks.
+              AI agents and native apps collaborating across tools and teams to get work done.
             </p>
           </motion.div>
         </div>
