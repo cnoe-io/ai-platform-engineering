@@ -31,6 +31,15 @@ function ChatUUIDPage() {
   // Load conversation from MongoDB
   useEffect(() => {
     async function loadConversation() {
+      // Validate UUID format before making request
+      if (!uuid || typeof uuid !== 'string') {
+        setError("Invalid conversation ID");
+        setLoading(false);
+        return;
+      }
+
+      console.log("Loading conversation:", uuid);
+
       try {
         const conv = await apiClient.getConversation(uuid);
         setConversation(conv);
