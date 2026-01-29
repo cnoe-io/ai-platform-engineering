@@ -5,11 +5,10 @@ Supports multiple OIDC providers (UI and Ingestor) with JWKS-based validation.
 """
 import os
 import time
-from typing import Dict, Any, List, Tuple, Optional
+from typing import Dict, Any, Tuple, Optional
 from functools import lru_cache
 import httpx
 from jose import jwt, JWTError
-from jose.backends import RSAKey
 from common import utils
 
 logger = utils.get_logger(__name__)
