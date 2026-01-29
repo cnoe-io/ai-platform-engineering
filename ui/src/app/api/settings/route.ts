@@ -20,13 +20,14 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
 
     // Create default settings if they don't exist
     if (!userSettings) {
-      userSettings = {
+      const newSettings = {
         user_id: user.email,
         ...DEFAULT_USER_SETTINGS,
         updated_at: new Date(),
       };
 
-      await settings.insertOne(userSettings);
+      const result = await settings.insertOne(newSettings as any);
+      userSettings = { _id: result.insertedId, ...newSettings } as any;
     }
 
     return successResponse(userSettings);
