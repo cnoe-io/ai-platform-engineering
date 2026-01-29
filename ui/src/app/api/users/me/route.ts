@@ -20,7 +20,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     // Create user profile if it doesn't exist
     if (!userProfile) {
       const now = new Date();
-      userProfile = {
+      const newUser = {
         email: user.email,
         name: user.name,
         created_at: now,
@@ -33,7 +33,8 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
         },
       };
 
-      await users.insertOne(userProfile);
+      const result = await users.insertOne(newUser as any);
+      userProfile = { _id: result.insertedId, ...newUser } as any;
     } else {
       // Update last login
       await users.updateOne(
