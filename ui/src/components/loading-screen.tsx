@@ -57,7 +57,7 @@ export function LoadingScreen({
         <div className="text-center">
           <h1 className="text-2xl font-bold gradient-text">CAIPE</h1>
           <p className="text-xs text-muted-foreground mt-1">
-            Community AI Platform Engineering
+            Multi-Agent Collaboration & Workflow Automation
           </p>
         </div>
 

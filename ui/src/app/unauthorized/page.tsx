@@ -91,7 +91,7 @@ export default function UnauthorizedPage() {
 
         {/* Footer */}
         <p className="text-center text-xs text-muted-foreground mt-6">
-          CAIPE - Community AI Platform Engineering
+          CAIPE - Multi-Agent Collaboration & Workflow Automation
         </p>
       </motion.div>
     </div>

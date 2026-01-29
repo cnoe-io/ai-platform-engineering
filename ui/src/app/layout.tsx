@@ -41,7 +41,7 @@ const jetbrainsMono = JetBrains_Mono({
 
 export const metadata: Metadata = {
   title: "CAIPE UI",
-  description: "Community AI Platform Engineering - Multi-Agent System for Platform Engineers",
+  description: "Multi-Agent Collaboration & Workflow Automation - AI agents and native apps collaborating across tools and teams to get work done",
   icons: {
     icon: [
       { url: "/favicon.ico", sizes: "any" },
@@ -52,7 +52,7 @@ export const metadata: Metadata = {
   },
   openGraph: {
     title: "CAIPE UI",
-    description: "Community AI Platform Engineering - Multi-Agent System for Platform Engineers",
+    description: "Multi-Agent Collaboration & Workflow Automation - AI agents and native apps collaborating across tools and teams to get work done",
     url: "https://caipe-ui.dev.outshift.io",
   },
 };
