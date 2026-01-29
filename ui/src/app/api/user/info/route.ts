@@ -6,10 +6,8 @@ import { authOptions } from '@/lib/auth-config';
  * User Info API Endpoint - Proxy to RAG Server
  *
  * This endpoint proxies to the RAG server's /v1/user/info endpoint.
- * The RAG server determines role and permissions based on the RBAC headers
- * we inject from the NextAuth session.
- *
- * This ensures single source of truth for RBAC logic.
+ * The RAG server determines role and permissions based on the JWT token
+ * we pass via Authorization header.
  */
 
 function getRagServerUrl(): string {
@@ -25,16 +23,9 @@ async function getRbacHeaders(): Promise<Record<string, string>> {
     'Content-Type': 'application/json',
   };
 
-  // Only inject headers if user is authenticated
-  if (session?.user?.email) {
-    headers['X-Forwarded-Email'] = session.user.email;
-    headers['X-Forwarded-User'] = session.user.email;
-    
-    if (session.groups && session.groups.length > 0) {
-      headers['X-Forwarded-Groups'] = session.groups.join(',');
-    } else {
-      headers['X-Forwarded-Groups'] = '';
-    }
+  // Pass access token as Bearer token
+  if (session?.accessToken) {
+    headers['Authorization'] = `Bearer ${session.accessToken}`;
   }
 
   return headers;

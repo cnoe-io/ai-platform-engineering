@@ -3,20 +3,17 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth-config';
 
 /**
- * RAG API Proxy with RBAC Header Injection
+ * RAG API Proxy with JWT Bearer Token
  *
- * Proxies requests from /api/rag/* to the RAG server with RBAC headers.
- * This enforces authentication server-side and injects required headers
- * for the RAG server's RBAC system.
+ * Proxies requests from /api/rag/* to the RAG server with JWT authentication.
+ * The RAG server validates the JWT token and extracts user identity/groups.
  *
- * RBAC Headers Injected:
- * - X-Forwarded-Email: User's email from SSO session
- * - X-Forwarded-Groups: Comma-separated list of user's groups
- * - X-Forwarded-User: User's email (duplicate for compatibility)
+ * Authentication:
+ * - Authorization: Bearer {access_token}
  *
  * Example:
- *   /api/rag/healthz -> RAG_SERVER_URL/healthz (with headers)
- *   /api/rag/v1/query -> RAG_SERVER_URL/v1/query (with headers)
+ *   /api/rag/healthz -> RAG_SERVER_URL/healthz (with Bearer token)
+ *   /api/rag/v1/query -> RAG_SERVER_URL/v1/query (with Bearer token)
  */
 
 function getRagServerUrl(): string {
@@ -26,9 +23,9 @@ function getRagServerUrl(): string {
 }
 
 /**
- * Get RBAC headers from the current session
+ * Get auth headers from the current session
  * 
- * @returns Headers object with X-Forwarded-* headers for RAG server RBAC
+ * @returns Headers object with Authorization Bearer token for RAG server
  */
 async function getRbacHeaders(): Promise<Record<string, string>> {
   const session = await getServerSession(authOptions);
@@ -37,21 +34,9 @@ async function getRbacHeaders(): Promise<Record<string, string>> {
     'Content-Type': 'application/json',
   };
 
-  // Only inject headers if user is authenticated
-  if (session?.user?.email) {
-    // X-Forwarded-Email: Primary user identifier
-    headers['X-Forwarded-Email'] = session.user.email;
-    
-    // X-Forwarded-User: Duplicate for compatibility
-    headers['X-Forwarded-User'] = session.user.email;
-    
-    // X-Forwarded-Groups: Comma-separated list of groups
-    if (session.groups && session.groups.length > 0) {
-      headers['X-Forwarded-Groups'] = session.groups.join(',');
-    } else {
-      // Empty groups means no group-based role assignment
-      headers['X-Forwarded-Groups'] = '';
-    }
+  // Pass access token as Bearer token
+  if (session?.accessToken) {
+    headers['Authorization'] = `Bearer ${session.accessToken}`;
   }
 
   return headers;
@@ -72,7 +57,7 @@ export async function GET(
     targetUrl.searchParams.append(key, value);
   });
 
-  // Get RBAC headers from session
+  // Get auth headers from session
   const headers = await getRbacHeaders();
 
   try {
@@ -101,7 +86,7 @@ export async function POST(
   const targetPath = path.join('/');
   const targetUrl = `${ragServerUrl}/${targetPath}`;
 
-  // Get RBAC headers from session
+  // Get auth headers from session
   const headers = await getRbacHeaders();
 
   try {
@@ -159,7 +144,7 @@ export async function DELETE(
     targetUrl.searchParams.append(key, value);
   });
 
-  // Get RBAC headers from session
+  // Get auth headers from session
   const headers = await getRbacHeaders();
 
   try {
