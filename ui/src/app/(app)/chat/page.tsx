@@ -1,65 +1,40 @@
 "use client";
 
-import React, { useState } from "react";
-import { motion } from "framer-motion";
+import React, { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Sidebar } from "@/components/layout/Sidebar";
-import { ChatPanel } from "@/components/chat/ChatPanel";
-import { ContextPanel } from "@/components/a2a/ContextPanel";
+import { Loader2 } from "lucide-react";
 import { AuthGuard } from "@/components/auth-guard";
-import { getConfig } from "@/lib/config";
+import { apiClient } from "@/lib/api-client";
 
 function ChatPage() {
   const router = useRouter();
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [contextPanelVisible, setContextPanelVisible] = useState(true);
-  const [contextPanelCollapsed, setContextPanelCollapsed] = useState(false);
-  const [debugMode, setDebugMode] = useState(false);
+  const [creating, setCreating] = useState(true);
 
-  // Use centralized configuration for CAIPE URL (use dynamic config for runtime injection)
-  const caipeUrl = getConfig('caipeUrl');
+  useEffect(() => {
+    async function createNewConversation() {
+      try {
+        // Create new conversation in MongoDB
+        const conversation = await apiClient.createConversation({
+          title: "New Conversation",
+        });
 
-  const handleTabChange = (tab: "chat" | "gallery" | "knowledge") => {
-    if (tab === "chat") {
-      router.push("/chat");
-    } else if (tab === "gallery") {
-      router.push("/use-cases");
-    } else {
-      router.push("/knowledge-bases");
+        // Redirect to UUID-based URL
+        router.push(`/chat/${conversation._id}`);
+      } catch (error) {
+        console.error("Failed to create conversation:", error);
+        setCreating(false);
+      }
     }
-  };
+
+    createNewConversation();
+  }, [router]);
 
   return (
-    <div className="flex-1 flex overflow-hidden">
-      {/* Sidebar - Fixed width, no resizable */}
-      <Sidebar
-        activeTab="chat"
-        onTabChange={handleTabChange}
-        collapsed={sidebarCollapsed}
-        onCollapse={setSidebarCollapsed}
-      />
-
-      {/* Chat Panel */}
-      <div className="flex-1 min-w-0">
-        <motion.div
-          key="chat"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          className="h-full"
-        >
-          <ChatPanel endpoint={caipeUrl} />
-        </motion.div>
+    <div className="flex-1 flex items-center justify-center">
+      <div className="flex flex-col items-center gap-4">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        <p className="text-sm text-muted-foreground">Creating new conversation...</p>
       </div>
-
-      {/* Context/Output Panel - Fixed width, collapsible */}
-      {contextPanelVisible && (
-        <ContextPanel
-          debugMode={debugMode}
-          onDebugModeChange={setDebugMode}
-          collapsed={contextPanelCollapsed}
-          onCollapse={setContextPanelCollapsed}
-        />
-      )}
     </div>
   );
 }

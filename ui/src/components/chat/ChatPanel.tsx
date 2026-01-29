@@ -25,9 +25,11 @@ import { AgentStreamBox } from "./AgentStreamBox";
 
 interface ChatPanelProps {
   endpoint: string;
+  conversationId?: string; // MongoDB conversation UUID
+  conversationTitle?: string;
 }
 
-export function ChatPanel({ endpoint }: ChatPanelProps) {
+export function ChatPanel({ endpoint, conversationId, conversationTitle }: ChatPanelProps) {
   const { data: session } = useSession();
   const [input, setInput] = useState("");
   const [copiedId, setCopiedId] = useState<string | null>(null);
