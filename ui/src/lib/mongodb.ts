@@ -1,7 +1,7 @@
 // MongoDB connection utility for Next.js API routes
 // This creates a singleton connection that is reused across API requests
 
-import { MongoClient, Db, Collection } from 'mongodb';
+import { MongoClient, Db, Collection, Document } from 'mongodb';
 
 if (!process.env.MONGODB_URI) {
   throw new Error('Please add MONGODB_URI to your environment variables');
@@ -57,7 +57,7 @@ export async function connectToDatabase(): Promise<MongoDBConnection> {
 /**
  * Get a specific collection with proper typing
  */
-export async function getCollection<T = any>(collectionName: string): Promise<Collection<T>> {
+export async function getCollection<T extends Document = Document>(collectionName: string): Promise<Collection<T>> {
   const { db } = await connectToDatabase();
   return db.collection<T>(collectionName);
 }

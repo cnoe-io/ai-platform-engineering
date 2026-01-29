@@ -83,9 +83,7 @@ export const useChatStore = create<ChatState>()(
 
         // Sync to MongoDB asynchronously (don't block UI)
         apiClient.createConversation({
-          _id: id,
           title: newConversation.title,
-          metadata: {},
         }).catch((error) => {
           console.error('[ChatStore] Failed to sync conversation to MongoDB:', error);
           // Don't fail the UI, conversation still works locally

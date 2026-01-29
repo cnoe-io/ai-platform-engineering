@@ -40,7 +40,10 @@ export const GET = withErrorHandler(async (
 
     const sharingAccess = await getCollection<SharingAccess>('sharing_access');
     const accessList = await sharingAccess
-      .find({ conversation_id: conversationId, revoked_at: null })
+      .find({ 
+        conversation_id: conversationId, 
+        revoked_at: { $exists: false }
+      })
       .toArray();
 
     return successResponse({
