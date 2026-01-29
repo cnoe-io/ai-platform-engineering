@@ -250,24 +250,42 @@ async def close_mongodb():
 
 
 @asynccontextmanager
-async def mongodb_lifespan():
+async def mongodb_lifespan(app=None):
     """Context manager for MongoDB lifecycle.
     
-    Use with FastAPI lifespan:
-        @asynccontextmanager
-        async def lifespan(app: FastAPI):
-            async with mongodb_lifespan():
-                yield
+    FastAPI lifespan context manager that gracefully handles MongoDB failures.
+    Server will continue to operate even if MongoDB is unavailable.
+    
+    Usage:
+        app = FastAPI(lifespan=mongodb_lifespan)
     
     Example:
         async with mongodb_lifespan():
-            # MongoDB is connected
+            # MongoDB is connected (if available)
             db = get_mongodb()
             users = await db.users.find_one({"email": "test@example.com"})
         # MongoDB is disconnected
     """
-    await init_mongodb()
-    try:
+    mongodb_uri = os.getenv("MONGODB_URI")
+    mongodb_database = os.getenv("MONGODB_DATABASE", "caipe")
+    
+    if not mongodb_uri:
+        logger.info("MONGODB_URI not set - chat history features disabled")
         yield
-    finally:
+        return
+    
+    try:
+        logger.info(f"Attempting to connect to MongoDB: {mongodb_database}")
+        await init_mongodb()
+        logger.info("✅ MongoDB chat history enabled")
+    except Exception as e:
+        logger.error(f"❌ Failed to initialize MongoDB: {e}")
+        logger.warning("⚠️  Continuing without MongoDB - chat history features disabled")
+        logger.warning("    Set MONGODB_URI and ensure MongoDB is running to enable chat history")
+    
+    yield
+    
+    try:
         await close_mongodb()
+    except Exception as e:
+        logger.error(f"Error closing MongoDB connection: {e}")
