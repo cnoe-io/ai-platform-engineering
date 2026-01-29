@@ -22,6 +22,7 @@ import { DEFAULT_AGENTS, CustomCall } from "./CustomCallButtons";
 import { AGENT_LOGOS } from "@/components/shared/AgentLogos";
 import { SubAgentCard, groupEventsByAgent, getAgentDisplayOrder, isRealSubAgent } from "./SubAgentCard";
 import { AgentStreamBox } from "./AgentStreamBox";
+import { ShareButton } from "./ShareButton";
 
 interface ChatPanelProps {
   endpoint: string;
@@ -496,6 +497,22 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle }: ChatP
 
   return (
     <div className="h-full flex flex-col bg-background relative">
+      {/* Header with conversation title and share button */}
+      {conversationId && conversation?.messages.length > 0 && (
+        <div className="flex items-center justify-between px-6 py-3 border-b border-border">
+          <div className="flex-1 min-w-0">
+            <h1 className="text-lg font-semibold truncate">
+              {conversationTitle || conversation?.title || "Conversation"}
+            </h1>
+          </div>
+          <ShareButton 
+            conversationId={conversationId} 
+            conversationTitle={conversationTitle || conversation?.title}
+            isOwner={true}
+          />
+        </div>
+      )}
+      
       {/* Messages Area */}
       <ScrollArea className="flex-1" viewportRef={scrollViewportRef}>
         <div className="max-w-7xl mx-auto pl-1 pr-1 py-4 space-y-6">
