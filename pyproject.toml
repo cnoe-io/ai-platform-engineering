@@ -23,12 +23,10 @@ dependencies = [
     "langgraph==1.0.4",
     "langmem>=0.0.30",
     "mdformat==1.0.0",
-    "motor>=3.7.0",
     "prometheus-client==0.23.1",
     "pydantic>=2.10.6",
     "pydantic-core>=2.27.2",
     "pyjwt==2.10.1",
-    "pymongo>=4.11.0",
 ]
 
 [tool.pytest.ini_options]
