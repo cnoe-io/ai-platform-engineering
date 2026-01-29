@@ -124,6 +124,23 @@ services:
       - caipe-ui-mongodb
       - caipe-ui
 
+  mongo-express:
+    image: mongo-express:latest
+    container_name: caipe-mongo-express
+    ports:
+      - "8081:8081"
+    environment:
+      - ME_CONFIG_MONGODB_ADMINUSERNAME=${MONGODB_ROOT_USERNAME:-admin}
+      - ME_CONFIG_MONGODB_ADMINPASSWORD=${MONGODB_ROOT_PASSWORD:-changeme}
+      - ME_CONFIG_MONGODB_URL=mongodb://${MONGODB_ROOT_USERNAME:-admin}:${MONGODB_ROOT_PASSWORD:-changeme}@mongodb:27017/
+      - ME_CONFIG_BASICAUTH=false
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    profiles:
+      - caipe-ui-mongodb
+      - caipe-ui
+
   ####################################################################################################
   #                                      SLIM Transport                                              #
   ####################################################################################################
