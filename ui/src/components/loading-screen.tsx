@@ -4,13 +4,19 @@ import React from "react";
 
 interface LoadingScreenProps {
   message?: string;
+  onCancel?: () => void;
+  showCancel?: boolean;
 }
 
 /**
  * Branded loading screen with CAIPE logo
  * Used across login, logout, and auth guard screens
  */
-export function LoadingScreen({ message = "Loading..." }: LoadingScreenProps) {
+export function LoadingScreen({ 
+  message = "Loading...", 
+  onCancel, 
+  showCancel = false 
+}: LoadingScreenProps) {
   return (
     <div className="min-h-screen flex flex-col items-center justify-center bg-background relative overflow-hidden">
       {/* Background gradient */}
@@ -56,18 +62,35 @@ export function LoadingScreen({ message = "Loading..." }: LoadingScreenProps) {
         </div>
 
         {/* Loading indicator */}
-        <div className="flex items-center gap-3 mt-2">
-          {/* Custom spinner */}
-          <div className="relative w-5 h-5">
-            <div
-              className="absolute inset-0 rounded-full border-2 border-primary/20"
-            />
-            <div
-              className="absolute inset-0 rounded-full border-2 border-transparent border-t-primary"
-              style={{ animation: 'spin 0.8s linear infinite' }}
-            />
+        <div className="flex flex-col items-center gap-3 mt-2">
+          <div className="flex items-center gap-3">
+            {/* Custom spinner */}
+            <div className="relative w-5 h-5">
+              <div
+                className="absolute inset-0 rounded-full border-2 border-primary/20"
+              />
+              <div
+                className="absolute inset-0 rounded-full border-2 border-transparent border-t-primary"
+                style={{ animation: 'spin 0.8s linear infinite' }}
+              />
+            </div>
+            <span className="text-sm text-muted-foreground">{message}</span>
           </div>
-          <span className="text-sm text-muted-foreground">{message}</span>
+          
+          {/* Emergency reset button */}
+          {showCancel && onCancel && (
+            <div className="flex flex-col items-center gap-2 mt-4">
+              <button
+                onClick={onCancel}
+                className="px-6 py-2 text-sm font-medium bg-destructive text-destructive-foreground rounded-md hover:bg-destructive/90 transition-colors shadow-lg"
+              >
+                Clear Session & Retry
+              </button>
+              <p className="text-xs text-muted-foreground max-w-xs text-center">
+                This will clear all cookies and storage
+              </p>
+            </div>
+          )}
         </div>
       </div>
 
