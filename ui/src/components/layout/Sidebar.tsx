@@ -130,11 +130,14 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
                         </div>
 
                         <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
-                          <ShareButton 
-                            conversationId={conv.id}
-                            conversationTitle={conv.title}
-                            isOwner={true}
-                          />
+                          {/* Only show share button for conversations created after MongoDB integration (after Jan 28, 2026) */}
+                          {new Date(conv.createdAt) > new Date('2026-01-28') && (
+                            <ShareButton 
+                              conversationId={conv.id}
+                              conversationTitle={conv.title}
+                              isOwner={true}
+                            />
+                          )}
                           <Button
                             variant="ghost"
                             size="icon"
