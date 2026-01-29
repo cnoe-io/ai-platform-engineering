@@ -144,31 +144,30 @@ request_handler = DefaultRequestHandler(
   push_sender= push_sender
 )
 
-# Create FastAPI app as the main application
-from fastapi import FastAPI
-
-app = FastAPI(
-  title="AI Platform Engineering Agent",
-  version=get_version(),
-  lifespan=mongodb_lifespan  # Add MongoDB lifecycle management
-)
-
-# Mount chat history API routes FIRST (so /api/* routes are handled)
-app.include_router(chat_router)
-app.include_router(users_router)
-app.include_router(notifications_router)
-
-# Build A2A Starlette app
+# Build A2A Starlette app (primary app)
 a2a_server = A2AStarletteApplication(
   agent_card=get_agent_card(host, port, external_url),
   http_handler=request_handler
 )
 
-a2a_starlette_app = a2a_server.build()
+app = a2a_server.build()
 
-# Mount A2A app at root (it handles /.well-known/*, /tasks/*, etc.)
-# This must come AFTER the API routes so /api/* is matched first
-app.mount("/", a2a_starlette_app)
+# Add chat history API routes to Starlette app
+# Note: Using Starlette routes, not FastAPI
+from starlette.routing import Mount
+from fastapi import FastAPI
+
+# Create FastAPI sub-app for MongoDB chat API
+chat_app = FastAPI(
+  title="Chat History API",
+  lifespan=mongodb_lifespan
+)
+chat_app.include_router(chat_router)
+chat_app.include_router(users_router)
+chat_app.include_router(notifications_router)
+
+# Mount FastAPI chat app under /api prefix
+app.mount("/api", chat_app)
 
 ################################################################################
 # Add authentication middleware if enabled
