@@ -95,8 +95,6 @@ export function AuthGuard({ children }: AuthGuardProps) {
       }
 
       // Check if token is expired or about to expire (60s buffer)
-      // Note: With refresh token support, this should rarely trigger
-      // as tokens are auto-refreshed 5 minutes before expiry
       const jwtToken = session as unknown as { expiresAt?: number };
       const tokenExpiry = jwtToken.expiresAt;
 
@@ -114,6 +112,7 @@ export function AuthGuard({ children }: AuthGuardProps) {
       }
 
       setAuthChecked(true);
+      console.log("[AuthGuard] ✅ Authorization complete, rendering app");
     }
   }, [ssoEnabled, status, session, router]);
 
