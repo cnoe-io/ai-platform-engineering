@@ -17,6 +17,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { useChatStore } from "@/store/chat-store";
 import { cn, formatDate, truncateText } from "@/lib/utils";
 import { UseCaseBuilderDialog } from "@/components/gallery/UseCaseBuilder";
+import { ShareButton } from "@/components/chat/ShareButton";
 
 interface SidebarProps {
   activeTab: "chat" | "gallery" | "knowledge";
@@ -85,13 +86,6 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
       {/* Chat History */}
       {activeTab === "chat" && (
         <div className="flex-1 overflow-hidden flex flex-col min-w-0">
-          {!collapsed && (
-            <div className="px-3 py-2 flex items-center gap-2 text-xs text-muted-foreground uppercase tracking-wider shrink-0">
-              <History className="h-3 w-3" />
-              <span>History</span>
-            </div>
-          )}
-
           <ScrollArea className="flex-1 min-w-0">
             <div className="px-2 space-y-1 pb-4">
               <AnimatePresence mode="popLayout">
@@ -135,17 +129,24 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
                           </p>
                         </div>
 
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            deleteConversation(conv.id);
-                          }}
-                        >
-                          <Trash2 className="h-3 w-3" />
-                        </Button>
+                        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+                          <ShareButton 
+                            conversationId={conv.id}
+                            conversationTitle={conv.title}
+                            isOwner={true}
+                          />
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-6 w-6"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              deleteConversation(conv.id);
+                            }}
+                          >
+                            <Trash2 className="h-3 w-3" />
+                          </Button>
+                        </div>
                       </>
                     )}
                   </motion.div>
