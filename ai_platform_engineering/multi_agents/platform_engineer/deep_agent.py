@@ -31,24 +31,19 @@ from langgraph.types import Command
 from cnoe_agent_utils import LLMFactory
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from pydantic import BaseModel, Field
-from langchain.agents import create_agent
-from langchain.agents.middleware import HumanInTheLoopMiddleware
 from langchain.tools.tool_node import InjectedState
 
 # Official deepagents package
-from deepagents import create_deep_agent, CompiledSubAgent
-from deepagents.middleware import FilesystemMiddleware
+from deepagents import create_deep_agent
 
 # Custom middleware and utilities from our package
 from ai_platform_engineering.utils.deepagents_custom.middleware import (
-    QuickActionTasksAnnouncementMiddleware,
-    SubAgentExecutionMiddleware,
-    DeterministicTaskLoopGuardMiddleware,
+    DeterministicTaskMiddleware,
 )
 from ai_platform_engineering.utils.deepagents_custom.state import file_reducer, DeepAgentState
 
-# Import agent classes for subagent graph creation
-# We use agent.get_subagent_graph() which handles MCP tool loading and FilesystemMiddleware
+# Import agent classes for subagent definition creation
+# SubAgent dicts are built by SubAgentMiddleware with shared StateBackend for filesystem state sharing
 from ai_platform_engineering.agents.github.agent_github.protocol_bindings.a2a_server.agent import GitHubAgent
 from ai_platform_engineering.agents.backstage.agent_backstage.protocol_bindings.a2a_server.agent import BackstageAgent
 from ai_platform_engineering.agents.jira.agent_jira.protocol_bindings.a2a_server.agent import JiraAgent
@@ -295,13 +290,20 @@ def get_available_task_names() -> List[str]:
 # =============================================================================
 
 def create_invoke_self_service_task_tool():
-    """Create the invoke_self_service_task tool that triggers QuickActionTasksAnnouncementMiddleware."""
+    """Create the invoke_self_service_task tool for deterministic workflow execution.
     
-    # Load available task names for the Literal type
-    task_config = load_task_config()
-    task_names = list(task_config.keys())
+    This tool sets up state for task_config.yaml workflows:
+    1. Populates state.tasks and state.todos
+    2. Sets task_execution_pending=True flag
+    3. Returns a simple ToolMessage
     
-    @tool
+    The DeterministicTaskMiddleware.before_model hook then:
+    1. Detects the pending flag
+    2. Injects AIMessage(task) and jumps to tools
+    3. SHORT-CIRCUITS the model call so it never sees incomplete tool pairs
+    """
+    
+    @tool  
     def invoke_self_service_task(
         task_name: str,
         state: Annotated[dict, InjectedState],
@@ -310,14 +312,20 @@ def create_invoke_self_service_task_tool():
         """
         Invoke a self-service workflow task defined in task_config.yaml.
         
-        This tool triggers the QuickActionTasksAnnouncementMiddleware to execute
-        the steps defined for the specified task.
+        This tool starts a multi-step workflow where each step is delegated to
+        a specialized subagent. The workflow executes DETERMINISTICALLY via
+        the DeterministicTaskMiddleware - no LLM involvement in task sequencing.
+        
+        Flow:
+        1. CAIPE subagent collects user input via HITL form
+        2. Subsequent subagents execute operations (GitHub, AWS, etc.)
+        3. Notification is sent upon completion
         
         Args:
-            task_name: Name of the task to invoke (e.g., "Create GitHub Repo", "Add Users to MyID Group")
+            task_name: Name of the task (e.g., "Create GitHub Repo")
         
         Returns:
-            Command to update state with the task steps for execution.
+            Command that sets up state for deterministic execution.
         """
         config = load_task_config()
         
@@ -341,7 +349,7 @@ def create_invoke_self_service_task_tool():
         for i, task in enumerate(tasks):
             task["id"] = i
         
-        # Create todos from tasks
+        # Create todos from tasks (all pending initially)
         todos = [
             {
                 "id": task["id"],
@@ -356,20 +364,21 @@ def create_invoke_self_service_task_tool():
         # Build step list for display
         step_list = "\n".join([f"{i+1}. {t.get('display_text', 'Step')}" for i, t in enumerate(tasks)])
         
-        # Return Command to update state with tasks
-        # The QuickActionTasksAnnouncementMiddleware will pick up these tasks
-        # and inject instructions for the LLM to execute them via the task tool
+        # Return Command that ONLY sets up state - no AIMessage injection!
+        # The before_model hook will inject the task call and short-circuit
         return Command(
             update={
                 "tasks": tasks,
                 "todos": todos,
+                "task_execution_pending": True,  # Signal for before_model
                 "messages": [
                     ToolMessage(
-                        content=f"Starting workflow: {task_name}\n\nThe following steps will be executed:\n{step_list}\n\nProceed with step 1 by calling the task tool.",
+                        content=f"Starting workflow: {task_name}\n\nThe following {len(tasks)} steps will be executed:\n{step_list}",
                         tool_call_id=tool_call_id,
-                    )
+                    ),
                 ],
-            }
+            },
+            # NO goto - let it go back to model where before_model will intercept
         )
     
     return invoke_self_service_task
@@ -408,177 +417,159 @@ def create_list_self_service_tasks_tool():
 
 
 # =============================================================================
-# Subagent Creation Functions - Using agent.get_subagent_graph()
+# Subagent Creation Functions - Using SubAgent dict format
 # =============================================================================
-# All subagents use agent.get_subagent_graph() which:
-# - Loads MCP tools from the agent's MCP server
-# - Adds FilesystemMiddleware for inter-subagent state sharing
-# - Creates the graph with the agent's SYSTEM_INSTRUCTION
+# All subagents are created as SubAgent dicts (not CompiledSubAgent runnables).
+# This allows SubAgentMiddleware to build them with shared StateBackend for
+# filesystem state sharing. The pattern:
+# 1. Load MCP tools from agent._load_mcp_tools()
+# 2. Get system prompt from agent._get_system_instruction_with_date()
+# 3. Return SubAgent dict with {name, description, system_prompt, tools}
+# 4. SubAgentMiddleware adds FilesystemMiddleware with shared StateBackend
 
-def create_caipe_subagent(model) -> CompiledSubAgent:
-    """Create the CAIPE (user input collection) subagent with filesystem tools.
+def create_caipe_subagent_def() -> dict:
+    """Create the CAIPE (user input collection) subagent definition.
     
     CAIPE collects user input via forms and writes results to filesystem
     for downstream agents to consume.
+    
+    Using SubAgent dict format allows SubAgentMiddleware to build it with 
+    shared StateBackend for filesystem state sharing between all subagents.
     """
     caipe_response_tool = create_caipe_agent_response_tool()
     
-    # Create with create_agent and FilesystemMiddleware for filesystem tools
-    caipe_agent = create_agent(
-        model=model,
-        tools=[caipe_response_tool],
-        system_prompt=CAIPE_SUBAGENT_PROMPT,
-        middleware=[
-            FilesystemMiddleware(),  # Adds: read_file, write_file, ls, grep, glob
-            HumanInTheLoopMiddleware(interrupt_on={"CAIPEAgentResponse": True}),
-        ],
-        checkpointer=None,
-        name="caipe",
-    )
+    return {
+        "name": "caipe",
+        "description": "Collects user input via forms, writes to filesystem for downstream agents",
+        "system_prompt": CAIPE_SUBAGENT_PROMPT,
+        "tools": [caipe_response_tool],
+        # Use interrupt_on for HITL
+        "interrupt_on": {"CAIPEAgentResponse": True},
+        # No middleware - SubAgentMiddleware adds FilesystemMiddleware with shared backend
+    }
+
+
+async def create_subagent_def(agent_instance, name: str, description: str, prompt_config: dict = None) -> dict:
+    """Create a SubAgent dict for use with create_deep_agent.
     
-    return CompiledSubAgent(
-        name="caipe",
-        description="Collects user input via forms, writes to filesystem for downstream agents",
-        runnable=caipe_agent,
-    )
-
-
-async def create_github_subagent(model) -> CompiledSubAgent:
-    """Create GitHub subagent using agent.get_subagent_graph()."""
-    agent = GitHubAgent()
-    graph = await agent.get_subagent_graph(model)
-    return CompiledSubAgent(
-        name="github",
-        description="GitHub: repository operations, workflows, PRs",
-        runnable=graph,
-    )
-
-
-async def create_aigateway_subagent(model) -> CompiledSubAgent:
-    """Create AIGateway subagent using agent.get_subagent_graph()."""
-    agent = AIGatewayAgent()
-    graph = await agent.get_subagent_graph(model)
-    return CompiledSubAgent(
-        name="aigateway",
-        description="AIGateway: LLM API keys, usage tracking",
-        runnable=graph,
-    )
-
-
-async def create_backstage_subagent(model) -> CompiledSubAgent:
-    """Create Backstage subagent using agent.get_subagent_graph()."""
-    agent = BackstageAgent()
-    graph = await agent.get_subagent_graph(model)
-    return CompiledSubAgent(
-        name="backstage",
-        description="Backstage: catalog queries, component management",
-        runnable=graph,
-    )
-
-
-async def create_jira_subagent(model) -> CompiledSubAgent:
-    """Create Jira subagent using agent.get_subagent_graph()."""
-    agent = JiraAgent()
-    graph = await agent.get_subagent_graph(model)
-    return CompiledSubAgent(
-        name="jira",
-        description="Jira: ticket management, issue tracking",
-        runnable=graph,
-    )
-
-
-async def create_webex_subagent(model) -> CompiledSubAgent:
-    """Create Webex subagent using agent.get_subagent_graph()."""
-    agent = WebexAgent()
-    graph = await agent.get_subagent_graph(model)
-    return CompiledSubAgent(
-        name="webex",
-        description="Webex: messaging, notifications",
-        runnable=graph,
-    )
-
-
-async def create_argocd_subagent(model) -> CompiledSubAgent:
-    """Create ArgoCD subagent using agent.get_subagent_graph()."""
-    agent = ArgoCDAgent()
-    graph = await agent.get_subagent_graph(model)
-    return CompiledSubAgent(
-        name="argocd",
-        description="ArgoCD: application deployment, sync management",
-        runnable=graph,
-    )
-
-
-async def create_aws_subagent(model, utility_tools=None) -> CompiledSubAgent:
-    """Create AWS subagent using agent.get_subagent_graph().
+    Using SubAgent dict format (instead of CompiledSubAgent) allows SubAgentMiddleware
+    to build the subagent with shared StateBackend for filesystem state sharing.
+    
+    System prompts are loaded from prompt_config.yaml when available (via agent_prompts section),
+    otherwise falls back to the agent's built-in SYSTEM_INSTRUCTION.
     
     Args:
-        model: The LLM model to use
-        utility_tools: Ignored, kept for backwards compatibility
+        agent_instance: The agent instance with get_mcp_tools() and SYSTEM_INSTRUCTION
+        name: Subagent name for routing
+        description: Description for LLM routing decisions
+        prompt_config: Optional prompt configuration dict with agent_prompts section
+        
+    Returns:
+        SubAgent dict with name, description, system_prompt, tools
     """
+    # Load MCP tools from the agent
+    tools = await agent_instance._load_mcp_tools({})
+    
+    # Get additional tools from subclass
+    additional_tools = agent_instance.get_additional_tools()
+    if additional_tools:
+        tools.extend(additional_tools)
+    
+    # Get system prompt - prefer prompt_config, fall back to agent's built-in
+    system_prompt = None
+    if prompt_config:
+        agent_prompts = prompt_config.get("agent_prompts", {})
+        agent_config = agent_prompts.get(name, {})
+        system_prompt = agent_config.get("system_prompt")
+        if system_prompt:
+            logger.info(f"📝 Using prompt_config system_prompt for {name} subagent")
+    
+    if not system_prompt:
+        system_prompt = agent_instance._get_system_instruction_with_date()
+        logger.info(f"📝 Using built-in system_prompt for {name} subagent")
+    
+    logger.info(f"📦 Created SubAgent def for {name} with {len(tools)} tools")
+    
+    return {
+        "name": name,
+        "description": description,
+        "system_prompt": system_prompt,
+        "tools": tools,
+        # No middleware - SubAgentMiddleware adds FilesystemMiddleware with shared backend
+    }
+
+
+async def create_github_subagent_def(prompt_config: dict = None) -> dict:
+    """Create GitHub subagent definition with shared filesystem."""
+    agent = GitHubAgent()
+    return await create_subagent_def(agent, "github", "GitHub: repository operations, workflows, PRs", prompt_config)
+
+
+async def create_aigateway_subagent_def(prompt_config: dict = None) -> dict:
+    """Create AIGateway subagent definition with shared filesystem."""
+    agent = AIGatewayAgent()
+    return await create_subagent_def(agent, "aigateway", "AIGateway: LLM API keys, usage tracking", prompt_config)
+
+
+async def create_backstage_subagent_def(prompt_config: dict = None) -> dict:
+    """Create Backstage subagent definition with shared filesystem."""
+    agent = BackstageAgent()
+    return await create_subagent_def(agent, "backstage", "Backstage: catalog queries, component management", prompt_config)
+
+
+async def create_jira_subagent_def(prompt_config: dict = None) -> dict:
+    """Create Jira subagent definition with shared filesystem."""
+    agent = JiraAgent()
+    return await create_subagent_def(agent, "jira", "Jira: ticket management, issue tracking", prompt_config)
+
+
+async def create_webex_subagent_def(prompt_config: dict = None) -> dict:
+    """Create Webex subagent definition with shared filesystem."""
+    agent = WebexAgent()
+    return await create_subagent_def(agent, "webex", "Webex: messaging, notifications", prompt_config)
+
+
+async def create_argocd_subagent_def(prompt_config: dict = None) -> dict:
+    """Create ArgoCD subagent definition with shared filesystem."""
+    agent = ArgoCDAgent()
+    return await create_subagent_def(agent, "argocd", "ArgoCD: application deployment, sync management", prompt_config)
+
+
+async def create_aws_subagent_def(prompt_config: dict = None) -> dict:
+    """Create AWS subagent definition with shared filesystem."""
     from ai_platform_engineering.agents.aws.agent_aws.agent_langgraph import AWSAgentLangGraph
     agent = AWSAgentLangGraph()
-    graph = await agent.get_subagent_graph(model)
-    return CompiledSubAgent(
-        name="aws",
-        description="AWS: EC2, EKS, S3 resource management",
-        runnable=graph,
-    )
+    return await create_subagent_def(agent, "aws", "AWS: EC2, EKS, S3 resource management", prompt_config)
 
 
-async def create_pagerduty_subagent(model) -> CompiledSubAgent:
-    """Create PagerDuty subagent using agent.get_subagent_graph()."""
+async def create_pagerduty_subagent_def(prompt_config: dict = None) -> dict:
+    """Create PagerDuty subagent definition with shared filesystem."""
     agent = PagerDutyAgent()
-    graph = await agent.get_subagent_graph(model)
-    return CompiledSubAgent(
-        name="pagerduty",
-        description="PagerDuty: on-call schedules, incident management",
-        runnable=graph,
-    )
+    return await create_subagent_def(agent, "pagerduty", "PagerDuty: on-call schedules, incident management", prompt_config)
 
 
-async def create_slack_subagent(model) -> CompiledSubAgent:
-    """Create Slack subagent using agent.get_subagent_graph()."""
+async def create_slack_subagent_def(prompt_config: dict = None) -> dict:
+    """Create Slack subagent definition with shared filesystem."""
     agent = SlackAgent()
-    graph = await agent.get_subagent_graph(model)
-    return CompiledSubAgent(
-        name="slack",
-        description="Slack: messaging, channel management",
-        runnable=graph,
-    )
+    return await create_subagent_def(agent, "slack", "Slack: messaging, channel management", prompt_config)
 
 
-async def create_splunk_subagent(model) -> CompiledSubAgent:
-    """Create Splunk subagent using agent.get_subagent_graph()."""
+async def create_splunk_subagent_def(prompt_config: dict = None) -> dict:
+    """Create Splunk subagent definition with shared filesystem."""
     agent = SplunkAgent()
-    graph = await agent.get_subagent_graph(model)
-    return CompiledSubAgent(
-        name="splunk",
-        description="Splunk: log analysis, alerting",
-        runnable=graph,
-    )
+    return await create_subagent_def(agent, "splunk", "Splunk: log analysis, alerting", prompt_config)
 
 
-async def create_komodor_subagent(model) -> CompiledSubAgent:
-    """Create Komodor subagent using agent.get_subagent_graph()."""
+async def create_komodor_subagent_def(prompt_config: dict = None) -> dict:
+    """Create Komodor subagent definition with shared filesystem."""
     agent = KomodorAgent()
-    graph = await agent.get_subagent_graph(model)
-    return CompiledSubAgent(
-        name="komodor",
-        description="Komodor: Kubernetes monitoring, troubleshooting",
-        runnable=graph,
-    )
+    return await create_subagent_def(agent, "komodor", "Komodor: Kubernetes monitoring, troubleshooting", prompt_config)
 
 
-async def create_confluence_subagent(model) -> CompiledSubAgent:
-    """Create Confluence subagent using agent.get_subagent_graph()."""
+async def create_confluence_subagent_def(prompt_config: dict = None) -> dict:
+    """Create Confluence subagent definition with shared filesystem."""
     agent = ConfluenceAgent()
-    graph = await agent.get_subagent_graph(model)
-    return CompiledSubAgent(
-        name="confluence",
-        description="Confluence: wiki documentation",
-        runnable=graph,
-    )
+    return await create_subagent_def(agent, "confluence", "Confluence: wiki documentation", prompt_config)
 
 
 # =============================================================================
@@ -606,9 +597,6 @@ class PlatformEngineerDeepAgent:
         self.rag_config_timestamp: Optional[float] = None
         self.rag_mcp_client: Optional[MultiServerMCPClient] = None
         self.rag_tools: List[Any] = []
-        
-        # SubAgentExecutionMiddleware instance - for task execution
-        self._subagent_exec_middleware: Optional[SubAgentExecutionMiddleware] = None
         
         # Don't build graph in __init__ - use ensure_initialized() instead
         # This allows async MCP tool loading
@@ -735,28 +723,35 @@ class PlatformEngineerDeepAgent:
         all_tools = utility_tools + [invoke_task_tool, list_tasks_tool]
         
         # Build subagent definitions (async to load MCP tools)
-        logger.info("Loading subagent graphs with MCP tools...")
+        # Using SubAgent dict format for state sharing:
+        # SubAgentMiddleware builds these with shared StateBackend, ensuring
+        # filesystem state is accessible across all subagents.
+        # System prompts are loaded from prompt_config.yaml when available.
+        logger.info("Loading subagent definitions with MCP tools...")
         
-        # Load subagents in parallel - all use agent.get_subagent_graph()
+        # Pass prompt_config to use system prompts from prompt_config.yaml
+        prompt_config = self._prompt_config
+        
+        # Load subagent definitions in parallel
         # Note: MyID operations are handled through task_config GitHub workflows
         mcp_subagent_results = await asyncio.gather(
-            create_github_subagent(base_model),
-            create_aigateway_subagent(base_model),
-            create_backstage_subagent(base_model),
-            create_jira_subagent(base_model),
-            create_webex_subagent(base_model),
-            create_argocd_subagent(base_model),
-            create_aws_subagent(base_model, utility_tools),  # Still needs utility_tools for now
-            create_pagerduty_subagent(base_model),
-            create_slack_subagent(base_model),
-            create_splunk_subagent(base_model),
-            create_komodor_subagent(base_model),
-            create_confluence_subagent(base_model),
+            create_github_subagent_def(prompt_config),
+            create_aigateway_subagent_def(prompt_config),
+            create_backstage_subagent_def(prompt_config),
+            create_jira_subagent_def(prompt_config),
+            create_webex_subagent_def(prompt_config),
+            create_argocd_subagent_def(prompt_config),
+            create_aws_subagent_def(prompt_config),
+            create_pagerduty_subagent_def(prompt_config),
+            create_slack_subagent_def(prompt_config),
+            create_splunk_subagent_def(prompt_config),
+            create_komodor_subagent_def(prompt_config),
+            create_confluence_subagent_def(prompt_config),
             return_exceptions=True,
         )
         
-        # Add sync subagent (CAIPE uses local tools, no MCP)
-        caipe_subagent = create_caipe_subagent(base_model)
+        # Add CAIPE subagent (uses local tools, no MCP)
+        caipe_subagent = create_caipe_subagent_def()
         
         # Filter out any failures and build final list
         subagent_defs = [caipe_subagent]  # CAIPE always succeeds (no MCP)
@@ -766,21 +761,17 @@ class PlatformEngineerDeepAgent:
             else:
                 subagent_defs.append(result)
         
-        # Build compiled subagent graphs for SubAgentExecutionMiddleware
-        # All subagent creation functions now return CompiledSubAgent TypedDicts with 'runnable' key
-        subagent_graphs = {}
-        agents_for_prompt = {}  # For generating system prompt
+        # Build agents_for_prompt dict for generating system prompt
+        agents_for_prompt = {}
         for subagent_def in subagent_defs:
             name = subagent_def.get("name")
-            if name and "runnable" in subagent_def:
-                subagent_graphs[name] = subagent_def["runnable"]
-                # Build agent card dict for prompt generation
+            if name:
                 agents_for_prompt[name] = {
                     "description": subagent_def.get("description", f"{name} agent")
                 }
         
         logger.info(f'🔧 Building with {len(all_tools)} tools and {len(subagent_defs)} subagents')
-        logger.info(f'🤖 Subagents: {list(subagent_graphs.keys())}')
+        logger.info(f'🤖 Subagents: {list(agents_for_prompt.keys())}')
         
         # Build RAG instructions if RAG is enabled
         rag_instructions = ""
@@ -800,44 +791,69 @@ When users ask questions about platform policies, procedures, or documentation:
             rag_instructions=rag_instructions
         )
         
-        # Append self-service workflow information
+        # Build self-service workflow instructions with trigger patterns
+        workflow_names = list(self._task_config.keys())
+        workflow_examples = []
+        for name in workflow_names:
+            # Generate natural language trigger patterns from workflow names
+            lower_name = name.lower()
+            workflow_examples.append(f'- "{name}" or "{lower_name}"')
+        
+        # Append self-service workflow information with detailed routing instructions
         system_prompt += f"""
 
-## Available Self-Service Workflows
+## Self-Service Workflows (CRITICAL)
 
-Use `invoke_self_service_task` to trigger any of these workflows:
+**MANDATORY BEHAVIOR**: When a user requests any of the following operations, you MUST call `invoke_self_service_task` with the exact workflow name. These workflows use HITL forms to collect user input.
 
-{list(self._task_config.keys())}
+**Available Workflows:**
+{chr(10).join(workflow_examples)}
 
-Use `list_self_service_tasks` to see detailed information about available tasks.
+**Trigger Pattern Examples:**
+- User says "Create github repo" or "create a github repository" → call `invoke_self_service_task(task_name="Create GitHub Repo")`
+- User says "create ec2 instance" or "spin up an ec2" → call `invoke_self_service_task(task_name="Create EC2 Instance")`
+- User says "create eks cluster" → call `invoke_self_service_task(task_name="Create EKS Cluster")`
+- User says "deploy to argocd" or "deploy app" → call `invoke_self_service_task(task_name="Deploy App to Common Cluster")`
+- User says "create llm api key" or "get api key" → call `invoke_self_service_task(task_name="Create LLM API Key")`
+- User says "add users to group" → call `invoke_self_service_task(task_name="Add Users to Group")`
+- User says "invite to github org" → call `invoke_self_service_task(task_name="Invite Users to GitHub Org")`
+
+**Workflow Execution:**
+1. When `invoke_self_service_task` is called, it triggers a multi-step workflow
+2. The CAIPE subagent will present a HITL form to collect required user input
+3. After user submits the form, subsequent steps execute automatically (GitHub, AWS, ArgoCD, etc.)
+4. A notification is sent to the user via Webex upon completion
+
+**DO NOT skip `invoke_self_service_task`** for these operations. DO NOT try to perform these operations directly with subagents.
+
+Use `list_self_service_tasks` to see detailed information about all available workflows.
 """
         
         logger.info(f"📝 Generated system prompt with {len(agents_for_prompt)} agent routing instructions")
         
-        # Create SubAgentExecutionMiddleware with the compiled graphs
-        # This middleware executes pending task tool calls by invoking subagents
-        subagent_exec_middleware = SubAgentExecutionMiddleware(subagent_graphs=subagent_graphs)
-        
-        # Store reference to middleware for later tool updates
-        self._subagent_exec_middleware = subagent_exec_middleware
-        
-        # Create the deep agent with middleware (including HITL for CAIPEAgentResponse)
-        # Middleware order is important:
-        # 1. QuickActionTasksAnnouncementMiddleware: Injects task tool call, sets pending_task_tool_call_id
-        # 2. SubAgentExecutionMiddleware: Executes pending task by invoking subagent, returns result
-        # 3. DeterministicTaskLoopGuardMiddleware: Ensures task queue is fully processed
-        # 4. HumanInTheLoopMiddleware: Handles HITL for CAIPEAgentResponse
+        # Create the deep agent with middleware for deterministic task execution
+        # 
+        # Middleware:
+        # 1. DeterministicTaskMiddleware: 
+        #    - before_model: Injects write_todos + task tool calls for next step
+        #    - after_model: Updates todos, pops completed task, loops if more tasks
+        #
+        # Subagent state sharing:
+        # - Using SubAgent dict format, SubAgentMiddleware builds subagents with shared StateBackend
+        # - All subagents share filesystem state (read_file/write_file work across subagents)
+        # - CAIPE's interrupt_on is defined in its subagent dict for HITL form handling
+        #
+        # Built-in deepagents tools (auto-attached):
+        # - write_todos: From TodoListMiddleware
+        # - task: From SubAgentMiddleware
+        # - read_file, write_file, ls, grep, glob, edit_file: From FilesystemMiddleware
         deep_agent = create_deep_agent(
             tools=all_tools,
             system_prompt=system_prompt,
             subagents=subagent_defs,
             model=base_model,
-            context_schema=ParentState,
             middleware=[
-                QuickActionTasksAnnouncementMiddleware(),
-                subagent_exec_middleware,
-                DeterministicTaskLoopGuardMiddleware(),
-                HumanInTheLoopMiddleware(interrupt_on={"CAIPEAgentResponse": True}),
+                DeterministicTaskMiddleware(),
             ],
         )
         
