@@ -30,6 +30,11 @@ function ChatUUIDPage() {
 
   // Load conversation from MongoDB
   useEffect(() => {
+    // Only run on client side
+    if (typeof window === 'undefined') {
+      return;
+    }
+
     async function loadConversation() {
       // Validate UUID format before making request
       if (!uuid || typeof uuid !== 'string') {
