@@ -1330,9 +1330,22 @@ Use this as the reference point for all date calculations. When users say "today
         try:
             if enable_streaming:
                 # Token-by-token streaming mode using 'messages' and 'custom' (for writer() events from tools)
-                logger.info(f"{agent_name}: Token-by-token streaming ENABLED")
+                # subgraphs=True enables streaming from subagent executions
+                logger.info(f"{agent_name}: Token-by-token streaming ENABLED (with subgraphs)")
                 processed_message_count = 0
-                async for item_type, item in self.graph.astream(inputs, config, stream_mode=['messages', 'custom']):
+                async for stream_item in self.graph.astream(inputs, config, stream_mode=['messages', 'custom'], subgraphs=True):
+                    # With subgraphs=True and stream_mode list, format is (namespace, mode, data)
+                    # namespace is a tuple like () for root or ("task:xxx",) for subagents
+                    if len(stream_item) == 3:
+                        namespace, item_type, item = stream_item
+                        if namespace:
+                            # Log subagent streaming for debugging
+                            logger.debug(f"{agent_name}: Subgraph event from {namespace}: {item_type}")
+                    else:
+                        # Fallback for (mode, data) format
+                        item_type, item = stream_item
+                        namespace = ()
+                    
                     # Process message stream
                     if item_type == 'custom':
                         # Handle custom events from writer() (e.g., sub-agent streaming)
@@ -1532,9 +1545,19 @@ Use this as the reference point for all date calculations. When users say "today
 
             else:
                 # Full message mode using 'values' (current behavior)
-                logger.info(f"{agent_name}: Token-by-token streaming DISABLED, using full message mode")
+                # subgraphs=True enables streaming from subagent executions
+                logger.info(f"{agent_name}: Token-by-token streaming DISABLED, using full message mode (with subgraphs)")
                 processed_message_count = 0
-                async for state in self.graph.astream(inputs, config, stream_mode='values'):
+                async for stream_item in self.graph.astream(inputs, config, stream_mode='values', subgraphs=True):
+                    # With subgraphs=True and single stream_mode, format is (namespace, data)
+                    if isinstance(stream_item, tuple) and len(stream_item) == 2:
+                        namespace, state = stream_item
+                        if namespace:
+                            logger.debug(f"{agent_name}: Subgraph values from {namespace}")
+                    else:
+                        # Fallback for dict format
+                        state = stream_item
+                    
                     # Extract messages from the state
                     if not isinstance(state, dict) or 'messages' not in state:
                         continue

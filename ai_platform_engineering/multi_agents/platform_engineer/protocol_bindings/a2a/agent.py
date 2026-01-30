@@ -38,8 +38,6 @@ except ImportError:
     # Fallback for older versions
     GraphInterrupt = None
 
-from ai_platform_engineering.utils.deepagents_custom.fs import set_current_thread_id
-
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
@@ -123,6 +121,19 @@ class AIPlatformEngineerA2ABinding:
           if not orphaned:
               return
 
+          # CRITICAL: Check for pending deterministic task execution
+          # If pending_task_tool_call_id is in state, skip cleaning up that specific tool call
+          # This allows DeterministicTaskMiddleware to inject task calls that will be
+          # executed by the tools node without being cleaned up
+          pending_task_id = state.values.get("pending_task_tool_call_id")
+          if pending_task_id and pending_task_id in orphaned:
+              logging.info(
+                  f"⏳ Supervisor: Skipping repair of pending deterministic task tool call: {pending_task_id}"
+              )
+              del orphaned[pending_task_id]
+              if not orphaned:
+                  return
+
           orphaned_names = [info[1] for info in orphaned.values()]
           logging.warning(
               f"⚠️ Supervisor: Found {len(orphaned)} orphaned tool calls. "
@@ -205,9 +216,6 @@ class AIPlatformEngineerA2ABinding:
       command: Optional[Command] = None,
   ) -> AsyncIterable[dict[str, Any]]:
       logging.debug(f"Starting stream with query: {query}, context_id: {context_id}, trace_id: {trace_id}, has_command: {command is not None}")
-      
-      # Scope deepagents.fs.FS to this A2A session for the duration of the run.
-      set_current_thread_id(context_id)
       
       # Ensure agent is initialized with MCP tools (lazy loading on first stream)
       await self.ensure_initialized()

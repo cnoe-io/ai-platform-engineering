@@ -6,13 +6,14 @@ the official deepagents package with platform-specific functionality.
 The official deepagents package (>=0.3.8) provides:
 - create_deep_agent
 - TodoListMiddleware, FilesystemMiddleware, SubAgentMiddleware
-- Built-in filesystem and planning tools
+- Built-in filesystem and planning tools (write_todos, task, read_file, etc.)
 
 This custom module provides:
-- QuickActionTasksAnnouncementMiddleware - Task orchestration for self-service workflows
-- DeterministicTaskLoopGuardMiddleware - Ensures task queue is fully processed
-- Thread-scoped filesystem (FS, set_current_thread_id)
+- DeterministicTaskMiddleware - Executes task_config.yaml workflows deterministically
 - Custom state classes (DeepAgentState, Todo, Task)
+
+Note: For filesystem state sharing between subagents, use SubAgent dict format
+(not CompiledSubAgent). SubAgentMiddleware builds these with shared StateBackend.
 """
 
 # Re-export official deepagents components
@@ -20,10 +21,11 @@ from deepagents import create_deep_agent
 
 # Export custom middleware
 from ai_platform_engineering.utils.deepagents_custom.middleware import (
+    DeterministicTaskMiddleware,
+    TaskOrchestrationState,
+    # Legacy aliases for backwards compatibility
     QuickActionTasksAnnouncementMiddleware,
     SubAgentExecutionMiddleware,
-    DeterministicTaskLoopGuardMiddleware,
-    TaskOrchestrationState,
 )
 
 # Export custom state classes
@@ -36,18 +38,6 @@ from ai_platform_engineering.utils.deepagents_custom.state import (
     file_reducer,
 )
 
-# Export filesystem utilities
-from ai_platform_engineering.utils.deepagents_custom.fs import (
-    FS,
-    FS_LOCK,
-    set_current_thread_id,
-    get_current_thread_id,
-    dump_filesystem,
-    load_filesystem,
-    clear_thread_files,
-    fs_context,
-)
-
 # Export exceptions
 from ai_platform_engineering.utils.deepagents_custom.exceptions import (
     AgentStopRequestedError,
@@ -58,10 +48,11 @@ __all__ = [
     # Official deepagents
     "create_deep_agent",
     # Custom middleware
+    "DeterministicTaskMiddleware",
+    "TaskOrchestrationState",
+    # Legacy aliases
     "QuickActionTasksAnnouncementMiddleware",
     "SubAgentExecutionMiddleware",
-    "DeterministicTaskLoopGuardMiddleware",
-    "TaskOrchestrationState",
     # State classes
     "DeepAgentState",
     "PlanningState", 
@@ -69,15 +60,6 @@ __all__ = [
     "Todo",
     "Task",
     "file_reducer",
-    # Filesystem
-    "FS",
-    "FS_LOCK",
-    "set_current_thread_id",
-    "get_current_thread_id",
-    "dump_filesystem",
-    "load_filesystem",
-    "clear_thread_files",
-    "fs_context",
     # Exceptions
     "AgentStopRequestedError",
     "ToolError",

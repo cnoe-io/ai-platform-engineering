@@ -30,7 +30,6 @@ from cnoe_agent_utils.tracing import extract_trace_id_from_context
 from langchain_core.messages import AIMessage
 from langchain_core.messages.base import message_to_dict
 from langgraph.types import Command
-from ai_platform_engineering.utils.deepagents_custom.fs import set_current_thread_id
 
 logger = logging.getLogger(__name__)
 
@@ -504,11 +503,6 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
             if not task:
                 raise Exception("Failed to create task")
             await self._safe_enqueue_event(event_queue, task)
-        
-        # Set thread_id for FS scoping BEFORE processing form submissions
-        if task.context_id:
-            set_current_thread_id(task.context_id)
-            logger.info(f"🔑 Set FS thread_id to: {task.context_id}")
 
         # Extract trace_id from A2A context (or generate if root)
         trace_id = extract_trace_id_from_context(context)
@@ -559,9 +553,8 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                 decision_type = decision.get("type", "")
                 logger.info(f"  Decision: type={decision_type}, action={action_name}")
                 
-                # Save user's form selections to filesystem for downstream agents
+                # Log user's form selections (passed via HITL resume mechanism)
                 if action_name == "CAIPEAgentResponse":
-                    from ai_platform_engineering.utils.deepagents_custom.fs import FS, FS_LOCK, dump_filesystem
                     inner_args = decision.get("args", {}).get("args", {})
                     user_inputs = inner_args.get("user_inputs", {})
                     
@@ -579,12 +572,7 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                                     user_inputs[field_name] = field_value
                     
                     if user_inputs:
-                        filename = "/form_selections.json"
-                        logger.info(f"  📝 Saving {len(user_inputs)} form selections to {filename}")
-                        with FS_LOCK:
-                            FS[filename] = json.dumps(user_inputs, indent=2)
-                        dump_filesystem()
-                        logger.info(f"  ✅ Form selections saved")
+                        logger.info(f"  📋 Form has {len(user_inputs)} user inputs (passed via HITL resume)")
                 
                 if decision_type in ("accept", "approve"):
                     # LangChain HITL expects "approve" not "accept"
