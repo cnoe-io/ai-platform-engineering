@@ -3,12 +3,15 @@
 import React from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useSession } from "next-auth/react";
+import { useAdminRole } from "@/hooks/use-admin-role";
 import {
   Github,
   BookOpen,
   Zap,
   Loader2,
-  Database
+  Database,
+  Shield
 } from "lucide-react";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { UserMenu } from "@/components/user-menu";
@@ -25,14 +28,26 @@ import {
 
 export function AppHeader() {
   const pathname = usePathname();
+  const { data: session } = useSession();
+  const { isAdmin } = useAdminRole();
   const { isStreaming } = useChatStore();
 
+  // Debug logging for admin tab
+  React.useEffect(() => {
+    if (session) {
+      console.log('[AppHeader] Session role:', session.role);
+      console.log('[AppHeader] Session groups:', session.groups);
+      console.log('[AppHeader] Is admin (with MongoDB check)?', isAdmin);
+    }
+  }, [session, isAdmin]);
+
   // Health check for CAIPE supervisor (polls every 30 seconds)
-  const { status: healthStatus, url: healthUrl, secondsUntilNextCheck, agents, tags } = useCAIPEHealth();
+  const { status: healthStatus, url: healthUrl, secondsUntilNextCheck, agents, tags, mongoDBStatus, storageMode } = useCAIPEHealth();
 
   const getActiveTab = () => {
     if (pathname?.startsWith("/chat")) return "chat";
     if (pathname?.startsWith("/knowledge-bases")) return "knowledge";
+    if (pathname?.startsWith("/admin")) return "admin";
     return "gallery";
   };
 
@@ -94,6 +109,22 @@ export function AppHeader() {
             <Database className="h-3.5 w-3.5" />
             Knowledge Bases
           </Link>
+          {/* Admin tab - only visible to admin users */}
+          {isAdmin && (
+            <Link
+              href="/admin"
+              prefetch={true}
+              className={cn(
+                "flex items-center gap-1.5 px-4 py-1.5 rounded-full text-sm font-medium transition-all",
+                activeTab === "admin"
+                  ? "bg-red-500 text-white shadow-sm"
+                  : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              <Shield className="h-3.5 w-3.5" />
+              Admin
+            </Link>
+          )}
         </div>
       </div>
 
@@ -163,6 +194,50 @@ export function AppHeader() {
                       </div>
                     )}
                     
+                    {/* Storage Status */}
+                    <div className="bg-muted/30 rounded-lg p-3 border border-border/50">
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                          Storage Backend
+                        </div>
+                        <div className={cn(
+                          "flex items-center gap-1.5 px-2 py-0.5 rounded-full border",
+                          mongoDBStatus === 'connected' && "bg-green-500/10 border-green-500/20",
+                          mongoDBStatus === 'disconnected' && "bg-amber-500/10 border-amber-500/20",
+                          mongoDBStatus === 'checking' && "bg-muted/50 border-border"
+                        )}>
+                          {mongoDBStatus === 'checking' ? (
+                            <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
+                          ) : (
+                            <span className={cn(
+                              "inline-block w-1.5 h-1.5 rounded-full",
+                              mongoDBStatus === 'connected' && "bg-green-400",
+                              mongoDBStatus === 'disconnected' && "bg-amber-400"
+                            )} />
+                          )}
+                          <span className={cn(
+                            "text-[10px] font-bold",
+                            mongoDBStatus === 'connected' && "text-green-600 dark:text-green-400",
+                            mongoDBStatus === 'disconnected' && "text-amber-600 dark:text-amber-400",
+                            mongoDBStatus === 'checking' && "text-muted-foreground"
+                          )}>
+                            {mongoDBStatus === 'checking' ? 'Checking' : mongoDBStatus === 'connected' ? 'MongoDB' : 'localStorage'}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="text-xs text-muted-foreground">
+                        {mongoDBStatus === 'connected' && (
+                          <span>✓ Persistent storage with cross-device sync</span>
+                        )}
+                        {mongoDBStatus === 'disconnected' && (
+                          <span>Local browser storage (no sync)</span>
+                        )}
+                        {mongoDBStatus === 'checking' && (
+                          <span>Checking backend availability...</span>
+                        )}
+                      </div>
+                    </div>
+
                     {/* Integrations */}
                     {tags.length > 0 && (
                       <div>

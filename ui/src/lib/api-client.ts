@@ -31,7 +31,10 @@ class APIClient {
     endpoint: string,
     options?: RequestInit
   ): Promise<T> {
-    const response = await fetch(`${this.baseURL}${endpoint}`, {
+    const url = `${this.baseURL}${endpoint}`;
+    console.log(`[APIClient] Making request to: ${url}`);
+    
+    const response = await fetch(url, {
       ...options,
       headers: {
         'Content-Type': 'application/json',
@@ -39,18 +42,67 @@ class APIClient {
       },
     });
 
+    console.log(`[APIClient] Response status: ${response.status} ${response.statusText}`);
+
     if (!response.ok) {
-      const error = await response.json().catch(() => ({
-        error: response.statusText,
-      }));
+      const errorText = await response.text();
+      console.error(`[APIClient] Error response:`, {
+        status: response.status,
+        statusText: response.statusText,
+        body: errorText
+      });
+      
+      let error;
+      try {
+        error = JSON.parse(errorText);
+      } catch {
+        error = { error: response.statusText || errorText };
+      }
       throw new Error(error.error || `HTTP ${response.status}`);
     }
 
-    const result: ApiResponse<T> = await response.json();
+    const responseText = await response.text();
+    console.log(`[APIClient] Response body:`, responseText.substring(0, 500));
+    
+    let result: ApiResponse<T>;
+    try {
+      result = JSON.parse(responseText);
+    } catch (parseError) {
+      console.error(`[APIClient] Failed to parse JSON:`, {
+        error: parseError,
+        responseText: responseText.substring(0, 500)
+      });
+      throw new Error('Invalid JSON response from server');
+    }
+
+    console.log(`[APIClient] Parsed result:`, {
+      success: result.success,
+      hasData: !!result.data,
+      dataType: typeof result.data,
+      error: result.error
+    });
 
     if (!result.success) {
       throw new Error(result.error || 'Request failed');
     }
+
+    if (result.data === undefined || result.data === null) {
+      console.error(`[APIClient] Result data is undefined/null:`, {
+        result,
+        success: result.success,
+        error: result.error,
+        hasData: result.data !== undefined,
+        dataValue: result.data
+      });
+      throw new Error(result.error || 'Response data is undefined');
+    }
+
+    console.log(`[APIClient] Returning data:`, {
+      dataType: typeof result.data,
+      isArray: Array.isArray(result.data),
+      keys: result.data ? Object.keys(result.data) : [],
+      preview: JSON.stringify(result.data).substring(0, 200)
+    });
 
     return result.data as T;
   }

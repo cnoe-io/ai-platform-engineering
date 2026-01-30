@@ -4,6 +4,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth-config';
+import { getCollection } from '@/lib/mongodb';
+import type { User } from '@/types/mongodb';
 
 // ============================================================================
 // Authentication Middleware
@@ -19,7 +21,11 @@ export interface AuthenticatedRequest extends NextRequest {
 
 /**
  * Get authenticated user from session
- * Returns user info or throws 401 error
+ * Returns user info and full session, or throws 401 error
+ * 
+ * Admin role is determined by:
+ * 1. OIDC group membership (session.role from auth-config)
+ * 2. MongoDB user.metadata.role === 'admin' (fallback)
  */
 export async function getAuthenticatedUser(request: NextRequest) {
   const session = await getServerSession(authOptions);
@@ -28,11 +34,31 @@ export async function getAuthenticatedUser(request: NextRequest) {
     throw new ApiError('Unauthorized', 401);
   }
 
-  return {
+  let role = session.role || 'user'; // Get role from OIDC session first
+
+  // Fallback: Check MongoDB user profile if not admin via OIDC
+  if (role !== 'admin') {
+    try {
+      const users = await getCollection<User>('users');
+      const dbUser = await users.findOne({ email: session.user.email });
+      
+      if (dbUser?.metadata?.role === 'admin') {
+        role = 'admin';
+        console.log(`[Auth] User ${session.user.email} is admin via MongoDB profile`);
+      }
+    } catch (error) {
+      // MongoDB not available or error - continue with OIDC role
+      console.warn('[Auth] Could not check MongoDB for admin role:', error);
+    }
+  }
+
+  const user = {
     email: session.user.email,
     name: session.user.name || session.user.email,
-    role: 'user', // TODO: Get from session if available
+    role,
   };
+
+  return { user, session: { ...session, role } };
 }
 
 /**
@@ -41,10 +67,14 @@ export async function getAuthenticatedUser(request: NextRequest) {
  */
 export async function withAuth<T>(
   request: NextRequest,
-  handler: (request: NextRequest, user: { email: string; name: string; role: string }) => Promise<T>
+  handler: (
+    request: NextRequest, 
+    user: { email: string; name: string; role: string },
+    session: any
+  ) => Promise<T>
 ): Promise<T> {
-  const user = await getAuthenticatedUser(request);
-  return handler(request, user);
+  const { user, session } = await getAuthenticatedUser(request);
+  return handler(request, user, session);
 }
 
 // ============================================================================

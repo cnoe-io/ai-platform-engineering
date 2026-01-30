@@ -1,9 +1,9 @@
 // GET /api/chat/conversations - List user's conversations
 // POST /api/chat/conversations - Create new conversation
 
-import { NextRequest } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { v4 as uuidv4 } from 'uuid';
-import { getCollection } from '@/lib/mongodb';
+import { getCollection, isMongoDBConfigured } from '@/lib/mongodb';
 import {
   withAuth,
   withErrorHandler,
@@ -16,6 +16,18 @@ import type { Conversation, CreateConversationRequest } from '@/types/mongodb';
 
 // GET /api/chat/conversations
 export const GET = withErrorHandler(async (request: NextRequest) => {
+  // Check if MongoDB is configured
+  if (!isMongoDBConfigured) {
+    return NextResponse.json(
+      {
+        success: false,
+        error: 'MongoDB not configured - use localStorage mode',
+        code: 'MONGODB_NOT_CONFIGURED',
+      },
+      { status: 503 } // Service Unavailable
+    );
+  }
+
   return withAuth(request, async (req, user) => {
     const { page, pageSize, skip } = getPaginationParams(request);
     const url = new URL(request.url);
@@ -57,6 +69,18 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
 
 // POST /api/chat/conversations
 export const POST = withErrorHandler(async (request: NextRequest) => {
+  // Check if MongoDB is configured
+  if (!isMongoDBConfigured) {
+    return NextResponse.json(
+      {
+        success: false,
+        error: 'MongoDB not configured - use localStorage mode',
+        code: 'MONGODB_NOT_CONFIGURED',
+      },
+      { status: 503 } // Service Unavailable
+    );
+  }
+
   return withAuth(request, async (req, user) => {
     const body: CreateConversationRequest = await request.json();
 
