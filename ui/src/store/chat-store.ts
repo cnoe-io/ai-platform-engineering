@@ -4,6 +4,7 @@ import { Conversation, ChatMessage, A2AEvent, MessageFeedback } from "@/types/a2
 import { generateId } from "@/lib/utils";
 import { A2AClient } from "@/lib/a2a-client";
 import { apiClient } from "@/lib/api-client";
+import { getStorageMode, shouldUseLocalStorage } from "@/lib/storage-config";
 
 // Track streaming state per conversation
 interface StreamingState {
@@ -37,12 +38,15 @@ interface ChatState {
   addA2AEvent: (event: A2AEvent, conversationId?: string) => void;
   clearA2AEvents: (conversationId?: string) => void;
   getConversationEvents: (conversationId: string) => A2AEvent[];
-  deleteConversation: (id: string) => void;
+  deleteConversation: (id: string) => Promise<void>;
   clearAllConversations: () => void;
   getActiveConversation: () => Conversation | undefined;
   updateMessageFeedback: (conversationId: string, messageId: string, feedback: MessageFeedback) => void;
+  updateConversationSharing: (conversationId: string, sharing: Conversation['sharing']) => void;
+  updateConversationTitle: (conversationId: string, title: string) => Promise<void>;
   setPendingMessage: (message: string | null) => void;
   consumePendingMessage: () => string | null;
+  loadConversationsFromServer: () => Promise<void>; // Load conversations from server (MongoDB mode only)
   
   // Turn selection actions for per-message event tracking
   setSelectedTurn: (conversationId: string, turnId: string | null) => void;
@@ -53,9 +57,11 @@ interface ChatState {
   getCurrentTurnIndex: (conversationId?: string) => number;
 }
 
-export const useChatStore = create<ChatState>()(
-  persist(
-    (set, get) => ({
+// Track loading state to prevent multiple simultaneous loads
+let isLoadingConversations = false;
+
+// Create store with conditional persistence
+const storeImplementation = (set: any, get: any) => ({
       conversations: [],
       activeConversationId: null,
       isStreaming: false,
@@ -75,19 +81,27 @@ export const useChatStore = create<ChatState>()(
           a2aEvents: [], // Initialize with empty events
         };
 
+        const storageMode = getStorageMode();
+
+        // In MongoDB mode: create on server first
+        // In localStorage mode: create locally
+        if (storageMode === 'mongodb') {
+          // MongoDB mode: Create on server
+          apiClient.createConversation({
+            title: newConversation.title,
+          }).then(() => {
+            console.log('[ChatStore] Created conversation in MongoDB:', id);
+          }).catch((error) => {
+            console.error('[ChatStore] Failed to create conversation in MongoDB:', error);
+          });
+        }
+
+        // Update local state (in localStorage mode, this persists via Zustand)
         set((state) => ({
           conversations: [newConversation, ...state.conversations],
           activeConversationId: id,
           a2aEvents: [], // Clear global events for new conversation
         }));
-
-        // Sync to MongoDB asynchronously (don't block UI)
-        apiClient.createConversation({
-          title: newConversation.title,
-        }).catch((error) => {
-          console.error('[ChatStore] Failed to sync conversation to MongoDB:', error);
-          // Don't fail the UI, conversation still works locally
-        });
 
         return id;
       },
@@ -117,6 +131,14 @@ export const useChatStore = create<ChatState>()(
           turnId: messageTurnId,
         };
 
+        // Check if this is the first user message and we should auto-generate title
+        const state = get();
+        const conversation = state.conversations.find(c => c.id === conversationId);
+        const isFirstUserMessage = conversation && conversation.messages.length === 0 && message.role === "user";
+        const newTitle = isFirstUserMessage 
+          ? message.content.substring(0, 50).trim() || "New Conversation"
+          : undefined;
+
         set((state) => {
           // Update selectedTurnIds when a new user message is added
           const newSelectedTurnIds = new Map(state.selectedTurnIds);
@@ -132,15 +154,21 @@ export const useChatStore = create<ChatState>()(
                     ...conv,
                     messages: [...conv.messages, newMessage],
                     updatedAt: new Date(),
-                    title: conv.messages.length === 0 && message.role === "user"
-                      ? message.content.substring(0, 50)
-                      : conv.title,
+                    title: newTitle || conv.title,
                   }
                 : conv
             ),
             selectedTurnIds: newSelectedTurnIds,
           };
         });
+
+        // If title was auto-generated, save it to MongoDB
+        if (newTitle && newTitle !== "New Conversation") {
+          const { updateConversationTitle } = get();
+          updateConversationTitle(conversationId, newTitle).catch((error) => {
+            console.error('[ChatStore] Failed to save auto-generated title:', error);
+          });
+        }
 
         return messageId;
       },
@@ -289,7 +317,10 @@ export const useChatStore = create<ChatState>()(
         return conv?.a2aEvents || [];
       },
 
-      deleteConversation: (id) => {
+      deleteConversation: async (id) => {
+        const storageMode = getStorageMode();
+
+        // Delete from local state first (instant UI update)
         set((state) => {
           const newConversations = state.conversations.filter((c) => c.id !== id);
           const wasActiveConversation = state.activeConversationId === id;
@@ -299,10 +330,19 @@ export const useChatStore = create<ChatState>()(
             activeConversationId: wasActiveConversation
               ? newConversations[0]?.id || null
               : state.activeConversationId,
-            // Clear A2A events when deleting the active conversation
             a2aEvents: wasActiveConversation ? [] : state.a2aEvents,
           };
         });
+
+        // In MongoDB mode, also delete from server
+        if (storageMode === 'mongodb') {
+          try {
+            await apiClient.deleteConversation(id);
+            console.log('[ChatStore] Deleted conversation from MongoDB:', id);
+          } catch (error) {
+            console.error('[ChatStore] Failed to delete from MongoDB:', error);
+          }
+        }
       },
 
       clearAllConversations: () => {
@@ -334,6 +374,59 @@ export const useChatStore = create<ChatState>()(
         }));
       },
 
+      updateConversationSharing: (conversationId, sharing) => {
+        set((state) => ({
+          conversations: state.conversations.map((conv) =>
+            conv.id === conversationId
+              ? {
+                  ...conv,
+                  sharing,
+                  updatedAt: new Date(),
+                }
+              : conv
+          ),
+        }));
+        console.log('[ChatStore] Updated conversation sharing:', conversationId, sharing);
+      },
+
+      updateConversationTitle: async (conversationId, title) => {
+        const storageMode = getStorageMode();
+        
+        // Update local state immediately (optimistic update)
+        set((state) => ({
+          conversations: state.conversations.map((conv) =>
+            conv.id === conversationId
+              ? {
+                  ...conv,
+                  title,
+                  updatedAt: new Date(),
+                }
+              : conv
+          ),
+        }));
+
+        // In MongoDB mode, also update on server
+        if (storageMode === 'mongodb') {
+          try {
+            await apiClient.updateConversation(conversationId, { title });
+            console.log('[ChatStore] Updated conversation title in MongoDB:', conversationId, title);
+          } catch (error) {
+            console.error('[ChatStore] Failed to update conversation title in MongoDB:', error);
+            // Revert optimistic update on error
+            set((state) => ({
+              conversations: state.conversations.map((conv) =>
+                conv.id === conversationId
+                  ? {
+                      ...conv,
+                      title: state.conversations.find(c => c.id === conversationId)?.title || "New Conversation",
+                    }
+                  : conv
+              ),
+            }));
+          }
+        }
+      },
+
       setPendingMessage: (message) => {
         set({ pendingMessage: message });
       },
@@ -345,6 +438,187 @@ export const useChatStore = create<ChatState>()(
           set({ pendingMessage: null });
         }
         return message;
+      },
+
+      loadConversationsFromServer: async () => {
+        const storageMode = getStorageMode();
+        
+        // Only load from server in MongoDB mode
+        if (storageMode !== 'mongodb') {
+          console.log('[ChatStore] localStorage mode - no server sync needed');
+          return;
+        }
+
+        // Prevent multiple simultaneous loads
+        if (isLoadingConversations) {
+          console.log('[ChatStore] Already loading conversations, skipping...');
+          return;
+        }
+
+        isLoadingConversations = true;
+
+        try {
+          console.log('[ChatStore] Loading conversations from MongoDB...');
+          let response;
+          try {
+            response = await apiClient.getConversations({ page_size: 100 });
+          } catch (apiError) {
+            console.error('[ChatStore] API call failed:', {
+              error: apiError,
+              errorMessage: apiError instanceof Error ? apiError.message : String(apiError),
+              errorStack: apiError instanceof Error ? apiError.stack : undefined
+            });
+            // Don't clear conversations on API error - preserve what we have
+            return;
+          }
+          
+          console.log('[ChatStore] API Response:', {
+            responseType: typeof response,
+            responseIsNull: response === null,
+            responseIsUndefined: response === undefined,
+            responseIsEmpty: response && Object.keys(response).length === 0,
+            hasItems: !!response?.items,
+            itemsLength: response?.items?.length,
+            total: response?.total,
+            page: response?.page,
+            pageSize: response?.page_size,
+            hasMore: response?.has_more,
+            keys: response ? Object.keys(response) : [],
+            fullResponse: JSON.stringify(response).substring(0, 500)
+          });
+          
+          // Validate response structure
+          // API client extracts data, so response is PaginatedResponse: { items: [...], total, page, page_size, has_more }
+          if (!response || (typeof response === 'object' && Object.keys(response).length === 0)) {
+            console.error('[ChatStore] No response or empty response from MongoDB API');
+            // Don't clear conversations - preserve what we have
+            return;
+          }
+          
+          if (!response.items || !Array.isArray(response.items)) {
+            console.error('[ChatStore] Invalid response structure from MongoDB API:', {
+              response,
+              responseType: typeof response,
+              hasItems: !!response?.items,
+              isArray: Array.isArray(response?.items),
+              keys: response ? Object.keys(response) : [],
+              stringified: JSON.stringify(response).substring(0, 500)
+            });
+            // Don't clear existing conversations on invalid response
+            return;
+          }
+          
+          const serverItems = response.items;
+          console.log(`[ChatStore] Received ${serverItems.length} conversations from server (total: ${response.total})`);
+          
+          // Get current local state to preserve messages
+          const currentState = get();
+          const localConversationsMap = new Map(
+            currentState.conversations.map(conv => [conv.id, conv])
+          );
+
+          // Convert MongoDB conversations to local format, merging with local messages
+          const serverConversations: Conversation[] = serverItems.map((conv) => {
+            const localConv = localConversationsMap.get(conv._id);
+            
+            // If we have local messages, preserve them (they're more up-to-date)
+            // Otherwise use empty array (messages will be loaded when conversation is opened)
+            const messages = localConv?.messages && localConv.messages.length > 0
+              ? localConv.messages
+              : [];
+            
+            const a2aEvents = localConv?.a2aEvents && localConv.a2aEvents.length > 0
+              ? localConv.a2aEvents
+              : [];
+
+            // Preserve title from server (source of truth), but fallback to local if server title is missing/empty
+            const title = (conv.title && conv.title.trim()) 
+              ? conv.title 
+              : (localConv?.title && localConv.title.trim())
+                ? localConv.title
+                : "New Conversation";
+
+            console.log(`[ChatStore] Mapping conversation ${conv._id}:`, {
+              serverTitle: conv.title,
+              localTitle: localConv?.title,
+              finalTitle: title,
+              hasMessages: messages.length > 0
+            });
+
+            return {
+              id: conv._id,
+              title,
+              createdAt: new Date(conv.created_at),
+              updatedAt: new Date(conv.updated_at),
+              messages, // Preserve local messages if they exist
+              a2aEvents, // Preserve local events if they exist
+              sharing: conv.sharing,
+            };
+          });
+
+          // Merge: Add any local conversations that aren't on the server (might be newly created)
+          const serverIds = new Set(serverConversations.map(c => c.id));
+          const localOnlyConversations = currentState.conversations.filter(
+            conv => !serverIds.has(conv.id)
+          );
+
+          // Combine server conversations with local-only conversations
+          const mergedConversations = [...serverConversations, ...localOnlyConversations];
+
+          // Always update with merged conversations to sync with server
+          // But preserve local messages and titles for conversations that exist locally
+          const finalConversations = mergedConversations.map(serverConv => {
+            const localConv = currentState.conversations.find(c => c.id === serverConv.id);
+            // If local has messages and server doesn't, keep local messages
+            if (localConv && localConv.messages.length > 0 && serverConv.messages.length === 0) {
+              // Also preserve title if server title is missing/empty but local has one
+              const title = (serverConv.title && serverConv.title.trim()) 
+                ? serverConv.title 
+                : (localConv.title && localConv.title.trim())
+                  ? localConv.title
+                  : "New Conversation";
+              
+              return {
+                ...serverConv,
+                title,
+                messages: localConv.messages,
+                a2aEvents: localConv.a2aEvents.length > 0 ? localConv.a2aEvents : serverConv.a2aEvents,
+              };
+            }
+            // Ensure title is never empty
+            if (!serverConv.title || !serverConv.title.trim()) {
+              return {
+                ...serverConv,
+                title: "New Conversation"
+              };
+            }
+            return serverConv;
+          });
+
+          const sortedConversations = finalConversations.sort(
+            (a, b) => b.updatedAt.getTime() - a.updatedAt.getTime()
+          );
+          
+          // Log titles to debug
+          console.log(`[ChatStore] Final conversations with titles:`, 
+            sortedConversations.map(c => ({ id: c.id.substring(0, 8), title: c.title, hasTitle: !!c.title }))
+          );
+          
+          set({
+            conversations: sortedConversations,
+          });
+          console.log(`[ChatStore] Loaded ${serverConversations.length} conversations from MongoDB, merged with ${localOnlyConversations.length} local conversations, preserved messages for ${finalConversations.filter(c => c.messages.length > 0).length} conversations`);
+        } catch (error) {
+          console.error('[ChatStore] Failed to load conversations from MongoDB:', error);
+          console.error('[ChatStore] Error details:', {
+            error,
+            errorMessage: error instanceof Error ? error.message : String(error),
+            errorStack: error instanceof Error ? error.stack : undefined
+          });
+          // Don't clear conversations on error - preserve what we have
+        } finally {
+          isLoadingConversations = false;
+        }
       },
 
       // Turn selection actions for per-message event tracking
@@ -429,52 +703,81 @@ export const useChatStore = create<ChatState>()(
         const index = turnIds.indexOf(selectedTurnId);
         return index === -1 ? turnIds.length : index + 1;
       },
-    }),
-    {
-      name: "caipe-chat-history",
-      storage: createJSONStorage(() => localStorage),
-      // IMPORTANT: Do NOT persist a2aEvents - they're too large (900+ per query)
-      // and cause localStorage overflow + browser crashes
-      partialize: (state) => ({
-        conversations: state.conversations.map((conv) => ({
-          ...conv,
-          // Exclude a2aEvents from persistence - too large
-          a2aEvents: [],
-          // Exclude message.events from persistence - too large
-          messages: conv.messages.map((msg) => ({
-            ...msg,
-            events: [], // Don't persist events, only final content
-          })),
-        })),
-        activeConversationId: state.activeConversationId,
-        // Persist selectedTurnIds as an array of entries (Maps don't serialize well)
-        selectedTurnIdsArray: Array.from(state.selectedTurnIds.entries()),
-      }),
-      // Handle date serialization
-      onRehydrateStorage: () => (state) => {
-        if (state) {
-          // Convert date strings back to Date objects
-          // Events are NOT persisted (too large) - start with empty arrays
-          state.conversations = state.conversations.map((conv) => ({
+});
+
+// Export store with conditional persistence based on storage mode
+export const useChatStore = shouldUseLocalStorage()
+  ? // localStorage mode: Enable persistence
+    create<ChatState>()(
+      persist(storeImplementation, {
+        name: "caipe-chat-history",
+        storage: createJSONStorage(() => localStorage),
+        partialize: (state) => ({
+          conversations: state.conversations.map((conv) => ({
             ...conv,
-            createdAt: new Date(conv.createdAt),
-            updatedAt: new Date(conv.updatedAt),
-            a2aEvents: [], // Events not persisted
+            a2aEvents: [], // Don't persist events (too large)
             messages: conv.messages.map((msg) => ({
               ...msg,
-              timestamp: new Date(msg.timestamp),
-              events: [], // Events not persisted
+              events: [], // Don't persist events
             })),
-          }));
-
-          // Start with empty a2aEvents
-          state.a2aEvents = [];
-          
-          // Restore selectedTurnIds from the persisted array
-          const storedArray = (state as unknown as { selectedTurnIdsArray?: [string, string][] }).selectedTurnIdsArray;
-          state.selectedTurnIds = new Map(storedArray || []);
-        }
-      },
-    }
-  )
-);
+          })),
+          activeConversationId: state.activeConversationId,
+          selectedTurnIdsArray: Array.from(state.selectedTurnIds.entries()),
+        }),
+        onRehydrateStorage: () => (state) => {
+          if (state) {
+            state.conversations = state.conversations.map((conv) => ({
+              ...conv,
+              createdAt: new Date(conv.createdAt),
+              updatedAt: new Date(conv.updatedAt),
+              a2aEvents: [],
+              messages: conv.messages.map((msg) => ({
+                ...msg,
+                timestamp: new Date(msg.timestamp),
+                events: [],
+              })),
+            }));
+            state.a2aEvents = [];
+            const storedArray = (state as unknown as { selectedTurnIdsArray?: [string, string][] }).selectedTurnIdsArray;
+            state.selectedTurnIds = new Map(storedArray || []);
+          }
+        },
+      })
+    )
+  : // MongoDB mode: Still use localStorage as cache, but sync with server
+    create<ChatState>()(
+      persist(storeImplementation, {
+        name: "caipe-chat-history-mongodb-cache",
+        storage: createJSONStorage(() => localStorage),
+        partialize: (state) => ({
+          conversations: state.conversations.map((conv) => ({
+            ...conv,
+            a2aEvents: [], // Don't persist events (too large)
+            messages: conv.messages.map((msg) => ({
+              ...msg,
+              events: [], // Don't persist events
+            })),
+          })),
+          activeConversationId: state.activeConversationId,
+          selectedTurnIdsArray: Array.from(state.selectedTurnIds.entries()),
+        }),
+        onRehydrateStorage: () => (state) => {
+          if (state) {
+            state.conversations = state.conversations.map((conv) => ({
+              ...conv,
+              createdAt: new Date(conv.createdAt),
+              updatedAt: new Date(conv.updatedAt),
+              a2aEvents: [],
+              messages: conv.messages.map((msg) => ({
+                ...msg,
+                timestamp: new Date(msg.timestamp),
+                events: [],
+              })),
+            }));
+            state.a2aEvents = [];
+            const storedArray = (state as unknown as { selectedTurnIdsArray?: [string, string][] }).selectedTurnIdsArray;
+            state.selectedTurnIds = new Map(storedArray || []);
+          }
+        },
+      })
+    );
