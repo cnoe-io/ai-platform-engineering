@@ -21,7 +21,8 @@ interface AuthGuardProps {
 export function AuthGuard({ children }: AuthGuardProps) {
   const { data: session, status } = useSession();
   const router = useRouter();
-  const [authChecked, setAuthChecked] = useState(false);
+  // Initialize authChecked to true if already authenticated to avoid spinner on navigation
+  const [authChecked, setAuthChecked] = useState(status === "authenticated");
   const [ssoEnabled, setSsoEnabled] = useState<boolean | null>(null);
   const [loadingTimeout, setLoadingTimeout] = useState(false);
   const [autoResetInitiated, setAutoResetInitiated] = useState(false);
@@ -126,10 +127,11 @@ export function AuthGuard({ children }: AuthGuardProps) {
 
       // Check if token refresh failed
       if (session?.error === "RefreshTokenExpired" || session?.error === "RefreshTokenError") {
-        console.warn("[AuthGuard] Token refresh failed, redirecting to login...");
-        // Set authChecked before redirect to prevent stuck state
-        setAuthChecked(true);
-        router.push("/login?session_expired=true");
+        console.warn("[AuthGuard] Token refresh failed, signing out and redirecting to login...");
+        // Sign out to clear the corrupted session, then redirect
+        signOut({ redirect: false }).then(() => {
+          router.push("/login?session_expired=true");
+        });
         return;
       }
 
