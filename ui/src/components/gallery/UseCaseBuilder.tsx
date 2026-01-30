@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/dialog";
 import { DEFAULT_AGENTS } from "@/components/chat/CustomCallButtons";
 import { cn } from "@/lib/utils";
+import { useUseCaseStore } from "@/store/usecase-store";
 
 interface UseCaseBuilderProps {
   onSuccess?: () => void;
@@ -45,6 +46,7 @@ const DIFFICULTY_LEVELS = [
 
 export function UseCaseBuilder({ onSuccess, existingUseCase }: UseCaseBuilderProps) {
   const isEditMode = !!existingUseCase;
+  const { createUseCase, updateUseCase } = useUseCaseStore();
 
   const [formData, setFormData] = useState({
     title: existingUseCase?.title || "",
@@ -94,9 +96,7 @@ export function UseCaseBuilder({ onSuccess, existingUseCase }: UseCaseBuilderPro
     if (!formData.category) {
       newErrors.category = "Category is required";
     }
-    if (selectedAgents.length === 0) {
-      newErrors.agents = "At least one agent must be selected";
-    }
+    // Agents are now optional - removed validation
 
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
@@ -129,21 +129,12 @@ export function UseCaseBuilder({ onSuccess, existingUseCase }: UseCaseBuilderPro
         difficulty: formData.difficulty,
       };
 
-      const url = isEditMode
-        ? `/api/usecases?id=${existingUseCase!.id}`
-        : "/api/usecases";
-
-      const response = await fetch(url, {
-        method: isEditMode ? "PUT" : "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(useCaseData),
-      });
-
-      if (!response.ok) {
-        const error = await response.json().catch(() => ({ error: `Failed to ${isEditMode ? "update" : "save"} use case` }));
-        throw new Error(error.error || `Failed to ${isEditMode ? "update" : "save"} use case`);
+      if (isEditMode) {
+        // Update existing use case
+        await updateUseCase(existingUseCase!.id, useCaseData);
+      } else {
+        // Create new use case
+        await createUseCase(useCaseData);
       }
 
       setSubmitStatus("success");
@@ -245,7 +236,7 @@ export function UseCaseBuilder({ onSuccess, existingUseCase }: UseCaseBuilderPro
           {/* Agents */}
           <div>
             <label className="text-xs font-medium text-foreground mb-1.5 block">
-              Agents <span className="text-red-400">*</span>
+              Agents <span className="text-muted-foreground">(optional)</span>
             </label>
             <div className="space-y-2">
               {DEFAULT_AGENTS.map((agent) => (
@@ -268,9 +259,9 @@ export function UseCaseBuilder({ onSuccess, existingUseCase }: UseCaseBuilderPro
                 </label>
               ))}
             </div>
-            {errors.agents && (
-              <p className="text-xs text-red-400 mt-1">{errors.agents}</p>
-            )}
+            <p className="text-xs text-muted-foreground mt-1">
+              Select agents that are relevant to this use case
+            </p>
           </div>
 
           {/* Category */}
