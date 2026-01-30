@@ -23,6 +23,7 @@ import {
   X,
   ExternalLink,
   Edit,
+  Trash2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -32,6 +33,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { UseCase } from "@/types/a2a";
 import { cn } from "@/lib/utils";
 import { UseCaseBuilderDialog } from "./UseCaseBuilder";
+import { useUseCaseStore } from "@/store/usecase-store";
 
 const iconMap: Record<string, React.ElementType> = {
   GitBranch,
@@ -200,47 +202,14 @@ export function UseCasesGallery({ onSelectUseCase, refreshTrigger }: UseCasesGal
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategory, setSelectedCategory] = useState("All");
   const [hoveredId, setHoveredId] = useState<string | null>(null);
-  const [savedUseCases, setSavedUseCases] = useState<UseCase[]>([]);
-  const [isLoadingSaved, setIsLoadingSaved] = useState(false);
+  
+  // Use Zustand store for use cases
+  const { useCases: savedUseCases, isLoading: isLoadingSaved, loadUseCases, refreshUseCases } = useUseCaseStore();
 
-  // Fetch saved use cases from API
-  const fetchSavedUseCases = useCallback(async () => {
-    setIsLoadingSaved(true);
-    try {
-      const response = await fetch("/api/usecases");
-      if (response.ok) {
-        const data = await response.json();
-        // Transform saved use cases to match UseCase interface
-        const transformed = data.map((uc: any) => {
-          const category = uc.category || "Custom";
-          const tags = Array.isArray(uc.tags) ? uc.tags : [];
-          // Ensure category is included in tags if not already present
-          const finalTags = tags.includes(category) ? tags : [...tags, category];
-
-          return {
-            ...uc,
-            thumbnail: uc.thumbnail || "Sparkles", // Default icon
-            // Ensure category matches expected format
-            category,
-            // Ensure tags includes category
-            tags: finalTags,
-            // Ensure expectedAgents is an array
-            expectedAgents: Array.isArray(uc.expectedAgents) ? uc.expectedAgents : [],
-          };
-        });
-        setSavedUseCases(transformed);
-      }
-    } catch (error) {
-      console.error("Error fetching saved use cases:", error);
-    } finally {
-      setIsLoadingSaved(false);
-    }
-  }, []);
-
-  // Fetch on mount and when refreshTrigger changes
+  // Load use cases on mount and when refreshTrigger changes
   useEffect(() => {
-    fetchSavedUseCases();
-  }, [fetchSavedUseCases, refreshTrigger]);
+    loadUseCases();
+  }, [loadUseCases, refreshTrigger]);
 
   // Combine hardcoded and saved use cases
   const allUseCases = [...useCases, ...savedUseCases];
@@ -414,7 +383,32 @@ export function UseCasesGallery({ onSelectUseCase, refreshTrigger }: UseCasesGal
     setEditDialogOpen(false);
     setUseCaseToEdit(null);
     // Trigger refresh to get updated use cases
-    fetchSavedUseCases();
+    refreshUseCases();
+  };
+
+  // Handle delete button click
+  const handleDeleteClick = async (e: React.MouseEvent, useCase: UseCase) => {
+    e.stopPropagation(); // Prevent card click
+    // Only allow deleting saved use cases (not hardcoded ones)
+    const isSavedUseCase = savedUseCases.some((uc) => uc.id === useCase.id);
+    if (!isSavedUseCase) {
+      return;
+    }
+
+    // Confirm deletion
+    if (!confirm(`Are you sure you want to delete "${useCase.title}"? This action cannot be undone.`)) {
+      return;
+    }
+
+    try {
+      const { deleteUseCase } = useUseCaseStore.getState();
+      await deleteUseCase(useCase.id);
+      // Store will automatically update, but refresh to be safe
+      refreshUseCases();
+    } catch (error) {
+      console.error("Error deleting use case:", error);
+      alert(`Failed to delete use case: ${error instanceof Error ? error.message : "Unknown error"}`);
+    }
   };
 
   const filteredUseCases = allUseCases.filter((uc) => {
@@ -606,17 +600,28 @@ export function UseCasesGallery({ onSelectUseCase, refreshTrigger }: UseCasesGal
                           />
                         </div>
                         <div className="flex items-center gap-2">
-                          {/* Edit button - only for saved use cases */}
+                          {/* Edit and Delete buttons - only for saved use cases */}
                           {savedUseCases.some((uc) => uc.id === useCase.id) && (
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-7 w-7 hover:bg-primary/10 hover:text-primary"
-                              onClick={(e) => handleEditClick(e, useCase)}
-                              title="Edit use case"
-                            >
-                              <Edit className="h-3.5 w-3.5" />
-                            </Button>
+                            <>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-7 w-7 hover:bg-primary/10 hover:text-primary"
+                                onClick={(e) => handleEditClick(e, useCase)}
+                                title="Edit use case"
+                              >
+                                <Edit className="h-3.5 w-3.5" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-7 w-7 hover:bg-destructive/10 hover:text-destructive"
+                                onClick={(e) => handleDeleteClick(e, useCase)}
+                                title="Delete use case"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </Button>
+                            </>
                           )}
                           <Badge
                             variant="outline"

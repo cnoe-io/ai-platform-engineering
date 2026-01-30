@@ -1,18 +1,20 @@
 // MongoDB connection utility for Next.js API routes
 // This creates a singleton connection that is reused across API requests
+// Supports graceful degradation - if MongoDB is not configured, APIs will return appropriate errors
 
 import { MongoClient, Db, Collection, Document } from 'mongodb';
 
-if (!process.env.MONGODB_URI) {
-  throw new Error('Please add MONGODB_URI to your environment variables');
-}
-
-if (!process.env.MONGODB_DATABASE) {
-  throw new Error('Please add MONGODB_DATABASE to your environment variables');
-}
-
+// MongoDB is optional - check if it's configured
 const uri = process.env.MONGODB_URI;
 const dbName = process.env.MONGODB_DATABASE;
+
+// Export flag to check if MongoDB is configured
+export const isMongoDBConfigured = !!(uri && dbName);
+
+if (!isMongoDBConfigured) {
+  console.warn('⚠️  MongoDB not configured - running in localStorage-only mode');
+  console.warn('   Set MONGODB_URI and MONGODB_DATABASE to enable persistent storage');
+}
 
 interface MongoDBConnection {
   client: MongoClient;
@@ -24,15 +26,21 @@ let cachedConnection: MongoDBConnection | null = null;
 /**
  * Connect to MongoDB and return db instance
  * Uses connection pooling and caching for optimal performance
+ * Throws error if MongoDB is not configured
  */
 export async function connectToDatabase(): Promise<MongoDBConnection> {
+  // Check if MongoDB is configured
+  if (!isMongoDBConfigured) {
+    throw new Error('MongoDB is not configured. Set MONGODB_URI and MONGODB_DATABASE environment variables.');
+  }
+
   // Return cached connection if available
   if (cachedConnection) {
     return cachedConnection;
   }
 
   // Create new connection
-  const client = new MongoClient(uri, {
+  const client = new MongoClient(uri!, {
     maxPoolSize: 10,
     minPoolSize: 2,
     serverSelectionTimeoutMS: 5000,

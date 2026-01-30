@@ -63,12 +63,6 @@ export function ContextPanel({
     return conversation?.a2aEvents || [];
   }, [conversation]);
 
-  // Count turns (user messages = turns)
-  const turnCount = useMemo(() => {
-    if (!conversation) return 0;
-    return conversation.messages.filter(m => m.role === "user").length;
-  }, [conversation]);
-
   // Check if streaming is truly active:
   // 1. Global isStreaming must be true
   // 2. AND the active conversation's last message must not be final
@@ -147,7 +141,7 @@ export function ContextPanel({
       initial={false}
       animate={{ width: collapsed ? 64 : 380 }}
       transition={{ duration: 0.2 }}
-      className="h-full flex flex-col bg-card/30 backdrop-blur-sm border-l border-border/50 shrink-0 overflow-hidden"
+      className="relative h-full flex flex-col bg-card/30 backdrop-blur-sm border-l border-border/50 shrink-0 overflow-hidden"
     >
       {/* Header with Tabs */}
       <div className="border-b border-border/50">
@@ -226,12 +220,6 @@ export function ContextPanel({
               </Tabs>
 
               <div className="flex items-center gap-2">
-                {/* Turn counter */}
-                {turnCount > 0 && (
-                  <div className="text-xs text-muted-foreground">
-                    Turn {turnCount}
-                  </div>
-                )}
                 {/* Streaming indicator */}
                 {isActuallyStreaming && (
                   <div className="flex items-center gap-1.5 px-2 py-1 rounded-full bg-green-500/15 text-green-400 text-xs">

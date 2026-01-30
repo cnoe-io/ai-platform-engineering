@@ -1,9 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { getServerSession } from 'next-auth';
+import { authOptions } from '@/lib/auth-config';
 
 /**
  * RAG API Proxy
  *
- * Proxies requests from /api/rag/* to the RAG server.
+ * Proxies requests from /api/rag/* to the RAG server with authentication.
  * This allows the browser to access the RAG server without CORS issues.
  *
  * Example:
@@ -15,6 +17,39 @@ function getRagServerUrl(): string {
   return process.env.RAG_SERVER_URL ||
          process.env.NEXT_PUBLIC_RAG_URL ||
          'http://localhost:9446';
+}
+
+async function getAuthHeaders(request: NextRequest): Promise<Record<string, string>> {
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  };
+
+  // Try to get session and forward OAuth2Proxy-style headers
+  // The RAG server expects X-Forwarded-Email and X-Forwarded-Groups headers
+  try {
+    const session = await getServerSession(authOptions);
+    if (session?.user?.email) {
+      // Forward OAuth2Proxy-style headers that RAG server expects
+      headers['X-Forwarded-Email'] = session.user.email;
+      
+      // Forward groups if available (from session.groups or session.user.groups)
+      const groups = (session as any).groups || (session.user as any).groups || [];
+      if (Array.isArray(groups) && groups.length > 0) {
+        headers['X-Forwarded-Groups'] = groups.join(',');
+      }
+      
+      // Also forward user name if available
+      if (session.user.name) {
+        headers['X-Forwarded-User'] = session.user.name;
+      }
+    }
+  } catch (error) {
+    // If session retrieval fails, continue without auth headers
+    // This allows unauthenticated access when ALLOW_UNAUTHENTICATED=true
+    console.debug('[RAG Proxy] Could not retrieve session, proceeding without auth headers:', error);
+  }
+
+  return headers;
 }
 
 export async function GET(
@@ -33,11 +68,10 @@ export async function GET(
   });
 
   try {
+    const headers = await getAuthHeaders(request);
     const response = await fetch(targetUrl.toString(), {
       method: 'GET',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers,
     });
 
     const data = await response.json();
@@ -73,11 +107,10 @@ export async function POST(
       }
     }
 
+    const headers = await getAuthHeaders(request);
     const fetchOptions: RequestInit = {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers,
     };
 
     if (body !== undefined) {
@@ -118,11 +151,10 @@ export async function DELETE(
   });
 
   try {
+    const headers = await getAuthHeaders(request);
     const response = await fetch(targetUrl.toString(), {
       method: 'DELETE',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers,
     });
 
     if (response.status === 204) {

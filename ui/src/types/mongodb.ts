@@ -46,6 +46,7 @@ export interface Conversation {
   sharing: {
     is_public: boolean;
     shared_with: string[]; // Array of user emails
+    shared_with_teams: string[]; // Array of team IDs
     share_link_enabled: boolean;
     share_link_expires?: Date;
   };
@@ -189,7 +190,8 @@ export interface UpdateConversationRequest {
 }
 
 export interface ShareConversationRequest {
-  user_emails: string[];
+  user_emails?: string[];
+  team_ids?: string[];
   permission: 'view' | 'comment';
   enable_link?: boolean;
   link_expires?: string; // ISO date string
