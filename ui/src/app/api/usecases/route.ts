@@ -1,20 +1,25 @@
 import { NextRequest, NextResponse } from "next/server";
 import { promises as fs } from "fs";
 import path from "path";
+import { getCollection, isMongoDBConfigured } from "@/lib/mongodb";
+import {
+  withAuth,
+  withErrorHandler,
+  successResponse,
+  ApiError,
+} from "@/lib/api-middleware";
 
 /**
- * POST /api/usecases
+ * Use Case API Routes
  *
- * Save a use case to the backend.
+ * Storage: MongoDB (if configured) or file-based (fallback)
+ * - If MONGODB_URI is set → MongoDB mode (with user ownership)
+ * - If MONGODB_URI is NOT set → File-based storage (no ownership)
  *
- * Storage options (configured via environment variables):
- * 1. File-based storage (default) - Stores in JSON file
- * 2. MongoDB - Set USECASE_STORAGE_TYPE=mongodb and MONGODB_URI
- *
- * Environment Variables:
- * - USECASE_STORAGE_TYPE: "file" (default) or "mongodb"
- * - MONGODB_URI: MongoDB connection string (required if using MongoDB)
- * - USECASE_STORAGE_PATH: Path to JSON file (default: ./data/usecases.json)
+ * MongoDB mode features:
+ * - User ownership tracking (owner_id)
+ * - Delete functionality
+ * - Per-user use cases
  */
 
 interface UseCaseData {
@@ -29,14 +34,14 @@ interface UseCaseData {
 
 interface UseCase extends UseCaseData {
   id: string;
+  owner_id?: string; // User email who created the use case
   createdAt: string;
   updatedAt?: string;
 }
 
-// Storage configuration
-const STORAGE_TYPE = process.env.USECASE_STORAGE_TYPE || "file";
+// Storage configuration - default to MongoDB if configured, otherwise file
+const STORAGE_TYPE = isMongoDBConfigured ? "mongodb" : (process.env.USECASE_STORAGE_TYPE || "file");
 const STORAGE_PATH = process.env.USECASE_STORAGE_PATH || path.join(process.cwd(), "data", "usecases.json");
-const MONGODB_URI = process.env.MONGODB_URI;
 
 /**
  * File-based storage functions
@@ -70,69 +75,38 @@ async function writeUseCasesToFile(useCases: UseCase[]): Promise<void> {
 }
 
 /**
- * MongoDB storage functions
+ * MongoDB storage functions (using shared connection)
  */
-async function getMongoClient() {
-  if (STORAGE_TYPE !== "mongodb") {
-    throw new Error("MongoDB storage not configured");
-  }
-
-  if (!MONGODB_URI) {
-    throw new Error("MONGODB_URI environment variable is required for MongoDB storage");
-  }
-
-  try {
-    // Dynamic import to avoid bundling MongoDB in client-side code
-    // Only imports if MongoDB storage is actually used
-    const { MongoClient } = await import("mongodb");
-    const client = new MongoClient(MONGODB_URI);
-    await client.connect();
-    return client;
-  } catch (error: any) {
-    if (error.code === "MODULE_NOT_FOUND" || error.message?.includes("mongodb")) {
-      throw new Error(
-        "MongoDB package not installed. Install it with: npm install mongodb"
-      );
-    }
-    throw error;
-  }
-}
-
 async function saveUseCaseToMongoDB(useCase: UseCase): Promise<void> {
-  const client = await getMongoClient();
-  try {
-    const db = client.db();
-    const collection = db.collection("usecases");
-    await collection.insertOne(useCase);
-  } finally {
-    await client.close();
+  const collection = await getCollection<UseCase>("usecases");
+  await collection.insertOne(useCase);
+}
+
+async function updateUseCaseInMongoDB(id: string, useCase: Partial<UseCase>, ownerEmail?: string): Promise<void> {
+  const collection = await getCollection<UseCase>("usecases");
+  const filter: any = { id };
+  if (ownerEmail) {
+    filter.owner_id = ownerEmail; // Ensure user can only update their own
+  }
+  await collection.updateOne(
+    filter,
+    { $set: { ...useCase, updatedAt: new Date().toISOString() } }
+  );
+}
+
+async function deleteUseCaseFromMongoDB(id: string, ownerEmail: string): Promise<void> {
+  const collection = await getCollection<UseCase>("usecases");
+  const result = await collection.deleteOne({ id, owner_id: ownerEmail });
+  if (result.deletedCount === 0) {
+    throw new ApiError("Use case not found or you don't have permission to delete it", 404);
   }
 }
 
-async function updateUseCaseInMongoDB(id: string, useCase: Partial<UseCase>): Promise<void> {
-  const client = await getMongoClient();
-  try {
-    const db = client.db();
-    const collection = db.collection("usecases");
-    await collection.updateOne(
-      { id },
-      { $set: { ...useCase, updatedAt: new Date().toISOString() } }
-    );
-  } finally {
-    await client.close();
-  }
-}
-
-async function getUseCasesFromMongoDB(): Promise<UseCase[]> {
-  const client = await getMongoClient();
-  try {
-    const db = client.db();
-    const collection = db.collection<UseCase>("usecases");
-    const useCases = await collection.find({}).sort({ createdAt: -1 }).toArray();
-    return useCases;
-  } finally {
-    await client.close();
-  }
+async function getUseCasesFromMongoDB(ownerEmail?: string): Promise<UseCase[]> {
+  const collection = await getCollection<UseCase>("usecases");
+  const filter = ownerEmail ? { owner_id: ownerEmail } : {};
+  const useCases = await collection.find(filter).sort({ createdAt: -1 }).toArray();
+  return useCases;
 }
 
 /**
@@ -142,27 +116,27 @@ async function saveUseCase(useCase: UseCase): Promise<void> {
   if (STORAGE_TYPE === "mongodb") {
     await saveUseCaseToMongoDB(useCase);
   } else {
-    // File-based storage (default)
+    // File-based storage (fallback)
     const useCases = await readUseCasesFromFile();
     useCases.push(useCase);
     await writeUseCasesToFile(useCases);
   }
 }
 
-async function getAllUseCases(): Promise<UseCase[]> {
+async function getAllUseCases(ownerEmail?: string): Promise<UseCase[]> {
   if (STORAGE_TYPE === "mongodb") {
-    return await getUseCasesFromMongoDB();
+    return await getUseCasesFromMongoDB(ownerEmail);
   } else {
-    // File-based storage (default)
+    // File-based storage (fallback)
     return await readUseCasesFromFile();
   }
 }
 
-async function updateUseCase(id: string, useCaseData: Partial<UseCaseData>): Promise<void> {
+async function updateUseCase(id: string, useCaseData: Partial<UseCaseData>, ownerEmail?: string): Promise<void> {
   if (STORAGE_TYPE === "mongodb") {
-    await updateUseCaseInMongoDB(id, useCaseData);
+    await updateUseCaseInMongoDB(id, useCaseData, ownerEmail);
   } else {
-    // File-based storage (default)
+    // File-based storage (fallback)
     const useCases = await readUseCasesFromFile();
     const index = useCases.findIndex((uc) => uc.id === id);
     if (index === -1) {
@@ -177,141 +151,172 @@ async function updateUseCase(id: string, useCaseData: Partial<UseCaseData>): Pro
   }
 }
 
-export async function POST(request: NextRequest) {
-  try {
-    const body: UseCaseData = await request.json();
-
-    // Validate required fields
-    if (!body.title || !body.description || !body.prompt || !body.category) {
-      return NextResponse.json(
-        { error: "Missing required fields" },
-        { status: 400 }
-      );
+async function deleteUseCase(id: string, ownerEmail: string): Promise<void> {
+  if (STORAGE_TYPE === "mongodb") {
+    await deleteUseCaseFromMongoDB(id, ownerEmail);
+  } else {
+    // File-based storage (fallback) - no ownership check
+    const useCases = await readUseCasesFromFile();
+    const filtered = useCases.filter((uc) => uc.id !== id);
+    if (filtered.length === useCases.length) {
+      throw new ApiError("Use case not found", 404);
     }
+    await writeUseCasesToFile(filtered);
+  }
+}
 
-    if (!body.expectedAgents || body.expectedAgents.length === 0) {
-      return NextResponse.json(
-        { error: "At least one agent must be specified" },
-        { status: 400 }
-      );
-    }
+// POST /api/usecases - Create a new use case
+export const POST = withErrorHandler(async (request: NextRequest) => {
+  const body: UseCaseData = await request.json();
 
-    // Generate ID (in production, let database generate this)
-    const id = `usecase-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+  // Validate required fields
+  if (!body.title || !body.description || !body.prompt || !body.category) {
+    throw new ApiError("Missing required fields", 400);
+  }
 
-    // Create use case object
+  // Agents are now optional - default to empty array if not provided
+  if (!body.expectedAgents) {
+    body.expectedAgents = [];
+  }
+
+  // Generate ID
+  const id = `usecase-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+
+  // In MongoDB mode, require auth and set owner_id
+  if (STORAGE_TYPE === "mongodb") {
+    return await withAuth(request, async (req, user) => {
+      const useCase: UseCase = {
+        id,
+        ...body,
+        owner_id: user.email,
+        createdAt: new Date().toISOString(),
+      };
+
+      await saveUseCase(useCase);
+      console.log(`[UseCase] Created use case "${body.title}" by ${user.email}`);
+
+      return successResponse({
+        id,
+        message: "Use case saved successfully",
+      }, 201);
+    });
+  } else {
+    // File mode: No auth required
     const useCase: UseCase = {
       id,
       ...body,
       createdAt: new Date().toISOString(),
     };
 
-    // Save to configured storage (file-based by default, MongoDB if configured)
     await saveUseCase(useCase);
+    console.log(`[UseCase] Created use case "${body.title}" (file mode)`);
 
-    return NextResponse.json(
-      {
-        success: true,
-        id,
-        message: "Use case saved successfully",
-      },
-      { status: 201 }
-    );
-  } catch (error) {
-    console.error("Error saving use case:", error);
-    return NextResponse.json(
-      { error: "Failed to save use case" },
-      { status: 500 }
-    );
+    return successResponse({
+      id,
+      message: "Use case saved successfully",
+    }, 201);
   }
-}
+});
 
-/**
- * GET /api/usecases
- *
- * Retrieve all saved use cases from configured storage.
- */
-export async function GET() {
-  try {
+// GET /api/usecases - Retrieve all use cases (user's own in MongoDB mode)
+export const GET = withErrorHandler(async (request: NextRequest) => {
+  // In MongoDB mode, require auth and return user's own use cases
+  // In file mode, return all (no ownership, no auth required)
+  if (STORAGE_TYPE === "mongodb") {
+    return await withAuth(request, async (req, user) => {
+      const useCases = await getAllUseCases(user.email);
+      return NextResponse.json(useCases);
+    });
+  } else {
+    // File mode: No auth required, return all use cases
     const useCases = await getAllUseCases();
     return NextResponse.json(useCases);
-  } catch (error) {
-    console.error("Error fetching use cases:", error);
-    return NextResponse.json(
-      {
-        error: "Failed to fetch use cases",
-        details: error instanceof Error ? error.message : "Unknown error"
-      },
-      { status: 500 }
-    );
   }
-}
+});
 
-/**
- * PUT /api/usecases?id=<useCaseId>
- *
- * Update an existing use case.
- */
-export async function PUT(request: NextRequest) {
-  try {
-    const { searchParams } = new URL(request.url);
-    const id = searchParams.get("id");
+// PUT /api/usecases?id=<useCaseId> - Update an existing use case
+export const PUT = withErrorHandler(async (request: NextRequest) => {
+  const { searchParams } = new URL(request.url);
+  const id = searchParams.get("id");
 
-    if (!id) {
-      return NextResponse.json(
-        { error: "Use case ID is required" },
-        { status: 400 }
-      );
-    }
+  if (!id) {
+    throw new ApiError("Use case ID is required", 400);
+  }
 
-    const body: Partial<UseCaseData> = await request.json();
+  const body: Partial<UseCaseData> = await request.json();
 
-    // Validate that at least one field is provided
-    if (Object.keys(body).length === 0) {
-      return NextResponse.json(
-        { error: "At least one field must be provided for update" },
-        { status: 400 }
-      );
-    }
+  // Validate that at least one field is provided
+  if (Object.keys(body).length === 0) {
+    throw new ApiError("At least one field must be provided for update", 400);
+  }
 
-    // Validate required fields if provided
-    if (body.expectedAgents !== undefined && (!body.expectedAgents || body.expectedAgents.length === 0)) {
-      return NextResponse.json(
-        { error: "At least one agent must be specified" },
-        { status: 400 }
-      );
-    }
+  // Agents are now optional - no validation needed for empty array
 
-    // Check if use case exists
+  // In MongoDB mode, require auth and check ownership
+  if (STORAGE_TYPE === "mongodb") {
+    return await withAuth(request, async (req, user) => {
+      const allUseCases = await getAllUseCases(user.email);
+      const existingUseCase = allUseCases.find((uc) => uc.id === id);
+
+      if (!existingUseCase) {
+        throw new ApiError("Use case not found", 404);
+      }
+
+      await updateUseCase(id, body, user.email);
+      console.log(`[UseCase] Updated use case "${id}" by ${user.email}`);
+
+      return successResponse({
+        id,
+        message: "Use case updated successfully",
+      });
+    });
+  } else {
+    // File mode: No auth required
     const allUseCases = await getAllUseCases();
     const existingUseCase = allUseCases.find((uc) => uc.id === id);
 
     if (!existingUseCase) {
-      return NextResponse.json(
-        { error: "Use case not found" },
-        { status: 404 }
-      );
+      throw new ApiError("Use case not found", 404);
     }
 
-    // Update use case
     await updateUseCase(id, body);
+    console.log(`[UseCase] Updated use case "${id}" (file mode)`);
 
-    return NextResponse.json(
-      {
-        success: true,
-        id,
-        message: "Use case updated successfully",
-      },
-      { status: 200 }
-    );
-  } catch (error) {
-    console.error("Error updating use case:", error);
-    return NextResponse.json(
-      {
-        error: "Failed to update use case",
-        details: error instanceof Error ? error.message : "Unknown error"
-      },
-      { status: 500 }
-    );
+    return successResponse({
+      id,
+      message: "Use case updated successfully",
+    });
   }
-}
+});
+
+// DELETE /api/usecases?id=<useCaseId> - Delete a use case
+export const DELETE = withErrorHandler(async (request: NextRequest) => {
+  const { searchParams } = new URL(request.url);
+  const id = searchParams.get("id");
+
+  if (!id) {
+    throw new ApiError("Use case ID is required", 400);
+  }
+
+  // In MongoDB mode, require auth and check ownership
+  if (STORAGE_TYPE === "mongodb") {
+    return await withAuth(request, async (req, user) => {
+      await deleteUseCase(id, user.email);
+      console.log(`[UseCase] Deleted use case "${id}" by ${user.email}`);
+
+      return successResponse({
+        id,
+        message: "Use case deleted successfully",
+      });
+    });
+  } else {
+    // File mode: No auth required (ownership not tracked)
+    await deleteUseCase(id, "");
+    console.log(`[UseCase] Deleted use case "${id}" (file mode)`);
+
+    return successResponse({
+      id,
+      message: "Use case deleted successfully",
+    });
+  }
+});
