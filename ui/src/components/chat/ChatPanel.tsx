@@ -1295,7 +1295,7 @@ function ChatMessage({
               <motion.div
                 initial={{ opacity: 0 }}
                 animate={{ opacity: isHovered ? 1 : 0.6 }}
-                className="flex items-center gap-2 mt-2 justify-end"
+                className="flex items-center gap-1 mt-2 justify-end"
               >
                 {/* Retry button */}
                 {onRetry && (
@@ -1348,7 +1348,7 @@ function ChatMessage({
               <motion.div
                 initial={{ opacity: 0 }}
                 animate={{ opacity: isHovered ? 1 : 0.6 }}
-                className="flex items-center gap-2 mt-2"
+                className="flex items-center gap-1 mt-2"
               >
                 {/* Collapse button - bottom right */}
                 {!isStreaming && displayContent && displayContent.length > 300 && (
@@ -1431,6 +1431,7 @@ function ChatMessage({
                 />
               </motion.div>
             )}
+
           </>
         )}
       </div>
