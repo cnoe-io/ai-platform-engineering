@@ -2,8 +2,8 @@
 // PUT /api/chat/conversations/[id] - Update conversation
 // DELETE /api/chat/conversations/[id] - Delete conversation
 
-import { NextRequest } from 'next/server';
-import { getCollection } from '@/lib/mongodb';
+import { NextRequest, NextResponse } from 'next/server';
+import { getCollection, isMongoDBConfigured } from '@/lib/mongodb';
 import {
   withAuth,
   withErrorHandler,
@@ -20,6 +20,18 @@ export const GET = withErrorHandler(async (
   request: NextRequest,
   context: { params: Promise<{ id: string }> }
 ) => {
+  // Check if MongoDB is configured
+  if (!isMongoDBConfigured) {
+    return NextResponse.json(
+      {
+        success: false,
+        error: 'MongoDB not configured - use localStorage mode',
+        code: 'MONGODB_NOT_CONFIGURED',
+      },
+      { status: 503 }
+    );
+  }
+
   return withAuth(request, async (req, user) => {
     const params = await context.params;
     const conversationId = params.id;
@@ -43,6 +55,18 @@ export const PUT = withErrorHandler(async (
   request: NextRequest,
   context: { params: Promise<{ id: string }> }
 ) => {
+  // Check if MongoDB is configured
+  if (!isMongoDBConfigured) {
+    return NextResponse.json(
+      {
+        success: false,
+        error: 'MongoDB not configured - use localStorage mode',
+        code: 'MONGODB_NOT_CONFIGURED',
+      },
+      { status: 503 }
+    );
+  }
+
   return withAuth(request, async (req, user) => {
     const params = await context.params;
     const conversationId = params.id;
@@ -88,6 +112,18 @@ export const DELETE = withErrorHandler(async (
   request: NextRequest,
   context: { params: Promise<{ id: string }> }
 ) => {
+  // Check if MongoDB is configured
+  if (!isMongoDBConfigured) {
+    return NextResponse.json(
+      {
+        success: false,
+        error: 'MongoDB not configured - use localStorage mode',
+        code: 'MONGODB_NOT_CONFIGURED',
+      },
+      { status: 503 }
+    );
+  }
+
   return withAuth(request, async (req, user) => {
     const params = await context.params;
     const conversationId = params.id;

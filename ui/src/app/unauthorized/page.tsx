@@ -7,6 +7,8 @@ import { ShieldX, LogOut, Mail, ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { REQUIRED_GROUP } from "@/lib/auth-config";
 
+const SUPPORT_EMAIL = process.env.NEXT_PUBLIC_SUPPORT_EMAIL || "support@example.com";
+
 export default function UnauthorizedPage() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-background p-4">
@@ -81,7 +83,7 @@ export default function UnauthorizedPage() {
               className="w-full gap-2 text-muted-foreground"
               asChild
             >
-              <a href="mailto:support@example.com?subject=CAIPE Access Request">
+              <a href={`mailto:${SUPPORT_EMAIL}?subject=CAIPE Access Request`}>
                 <Mail className="h-4 w-4" />
                 Contact Support
               </a>

@@ -71,33 +71,31 @@ export default function KnowledgeBasesLayout({
   // Loading state
   if (ragHealth === "checking") {
     return (
-      <div className="flex-1 flex flex-col bg-background overflow-hidden">
-        {/* Header with Gradient */}
-        <div className="relative overflow-hidden border-b border-border shrink-0">
-          <div 
-            className="absolute inset-0" 
-            style={{
-              background: `linear-gradient(to bottom right, color-mix(in srgb, var(--gradient-from) 15%, transparent) 0%, color-mix(in srgb, var(--gradient-to) 8%, transparent) 50%, transparent 100%)`
-            }}
-          />
-          <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-primary/5 via-transparent to-transparent" />
-
-          <div className="relative px-6 py-3 flex items-center gap-3">
-            <div className="p-2 rounded-lg gradient-primary-br shadow-md shadow-primary/20">
-              <Database className="h-5 w-5 text-white" />
-            </div>
-            <div>
-              <h1 className="text-lg font-bold gradient-text">Knowledge Bases</h1>
-              <p className="text-muted-foreground text-xs">
-                Connecting to RAG server...
-              </p>
+      <div className="flex-1 flex flex-col items-center justify-center bg-background">
+        <div className="flex flex-col items-center gap-4">
+          {/* CAIPE Logo with spinner */}
+          <div className="relative">
+            {/* Spinning glow ring */}
+            <div
+              className="absolute inset-[-8px] rounded-3xl opacity-30 gradient-primary-br"
+              style={{
+                animation: 'spin 3s linear infinite',
+              }}
+            />
+            {/* Blur glow */}
+            <div
+              className="absolute inset-[-4px] rounded-2xl blur-xl opacity-40 gradient-primary"
+            />
+            {/* Logo container */}
+            <div className="relative w-16 h-16 rounded-2xl gradient-primary-br flex items-center justify-center shadow-2xl">
+              <img src="/logo.svg" alt="CAIPE" className="h-10 w-10" />
             </div>
           </div>
-        </div>
-
-        <div className="flex-1 flex flex-col items-center justify-center text-muted-foreground">
-          <Loader2 className="h-16 w-16 animate-spin text-primary" />
-          <p className="mt-4 text-lg">Connecting to RAG server...</p>
+          {/* Spinner */}
+          <div className="flex items-center gap-3">
+            <Loader2 className="h-5 w-5 animate-spin text-primary" />
+            <span className="text-sm text-muted-foreground">Connecting to RAG server...</span>
+          </div>
         </div>
       </div>
     );

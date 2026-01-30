@@ -1337,19 +1337,27 @@ async def _reverse_proxy(request: Request):
     Reverse proxy to ontology agent service, which runs a separate FastAPI instance,
     and is responsible for handling ontology related requests.
     
-    Protected with ADMIN role - all ontology operations are admin-level operations
-    (accept/reject relations, regenerate ontology, etc.).
+    Read-only operations (GET /status) require READONLY role.
+    Write operations (POST/DELETE) require ADMIN role.
     
     This acts as a security gateway - the ontology agent service doesn't need
     its own RBAC implementation since it's only accessible through this proxy.
     """
     # Manually invoke the RBAC check since app.add_route doesn't support Depends()
-    from server.auth import get_auth_manager
-    user = await require_authenticated_user(request, get_auth_manager())
-    if not has_permission(user.role, Role.ADMIN):
+    user = await get_current_user(request)
+    
+    # Determine required role based on method and path
+    # GET /status endpoints are read-only, allow READONLY access
+    # All other operations (POST/DELETE) require ADMIN
+    is_status_endpoint = request.url.path.endswith('/status')
+    is_read_only = request.method == 'GET' and is_status_endpoint
+    
+    required_role = Role.READONLY if is_read_only else Role.ADMIN
+    
+    if not has_permission(user.role, required_role):
         raise HTTPException(
             status_code=403,
-            detail=f"Insufficient permissions. Required role: {Role.ADMIN}, your role: {user.role}"
+            detail=f"Insufficient permissions. Required role: {required_role}, your role: {user.role}"
         )
     
     logger.info(f"Ontology agent request by {user.email} to {request.url.path}")

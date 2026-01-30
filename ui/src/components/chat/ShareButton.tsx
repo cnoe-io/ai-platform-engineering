@@ -60,7 +60,7 @@ export function ShareButton({
                 <Share2 className="h-3 w-3" />
               </Button>
             </TooltipTrigger>
-            <TooltipContent>
+            <TooltipContent side="left">
               <p>Share</p>
             </TooltipContent>
           </Tooltip>
