@@ -11,6 +11,11 @@ function ChatPage() {
   const [creating, setCreating] = useState(true);
 
   useEffect(() => {
+    // Only run on client side
+    if (typeof window === 'undefined') {
+      return;
+    }
+
     async function createNewConversation() {
       try {
         console.log("[NewChat] Creating new conversation in MongoDB...");
