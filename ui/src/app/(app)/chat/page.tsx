@@ -2,47 +2,99 @@
 
 import React, { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Loader2 } from "lucide-react";
+import { MessageSquare } from "lucide-react";
 import { AuthGuard } from "@/components/auth-guard";
-import { apiClient } from "@/lib/api-client";
+import { Sidebar } from "@/components/layout/Sidebar";
+import { useChatStore } from "@/store/chat-store";
 
 function ChatPage() {
   const router = useRouter();
-  const [creating, setCreating] = useState(true);
-
+  const conversations = useChatStore((state) => state.conversations);
+  const loadConversationsFromServer = useChatStore((state) => state.loadConversationsFromServer);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  
   useEffect(() => {
-    // Only run on client side
-    if (typeof window === 'undefined') {
-      return;
-    }
-
-    async function createNewConversation() {
+    // Load conversations from server (MongoDB mode only)
+    // Wait for it to complete before checking conversations
+    const loadAndRedirect = async () => {
+      setIsLoading(true);
       try {
-        console.log("[NewChat] Creating new conversation in MongoDB...");
+        await loadConversationsFromServer();
         
-        // Create new conversation in MongoDB
-        const conversation = await apiClient.createConversation({
-          title: "New Conversation",
-        });
-
-        console.log("[NewChat] Created conversation with ID:", conversation._id);
-
-        // Redirect to UUID-based URL with replace to avoid history issues
-        router.replace(`/chat/${conversation._id}`);
+        // Small delay to ensure store has updated
+        await new Promise(resolve => setTimeout(resolve, 100));
+        
+        // Get fresh conversations after load
+        const currentConversations = useChatStore.getState().conversations;
+        
+        // Redirect to the most recent conversation, or show empty state
+        if (currentConversations.length > 0) {
+          const mostRecent = currentConversations[0];
+          router.replace(`/chat/${mostRecent.id}`);
+        }
       } catch (error) {
-        console.error("[NewChat] Failed to create conversation:", error);
-        setCreating(false);
+        console.error('[ChatPage] Failed to load conversations:', error);
+      } finally {
+        setIsLoading(false);
       }
-    }
+    };
+    
+    loadAndRedirect();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-    createNewConversation();
-  }, [router]);
+  const handleTabChange = (tab: "chat" | "gallery" | "knowledge" | "admin") => {
+    if (tab === "gallery") {
+      router.push("/use-cases");
+    } else if (tab === "knowledge") {
+      router.push("/knowledge-bases");
+    } else if (tab === "admin") {
+      router.push("/admin");
+    }
+  };
+
+  // Show empty state while loading or if no conversations
+  if (isLoading) {
+    return (
+      <div className="flex-1 flex overflow-hidden">
+        <Sidebar
+          activeTab="chat"
+          onTabChange={handleTabChange}
+          collapsed={sidebarCollapsed}
+          onCollapse={setSidebarCollapsed}
+        />
+        <div className="flex-1 flex items-center justify-center">
+          <div className="text-center space-y-4">
+            <MessageSquare className="h-16 w-16 mx-auto text-muted-foreground/50 animate-pulse" />
+            <p className="text-sm text-muted-foreground/70">Loading conversations...</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div className="flex-1 flex items-center justify-center">
-      <div className="flex flex-col items-center gap-4">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
-        <p className="text-sm text-muted-foreground">Creating new conversation...</p>
+    <div className="flex-1 flex overflow-hidden">
+      {/* Sidebar with New Chat button */}
+      <Sidebar
+        activeTab="chat"
+        onTabChange={handleTabChange}
+        collapsed={sidebarCollapsed}
+        onCollapse={setSidebarCollapsed}
+      />
+      
+      {/* Empty state */}
+      <div className="flex-1 flex items-center justify-center">
+        <div className="text-center space-y-4">
+          <MessageSquare className="h-16 w-16 mx-auto text-muted-foreground/50" />
+          <div className="space-y-2">
+            <h2 className="text-xl font-semibold text-muted-foreground">No Conversations</h2>
+            <p className="text-sm text-muted-foreground/70">
+              Click "New Chat" in the sidebar to start a conversation
+            </p>
+          </div>
+        </div>
       </div>
     </div>
   );

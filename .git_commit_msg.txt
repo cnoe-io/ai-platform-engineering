@@ -1,0 +1,14 @@
+fix(ui): persist conversation titles to MongoDB on auto-generation
+
+Added updateConversationTitle method to chat store that saves titles
+to MongoDB when they are auto-generated from the first user message.
+This ensures conversation titles persist across page reloads.
+
+Changes:
+- Added updateConversationTitle method with optimistic updates
+- Updated addMessage to save auto-generated titles to MongoDB
+- Titles are now persisted immediately when generated
+
+Fixes issue where conversation titles were lost on page reload.
+
+Signed-off-by: Sri Aradhyula <sraradhy@cisco.com>

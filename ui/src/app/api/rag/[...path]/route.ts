@@ -57,10 +57,9 @@ export async function GET(
     targetUrl.searchParams.append(key, value);
   });
 
-  // Get auth headers from session
-  const headers = await getRbacHeaders();
-
   try {
+    // Get auth headers from session
+    const headers = await getRbacHeaders();
     const response = await fetch(targetUrl.toString(), {
       method: 'GET',
       headers,
@@ -86,9 +85,6 @@ export async function POST(
   const targetPath = path.join('/');
   const targetUrl = `${ragServerUrl}/${targetPath}`;
 
-  // Get auth headers from session
-  const headers = await getRbacHeaders();
-
   try {
     // Handle empty body POST requests (e.g., terminate job)
     let body: unknown = undefined;
@@ -102,6 +98,8 @@ export async function POST(
       }
     }
 
+    // Get auth headers from session
+    const headers = await getRbacHeaders();
     const fetchOptions: RequestInit = {
       method: 'POST',
       headers,
@@ -144,10 +142,9 @@ export async function DELETE(
     targetUrl.searchParams.append(key, value);
   });
 
-  // Get auth headers from session
-  const headers = await getRbacHeaders();
-
   try {
+    // Get auth headers from session
+    const headers = await getRbacHeaders();
     const response = await fetch(targetUrl.toString(), {
       method: 'DELETE',
       headers,

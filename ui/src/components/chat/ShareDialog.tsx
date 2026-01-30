@@ -2,9 +2,11 @@
 
 import React, { useState, useEffect } from "react";
 import { createPortal } from "react-dom";
-import { X, UserPlus, Copy, Check, Mail, Trash2 } from "lucide-react";
+import { X, UserPlus, Copy, Check, Mail, Trash2, Users } from "lucide-react";
 import { apiClient } from "@/lib/api-client";
+import { useChatStore } from "@/store/chat-store";
 import type { UserPublicInfo } from "@/types/mongodb";
+import type { Team } from "@/types/teams";
 
 interface ShareDialogProps {
   conversationId: string;
@@ -19,10 +21,14 @@ export function ShareDialog({
   open,
   onOpenChange,
 }: ShareDialogProps) {
-  const [emailInput, setEmailInput] = useState("");
-  const [searchResults, setSearchResults] = useState<UserPublicInfo[]>([]);
+  const updateConversationSharing = useChatStore((state) => state.updateConversationSharing);
+  const [searchInput, setSearchInput] = useState("");
+  const [userResults, setUserResults] = useState<UserPublicInfo[]>([]);
+  const [teamResults, setTeamResults] = useState<Team[]>([]);
   const [searching, setSearching] = useState(false);
   const [sharedWith, setSharedWith] = useState<string[]>([]);
+  const [sharedWithTeams, setSharedWithTeams] = useState<string[]>([]);
+  const [teamNames, setTeamNames] = useState<Record<string, string>>({}); // teamId -> teamName
   const [loading, setLoading] = useState(false);
   const [copied, setCopied] = useState(false);
   const [noResults, setNoResults] = useState(false);
@@ -42,8 +48,41 @@ export function ShareDialog({
       const response = await fetch(`/api/chat/conversations/${conversationId}/share`);
       if (response.ok) {
         const data = await response.json();
-        setSharedWith(data.data?.sharing?.shared_with || []);
+        const sharing = data.data?.sharing;
+        setSharedWith(sharing?.shared_with || []);
+        const teamIds = sharing?.shared_with_teams || [];
+        setSharedWithTeams(teamIds);
         setIsLegacyConversation(false);
+
+        // Update store with sharing info so Sidebar shows icon immediately
+        if (sharing) {
+          updateConversationSharing(conversationId, {
+            is_public: sharing.is_public,
+            shared_with: sharing.shared_with,
+            shared_with_teams: sharing.shared_with_teams,
+            share_link_enabled: sharing.share_link_enabled,
+          });
+        }
+
+        // Load team names for display
+        if (teamIds.length > 0) {
+          try {
+            const teamsResponse = await fetch('/api/admin/teams');
+            if (teamsResponse.ok) {
+              const teamsData = await teamsResponse.json();
+              const allTeams = teamsData.data?.teams || [];
+              const namesMap: Record<string, string> = {};
+              allTeams.forEach((team: Team) => {
+                if (teamIds.includes(team._id)) {
+                  namesMap[team._id] = team.name;
+                }
+              });
+              setTeamNames(namesMap);
+            }
+          } catch (err) {
+            console.error("Failed to load team names:", err);
+          }
+        }
       } else if (response.status === 404) {
         // Conversation doesn't exist in MongoDB (legacy local conversation)
         setIsLegacyConversation(true);
@@ -54,11 +93,12 @@ export function ShareDialog({
     }
   };
 
-  // Search users as they type
+  // Search users and teams as they type
   useEffect(() => {
-    const searchUsers = async () => {
-      if (emailInput.length < 2) {
-        setSearchResults([]);
+    const searchPeopleAndTeams = async () => {
+      if (searchInput.length < 2) {
+        setUserResults([]);
+        setTeamResults([]);
         setNoResults(false);
         return;
       }
@@ -66,39 +106,90 @@ export function ShareDialog({
       setSearching(true);
       setNoResults(false);
       try {
-        const users = await apiClient.searchUsers(emailInput);
-        // Filter out already shared users
+        // Search users
+        const users = await apiClient.searchUsers(searchInput);
         const filteredUsers = users.filter(u => !sharedWith.includes(u.email));
-        setSearchResults(filteredUsers);
-        
-        // Show no results message if empty
-        if (filteredUsers.length === 0 && emailInput.length > 2) {
-          setNoResults(true);
+        setUserResults(filteredUsers);
+
+        // Search teams (may require admin access - handle gracefully)
+        try {
+          const teamsResponse = await fetch('/api/admin/teams');
+          if (teamsResponse.ok) {
+            const teamsData = await teamsResponse.json();
+            const allTeams = teamsData.data?.teams || [];
+            // Filter teams by name/description matching search input
+            const searchLower = searchInput.toLowerCase();
+            const matchingTeams = allTeams.filter((team: Team) => {
+              const nameMatch = team.name.toLowerCase().includes(searchLower);
+              const descMatch = team.description?.toLowerCase().includes(searchLower);
+              const notAlreadyShared = !sharedWithTeams.includes(team._id);
+              return (nameMatch || descMatch) && notAlreadyShared;
+            });
+            setTeamResults(matchingTeams);
+            
+            // Show no results message if both are empty
+            if (filteredUsers.length === 0 && matchingTeams.length === 0 && searchInput.length >= 2) {
+              setNoResults(true);
+            }
+          } else if (teamsResponse.status === 403) {
+            // Admin access required - teams search not available
+            setTeamResults([]);
+            // Still check user results
+            if (filteredUsers.length === 0 && searchInput.length >= 2) {
+              setNoResults(true);
+            }
+          } else {
+            // Other error - still check user results
+            setTeamResults([]);
+            if (filteredUsers.length === 0 && searchInput.length >= 2) {
+              setNoResults(true);
+            }
+          }
+        } catch (teamErr) {
+          console.error("Team search failed:", teamErr);
+          setTeamResults([]);
+          // If team search fails, still check user results
+          if (filteredUsers.length === 0 && searchInput.length >= 2) {
+            setNoResults(true);
+          }
         }
       } catch (err) {
         console.error("Search failed:", err);
-        setSearchResults([]);
+        setUserResults([]);
+        setTeamResults([]);
         setNoResults(true);
       } finally {
         setSearching(false);
       }
     };
 
-    const timer = setTimeout(searchUsers, 300);
+    const timer = setTimeout(searchPeopleAndTeams, 300);
     return () => clearTimeout(timer);
-  }, [emailInput, sharedWith]);
+  }, [searchInput, sharedWith, sharedWithTeams]);
 
-  const handleShare = async (email: string) => {
+  const handleShareUser = async (email: string) => {
     setLoading(true);
     try {
-      await apiClient.shareConversation(conversationId, {
+      const updatedConversation = await apiClient.shareConversation(conversationId, {
         user_emails: [email],
         permission: "view",
       });
 
       setSharedWith([...sharedWith, email]);
-      setEmailInput("");
-      setSearchResults([]);
+      
+      // Update store with new sharing info so Sidebar shows icon immediately
+      if (updatedConversation?.sharing) {
+        updateConversationSharing(conversationId, {
+          is_public: updatedConversation.sharing.is_public,
+          shared_with: updatedConversation.sharing.shared_with,
+          shared_with_teams: updatedConversation.sharing.shared_with_teams,
+          share_link_enabled: updatedConversation.sharing.share_link_enabled,
+        });
+      }
+      
+      setSearchInput("");
+      setUserResults([]);
+      setTeamResults([]);
       setNoResults(false);
     } catch (err: any) {
       console.error("Failed to share:", err);
@@ -115,16 +206,71 @@ export function ShareDialog({
     }
   };
 
+  const handleShareTeam = async (teamId: string) => {
+    setLoading(true);
+    try {
+      // Update conversation to include team in shared_with_teams
+      const response = await fetch(`/api/chat/conversations/${conversationId}/share`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          team_ids: [teamId],
+          permission: "view",
+        }),
+      });
+
+      if (!response.ok) {
+        // Try to get error message from API response
+        let errorMessage = 'Failed to share with team';
+        try {
+          const errorData = await response.json();
+          errorMessage = errorData.error || errorData.message || errorMessage;
+        } catch {
+          // If response is not JSON, use status text
+          errorMessage = response.statusText || errorMessage;
+        }
+        throw new Error(errorMessage);
+      }
+
+      // Parse response to get updated conversation
+      const responseData = await response.json();
+      const updatedConversation = responseData.data;
+      
+      // Update store with new sharing info so Sidebar shows icon immediately
+      if (updatedConversation?.sharing) {
+        updateConversationSharing(conversationId, {
+          is_public: updatedConversation.sharing.is_public,
+          shared_with: updatedConversation.sharing.shared_with,
+          shared_with_teams: updatedConversation.sharing.shared_with_teams,
+          share_link_enabled: updatedConversation.sharing.share_link_enabled,
+        });
+      }
+
+      // Reload sharing info to get updated state (updates dialog UI)
+      await loadSharingInfo();
+      
+      setSearchInput("");
+      setUserResults([]);
+      setTeamResults([]);
+      setNoResults(false);
+    } catch (err: any) {
+      console.error("Failed to share with team:", err);
+      alert(`Failed to share with team: ${err?.message || 'Unknown error'}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   // Handle sharing by email directly (for users not yet in system)
   const handleShareByEmail = async () => {
     // Simple email validation
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(emailInput)) {
+    if (!emailRegex.test(searchInput)) {
       alert("Please enter a valid email address");
       return;
     }
 
-    await handleShare(emailInput);
+    await handleShareUser(searchInput);
   };
 
   const handleCopyLink = async () => {
@@ -229,58 +375,96 @@ export function ShareDialog({
           </div>
         </div>
 
-        {/* Add people section */}
+        {/* Add people and teams section */}
         <div className="mb-6">
           <label className="text-sm font-medium mb-2 block">
-            Add People
+            People, Teams
           </label>
           <div className="relative">
             <input
-              type="email"
-              placeholder="Search by email..."
-              value={emailInput}
-              onChange={(e) => setEmailInput(e.target.value)}
+              type="text"
+              placeholder="Search by email or team name..."
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
               className="w-full px-3 py-2 text-sm border rounded-md"
             />
             
             {/* Search results dropdown */}
-            {(searchResults.length > 0 || noResults) && emailInput.length >= 2 && (
-              <div className="absolute top-full left-0 right-0 mt-1 bg-background border rounded-md shadow-lg max-h-48 overflow-y-auto z-10">
-                {searchResults.map((user) => (
-                  <button
-                    key={user.email}
-                    onClick={() => handleShare(user.email)}
-                    disabled={loading}
-                    className="w-full px-3 py-2 text-left hover:bg-muted flex items-center gap-2 text-sm"
-                  >
-                    <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center text-primary font-medium">
-                      {user.name.charAt(0).toUpperCase()}
-                    </div>
-                    <div>
-                      <div className="font-medium">{user.name}</div>
-                      <div className="text-xs text-muted-foreground">
-                        {user.email}
-                      </div>
-                    </div>
-                  </button>
-                ))}
+            {((userResults.length > 0 || teamResults.length > 0 || noResults) && searchInput.length >= 2) && (
+              <div className="absolute top-full left-0 right-0 mt-1 bg-background border rounded-md shadow-lg max-h-64 overflow-y-auto z-10">
+                {/* User Results */}
+                {userResults.length > 0 && (
+                  <div className="px-2 py-1 border-b">
+                    <div className="text-xs font-medium text-muted-foreground px-2 py-1">People</div>
+                    {userResults.map((user) => (
+                      <button
+                        key={user.email}
+                        onClick={() => handleShareUser(user.email)}
+                        disabled={loading}
+                        className="w-full px-3 py-2 text-left hover:bg-muted flex items-center gap-2 text-sm rounded-md"
+                      >
+                        <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center text-primary font-medium">
+                          {user.name.charAt(0).toUpperCase()}
+                        </div>
+                        <div className="flex-1">
+                          <div className="font-medium">{user.name}</div>
+                          <div className="text-xs text-muted-foreground">
+                            {user.email}
+                          </div>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                {/* Team Results */}
+                {teamResults.length > 0 && (
+                  <div className="px-2 py-1">
+                    <div className="text-xs font-medium text-muted-foreground px-2 py-1">Teams</div>
+                    {teamResults.map((team) => (
+                      <button
+                        key={team._id}
+                        onClick={() => handleShareTeam(team._id)}
+                        disabled={loading}
+                        className="w-full px-3 py-2 text-left hover:bg-muted flex items-center gap-2 text-sm rounded-md"
+                      >
+                        <div className="h-8 w-8 rounded-full bg-blue-500/10 flex items-center justify-center text-blue-600 dark:text-blue-400">
+                          <Users className="h-4 w-4" />
+                        </div>
+                        <div className="flex-1">
+                          <div className="font-medium">{team.name}</div>
+                          {team.description && (
+                            <div className="text-xs text-muted-foreground">
+                              {team.description}
+                            </div>
+                          )}
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
                 
                 {/* No results - offer to share by email */}
-                {noResults && !searching && (
+                {noResults && !searching && userResults.length === 0 && teamResults.length === 0 && (
                   <div className="px-3 py-4">
                     <p className="text-sm text-muted-foreground mb-2">
-                      User not found in system
+                      No people or teams found
                     </p>
-                    <button
-                      onClick={handleShareByEmail}
-                      disabled={loading}
-                      className="w-full px-3 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 text-sm font-medium"
-                    >
-                      Share with {emailInput}
-                    </button>
-                    <p className="text-xs text-muted-foreground mt-2">
-                      They'll get access when they log in
-                    </p>
+                    {/* Only show email share if it looks like an email */}
+                    {/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(searchInput) && (
+                      <>
+                        <button
+                          onClick={handleShareByEmail}
+                          disabled={loading}
+                          className="w-full px-3 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 text-sm font-medium"
+                        >
+                          Share with {searchInput}
+                        </button>
+                        <p className="text-xs text-muted-foreground mt-2">
+                          They'll get access when they log in
+                        </p>
+                      </>
+                    )}
                   </div>
                 )}
               </div>
@@ -294,13 +478,14 @@ export function ShareDialog({
           </div>
         </div>
 
-        {/* People with access */}
-        {sharedWith.length > 0 && (
+        {/* People and Teams with access */}
+        {(sharedWith.length > 0 || sharedWithTeams.length > 0) && (
           <div>
             <label className="text-sm font-medium mb-2 block">
-              People with Access ({sharedWith.length})
+              People & Teams with Access ({sharedWith.length + sharedWithTeams.length})
             </label>
             <div className="space-y-2 max-h-48 overflow-y-auto">
+              {/* People */}
               {sharedWith.map((email) => (
                 <div
                   key={email}
@@ -317,6 +502,31 @@ export function ShareDialog({
                     onClick={() => {
                       // TODO: Implement remove access
                       setSharedWith(sharedWith.filter(e => e !== email));
+                    }}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                </div>
+              ))}
+              {/* Teams */}
+              {sharedWithTeams.map((teamId) => (
+                <div
+                  key={teamId}
+                  className="flex items-center justify-between py-2 px-3 bg-muted rounded-md"
+                >
+                  <div className="flex items-center gap-2">
+                    <div className="h-8 w-8 rounded-full bg-blue-500/10 flex items-center justify-center text-blue-600 dark:text-blue-400">
+                      <Users className="h-4 w-4" />
+                    </div>
+                    <div className="text-sm">
+                      {teamNames[teamId] || `Team: ${teamId}`}
+                    </div>
+                  </div>
+                  <button
+                    className="text-muted-foreground hover:text-destructive"
+                    onClick={() => {
+                      // TODO: Implement remove team access
+                      setSharedWithTeams(sharedWithTeams.filter(t => t !== teamId));
                     }}
                   >
                     <Trash2 className="h-4 w-4" />

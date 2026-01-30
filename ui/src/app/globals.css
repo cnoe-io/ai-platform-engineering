@@ -231,6 +231,27 @@
   *:focus-visible {
     @apply outline-none ring-2 ring-ring ring-offset-2 ring-offset-background;
   }
+
+  /* Ensure proper text truncation for all fonts (except Source Sans which handles it naturally) */
+  /* These fonts have wider character widths and need explicit constraints */
+  [data-font-family="inter"] .truncate,
+  [data-font-family="ibm-plex"] .truncate,
+  [data-font-family="system"] .truncate {
+    max-width: 100% !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    white-space: nowrap !important;
+    display: block !important;
+    box-sizing: border-box !important;
+  }
+  
+  /* Ensure parent containers also respect width constraints */
+  [data-font-family="inter"] .min-w-0,
+  [data-font-family="ibm-plex"] .min-w-0,
+  [data-font-family="system"] .min-w-0 {
+    min-width: 0 !important;
+    max-width: 100% !important;
+  }
 }
 
 @layer components {
