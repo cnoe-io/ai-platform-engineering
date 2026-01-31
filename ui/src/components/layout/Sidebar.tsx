@@ -50,6 +50,8 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
   const [useCaseBuilderOpen, setUseCaseBuilderOpen] = useState(false);
   const storageMode = getStorageMode(); // Exclusive storage mode
   const [isPending, startTransition] = useTransition();
+  const [sidebarWidth, setSidebarWidth] = useState(300); // Track sidebar width
+  const [isResizing, setIsResizing] = useState(false);
 
   // Load conversations from server when sidebar mounts (MongoDB mode only)
   // Always load from server to sync with database, but preserve local messages
@@ -63,6 +65,29 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab, storageMode]); // Intentionally exclude loadConversationsFromServer to prevent re-runs
+
+  // Handle mouse move for resizing
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!isResizing) return;
+      
+      const newWidth = Math.max(250, Math.min(500, e.clientX));
+      setSidebarWidth(newWidth);
+    };
+
+    const handleMouseUp = () => {
+      setIsResizing(false);
+    };
+
+    if (isResizing) {
+      document.addEventListener('mousemove', handleMouseMove);
+      document.addEventListener('mouseup', handleMouseUp);
+      return () => {
+        document.removeEventListener('mousemove', handleMouseMove);
+        document.removeEventListener('mouseup', handleMouseUp);
+      };
+    }
+  }, [isResizing]);
 
   const handleNewChat = async () => {
     try {
@@ -82,7 +107,7 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
           messages: [],
           a2aEvents: [],
         };
-        
+
         // Update store and wait for it to propagate
         useChatStore.setState((state) => ({
           conversations: [newConversation, ...state.conversations],
@@ -99,7 +124,7 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
       } else {
         // Create conversation in localStorage
         const conversationId = createConversation();
-        
+
         // Use React transition for smooth navigation
         startTransition(() => {
           router.push(`/chat/${conversationId}`);
@@ -107,7 +132,7 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
       }
     } catch (error) {
       console.error('[Sidebar] Failed to create conversation:', error);
-      
+
       // Fallback to localStorage
       const conversationId = createConversation();
       startTransition(() => {
@@ -119,11 +144,18 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
   return (
     <motion.div
       initial={false}
-      animate={{ width: collapsed ? 64 : 320 }}
+      animate={{ width: collapsed ? 64 : sidebarWidth }}
       transition={{ duration: 0.2 }}
-      className="relative flex flex-col h-full bg-card/50 backdrop-blur-sm border-r border-border/50 shrink-0 overflow-hidden"
-      style={{ overflow: 'visible' }}
+      className="relative flex flex-col h-full bg-card/50 backdrop-blur-sm border-r border-border/50 shrink-0 z-10"
     >
+      {/* Resize Handle */}
+      {!collapsed && (
+        <div
+          onMouseDown={() => setIsResizing(true)}
+          className="absolute right-0 top-0 h-full w-1 hover:w-1.5 bg-transparent hover:bg-primary/50 cursor-col-resize transition-all z-20"
+          title="Drag to resize sidebar"
+        />
+      )}
       {/* Collapse Toggle */}
       <div className="flex items-center justify-end p-2 h-12 shrink-0">
         <Button
@@ -200,34 +232,37 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
                 {conversations.map((conv, index) => {
                   // Check if conversation is shared
                   const isShared = conv.sharing && (
-                    conv.sharing.is_public || 
+                    conv.sharing.is_public ||
                     (conv.sharing.shared_with && conv.sharing.shared_with.length > 0) ||
                     (conv.sharing.shared_with_teams && conv.sharing.shared_with_teams.length > 0) ||
                     conv.sharing.share_link_enabled
                   );
-                  
+
                   return (
-                  <motion.div
+                  <div
                     key={conv.id}
-                    initial={{ opacity: 0, x: -10 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    exit={{ opacity: 0, x: -10 }}
-                    transition={{ delay: index * 0.02 }}
-                    className={cn(
-                      "group relative flex items-center gap-2 p-2 rounded-lg cursor-pointer transition-all min-w-0 overflow-hidden",
-                      activeConversationId === conv.id
-                        ? "bg-primary/10 border border-primary/30"
-                        : isShared
-                          ? "hover:bg-muted/50 border border-blue-500/20"
-                          : "hover:bg-muted/50 border border-transparent"
-                    )}
-                    onClick={() => {
-                      setActiveConversation(conv.id);
-                      startTransition(() => {
-                        router.push(`/chat/${conv.id}`);
-                      });
-                    }}
+                    className="group/conv"
                   >
+                    <motion.div
+                      initial={{ opacity: 0, x: -10 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      exit={{ opacity: 0, x: -10 }}
+                      transition={{ delay: index * 0.02 }}
+                      className={cn(
+                        "relative flex items-center gap-2 p-2 rounded-lg cursor-pointer transition-all min-w-0",
+                        activeConversationId === conv.id
+                          ? "bg-primary/10 border border-primary/30"
+                          : isShared
+                            ? "hover:bg-muted/50 border border-blue-500/20"
+                            : "hover:bg-muted/50 border border-transparent"
+                      )}
+                      onClick={() => {
+                        setActiveConversation(conv.id);
+                        startTransition(() => {
+                          router.push(`/chat/${conv.id}`);
+                        });
+                      }}
+                    >
                     <div className={cn(
                       "shrink-0 w-8 h-8 rounded-md flex items-center justify-center",
                       activeConversationId === conv.id
@@ -244,16 +279,16 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
 
                     {!collapsed && (
                       <>
-                        <div className="flex-1 min-w-0 pr-2 relative">
-                          <div className="flex items-center gap-1.5 min-w-0 pr-4">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-1 min-w-0">
                             <TooltipProvider>
                               <Tooltip>
                                 <TooltipTrigger asChild>
-                                  <p 
-                                    className="text-sm font-medium truncate min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap"
-                                  >
-                                    {conv.title}
-                                  </p>
+                                  <div className="flex-1 min-w-0">
+                                    <p className="text-sm font-medium truncate">
+                                      {conv.title}
+                                    </p>
+                                  </div>
                                 </TooltipTrigger>
                                 {conv.title.length > 25 && (
                                   <TooltipContent side="right" className="max-w-xs">
@@ -262,9 +297,7 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
                                 )}
                               </Tooltip>
                             </TooltipProvider>
-                          </div>
-                          {isShared && (
-                            <div className="absolute top-0 right-2">
+                            {isShared && (
                               <TooltipProvider>
                                 <Tooltip>
                                   <TooltipTrigger asChild>
@@ -275,27 +308,25 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
                                   </TooltipContent>
                                 </Tooltip>
                               </TooltipProvider>
-                            </div>
-                          )}
-                          <p className="text-xs text-muted-foreground truncate mt-0.5">
+                            )}
+                          </div>
+                          <p className="text-xs text-muted-foreground truncate">
                             {formatDate(conv.updatedAt)}
                           </p>
                         </div>
 
-                        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0 pr-1">
-                          {/* Only show share button for conversations created after MongoDB integration (after Jan 28, 2026) */}
-                          {new Date(conv.createdAt) > new Date('2026-01-28') && (
-                            <ShareButton 
-                              conversationId={conv.id}
-                              conversationTitle={conv.title}
-                              isOwner={true}
-                            />
-                          )}
+                        <div className="flex items-center gap-0.5 shrink-0 opacity-50 hover:opacity-100 transition-opacity">
+                          <ShareButton
+                            conversationId={conv.id}
+                            conversationTitle={conv.title}
+                            isOwner={new Date(conv.createdAt) > new Date('2026-01-28')}
+                          />
                           <Button
                             variant="ghost"
                             size="icon"
                             className="h-6 w-6"
                             onClick={async (e) => {
+                              console.log('[Sidebar] Delete clicked for:', conv.id);
                               e.stopPropagation();
                               await deleteConversation(conv.id);
                             }}
@@ -306,6 +337,7 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
                       </>
                     )}
                   </motion.div>
+                  </div>
                   );
                 })}
               </AnimatePresence>
