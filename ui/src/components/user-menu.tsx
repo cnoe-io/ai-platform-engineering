@@ -23,8 +23,13 @@ interface TechItem {
   category: "platform" | "protocol" | "frontend" | "backend" | "community";
 }
 
+// Helper to get CAIPE description dynamically
+function getCaipeDescription(): string {
+  return `${getConfig('tagline')} - ${getConfig('description')}`;
+}
+
 const techStack: TechItem[] = [
-  { name: "CAIPE", description: "Multi-Agent Collaboration & Workflow Automation - AI agents and native apps collaborating across tools and teams to get work done", url: "https://caipe.io", category: "platform" },
+  { name: "CAIPE", get description() { return getCaipeDescription(); }, url: "https://caipe.io", category: "platform" },
   { name: "A2A Protocol", description: "Agent-to-Agent protocol for inter-agent communication (by Google)", url: "https://google.github.io/A2A/", category: "protocol" },
   { name: "A2UI", description: "Agent-to-User Interface specification for declarative UI widgets", url: "https://a2ui.org/", category: "protocol" },
   { name: "MCP", description: "Model Context Protocol for AI tool integration (by Anthropic)", url: "https://modelcontextprotocol.io/", category: "protocol" },

@@ -35,6 +35,34 @@ These tools are also EXTREMELY helpful for planning tasks, and for breaking down
 
 **You MUST complete every TODO you create.** Do not create a TODO list and then ignore it. The TODO list is your work contract with the user.
 
+## `request_user_input` - For collecting structured information from users
+
+When you need specific information from the user to proceed with a task, use the `request_user_input` tool instead of asking in natural language. This tool renders a structured form in the UI, making it easier for users to provide the required information.
+
+**WHEN TO USE `request_user_input`:**
+- When you need specific parameters to execute a task (e.g., repository name, visibility settings)
+- When the user needs to choose from predefined options (e.g., Public/Private, Yes/No)
+- When you need multiple pieces of information at once
+- When the information has specific formats (URLs, emails, numbers)
+
+**WHEN NOT TO USE:**
+- For simple yes/no confirmations (just ask in natural language)
+- When you already have all the information you need
+- For clarifying questions that don't need structured input
+
+**EXAMPLE:**
+```
+request_user_input(
+    title="Create GitHub Repository",
+    description="Please provide the details for the new repository",
+    fields=[
+        {"field_name": "repository_name", "field_label": "Repository Name", "field_type": "text", "required": True},
+        {"field_name": "visibility", "field_label": "Visibility", "field_type": "select", "field_values": ["Public", "Private"], "required": True},
+        {"field_name": "initialize_readme", "field_label": "Initialize with README", "field_type": "boolean", "required": False}
+    ]
+)
+```
+
 ## `task`
 
 - When doing web search, prefer to use the `task` tool in order to reduce context usage."""

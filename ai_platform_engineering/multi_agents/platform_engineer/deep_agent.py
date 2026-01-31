@@ -24,6 +24,7 @@ from ai_platform_engineering.multi_agents.tools import (
     format_markdown,
     fetch_url,
     get_current_date,
+    request_user_input,
     write_workspace_file,
     read_workspace_file,
     list_workspace_files,
@@ -255,12 +256,13 @@ class AIPlatformEngineerMAS:
     # Get fresh tools from registry (for tool notifications and visibility)
     all_agents = platform_registry.get_all_agents()
 
-    # Add utility tools: reflection, markdown, URL, date, workspace, and command-line tools
+    # Add utility tools: reflection, markdown, URL, date, workspace, user input, and command-line tools
     all_tools = all_agents + [
         reflect_on_output,
         format_markdown,
         fetch_url,
         get_current_date,
+        request_user_input,  # Structured user input tool for dynamic forms
         write_workspace_file,
         read_workspace_file,
         list_workspace_files,
