@@ -11,13 +11,14 @@ import {
   Zap,
   Loader2,
   Database,
-  Shield
+  Shield,
 } from "lucide-react";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { UserMenu } from "@/components/user-menu";
 import { SettingsPanel } from "@/components/settings-panel";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { getConfig } from "@/lib/config";
 import { useChatStore } from "@/store/chat-store";
 import { useCAIPEHealth } from "@/hooks/use-caipe-health";
 import {
@@ -47,8 +48,9 @@ export function AppHeader() {
   const getActiveTab = () => {
     if (pathname?.startsWith("/chat")) return "chat";
     if (pathname?.startsWith("/knowledge-bases")) return "knowledge";
+    if (pathname?.startsWith("/agent-builder") || pathname?.startsWith("/use-cases")) return "agent-builder";
     if (pathname?.startsWith("/admin")) return "admin";
-    return "gallery";
+    return "agent-builder"; // Default to agent-builder (formerly use-cases)
   };
 
   const activeTab = getActiveTab();
@@ -59,30 +61,35 @@ export function AppHeader() {
         {/* Logo */}
         <div
           className="flex items-center gap-2.5 cursor-default"
-          title="Multi-Agent Collaboration & Workflow Automation"
+          title={getConfig('tagline')}
         >
           <img
-            src="/logo.svg"
-            alt="CAIPE Logo"
+            src={getConfig('logoUrl')}
+            alt={`${getConfig('appName')} Logo`}
             className="h-8 w-auto"
           />
-          <span className="font-bold text-base gradient-text">CAIPE</span>
+          <span className="font-bold text-base gradient-text">{getConfig('appName')}</span>
+          {getConfig('previewMode') && (
+            <span className="px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider bg-amber-500/20 text-amber-500 border border-amber-500/30 rounded">
+              Preview
+            </span>
+          )}
         </div>
 
-        {/* Navigation Pills - Use Cases first for prominence */}
+        {/* Navigation Pills - Agent Builder first for prominence */}
         <div className="flex items-center bg-muted/50 rounded-full p-1">
           <Link
-            href="/use-cases"
+            href="/agent-builder"
             prefetch={true}
             className={cn(
               "flex items-center gap-1.5 px-4 py-1.5 rounded-full text-sm font-medium transition-all",
-              activeTab === "gallery"
+              activeTab === "agent-builder"
                 ? "gradient-primary text-white shadow-sm"
                 : "text-muted-foreground hover:text-foreground"
             )}
           >
             <Zap className="h-3.5 w-3.5" />
-            Use Cases
+            Agent Builder
           </Link>
           <Link
             href="/chat"

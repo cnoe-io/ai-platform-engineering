@@ -46,11 +46,17 @@ class APIClient {
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error(`[APIClient] Error response:`, {
-        status: response.status,
-        statusText: response.statusText,
-        body: errorText
-      });
+      
+      // Don't log 401 errors as errors - they're expected when auth is not configured
+      if (response.status === 401) {
+        console.log(`[APIClient] Authentication required for ${endpoint} - user not logged in`);
+      } else {
+        console.error(`[APIClient] Error response:`, {
+          status: response.status,
+          statusText: response.statusText,
+          body: errorText
+        });
+      }
       
       let error;
       try {

@@ -61,7 +61,7 @@ export function Tooltip({
 
   return (
     <TooltipStateContext.Provider value={{ open, setOpen, triggerRef }}>
-      <span className="relative inline-block w-full min-w-0 overflow-hidden">{children}</span>
+      <span className="relative inline-block">{children}</span>
     </TooltipStateContext.Provider>
   );
 }
