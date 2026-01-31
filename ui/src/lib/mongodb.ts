@@ -108,6 +108,14 @@ async function createIndexes(db: Db) {
     await db.collection('sharing_access').createIndex({ granted_to: 1 });
     await db.collection('sharing_access').createIndex({ conversation_id: 1, granted_to: 1 });
 
+    // Agent configs collection indexes (Agent Builder)
+    await db.collection('agent_configs').createIndex({ owner_id: 1 });
+    await db.collection('agent_configs').createIndex({ category: 1 });
+    await db.collection('agent_configs').createIndex({ is_system: 1 });
+    await db.collection('agent_configs').createIndex({ name: 1 });
+    await db.collection('agent_configs').createIndex({ created_at: -1 });
+    await db.collection('agent_configs').createIndex({ 'metadata.tags': 1 });
+
     console.log('✅ MongoDB indexes created successfully');
   } catch (error) {
     console.error('❌ Error creating MongoDB indexes:', error);

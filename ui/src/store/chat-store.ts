@@ -463,11 +463,17 @@ const storeImplementation = (set: any, get: any) => ({
           try {
             response = await apiClient.getConversations({ page_size: 100 });
           } catch (apiError) {
-            console.error('[ChatStore] API call failed:', {
-              error: apiError,
-              errorMessage: apiError instanceof Error ? apiError.message : String(apiError),
-              errorStack: apiError instanceof Error ? apiError.stack : undefined
-            });
+            // Check if it's an auth error (expected when not logged in)
+            const errorMessage = apiError instanceof Error ? apiError.message : String(apiError);
+            if (errorMessage.includes('Unauthorized') || errorMessage.includes('401')) {
+              console.log('[ChatStore] User not authenticated - using local storage only');
+            } else {
+              console.error('[ChatStore] API call failed:', {
+                error: apiError,
+                errorMessage,
+                errorStack: apiError instanceof Error ? apiError.stack : undefined
+              });
+            }
             // Don't clear conversations on API error - preserve what we have
             return;
           }

@@ -6,6 +6,7 @@ import { ThumbsUp, ThumbsDown, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
+import { submitFeedback } from "@/lib/langfuse";
 
 export type FeedbackType = "like" | "dislike" | null;
 
@@ -19,6 +20,10 @@ export interface Feedback {
 
 interface FeedbackButtonProps {
   messageId: string;
+  /** Optional trace ID for Langfuse feedback tracking. Falls back to messageId if not provided. */
+  traceId?: string;
+  /** Optional conversation ID for context */
+  conversationId?: string;
   feedback?: Feedback;
   onFeedbackChange?: (feedback: Feedback) => void;
   onFeedbackSubmit?: (feedback: Feedback) => void;
@@ -31,6 +36,8 @@ const DISLIKE_REASONS = ["Inaccurate", "Poorly Formatted", "Incomplete", "Off-to
 
 export function FeedbackButton({
   messageId,
+  traceId,
+  conversationId,
   feedback,
   onFeedbackChange,
   onFeedbackSubmit,
@@ -82,7 +89,7 @@ export function FeedbackButton({
   };
 
   const handleSubmitFeedback = async () => {
-    if (!feedback?.reason) return;
+    if (!feedback?.reason || !feedback?.type) return;
 
     setIsSubmitting(true);
 
@@ -92,6 +99,16 @@ export function FeedbackButton({
       submitted: true,
       showFeedbackOptions: false,
     };
+
+    // Send feedback to server-side API (which forwards to Langfuse if configured)
+    await submitFeedback({
+      traceId: traceId || messageId,
+      messageId,
+      feedbackType: feedback.type,
+      reason: feedback.reason,
+      additionalFeedback: feedback.reason === "Other" ? additionalFeedback : undefined,
+      conversationId,
+    });
 
     onFeedbackChange?.(finalFeedback);
     await onFeedbackSubmit?.(finalFeedback);

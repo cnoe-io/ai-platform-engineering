@@ -1,0 +1,648 @@
+"use client";
+
+import React, { useEffect, useState, useMemo } from "react";
+import { motion, AnimatePresence } from "framer-motion";
+import {
+  Search,
+  Plus,
+  Workflow,
+  GitBranch,
+  Cloud,
+  Rocket,
+  Key,
+  Users,
+  Settings,
+  Loader2,
+  AlertCircle,
+  Play,
+  Edit,
+  Trash2,
+  Upload,
+  ChevronRight,
+  Sparkles,
+  Zap,
+  Server,
+  Bug,
+  BarChart,
+  Shield,
+  Database,
+  Clock,
+  AlertTriangle,
+  CheckCircle,
+  GitPullRequest,
+  ArrowRight,
+  X,
+  ExternalLink,
+} from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
+import { cn } from "@/lib/utils";
+import { useAgentConfigStore } from "@/store/agent-config-store";
+import { useAdminRole } from "@/hooks/use-admin-role";
+import type { AgentConfig, AgentConfigCategory, WorkflowDifficulty } from "@/types/agent-config";
+import { generateInputFormFromPrompt } from "@/types/agent-config";
+
+interface AgentBuilderGalleryProps {
+  onSelectConfig?: (config: AgentConfig) => void;
+  onRunQuickStart?: (prompt: string, configName?: string) => void;
+  onEditConfig?: (config: AgentConfig) => void;
+  onCreateNew?: () => void;
+  onImportYaml?: () => void;
+}
+
+// Icon mapping for thumbnails
+const ICON_MAP: Record<string, React.ElementType> = {
+  GitBranch,
+  GitPullRequest,
+  Server,
+  Bug,
+  BarChart,
+  Shield,
+  Cloud,
+  Rocket,
+  Zap,
+  Database,
+  Settings,
+  Users,
+  Clock,
+  AlertTriangle,
+  CheckCircle,
+  Key,
+  Workflow,
+};
+
+// Category colors
+const CATEGORY_COLORS: Record<string, string> = {
+  "GitHub Operations": "from-gray-500 to-gray-700",
+  "AWS Operations": "from-orange-500 to-orange-700",
+  "ArgoCD Operations": "from-blue-500 to-blue-700",
+  "AI Gateway Operations": "from-purple-500 to-purple-700",
+  "Group Management": "from-green-500 to-green-700",
+  "DevOps": "from-indigo-500 to-indigo-700",
+  "Development": "from-cyan-500 to-cyan-700",
+  "Operations": "from-red-500 to-red-700",
+  "Cloud": "from-orange-500 to-orange-700",
+  "Project Management": "from-teal-500 to-teal-700",
+  "Security": "from-rose-500 to-rose-700",
+  "Infrastructure": "from-amber-500 to-amber-700",
+  "Knowledge": "from-violet-500 to-violet-700",
+  "Custom": "from-pink-500 to-pink-700",
+};
+
+const ALL_CATEGORIES: string[] = [
+  "All",
+  "DevOps",
+  "Development",
+  "Operations",
+  "Cloud",
+  "Project Management",
+  "Security",
+  "Infrastructure",
+  "Knowledge",
+  "Custom",
+];
+
+const getDifficultyColor = (difficulty?: WorkflowDifficulty) => {
+  switch (difficulty) {
+    case "beginner":
+      return "bg-green-500/20 text-green-400";
+    case "intermediate":
+      return "bg-yellow-500/20 text-yellow-400";
+    case "advanced":
+      return "bg-red-500/20 text-red-400";
+    default:
+      return "bg-muted text-muted-foreground";
+  }
+};
+
+export function AgentBuilderGallery({
+  onSelectConfig,
+  onRunQuickStart,
+  onEditConfig,
+  onCreateNew,
+  onImportYaml,
+}: AgentBuilderGalleryProps) {
+  const { configs, isLoading, error, loadConfigs, deleteConfig } = useAgentConfigStore();
+  const { isAdmin } = useAdminRole();
+  const [searchQuery, setSearchQuery] = useState("");
+  const [selectedCategory, setSelectedCategory] = useState<string>("All");
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [viewMode, setViewMode] = useState<"all" | "quick-start" | "workflows">("all");
+  
+  // Input form state for quick-start with placeholders
+  const [activeFormConfig, setActiveFormConfig] = useState<AgentConfig | null>(null);
+  const [formValues, setFormValues] = useState<Record<string, string>>({});
+  const [formErrors, setFormErrors] = useState<Record<string, string>>({});
+  const [editablePrompt, setEditablePrompt] = useState<string>("");
+
+  // Check if user can edit/delete a config
+  const canModifyConfig = (config: AgentConfig) => {
+    // Admins can modify system configs
+    if (config.is_system) return isAdmin;
+    // Users can modify their own configs
+    return true;
+  };
+
+  // Load configs on mount
+  useEffect(() => {
+    loadConfigs();
+  }, [loadConfigs]);
+
+  // Use configs directly from store (MongoDB configs + fallback to built-in)
+  // Deduplicate by id to prevent duplicate key errors
+  const allConfigs = useMemo(() => {
+    const seen = new Set<string>();
+    return configs.filter(config => {
+      if (seen.has(config.id)) {
+        return false;
+      }
+      seen.add(config.id);
+      return true;
+    });
+  }, [configs]);
+
+  // Filter configs based on search, category, and view mode
+  const filteredConfigs = useMemo(() => {
+    return allConfigs.filter((config) => {
+      const matchesSearch =
+        searchQuery === "" ||
+        config.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        config.description?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        config.metadata?.tags?.some(tag => tag.toLowerCase().includes(searchQuery.toLowerCase()));
+      
+      const matchesCategory =
+        selectedCategory === "All" || config.category === selectedCategory;
+      
+      const matchesViewMode =
+        viewMode === "all" ||
+        (viewMode === "quick-start" && config.is_quick_start) ||
+        (viewMode === "workflows" && !config.is_quick_start);
+      
+      return matchesSearch && matchesCategory && matchesViewMode;
+    });
+  }, [allConfigs, searchQuery, selectedCategory, viewMode]);
+
+  // Separate quick-start and multi-step workflows
+  const quickStartConfigs = filteredConfigs.filter(c => c.is_quick_start);
+  const workflowConfigs = filteredConfigs.filter(c => !c.is_quick_start);
+
+  // Featured quick-starts (shown in a separate section)
+  const featuredIds = ["qs-deploy-status", "qs-incident-analysis", "qs-release-readiness"];
+  const featuredConfigs = quickStartConfigs.filter(c => featuredIds.includes(c.id));
+  
+  // Non-featured quick-starts (exclude featured ones to avoid duplicate keys)
+  const nonFeaturedQuickStartConfigs = quickStartConfigs.filter(c => !featuredIds.includes(c.id));
+
+  const handleDelete = async (config: AgentConfig, e: React.MouseEvent) => {
+    e.stopPropagation();
+    
+    // Confirm deletion
+    const confirmMessage = config.is_system 
+      ? `Are you sure you want to delete the system template "${config.name}"? This action requires admin privileges.`
+      : `Are you sure you want to delete "${config.name}"?`;
+    
+    if (!confirm(confirmMessage)) return;
+    
+    setDeletingId(config.id);
+    try {
+      await deleteConfig(config.id);
+    } catch (error: any) {
+      console.error("Failed to delete config:", error);
+      alert(error.message || "Failed to delete configuration");
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
+  const handleConfigClick = (config: AgentConfig) => {
+    if (config.is_quick_start) {
+      // Always show modal for quick-starts to allow editing
+      const inputForm = config.input_form || generateInputFormFromPrompt(config.tasks[0]?.llm_prompt || "", config.name);
+      const basePrompt = config.tasks[0]?.llm_prompt || "";
+      
+      setActiveFormConfig({ ...config, input_form: inputForm });
+      setEditablePrompt(basePrompt);
+      
+      if (inputForm && inputForm.fields.length > 0) {
+        const initialValues: Record<string, string> = {};
+        inputForm.fields.forEach(f => { initialValues[f.name] = ""; });
+        setFormValues(initialValues);
+      } else {
+        setFormValues({});
+      }
+      setFormErrors({});
+    } else {
+      // Multi-step workflow - go to runner
+      onSelectConfig?.(config);
+    }
+  };
+
+  // Update editable prompt when form values change
+  const updateEditablePrompt = (newFormValues: Record<string, string>) => {
+    if (!activeFormConfig) return;
+    
+    let prompt = activeFormConfig.tasks[0]?.llm_prompt || "";
+    Object.entries(newFormValues).forEach(([key, value]) => {
+      if (value.trim()) {
+        const escapedKey = key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        prompt = prompt.replace(new RegExp(`\\{\\{\\s*${escapedKey}\\s*\\}\\}`, "g"), value.trim());
+        prompt = prompt.replace(new RegExp(`\\{${escapedKey}\\}`, "g"), value.trim());
+      }
+    });
+    setEditablePrompt(prompt);
+  };
+
+  const handleFormSubmit = () => {
+    if (!activeFormConfig) return;
+    
+    // Validate required fields if there are any
+    if (activeFormConfig.input_form && activeFormConfig.input_form.fields.length > 0) {
+      const errors: Record<string, string> = {};
+      activeFormConfig.input_form.fields.forEach(field => {
+        if (field.required && !formValues[field.name]?.trim()) {
+          errors[field.name] = `${field.label} is required`;
+        }
+      });
+      
+      if (Object.keys(errors).length > 0) {
+        setFormErrors(errors);
+        return;
+      }
+    }
+    
+    // Use the editable prompt (which may have been modified by the user)
+    setActiveFormConfig(null);
+    onRunQuickStart?.(editablePrompt, activeFormConfig.name);
+  };
+
+  if (error) {
+    return (
+      <div className="flex flex-col items-center justify-center h-64 gap-4">
+        <AlertCircle className="h-12 w-12 text-red-400" />
+        <p className="text-muted-foreground">{error}</p>
+        <Button variant="outline" onClick={() => loadConfigs()}>Try Again</Button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col h-full">
+      {/* Header */}
+      <div className="relative overflow-hidden border-b border-border mb-6 -mx-6 -mt-6 px-6 pt-6 pb-6">
+        <div className="absolute inset-0 bg-gradient-to-br from-primary/10 via-transparent to-transparent" />
+        <div className="relative">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-3">
+              <div className="p-2.5 rounded-xl gradient-primary-br shadow-lg shadow-primary/30">
+                <Zap className="h-6 w-6 text-white" />
+              </div>
+              <div>
+                <h1 className="text-2xl font-bold gradient-text">Agent Builder</h1>
+                <p className="text-sm text-muted-foreground">
+                  Quick-start templates and multi-step agent workflows
+                </p>
+              </div>
+            </div>
+            
+            <div className="flex items-center gap-2">
+              <Button variant="outline" size="sm" onClick={onImportYaml} className="gap-2">
+                <Upload className="h-4 w-4" />
+                Import YAML
+              </Button>
+              <Button size="sm" onClick={onCreateNew} className="gap-2 gradient-primary text-white">
+                <Plus className="h-4 w-4" />
+                Agent Workflow Builder
+              </Button>
+            </div>
+          </div>
+
+            <div className="relative max-w-xl">
+            <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
+            <Input
+              placeholder="Search by name, tag, or category..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="pl-12 h-12 text-base bg-card/80 backdrop-blur-sm"
+            />
+          </div>
+
+          {/* View Mode & Categories */}
+          <div className="flex items-center gap-4 mt-4">
+            <div className="flex items-center bg-muted/50 rounded-full p-1">
+              {(["all", "quick-start", "workflows"] as const).map(mode => (
+                <Button
+                  key={mode}
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setViewMode(mode)}
+                  className={cn(
+                    "rounded-full text-xs",
+                    viewMode === mode && "bg-primary text-primary-foreground"
+                  )}
+                >
+                  {mode === "all" ? "All" : mode === "quick-start" ? "Quick Start" : "Multi-Step"}
+                </Button>
+              ))}
+            </div>
+            
+            <div className="flex gap-2 flex-wrap">
+              {ALL_CATEGORIES.map(cat => (
+                <Button
+                  key={cat}
+                  variant={selectedCategory === cat ? "default" : "ghost"}
+                  size="sm"
+                  onClick={() => setSelectedCategory(cat)}
+                  className={cn("rounded-full text-xs", selectedCategory === cat && "bg-primary")}
+                >
+                  {cat}
+                </Button>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Loading */}
+      {isLoading && (
+        <div className="flex items-center justify-center h-64">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        </div>
+      )}
+
+      {/* Content */}
+      {!isLoading && (
+        <div className="flex-1 overflow-y-auto">
+          {/* Featured Section */}
+          {viewMode !== "workflows" && searchQuery === "" && selectedCategory === "All" && featuredConfigs.length > 0 && (
+            <div className="mb-8 p-4 bg-muted/30 rounded-xl border border-border/50">
+              <div className="flex items-center gap-2 mb-4">
+                <Rocket className="h-4 w-4 text-primary" />
+                <h2 className="font-semibold text-sm">Featured Quick Starts</h2>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                {featuredConfigs.map(config => {
+                  const Icon = ICON_MAP[config.thumbnail || "Zap"] || Zap;
+                  return (
+                    <motion.button
+                      key={config.id}
+                      whileHover={{ scale: 1.02 }}
+                      whileTap={{ scale: 0.98 }}
+                      onClick={() => handleConfigClick(config)}
+                      className="flex items-center gap-3 p-4 rounded-xl bg-card border border-border/50 hover:border-primary hover:shadow-lg transition-all text-left group"
+                    >
+                      <div className="p-2 rounded-lg gradient-primary-br shrink-0 group-hover:scale-110 transition-transform">
+                        <Icon className="h-4 w-4 text-white" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="font-medium text-sm truncate">{config.name}</p>
+                        <div className="flex items-center gap-1 mt-0.5">
+                          {config.metadata?.expected_agents?.slice(0, 2).map(agent => (
+                            <Badge key={agent} variant="secondary" className="text-[10px] px-1.5 py-0">{agent}</Badge>
+                          ))}
+                        </div>
+                      </div>
+                      <ArrowRight className="h-4 w-4 text-muted-foreground group-hover:text-primary group-hover:translate-x-1 transition-all" />
+                    </motion.button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Quick Start Templates */}
+          {viewMode !== "workflows" && nonFeaturedQuickStartConfigs.length > 0 && (
+            <div className="mb-8">
+              <div className="flex items-center gap-2 mb-4">
+                <Zap className="h-5 w-5 text-primary" />
+                <h2 className="text-lg font-medium">Quick Start Templates</h2>
+                <Badge variant="secondary">{nonFeaturedQuickStartConfigs.length}</Badge>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                {nonFeaturedQuickStartConfigs.map((config, index) => {
+                  const Icon = ICON_MAP[config.thumbnail || "Zap"] || Zap;
+                  const gradientClass = CATEGORY_COLORS[config.category] || CATEGORY_COLORS["Custom"];
+                  
+                  return (
+                    <motion.div
+                      key={config.id}
+                      initial={{ opacity: 0, y: 20 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: index * 0.03 }}
+                      whileHover={{ y: -4 }}
+                      onClick={() => handleConfigClick(config)}
+                      className="group cursor-pointer p-4 rounded-xl border border-border/50 bg-card/50 hover:border-primary/30 hover:shadow-lg transition-all"
+                    >
+                      <div className="flex items-start justify-between mb-3">
+                        <div className={cn("p-2.5 rounded-xl bg-gradient-to-br", gradientClass)}>
+                          <Icon className="h-5 w-5 text-white" />
+                        </div>
+                        <Badge variant="outline" className={cn("text-xs", getDifficultyColor(config.difficulty))}>
+                          {config.difficulty || "beginner"}
+                        </Badge>
+                      </div>
+                      <h3 className="font-medium mb-1 group-hover:text-primary transition-colors">{config.name}</h3>
+                      <p className="text-sm text-muted-foreground line-clamp-2 mb-3">{config.description}</p>
+                      <div className="flex flex-wrap gap-1.5 mb-3">
+                        {config.metadata?.tags?.slice(0, 3).map(tag => (
+                          <Badge key={tag} variant="secondary" className="text-xs">{tag}</Badge>
+                        ))}
+                      </div>
+                      <div className="flex items-center justify-between pt-3 border-t border-border/50">
+                        <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                          {config.metadata?.expected_agents?.slice(0, 2).map(agent => (
+                            <Badge key={agent} variant="outline" className="text-xs">{agent}</Badge>
+                          ))}
+                        </div>
+                        <div className="flex items-center gap-1 text-sm font-medium text-primary opacity-0 group-hover:opacity-100 transition-opacity">
+                          Try it <ArrowRight className="h-4 w-4" />
+                        </div>
+                      </div>
+                    </motion.div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Multi-Step Workflows */}
+          {viewMode !== "quick-start" && workflowConfigs.length > 0 && (
+            <div className="mb-8">
+              <div className="flex items-center gap-2 mb-4">
+                <Workflow className="h-5 w-5 text-primary" />
+                <h2 className="text-lg font-medium">Multi-Step Workflows</h2>
+                <Badge variant="secondary">{workflowConfigs.length}</Badge>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {workflowConfigs.map((config, index) => {
+                  const Icon = ICON_MAP[config.thumbnail || "Workflow"] || Workflow;
+                  const gradientClass = CATEGORY_COLORS[config.category] || CATEGORY_COLORS["Custom"];
+                  
+                  return (
+                    <motion.div
+                      key={config.id}
+                      initial={{ opacity: 0, y: 20 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: index * 0.03 }}
+                      className="group relative p-4 rounded-xl border border-border/50 bg-card/50 hover:border-primary/30 hover:shadow-lg transition-all cursor-pointer"
+                      onClick={() => onSelectConfig?.(config)}
+                    >
+                      {config.is_system && (
+                        <Badge variant="secondary" className="absolute top-2 right-2 text-xs">System</Badge>
+                      )}
+                      <div className={cn("w-10 h-10 rounded-lg bg-gradient-to-br flex items-center justify-center mb-3", gradientClass)}>
+                        <Icon className="h-5 w-5 text-white" />
+                      </div>
+                      <h3 className="font-medium mb-1 pr-16">{config.name}</h3>
+                      <p className="text-sm text-muted-foreground line-clamp-2 mb-3">{config.description}</p>
+                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                        <Workflow className="h-3.5 w-3.5" />
+                        <span>{config.tasks.length} steps</span>
+                      </div>
+                      <div className="absolute bottom-4 right-4 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={(e) => { e.stopPropagation(); onSelectConfig?.(config); }}>
+                          <Play className="h-4 w-4" />
+                        </Button>
+                        {canModifyConfig(config) && (
+                          <>
+                            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={(e) => { e.stopPropagation(); onEditConfig?.(config); }}>
+                              <Edit className="h-4 w-4" />
+                            </Button>
+                            <Button variant="ghost" size="icon" className="h-8 w-8 text-red-400" onClick={(e) => handleDelete(config, e)} disabled={deletingId === config.id}>
+                              {deletingId === config.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+                            </Button>
+                          </>
+                        )}
+                      </div>
+                    </motion.div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Empty State */}
+          {filteredConfigs.length === 0 && (
+            <div className="flex flex-col items-center justify-center h-64 gap-4">
+              <Sparkles className="h-12 w-12 text-muted-foreground/50" />
+              <p className="text-muted-foreground">No templates match your search</p>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Quick Start Workflow Modal */}
+      <AnimatePresence>
+        {activeFormConfig && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+            onClick={() => setActiveFormConfig(null)}
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="relative w-full max-w-2xl mx-4 bg-card border rounded-2xl shadow-2xl overflow-hidden max-h-[90vh] flex flex-col"
+              onClick={e => e.stopPropagation()}
+            >
+              <div className="h-1.5 w-full gradient-primary shrink-0" />
+              <div className="p-6 overflow-y-auto flex-1">
+                <div className="flex items-start justify-between mb-6">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2.5 rounded-xl gradient-primary-br shadow-lg">
+                      <Zap className="h-5 w-5 text-white" />
+                    </div>
+                    <div>
+                      <h2 className="text-xl font-bold">{activeFormConfig.name}</h2>
+                      {activeFormConfig.description && (
+                        <p className="text-sm text-muted-foreground">{activeFormConfig.description}</p>
+                      )}
+                    </div>
+                  </div>
+                  <Button variant="ghost" size="icon" onClick={() => setActiveFormConfig(null)}>
+                    <X className="h-4 w-4" />
+                  </Button>
+                </div>
+
+                {/* Input fields for placeholders (if any) */}
+                {activeFormConfig.input_form && activeFormConfig.input_form.fields.length > 0 && (
+                  <div className="space-y-4 mb-6">
+                    <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
+                      <Settings className="h-4 w-4" />
+                      Fill in the details
+                    </div>
+                    {activeFormConfig.input_form.fields.map(field => (
+                      <div key={field.name} className="space-y-2">
+                        <label className="text-sm font-medium flex items-center gap-1">
+                          {field.label}
+                          {field.required && <span className="text-red-400">*</span>}
+                        </label>
+                        <Input
+                          type={field.type}
+                          placeholder={field.placeholder}
+                          value={formValues[field.name] || ""}
+                          onChange={e => {
+                            const newValues = { ...formValues, [field.name]: e.target.value };
+                            setFormValues(newValues);
+                            updateEditablePrompt(newValues);
+                            if (formErrors[field.name]) setFormErrors(prev => ({ ...prev, [field.name]: "" }));
+                          }}
+                          className={cn("h-11", formErrors[field.name] && "border-red-500")}
+                        />
+                        {field.helperText && !formErrors[field.name] && (
+                          <p className="text-xs text-muted-foreground flex items-center gap-1">
+                            <ExternalLink className="h-3 w-3" />{field.helperText}
+                          </p>
+                        )}
+                        {formErrors[field.name] && <p className="text-xs text-red-400">{formErrors[field.name]}</p>}
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Editable Prompt */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <label className="text-sm font-medium flex items-center gap-2">
+                      <Edit className="h-4 w-4 text-muted-foreground" />
+                      Prompt (editable)
+                    </label>
+                    <span className="text-xs text-muted-foreground">
+                      {editablePrompt.length} characters
+                    </span>
+                  </div>
+                  <textarea
+                    value={editablePrompt}
+                    onChange={e => setEditablePrompt(e.target.value)}
+                    rows={6}
+                    className="w-full px-4 py-3 text-sm rounded-lg border border-input bg-background resize-none font-mono focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                    placeholder="Enter your prompt..."
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    You can edit the prompt before running the workflow
+                  </p>
+                </div>
+              </div>
+
+              {/* Footer */}
+              <div className="flex items-center justify-end gap-3 p-4 border-t bg-muted/30 shrink-0">
+                <Button variant="ghost" onClick={() => setActiveFormConfig(null)}>Cancel</Button>
+                <Button 
+                  onClick={handleFormSubmit} 
+                  className="gradient-primary text-white gap-2"
+                  disabled={!editablePrompt.trim()}
+                >
+                  <Play className="h-4 w-4" />
+                  Run Workflow
+                </Button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}

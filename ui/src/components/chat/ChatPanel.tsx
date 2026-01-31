@@ -504,12 +504,12 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle }: ChatP
               <div className="w-16 h-16 mx-auto mb-6 rounded-2xl bg-gradient-to-br from-primary to-primary/60 flex items-center justify-center">
                 <Sparkles className="h-8 w-8 text-white" />
               </div>
-              <h2 className="text-2xl font-bold mb-2">Welcome to CAIPE</h2>
+              <h2 className="text-2xl font-bold mb-2">Welcome to {getConfig('appName')}</h2>
               <p className="text-muted-foreground max-w-md mx-auto mb-1">
-                Multi-Agent Collaboration & Workflow Automation
+                {getConfig('tagline')}
               </p>
               <p className="text-sm text-muted-foreground/80 max-w-lg mx-auto">
-                AI agents and native apps collaborating across tools and teams to get work done.
+                {getConfig('description')}
               </p>
             </div>
           )}
@@ -556,6 +556,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle }: ChatP
                     console.log("Feedback submitted:", { messageId: msg.id, feedback });
                     // Future: Send to /api/feedback endpoint
                   }}
+                  conversationId={conversationId}
                 />
               );
             })}
@@ -969,6 +970,8 @@ interface ChatMessageProps {
   feedback?: Feedback;
   onFeedbackChange?: (feedback: Feedback) => void;
   onFeedbackSubmit?: (feedback: Feedback) => void;
+  // Conversation ID for Langfuse feedback tracking
+  conversationId?: string;
 }
 
 function ChatMessage({
@@ -982,6 +985,7 @@ function ChatMessage({
   feedback,
   onFeedbackChange,
   onFeedbackSubmit,
+  conversationId,
 }: ChatMessageProps) {
   const isUser = message.role === "user";
   // Show raw stream expanded by default during streaming, hide after final output
@@ -1425,6 +1429,7 @@ function ChatMessage({
                 {/* Feedback buttons */}
                 <FeedbackButton
                   messageId={message.id}
+                  conversationId={conversationId}
                   feedback={feedback}
                   onFeedbackChange={onFeedbackChange}
                   onFeedbackSubmit={onFeedbackSubmit}

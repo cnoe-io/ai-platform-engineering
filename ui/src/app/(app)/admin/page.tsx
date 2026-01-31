@@ -3,7 +3,6 @@
 import React, { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import { Users, MessageSquare, TrendingUp, Activity, Database, Share2, ShieldCheck, ShieldOff, UserPlus, Trash2, UsersIcon, Loader2 } from "lucide-react";
-import { Sidebar } from "@/components/layout/Sidebar";
 import { AuthGuard } from "@/components/auth-guard";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -63,7 +62,6 @@ interface Team {
 }
 
 function AdminPage() {
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [stats, setStats] = useState<AdminStats | null>(null);
   const [users, setUsers] = useState<UserInfo[]>([]);
   const [teams, setTeams] = useState<Team[]>([]);
@@ -112,10 +110,6 @@ function AdminPage() {
     }
   };
 
-  const handleTabChange = (tab: "chat" | "gallery" | "knowledge" | "admin") => {
-    // Navigation via header
-  };
-
   const handleRoleChange = async (email: string, newRole: 'admin' | 'user') => {
     if (!confirm(`Are you sure you want to change ${email} to ${newRole}?`)) {
       return;
@@ -152,38 +146,30 @@ function AdminPage() {
 
   if (loading) {
     return (
-      <div className="flex-1 flex overflow-hidden">
-        <Sidebar
-          activeTab="admin"
-          onTabChange={handleTabChange}
-          collapsed={sidebarCollapsed}
-          onCollapse={setSidebarCollapsed}
-        />
-        <div className="flex-1 flex items-center justify-center">
-          <div className="flex flex-col items-center gap-4">
-            {/* CAIPE Logo with spinner */}
-            <div className="relative">
-              {/* Spinning glow ring */}
-              <div
-                className="absolute inset-[-8px] rounded-3xl opacity-30 gradient-primary-br"
-                style={{
-                  animation: 'spin 3s linear infinite',
-                }}
-              />
-              {/* Blur glow */}
-              <div
-                className="absolute inset-[-4px] rounded-2xl blur-xl opacity-40 gradient-primary"
-              />
-              {/* Logo container */}
-              <div className="relative w-16 h-16 rounded-2xl gradient-primary-br flex items-center justify-center shadow-2xl">
-                <img src="/logo.svg" alt="CAIPE" className="h-10 w-10" />
-              </div>
+      <div className="flex-1 flex items-center justify-center">
+        <div className="flex flex-col items-center gap-4">
+          {/* CAIPE Logo with spinner */}
+          <div className="relative">
+            {/* Spinning glow ring */}
+            <div
+              className="absolute inset-[-8px] rounded-3xl opacity-30 gradient-primary-br"
+              style={{
+                animation: 'spin 3s linear infinite',
+              }}
+            />
+            {/* Blur glow */}
+            <div
+              className="absolute inset-[-4px] rounded-2xl blur-xl opacity-40 gradient-primary"
+            />
+            {/* Logo container */}
+            <div className="relative w-16 h-16 rounded-2xl gradient-primary-br flex items-center justify-center shadow-2xl">
+              <img src="/logo.svg" alt="CAIPE" className="h-10 w-10" />
             </div>
-            {/* Spinner */}
-            <div className="flex items-center gap-3">
-              <Loader2 className="h-5 w-5 animate-spin text-primary" />
-              <span className="text-sm text-muted-foreground">Loading admin data...</span>
-            </div>
+          </div>
+          {/* Spinner */}
+          <div className="flex items-center gap-3">
+            <Loader2 className="h-5 w-5 animate-spin text-primary" />
+            <span className="text-sm text-muted-foreground">Loading admin data...</span>
           </div>
         </div>
       </div>
@@ -207,16 +193,8 @@ function AdminPage() {
   }
 
   return (
-    <div className="flex-1 flex overflow-hidden">
-      <Sidebar
-        activeTab="admin"
-        onTabChange={handleTabChange}
-        collapsed={sidebarCollapsed}
-        onCollapse={setSidebarCollapsed}
-      />
-
-      <div className="flex-1 overflow-hidden">
-        <ScrollArea className="h-full">
+    <div className="flex-1 overflow-hidden">
+      <ScrollArea className="h-full">
           <div className="p-6 space-y-6 max-w-7xl mx-auto">
             {/* Header */}
             <div className="space-y-2">
@@ -649,7 +627,6 @@ function AdminPage() {
             </Tabs>
           </div>
         </ScrollArea>
-      </div>
 
       {/* Create Team Dialog */}
       <CreateTeamDialog
