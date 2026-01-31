@@ -3,7 +3,6 @@
 import React, { useState, useEffect } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { motion } from "framer-motion";
-import { Sidebar } from "@/components/layout/Sidebar";
 import { ChatPanel } from "@/components/chat/ChatPanel";
 import { ContextPanel } from "@/components/a2a/ContextPanel";
 import { AuthGuard } from "@/components/auth-guard";
@@ -20,7 +19,6 @@ function ChatUUIDPage() {
   const router = useRouter();
   const uuid = params.uuid as string;
 
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [contextPanelVisible, setContextPanelVisible] = useState(true);
   const [contextPanelCollapsed, setContextPanelCollapsed] = useState(false);
   const [debugMode, setDebugMode] = useState(false);
@@ -110,7 +108,6 @@ function ChatUUIDPage() {
           messages: [],
           a2aEvents: [],
         });
-        setStorageMode('localStorage');
       } finally {
         setLoading(false);
       }
@@ -118,16 +115,6 @@ function ChatUUIDPage() {
 
     loadConversation();
   }, [uuid, localConversations, setActiveConversation]);
-
-  const handleTabChange = (tab: "chat" | "gallery" | "knowledge") => {
-    if (tab === "chat") {
-      router.push("/chat");
-    } else if (tab === "gallery") {
-      router.push("/use-cases");
-    } else {
-      router.push("/knowledge-bases");
-    }
-  };
 
   // Show loading spinner only when actually fetching from MongoDB
   if (loading) {
@@ -163,14 +150,6 @@ function ChatUUIDPage() {
 
   return (
     <div className="flex-1 flex overflow-hidden">
-      {/* Sidebar */}
-      <Sidebar
-        activeTab="chat"
-        onTabChange={handleTabChange}
-        collapsed={sidebarCollapsed}
-        onCollapse={setSidebarCollapsed}
-      />
-
       {/* Chat Panel with conversation ID */}
       <div className="flex-1 min-w-0">
         <motion.div

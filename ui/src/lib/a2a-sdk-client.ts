@@ -66,6 +66,24 @@ export interface ParsedA2AEvent {
   taskId?: string;
   /** Source agent name if present (from artifact metadata) */
   sourceAgent?: string;
+  /** Whether user input is required */
+  requireUserInput?: boolean;
+  /** Structured metadata for user input forms */
+  metadata?: {
+    user_input?: boolean;
+    input_title?: string;
+    input_description?: string;
+    input_fields?: Array<{
+      field_name: string;
+      field_label?: string;
+      field_description?: string;
+      field_type?: string;
+      field_values?: string[];
+      placeholder?: string;
+      required?: boolean;
+      default_value?: string;
+    }>;
+  };
 }
 
 /**
@@ -344,15 +362,37 @@ export class A2ASDKClient {
 
     // Extract sourceAgent from artifact metadata
     const sourceAgent = artifact?.metadata?.sourceAgent as string | undefined;
+    
+    // Extract user input metadata if present
+    const requireUserInput = artifact?.metadata?.require_user_input as boolean | undefined;
+    const userInputMetadata = artifact?.metadata?.metadata as {
+      user_input?: boolean;
+      input_title?: string;
+      input_description?: string;
+      input_fields?: Array<{
+        field_name: string;
+        field_label?: string;
+        field_description?: string;
+        field_type?: string;
+        field_values?: string[];
+        placeholder?: string;
+        required?: boolean;
+        default_value?: string;
+      }>;
+    } | undefined;
 
     // Determine if this is a final result
     const isFinalResult = artifactName === "final_result" || artifactName === "partial_result";
     const shouldAppend = event.append !== false;
 
-    console.log(`[A2A SDK] #${eventNum} ARTIFACT: ${artifactName} append=${shouldAppend} content=${textContent.length} chars agent=${sourceAgent || 'none'}`);
+    console.log(`[A2A SDK] #${eventNum} ARTIFACT: ${artifactName} append=${shouldAppend} content=${textContent.length} chars agent=${sourceAgent || 'none'} requireUserInput=${requireUserInput || false}`);
 
     if (isFinalResult) {
       console.log(`[A2A SDK] 🎉 ${artifactName.toUpperCase()} RECEIVED!`);
+    }
+    
+    if (requireUserInput && userInputMetadata?.input_fields) {
+      console.log(`[A2A SDK] 📝 USER INPUT REQUESTED with ${userInputMetadata.input_fields.length} fields`);
     }
 
     return {
@@ -364,7 +404,9 @@ export class A2ASDKClient {
       shouldAppend,
       contextId: event.contextId,
       taskId: event.taskId,
-      sourceAgent, // Include sourceAgent in parsed event
+      sourceAgent,
+      requireUserInput,
+      metadata: userInputMetadata,
     };
   }
 

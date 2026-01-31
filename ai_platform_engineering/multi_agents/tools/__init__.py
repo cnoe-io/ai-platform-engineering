@@ -18,6 +18,7 @@ Command-line tools are in utils/agent_tools/ for use by all agents:
 from ai_platform_engineering.multi_agents.tools.reflect_on_output import reflect_on_output
 from ai_platform_engineering.multi_agents.tools.format_markdown import format_markdown
 from ai_platform_engineering.multi_agents.tools.get_current_date import get_current_date
+from ai_platform_engineering.multi_agents.tools.request_user_input import request_user_input
 from ai_platform_engineering.multi_agents.tools.workspace_ops import (
     write_workspace_file,
     read_workspace_file,
@@ -47,6 +48,7 @@ __all__ = [
     'format_markdown',
     'fetch_url',
     'get_current_date',
+    'request_user_input',  # Structured user input tool
     'write_workspace_file',
     'read_workspace_file',
     'list_workspace_files',

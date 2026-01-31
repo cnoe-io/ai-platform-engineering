@@ -4,14 +4,12 @@ import React, { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { MessageSquare } from "lucide-react";
 import { AuthGuard } from "@/components/auth-guard";
-import { Sidebar } from "@/components/layout/Sidebar";
 import { useChatStore } from "@/store/chat-store";
 
 function ChatPage() {
   const router = useRouter();
   const conversations = useChatStore((state) => state.conversations);
   const loadConversationsFromServer = useChatStore((state) => state.loadConversationsFromServer);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   
   useEffect(() => {
@@ -44,56 +42,28 @@ function ChatPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const handleTabChange = (tab: "chat" | "gallery" | "knowledge" | "admin") => {
-    if (tab === "gallery") {
-      router.push("/use-cases");
-    } else if (tab === "knowledge") {
-      router.push("/knowledge-bases");
-    } else if (tab === "admin") {
-      router.push("/admin");
-    }
-  };
-
-  // Show empty state while loading or if no conversations
+  // Show loading state
   if (isLoading) {
     return (
-      <div className="flex-1 flex overflow-hidden">
-        <Sidebar
-          activeTab="chat"
-          onTabChange={handleTabChange}
-          collapsed={sidebarCollapsed}
-          onCollapse={setSidebarCollapsed}
-        />
-        <div className="flex-1 flex items-center justify-center">
-          <div className="text-center space-y-4">
-            <MessageSquare className="h-16 w-16 mx-auto text-muted-foreground/50 animate-pulse" />
-            <p className="text-sm text-muted-foreground/70">Loading conversations...</p>
-          </div>
+      <div className="flex-1 flex items-center justify-center">
+        <div className="text-center space-y-4">
+          <MessageSquare className="h-16 w-16 mx-auto text-muted-foreground/50 animate-pulse" />
+          <p className="text-sm text-muted-foreground/70">Loading conversations...</p>
         </div>
       </div>
     );
   }
 
+  // Empty state when no conversations
   return (
-    <div className="flex-1 flex overflow-hidden">
-      {/* Sidebar with New Chat button */}
-      <Sidebar
-        activeTab="chat"
-        onTabChange={handleTabChange}
-        collapsed={sidebarCollapsed}
-        onCollapse={setSidebarCollapsed}
-      />
-      
-      {/* Empty state */}
-      <div className="flex-1 flex items-center justify-center">
-        <div className="text-center space-y-4">
-          <MessageSquare className="h-16 w-16 mx-auto text-muted-foreground/50" />
-          <div className="space-y-2">
-            <h2 className="text-xl font-semibold text-muted-foreground">No Conversations</h2>
-            <p className="text-sm text-muted-foreground/70">
-              Click "New Chat" in the sidebar to start a conversation
-            </p>
-          </div>
+    <div className="flex-1 flex items-center justify-center">
+      <div className="text-center space-y-4">
+        <MessageSquare className="h-16 w-16 mx-auto text-muted-foreground/50" />
+        <div className="space-y-2">
+          <h2 className="text-xl font-semibold text-muted-foreground">No Conversations</h2>
+          <p className="text-sm text-muted-foreground/70">
+            Click "New Chat" in the sidebar to start a conversation
+          </p>
         </div>
       </div>
     </div>

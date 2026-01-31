@@ -20,7 +20,7 @@ interface ShareButtonProps {
 export function ShareButton({ 
   conversationId, 
   conversationTitle = "Conversation",
-  isOwner = true 
+  isOwner = true
 }: ShareButtonProps) {
   const [showDialog, setShowDialog] = useState(false);
   const [copied, setCopied] = useState(false);
