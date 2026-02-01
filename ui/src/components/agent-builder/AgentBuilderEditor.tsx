@@ -241,6 +241,7 @@ export function AgentBuilderEditor({
         is_quick_start: isQuickStart,
         difficulty: isQuickStart ? formData.difficulty : undefined,
         thumbnail: isQuickStart ? formData.thumbnail : undefined,
+        input_form: existingConfig?.input_form, // Preserve input_form during updates
         metadata: {
           tags: tags.length > 0 ? tags : undefined,
         },

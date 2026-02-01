@@ -435,7 +435,7 @@ export function AgentBuilderGallery({
                   
                   return (
                     <motion.div
-                      key={config.id}
+                      key={`fav-${config.id}`}
                       initial={{ opacity: 0, y: 20 }}
                       animate={{ opacity: 1, y: 0 }}
                       transition={{ delay: index * 0.03 }}
@@ -444,17 +444,6 @@ export function AgentBuilderGallery({
                       onClick={() => config.is_quick_start ? handleConfigClick(config) : onSelectConfig?.(config)}
                       className="relative flex items-center gap-3 p-4 rounded-xl bg-card border border-border/50 hover:border-yellow-500 hover:shadow-lg transition-all text-left group cursor-pointer"
                     >
-                      {/* Star button - filled yellow */}
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="absolute top-2 right-2 h-7 w-7 z-10 text-yellow-500 hover:text-yellow-600"
-                        onClick={(e) => { e.stopPropagation(); toggleFavorite(config.id); }}
-                        title="Remove from favorites"
-                      >
-                        <Star className="h-4 w-4 fill-current" />
-                      </Button>
-                      
                       <div className={cn("p-2 rounded-lg bg-gradient-to-br shrink-0", gradientClass)}>
                         <Icon className="h-4 w-4 text-white" />
                       </div>
@@ -468,7 +457,46 @@ export function AgentBuilderGallery({
                           )}
                         </div>
                       </div>
-                      <ArrowRight className="h-4 w-4 text-muted-foreground group-hover:text-yellow-500 group-hover:translate-x-1 transition-all" />
+                      
+                      {/* Arrow - hidden on hover when buttons appear */}
+                      <ArrowRight className="h-4 w-4 text-muted-foreground group-hover:opacity-0 transition-all shrink-0" />
+                      
+                      {/* Action buttons grouped - bottom-right on hover, replaces arrow */}
+                      <div className="absolute bottom-2 right-2 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity bg-card/95 backdrop-blur-sm rounded-lg p-0.5 border border-border/30 shadow-sm">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7 text-yellow-500 hover:text-yellow-600"
+                          onClick={(e) => { e.stopPropagation(); toggleFavorite(config.id); }}
+                          title="Remove from favorites"
+                        >
+                          <Star className="h-4 w-4 fill-current" />
+                        </Button>
+                        {canModifyConfig(config) && (
+                          <>
+                            <div className="h-4 w-px bg-border/50" />
+                            <Button 
+                              variant="ghost" 
+                              size="icon" 
+                              className="h-7 w-7" 
+                              onClick={(e) => { e.stopPropagation(); onEditConfig?.(config); }}
+                              title="Edit"
+                            >
+                              <Edit className="h-3.5 w-3.5" />
+                            </Button>
+                            <Button 
+                              variant="ghost" 
+                              size="icon" 
+                              className="h-7 w-7 text-red-400 hover:text-red-500" 
+                              onClick={(e) => handleDelete(config, e)} 
+                              disabled={deletingId === config.id}
+                              title="Delete"
+                            >
+                              {deletingId === config.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+                            </Button>
+                          </>
+                        )}
+                      </div>
                     </motion.div>
                   );
                 })}
@@ -494,20 +522,6 @@ export function AgentBuilderGallery({
                       onClick={() => handleConfigClick(config)}
                       className="relative flex items-center gap-3 p-4 rounded-xl bg-card border border-border/50 hover:border-primary hover:shadow-lg transition-all text-left group cursor-pointer"
                     >
-                      {/* Star button - always visible in top-right */}
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className={cn(
-                          "absolute top-2 right-2 h-7 w-7 z-10",
-                          isFavorite(config.id) ? "text-yellow-500 hover:text-yellow-600" : "text-muted-foreground/40 hover:text-muted-foreground"
-                        )}
-                        onClick={(e) => { e.stopPropagation(); toggleFavorite(config.id); }}
-                        title={isFavorite(config.id) ? "Remove from favorites" : "Add to favorites"}
-                      >
-                        <Star className={cn("h-4 w-4", isFavorite(config.id) && "fill-current")} />
-                      </Button>
-                      
                       <div className="p-2 rounded-lg gradient-primary-br shrink-0 group-hover:scale-110 transition-transform">
                         <Icon className="h-4 w-4 text-white" />
                       </div>
@@ -519,31 +533,49 @@ export function AgentBuilderGallery({
                           ))}
                         </div>
                       </div>
-                      {canModifyConfig(config) ? (
-                        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                          <Button 
-                            variant="ghost" 
-                            size="icon" 
-                            className="h-7 w-7" 
-                            onClick={(e) => { e.stopPropagation(); onEditConfig?.(config); }}
-                            title="Edit template"
-                          >
-                            <Edit className="h-3.5 w-3.5" />
-                          </Button>
-                          <Button 
-                            variant="ghost" 
-                            size="icon" 
-                            className="h-7 w-7 text-red-400" 
-                            onClick={(e) => handleDelete(config, e)} 
-                            disabled={deletingId === config.id}
-                            title="Delete template"
-                          >
-                            {deletingId === config.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
-                          </Button>
-                        </div>
-                      ) : (
-                        <ArrowRight className="h-4 w-4 text-muted-foreground group-hover:text-primary group-hover:translate-x-1 transition-all" />
-                      )}
+                      
+                      {/* Arrow - hidden on hover */}
+                      <ArrowRight className="h-4 w-4 text-muted-foreground group-hover:opacity-0 transition-all shrink-0" />
+                      
+                      {/* Action buttons grouped - bottom-right on hover, replaces arrow */}
+                      <div className="absolute bottom-2 right-2 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity bg-card/95 backdrop-blur-sm rounded-lg p-0.5 border border-border/30 shadow-sm">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className={cn(
+                            "h-7 w-7",
+                            isFavorite(config.id) ? "text-yellow-500 hover:text-yellow-600" : "text-muted-foreground hover:text-foreground"
+                          )}
+                          onClick={(e) => { e.stopPropagation(); toggleFavorite(config.id); }}
+                          title={isFavorite(config.id) ? "Remove from favorites" : "Add to favorites"}
+                        >
+                          <Star className={cn("h-4 w-4", isFavorite(config.id) && "fill-current")} />
+                        </Button>
+                        {canModifyConfig(config) && (
+                          <>
+                            <div className="h-4 w-px bg-border/50" />
+                            <Button 
+                              variant="ghost" 
+                              size="icon" 
+                              className="h-7 w-7" 
+                              onClick={(e) => { e.stopPropagation(); onEditConfig?.(config); }}
+                              title="Edit template"
+                            >
+                              <Edit className="h-3.5 w-3.5" />
+                            </Button>
+                            <Button 
+                              variant="ghost" 
+                              size="icon" 
+                              className="h-7 w-7 text-red-400 hover:text-red-500" 
+                              onClick={(e) => handleDelete(config, e)} 
+                              disabled={deletingId === config.id}
+                              title="Delete template"
+                            >
+                              {deletingId === config.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+                            </Button>
+                          </>
+                        )}
+                      </div>
                     </motion.div>
                   );
                 })}
@@ -574,20 +606,6 @@ export function AgentBuilderGallery({
                       onClick={() => handleConfigClick(config)}
                       className="group relative cursor-pointer p-4 rounded-xl border border-border/50 bg-card/50 hover:border-primary/30 hover:shadow-lg transition-all"
                     >
-                      {/* Star button - top-left */}
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className={cn(
-                          "absolute top-2 left-2 h-7 w-7 z-10",
-                          isFavorite(config.id) ? "text-yellow-500 hover:text-yellow-600" : "text-muted-foreground/40 hover:text-muted-foreground"
-                        )}
-                        onClick={(e) => { e.stopPropagation(); toggleFavorite(config.id); }}
-                        title={isFavorite(config.id) ? "Remove from favorites" : "Add to favorites"}
-                      >
-                        <Star className={cn("h-4 w-4", isFavorite(config.id) && "fill-current")} />
-                      </Button>
-                      
                       {config.is_system && (
                         <Badge variant="secondary" className="absolute top-2 right-2 text-xs">System</Badge>
                       )}
@@ -612,31 +630,46 @@ export function AgentBuilderGallery({
                             <Badge key={agent} variant="outline" className="text-xs">{agent}</Badge>
                           ))}
                         </div>
-                        <div className="flex items-center gap-1">
-                          {canModifyConfig(config) && (
-                            <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                              <Button 
-                                variant="ghost" 
-                                size="icon" 
-                                className="h-7 w-7" 
-                                onClick={(e) => { e.stopPropagation(); onEditConfig?.(config); }}
-                                title="Edit template"
-                              >
-                                <Edit className="h-3.5 w-3.5" />
-                              </Button>
-                              <Button 
-                                variant="ghost" 
-                                size="icon" 
-                                className="h-7 w-7 text-red-400" 
-                                onClick={(e) => handleDelete(config, e)} 
-                                disabled={deletingId === config.id}
-                                title="Delete template"
-                              >
-                                {deletingId === config.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
-                              </Button>
-                            </div>
+                      </div>
+                      
+                      {/* Action buttons grouped together - bottom-right on hover */}
+                      <div className="absolute bottom-3 right-3 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity bg-card/95 backdrop-blur-sm rounded-lg p-0.5 border border-border/30 shadow-sm">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className={cn(
+                            "h-7 w-7",
+                            isFavorite(config.id) ? "text-yellow-500 hover:text-yellow-600" : "text-muted-foreground hover:text-foreground"
                           )}
-                        </div>
+                          onClick={(e) => { e.stopPropagation(); toggleFavorite(config.id); }}
+                          title={isFavorite(config.id) ? "Remove from favorites" : "Add to favorites"}
+                        >
+                          <Star className={cn("h-4 w-4", isFavorite(config.id) && "fill-current")} />
+                        </Button>
+                        {canModifyConfig(config) && (
+                          <>
+                            <div className="h-4 w-px bg-border/50" />
+                            <Button 
+                              variant="ghost" 
+                              size="icon" 
+                              className="h-7 w-7" 
+                              onClick={(e) => { e.stopPropagation(); onEditConfig?.(config); }}
+                              title="Edit template"
+                            >
+                              <Edit className="h-3.5 w-3.5" />
+                            </Button>
+                            <Button 
+                              variant="ghost" 
+                              size="icon" 
+                              className="h-7 w-7 text-red-400 hover:text-red-500" 
+                              onClick={(e) => handleDelete(config, e)} 
+                              disabled={deletingId === config.id}
+                              title="Delete template"
+                            >
+                              {deletingId === config.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+                            </Button>
+                          </>
+                        )}
                       </div>
                     </motion.div>
                   );
@@ -667,20 +700,6 @@ export function AgentBuilderGallery({
                       className="group relative p-4 rounded-xl border border-border/50 bg-card/50 hover:border-primary/30 hover:shadow-lg transition-all cursor-pointer"
                       onClick={() => onSelectConfig?.(config)}
                     >
-                      {/* Star button - top-left */}
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className={cn(
-                          "absolute top-2 left-2 h-7 w-7 z-10",
-                          isFavorite(config.id) ? "text-yellow-500 hover:text-yellow-600" : "text-muted-foreground/40 hover:text-muted-foreground"
-                        )}
-                        onClick={(e) => { e.stopPropagation(); toggleFavorite(config.id); }}
-                        title={isFavorite(config.id) ? "Remove from favorites" : "Add to favorites"}
-                      >
-                        <Star className={cn("h-4 w-4", isFavorite(config.id) && "fill-current")} />
-                      </Button>
-                      
                       {config.is_system && (
                         <Badge variant="secondary" className="absolute top-2 right-2 text-xs">System</Badge>
                       )}
@@ -693,16 +712,32 @@ export function AgentBuilderGallery({
                         <Workflow className="h-3.5 w-3.5" />
                         <span>{config.tasks.length} steps</span>
                       </div>
-                      <div className="absolute bottom-4 right-4 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                      
+                      {/* Action buttons grouped together - bottom-right on hover */}
+                      <div className="absolute bottom-4 right-4 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity bg-card/95 backdrop-blur-sm rounded-lg p-0.5 border border-border/30 shadow-sm">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className={cn(
+                            "h-8 w-8",
+                            isFavorite(config.id) ? "text-yellow-500 hover:text-yellow-600" : "text-muted-foreground hover:text-foreground"
+                          )}
+                          onClick={(e) => { e.stopPropagation(); toggleFavorite(config.id); }}
+                          title={isFavorite(config.id) ? "Remove from favorites" : "Add to favorites"}
+                        >
+                          <Star className={cn("h-4 w-4", isFavorite(config.id) && "fill-current")} />
+                        </Button>
+                        <div className="h-5 w-px bg-border/50" />
                         <Button variant="ghost" size="icon" className="h-8 w-8" onClick={(e) => { e.stopPropagation(); onSelectConfig?.(config); }}>
                           <Play className="h-4 w-4" />
                         </Button>
                         {canModifyConfig(config) && (
                           <>
+                            <div className="h-5 w-px bg-border/50" />
                             <Button variant="ghost" size="icon" className="h-8 w-8" onClick={(e) => { e.stopPropagation(); onEditConfig?.(config); }}>
                               <Edit className="h-4 w-4" />
                             </Button>
-                            <Button variant="ghost" size="icon" className="h-8 w-8 text-red-400" onClick={(e) => handleDelete(config, e)} disabled={deletingId === config.id}>
+                            <Button variant="ghost" size="icon" className="h-8 w-8 text-red-400 hover:text-red-500" onClick={(e) => handleDelete(config, e)} disabled={deletingId === config.id}>
                               {deletingId === config.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
                             </Button>
                           </>

@@ -1,7 +1,8 @@
 "use client";
 
-import React, { useState, useCallback, useRef, useMemo } from "react";
+import React, { useState, useCallback, useRef, useMemo, useEffect } from "react";
 import { useSession } from "next-auth/react";
+import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Play,
@@ -11,6 +12,7 @@ import {
   Clock,
   Loader2,
   ChevronRight,
+  ChevronLeft,
   ArrowLeft,
   Square,
   Wrench,
@@ -20,17 +22,27 @@ import {
   ChevronUp,
   Send,
   AlertCircle,
+  History,
+  X,
+  LayoutGrid,
+  Maximize2,
+  Minimize2,
+  Copy,
+  Check,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Input } from "@/components/ui/input";
+import { CAIPESpinner } from "@/components/ui/caipe-spinner";
 import { cn } from "@/lib/utils";
 import { getConfig } from "@/lib/config";
 import type { AgentConfig } from "@/types/agent-config";
 import { A2ASDKClient, type ParsedA2AEvent } from "@/lib/a2a-sdk-client";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { useWorkflowRunStore } from "@/store/workflow-run-store";
+import { WorkflowHistoryView } from "./WorkflowHistoryView";
 
 interface AgentBuilderRunnerProps {
   config: AgentConfig;
@@ -51,6 +63,7 @@ interface ExecutionStep {
 interface ToolCall {
   id: string;
   tool: string;
+  description: string; // Full descriptive text from tool notification
   agent: string;
   status: "running" | "completed";
   timestamp: number;
@@ -443,25 +456,48 @@ function ExecutionStepCard({
 }
 
 /**
- * ToolCallIndicator - Shows active tool calls
+ * ToolCallIndicator - Shows all tool calls (running and completed)
  */
 function ToolCallIndicator({ toolCalls }: { toolCalls: ToolCall[] }) {
-  const activeTools = toolCalls.filter((t) => t.status === "running");
-
-  if (activeTools.length === 0) return null;
+  if (toolCalls.length === 0) return null;
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 10 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: -10 }}
-      className="flex items-center gap-2 px-3 py-2 rounded-lg bg-muted/30 border border-border/30"
-    >
-      <Wrench className="h-3.5 w-3.5 text-muted-foreground animate-pulse" />
-      <span className="text-xs text-muted-foreground">
-        {activeTools.map((t) => t.tool).join(", ")}
-      </span>
-    </motion.div>
+    <div className="space-y-2">
+      <AnimatePresence mode="popLayout">
+        {toolCalls.map((tool, index) => (
+          <motion.div
+            key={tool.id}
+            initial={{ opacity: 0, x: -20 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: 20 }}
+            transition={{ delay: index * 0.05 }}
+            className={cn(
+              "flex items-center gap-2 px-3 py-2 rounded-lg border",
+              tool.status === "running"
+                ? "bg-blue-500/10 border-blue-500/30"
+                : "bg-green-500/10 border-green-500/30"
+            )}
+          >
+            {tool.status === "running" ? (
+              <Loader2 className="h-3.5 w-3.5 text-blue-500 animate-spin shrink-0" />
+            ) : (
+              <CheckCircle className="h-3.5 w-3.5 text-green-500 shrink-0" />
+            )}
+            <span className={cn(
+              "text-xs font-medium flex-1",
+              tool.status === "running" ? "text-blue-600 dark:text-blue-400" : "text-green-600 dark:text-green-400"
+            )}>
+              {tool.description}
+            </span>
+            {tool.status === "completed" && (
+              <span className="text-[10px] text-muted-foreground ml-auto">
+                ✓
+              </span>
+            )}
+          </motion.div>
+        ))}
+      </AnimatePresence>
+    </div>
   );
 }
 
@@ -485,6 +521,86 @@ function ThinkingIndicator({ isThinking }: { isThinking: boolean }) {
 }
 
 /**
+ * StreamingOutputDisplay - Shows streaming content with copy and fullscreen
+ */
+function StreamingOutputDisplay({ 
+  content, 
+  isFullscreen,
+  onExitFullscreen 
+}: { 
+  content: string;
+  isFullscreen: boolean;
+  onExitFullscreen: () => void;
+}) {
+  if (isFullscreen) {
+    return (
+      <div className="fixed left-2 right-2 top-[68px] bottom-2 z-[100] bg-background shadow-2xl rounded-lg border border-border flex flex-col">
+        {/* Fullscreen header with exit button */}
+        <div className="flex items-center justify-between px-3 py-2 border-b border-border/50 bg-background shrink-0">
+          <h3 className="text-xs font-medium">Workflow Output</h3>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={onExitFullscreen}
+            className="h-7 px-2 gap-1.5 text-xs"
+          >
+            <Minimize2 className="h-3.5 w-3.5" />
+            <span>Exit Fullscreen</span>
+          </Button>
+        </div>
+        
+        {/* Content */}
+        <div className="flex-1 overflow-auto p-4">
+          <div
+            className={cn(
+              "prose prose-sm dark:prose-invert max-w-none",
+              "prose-p:leading-7 prose-p:my-4",
+              "prose-headings:mt-8 prose-headings:mb-4",
+              "prose-ul:my-4 prose-ol:my-4",
+              "prose-li:my-2",
+              "prose-table:my-6",
+              "prose-pre:my-6",
+              "prose-blockquote:my-6"
+            )}
+          >
+            <ReactMarkdown remarkPlugins={[remarkGfm]}>
+              {content}
+            </ReactMarkdown>
+          </div>
+        </div>
+      </div>
+    );
+  }
+  
+  return (
+    <motion.div
+      initial={{ opacity: 0, height: 0 }}
+      animate={{ opacity: 1, height: "auto" }}
+      className="rounded-lg bg-muted/30 border border-border/30"
+    >
+      <div className="p-3">
+        <div
+          className={cn(
+            "prose prose-sm dark:prose-invert max-w-none",
+            "prose-p:leading-7 prose-p:my-4",
+            "prose-headings:mt-8 prose-headings:mb-4",
+            "prose-ul:my-4 prose-ol:my-4",
+            "prose-li:my-2",
+            "prose-table:my-6",
+            "prose-pre:my-6",
+            "prose-blockquote:my-6"
+          )}
+        >
+          <ReactMarkdown remarkPlugins={[remarkGfm]}>
+            {content}
+          </ReactMarkdown>
+        </div>
+      </div>
+    </motion.div>
+  );
+}
+
+/**
  * ResultOrInputForm - Renders either a form (if input is requested) or markdown result
  * Prioritizes structured input fields from backend over regex parsing
  */
@@ -494,12 +610,16 @@ function ResultOrInputForm({
   isSubmitting,
   structuredFields,
   structuredTitle,
+  isFullscreen,
+  onExitFullscreen,
 }: {
   content: string;
   onSubmitInput: (data: Record<string, string>) => void;
   isSubmitting: boolean;
   structuredFields?: DetectedInputField[] | null;
   structuredTitle?: string;
+  isFullscreen: boolean;
+  onExitFullscreen: () => void;
 }) {
   // Prioritize structured fields from backend (request_user_input tool)
   if (structuredFields && structuredFields.length > 0) {
@@ -539,11 +659,51 @@ function ResultOrInputForm({
   }
   
   // No input fields detected - render as markdown
+  if (isFullscreen) {
+    return (
+      <div className="fixed left-2 right-2 top-[68px] bottom-2 z-[100] bg-background shadow-2xl rounded-lg border border-border flex flex-col">
+        {/* Fullscreen header with exit button */}
+        <div className="flex items-center justify-between px-3 py-2 border-b border-border/50 bg-background shrink-0">
+          <h3 className="text-xs font-medium">Workflow Result</h3>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={onExitFullscreen}
+            className="h-7 px-2 gap-1.5 text-xs"
+          >
+            <Minimize2 className="h-3.5 w-3.5" />
+            <span>Exit Fullscreen</span>
+          </Button>
+        </div>
+        
+        {/* Content */}
+        <div className="flex-1 overflow-auto p-4">
+          <div
+            className={cn(
+              "prose prose-sm dark:prose-invert max-w-none",
+              "prose-p:leading-7 prose-p:my-4",
+              "prose-headings:mt-8 prose-headings:mb-4",
+              "prose-ul:my-4 prose-ol:my-4",
+              "prose-li:my-2",
+              "prose-table:my-6",
+              "prose-pre:my-6",
+              "prose-blockquote:my-6"
+            )}
+          >
+            <ReactMarkdown remarkPlugins={[remarkGfm]}>
+              {content}
+            </ReactMarkdown>
+          </div>
+        </div>
+      </div>
+    );
+  }
+  
   return (
     <motion.div
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
-      className="prose prose-sm dark:prose-invert max-w-none"
+      className="prose prose-sm dark:prose-invert max-w-none prose-p:leading-7 prose-p:my-4 prose-headings:mt-8 prose-headings:mb-4 prose-ul:my-4 prose-ol:my-4 prose-li:my-2 prose-table:my-6 prose-pre:my-6 prose-blockquote:my-6"
     >
       <ReactMarkdown remarkPlugins={[remarkGfm]}>
         {content}
@@ -570,24 +730,63 @@ export function AgentBuilderRunner({
   const [finalResult, setFinalResult] = useState<string>("");
   const [error, setError] = useState<string>("");
   const [streamingContent, setStreamingContent] = useState<string>("");
-  const [showStreamingOutput, setShowStreamingOutput] = useState(false);
+  const [showStreamingOutput, setShowStreamingOutput] = useState(true); // Expanded by default
   const [isSubmittingInput, setIsSubmittingInput] = useState(false);
+  const [showHistoryPanel, setShowHistoryPanel] = useState(false);
+  const [currentRunId, setCurrentRunId] = useState<string | null>(null);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const [isOutputExpanded, setIsOutputExpanded] = useState(false);
   
   // Structured user input state (from request_user_input tool)
   const [structuredInputFields, setStructuredInputFields] = useState<DetectedInputField[] | null>(null);
   const [structuredInputTitle, setStructuredInputTitle] = useState<string>("");
+  
+  // Workflow run store
+  const { createRun, updateRun, getRunsForWorkflow } = useWorkflowRunStore();
 
   // Auth - same pattern as ChatPanel
   const { data: session } = useSession();
   const ssoEnabled = getConfig('ssoEnabled');
   const accessToken = ssoEnabled ? session?.accessToken : undefined;
 
+  // Router for navigation
+  const router = useRouter();
+
   // A2A client ref
   const clientRef = useRef<A2ASDKClient | null>(null);
   const abortedRef = useRef(false);
+  const hasAutoStarted = useRef(false);
 
   // Get A2A endpoint from config (same as ChatPanel)
   const endpoint = getConfig('caipeUrl');
+
+  /**
+   * Handle copy to clipboard
+   */
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(streamingContent || finalResult || "");
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch (error) {
+      console.error("Failed to copy:", error);
+    }
+  };
+
+  /**
+   * Handle escape key to exit fullscreen
+   */
+  useEffect(() => {
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && isFullscreen) {
+        setIsFullscreen(false);
+      }
+    };
+    
+    window.addEventListener('keydown', handleEscape);
+    return () => window.removeEventListener('keydown', handleEscape);
+  }, [isFullscreen]);
 
   /**
    * Parse execution plan from event text
@@ -653,17 +852,23 @@ export function AgentBuilderRunner({
 
       // Handle tool notifications
       if (artifactName === "tool_notification_start") {
+        // Extract tool name from content (for identification)
         const toolMatch = content.match(
           /(?:Calling|Tool)\s+(?:Agent\s+)?(\w+)/i
         );
         const toolName = toolMatch ? toolMatch[1] : "tool";
         const toolId = `tool-${Date.now()}`;
 
+        // Use the full content as description (already includes emojis and details)
+        // Example: "🔧 Fetching applications..."
+        const description = content.trim() || `Calling ${toolName}`;
+
         setToolCalls((prev) => [
           ...prev,
           {
             id: toolId,
             tool: toolName,
+            description: description,
             agent: "Agent",
             status: "running",
             timestamp: Date.now(),
@@ -751,10 +956,31 @@ export function AgentBuilderRunner({
     setIsThinking(true);
     abortedRef.current = false;
 
+    // Create workflow run history entry
+    const startTime = new Date();
+    let runId: string | null = null;
+    try {
+      runId = await createRun({
+        workflow_id: config.id,
+        workflow_name: config.name,
+        workflow_category: config.category,
+        input_prompt: config.is_quick_start && config.tasks.length > 0 
+          ? config.tasks[0].llm_prompt 
+          : config.description || config.name,
+      });
+      setCurrentRunId(runId);
+      console.log(`[AgentBuilderRunner] Created workflow run: ${runId}`);
+    } catch (error) {
+      console.error("[AgentBuilderRunner] Failed to create workflow run:", error);
+      // Continue anyway - history is not critical
+    }
+
     // Create A2A client
+    // Include user email so agents know who is making the request
     const client = new A2ASDKClient({
       endpoint,
       accessToken,
+      userEmail: session?.user?.email ?? undefined,
     });
     clientRef.current = client;
 
@@ -795,26 +1021,73 @@ export function AgentBuilderRunner({
       }
 
       // Finalize
-      if (!abortedRef.current && status !== "completed") {
+      if (!abortedRef.current) {
         setStatus("completed");
         setIsThinking(false);
+
+        // Update workflow run as completed
+        if (runId) {
+          try {
+            const endTime = new Date();
+            const resultSummary = finalResult || streamingContent || "Workflow completed successfully";
+            console.log(`[AgentBuilderRunner] Finalizing workflow run ${runId}`, {
+              finalResult: finalResult?.substring(0, 100),
+              streamingContent: streamingContent?.substring(0, 100),
+              resultLength: resultSummary.length
+            });
+            
+            await updateRun(runId, {
+              status: "completed",
+              completed_at: endTime,
+              duration_ms: endTime.getTime() - startTime.getTime(),
+              result_summary: resultSummary,
+              steps_completed: steps.filter(s => s.status === "completed").length,
+              steps_total: steps.length,
+              tools_called: toolCalls.map(t => t.tool),
+            });
+            console.log(`[AgentBuilderRunner] ✅ Successfully updated workflow run ${runId} as completed`);
+          } catch (error) {
+            console.error("[AgentBuilderRunner] ❌ Failed to update workflow run:", error);
+          }
+        } else {
+          console.warn("[AgentBuilderRunner] ⚠️ No runId available to update completion status");
+        }
       }
     } catch (err) {
       console.error("[AgentBuilderRunner] Error:", err);
       if (!abortedRef.current) {
-        setError((err as Error).message || "Workflow execution failed");
+        const errorMessage = (err as Error).message || "Workflow execution failed";
+        setError(errorMessage);
         setStatus("failed");
         setIsThinking(false);
+
+        // Update workflow run as failed
+        if (runId) {
+          try {
+            const endTime = new Date();
+            await updateRun(runId, {
+              status: "failed",
+              completed_at: endTime,
+              duration_ms: endTime.getTime() - startTime.getTime(),
+              error_message: errorMessage,
+              steps_completed: steps.filter(s => s.status === "completed").length,
+              steps_total: steps.length,
+            });
+            console.log(`[AgentBuilderRunner] Updated workflow run ${runId} as failed`);
+          } catch (error) {
+            console.error("[AgentBuilderRunner] Failed to update workflow run:", error);
+          }
+        }
       }
     } finally {
       clientRef.current = null;
     }
-  }, [config, endpoint, accessToken, handleEvent, finalResult, status]);
+  }, [config, endpoint, accessToken, handleEvent, finalResult, status, steps, toolCalls, streamingContent, createRun, updateRun]);
 
   /**
    * Stop workflow execution
    */
-  const handleStop = useCallback(() => {
+  const handleStop = useCallback(async () => {
     abortedRef.current = true;
     if (clientRef.current) {
       clientRef.current.abort();
@@ -822,7 +1095,22 @@ export function AgentBuilderRunner({
     }
     setStatus("cancelled");
     setIsThinking(false);
-  }, []);
+
+    // Update workflow run as cancelled
+    if (currentRunId) {
+      try {
+        await updateRun(currentRunId, {
+          status: "cancelled",
+          completed_at: new Date(),
+          steps_completed: steps.filter(s => s.status === "completed").length,
+          steps_total: steps.length,
+        });
+        console.log(`[AgentBuilderRunner] Updated workflow run ${currentRunId} as cancelled`);
+      } catch (error) {
+        console.error("[AgentBuilderRunner] Failed to update workflow run:", error);
+      }
+    }
+  }, [currentRunId, steps, updateRun]);
 
   /**
    * Reset workflow
@@ -838,8 +1126,22 @@ export function AgentBuilderRunner({
     setIsSubmittingInput(false);
     setStructuredInputFields(null);
     setStructuredInputTitle("");
+    setCurrentRunId(null);
     abortedRef.current = false;
+    // Don't reset hasAutoStarted - allow manual start after reset
   }, []);
+
+  /**
+   * Auto-start workflow when component mounts
+   */
+  useEffect(() => {
+    if (!hasAutoStarted.current) {
+      hasAutoStarted.current = true;
+      console.log("[AgentBuilderRunner] Auto-starting workflow on mount");
+      // Small delay to ensure UI is ready
+      setTimeout(() => handleStart(), 100);
+    }
+  }, [handleStart]); // Include handleStart to avoid stale closure
 
   /**
    * Handle user input form submission
@@ -863,9 +1165,11 @@ export function AgentBuilderRunner({
     abortedRef.current = false;
     
     // Create A2A client
+    // Include user email so agents know who is making the request
     const client = new A2ASDKClient({
       endpoint,
       accessToken,
+      userEmail: session?.user?.email ?? undefined,
     });
     clientRef.current = client;
     
@@ -913,9 +1217,18 @@ export function AgentBuilderRunner({
     <div className="flex flex-col h-full">
       {/* Header */}
       <div className="flex items-center justify-between mb-4 shrink-0">
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2">
+          {/* Home button */}
+          <Button 
+            variant="ghost" 
+            size="icon" 
+            onClick={() => router.push('/')}
+            title="Go to home page"
+          >
+            <LayoutGrid className="h-5 w-5" />
+          </Button>
           {onBack && (
-            <Button variant="ghost" size="icon" onClick={onBack}>
+            <Button variant="ghost" size="icon" onClick={onBack} title="Back to gallery">
               <ArrowLeft className="h-5 w-5" />
             </Button>
           )}
@@ -930,6 +1243,18 @@ export function AgentBuilderRunner({
         </div>
 
         <div className="flex items-center gap-2">
+          {/* History Button */}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setShowHistoryPanel(true)}
+            className="gap-1"
+            title="View workflow run history"
+          >
+            <History className="h-4 w-4" />
+            <span className="hidden sm:inline">History</span>
+          </Button>
+
           {status === "idle" && (
             <Button
               onClick={handleStart}
@@ -1019,10 +1344,11 @@ export function AgentBuilderRunner({
       {/* Main Content */}
       <div className="flex-1 flex gap-4 overflow-hidden min-h-0">
         {/* Left Panel - Execution Steps */}
-        <div className="w-1/3 flex flex-col min-h-0">
-          <h2 className="text-sm font-medium text-muted-foreground mb-3 shrink-0">
-            Execution Plan
-          </h2>
+        {!isOutputExpanded && (
+          <div className="w-80 flex flex-col min-h-0 shrink-0">
+            <h2 className="text-sm font-medium text-muted-foreground mb-3 shrink-0">
+              Execution Plan
+            </h2>
 
           <ScrollArea className="flex-1">
             <div className="space-y-3 pr-2">
@@ -1037,10 +1363,7 @@ export function AgentBuilderRunner({
 
               {status === "running" && steps.length === 0 && (
                 <div className="flex flex-col items-center justify-center py-8 text-center">
-                  <Loader2 className="h-10 w-10 text-primary animate-spin mb-3" />
-                  <p className="text-sm text-muted-foreground">
-                    Planning execution...
-                  </p>
+                  <CAIPESpinner size="md" message="Planning execution..." />
                 </div>
               )}
 
@@ -1054,45 +1377,126 @@ export function AgentBuilderRunner({
                 ))}
               </AnimatePresence>
 
-              {/* Tool calls and thinking indicators */}
+              {/* Tool calls section */}
+              {toolCalls.length > 0 && (
+                <div className="mt-4 pt-4 border-t border-border/30">
+                  <h3 className="text-xs font-medium text-muted-foreground mb-3 flex items-center gap-2">
+                    <Wrench className="h-3.5 w-3.5" />
+                    Tool Calls ({toolCalls.length})
+                  </h3>
+                  <ToolCallIndicator toolCalls={toolCalls} />
+                </div>
+              )}
+
+              {/* Thinking indicator */}
               <AnimatePresence>
                 {isThinking && steps.length > 0 && (
                   <ThinkingIndicator key="thinking-indicator" isThinking={true} />
-                )}
-                {toolCalls.filter(t => t.status === "running").length > 0 && (
-                  <ToolCallIndicator key="tool-indicator" toolCalls={toolCalls} />
                 )}
               </AnimatePresence>
             </div>
           </ScrollArea>
         </div>
+        )}
 
         {/* Right Panel - Output */}
-        <div className="flex-1 flex flex-col border-l border-border/50 pl-4 min-h-0">
+        <div className={cn(
+          "flex-1 flex flex-col min-h-0",
+          !isOutputExpanded && "border-l border-border/50 pl-4"
+        )}>
           <div className="flex items-center justify-between mb-3 shrink-0">
             <h2 className="text-sm font-medium text-muted-foreground">
               {finalResult ? "Result" : "Output"}
             </h2>
-            {streamingContent && !finalResult && (
+            <div className="flex items-center gap-1">
+              {/* Expand/Collapse button */}
               <Button
                 variant="ghost"
                 size="sm"
-                onClick={() => setShowStreamingOutput(!showStreamingOutput)}
-                className="gap-1 h-7 text-xs"
+                onClick={() => setIsOutputExpanded(!isOutputExpanded)}
+                className="h-7 px-2 gap-1"
+                title={isOutputExpanded ? "Show execution plan" : "Expand output"}
               >
-                {showStreamingOutput ? (
+                {isOutputExpanded ? (
                   <>
-                    <ChevronUp className="h-3 w-3" />
-                    Hide Stream
+                    <ChevronRight className="h-3.5 w-3.5" />
+                    <span className="text-xs">Show Plan</span>
                   </>
                 ) : (
                   <>
-                    <ChevronDown className="h-3 w-3" />
-                    Show Stream
+                    <ChevronLeft className="h-3.5 w-3.5" />
+                    <span className="text-xs">Expand</span>
                   </>
                 )}
               </Button>
-            )}
+              {/* Copy button */}
+              {(streamingContent || finalResult) && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={handleCopy}
+                  className="h-7 px-2 gap-1"
+                  title="Copy to clipboard"
+                >
+                  {copied ? (
+                    <>
+                      <Check className="h-3.5 w-3.5 text-green-500" />
+                      <span className="text-xs">Copied</span>
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="h-3.5 w-3.5" />
+                      <span className="text-xs">Copy</span>
+                    </>
+                  )}
+                </Button>
+              )}
+              
+              {/* Fullscreen button */}
+              {(streamingContent || finalResult) && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setIsFullscreen(!isFullscreen)}
+                  className="h-7 px-2 gap-1"
+                  title={isFullscreen ? "Exit fullscreen" : "Fullscreen"}
+                >
+                  {isFullscreen ? (
+                    <>
+                      <Minimize2 className="h-3.5 w-3.5" />
+                      <span className="text-xs">Exit</span>
+                    </>
+                  ) : (
+                    <>
+                      <Maximize2 className="h-3.5 w-3.5" />
+                      <span className="text-xs">Fullscreen</span>
+                    </>
+                  )}
+                </Button>
+              )}
+              
+              {/* Hide/Show Stream toggle */}
+              {streamingContent && !finalResult && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setShowStreamingOutput(!showStreamingOutput)}
+                  className="gap-1 h-7 text-xs"
+                >
+                  {showStreamingOutput ? (
+                    <>
+                      <ChevronUp className="h-3 w-3" />
+                      Hide Stream
+                    </>
+                  ) : (
+                    <>
+                      <ChevronDown className="h-3 w-3" />
+                      Show Stream
+                    </>
+                  )}
+                </Button>
+              )}
+            </div>
           </div>
 
           <ScrollArea className="flex-1">
@@ -1111,28 +1515,23 @@ export function AgentBuilderRunner({
               {status === "running" && !finalResult && (
                 <div className="space-y-4">
                   {showStreamingOutput && streamingContent && (
-                    <motion.div
-                      initial={{ opacity: 0, height: 0 }}
-                      animate={{ opacity: 1, height: "auto" }}
-                      className="p-3 rounded-lg bg-muted/30 border border-border/30"
-                    >
-                      <p className="text-xs text-muted-foreground font-mono whitespace-pre-wrap">
-                        {streamingContent}
-                      </p>
-                    </motion.div>
+                    <StreamingOutputDisplay 
+                      content={streamingContent} 
+                      isFullscreen={isFullscreen}
+                      onExitFullscreen={() => setIsFullscreen(false)}
+                    />
                   )}
 
                   {!showStreamingOutput && (
                     <div className="flex flex-col items-center justify-center py-12 text-center">
-                      <Loader2 className="h-10 w-10 text-primary animate-spin mb-4" />
-                      <p className="text-muted-foreground">
-                        Executing workflow...
-                      </p>
-                      {steps.length > 0 && (
-                        <p className="text-xs text-muted-foreground mt-2">
-                          Step {activeStepIndex + 1} of {steps.length}
-                        </p>
-                      )}
+                      <CAIPESpinner 
+                        size="md" 
+                        message={
+                          steps.length > 0 
+                            ? `Executing workflow... (Step ${activeStepIndex + 1} of ${steps.length})`
+                            : "Executing workflow..."
+                        } 
+                      />
                     </div>
                   )}
                 </div>
@@ -1146,6 +1545,8 @@ export function AgentBuilderRunner({
                   isSubmitting={isSubmittingInput}
                   structuredFields={structuredInputFields}
                   structuredTitle={structuredInputTitle}
+                  isFullscreen={isFullscreen}
+                  onExitFullscreen={() => setIsFullscreen(false)}
                 />
               )}
 
@@ -1186,6 +1587,83 @@ export function AgentBuilderRunner({
           </ScrollArea>
         </div>
       </div>
+
+      {/* History Slide-Out Panel */}
+      <AnimatePresence>
+        {showHistoryPanel && (
+          <>
+            {/* Overlay */}
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 bg-black/50 backdrop-blur-sm z-40"
+              onClick={() => setShowHistoryPanel(false)}
+            />
+
+            {/* Slide-out Panel */}
+            <motion.div
+              initial={{ x: "100%" }}
+              animate={{ x: 0 }}
+              exit={{ x: "100%" }}
+              transition={{ type: "spring", damping: 30, stiffness: 300 }}
+              className="fixed right-0 top-0 bottom-0 w-full sm:w-[500px] bg-background border-l border-border shadow-2xl z-50 flex flex-col"
+            >
+              {/* Panel Header */}
+              <div className="flex items-center justify-between p-4 border-b border-border shrink-0">
+                <div className="flex items-center gap-3">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => setShowHistoryPanel(false)}
+                    title="Back to workflow"
+                  >
+                    <ArrowLeft className="h-5 w-5" />
+                  </Button>
+                  <div className="flex items-center gap-2">
+                    <History className="h-5 w-5 text-primary" />
+                    <h2 className="text-lg font-semibold">Workflow Run History</h2>
+                  </div>
+                </div>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => setShowHistoryPanel(false)}
+                  title="Close"
+                >
+                  <X className="h-5 w-5" />
+                </Button>
+              </div>
+
+              {/* Panel Content */}
+              <div className="flex-1 overflow-hidden">
+                <WorkflowHistoryView
+                  workflowId={config.id}
+                  onReRun={(run) => {
+                    setShowHistoryPanel(false);
+                    handleReset();
+                    // Small delay to ensure reset is complete before starting
+                    setTimeout(() => handleStart(), 100);
+                  }}
+                />
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+      
+      {/* Fullscreen overlay backdrop */}
+      <AnimatePresence>
+        {isFullscreen && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed left-0 right-0 top-[64px] bottom-0 bg-black/60 backdrop-blur-sm z-[99]"
+            onClick={() => setIsFullscreen(false)}
+          />
+        )}
+      </AnimatePresence>
     </div>
   );
 }
