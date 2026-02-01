@@ -8,6 +8,7 @@ import {
   AgentBuilderRunner,
   YamlImportDialog,
 } from "@/components/agent-builder";
+import { AuthGuard } from "@/components/auth-guard";
 import type { AgentConfig } from "@/types/agent-config";
 
 type ViewMode = "gallery" | "runner";
@@ -18,10 +19,12 @@ export default function AgentBuilderPage() {
   const [editingConfig, setEditingConfig] = useState<AgentConfig | undefined>(undefined);
   const [isEditorOpen, setIsEditorOpen] = useState(false);
   const [isYamlImportOpen, setIsYamlImportOpen] = useState(false);
+  const [cameFromHistory, setCameFromHistory] = useState(false);
 
-  const handleSelectConfig = (config: AgentConfig) => {
+  const handleSelectConfig = (config: AgentConfig, fromHistory: boolean = false) => {
     setSelectedConfig(config);
     setViewMode("runner");
+    setCameFromHistory(fromHistory);
   };
 
   // Handle quick-start execution - run inline with AgentBuilderRunner
@@ -65,6 +68,7 @@ export default function AgentBuilderPage() {
   const handleBackToGallery = () => {
     setViewMode("gallery");
     setSelectedConfig(null);
+    setCameFromHistory(false);
   };
 
   const handleEditorSuccess = () => {
@@ -77,58 +81,61 @@ export default function AgentBuilderPage() {
   };
 
   return (
-    <div className="flex flex-col h-full overflow-hidden">
-      <div className="flex-1 overflow-y-auto p-6">
-        <AnimatePresence mode="wait">
-          {viewMode === "gallery" && (
-            <motion.div
-              key="gallery"
-              initial={{ opacity: 0, x: -20 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: -20 }}
-              className="h-full"
-            >
-              <AgentBuilderGallery
-                onSelectConfig={handleSelectConfig}
-                onRunQuickStart={handleRunQuickStart}
-                onEditConfig={handleEditConfig}
-                onCreateNew={handleCreateNew}
-                onImportYaml={handleImportYaml}
-              />
-            </motion.div>
-          )}
+    <AuthGuard>
+      <div className="flex flex-col h-full overflow-hidden">
+        <div className="flex-1 overflow-y-auto p-6">
+          <AnimatePresence mode="wait">
+            {viewMode === "gallery" && (
+              <motion.div
+                key="gallery"
+                initial={{ opacity: 0, x: -20 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: -20 }}
+                className="h-full"
+              >
+                <AgentBuilderGallery
+                  onSelectConfig={handleSelectConfig}
+                  onRunQuickStart={handleRunQuickStart}
+                  onEditConfig={handleEditConfig}
+                  onCreateNew={handleCreateNew}
+                  onImportYaml={handleImportYaml}
+                />
+              </motion.div>
+            )}
 
-          {viewMode === "runner" && selectedConfig && (
-            <motion.div
-              key="runner"
-              initial={{ opacity: 0, x: 20 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: 20 }}
-              className="h-full"
-            >
-              <AgentBuilderRunner
-                config={selectedConfig}
-                onBack={handleBackToGallery}
-              />
-            </motion.div>
-          )}
-        </AnimatePresence>
+            {viewMode === "runner" && selectedConfig && (
+              <motion.div
+                key="runner"
+                initial={{ opacity: 0, x: 20 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: 20 }}
+                className="h-full"
+              >
+                <AgentBuilderRunner
+                  config={selectedConfig}
+                  onBack={handleBackToGallery}
+                  cameFromHistory={cameFromHistory}
+                />
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
+
+        {/* Editor Dialog */}
+        <AgentBuilderEditorDialog
+          open={isEditorOpen}
+          onOpenChange={setIsEditorOpen}
+          onSuccess={handleEditorSuccess}
+          existingConfig={editingConfig}
+        />
+
+        {/* YAML Import Dialog */}
+        <YamlImportDialog
+          open={isYamlImportOpen}
+          onOpenChange={setIsYamlImportOpen}
+          onSuccess={handleYamlImportSuccess}
+        />
       </div>
-
-      {/* Editor Dialog */}
-      <AgentBuilderEditorDialog
-        open={isEditorOpen}
-        onOpenChange={setIsEditorOpen}
-        onSuccess={handleEditorSuccess}
-        existingConfig={editingConfig}
-      />
-
-      {/* YAML Import Dialog */}
-      <YamlImportDialog
-        open={isYamlImportOpen}
-        onOpenChange={setIsYamlImportOpen}
-        onSuccess={handleYamlImportSuccess}
-      />
-    </div>
+    </AuthGuard>
   );
 }

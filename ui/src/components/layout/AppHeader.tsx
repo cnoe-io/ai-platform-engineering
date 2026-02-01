@@ -75,7 +75,7 @@ export function AppHeader() {
     if (pathname?.startsWith("/knowledge-bases")) return "knowledge";
     if (pathname?.startsWith("/agent-builder") || pathname?.startsWith("/use-cases")) return "agent-builder";
     if (pathname?.startsWith("/admin")) return "admin";
-    return "agent-builder"; // Default to agent-builder (formerly use-cases)
+    return "agent-builder"; // Default to Agentic Workflows (formerly use-cases)
   };
 
   const activeTab = getActiveTab();
@@ -83,9 +83,10 @@ export function AppHeader() {
   return (
     <header className="h-14 border-b border-border/50 bg-card/50 backdrop-blur-xl flex items-center justify-between px-4 shrink-0 z-50">
       <div className="flex items-center gap-4">
-        {/* Logo */}
-        <div
-          className="flex items-center gap-2.5 cursor-default"
+        {/* Logo - clickable to home */}
+        <Link
+          href="/"
+          className="flex items-center gap-2.5 cursor-pointer hover:opacity-80 transition-opacity"
           title={getConfig('tagline')}
         >
           <img
@@ -99,9 +100,9 @@ export function AppHeader() {
               Preview
             </span>
           )}
-        </div>
+        </Link>
 
-        {/* Navigation Pills - Agent Builder first for prominence */}
+        {/* Navigation Pills - Agentic Workflows first for prominence */}
         <div className="flex items-center bg-muted/50 rounded-full p-1">
           <Link
             href="/agent-builder"
@@ -114,7 +115,7 @@ export function AppHeader() {
             )}
           >
             <Zap className="h-3.5 w-3.5" />
-            Agent Builder
+            Agentic Workflows
           </Link>
           <Link
             href="/chat"
