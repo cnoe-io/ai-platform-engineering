@@ -5,6 +5,7 @@ import { ThemeProvider } from "@/components/theme-provider";
 import { AuthProvider } from "@/components/auth-provider";
 import { TokenExpiryGuard } from "@/components/token-expiry-guard";
 import { ThemeInjector } from "@/components/theme-injector";
+import { ToastProvider } from "@/components/ui/toast";
 import "./globals.css";
 
 // Primary font: Inter - Used by OpenAI, clean and highly readable
@@ -88,9 +89,11 @@ export default function RootLayout({
             disableTransitionOnChange={false}
             themes={["light", "dark", "midnight", "nord", "tokyo"]}
           >
-            <ThemeInjector />
-            <TokenExpiryGuard />
-            {children}
+            <ToastProvider>
+              <ThemeInjector />
+              <TokenExpiryGuard />
+              {children}
+            </ToastProvider>
           </ThemeProvider>
         </AuthProvider>
       </body>

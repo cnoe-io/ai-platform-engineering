@@ -8,6 +8,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { CAIPESpinner } from "@/components/ui/caipe-spinner";
 import { SimpleLineChart } from "@/components/admin/SimpleLineChart";
 import { CreateTeamDialog } from "@/components/admin/CreateTeamDialog";
 import { apiClient } from "@/lib/api-client";
@@ -147,31 +148,7 @@ function AdminPage() {
   if (loading) {
     return (
       <div className="flex-1 flex items-center justify-center">
-        <div className="flex flex-col items-center gap-4">
-          {/* CAIPE Logo with spinner */}
-          <div className="relative">
-            {/* Spinning glow ring */}
-            <div
-              className="absolute inset-[-8px] rounded-3xl opacity-30 gradient-primary-br"
-              style={{
-                animation: 'spin 3s linear infinite',
-              }}
-            />
-            {/* Blur glow */}
-            <div
-              className="absolute inset-[-4px] rounded-2xl blur-xl opacity-40 gradient-primary"
-            />
-            {/* Logo container */}
-            <div className="relative w-16 h-16 rounded-2xl gradient-primary-br flex items-center justify-center shadow-2xl">
-              <img src="/logo.svg" alt="CAIPE" className="h-10 w-10" />
-            </div>
-          </div>
-          {/* Spinner */}
-          <div className="flex items-center gap-3">
-            <Loader2 className="h-5 w-5 animate-spin text-primary" />
-            <span className="text-sm text-muted-foreground">Loading admin data...</span>
-          </div>
-        </div>
+        <CAIPESpinner size="lg" message="Loading admin data..." />
       </div>
     );
   }
@@ -639,9 +616,5 @@ function AdminPage() {
 }
 
 export default function Admin() {
-  return (
-    <AuthGuard>
-      <AdminPage />
-    </AuthGuard>
-  );
+  return <AdminPage />;
 }

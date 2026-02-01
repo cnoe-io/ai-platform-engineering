@@ -14,6 +14,22 @@ import {
   FileCode,
   ChevronDown,
   ChevronUp,
+  Zap,
+  GitBranch,
+  GitPullRequest,
+  Server,
+  Cloud,
+  Rocket,
+  Shield,
+  Database,
+  BarChart,
+  Users,
+  AlertTriangle,
+  Settings,
+  Key,
+  Workflow,
+  Bug,
+  Clock,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -26,7 +42,9 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
+import { useToast } from "@/components/ui/toast";
 import { useAgentConfigStore } from "@/store/agent-config-store";
+import { useAdminRole } from "@/hooks/use-admin-role";
 import type {
   AgentConfig,
   AgentConfigTask,
@@ -70,6 +88,48 @@ const THUMBNAIL_OPTIONS = [
   "Settings", "Key", "Workflow", "Bug", "Clock",
 ];
 
+// Icon component mappings
+const ICON_MAP: Record<string, React.ElementType> = {
+  Zap,
+  GitBranch,
+  GitPullRequest,
+  Server,
+  Cloud,
+  Rocket,
+  Shield,
+  Database,
+  BarChart,
+  Users,
+  AlertTriangle,
+  CheckCircle,
+  Settings,
+  Key,
+  Workflow,
+  Bug,
+  Clock,
+};
+
+// Icon name labels for better UX
+const ICON_LABELS: Record<string, string> = {
+  "Zap": "Lightning",
+  "GitBranch": "Git Branch",
+  "GitPullRequest": "Pull Request",
+  "Server": "Server",
+  "Cloud": "Cloud",
+  "Rocket": "Rocket",
+  "Shield": "Security",
+  "Database": "Database",
+  "BarChart": "Analytics",
+  "Users": "Team",
+  "AlertTriangle": "Warning",
+  "CheckCircle": "Success",
+  "Settings": "Settings",
+  "Key": "Access Key",
+  "Workflow": "Workflow",
+  "Bug": "Bug Fix",
+  "Clock": "Scheduled",
+};
+
 const SUBAGENTS = [
   { id: "caipe", label: "CAIPE (User Input)", description: "Collect user input via forms" },
   { id: "github", label: "GitHub", description: "GitHub operations via gh CLI" },
@@ -93,6 +153,8 @@ export function AgentBuilderEditor({
 }: AgentBuilderEditorProps) {
   const isEditMode = !!existingConfig;
   const { createConfig, updateConfig } = useAgentConfigStore();
+  const { isAdmin } = useAdminRole();
+  const { toast } = useToast();
 
   const [isQuickStart, setIsQuickStart] = useState(existingConfig?.is_quick_start ?? false);
   const [formData, setFormData] = useState({
@@ -109,6 +171,7 @@ export function AgentBuilderEditor({
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitStatus, setSubmitStatus] = useState<"idle" | "success" | "error">("idle");
+  const [submitError, setSubmitError] = useState<string>("");
   const [expandedTasks, setExpandedTasks] = useState<Set<number>>(new Set([0]));
 
   const handleInputChange = (field: string, value: string) => {
@@ -200,31 +263,85 @@ export function AgentBuilderEditor({
       newErrors.tasks = "At least one task is required";
     }
 
-    tasks.forEach((task, index) => {
-      if (!task.display_text.trim()) {
+    // For quick start, only validate the first task
+    const tasksToValidate = isQuickStart ? [tasks[0]] : tasks;
+    
+    tasksToValidate.forEach((task, index) => {
+      if (!task) {
+        newErrors.tasks = "At least one task is required";
+        return;
+      }
+      
+      // For quick-start workflows, display_text is optional (only prompt matters)
+      // For multi-step workflows, display_text is required
+      if (!isQuickStart && !task.display_text.trim()) {
         newErrors[`task_${index}_display_text`] = "Display text is required";
       }
+      
       if (!task.llm_prompt.trim()) {
-        newErrors[`task_${index}_llm_prompt`] = "LLM prompt is required";
+        newErrors[`task_${index}_llm_prompt`] = isQuickStart 
+          ? "Prompt is required" 
+          : "LLM prompt is required";
       }
+      
       if (!task.subagent) {
         newErrors[`task_${index}_subagent`] = "Subagent is required";
       }
     });
 
     setErrors(newErrors);
-    return Object.keys(newErrors).length === 0;
+    
+    // Return both validation result and errors
+    const isValid = Object.keys(newErrors).length === 0;
+    return { isValid, errors: newErrors };
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!validateForm()) {
+    // Check permission for system configs
+    if (isEditMode && existingConfig?.is_system && !isAdmin) {
+      toast(
+        "Only administrators can edit system templates.\n\nTo customize this template:\n• Use 'Run in Chat' to test variations\n• Create your own workflow based on this template\n• Contact your admin for template modifications",
+        "warning",
+        7000
+      );
+      return;
+    }
+
+    const validation = validateForm();
+    
+    if (!validation.isValid) {
+      // Show user-friendly error message
+      const errorMessages = Object.entries(validation.errors)
+        .map(([field, msg]) => `• ${msg}`)
+        .join('\n');
+      
+      // Only show toast if there are actual error messages
+      if (errorMessages.trim()) {
+        toast(
+          `Please fix the following errors:\n\n${errorMessages}`,
+          "error",
+          6000
+        );
+        
+        // Scroll to first error
+        const firstErrorField = Object.keys(validation.errors)[0];
+        const element = document.querySelector(`[name="${firstErrorField}"]`);
+        if (element) {
+          element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+      } else {
+        // This shouldn't happen, but if it does, show a generic message
+        toast("Please fill in all required fields", "error", 5000);
+      }
+      
       return;
     }
 
     setIsSubmitting(true);
     setSubmitStatus("idle");
+    setSubmitError("");
 
     try {
       // Parse tags from comma-separated string
@@ -233,11 +350,27 @@ export function AgentBuilderEditor({
         .map(t => t.trim())
         .filter(t => t.length > 0);
 
+      let tasksToSave = isQuickStart ? [tasks[0]] : tasks;
+      
+      // For quick-start workflows, auto-fill display_text if empty
+      if (isQuickStart && tasksToSave[0]) {
+        tasksToSave = [{
+          ...tasksToSave[0],
+          display_text: tasksToSave[0].display_text.trim() || 
+                       tasksToSave[0].llm_prompt.substring(0, 60) || 
+                       "Quick Start Workflow"
+        }];
+      }
+      
+      console.log(`[AgentBuilderEditor] Tasks state before save:`, tasks);
+      console.log(`[AgentBuilderEditor] Tasks to save:`, tasksToSave);
+      console.log(`[AgentBuilderEditor] First task llm_prompt:`, tasksToSave[0]?.llm_prompt);
+      
       const configData: CreateAgentConfigInput = {
         name: formData.name.trim(),
         description: formData.description.trim() || undefined,
         category: formData.category,
-        tasks: isQuickStart ? [tasks[0]] : tasks, // Quick-start only uses first task
+        tasks: tasksToSave,
         is_quick_start: isQuickStart,
         difficulty: isQuickStart ? formData.difficulty : undefined,
         thumbnail: isQuickStart ? formData.thumbnail : undefined,
@@ -248,8 +381,11 @@ export function AgentBuilderEditor({
       };
 
       if (isEditMode && existingConfig) {
+        console.log(`[AgentBuilderEditor] Updating config ${existingConfig.id}:`, configData);
         await updateConfig(existingConfig.id, configData);
+        console.log(`[AgentBuilderEditor] Update completed successfully`);
       } else {
+        console.log(`[AgentBuilderEditor] Creating new config:`, configData);
         await createConfig(configData);
       }
 
@@ -260,9 +396,22 @@ export function AgentBuilderEditor({
           onSuccess();
         }, 1500);
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error saving agent config:", error);
+      const errorMessage = error.message || "Failed to save configuration";
+      setSubmitError(errorMessage);
       setSubmitStatus("error");
+      
+      // If it's a permission error for system configs, show specific guidance
+      if (errorMessage.includes("system") || errorMessage.includes("admin")) {
+        toast(
+          `Cannot edit system template: ${errorMessage}\n\nTo customize this template, please contact your admin or use "Run in Chat" to test different variations.`,
+          "error",
+          7000
+        );
+      } else {
+        toast(`Error: ${errorMessage}`, "error", 5000);
+      }
     } finally {
       setIsSubmitting(false);
     }
@@ -270,6 +419,19 @@ export function AgentBuilderEditor({
 
   return (
     <form onSubmit={handleSubmit} className="space-y-6">
+      {/* Warning for system configs */}
+      {existingConfig?.is_system && !isAdmin && (
+        <div className="flex items-center gap-3 p-4 bg-amber-500/10 border border-amber-500/30 rounded-lg">
+          <AlertCircle className="h-5 w-5 text-amber-500 shrink-0" />
+          <div className="flex-1 text-sm">
+            <p className="font-medium text-amber-500">System Template - Read Only</p>
+            <p className="text-amber-600/80 text-xs mt-1">
+              Only administrators can edit system templates. Changes will not be saved.
+            </p>
+          </div>
+        </div>
+      )}
+      
       {/* Workflow Type Toggle */}
       <div className="flex items-center gap-4 p-4 bg-muted/30 rounded-lg border border-border/50">
         <div className="flex-1">
@@ -429,29 +591,43 @@ export function AgentBuilderEditor({
               <label className="text-xs font-medium text-foreground mb-1.5 block">
                 Icon
               </label>
-              <div className="flex flex-wrap gap-2">
-                {THUMBNAIL_OPTIONS.map((icon) => (
-                  <label
-                    key={icon}
-                    className={cn(
-                      "flex items-center justify-center w-10 h-10 rounded-md border cursor-pointer transition-colors",
-                      formData.thumbnail === icon
-                        ? "bg-primary/10 border-primary/30"
-                        : "bg-muted/30 border-border/50 hover:bg-muted/50"
-                    )}
-                    title={icon}
-                  >
-                    <input
-                      type="radio"
-                      name="thumbnail"
-                      value={icon}
-                      checked={formData.thumbnail === icon}
-                      onChange={(e) => handleInputChange("thumbnail", e.target.value)}
-                      className="sr-only"
-                    />
-                    <span className="text-xs">{icon.slice(0, 2)}</span>
-                  </label>
-                ))}
+              <p className="text-xs text-muted-foreground mb-2">
+                Select an icon to represent your workflow
+              </p>
+              <div className="flex flex-wrap gap-3">
+                {THUMBNAIL_OPTIONS.map((iconName) => {
+                  const IconComponent = ICON_MAP[iconName];
+                  return (
+                    <label
+                      key={iconName}
+                      className={cn(
+                        "flex flex-col items-center gap-1.5 p-2.5 rounded-lg border cursor-pointer transition-all hover:scale-105",
+                        formData.thumbnail === iconName
+                          ? "bg-primary/10 border-primary shadow-sm"
+                          : "bg-muted/30 border-border/50 hover:bg-muted/50"
+                      )}
+                      title={ICON_LABELS[iconName]}
+                    >
+                      <input
+                        type="radio"
+                        name="thumbnail"
+                        value={iconName}
+                        checked={formData.thumbnail === iconName}
+                        onChange={(e) => handleInputChange("thumbnail", e.target.value)}
+                        className="sr-only"
+                      />
+                      {IconComponent && (
+                        <IconComponent className={cn(
+                          "h-5 w-5",
+                          formData.thumbnail === iconName ? "text-primary" : "text-muted-foreground"
+                        )} />
+                      )}
+                      <span className="text-[10px] text-muted-foreground leading-none text-center max-w-[60px]">
+                        {ICON_LABELS[iconName]}
+                      </span>
+                    </label>
+                  );
+                })}
               </div>
             </div>
           </>
@@ -732,10 +908,12 @@ export function AgentBuilderEditor({
             Cancel
           </Button>
         )}
+        
         <Button
           type="submit"
-          disabled={isSubmitting}
+          disabled={isSubmitting || (existingConfig?.is_system && !isAdmin)}
           className="flex-1 gap-2 gradient-primary hover:opacity-90 text-white"
+          title={existingConfig?.is_system && !isAdmin ? "Only administrators can edit system templates" : undefined}
         >
           {isSubmitting ? (
             <>

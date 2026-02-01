@@ -36,19 +36,23 @@ import {
   ExternalLink,
   MessageSquare,
   Star,
+  History,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { CAIPESpinner } from "@/components/ui/caipe-spinner";
 import { cn } from "@/lib/utils";
 import { useAgentConfigStore } from "@/store/agent-config-store";
 import { useChatStore } from "@/store/chat-store";
 import { useAdminRole } from "@/hooks/use-admin-role";
 import type { AgentConfig, AgentConfigCategory, WorkflowDifficulty } from "@/types/agent-config";
 import { generateInputFormFromPrompt } from "@/types/agent-config";
+import { WorkflowHistoryView } from "./WorkflowHistoryView";
+import type { WorkflowRun } from "@/types/workflow-run";
 
 interface AgentBuilderGalleryProps {
-  onSelectConfig?: (config: AgentConfig) => void;
+  onSelectConfig?: (config: AgentConfig, fromHistory?: boolean) => void;
   onRunQuickStart?: (prompt: string, configName?: string) => void;
   onEditConfig?: (config: AgentConfig) => void;
   onCreateNew?: () => void;
@@ -144,7 +148,7 @@ export function AgentBuilderGallery({
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategory, setSelectedCategory] = useState<string>("All");
   const [deletingId, setDeletingId] = useState<string | null>(null);
-  const [viewMode, setViewMode] = useState<"all" | "quick-start" | "workflows">("all");
+  const [viewMode, setViewMode] = useState<"all" | "quick-start" | "workflows" | "history">("all");
   
   // Input form state for quick-start with placeholders
   const [activeFormConfig, setActiveFormConfig] = useState<AgentConfig | null>(null);
@@ -152,10 +156,37 @@ export function AgentBuilderGallery({
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
   const [editablePrompt, setEditablePrompt] = useState<string>("");
 
+  // Keep activeFormConfig in sync with store updates (e.g., after editing)
+  useEffect(() => {
+    if (activeFormConfig) {
+      // Find the latest version of this config in the store
+      const latestConfig = configs.find(c => c.id === activeFormConfig.id);
+      if (latestConfig) {
+        const latestPrompt = latestConfig.tasks[0]?.llm_prompt || "";
+        const currentPrompt = activeFormConfig.tasks[0]?.llm_prompt || "";
+        
+        // Only update if the prompt has changed (to avoid infinite loop)
+        if (latestPrompt !== currentPrompt) {
+          console.log(`[AgentBuilderGallery] Config updated in store, refreshing dialog:`, latestConfig.id);
+          console.log(`[AgentBuilderGallery] Old prompt:`, currentPrompt);
+          console.log(`[AgentBuilderGallery] New prompt:`, latestPrompt);
+          
+          // Update activeFormConfig with latest data
+          setActiveFormConfig({ ...latestConfig, input_form: activeFormConfig.input_form });
+          // Update editablePrompt with latest llm_prompt
+          setEditablePrompt(latestPrompt);
+        }
+      }
+    }
+  }, [configs, activeFormConfig]); // Re-run when configs change or activeFormConfig changes
+
   // Check if user can edit/delete a config
   const canModifyConfig = (config: AgentConfig) => {
     // Admins can modify system configs
-    if (config.is_system) return isAdmin;
+    if (config.is_system) {
+      console.log(`[canModifyConfig] System config ${config.id}, isAdmin: ${isAdmin}`);
+      return isAdmin;
+    }
     // Users can modify their own configs
     return true;
   };
@@ -191,6 +222,7 @@ export function AgentBuilderGallery({
         selectedCategory === "All" || config.category === selectedCategory;
       
       const matchesViewMode =
+        viewMode === "history" || // History view doesn't filter configs
         viewMode === "all" ||
         (viewMode === "quick-start" && config.is_quick_start) ||
         (viewMode === "workflows" && !config.is_quick_start);
@@ -236,6 +268,10 @@ export function AgentBuilderGallery({
       // Always show modal for quick-starts to allow editing
       const inputForm = config.input_form || generateInputFormFromPrompt(config.tasks[0]?.llm_prompt || "", config.name);
       const basePrompt = config.tasks[0]?.llm_prompt || "";
+      
+      console.log(`[AgentBuilderGallery] Opening quick-start: ${config.name}`);
+      console.log(`[AgentBuilderGallery] Prompt from config:`, basePrompt);
+      console.log(`[AgentBuilderGallery] Full config:`, config);
       
       setActiveFormConfig({ ...config, input_form: inputForm });
       setEditablePrompt(basePrompt);
@@ -345,7 +381,7 @@ export function AgentBuilderGallery({
                 <Zap className="h-6 w-6 text-white" />
               </div>
               <div>
-                <h1 className="text-2xl font-bold gradient-text">Agent Builder</h1>
+                <h1 className="text-2xl font-bold gradient-text">Agentic Workflows</h1>
                 <p className="text-sm text-muted-foreground">
                   Quick-start templates and multi-step agent workflows
                 </p>
@@ -359,7 +395,7 @@ export function AgentBuilderGallery({
               </Button>
               <Button size="sm" onClick={onCreateNew} className="gap-2 gradient-primary text-white">
                 <Plus className="h-4 w-4" />
-                Agent Workflow Builder
+                Agentic Workflow Builder
               </Button>
             </div>
           </div>
@@ -377,18 +413,19 @@ export function AgentBuilderGallery({
           {/* View Mode & Categories */}
           <div className="flex items-center gap-4 mt-4">
             <div className="flex items-center bg-muted/50 rounded-full p-1">
-              {(["all", "quick-start", "workflows"] as const).map(mode => (
+              {(["all", "quick-start", "workflows", "history"] as const).map(mode => (
                 <Button
                   key={mode}
                   variant="ghost"
                   size="sm"
                   onClick={() => setViewMode(mode)}
                   className={cn(
-                    "rounded-full text-xs",
+                    "rounded-full text-xs gap-1",
                     viewMode === mode && "bg-primary text-primary-foreground"
                   )}
                 >
-                  {mode === "all" ? "All" : mode === "quick-start" ? "Quick Start" : "Multi-Step"}
+                  {mode === "history" && <History className="h-3 w-3" />}
+                  {mode === "all" ? "All" : mode === "quick-start" ? "Quick Start" : mode === "workflows" ? "Multi-Step" : "History"}
                 </Button>
               ))}
             </div>
@@ -413,15 +450,15 @@ export function AgentBuilderGallery({
       {/* Loading */}
       {isLoading && (
         <div className="flex items-center justify-center h-64">
-          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+          <CAIPESpinner size="lg" message="Loading workflows..." />
         </div>
       )}
 
       {/* Content */}
       {!isLoading && (
         <div className="flex-1 overflow-y-auto">
-          {/* Favorites Section */}
-          {getFavoriteConfigs().length > 0 && searchQuery === "" && selectedCategory === "All" && (
+          {/* Favorites Section - Hidden in history view */}
+          {viewMode !== "history" && getFavoriteConfigs().length > 0 && searchQuery === "" && selectedCategory === "All" && (
             <div className="mb-8 p-4 bg-gradient-to-br from-yellow-500/10 to-amber-500/10 rounded-xl border border-yellow-500/30">
               <div className="flex items-center gap-2 mb-4">
                 <Star className="h-5 w-5 text-yellow-500 fill-current" />
@@ -504,8 +541,29 @@ export function AgentBuilderGallery({
             </div>
           )}
 
+          {/* Workflow Run History */}
+          {viewMode === "history" && (
+            <div className="mb-8">
+              <div className="flex items-center gap-2 mb-4">
+                <History className="h-5 w-5 text-primary" />
+                <h2 className="text-lg font-medium">Workflow Run History</h2>
+              </div>
+              <WorkflowHistoryView
+                onReRun={(run: WorkflowRun) => {
+                  // Find the workflow config and select it
+                  const config = configs.find(c => c.id === run.workflow_id);
+                  if (config) {
+                    onSelectConfig?.(config, true); // true indicates coming from history
+                  } else {
+                    alert("Workflow configuration not found. It may have been deleted.");
+                  }
+                }}
+              />
+            </div>
+          )}
+
           {/* Featured Section */}
-          {viewMode !== "workflows" && searchQuery === "" && selectedCategory === "All" && featuredConfigs.length > 0 && (
+          {viewMode !== "workflows" && viewMode !== "history" && searchQuery === "" && selectedCategory === "All" && featuredConfigs.length > 0 && (
             <div className="mb-8 p-4 bg-muted/30 rounded-xl border border-border/50">
               <div className="flex items-center gap-2 mb-4">
                 <Rocket className="h-4 w-4 text-primary" />
@@ -584,7 +642,7 @@ export function AgentBuilderGallery({
           )}
 
           {/* Quick Start Templates */}
-          {viewMode !== "workflows" && nonFeaturedQuickStartConfigs.length > 0 && (
+          {viewMode !== "workflows" && viewMode !== "history" && nonFeaturedQuickStartConfigs.length > 0 && (
             <div className="mb-8">
               <div className="flex items-center gap-2 mb-4">
                 <Zap className="h-5 w-5 text-primary" />
@@ -606,9 +664,6 @@ export function AgentBuilderGallery({
                       onClick={() => handleConfigClick(config)}
                       className="group relative cursor-pointer p-4 rounded-xl border border-border/50 bg-card/50 hover:border-primary/30 hover:shadow-lg transition-all"
                     >
-                      {config.is_system && (
-                        <Badge variant="secondary" className="absolute top-2 right-2 text-xs">System</Badge>
-                      )}
                       <div className="flex items-start justify-between mb-3">
                         <div className={cn("p-2.5 rounded-xl bg-gradient-to-br", gradientClass)}>
                           <Icon className="h-5 w-5 text-white" />
@@ -679,7 +734,7 @@ export function AgentBuilderGallery({
           )}
 
           {/* Multi-Step Workflows */}
-          {viewMode !== "quick-start" && workflowConfigs.length > 0 && (
+          {viewMode !== "quick-start" && viewMode !== "history" && workflowConfigs.length > 0 && (
             <div className="mb-8">
               <div className="flex items-center gap-2 mb-4">
                 <Workflow className="h-5 w-5 text-primary" />
@@ -700,9 +755,6 @@ export function AgentBuilderGallery({
                       className="group relative p-4 rounded-xl border border-border/50 bg-card/50 hover:border-primary/30 hover:shadow-lg transition-all cursor-pointer"
                       onClick={() => onSelectConfig?.(config)}
                     >
-                      {config.is_system && (
-                        <Badge variant="secondary" className="absolute top-2 right-2 text-xs">System</Badge>
-                      )}
                       <div className={cn("w-10 h-10 rounded-lg bg-gradient-to-br flex items-center justify-center mb-3", gradientClass)}>
                         <Icon className="h-5 w-5 text-white" />
                       </div>

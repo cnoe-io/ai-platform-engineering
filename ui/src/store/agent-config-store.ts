@@ -10,8 +10,8 @@ import { BUILTIN_QUICK_START_TEMPLATES } from "@/types/agent-config";
 /**
  * Agent Config Store
  * 
- * Manages agent configurations for the Agent Builder feature.
- * MongoDB-only storage (no localStorage fallback) since Agent Builder
+ * Manages agent configurations for the Agentic Workflows feature.
+ * MongoDB-only storage (no localStorage fallback) since Agentic Workflows
  * requires persistent, shareable configurations.
  * 
  * On first load, automatically seeds MongoDB with built-in templates.
@@ -203,6 +203,8 @@ export const useAgentConfigStore = create<AgentConfigState>()((set, get) => ({
 
   updateConfig: async (id, updates) => {
     try {
+      console.log(`[AgentConfigStore] Updating config ${id} with:`, updates);
+      
       const response = await fetch(`/api/agent-configs?id=${id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
@@ -226,7 +228,11 @@ export const useAgentConfigStore = create<AgentConfigState>()((set, get) => ({
 
       // Reload from server
       await get().loadConfigs();
+      
+      // Log the updated config
+      const updatedConfig = get().configs.find(c => c.id === id);
       console.log(`[AgentConfigStore] Updated agent config "${id}"`);
+      console.log(`[AgentConfigStore] Reloaded config:`, updatedConfig);
     } catch (error: any) {
       console.error("[AgentConfigStore] Failed to update config:", error);
       throw error;
