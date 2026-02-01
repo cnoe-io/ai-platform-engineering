@@ -497,7 +497,8 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle }: ChatP
   return (
     <div className="h-full flex flex-col bg-background relative">
       {/* Messages Area */}
-      <ScrollArea className="flex-1" viewportRef={scrollViewportRef}>
+      <div className="flex-1 min-h-0 overflow-hidden">
+        <ScrollArea className="h-full w-full" viewportRef={scrollViewportRef}>
         <div className="max-w-7xl mx-auto pl-1 pr-1 py-4 space-y-6">
           {!conversation?.messages.length && (
             <div className="text-center py-20">
@@ -566,6 +567,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle }: ChatP
           <div ref={messagesEndRef} className="h-px" />
         </div>
       </ScrollArea>
+      </div>
 
       {/* Scroll to bottom button */}
       <AnimatePresence>
