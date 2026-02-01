@@ -13,22 +13,22 @@ interface LoadingScreenProps {
  * Branded loading screen with CAIPE logo
  * Used across login, logout, and auth guard screens
  */
-export function LoadingScreen({ 
-  message = "Loading...", 
-  onCancel, 
-  showCancel = false 
+export function LoadingScreen({
+  message = "Loading...",
+  onCancel,
+  showCancel = false
 }: LoadingScreenProps) {
   return (
     <div className="min-h-screen flex flex-col items-center justify-center bg-background relative overflow-hidden">
       {/* Background gradient */}
-      <div 
-        className="absolute inset-0" 
+      <div
+        className="absolute inset-0"
         style={{
           background: `linear-gradient(to bottom right, color-mix(in srgb, var(--gradient-from) 10%, transparent), transparent, color-mix(in srgb, var(--gradient-to) 10%, transparent))`
         }}
       />
-      <div 
-        className="absolute inset-0" 
+      <div
+        className="absolute inset-0"
         style={{
           background: `radial-gradient(ellipse at center, color-mix(in srgb, var(--gradient-from) 5%, transparent), transparent)`
         }}
@@ -80,7 +80,7 @@ export function LoadingScreen({
               />
               <div
                 className="absolute inset-0 rounded-full border-2 border-transparent border-t-primary"
-                style={{ 
+                style={{
                   animation: 'spin 0.8s linear infinite',
                   borderTopColor: getConfig('spinnerColor') || undefined
                 }}
@@ -88,7 +88,7 @@ export function LoadingScreen({
             </div>
             <span className="text-sm text-muted-foreground">{message}</span>
           </div>
-          
+
           {/* Emergency reset button */}
           {showCancel && onCancel && (
             <div className="flex flex-col items-center gap-2 mt-4">
