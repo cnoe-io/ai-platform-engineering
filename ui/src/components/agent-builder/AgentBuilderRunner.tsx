@@ -43,11 +43,13 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { useWorkflowRunStore } from "@/store/workflow-run-store";
 import { WorkflowHistoryView } from "./WorkflowHistoryView";
+import { getMarkdownComponents } from "@/lib/markdown-components";
 
 interface AgentBuilderRunnerProps {
   config: AgentConfig;
   onBack?: () => void;
   onComplete?: (result: string) => void;
+  cameFromHistory?: boolean;
 }
 
 // Execution step parsed from execution_plan events
@@ -551,22 +553,12 @@ function StreamingOutputDisplay({
         
         {/* Content */}
         <div className="flex-1 overflow-auto p-4">
-          <div
-            className={cn(
-              "prose prose-sm dark:prose-invert max-w-none",
-              "prose-p:leading-7 prose-p:my-4",
-              "prose-headings:mt-8 prose-headings:mb-4",
-              "prose-ul:my-4 prose-ol:my-4",
-              "prose-li:my-2",
-              "prose-table:my-6",
-              "prose-pre:my-6",
-              "prose-blockquote:my-6"
-            )}
+          <ReactMarkdown 
+            remarkPlugins={[remarkGfm]}
+            components={getMarkdownComponents()}
           >
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>
-              {content}
-            </ReactMarkdown>
-          </div>
+            {content}
+          </ReactMarkdown>
         </div>
       </div>
     );
@@ -678,22 +670,12 @@ function ResultOrInputForm({
         
         {/* Content */}
         <div className="flex-1 overflow-auto p-4">
-          <div
-            className={cn(
-              "prose prose-sm dark:prose-invert max-w-none",
-              "prose-p:leading-7 prose-p:my-4",
-              "prose-headings:mt-8 prose-headings:mb-4",
-              "prose-ul:my-4 prose-ol:my-4",
-              "prose-li:my-2",
-              "prose-table:my-6",
-              "prose-pre:my-6",
-              "prose-blockquote:my-6"
-            )}
+          <ReactMarkdown 
+            remarkPlugins={[remarkGfm]}
+            components={getMarkdownComponents()}
           >
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>
-              {content}
-            </ReactMarkdown>
-          </div>
+            {content}
+          </ReactMarkdown>
         </div>
       </div>
     );
@@ -703,9 +685,11 @@ function ResultOrInputForm({
     <motion.div
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
-      className="prose prose-sm dark:prose-invert max-w-none prose-p:leading-7 prose-p:my-4 prose-headings:mt-8 prose-headings:mb-4 prose-ul:my-4 prose-ol:my-4 prose-li:my-2 prose-table:my-6 prose-pre:my-6 prose-blockquote:my-6"
     >
-      <ReactMarkdown remarkPlugins={[remarkGfm]}>
+      <ReactMarkdown 
+        remarkPlugins={[remarkGfm]}
+        components={getMarkdownComponents()}
+      >
         {content}
       </ReactMarkdown>
     </motion.div>
@@ -719,6 +703,7 @@ export function AgentBuilderRunner({
   config,
   onBack,
   onComplete,
+  cameFromHistory = false,
 }: AgentBuilderRunnerProps) {
   // Workflow state
   const [status, setStatus] = useState<
@@ -757,6 +742,10 @@ export function AgentBuilderRunner({
   const clientRef = useRef<A2ASDKClient | null>(null);
   const abortedRef = useRef(false);
   const hasAutoStarted = useRef(false);
+  
+  // Workflow run tracking refs
+  const runIdRef = useRef<string | null>(null);
+  const startTimeRef = useRef<Date | null>(null);
 
   // Get A2A endpoint from config (same as ChatPanel)
   const endpoint = getConfig('caipeUrl');
@@ -920,6 +909,81 @@ export function AgentBuilderRunner({
           setFinalResult(content);
           setStatus("completed");
           setIsThinking(false);
+          
+          // Mark all remaining tool calls as completed when we get final result
+          setToolCalls((prev) => {
+            const updated = prev.map(tool => 
+              tool.status === "running" 
+                ? { ...tool, status: "completed" as const }
+                : tool
+            );
+            const runningCount = prev.filter(t => t.status === "running").length;
+            if (runningCount > 0) {
+              console.log(`[AgentBuilderRunner] ✅ Marking ${runningCount} remaining tool(s) as completed (final_result received)`);
+            }
+            return updated;
+          });
+          
+          // Save execution artifacts to MongoDB immediately
+          // (Need to use current state values since setState is async)
+          const saveExecutionArtifacts = async () => {
+            if (!runIdRef.current || !startTimeRef.current) {
+              console.warn("[AgentBuilderRunner] ⚠️ No runId or startTime available to save final result");
+              return;
+            }
+            
+            try {
+              const endTime = new Date();
+              
+              // Get current state values - need to compute completed tools synchronously
+              const finalToolCalls = toolCalls.map(tool => 
+                tool.status === "running" 
+                  ? { ...tool, status: "completed" as const }
+                  : tool
+              );
+              
+              console.log(`[AgentBuilderRunner] Saving execution artifacts on final_result for run ${runIdRef.current}`, {
+                stepsCount: steps.length,
+                toolCallsCount: finalToolCalls.length,
+                contentLength: content.length
+              });
+              
+              await updateRun(runIdRef.current, {
+                status: "completed",
+                completed_at: endTime,
+                duration_ms: endTime.getTime() - startTimeRef.current.getTime(),
+                result_summary: content,
+                steps_completed: steps.filter(s => s.status === "completed").length,
+                steps_total: steps.length,
+                tools_called: finalToolCalls.map(t => t.tool),
+                execution_artifacts: {
+                  steps: steps.map(s => ({
+                    id: s.id,
+                    agent: s.agent,
+                    description: s.description,
+                    status: s.status,
+                    order: s.order,
+                  })),
+                  tool_calls: finalToolCalls.map(t => ({
+                    id: t.id,
+                    tool: t.tool,
+                    description: t.description,
+                    agent: t.agent,
+                    status: t.status,
+                    timestamp: t.timestamp,
+                  })),
+                  streaming_content: streamingContent,
+                },
+              });
+              console.log(`[AgentBuilderRunner] ✅ Successfully saved execution artifacts for run ${runIdRef.current}`);
+            } catch (error) {
+              console.error("[AgentBuilderRunner] ❌ Failed to save execution artifacts:", error);
+            }
+          };
+          
+          // Save async but don't wait
+          saveExecutionArtifacts();
+          
           onComplete?.(content);
         }
         return;
@@ -940,7 +1004,7 @@ export function AgentBuilderRunner({
         }
       }
     },
-    [parseExecutionPlan, onComplete]
+    [parseExecutionPlan, onComplete, steps, toolCalls, streamingContent, updateRun]
   );
 
   /**
@@ -969,10 +1033,17 @@ export function AgentBuilderRunner({
           : config.description || config.name,
       });
       setCurrentRunId(runId);
+      
+      // Store in refs for access in event handlers
+      runIdRef.current = runId;
+      startTimeRef.current = startTime;
+      
       console.log(`[AgentBuilderRunner] Created workflow run: ${runId}`);
     } catch (error) {
       console.error("[AgentBuilderRunner] Failed to create workflow run:", error);
       // Continue anyway - history is not critical
+      runIdRef.current = null;
+      startTimeRef.current = null;
     }
 
     // Create A2A client
@@ -1015,6 +1086,20 @@ export function AgentBuilderRunner({
             // If no final result yet, mark as completed with streaming content
             setStatus("completed");
             setIsThinking(false);
+            
+            // Mark all remaining tool calls as completed when we get final status
+            setToolCalls((prev) => {
+              const updated = prev.map(tool => 
+                tool.status === "running" 
+                  ? { ...tool, status: "completed" as const }
+                  : tool
+              );
+              const runningCount = prev.filter(t => t.status === "running").length;
+              if (runningCount > 0) {
+                console.log(`[AgentBuilderRunner] ✅ Marking ${runningCount} remaining tool(s) as completed (final status received)`);
+              }
+              return updated;
+            });
           }
           break;
         }
@@ -1025,17 +1110,44 @@ export function AgentBuilderRunner({
         setStatus("completed");
         setIsThinking(false);
 
+        // Mark all remaining tool calls as completed
+        // (some tools may not have sent explicit end notifications)
+        setToolCalls((prev) => {
+          const updated = prev.map(tool => 
+            tool.status === "running" 
+              ? { ...tool, status: "completed" as const }
+              : tool
+          );
+          const runningCount = prev.filter(t => t.status === "running").length;
+          if (runningCount > 0) {
+            console.log(`[AgentBuilderRunner] ✅ Marking ${runningCount} remaining tool(s) as completed`);
+          }
+          return updated;
+        });
+
         // Update workflow run as completed
         if (runId) {
           try {
             const endTime = new Date();
             const resultSummary = finalResult || streamingContent || "Workflow completed successfully";
+            
+            // Get the final tool calls state with all marked as completed
+            const finalToolCalls = toolCalls.map(tool => 
+              tool.status === "running" 
+                ? { ...tool, status: "completed" as const }
+                : tool
+            );
+            
             console.log(`[AgentBuilderRunner] Finalizing workflow run ${runId}`, {
               finalResult: finalResult?.substring(0, 100),
               streamingContent: streamingContent?.substring(0, 100),
-              resultLength: resultSummary.length
+              resultLength: resultSummary.length,
+              stepsCount: steps.length,
+              toolCallsCount: finalToolCalls.length,
+              completedToolCalls: finalToolCalls.filter(t => t.status === "completed").length
             });
             
+            // Store full execution artifacts for replay
             await updateRun(runId, {
               status: "completed",
               completed_at: endTime,
@@ -1043,9 +1155,27 @@ export function AgentBuilderRunner({
               result_summary: resultSummary,
               steps_completed: steps.filter(s => s.status === "completed").length,
               steps_total: steps.length,
-              tools_called: toolCalls.map(t => t.tool),
+              tools_called: finalToolCalls.map(t => t.tool),
+              execution_artifacts: {
+                steps: steps.map(s => ({
+                  id: s.id,
+                  agent: s.agent,
+                  description: s.description,
+                  status: s.status,
+                  order: s.order,
+                })),
+                tool_calls: finalToolCalls.map(t => ({
+                  id: t.id,
+                  tool: t.tool,
+                  description: t.description,
+                  agent: t.agent,
+                  status: t.status,
+                  timestamp: t.timestamp,
+                })),
+                streaming_content: streamingContent,
+              },
             });
-            console.log(`[AgentBuilderRunner] ✅ Successfully updated workflow run ${runId} as completed`);
+            console.log(`[AgentBuilderRunner] ✅ Successfully updated workflow run ${runId} with full execution artifacts`);
           } catch (error) {
             console.error("[AgentBuilderRunner] ❌ Failed to update workflow run:", error);
           }
@@ -1060,6 +1190,20 @@ export function AgentBuilderRunner({
         setError(errorMessage);
         setStatus("failed");
         setIsThinking(false);
+
+        // Mark all remaining tool calls as completed (workflow failed)
+        setToolCalls((prev) => {
+          const updated = prev.map(tool => 
+            tool.status === "running" 
+              ? { ...tool, status: "completed" as const }
+              : tool
+          );
+          const runningCount = prev.filter(t => t.status === "running").length;
+          if (runningCount > 0) {
+            console.log(`[AgentBuilderRunner] ⚠️ Marking ${runningCount} remaining tool(s) as completed (workflow failed)`);
+          }
+          return updated;
+        });
 
         // Update workflow run as failed
         if (runId) {
@@ -1096,6 +1240,20 @@ export function AgentBuilderRunner({
     setStatus("cancelled");
     setIsThinking(false);
 
+    // Mark all remaining tool calls as completed (workflow cancelled)
+    setToolCalls((prev) => {
+      const updated = prev.map(tool => 
+        tool.status === "running" 
+          ? { ...tool, status: "completed" as const }
+          : tool
+      );
+      const runningCount = prev.filter(t => t.status === "running").length;
+      if (runningCount > 0) {
+        console.log(`[AgentBuilderRunner] ⚠️ Marking ${runningCount} remaining tool(s) as completed (workflow cancelled)`);
+      }
+      return updated;
+    });
+
     // Update workflow run as cancelled
     if (currentRunId) {
       try {
@@ -1122,6 +1280,10 @@ export function AgentBuilderRunner({
     setFinalResult("");
     setError("");
     setStreamingContent("");
+    
+    // Clear workflow run refs
+    runIdRef.current = null;
+    startTimeRef.current = null;
     setIsThinking(false);
     setIsSubmittingInput(false);
     setStructuredInputFields(null);
@@ -1228,7 +1390,12 @@ export function AgentBuilderRunner({
             <LayoutGrid className="h-5 w-5" />
           </Button>
           {onBack && (
-            <Button variant="ghost" size="icon" onClick={onBack} title="Back to gallery">
+            <Button 
+              variant="ghost" 
+              size="icon" 
+              onClick={onBack} 
+              title={cameFromHistory ? "Back to history" : "Back to gallery"}
+            >
               <ArrowLeft className="h-5 w-5" />
             </Button>
           )}

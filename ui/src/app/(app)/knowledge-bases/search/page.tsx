@@ -29,9 +29,5 @@ function SearchPage() {
 }
 
 export default function Search() {
-  return (
-    <AuthGuard>
-      <SearchPage />
-    </AuthGuard>
-  );
+  return <SearchPage />;
 }
