@@ -8,6 +8,7 @@ import {
   Database,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { CAIPESpinner } from "@/components/ui/caipe-spinner";
 import { config } from "@/lib/config";
 import { useRAGHealth } from "@/hooks/use-rag-health";
 import { KnowledgeSidebar } from "@/components/rag/KnowledgeSidebar";
@@ -72,31 +73,7 @@ export default function KnowledgeBasesLayout({
   if (ragHealth === "checking") {
     return (
       <div className="flex-1 flex flex-col items-center justify-center bg-background">
-        <div className="flex flex-col items-center gap-4">
-          {/* CAIPE Logo with spinner */}
-          <div className="relative">
-            {/* Spinning glow ring */}
-            <div
-              className="absolute inset-[-8px] rounded-3xl opacity-30 gradient-primary-br"
-              style={{
-                animation: 'spin 3s linear infinite',
-              }}
-            />
-            {/* Blur glow */}
-            <div
-              className="absolute inset-[-4px] rounded-2xl blur-xl opacity-40 gradient-primary"
-            />
-            {/* Logo container */}
-            <div className="relative w-16 h-16 rounded-2xl gradient-primary-br flex items-center justify-center shadow-2xl">
-              <img src="/logo.svg" alt="CAIPE" className="h-10 w-10" />
-            </div>
-          </div>
-          {/* Spinner */}
-          <div className="flex items-center gap-3">
-            <Loader2 className="h-5 w-5 animate-spin text-primary" />
-            <span className="text-sm text-muted-foreground">Connecting to RAG server...</span>
-          </div>
-        </div>
+        <CAIPESpinner size="lg" message="Connecting to RAG server..." />
       </div>
     );
   }

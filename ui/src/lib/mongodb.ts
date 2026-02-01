@@ -108,13 +108,23 @@ async function createIndexes(db: Db) {
     await db.collection('sharing_access').createIndex({ granted_to: 1 });
     await db.collection('sharing_access').createIndex({ conversation_id: 1, granted_to: 1 });
 
-    // Agent configs collection indexes (Agent Builder)
+    // Agent configs collection indexes (Agentic Workflows)
+    await db.collection('agent_configs').createIndex({ id: 1 }, { unique: true }); // Prevent duplicate IDs
     await db.collection('agent_configs').createIndex({ owner_id: 1 });
     await db.collection('agent_configs').createIndex({ category: 1 });
     await db.collection('agent_configs').createIndex({ is_system: 1 });
     await db.collection('agent_configs').createIndex({ name: 1 });
     await db.collection('agent_configs').createIndex({ created_at: -1 });
     await db.collection('agent_configs').createIndex({ 'metadata.tags': 1 });
+
+    // Workflow runs collection indexes (Agentic Workflows History)
+    await db.collection('workflow_runs').createIndex({ id: 1 }, { unique: true });
+    await db.collection('workflow_runs').createIndex({ workflow_id: 1 });
+    await db.collection('workflow_runs').createIndex({ owner_id: 1 });
+    await db.collection('workflow_runs').createIndex({ status: 1 });
+    await db.collection('workflow_runs').createIndex({ started_at: -1 });
+    await db.collection('workflow_runs').createIndex({ owner_id: 1, workflow_id: 1 });
+    await db.collection('workflow_runs').createIndex({ owner_id: 1, started_at: -1 });
 
     console.log('✅ MongoDB indexes created successfully');
   } catch (error) {

@@ -593,8 +593,8 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle }: ChatP
       </AnimatePresence>
 
       {/* Input Area - Fixed bottom, doesn't scroll */}
-      <div className="border-t border-border p-3 bg-background shrink-0">
-        <div className="max-w-7xl mx-auto space-y-2">
+      <div className="border-t border-border bg-background shrink-0">
+        <div className="max-w-7xl mx-auto px-6 py-3 space-y-2">
           {/* Queued Messages Display */}
           {queuedMessages.length > 0 && (
             <div className="space-y-2">
