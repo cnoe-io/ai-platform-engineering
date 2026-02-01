@@ -371,6 +371,17 @@ export const useAgentConfigStore = create<AgentConfigState>()((set, get) => ({
 
   getFavoriteConfigs: () => {
     const favorites = get().favorites;
-    return get().configs.filter((config) => favorites.includes(config.id));
+    const configs = get().configs;
+    
+    // Deduplicate by id (in case there are duplicates)
+    const seen = new Set<string>();
+    const favoriteConfigs = configs.filter((config) => {
+      if (!favorites.includes(config.id)) return false;
+      if (seen.has(config.id)) return false;
+      seen.add(config.id);
+      return true;
+    });
+    
+    return favoriteConfigs;
   },
 }));
