@@ -495,78 +495,78 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle }: ChatP
   };
 
   return (
-    <div className="h-full flex flex-col bg-background relative">
+    <div className="h-full w-full flex flex-col bg-background relative">
       {/* Messages Area */}
-      <div className="flex-1 min-h-0 overflow-hidden">
-        <ScrollArea className="h-full w-full" viewportRef={scrollViewportRef}>
-        <div className="max-w-7xl mx-auto pl-1 pr-1 py-4 space-y-6">
-          {!conversation?.messages.length && (
-            <div className="text-center py-20">
-              <div className="w-16 h-16 mx-auto mb-6 rounded-2xl bg-gradient-to-br from-primary to-primary/60 flex items-center justify-center">
-                <Sparkles className="h-8 w-8 text-white" />
+      <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
+        <ScrollArea className="flex-1" viewportRef={scrollViewportRef}>
+          <div className="max-w-7xl mx-auto pl-1 pr-1 py-4 space-y-6">
+            {!conversation?.messages.length && (
+              <div className="text-center py-20">
+                <div className="w-16 h-16 mx-auto mb-6 rounded-2xl bg-gradient-to-br from-primary to-primary/60 flex items-center justify-center">
+                  <Sparkles className="h-8 w-8 text-white" />
+                </div>
+                <h2 className="text-2xl font-bold mb-2">Welcome to {getConfig('appName')}</h2>
+                <p className="text-muted-foreground max-w-md mx-auto mb-1">
+                  {getConfig('tagline')}
+                </p>
+                <p className="text-sm text-muted-foreground/80 max-w-lg mx-auto">
+                  {getConfig('description')}
+                </p>
               </div>
-              <h2 className="text-2xl font-bold mb-2">Welcome to {getConfig('appName')}</h2>
-              <p className="text-muted-foreground max-w-md mx-auto mb-1">
-                {getConfig('tagline')}
-              </p>
-              <p className="text-sm text-muted-foreground/80 max-w-lg mx-auto">
-                {getConfig('description')}
-              </p>
-            </div>
-          )}
+            )}
 
-          <AnimatePresence mode="popLayout">
-            {conversation?.messages.map((msg, index) => {
-              const isLastMessage = index === conversation.messages.length - 1;
-              const isAssistantStreaming = isThisConversationStreaming && msg.role === "assistant" && isLastMessage;
+            <AnimatePresence mode="popLayout">
+              {conversation?.messages.map((msg, index) => {
+                const isLastMessage = index === conversation.messages.length - 1;
+                const isAssistantStreaming = isThisConversationStreaming && msg.role === "assistant" && isLastMessage;
 
-              // For retry: if user message, use its content; if assistant, find preceding user message
-              const getRetryContent = () => {
-                if (msg.role === "user") return msg.content;
-                // Find the user message right before this assistant message
-                for (let i = index - 1; i >= 0; i--) {
-                  if (conversation.messages[i].role === "user") {
-                    return conversation.messages[i].content;
-                  }
-                }
-                return null;
-              };
-
-              // Check if this is the last assistant message (latest answer)
-              const isLastAssistantMessage = msg.role === "assistant" && 
-                index === conversation.messages.length - 1;
-
-              return (
-                <ChatMessage
-                  key={msg.id}
-                  message={msg}
-                  onCopy={handleCopy}
-                  isCopied={copiedId === msg.id}
-                  isStreaming={isAssistantStreaming}
-                  isLatestAnswer={isLastAssistantMessage}
-                  onStop={isAssistantStreaming ? handleStop : undefined}
-                  onRetry={getRetryContent() ? () => handleRetry(getRetryContent()!) : undefined}
-                  feedback={msg.feedback}
-                  onFeedbackChange={(feedback) => {
-                    if (activeConversationId) {
-                      updateMessageFeedback(activeConversationId, msg.id, feedback);
+                // For retry: if user message, use its content; if assistant, find preceding user message
+                const getRetryContent = () => {
+                  if (msg.role === "user") return msg.content;
+                  // Find the user message right before this assistant message
+                  for (let i = index - 1; i >= 0; i--) {
+                    if (conversation.messages[i].role === "user") {
+                      return conversation.messages[i].content;
                     }
-                  }}
-                  onFeedbackSubmit={async (feedback) => {
-                    // TODO: Send feedback to backend
-                    console.log("Feedback submitted:", { messageId: msg.id, feedback });
-                    // Future: Send to /api/feedback endpoint
-                  }}
-                  conversationId={conversationId}
-                />
-              );
-            })}
-          </AnimatePresence>
+                  }
+                  return null;
+                };
 
-          {/* Invisible marker for scroll-to-bottom */}
-          <div ref={messagesEndRef} className="h-px" />
-        </div>
-      </ScrollArea>
+                // Check if this is the last assistant message (latest answer)
+                const isLastAssistantMessage = msg.role === "assistant" && 
+                  index === conversation.messages.length - 1;
+
+                return (
+                  <ChatMessage
+                    key={msg.id}
+                    message={msg}
+                    onCopy={handleCopy}
+                    isCopied={copiedId === msg.id}
+                    isStreaming={isAssistantStreaming}
+                    isLatestAnswer={isLastAssistantMessage}
+                    onStop={isAssistantStreaming ? handleStop : undefined}
+                    onRetry={getRetryContent() ? () => handleRetry(getRetryContent()!) : undefined}
+                    feedback={msg.feedback}
+                    onFeedbackChange={(feedback) => {
+                      if (activeConversationId) {
+                        updateMessageFeedback(activeConversationId, msg.id, feedback);
+                      }
+                    }}
+                    onFeedbackSubmit={async (feedback) => {
+                      // TODO: Send feedback to backend
+                      console.log("Feedback submitted:", { messageId: msg.id, feedback });
+                      // Future: Send to /api/feedback endpoint
+                    }}
+                    conversationId={conversationId}
+                  />
+                );
+              })}
+            </AnimatePresence>
+
+            {/* Invisible marker for scroll-to-bottom */}
+            <div ref={messagesEndRef} className="h-px" />
+          </div>
+        </ScrollArea>
       </div>
 
       {/* Scroll to bottom button */}
@@ -592,8 +592,8 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle }: ChatP
         )}
       </AnimatePresence>
 
-      {/* Input Area */}
-      <div className="border-t border-border p-3">
+      {/* Input Area - Fixed bottom, doesn't scroll */}
+      <div className="border-t border-border p-3 bg-background shrink-0">
         <div className="max-w-7xl mx-auto space-y-2">
           {/* Queued Messages Display */}
           {queuedMessages.length > 0 && (

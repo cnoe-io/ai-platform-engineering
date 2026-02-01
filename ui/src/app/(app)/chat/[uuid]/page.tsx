@@ -160,13 +160,13 @@ function ChatUUIDPage() {
   return (
     <div className="flex-1 flex overflow-hidden">
       {/* Chat Panel with conversation ID */}
-      <div className="flex-1 min-w-0">
+      <div className="flex-1 min-w-0 flex flex-col">
         <motion.div
           key="chat"
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={{ duration: 0.2 }}
-          className="h-full"
+          className="h-full flex flex-col"
         >
           <ChatPanel 
             endpoint={caipeUrl} 
