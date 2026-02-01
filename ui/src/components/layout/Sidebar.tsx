@@ -17,8 +17,7 @@ import {
   Users2,
   Shield,
   Users,
-  TrendingUp,
-  MoreHorizontal
+  TrendingUp
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -292,11 +291,6 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
                             <p className="text-sm font-medium truncate flex-1" title={conv.title}>
                               {truncateText(conv.title, sidebarWidth > 350 ? 40 : sidebarWidth > 320 ? 25 : 20)}
                             </p>
-                            {conv.title.length > (sidebarWidth > 350 ? 40 : sidebarWidth > 320 ? 25 : 20) && (
-                              <div className="shrink-0" title="Text is truncated - hover over title to see full text">
-                                <MoreHorizontal className="h-3 w-3 text-muted-foreground" />
-                              </div>
-                            )}
                             {isShared && (
                               <TooltipProvider>
                                 <Tooltip>
