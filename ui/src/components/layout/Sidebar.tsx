@@ -17,7 +17,8 @@ import {
   Users2,
   Shield,
   Users,
-  TrendingUp
+  TrendingUp,
+  MoreHorizontal
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -50,7 +51,7 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
   const [useCaseBuilderOpen, setUseCaseBuilderOpen] = useState(false);
   const storageMode = getStorageMode(); // Exclusive storage mode
   const [isPending, startTransition] = useTransition();
-  const [sidebarWidth, setSidebarWidth] = useState(300); // Track sidebar width
+  const [sidebarWidth, setSidebarWidth] = useState(320); // Track sidebar width
   const [isResizing, setIsResizing] = useState(false);
 
   // Load conversations from server when sidebar mounts (MongoDB mode only)
@@ -71,7 +72,7 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
     const handleMouseMove = (e: MouseEvent) => {
       if (!isResizing) return;
       
-      const newWidth = Math.max(250, Math.min(500, e.clientX));
+      const newWidth = Math.max(320, Math.min(500, e.clientX));
       setSidebarWidth(newWidth);
     };
 
@@ -226,6 +227,13 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
       {/* Chat History */}
       {activeTab === "chat" && (
         <div className="flex-1 overflow-hidden flex flex-col min-w-0">
+          {!collapsed && (
+            <div className="px-3 py-2 flex items-center gap-2 text-xs text-muted-foreground uppercase tracking-wider shrink-0">
+              <History className="h-3 w-3" />
+              <span>History</span>
+            </div>
+          )}
+
           <ScrollArea className="flex-1 min-w-0">
             <div className="px-2 space-y-1 pb-4">
               <AnimatePresence mode="popLayout">
@@ -281,22 +289,14 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
                       <>
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-1 min-w-0">
-                            <TooltipProvider>
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <div className="flex-1 min-w-0">
-                                    <p className="text-sm font-medium truncate">
-                                      {conv.title}
-                                    </p>
-                                  </div>
-                                </TooltipTrigger>
-                                {conv.title.length > 25 && (
-                                  <TooltipContent side="right" className="max-w-xs">
-                                    <p className="text-xs break-words">{conv.title}</p>
-                                  </TooltipContent>
-                                )}
-                              </Tooltip>
-                            </TooltipProvider>
+                            <p className="text-sm font-medium truncate flex-1" title={conv.title}>
+                              {truncateText(conv.title, sidebarWidth > 350 ? 40 : sidebarWidth > 320 ? 25 : 20)}
+                            </p>
+                            {conv.title.length > (sidebarWidth > 350 ? 40 : sidebarWidth > 320 ? 25 : 20) && (
+                              <div className="shrink-0" title="Text is truncated - hover over title to see full text">
+                                <MoreHorizontal className="h-3 w-3 text-muted-foreground" />
+                              </div>
+                            )}
                             {isShared && (
                               <TooltipProvider>
                                 <Tooltip>
@@ -376,6 +376,17 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
               >
                 <Sparkles className="h-5 w-5" />
               </Button>
+
+              {/* Custom Query Button */}
+              <Button
+                onClick={handleNewChat}
+                variant="ghost"
+                size="icon"
+                className="h-10 w-10 hover:bg-primary/10 hover:text-primary"
+                title="Custom Query"
+              >
+                <MessageSquare className="h-5 w-5" />
+              </Button>
             </div>
           ) : (
             /* Expanded state - Full content */
@@ -402,10 +413,20 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
               <Button
                 onClick={() => setUseCaseBuilderOpen(true)}
                 variant="outline"
-                className="w-full gap-2 border-dashed border-primary/30 hover:border-primary hover:bg-primary/5"
+                className="w-full gap-2 border-dashed border-primary/30 hover:border-primary hover:bg-primary/5 mb-4"
               >
                 <Sparkles className="h-4 w-4" />
                 <span>Create Use Case</span>
+              </Button>
+
+              {/* Quick Start Button */}
+              <Button
+                onClick={handleNewChat}
+                variant="outline"
+                className="w-full gap-2 border-dashed border-primary/30 hover:border-primary hover:bg-primary/5"
+              >
+                <Plus className="h-4 w-4" />
+                <span>Custom Query</span>
               </Button>
 
               {/* Categories Legend */}
