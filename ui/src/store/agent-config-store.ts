@@ -23,6 +23,7 @@ interface AgentConfigState {
   error: string | null;
   selectedConfigId: string | null;
   isSeeded: boolean;
+  favorites: string[]; // Array of config IDs
 
   // Actions
   loadConfigs: () => Promise<void>;
@@ -35,6 +36,9 @@ interface AgentConfigState {
   importFromYaml: (yamlContent: string) => Promise<string[]>;
   refreshConfigs: () => Promise<void>;
   seedTemplates: () => Promise<void>;
+  toggleFavorite: (id: string) => void;
+  isFavorite: (id: string) => boolean;
+  getFavoriteConfigs: () => AgentConfig[];
 }
 
 // Transform API response to ensure proper date handling
@@ -46,12 +50,36 @@ function transformConfig(config: any): AgentConfig {
   };
 }
 
+// Favorites helpers
+const FAVORITES_STORAGE_KEY = "agent-config-favorites";
+
+function loadFavoritesFromStorage(): string[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const stored = localStorage.getItem(FAVORITES_STORAGE_KEY);
+    return stored ? JSON.parse(stored) : [];
+  } catch (error) {
+    console.error("[AgentConfigStore] Failed to load favorites:", error);
+    return [];
+  }
+}
+
+function saveFavoritesToStorage(favorites: string[]): void {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.setItem(FAVORITES_STORAGE_KEY, JSON.stringify(favorites));
+  } catch (error) {
+    console.error("[AgentConfigStore] Failed to save favorites:", error);
+  }
+}
+
 export const useAgentConfigStore = create<AgentConfigState>()((set, get) => ({
   configs: [],
   isLoading: false,
   error: null,
   selectedConfigId: null,
   isSeeded: false,
+  favorites: loadFavoritesFromStorage(),
 
   /**
    * Seed built-in templates to MongoDB
@@ -324,5 +352,25 @@ export const useAgentConfigStore = create<AgentConfigState>()((set, get) => ({
 
   refreshConfigs: async () => {
     await get().loadConfigs();
+  },
+
+  toggleFavorite: (id) => {
+    const favorites = get().favorites;
+    const newFavorites = favorites.includes(id)
+      ? favorites.filter((fid) => fid !== id)
+      : [...favorites, id];
+    
+    saveFavoritesToStorage(newFavorites);
+    set({ favorites: newFavorites });
+    console.log(`[AgentConfigStore] Toggled favorite: ${id}`);
+  },
+
+  isFavorite: (id) => {
+    return get().favorites.includes(id);
+  },
+
+  getFavoriteConfigs: () => {
+    const favorites = get().favorites;
+    return get().configs.filter((config) => favorites.includes(config.id));
   },
 }));

@@ -35,6 +35,7 @@ import {
   X,
   ExternalLink,
   MessageSquare,
+  Star,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -126,7 +127,16 @@ export function AgentBuilderGallery({
   onCreateNew,
   onImportYaml,
 }: AgentBuilderGalleryProps) {
-  const { configs, isLoading, error, loadConfigs, deleteConfig } = useAgentConfigStore();
+  const { 
+    configs, 
+    isLoading, 
+    error, 
+    loadConfigs, 
+    deleteConfig, 
+    toggleFavorite, 
+    isFavorite, 
+    getFavoriteConfigs 
+  } = useAgentConfigStore();
   const { isAdmin } = useAdminRole();
   const router = useRouter();
   const { createConversation, setPendingMessage } = useChatStore();
@@ -410,6 +420,62 @@ export function AgentBuilderGallery({
       {/* Content */}
       {!isLoading && (
         <div className="flex-1 overflow-y-auto">
+          {/* Favorites Section */}
+          {getFavoriteConfigs().length > 0 && searchQuery === "" && selectedCategory === "All" && (
+            <div className="mb-8 p-4 bg-gradient-to-br from-yellow-500/10 to-amber-500/10 rounded-xl border border-yellow-500/30">
+              <div className="flex items-center gap-2 mb-4">
+                <Star className="h-5 w-5 text-yellow-500 fill-current" />
+                <h2 className="text-lg font-medium">Favorites</h2>
+                <Badge variant="secondary" className="bg-yellow-500/20 text-yellow-600">{getFavoriteConfigs().length}</Badge>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                {getFavoriteConfigs().map((config, index) => {
+                  const Icon = ICON_MAP[config.thumbnail || (config.is_quick_start ? "Zap" : "Workflow")] || Zap;
+                  const gradientClass = CATEGORY_COLORS[config.category] || CATEGORY_COLORS["Custom"];
+                  
+                  return (
+                    <motion.div
+                      key={config.id}
+                      initial={{ opacity: 0, y: 20 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: index * 0.03 }}
+                      whileHover={{ scale: 1.02 }}
+                      whileTap={{ scale: 0.98 }}
+                      onClick={() => config.is_quick_start ? handleConfigClick(config) : onSelectConfig?.(config)}
+                      className="relative flex items-center gap-3 p-4 rounded-xl bg-card border border-border/50 hover:border-yellow-500 hover:shadow-lg transition-all text-left group cursor-pointer"
+                    >
+                      {/* Star button - filled yellow */}
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="absolute top-2 right-2 h-7 w-7 z-10 text-yellow-500 hover:text-yellow-600"
+                        onClick={(e) => { e.stopPropagation(); toggleFavorite(config.id); }}
+                        title="Remove from favorites"
+                      >
+                        <Star className="h-4 w-4 fill-current" />
+                      </Button>
+                      
+                      <div className={cn("p-2 rounded-lg bg-gradient-to-br shrink-0", gradientClass)}>
+                        <Icon className="h-4 w-4 text-white" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="font-medium text-sm truncate pr-8">{config.name}</p>
+                        <div className="flex items-center gap-1 mt-0.5">
+                          {config.is_quick_start ? (
+                            <Badge variant="outline" className="text-[10px] px-1.5 py-0">Quick Start</Badge>
+                          ) : (
+                            <Badge variant="outline" className="text-[10px] px-1.5 py-0">{config.tasks.length} steps</Badge>
+                          )}
+                        </div>
+                      </div>
+                      <ArrowRight className="h-4 w-4 text-muted-foreground group-hover:text-yellow-500 group-hover:translate-x-1 transition-all" />
+                    </motion.div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
           {/* Featured Section */}
           {viewMode !== "workflows" && searchQuery === "" && selectedCategory === "All" && featuredConfigs.length > 0 && (
             <div className="mb-8 p-4 bg-muted/30 rounded-xl border border-border/50">
@@ -421,26 +487,64 @@ export function AgentBuilderGallery({
                 {featuredConfigs.map(config => {
                   const Icon = ICON_MAP[config.thumbnail || "Zap"] || Zap;
                   return (
-                    <motion.button
+                    <motion.div
                       key={config.id}
                       whileHover={{ scale: 1.02 }}
                       whileTap={{ scale: 0.98 }}
                       onClick={() => handleConfigClick(config)}
-                      className="flex items-center gap-3 p-4 rounded-xl bg-card border border-border/50 hover:border-primary hover:shadow-lg transition-all text-left group"
+                      className="relative flex items-center gap-3 p-4 rounded-xl bg-card border border-border/50 hover:border-primary hover:shadow-lg transition-all text-left group cursor-pointer"
                     >
+                      {/* Star button - always visible in top-right */}
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className={cn(
+                          "absolute top-2 right-2 h-7 w-7 z-10",
+                          isFavorite(config.id) ? "text-yellow-500 hover:text-yellow-600" : "text-muted-foreground/40 hover:text-muted-foreground"
+                        )}
+                        onClick={(e) => { e.stopPropagation(); toggleFavorite(config.id); }}
+                        title={isFavorite(config.id) ? "Remove from favorites" : "Add to favorites"}
+                      >
+                        <Star className={cn("h-4 w-4", isFavorite(config.id) && "fill-current")} />
+                      </Button>
+                      
                       <div className="p-2 rounded-lg gradient-primary-br shrink-0 group-hover:scale-110 transition-transform">
                         <Icon className="h-4 w-4 text-white" />
                       </div>
                       <div className="min-w-0 flex-1">
-                        <p className="font-medium text-sm truncate">{config.name}</p>
+                        <p className="font-medium text-sm truncate pr-8">{config.name}</p>
                         <div className="flex items-center gap-1 mt-0.5">
                           {config.metadata?.expected_agents?.slice(0, 2).map(agent => (
                             <Badge key={agent} variant="secondary" className="text-[10px] px-1.5 py-0">{agent}</Badge>
                           ))}
                         </div>
                       </div>
-                      <ArrowRight className="h-4 w-4 text-muted-foreground group-hover:text-primary group-hover:translate-x-1 transition-all" />
-                    </motion.button>
+                      {canModifyConfig(config) ? (
+                        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <Button 
+                            variant="ghost" 
+                            size="icon" 
+                            className="h-7 w-7" 
+                            onClick={(e) => { e.stopPropagation(); onEditConfig?.(config); }}
+                            title="Edit template"
+                          >
+                            <Edit className="h-3.5 w-3.5" />
+                          </Button>
+                          <Button 
+                            variant="ghost" 
+                            size="icon" 
+                            className="h-7 w-7 text-red-400" 
+                            onClick={(e) => handleDelete(config, e)} 
+                            disabled={deletingId === config.id}
+                            title="Delete template"
+                          >
+                            {deletingId === config.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+                          </Button>
+                        </div>
+                      ) : (
+                        <ArrowRight className="h-4 w-4 text-muted-foreground group-hover:text-primary group-hover:translate-x-1 transition-all" />
+                      )}
+                    </motion.div>
                   );
                 })}
               </div>
@@ -468,8 +572,25 @@ export function AgentBuilderGallery({
                       transition={{ delay: index * 0.03 }}
                       whileHover={{ y: -4 }}
                       onClick={() => handleConfigClick(config)}
-                      className="group cursor-pointer p-4 rounded-xl border border-border/50 bg-card/50 hover:border-primary/30 hover:shadow-lg transition-all"
+                      className="group relative cursor-pointer p-4 rounded-xl border border-border/50 bg-card/50 hover:border-primary/30 hover:shadow-lg transition-all"
                     >
+                      {/* Star button - top-left */}
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className={cn(
+                          "absolute top-2 left-2 h-7 w-7 z-10",
+                          isFavorite(config.id) ? "text-yellow-500 hover:text-yellow-600" : "text-muted-foreground/40 hover:text-muted-foreground"
+                        )}
+                        onClick={(e) => { e.stopPropagation(); toggleFavorite(config.id); }}
+                        title={isFavorite(config.id) ? "Remove from favorites" : "Add to favorites"}
+                      >
+                        <Star className={cn("h-4 w-4", isFavorite(config.id) && "fill-current")} />
+                      </Button>
+                      
+                      {config.is_system && (
+                        <Badge variant="secondary" className="absolute top-2 right-2 text-xs">System</Badge>
+                      )}
                       <div className="flex items-start justify-between mb-3">
                         <div className={cn("p-2.5 rounded-xl bg-gradient-to-br", gradientClass)}>
                           <Icon className="h-5 w-5 text-white" />
@@ -491,8 +612,30 @@ export function AgentBuilderGallery({
                             <Badge key={agent} variant="outline" className="text-xs">{agent}</Badge>
                           ))}
                         </div>
-                        <div className="flex items-center gap-1 text-sm font-medium text-primary opacity-0 group-hover:opacity-100 transition-opacity">
-                          Try it <ArrowRight className="h-4 w-4" />
+                        <div className="flex items-center gap-1">
+                          {canModifyConfig(config) && (
+                            <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                              <Button 
+                                variant="ghost" 
+                                size="icon" 
+                                className="h-7 w-7" 
+                                onClick={(e) => { e.stopPropagation(); onEditConfig?.(config); }}
+                                title="Edit template"
+                              >
+                                <Edit className="h-3.5 w-3.5" />
+                              </Button>
+                              <Button 
+                                variant="ghost" 
+                                size="icon" 
+                                className="h-7 w-7 text-red-400" 
+                                onClick={(e) => handleDelete(config, e)} 
+                                disabled={deletingId === config.id}
+                                title="Delete template"
+                              >
+                                {deletingId === config.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+                              </Button>
+                            </div>
+                          )}
                         </div>
                       </div>
                     </motion.div>
@@ -524,6 +667,20 @@ export function AgentBuilderGallery({
                       className="group relative p-4 rounded-xl border border-border/50 bg-card/50 hover:border-primary/30 hover:shadow-lg transition-all cursor-pointer"
                       onClick={() => onSelectConfig?.(config)}
                     >
+                      {/* Star button - top-left */}
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className={cn(
+                          "absolute top-2 left-2 h-7 w-7 z-10",
+                          isFavorite(config.id) ? "text-yellow-500 hover:text-yellow-600" : "text-muted-foreground/40 hover:text-muted-foreground"
+                        )}
+                        onClick={(e) => { e.stopPropagation(); toggleFavorite(config.id); }}
+                        title={isFavorite(config.id) ? "Remove from favorites" : "Add to favorites"}
+                      >
+                        <Star className={cn("h-4 w-4", isFavorite(config.id) && "fill-current")} />
+                      </Button>
+                      
                       {config.is_system && (
                         <Badge variant="secondary" className="absolute top-2 right-2 text-xs">System</Badge>
                       )}
