@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import { ChatPanel } from "@/components/chat/ChatPanel";
@@ -148,6 +148,15 @@ function ChatUUIDPage() {
     ? ('_id' in conversation ? conversation.title : conversation.title)
     : undefined;
 
+  // Memoized callbacks to prevent unnecessary re-renders
+  const handleDebugModeChange = useCallback((enabled: boolean) => {
+    setDebugMode(enabled);
+  }, []);
+
+  const handleContextPanelCollapse = useCallback((collapsed: boolean) => {
+    setContextPanelCollapsed(collapsed);
+  }, []);
+
   return (
     <div className="flex-1 flex overflow-hidden">
       {/* Chat Panel with conversation ID */}
@@ -174,13 +183,13 @@ function ChatUUIDPage() {
         </motion.div>
       </div>
 
-      {/* Context/Output Panel */}
+      {/* Context/Output Panel - kept in DOM tree, only visibility changes */}
       {contextPanelVisible && (
         <ContextPanel
           debugMode={debugMode}
-          onDebugModeChange={setDebugMode}
+          onDebugModeChange={handleDebugModeChange}
           collapsed={contextPanelCollapsed}
-          onCollapse={setContextPanelCollapsed}
+          onCollapse={handleContextPanelCollapse}
         />
       )}
     </div>
