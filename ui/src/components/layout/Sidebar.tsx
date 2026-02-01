@@ -257,7 +257,7 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
                       exit={{ opacity: 0, x: -10 }}
                       transition={{ delay: index * 0.02 }}
                       className={cn(
-                        "relative flex items-center gap-2 p-2 rounded-lg cursor-pointer transition-all min-w-0",
+                        "group relative flex items-center gap-2 p-2 rounded-lg cursor-pointer transition-all min-w-0",
                         activeConversationId === conv.id
                           ? "bg-primary/10 border border-primary/30"
                           : isShared
@@ -315,16 +315,18 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
                           </p>
                         </div>
 
-                        <div className="flex items-center gap-0.5 shrink-0 opacity-50 hover:opacity-100 transition-opacity">
-                          <ShareButton
-                            conversationId={conv.id}
-                            conversationTitle={conv.title}
-                            isOwner={new Date(conv.createdAt) > new Date('2026-01-28')}
-                          />
+                        <div className="flex items-center gap-0.5 shrink-0">
+                          <div className="opacity-0 group-hover:opacity-100 transition-opacity">
+                            <ShareButton
+                              conversationId={conv.id}
+                              conversationTitle={conv.title}
+                              isOwner={new Date(conv.createdAt) > new Date('2026-01-28')}
+                            />
+                          </div>
                           <Button
                             variant="ghost"
                             size="icon"
-                            className="h-6 w-6"
+                            className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity"
                             onClick={async (e) => {
                               console.log('[Sidebar] Delete clicked for:', conv.id);
                               e.stopPropagation();
