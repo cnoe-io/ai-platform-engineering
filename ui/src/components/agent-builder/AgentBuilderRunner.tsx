@@ -2,7 +2,6 @@
 
 import React, { useState, useCallback, useRef, useMemo } from "react";
 import { useSession } from "next-auth/react";
-import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Play,
@@ -30,7 +29,6 @@ import { cn } from "@/lib/utils";
 import { getConfig } from "@/lib/config";
 import type { AgentConfig } from "@/types/agent-config";
 import { A2ASDKClient, type ParsedA2AEvent } from "@/lib/a2a-sdk-client";
-import { useChatStore } from "@/store/chat-store";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -579,12 +577,6 @@ export function AgentBuilderRunner({
   const [structuredInputFields, setStructuredInputFields] = useState<DetectedInputField[] | null>(null);
   const [structuredInputTitle, setStructuredInputTitle] = useState<string>("");
 
-  // Router for navigation
-  const router = useRouter();
-  
-  // Chat store for creating conversations
-  const { createConversation, setPendingMessage } = useChatStore();
-
   // Auth - same pattern as ChatPanel
   const { data: session } = useSession();
   const ssoEnabled = getConfig('ssoEnabled');
@@ -850,30 +842,6 @@ export function AgentBuilderRunner({
   }, []);
 
   /**
-   * Run in Chat - Opens a new chat conversation with the query
-   */
-  const handleRunInChat = useCallback(() => {
-    // Build the prompt (same logic as handleStart)
-    let prompt: string;
-    if (config.is_quick_start && config.tasks.length > 0 && config.tasks[0].llm_prompt) {
-      prompt = config.tasks[0].llm_prompt;
-    } else {
-      prompt = config.description
-        ? `${config.name}: ${config.description}`
-        : config.name;
-    }
-
-    // Create a new conversation
-    const conversationId = createConversation();
-    
-    // Set the pending message to be auto-submitted when the chat loads
-    setPendingMessage(prompt);
-    
-    // Navigate to the chat page
-    router.push(`/chat/${conversationId}`);
-  }, [config, createConversation, setPendingMessage, router]);
-
-  /**
    * Handle user input form submission
    * Sends the collected data back to the supervisor to continue the workflow
    */
@@ -963,23 +931,13 @@ export function AgentBuilderRunner({
 
         <div className="flex items-center gap-2">
           {status === "idle" && (
-            <>
-              <Button
-                onClick={handleRunInChat}
-                variant="outline"
-                className="gap-2"
-              >
-                <MessageSquare className="h-4 w-4" />
-                Run in Chat
-              </Button>
-              <Button
-                onClick={handleStart}
-                className="gap-2 gradient-primary text-white"
-              >
-                <Play className="h-4 w-4" />
-                Run in Workflow
-              </Button>
-            </>
+            <Button
+              onClick={handleStart}
+              className="gap-2 gradient-primary text-white"
+            >
+              <Play className="h-4 w-4" />
+              Start Workflow
+            </Button>
           )}
           {status === "running" && (
             <>

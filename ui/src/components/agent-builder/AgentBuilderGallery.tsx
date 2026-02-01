@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useState, useMemo } from "react";
+import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Search,
@@ -33,12 +34,14 @@ import {
   ArrowRight,
   X,
   ExternalLink,
+  MessageSquare,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { useAgentConfigStore } from "@/store/agent-config-store";
+import { useChatStore } from "@/store/chat-store";
 import { useAdminRole } from "@/hooks/use-admin-role";
 import type { AgentConfig, AgentConfigCategory, WorkflowDifficulty } from "@/types/agent-config";
 import { generateInputFormFromPrompt } from "@/types/agent-config";
@@ -125,6 +128,9 @@ export function AgentBuilderGallery({
 }: AgentBuilderGalleryProps) {
   const { configs, isLoading, error, loadConfigs, deleteConfig } = useAgentConfigStore();
   const { isAdmin } = useAdminRole();
+  const router = useRouter();
+  const { createConversation, setPendingMessage } = useChatStore();
+  
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategory, setSelectedCategory] = useState<string>("All");
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -274,6 +280,37 @@ export function AgentBuilderGallery({
     // Use the editable prompt (which may have been modified by the user)
     setActiveFormConfig(null);
     onRunQuickStart?.(editablePrompt, activeFormConfig.name);
+  };
+
+  const handleRunInChat = () => {
+    if (!activeFormConfig) return;
+    
+    // Validate required fields if there are any
+    if (activeFormConfig.input_form && activeFormConfig.input_form.fields.length > 0) {
+      const errors: Record<string, string> = {};
+      activeFormConfig.input_form.fields.forEach(field => {
+        if (field.required && !formValues[field.name]?.trim()) {
+          errors[field.name] = `${field.label} is required`;
+        }
+      });
+      
+      if (Object.keys(errors).length > 0) {
+        setFormErrors(errors);
+        return;
+      }
+    }
+    
+    // Create a new conversation
+    const conversationId = createConversation();
+    
+    // Set the pending message to be auto-submitted when the chat loads
+    setPendingMessage(editablePrompt);
+    
+    // Close the modal
+    setActiveFormConfig(null);
+    
+    // Navigate to the chat page
+    router.push(`/chat/${conversationId}`);
   };
 
   if (error) {
@@ -630,6 +667,15 @@ export function AgentBuilderGallery({
               {/* Footer */}
               <div className="flex items-center justify-end gap-3 p-4 border-t bg-muted/30 shrink-0">
                 <Button variant="ghost" onClick={() => setActiveFormConfig(null)}>Cancel</Button>
+                <Button 
+                  onClick={handleRunInChat}
+                  variant="outline"
+                  className="gap-2"
+                  disabled={!editablePrompt.trim()}
+                >
+                  <MessageSquare className="h-4 w-4" />
+                  Run in Chat
+                </Button>
                 <Button 
                   onClick={handleFormSubmit} 
                   className="gradient-primary text-white gap-2"
