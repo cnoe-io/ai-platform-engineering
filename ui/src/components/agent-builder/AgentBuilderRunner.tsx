@@ -746,6 +746,7 @@ export function AgentBuilderRunner({
   // Workflow run tracking refs
   const runIdRef = useRef<string | null>(null);
   const startTimeRef = useRef<Date | null>(null);
+  const workflowSavedRef = useRef(false);  // Track if we've already saved to avoid duplicates
   const stepsRef = useRef<ExecutionStep[]>([]);
   const toolCallsRef = useRef<ToolCall[]>([]);
   const streamingContentRef = useRef<string>("");
@@ -1002,12 +1003,15 @@ export function AgentBuilderRunner({
                 },
               });
               console.log(`[AgentBuilderRunner] ✅ Successfully saved execution artifacts for run ${runIdRef.current}`);
+              
+              // Mark as saved so we don't duplicate on stream end
+              workflowSavedRef.current = true;
             } catch (error) {
               console.error("[AgentBuilderRunner] ❌ Failed to save execution artifacts:", error);
             }
           };
           
-          // Save async but don't wait
+          // Save async but don't wait (so UI updates immediately)
           saveExecutionArtifacts();
           
           onComplete?.(content);
@@ -1045,6 +1049,7 @@ export function AgentBuilderRunner({
     setStreamingContent("");
     setIsThinking(true);
     abortedRef.current = false;
+    workflowSavedRef.current = false;  // Reset saved flag for new workflow
 
     // Create workflow run history entry
     const startTime = new Date();
@@ -1151,8 +1156,8 @@ export function AgentBuilderRunner({
           return updated;
         });
 
-        // Update workflow run as completed
-        if (runId) {
+        // Update workflow run as completed (only if not already saved by final_result handler)
+        if (runId && !workflowSavedRef.current) {
           try {
             const endTime = new Date();
             
@@ -1209,9 +1214,12 @@ export function AgentBuilderRunner({
               },
             });
             console.log(`[AgentBuilderRunner] ✅ Successfully updated workflow run ${runId} with full execution artifacts`);
+            workflowSavedRef.current = true;
           } catch (error) {
             console.error("[AgentBuilderRunner] ❌ Failed to update workflow run:", error);
           }
+        } else if (workflowSavedRef.current) {
+          console.log(`[AgentBuilderRunner] ⏭️ Skipping duplicate save - workflow ${runId} already saved`);
         } else {
           console.warn("[AgentBuilderRunner] ⚠️ No runId available to update completion status");
         }
@@ -1339,6 +1347,74 @@ export function AgentBuilderRunner({
       setTimeout(() => handleStart(), 100);
     }
   }, [handleStart]); // Include handleStart to avoid stale closure
+
+  /**
+   * Cleanup: Finalize workflow run on unmount if it has results but wasn't saved
+   */
+  useEffect(() => {
+    return () => {
+      // On component unmount, finalize workflow if we have a final result but haven't saved
+      const finalizeOnUnmount = async () => {
+        const runId = runIdRef.current;
+        const startTime = startTimeRef.current;
+        const alreadySaved = workflowSavedRef.current;
+        const hasFinalResult = finalResultRef.current || streamingContentRef.current;
+        
+        if (runId && startTime && !alreadySaved && hasFinalResult) {
+          console.log(`[AgentBuilderRunner] 🔄 Component unmounting - finalizing workflow ${runId}`);
+          
+          try {
+            const endTime = new Date();
+            const currentSteps = stepsRef.current;
+            const currentToolCalls = toolCallsRef.current;
+            const currentStreamingContent = streamingContentRef.current;
+            const currentFinalResult = finalResultRef.current;
+            
+            const resultSummary = currentFinalResult || currentStreamingContent || "Workflow completed";
+            
+            const finalToolCalls = currentToolCalls.map(tool => 
+              tool.status === "running" 
+                ? { ...tool, status: "completed" as const }
+                : tool
+            );
+            
+            await updateRun(runId, {
+              status: "completed",
+              completed_at: endTime,
+              duration_ms: endTime.getTime() - startTime.getTime(),
+              result_summary: resultSummary,
+              steps_completed: currentSteps.filter(s => s.status === "completed").length,
+              steps_total: currentSteps.length,
+              tools_called: finalToolCalls.map(t => t.tool),
+              execution_artifacts: {
+                steps: currentSteps.map(s => ({
+                  id: s.id,
+                  agent: s.agent,
+                  description: s.description,
+                  status: s.status,
+                  order: s.order,
+                })),
+                tool_calls: finalToolCalls.map(t => ({
+                  id: t.id,
+                  tool: t.tool,
+                  description: t.description,
+                  agent: t.agent,
+                  status: t.status,
+                  timestamp: t.timestamp,
+                })),
+                streaming_content: currentStreamingContent,
+              },
+            });
+            console.log(`[AgentBuilderRunner] ✅ Finalized workflow ${runId} on unmount`);
+          } catch (error) {
+            console.error("[AgentBuilderRunner] ❌ Failed to finalize workflow on unmount:", error);
+          }
+        }
+      };
+      
+      finalizeOnUnmount();
+    };
+  }, [updateRun]); // Only recreate if updateRun changes
 
   /**
    * Handle user input form submission
