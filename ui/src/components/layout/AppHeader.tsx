@@ -26,6 +26,12 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 export function AppHeader() {
   const pathname = usePathname();
@@ -117,21 +123,46 @@ export function AppHeader() {
             <Database className="h-3.5 w-3.5" />
             Knowledge Bases
           </Link>
-          {/* Admin tab - only visible to admin users */}
+          {/* Admin tab - only visible to admin users, disabled if MongoDB not configured */}
           {isAdmin && (
-            <Link
-              href="/admin"
-              prefetch={true}
-              className={cn(
-                "flex items-center gap-1.5 px-4 py-1.5 rounded-full text-sm font-medium transition-all",
-                activeTab === "admin"
-                  ? "bg-red-500 text-white shadow-sm"
-                  : "text-muted-foreground hover:text-foreground"
-              )}
-            >
-              <Shield className="h-3.5 w-3.5" />
-              Admin
-            </Link>
+            <TooltipProvider delayDuration={300}>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  {storageMode === 'mongodb' ? (
+                    <Link
+                      href="/admin"
+                      prefetch={true}
+                      className={cn(
+                        "flex items-center gap-1.5 px-4 py-1.5 rounded-full text-sm font-medium transition-all",
+                        activeTab === "admin"
+                          ? "bg-red-500 text-white shadow-sm"
+                          : "text-muted-foreground hover:text-foreground"
+                      )}
+                    >
+                      <Shield className="h-3.5 w-3.5" />
+                      Admin
+                    </Link>
+                  ) : (
+                    <div
+                      className={cn(
+                        "flex items-center gap-1.5 px-4 py-1.5 rounded-full text-sm font-medium transition-all cursor-not-allowed",
+                        "text-muted-foreground/50 opacity-50"
+                      )}
+                    >
+                      <Shield className="h-3.5 w-3.5" />
+                      Admin
+                    </div>
+                  )}
+                </TooltipTrigger>
+                {storageMode !== 'mongodb' && (
+                  <TooltipContent side="bottom" className="max-w-xs">
+                    <p className="text-xs">
+                      Admin dashboard requires MongoDB to be configured. Please set up MongoDB to enable user and team management.
+                    </p>
+                  </TooltipContent>
+                )}
+              </Tooltip>
+            </TooltipProvider>
           )}
         </div>
       </div>
