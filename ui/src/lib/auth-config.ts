@@ -326,9 +326,10 @@ export const authOptions: NextAuthOptions = {
       
       // Only pass tokens if they're valid (not expired)
       if (!token.error) {
-        // Store a truncated version or just indicate token exists
+        // Store access token and ID token for client-side use
         session.accessToken = token.accessToken as string;
-        // Don't store idToken in session - not needed client-side
+        session.idToken = token.idToken as string; // Needed for decoding groups/claims client-side
+        session.hasRefreshToken = !!token.refreshToken; // Indicate if refresh token is available
       }
       
       session.error = token.error as string | undefined;
@@ -399,9 +400,11 @@ export const authOptions: NextAuthOptions = {
 declare module "next-auth" {
   interface Session {
     accessToken?: string;
-    // idToken removed - not needed client-side and saves ~2KB
+    idToken?: string; // Needed for client-side group extraction (not stored in cookie, fetched on demand)
+    hasRefreshToken?: boolean; // Indicate if refresh token is available
     error?: string;
-    // groups removed - too large (40+ groups = 8KB cookie!)
+    // groups removed from session - too large (40+ groups = 8KB cookie!)
+    // Instead, extract groups client-side from idToken when needed
     isAuthorized?: boolean;
     sub?: string; // User subject ID from OIDC
     role?: 'admin' | 'user';
