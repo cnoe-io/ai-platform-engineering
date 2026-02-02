@@ -22,6 +22,7 @@ import { DEFAULT_AGENTS, CustomCall } from "./CustomCallButtons";
 import { AGENT_LOGOS } from "@/components/shared/AgentLogos";
 import { SubAgentCard, groupEventsByAgent, getAgentDisplayOrder, isRealSubAgent } from "./SubAgentCard";
 import { AgentStreamBox } from "./AgentStreamBox";
+import { MetadataInputForm, type UserInputMetadata, type InputField } from "./MetadataInputForm";
 
 interface ChatPanelProps {
   endpoint: string;
@@ -40,6 +41,12 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle }: ChatP
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const scrollViewportRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  
+  // User input form state
+  const [pendingUserInput, setPendingUserInput] = useState<{
+    messageId: string;
+    metadata: UserInputMetadata;
+  } | null>(null);
 
   // Auto-scroll state
   const [isUserScrolledUp, setIsUserScrolledUp] = useState(false);
@@ -222,10 +229,25 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle }: ChatP
         // Store ALL events in A2A Debug (no batching)
         const storeEvent = toStoreEvent(event, `event-${eventNum}-${Date.now()}`);
         addA2AEvent(storeEvent as Parameters<typeof addA2AEvent>[0], convId!);
+        
+        // ═══════════════════════════════════════════════════════════════
+        // DETECT USER INPUT FORM REQUEST
+        // ═══════════════════════════════════════════════════════════════
+        if (artifactName === "UserInputMetaData" && event.metadata) {
+          console.log(`[ChatPanel] 📝 USER INPUT FORM REQUESTED - Event #${eventNum}`);
+          const metadata = event.metadata as UserInputMetadata;
+          if (metadata.input_fields && metadata.input_fields.length > 0) {
+            console.log(`[ChatPanel] 📝 Form has ${metadata.input_fields.length} fields:`, metadata.input_fields.map(f => f.field_name));
+            setPendingUserInput({
+              messageId: assistantMsgId,
+              metadata,
+            });
+          }
+        }
 
         // 🔍 DEBUG: Condensed logging
         const isImportantEvent = artifactName === "final_result" || artifactName === "partial_result" ||
-                                  event.type === "status";
+                                  event.type === "status" || artifactName === "UserInputMetaData";
         if (isImportantEvent || eventNum % 50 === 0) {
           console.log(`[A2A SDK] #${eventNum} ${event.type}/${artifactName} len=${newContent?.length || 0} final=${event.isFinal} buf=${accumulatedText.length}`);
         }
@@ -415,6 +437,24 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle }: ChatP
       cancelConversationRequest(activeConversationId);
     }
   };
+  
+  // Handle user input form submission
+  const handleUserInputSubmit = useCallback(async (formData: Record<string, string>) => {
+    if (!pendingUserInput) return;
+    
+    console.log("[ChatPanel] 📝 User input form submitted:", formData);
+    
+    // Format the form data as a message
+    const formattedMessage = Object.entries(formData)
+      .map(([key, value]) => `${key}: ${value}`)
+      .join("\n");
+    
+    // Clear pending input
+    setPendingUserInput(null);
+    
+    // Submit the form data as a new message
+    await submitMessage(formattedMessage);
+  }, [pendingUserInput, submitMessage]);
 
   // Handle @mention detection
   const handleInputChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
@@ -562,6 +602,19 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle }: ChatP
                 );
               })}
             </AnimatePresence>
+
+            {/* User Input Form */}
+            {pendingUserInput && pendingUserInput.metadata.input_fields && (
+              <MetadataInputForm
+                messageId={pendingUserInput.messageId}
+                title={pendingUserInput.metadata.input_title}
+                description={pendingUserInput.metadata.input_description}
+                inputFields={pendingUserInput.metadata.input_fields}
+                onSubmit={handleUserInputSubmit}
+                onCancel={() => setPendingUserInput(null)}
+                disabled={isThisConversationStreaming}
+              />
+            )}
 
             {/* Invisible marker for scroll-to-bottom */}
             <div ref={messagesEndRef} className="h-px" />
