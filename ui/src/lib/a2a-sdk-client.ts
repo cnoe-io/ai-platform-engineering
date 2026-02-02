@@ -366,8 +366,9 @@ export class A2ASDKClient {
     const sourceAgent = artifact?.metadata?.sourceAgent as string | undefined;
     
     // Extract user input metadata if present
-    const requireUserInput = artifact?.metadata?.require_user_input as boolean | undefined;
-    const userInputMetadata = artifact?.metadata?.metadata as {
+    // Check both metadata.metadata (legacy) and DataPart (new format)
+    let requireUserInput = artifact?.metadata?.require_user_input as boolean | undefined;
+    let userInputMetadata = artifact?.metadata?.metadata as {
       user_input?: boolean;
       input_title?: string;
       input_description?: string;
@@ -382,6 +383,22 @@ export class A2ASDKClient {
         default_value?: string;
       }>;
     } | undefined;
+    
+    // For UserInputMetaData artifacts, extract data from DataPart
+    if (artifactName === "UserInputMetaData" && artifact?.parts) {
+      for (const part of artifact.parts) {
+        if ((part as DataPart).kind === "data" && (part as DataPart).data) {
+          const dataPart = part as DataPart;
+          userInputMetadata = dataPart.data as typeof userInputMetadata;
+          requireUserInput = true;
+          console.log(`[A2A SDK] 📝 Extracted UserInputMetaData from DataPart:`, {
+            title: userInputMetadata?.input_title,
+            fields: userInputMetadata?.input_fields?.length || 0
+          });
+          break;
+        }
+      }
+    }
 
     // Determine if this is a final result
     const isFinalResult = artifactName === "final_result" || artifactName === "partial_result";
