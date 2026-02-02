@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { motion } from "framer-motion";
+import { Sidebar } from "@/components/layout/Sidebar";
 import { ChatPanel } from "@/components/chat/ChatPanel";
 import { ContextPanel } from "@/components/a2a/ContextPanel";
 import { AuthGuard } from "@/components/auth-guard";
@@ -19,12 +20,23 @@ function ChatUUIDPage() {
   const router = useRouter();
   const uuid = params.uuid as string;
 
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [contextPanelVisible, setContextPanelVisible] = useState(true);
   const [contextPanelCollapsed, setContextPanelCollapsed] = useState(false);
   const [debugMode, setDebugMode] = useState(false);
   
   const { conversations: localConversations, setActiveConversation } = useChatStore();
   const caipeUrl = getConfig('caipeUrl');
+  
+  const handleTabChange = (tab: "chat" | "gallery" | "knowledge") => {
+    if (tab === "chat") {
+      router.push("/chat");
+    } else if (tab === "gallery") {
+      router.push("/use-cases");
+    } else {
+      router.push("/knowledge-bases");
+    }
+  };
   
   // Check store immediately (synchronous, no loading state!)
   const existingConv = localConversations.find((c) => c.id === uuid);
@@ -59,6 +71,15 @@ function ChatUUIDPage() {
         return;
       }
 
+      // If conversation is not in store and we're NOT the active conversation,
+      // this conversation might have been deleted - don't try to load it
+      const currentActiveId = useChatStore.getState().activeConversationId;
+      if (currentActiveId && currentActiveId !== uuid) {
+        console.log("[ChatUUID] Not active conversation, aborting load (might be deleted)");
+        setLoading(false);
+        return;
+      }
+
       console.log("[ChatUUID] Conversation not in store, loading from backend...");
 
       try {
@@ -67,48 +88,95 @@ function ChatUUIDPage() {
           console.log("[ChatUUID] Loading from MongoDB...");
           try {
             const conv = await apiClient.getConversation(uuid);
-            setConversation(conv);
+            // Convert MongoDB conversation to local format
+            const localConv: LocalConversation = {
+              id: conv._id,
+              title: conv.title,
+              createdAt: new Date(conv.created_at),
+              updatedAt: new Date(conv.updated_at),
+              messages: conv.messages || [],
+              a2aEvents: [],
+            };
+            
+            // Add to Zustand store so ContextPanel can find it
+            useChatStore.setState((state) => ({
+              conversations: [localConv, ...state.conversations.filter(c => c.id !== uuid)],
+            }));
+            
+            setConversation(localConv);
           } catch (apiErr: any) {
-            // Conversation doesn't exist in MongoDB (404) - treat as new conversation
+            // Check store again - it might have been added while we were fetching
+            const storeConv = useChatStore.getState().conversations.find(c => c.id === uuid);
+            if (storeConv) {
+              console.log("[ChatUUID] Conversation appeared in store during fetch");
+              setConversation(storeConv);
+              return;
+            }
+            
+            // Conversation doesn't exist in MongoDB (404) - this is expected for new conversations
             if (apiErr.message?.includes('not found') || apiErr.message?.includes('404')) {
-              console.log("[ChatUUID] Conversation not found in MongoDB, creating new empty conversation");
+              console.log("[ChatUUID] Conversation not found in MongoDB (expected for new conversations)");
             } else {
               console.warn("[ChatUUID] Failed to load from MongoDB:", apiErr.message);
             }
             // Create empty conversation for both cases
-            setConversation({
+            const newConv: LocalConversation = {
               id: uuid,
               title: "New Conversation",
               createdAt: new Date(),
               updatedAt: new Date(),
               messages: [],
               a2aEvents: [],
-            });
+            };
+            
+            // Add to Zustand store
+            useChatStore.setState((state) => ({
+              conversations: [newConv, ...state.conversations.filter(c => c.id !== uuid)],
+            }));
+            
+            setConversation(newConv);
           }
         } else {
           // MongoDB not available, show empty conversation
           console.log("[ChatUUID] MongoDB unavailable, showing empty conversation");
-          setConversation({
+          const newConv: LocalConversation = {
             id: uuid,
             title: "New Conversation",
             createdAt: new Date(),
             updatedAt: new Date(),
             messages: [],
             a2aEvents: [],
-          });
+          };
+          
+          // Add to Zustand store
+          useChatStore.setState((state) => ({
+            conversations: [newConv, ...state.conversations.filter(c => c.id !== uuid)],
+          }));
+          
+          setConversation(newConv);
         }
       } catch (err) {
         console.error("[ChatUUID] Unexpected error:", err);
         // Fallback to empty conversation
-        setConversation({
+        const newConv: LocalConversation = {
           id: uuid,
           title: "New Conversation",
           createdAt: new Date(),
           updatedAt: new Date(),
           messages: [],
           a2aEvents: [],
-        });
+        };
+        
+        // Add to Zustand store
+        useChatStore.setState((state) => ({
+          conversations: [newConv, ...state.conversations.filter(c => c.id !== uuid)],
+        }));
+        
+        setConversation(newConv);
       } finally {
+        // CRITICAL: Always set the active conversation, even when loading from MongoDB
+        // This ensures the ContextPanel can display Tasks and A2A Debug
+        setActiveConversation(uuid);
         setLoading(false);
       }
     }
@@ -119,10 +187,18 @@ function ChatUUIDPage() {
   // Show loading spinner only when actually fetching from MongoDB
   if (loading) {
     return (
-      <div className="flex-1 flex items-center justify-center">
-        <div className="flex flex-col items-center gap-4">
-          <Loader2 className="h-8 w-8 animate-spin text-primary" />
-          <p className="text-sm text-muted-foreground">Loading conversation...</p>
+      <div className="flex-1 flex overflow-hidden">
+        <Sidebar
+          activeTab="chat"
+          onTabChange={handleTabChange}
+          collapsed={sidebarCollapsed}
+          onCollapse={setSidebarCollapsed}
+        />
+        <div className="flex-1 flex items-center justify-center">
+          <div className="flex flex-col items-center gap-4">
+            <Loader2 className="h-8 w-8 animate-spin text-primary" />
+            <p className="text-sm text-muted-foreground">Loading conversation...</p>
+          </div>
         </div>
       </div>
     );
@@ -130,15 +206,23 @@ function ChatUUIDPage() {
 
   if (error) {
     return (
-      <div className="flex-1 flex items-center justify-center">
-        <div className="flex flex-col items-center gap-4">
-          <p className="text-sm text-destructive">{error}</p>
-          <button
-            onClick={() => router.push("/chat")}
-            className="text-sm text-primary hover:underline"
-          >
-            Go to new conversation
-          </button>
+      <div className="flex-1 flex overflow-hidden">
+        <Sidebar
+          activeTab="chat"
+          onTabChange={handleTabChange}
+          collapsed={sidebarCollapsed}
+          onCollapse={setSidebarCollapsed}
+        />
+        <div className="flex-1 flex items-center justify-center">
+          <div className="flex flex-col items-center gap-4">
+            <p className="text-sm text-destructive">{error}</p>
+            <button
+              onClick={() => router.push("/chat")}
+              className="text-sm text-primary hover:underline"
+            >
+              Go to new conversation
+            </button>
+          </div>
         </div>
       </div>
     );
@@ -159,6 +243,14 @@ function ChatUUIDPage() {
 
   return (
     <div className="flex-1 flex overflow-hidden">
+      {/* Sidebar - with conversation history */}
+      <Sidebar
+        activeTab="chat"
+        onTabChange={handleTabChange}
+        collapsed={sidebarCollapsed}
+        onCollapse={setSidebarCollapsed}
+      />
+
       {/* Chat Panel with conversation ID */}
       <div className="flex-1 min-w-0 flex flex-col">
         <motion.div
