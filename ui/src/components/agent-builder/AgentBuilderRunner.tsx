@@ -1543,16 +1543,15 @@ export function AgentBuilderRunner({
           >
             <LayoutGrid className="h-5 w-5" />
           </Button>
-          {onBack && (
-            <Button 
-              variant="ghost" 
-              size="icon" 
-              onClick={onBack} 
-              title={cameFromHistory ? "Back to history" : "Back to gallery"}
-            >
-              <ArrowLeft className="h-5 w-5" />
-            </Button>
-          )}
+          {/* Back button - opens history panel */}
+          <Button 
+            variant="ghost" 
+            size="icon" 
+            onClick={() => setShowHistoryPanel(true)} 
+            title="View workflow history"
+          >
+            <ArrowLeft className="h-5 w-5" />
+          </Button>
           <div>
             <h1 className="text-lg font-semibold">{config.name}</h1>
             {config.description && (
