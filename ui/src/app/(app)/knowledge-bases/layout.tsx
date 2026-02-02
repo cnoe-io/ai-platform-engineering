@@ -12,8 +12,9 @@ import { CAIPESpinner } from "@/components/ui/caipe-spinner";
 import { config } from "@/lib/config";
 import { useRAGHealth } from "@/hooks/use-rag-health";
 import { KnowledgeSidebar } from "@/components/rag/KnowledgeSidebar";
+import { AuthGuard } from "@/components/auth-guard";
 
-export default function KnowledgeBasesLayout({
+function KnowledgeBasesLayoutContent({
   children,
 }: {
   children: React.ReactNode;
@@ -93,5 +94,19 @@ export default function KnowledgeBasesLayout({
         {children}
       </div>
     </div>
+  );
+}
+
+export default function KnowledgeBasesLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  return (
+    <AuthGuard>
+      <KnowledgeBasesLayoutContent>
+        {children}
+      </KnowledgeBasesLayoutContent>
+    </AuthGuard>
   );
 }
