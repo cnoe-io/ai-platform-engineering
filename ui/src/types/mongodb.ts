@@ -14,6 +14,7 @@ export interface User {
   created_at: Date;
   updated_at: Date;
   last_login: Date;
+  favorites?: string[]; // Array of agent config IDs
   metadata: {
     sso_provider: string;
     sso_id: string;
