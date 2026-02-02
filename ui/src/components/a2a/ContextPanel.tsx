@@ -52,19 +52,16 @@ export function ContextPanel({
   // Collapse tool history after streaming ends
   const [toolsCollapsed, setToolsCollapsed] = useState(false);
 
-  // Get the active conversation - use only activeConversationId and getActiveConversation
+  // Get the active conversation
   const conversation = useMemo(() => {
     if (!activeConversationId) return null;
-    // Call getActiveConversation() directly - no array dependency
-    return getActiveConversation();
-  }, [activeConversationId, getActiveConversation]);
+    return conversations.find(c => c.id === activeConversationId) || null;
+  }, [activeConversationId, conversations]);
 
-  // Get events for the active conversation - call function directly, don't iterate array
+  // Get events for the active conversation
   const conversationEvents = useMemo(() => {
-    if (!activeConversationId) return [];
-    const conv = getActiveConversation();
-    return conv?.a2aEvents || [];
-  }, [activeConversationId, getActiveConversation]);
+    return conversation?.a2aEvents || [];
+  }, [conversation]);
 
   // Check if streaming is truly active:
   // 1. Global isStreaming must be true
