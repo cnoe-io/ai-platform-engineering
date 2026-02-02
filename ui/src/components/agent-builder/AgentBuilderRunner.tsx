@@ -955,8 +955,9 @@ export function AgentBuilderRunner({
               return;
             }
             
+            setIsSavingWorkflow(true);
+            
             try {
-              setIsSavingWorkflow(true);
               const endTime = new Date();
               
               // Use refs to get current state (avoid closure issues)
@@ -971,12 +972,13 @@ export function AgentBuilderRunner({
                   : tool
               );
               
-              console.log(`[AgentBuilderRunner] Saving execution artifacts on final_result for run ${runIdRef.current}`, {
+              console.log(`[AgentBuilderRunner] 💾 Saving execution artifacts for run ${runIdRef.current}`, {
                 stepsCount: currentSteps.length,
                 toolCallsCount: finalToolCalls.length,
                 contentLength: content.length
               });
               
+              // CRITICAL: Wait for save to complete before proceeding
               await updateRun(runIdRef.current, {
                 status: "completed",
                 completed_at: endTime,
@@ -1004,19 +1006,28 @@ export function AgentBuilderRunner({
                   streaming_content: currentStreamingContent,
                 },
               });
+              
               console.log(`[AgentBuilderRunner] ✅ Successfully saved execution artifacts for run ${runIdRef.current}`);
               
               // Mark as saved so we don't duplicate on stream end
               workflowSavedRef.current = true;
             } catch (error) {
               console.error("[AgentBuilderRunner] ❌ Failed to save execution artifacts:", error);
+              console.error("[AgentBuilderRunner] Error details:", {
+                runId: runIdRef.current,
+                error: error instanceof Error ? error.message : String(error),
+                stack: error instanceof Error ? error.stack : undefined
+              });
+              
+              // Show error to user
+              setError(`Failed to save workflow: ${error instanceof Error ? error.message : String(error)}`);
             } finally {
               setIsSavingWorkflow(false);
             }
           };
           
-          // Save async but don't wait (so UI updates immediately)
-          saveExecutionArtifacts();
+          // IMPORTANT: Await the save to ensure it completes
+          await saveExecutionArtifacts();
           
           onComplete?.(content);
         }
@@ -1162,8 +1173,9 @@ export function AgentBuilderRunner({
 
         // Update workflow run as completed (only if not already saved by final_result handler)
         if (runId && !workflowSavedRef.current) {
+          setIsSavingWorkflow(true);
+          
           try {
-            setIsSavingWorkflow(true);
             const endTime = new Date();
             
             // Use refs to get current state (avoid closure issues)
@@ -1181,7 +1193,7 @@ export function AgentBuilderRunner({
                 : tool
             );
             
-            console.log(`[AgentBuilderRunner] Finalizing workflow run ${runId}`, {
+            console.log(`[AgentBuilderRunner] 💾 Finalizing workflow run ${runId}`, {
               finalResult: currentFinalResult?.substring(0, 100),
               streamingContent: currentStreamingContent?.substring(0, 100),
               resultLength: resultSummary.length,
@@ -1190,7 +1202,7 @@ export function AgentBuilderRunner({
               completedToolCalls: finalToolCalls.filter(t => t.status === "completed").length
             });
             
-            // Store full execution artifacts for replay
+            // Store full execution artifacts for replay - CRITICAL: Wait for completion
             await updateRun(runId, {
               status: "completed",
               completed_at: endTime,
@@ -1218,10 +1230,19 @@ export function AgentBuilderRunner({
                 streaming_content: currentStreamingContent,
               },
             });
+            
             console.log(`[AgentBuilderRunner] ✅ Successfully updated workflow run ${runId} with full execution artifacts`);
             workflowSavedRef.current = true;
           } catch (error) {
             console.error("[AgentBuilderRunner] ❌ Failed to update workflow run:", error);
+            console.error("[AgentBuilderRunner] Error details:", {
+              runId,
+              error: error instanceof Error ? error.message : String(error),
+              stack: error instanceof Error ? error.stack : undefined
+            });
+            
+            // Show error to user
+            setError(`Failed to save workflow: ${error instanceof Error ? error.message : String(error)}`);
           } finally {
             setIsSavingWorkflow(false);
           }
@@ -1371,7 +1392,6 @@ export function AgentBuilderRunner({
           console.log(`[AgentBuilderRunner] 🔄 Component unmounting - finalizing workflow ${runId}`);
           
           try {
-            setIsSavingWorkflow(true);
             const endTime = new Date();
             const currentSteps = stepsRef.current;
             const currentToolCalls = toolCallsRef.current;
@@ -1386,9 +1406,11 @@ export function AgentBuilderRunner({
                 : tool
             );
             
-            await updateRun(runId, {
+            // CRITICAL: Use navigator.sendBeacon or fetch with keepalive for unmount saves
+            // This ensures the request completes even if the page is closing
+            const payload = {
               status: "completed",
-              completed_at: endTime,
+              completed_at: endTime.toISOString(),
               duration_ms: endTime.getTime() - startTime.getTime(),
               result_summary: resultSummary,
               steps_completed: currentSteps.filter(s => s.status === "completed").length,
@@ -1412,19 +1434,30 @@ export function AgentBuilderRunner({
                 })),
                 streaming_content: currentStreamingContent,
               },
+            };
+            
+            // Use fetch with keepalive to ensure request completes on unmount
+            await fetch(`/api/workflow-runs?id=${runId}`, {
+              method: "PUT",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(payload),
+              keepalive: true, // CRITICAL: Keeps request alive even after page unload
             });
-            console.log(`[AgentBuilderRunner] ✅ Finalized workflow ${runId} on unmount`);
+            
+            console.log(`[AgentBuilderRunner] ✅ Finalized workflow ${runId} on unmount (keepalive)`);
           } catch (error) {
             console.error("[AgentBuilderRunner] ❌ Failed to finalize workflow on unmount:", error);
-          } finally {
-            setIsSavingWorkflow(false);
+            console.error("[AgentBuilderRunner] Error details:", {
+              runId,
+              error: error instanceof Error ? error.message : String(error)
+            });
           }
         }
       };
       
       finalizeOnUnmount();
     };
-  }, [updateRun]); // Only recreate if updateRun changes
+  }, []); // Empty deps - only set up once, uses refs for current values
 
   /**
    * Handle user input form submission
