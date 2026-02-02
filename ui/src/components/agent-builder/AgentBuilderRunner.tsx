@@ -746,6 +746,27 @@ export function AgentBuilderRunner({
   // Workflow run tracking refs
   const runIdRef = useRef<string | null>(null);
   const startTimeRef = useRef<Date | null>(null);
+  const stepsRef = useRef<ExecutionStep[]>([]);
+  const toolCallsRef = useRef<ToolCall[]>([]);
+  const streamingContentRef = useRef<string>("");
+  const finalResultRef = useRef<string>("");
+
+  // Sync refs with state to avoid closure issues
+  useEffect(() => {
+    stepsRef.current = steps;
+  }, [steps]);
+
+  useEffect(() => {
+    toolCallsRef.current = toolCalls;
+  }, [toolCalls]);
+
+  useEffect(() => {
+    streamingContentRef.current = streamingContent;
+  }, [streamingContent]);
+
+  useEffect(() => {
+    finalResultRef.current = finalResult;
+  }, [finalResult]);
 
   // Get A2A endpoint from config (same as ChatPanel)
   const endpoint = getConfig('caipeUrl');
@@ -925,7 +946,7 @@ export function AgentBuilderRunner({
           });
           
           // Save execution artifacts to MongoDB immediately
-          // (Need to use current state values since setState is async)
+          // (Need to use refs to get current state values to avoid closure issues)
           const saveExecutionArtifacts = async () => {
             if (!runIdRef.current || !startTimeRef.current) {
               console.warn("[AgentBuilderRunner] ⚠️ No runId or startTime available to save final result");
@@ -935,15 +956,20 @@ export function AgentBuilderRunner({
             try {
               const endTime = new Date();
               
+              // Use refs to get current state (avoid closure issues)
+              const currentSteps = stepsRef.current;
+              const currentToolCalls = toolCallsRef.current;
+              const currentStreamingContent = streamingContentRef.current;
+              
               // Get current state values - need to compute completed tools synchronously
-              const finalToolCalls = toolCalls.map(tool => 
+              const finalToolCalls = currentToolCalls.map(tool => 
                 tool.status === "running" 
                   ? { ...tool, status: "completed" as const }
                   : tool
               );
               
               console.log(`[AgentBuilderRunner] Saving execution artifacts on final_result for run ${runIdRef.current}`, {
-                stepsCount: steps.length,
+                stepsCount: currentSteps.length,
                 toolCallsCount: finalToolCalls.length,
                 contentLength: content.length
               });
@@ -953,11 +979,11 @@ export function AgentBuilderRunner({
                 completed_at: endTime,
                 duration_ms: endTime.getTime() - startTimeRef.current.getTime(),
                 result_summary: content,
-                steps_completed: steps.filter(s => s.status === "completed").length,
-                steps_total: steps.length,
+                steps_completed: currentSteps.filter(s => s.status === "completed").length,
+                steps_total: currentSteps.length,
                 tools_called: finalToolCalls.map(t => t.tool),
                 execution_artifacts: {
-                  steps: steps.map(s => ({
+                  steps: currentSteps.map(s => ({
                     id: s.id,
                     agent: s.agent,
                     description: s.description,
@@ -972,7 +998,7 @@ export function AgentBuilderRunner({
                     status: t.status,
                     timestamp: t.timestamp,
                   })),
-                  streaming_content: streamingContent,
+                  streaming_content: currentStreamingContent,
                 },
               });
               console.log(`[AgentBuilderRunner] ✅ Successfully saved execution artifacts for run ${runIdRef.current}`);
@@ -1129,20 +1155,27 @@ export function AgentBuilderRunner({
         if (runId) {
           try {
             const endTime = new Date();
-            const resultSummary = finalResult || streamingContent || "Workflow completed successfully";
+            
+            // Use refs to get current state (avoid closure issues)
+            const currentSteps = stepsRef.current;
+            const currentToolCalls = toolCallsRef.current;
+            const currentStreamingContent = streamingContentRef.current;
+            const currentFinalResult = finalResultRef.current;
+            
+            const resultSummary = currentFinalResult || currentStreamingContent || "Workflow completed successfully";
             
             // Get the final tool calls state with all marked as completed
-            const finalToolCalls = toolCalls.map(tool => 
+            const finalToolCalls = currentToolCalls.map(tool => 
               tool.status === "running" 
                 ? { ...tool, status: "completed" as const }
                 : tool
             );
             
             console.log(`[AgentBuilderRunner] Finalizing workflow run ${runId}`, {
-              finalResult: finalResult?.substring(0, 100),
-              streamingContent: streamingContent?.substring(0, 100),
+              finalResult: currentFinalResult?.substring(0, 100),
+              streamingContent: currentStreamingContent?.substring(0, 100),
               resultLength: resultSummary.length,
-              stepsCount: steps.length,
+              stepsCount: currentSteps.length,
               toolCallsCount: finalToolCalls.length,
               completedToolCalls: finalToolCalls.filter(t => t.status === "completed").length
             });
@@ -1153,11 +1186,11 @@ export function AgentBuilderRunner({
               completed_at: endTime,
               duration_ms: endTime.getTime() - startTime.getTime(),
               result_summary: resultSummary,
-              steps_completed: steps.filter(s => s.status === "completed").length,
-              steps_total: steps.length,
+              steps_completed: currentSteps.filter(s => s.status === "completed").length,
+              steps_total: currentSteps.length,
               tools_called: finalToolCalls.map(t => t.tool),
               execution_artifacts: {
-                steps: steps.map(s => ({
+                steps: currentSteps.map(s => ({
                   id: s.id,
                   agent: s.agent,
                   description: s.description,
@@ -1172,7 +1205,7 @@ export function AgentBuilderRunner({
                   status: t.status,
                   timestamp: t.timestamp,
                 })),
-                streaming_content: streamingContent,
+                streaming_content: currentStreamingContent,
               },
             });
             console.log(`[AgentBuilderRunner] ✅ Successfully updated workflow run ${runId} with full execution artifacts`);
@@ -1209,13 +1242,15 @@ export function AgentBuilderRunner({
         if (runId) {
           try {
             const endTime = new Date();
+            const currentSteps = stepsRef.current;
+            
             await updateRun(runId, {
               status: "failed",
               completed_at: endTime,
               duration_ms: endTime.getTime() - startTime.getTime(),
               error_message: errorMessage,
-              steps_completed: steps.filter(s => s.status === "completed").length,
-              steps_total: steps.length,
+              steps_completed: currentSteps.filter(s => s.status === "completed").length,
+              steps_total: currentSteps.length,
             });
             console.log(`[AgentBuilderRunner] Updated workflow run ${runId} as failed`);
           } catch (error) {
