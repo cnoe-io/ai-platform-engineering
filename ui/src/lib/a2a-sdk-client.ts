@@ -100,9 +100,10 @@ export class A2ASDKClient {
     this.userEmail = config.userEmail;
 
     // Create fetch with authentication if token provided
+    // Note: Must bind fetch to window to avoid "Illegal invocation" error
     const fetchImpl = this.accessToken
       ? this.createAuthenticatedFetch(this.accessToken)
-      : fetch;
+      : fetch.bind(window);
 
     this.transport = new JsonRpcTransport({
       endpoint: config.endpoint,
@@ -117,9 +118,10 @@ export class A2ASDKClient {
     this.accessToken = token;
 
     // Recreate transport with new token
+    // Note: Must bind fetch to window to avoid "Illegal invocation" error
     const fetchImpl = token
       ? this.createAuthenticatedFetch(token)
-      : fetch;
+      : fetch.bind(window);
 
     this.transport = new JsonRpcTransport({
       endpoint: (this.transport as unknown as { endpoint: string }).endpoint,
