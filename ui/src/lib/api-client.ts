@@ -47,10 +47,18 @@ class APIClient {
     if (!response.ok) {
       const errorText = await response.text();
       
-      // Don't log 401 errors as errors - they're expected when auth is not configured
+      // Don't log certain expected errors as console errors
       if (response.status === 401) {
+        // 401: Authentication required - expected when auth is not configured
         console.log(`[APIClient] Authentication required for ${endpoint} - user not logged in`);
+      } else if (response.status === 404) {
+        // 404: Resource not found - this is expected in many cases:
+        // - New conversations not yet saved to MongoDB
+        // - Deleted conversations
+        // - Conversations being navigated away from
+        console.log(`[APIClient] Resource not found: ${endpoint}`);
       } else {
+        // Log other errors
         console.error(`[APIClient] Error response:`, {
           status: response.status,
           statusText: response.statusText,
