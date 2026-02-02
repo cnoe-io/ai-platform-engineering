@@ -314,25 +314,15 @@ export function UserMenu() {
                 {/* Refresh Token Status */}
                 <div className="bg-muted/30 rounded-lg p-3 border border-border">
                   <div className="text-xs font-medium mb-1">Refresh Token</div>
-                  {(() => {
-                    // Extract hasRefreshToken from decoded token
-                    const hasRefresh = decodedToken && (
-                      decodedToken.refresh_token ||
-                      decodedToken.offline_access ||
-                      // Check if offline_access was requested in scope
-                      (typeof decodedToken.scope === 'string' && decodedToken.scope.includes('offline_access'))
-                    );
-                    
-                    return hasRefresh ? (
-                      <div className="text-xs text-green-600 dark:text-green-500 font-medium">
-                        ✓ Available - Auto-renewal enabled
-                      </div>
-                    ) : (
-                      <div className="text-xs text-yellow-600 dark:text-yellow-500">
-                        Not available - Add offline_access scope
-                      </div>
-                    );
-                  })()}
+                  {session?.hasRefreshToken ? (
+                    <div className="text-xs text-green-600 dark:text-green-500 font-medium">
+                      ✓ Available - Auto-renewal enabled
+                    </div>
+                  ) : (
+                    <div className="text-xs text-yellow-600 dark:text-yellow-500">
+                      Not available - Add offline_access scope
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
