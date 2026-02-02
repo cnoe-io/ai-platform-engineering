@@ -616,5 +616,9 @@ function AdminPage() {
 }
 
 export default function Admin() {
-  return <AdminPage />;
+  return (
+    <AuthGuard>
+      <AdminPage />
+    </AuthGuard>
+  );
 }
