@@ -105,8 +105,9 @@ async function loadFavoritesFromMongoDB(): Promise<string[]> {
       throw new Error(`Failed to load favorites: ${response.status}`);
     }
     
-    const data = await response.json();
-    const favorites = data.favorites || [];
+    const result = await response.json();
+    // API returns { success: true, data: { favorites: [...] } }
+    const favorites = result.data?.favorites || [];
     console.log(`[AgentConfigStore] Loaded ${favorites.length} favorites from MongoDB`);
     return favorites;
   } catch (error) {
