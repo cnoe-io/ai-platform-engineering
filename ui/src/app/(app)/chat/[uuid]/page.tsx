@@ -265,13 +265,6 @@ function ChatUUIDPage() {
             conversationId={uuid}
             conversationTitle={conversationTitle}
           />
-          
-          {/* Optional: Storage mode indicator */}
-          {storageMode === 'localStorage' && (
-            <div className="absolute bottom-4 right-4 px-3 py-1 bg-amber-500/10 border border-amber-500/30 rounded-full text-xs text-amber-600 dark:text-amber-400">
-              📦 Local storage mode
-            </div>
-          )}
         </motion.div>
       </div>
 
