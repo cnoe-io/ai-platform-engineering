@@ -259,21 +259,11 @@ export function WorkflowHistoryView({ onReRun, workflowId }: WorkflowHistoryView
                   </Badge>
                 </div>
 
-                {/* Workflow Name - Clickable to expand */}
-                <div 
-                  className="pr-24 mb-2 cursor-pointer"
-                  onClick={() => setExpandedRunId(isExpanded ? null : run.id)}
-                >
-                  <div className="flex items-center gap-2">
-                    {isExpanded ? (
-                      <ChevronDown className="h-4 w-4 text-muted-foreground shrink-0" />
-                    ) : (
-                      <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
-                    )}
-                    <h3 className="font-semibold text-base">{run.workflow_name}</h3>
-                  </div>
+                {/* Workflow Name */}
+                <div className="pr-24 mb-2">
+                  <h3 className="font-semibold text-base">{run.workflow_name}</h3>
                   {run.workflow_category && (
-                    <p className="text-xs text-muted-foreground ml-6">{run.workflow_category}</p>
+                    <p className="text-xs text-muted-foreground">{run.workflow_category}</p>
                   )}
                 </div>
 
@@ -628,6 +618,14 @@ export function WorkflowHistoryView({ onReRun, workflowId }: WorkflowHistoryView
                       <h3 className="text-lg font-semibold mb-2">Workflow Failed</h3>
                       <p className="text-muted-foreground text-center max-w-md">
                         {viewExecutionRun.error_message}
+                      </p>
+                    </div>
+                  ) : viewExecutionRun.status === "running" ? (
+                    <div className="flex flex-col items-center justify-center py-12 text-center">
+                      <Loader2 className="h-16 w-16 text-blue-500 mb-4 animate-spin" />
+                      <h3 className="text-lg font-semibold mb-2">Workflow In Progress</h3>
+                      <p className="text-muted-foreground max-w-md">
+                        This workflow is currently executing. Results will appear here when complete.
                       </p>
                     </div>
                   ) : (
