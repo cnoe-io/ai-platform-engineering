@@ -24,9 +24,11 @@ interface AgentConfigState {
   selectedConfigId: string | null;
   isSeeded: boolean;
   favorites: string[]; // Array of config IDs
+  favoritesLoaded: boolean; // Track if favorites have been loaded from MongoDB
 
   // Actions
   loadConfigs: () => Promise<void>;
+  loadFavorites: () => Promise<void>;
   createConfig: (config: CreateAgentConfigInput) => Promise<string>;
   updateConfig: (id: string, updates: UpdateAgentConfigInput) => Promise<void>;
   deleteConfig: (id: string) => Promise<void>;
@@ -36,7 +38,7 @@ interface AgentConfigState {
   importFromYaml: (yamlContent: string) => Promise<string[]>;
   refreshConfigs: () => Promise<void>;
   seedTemplates: () => Promise<void>;
-  toggleFavorite: (id: string) => void;
+  toggleFavorite: (id: string) => Promise<void>;
   isFavorite: (id: string) => boolean;
   getFavoriteConfigs: () => AgentConfig[];
 }
@@ -52,24 +54,136 @@ function transformConfig(config: any): AgentConfig {
 
 // Favorites helpers
 const FAVORITES_STORAGE_KEY = "agent-config-favorites";
+const FAVORITES_MIGRATED_KEY = "agent-config-favorites-migrated";
 
-function loadFavoritesFromStorage(): string[] {
+/**
+ * Load favorites from localStorage (fallback only)
+ */
+function loadFavoritesFromLocalStorage(): string[] {
   if (typeof window === "undefined") return [];
   try {
     const stored = localStorage.getItem(FAVORITES_STORAGE_KEY);
     return stored ? JSON.parse(stored) : [];
   } catch (error) {
-    console.error("[AgentConfigStore] Failed to load favorites:", error);
+    console.error("[AgentConfigStore] Failed to load favorites from localStorage:", error);
     return [];
   }
 }
 
-function saveFavoritesToStorage(favorites: string[]): void {
+/**
+ * Save favorites to localStorage (fallback only)
+ */
+function saveFavoritesToLocalStorage(favorites: string[]): void {
   if (typeof window === "undefined") return;
   try {
     localStorage.setItem(FAVORITES_STORAGE_KEY, JSON.stringify(favorites));
   } catch (error) {
-    console.error("[AgentConfigStore] Failed to save favorites:", error);
+    console.error("[AgentConfigStore] Failed to save favorites to localStorage:", error);
+  }
+}
+
+/**
+ * Load favorites from MongoDB
+ */
+async function loadFavoritesFromMongoDB(): Promise<string[]> {
+  try {
+    const response = await fetch("/api/users/me/favorites");
+    
+    // Handle 503 (MongoDB not configured) - use localStorage
+    if (response.status === 503) {
+      console.log("[AgentConfigStore] MongoDB not configured, using localStorage for favorites");
+      return loadFavoritesFromLocalStorage();
+    }
+    
+    // Handle 401 (not authenticated) - use localStorage
+    if (response.status === 401) {
+      console.log("[AgentConfigStore] Not authenticated, using localStorage for favorites");
+      return loadFavoritesFromLocalStorage();
+    }
+    
+    if (!response.ok) {
+      throw new Error(`Failed to load favorites: ${response.status}`);
+    }
+    
+    const data = await response.json();
+    console.log(`[AgentConfigStore] Loaded ${data.favorites.length} favorites from MongoDB`);
+    return data.favorites || [];
+  } catch (error) {
+    console.error("[AgentConfigStore] Failed to load favorites from MongoDB:", error);
+    // Fallback to localStorage
+    return loadFavoritesFromLocalStorage();
+  }
+}
+
+/**
+ * Save favorites to MongoDB
+ */
+async function saveFavoritesToMongoDB(favorites: string[]): Promise<boolean> {
+  try {
+    const response = await fetch("/api/users/me/favorites", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ favorites }),
+    });
+    
+    // Handle 503 (MongoDB not configured) - use localStorage
+    if (response.status === 503) {
+      console.log("[AgentConfigStore] MongoDB not configured, using localStorage for favorites");
+      saveFavoritesToLocalStorage(favorites);
+      return false;
+    }
+    
+    // Handle 401 (not authenticated) - use localStorage
+    if (response.status === 401) {
+      console.log("[AgentConfigStore] Not authenticated, using localStorage for favorites");
+      saveFavoritesToLocalStorage(favorites);
+      return false;
+    }
+    
+    if (!response.ok) {
+      throw new Error(`Failed to save favorites: ${response.status}`);
+    }
+    
+    console.log(`[AgentConfigStore] Saved ${favorites.length} favorites to MongoDB`);
+    return true;
+  } catch (error) {
+    console.error("[AgentConfigStore] Failed to save favorites to MongoDB:", error);
+    // Fallback to localStorage
+    saveFavoritesToLocalStorage(favorites);
+    return false;
+  }
+}
+
+/**
+ * Migrate favorites from localStorage to MongoDB (one-time)
+ */
+async function migrateFavoritesToMongoDB(): Promise<void> {
+  if (typeof window === "undefined") return;
+  
+  // Check if already migrated
+  const alreadyMigrated = localStorage.getItem(FAVORITES_MIGRATED_KEY);
+  if (alreadyMigrated) {
+    return;
+  }
+  
+  // Get favorites from localStorage
+  const localFavorites = loadFavoritesFromLocalStorage();
+  
+  if (localFavorites.length === 0) {
+    // No favorites to migrate, mark as migrated
+    localStorage.setItem(FAVORITES_MIGRATED_KEY, "true");
+    return;
+  }
+  
+  console.log(`[AgentConfigStore] Migrating ${localFavorites.length} favorites from localStorage to MongoDB...`);
+  
+  // Save to MongoDB
+  const success = await saveFavoritesToMongoDB(localFavorites);
+  
+  if (success) {
+    // Mark as migrated
+    localStorage.setItem(FAVORITES_MIGRATED_KEY, "true");
+    console.log(`[AgentConfigStore] Successfully migrated ${localFavorites.length} favorites to MongoDB`);
   }
 }
 
@@ -79,7 +193,8 @@ export const useAgentConfigStore = create<AgentConfigState>()((set, get) => ({
   error: null,
   selectedConfigId: null,
   isSeeded: false,
-  favorites: loadFavoritesFromStorage(),
+  favorites: [], // Will be loaded from MongoDB
+  favoritesLoaded: false,
 
   /**
    * Seed built-in templates to MongoDB
@@ -116,6 +231,16 @@ export const useAgentConfigStore = create<AgentConfigState>()((set, get) => ({
     }
   },
 
+  loadFavorites: async () => {
+    // Migrate favorites from localStorage to MongoDB (one-time)
+    await migrateFavoritesToMongoDB();
+    
+    // Load favorites from MongoDB
+    const favorites = await loadFavoritesFromMongoDB();
+    set({ favorites, favoritesLoaded: true });
+    console.log(`[AgentConfigStore] Loaded ${favorites.length} favorites`);
+  },
+
   loadConfigs: async () => {
     set({ isLoading: true, error: null });
 
@@ -123,6 +248,11 @@ export const useAgentConfigStore = create<AgentConfigState>()((set, get) => ({
       // First, try to seed templates if not already done
       if (!get().isSeeded) {
         await get().seedTemplates();
+      }
+      
+      // Load favorites if not already loaded
+      if (!get().favoritesLoaded) {
+        await get().loadFavorites();
       }
       
       const response = await fetch("/api/agent-configs");
@@ -360,15 +490,18 @@ export const useAgentConfigStore = create<AgentConfigState>()((set, get) => ({
     await get().loadConfigs();
   },
 
-  toggleFavorite: (id) => {
+  toggleFavorite: async (id) => {
     const favorites = get().favorites;
     const newFavorites = favorites.includes(id)
       ? favorites.filter((fid) => fid !== id)
       : [...favorites, id];
     
-    saveFavoritesToStorage(newFavorites);
+    // Optimistically update UI
     set({ favorites: newFavorites });
-    console.log(`[AgentConfigStore] Toggled favorite: ${id}`);
+    console.log(`[AgentConfigStore] Toggled favorite: ${id} (${newFavorites.length} total)`);
+    
+    // Save to MongoDB (fallback to localStorage if MongoDB fails)
+    await saveFavoritesToMongoDB(newFavorites);
   },
 
   isFavorite: (id) => {
