@@ -106,8 +106,9 @@ async function loadFavoritesFromMongoDB(): Promise<string[]> {
     }
     
     const data = await response.json();
-    console.log(`[AgentConfigStore] Loaded ${data.favorites.length} favorites from MongoDB`);
-    return data.favorites || [];
+    const favorites = data.favorites || [];
+    console.log(`[AgentConfigStore] Loaded ${favorites.length} favorites from MongoDB`);
+    return favorites;
   } catch (error) {
     console.error("[AgentConfigStore] Failed to load favorites from MongoDB:", error);
     // Fallback to localStorage
