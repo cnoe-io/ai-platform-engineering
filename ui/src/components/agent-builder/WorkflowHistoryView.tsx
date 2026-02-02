@@ -121,11 +121,11 @@ export function WorkflowHistoryView({ onReRun, workflowId }: WorkflowHistoryView
     
     if (!hasRunning) return;
 
-    console.log('[WorkflowHistory] Auto-refresh enabled - polling every 3s');
-    // Poll every 3 seconds when there are active runs
+    console.log('[WorkflowHistory] Auto-refresh enabled - polling every 15s');
+    // Poll every 15 seconds when there are active runs
     const interval = setInterval(() => {
       loadRuns(workflowId ? { workflow_id: workflowId } : undefined);
-    }, 3000);
+    }, 15000);
 
     return () => {
       console.log('[WorkflowHistory] Auto-refresh stopped');
