@@ -841,7 +841,7 @@ export function AgentBuilderRunner({
    * Handle A2A streaming events
    */
   const handleEvent = useCallback(
-    (event: ParsedA2AEvent) => {
+    async (event: ParsedA2AEvent) => {
       const artifactName = event.artifactName || "";
       const content = event.displayContent || "";
 
@@ -1123,7 +1123,7 @@ export function AgentBuilderRunner({
           break;
         }
 
-        handleEvent(event);
+        await handleEvent(event);
 
         // Check for completion
         if (event.type === "status" && event.isFinal) {
@@ -1497,7 +1497,7 @@ export function AgentBuilderRunner({
           break;
         }
         
-        handleEvent(event);
+        await handleEvent(event);
         
         // Check for completion
         if (event.type === "status" && event.isFinal) {
