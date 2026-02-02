@@ -51,9 +51,9 @@ export function useCAIPEHealth(): UseCAIPEHealthResult {
 
     try {
       // Use the A2A agent card endpoint which supports GET
-      // Base URL is like http://localhost:8000, agent card is at /.well-known/agent.json
+      // Base URL is like http://localhost:8000, agent card is at /.well-known/agent-card.json
       const baseUrl = url.replace(/\/$/, ''); // Remove trailing slash
-      const agentCardUrl = `${baseUrl}/.well-known/agent.json`;
+      const agentCardUrl = `${baseUrl}/.well-known/agent-card.json`;
 
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 5000);
