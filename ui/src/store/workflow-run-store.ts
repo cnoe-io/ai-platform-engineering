@@ -90,11 +90,17 @@ export const useWorkflowRunStore = create<WorkflowRunStore>((set, get) => ({
       }
 
       const result = await response.json();
-      const runId = result.id;
+      // API returns { success: true, data: { id, message } }
+      const runId = result.data?.id;
+      
+      if (!runId) {
+        console.error("[WorkflowRunStore] ❌ No run ID in response:", result);
+        throw new Error("Failed to get run ID from API response");
+      }
 
       // Reload from server to get the created run
       await get().loadRuns();
-      console.log(`[WorkflowRunStore] Created workflow run "${runId}"`);
+      console.log(`[WorkflowRunStore] ✅ Created workflow run "${runId}"`);
 
       // Set as active run
       set({ activeRunId: runId });
