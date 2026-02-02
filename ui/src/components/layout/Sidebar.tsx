@@ -324,7 +324,42 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
                             onClick={async (e) => {
                               console.log('[Sidebar] Delete clicked for:', conv.id);
                               e.stopPropagation();
+                              
+                              // Check if this is the only conversation
+                              const conversationsBeforeDelete = useChatStore.getState().conversations;
+                              const isOnlyConversation = conversationsBeforeDelete.length === 1;
+                              const isDeletingActiveConversation = activeConversationId === conv.id;
+                              
+                              console.log('[Sidebar] Before delete:', {
+                                count: conversationsBeforeDelete.length,
+                                isOnly: isOnlyConversation,
+                                isDeletingActive: isDeletingActiveConversation
+                              });
+                              
+                              // Delete conversation (this updates the store and sets new activeConversationId)
                               await deleteConversation(conv.id);
+                              
+                              // Wait for store to update
+                              await new Promise(resolve => setTimeout(resolve, 100));
+                              
+                              // Get updated state
+                              const storeState = useChatStore.getState();
+                              const newActiveId = storeState.activeConversationId;
+                              const remainingConversations = storeState.conversations;
+                              
+                              console.log('[Sidebar] After delete:', {
+                                newActiveId,
+                                remainingCount: remainingConversations.length
+                              });
+                              
+                              // Navigate based on whether there are remaining conversations
+                              if (newActiveId && remainingConversations.length > 0) {
+                                console.log('[Sidebar] Navigating to next conversation:', newActiveId);
+                                router.replace(`/chat/${newActiveId}`);
+                              } else {
+                                console.log('[Sidebar] No conversations left, navigating to /chat');
+                                router.replace('/chat');
+                              }
                             }}
                           >
                             <Trash2 className="h-3 w-3" />

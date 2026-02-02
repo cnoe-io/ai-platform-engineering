@@ -322,14 +322,30 @@ const storeImplementation = (set: any, get: any) => ({
 
         // Delete from local state first (instant UI update)
         set((state) => {
-          const newConversations = state.conversations.filter((c) => c.id !== id);
           const wasActiveConversation = state.activeConversationId === id;
+          
+          // Find the index of the conversation being deleted
+          const deletedIndex = state.conversations.findIndex((c) => c.id === id);
+          const newConversations = state.conversations.filter((c) => c.id !== id);
+          
+          // If this was the active conversation, select the next one intelligently
+          let newActiveId = state.activeConversationId;
+          if (wasActiveConversation) {
+            if (newConversations.length === 0) {
+              // No conversations left
+              newActiveId = null;
+            } else if (deletedIndex >= newConversations.length) {
+              // Was last in list, select the new last one (previous conversation)
+              newActiveId = newConversations[newConversations.length - 1].id;
+            } else {
+              // Select the conversation that took the deleted one's place (next in list)
+              newActiveId = newConversations[deletedIndex].id;
+            }
+          }
 
           return {
             conversations: newConversations,
-            activeConversationId: wasActiveConversation
-              ? newConversations[0]?.id || null
-              : state.activeConversationId,
+            activeConversationId: newActiveId,
             a2aEvents: wasActiveConversation ? [] : state.a2aEvents,
           };
         });
@@ -339,8 +355,13 @@ const storeImplementation = (set: any, get: any) => ({
           try {
             await apiClient.deleteConversation(id);
             console.log('[ChatStore] Deleted conversation from MongoDB:', id);
-          } catch (error) {
-            console.error('[ChatStore] Failed to delete from MongoDB:', error);
+          } catch (error: any) {
+            // 404 is expected for conversations that were never saved to MongoDB
+            if (error?.message?.includes('404') || error?.message?.includes('not found')) {
+              console.log('[ChatStore] Conversation not in MongoDB (expected for new conversations):', id);
+            } else {
+              console.error('[ChatStore] Failed to delete from MongoDB:', error);
+            }
           }
         }
       },

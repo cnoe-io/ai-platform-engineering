@@ -1,71 +1,65 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useState } from "react";
+import { motion } from "framer-motion";
 import { useRouter } from "next/navigation";
-import { MessageSquare } from "lucide-react";
+import { Sidebar } from "@/components/layout/Sidebar";
+import { ChatPanel } from "@/components/chat/ChatPanel";
+import { ContextPanel } from "@/components/a2a/ContextPanel";
 import { AuthGuard } from "@/components/auth-guard";
-import { useChatStore } from "@/store/chat-store";
+import { getConfig } from "@/lib/config";
 
 function ChatPage() {
   const router = useRouter();
-  const conversations = useChatStore((state) => state.conversations);
-  const loadConversationsFromServer = useChatStore((state) => state.loadConversationsFromServer);
-  const [isLoading, setIsLoading] = useState(true);
-  
-  useEffect(() => {
-    // Load conversations from server (MongoDB mode only)
-    // Wait for it to complete before checking conversations
-    const loadAndRedirect = async () => {
-      setIsLoading(true);
-      try {
-        await loadConversationsFromServer();
-        
-        // Small delay to ensure store has updated
-        await new Promise(resolve => setTimeout(resolve, 100));
-        
-        // Get fresh conversations after load
-        const currentConversations = useChatStore.getState().conversations;
-        
-        // Redirect to the most recent conversation, or show empty state
-        if (currentConversations.length > 0) {
-          const mostRecent = currentConversations[0];
-          router.replace(`/chat/${mostRecent.id}`);
-        }
-      } catch (error) {
-        console.error('[ChatPage] Failed to load conversations:', error);
-      } finally {
-        setIsLoading(false);
-      }
-    };
-    
-    loadAndRedirect();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [contextPanelVisible, setContextPanelVisible] = useState(true);
+  const [contextPanelCollapsed, setContextPanelCollapsed] = useState(false);
+  const [debugMode, setDebugMode] = useState(false);
 
-  // Show loading state
-  if (isLoading) {
-    return (
-      <div className="flex-1 flex items-center justify-center">
-        <div className="text-center space-y-4">
-          <MessageSquare className="h-16 w-16 mx-auto text-muted-foreground/50 animate-pulse" />
-          <p className="text-sm text-muted-foreground/70">Loading conversations...</p>
-        </div>
-      </div>
-    );
-  }
+  // Use centralized configuration for CAIPE URL (use dynamic config for runtime injection)
+  const caipeUrl = getConfig('caipeUrl');
 
-  // Empty state when no conversations
+  const handleTabChange = (tab: "chat" | "gallery" | "knowledge") => {
+    if (tab === "chat") {
+      router.push("/chat");
+    } else if (tab === "gallery") {
+      router.push("/use-cases");
+    } else {
+      router.push("/knowledge-bases");
+    }
+  };
+
   return (
-    <div className="flex-1 flex items-center justify-center">
-      <div className="text-center space-y-4">
-        <MessageSquare className="h-16 w-16 mx-auto text-muted-foreground/50" />
-        <div className="space-y-2">
-          <h2 className="text-xl font-semibold text-muted-foreground">No Conversations</h2>
-          <p className="text-sm text-muted-foreground/70">
-            Click "New Chat" in the sidebar to start a conversation
-          </p>
-        </div>
+    <div className="flex-1 flex overflow-hidden">
+      {/* Sidebar - Fixed width, no resizable */}
+      <Sidebar
+        activeTab="chat"
+        onTabChange={handleTabChange}
+        collapsed={sidebarCollapsed}
+        onCollapse={setSidebarCollapsed}
+      />
+
+      {/* Chat Panel */}
+      <div className="flex-1 min-w-0">
+        <motion.div
+          key="chat"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          className="h-full"
+        >
+          <ChatPanel endpoint={caipeUrl} />
+        </motion.div>
       </div>
+
+      {/* Context/Output Panel - Fixed width, collapsible */}
+      {contextPanelVisible && (
+        <ContextPanel
+          debugMode={debugMode}
+          onDebugModeChange={setDebugMode}
+          collapsed={contextPanelCollapsed}
+          onCollapse={setContextPanelCollapsed}
+        />
+      )}
     </div>
   );
 }
