@@ -378,8 +378,56 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
         logger.info(f"Task {task.id} completed.")
 
     async def _handle_user_input_required(self, content: str, task: A2ATask,
-                                          event_queue: EventQueue):
-        """Handle user input required event."""
+                                          event_queue: EventQueue, metadata: Optional[Dict] = None):
+        """
+        Handle user input required event.
+        
+        Args:
+            content: The text content describing the input request
+            task: The current A2A task
+            event_queue: Event queue for sending events
+            metadata: Optional metadata containing form field definitions (backward compatible)
+                     Expected structure: {
+                         "user_input": True,
+                         "input_title": "Form Title",
+                         "input_description": "Description",
+                         "input_fields": [
+                             {
+                                 "field_name": "repo_name",
+                                 "field_label": "Repository Name",
+                                 "field_description": "...",
+                                 "field_type": "text",
+                                 "required": True,
+                                 ...
+                             }
+                         ]
+                     }
+        """
+        # If metadata with form fields is provided, send it as a separate artifact
+        # This allows the UI to render a structured form instead of just text
+        if metadata and metadata.get("input_fields"):
+            logger.info(f"📝 Sending user input form metadata with {len(metadata.get('input_fields', []))} fields")
+            
+            # Create a DataPart artifact with the form metadata
+            form_artifact = new_data_artifact(
+                name="UserInputMetaData",
+                description="Structured user input form definition",
+                data=metadata
+            )
+            
+            # Send the form metadata artifact
+            await self._safe_enqueue_event(
+                event_queue,
+                TaskArtifactUpdateEvent(
+                    artifact=form_artifact,
+                    append=False,
+                    last_chunk=False,
+                    context_id=task.context_id,
+                    task_id=task.id,
+                )
+            )
+        
+        # Send the status update with the text content (backward compatible)
         await self._safe_enqueue_event(
             event_queue,
             TaskStatusUpdateEvent(
@@ -617,7 +665,9 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                 # 3. User input required
                 if event.get('require_user_input'):
                     state.user_input_required = True
-                    await self._handle_user_input_required(content, task, event_queue)
+                    # Pass metadata from event (contains form field definitions)
+                    metadata = event.get('metadata')
+                    await self._handle_user_input_required(content, task, event_queue, metadata)
                     return
 
                 # 4. Streaming chunk
