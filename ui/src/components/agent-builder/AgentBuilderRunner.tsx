@@ -722,6 +722,7 @@ export function AgentBuilderRunner({
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [copied, setCopied] = useState(false);
   const [isOutputExpanded, setIsOutputExpanded] = useState(false);
+  const [isSavingWorkflow, setIsSavingWorkflow] = useState(false);
   
   // Structured user input state (from request_user_input tool)
   const [structuredInputFields, setStructuredInputFields] = useState<DetectedInputField[] | null>(null);
@@ -955,6 +956,7 @@ export function AgentBuilderRunner({
             }
             
             try {
+              setIsSavingWorkflow(true);
               const endTime = new Date();
               
               // Use refs to get current state (avoid closure issues)
@@ -1008,6 +1010,8 @@ export function AgentBuilderRunner({
               workflowSavedRef.current = true;
             } catch (error) {
               console.error("[AgentBuilderRunner] ❌ Failed to save execution artifacts:", error);
+            } finally {
+              setIsSavingWorkflow(false);
             }
           };
           
@@ -1159,6 +1163,7 @@ export function AgentBuilderRunner({
         // Update workflow run as completed (only if not already saved by final_result handler)
         if (runId && !workflowSavedRef.current) {
           try {
+            setIsSavingWorkflow(true);
             const endTime = new Date();
             
             // Use refs to get current state (avoid closure issues)
@@ -1217,6 +1222,8 @@ export function AgentBuilderRunner({
             workflowSavedRef.current = true;
           } catch (error) {
             console.error("[AgentBuilderRunner] ❌ Failed to update workflow run:", error);
+          } finally {
+            setIsSavingWorkflow(false);
           }
         } else if (workflowSavedRef.current) {
           console.log(`[AgentBuilderRunner] ⏭️ Skipping duplicate save - workflow ${runId} already saved`);
@@ -1364,6 +1371,7 @@ export function AgentBuilderRunner({
           console.log(`[AgentBuilderRunner] 🔄 Component unmounting - finalizing workflow ${runId}`);
           
           try {
+            setIsSavingWorkflow(true);
             const endTime = new Date();
             const currentSteps = stepsRef.current;
             const currentToolCalls = toolCallsRef.current;
@@ -1408,6 +1416,8 @@ export function AgentBuilderRunner({
             console.log(`[AgentBuilderRunner] ✅ Finalized workflow ${runId} on unmount`);
           } catch (error) {
             console.error("[AgentBuilderRunner] ❌ Failed to finalize workflow on unmount:", error);
+          } finally {
+            setIsSavingWorkflow(false);
           }
         }
       };
@@ -1940,6 +1950,27 @@ export function AgentBuilderRunner({
             className="fixed left-0 right-0 top-[64px] bottom-0 bg-black/60 backdrop-blur-sm z-[99]"
             onClick={() => setIsFullscreen(false)}
           />
+        )}
+      </AnimatePresence>
+      
+      {/* Saving workflow overlay */}
+      <AnimatePresence>
+        {isSavingWorkflow && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/70 backdrop-blur-md z-[100] flex items-center justify-center"
+          >
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="bg-card p-8 rounded-lg border border-border shadow-2xl"
+            >
+              <CAIPESpinner size="lg" message="Saving workflow..." />
+            </motion.div>
+          </motion.div>
         )}
       </AnimatePresence>
     </div>
