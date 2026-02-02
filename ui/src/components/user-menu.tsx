@@ -288,86 +288,104 @@ export function UserMenu() {
                 <Code className="h-5 w-5 text-white" />
               </div>
               <div>
-                <DialogTitle>OIDC Token Information</DialogTitle>
+                <DialogTitle>OIDC Info</DialogTitle>
                 <DialogDescription>
-                  View authentication tokens and group memberships
+                  Authentication and group membership information
                 </DialogDescription>
               </div>
             </div>
           </DialogHeader>
           
           <div className="p-6 overflow-y-auto max-h-[60vh] space-y-6">
-            {/* MemberOf Groups */}
-            {session?.groups && session.groups.length > 0 && (
-              <div>
-                <div className="mb-3">
-                  <div className="flex items-center gap-2 mb-1">
-                    <Users className="h-4 w-4 text-muted-foreground" />
-                    <span className="text-sm font-semibold">Group Memberships</span>
-                    <span className="text-xs text-muted-foreground/70">
-                      ({session.groups.length})
-                    </span>
-                  </div>
-                  <p className="text-xs text-muted-foreground/70 ml-6">
-                    OIDC groups from memberOf claim
-                  </p>
+            {/* Authentication Status */}
+            <div>
+              <div className="flex items-center gap-2 mb-3">
+                <Shield className="h-4 w-4 text-muted-foreground" />
+                <span className="text-sm font-semibold">Authentication Status</span>
+              </div>
+              <div className="space-y-3">
+                {/* User Info */}
+                <div className="bg-muted/30 rounded-lg p-3 border border-border">
+                  <div className="text-xs font-medium mb-1">User</div>
+                  <div className="text-sm">{session?.user?.name}</div>
+                  <div className="text-xs text-muted-foreground">{session?.user?.email}</div>
                 </div>
-                <div className="bg-muted/30 rounded-lg p-4 border border-border">
-                  <div className="space-y-2 max-h-48 overflow-y-auto">
-                    {session.groups.map((group, index) => (
-                      <div
-                        key={index}
-                        className="text-sm font-mono text-foreground/80 break-all"
-                        title={group}
-                      >
-                        • {group}
+
+                {/* Refresh Token Status */}
+                <div className="bg-muted/30 rounded-lg p-3 border border-border">
+                  <div className="text-xs font-medium mb-1">Refresh Token</div>
+                  {(() => {
+                    // Extract hasRefreshToken from decoded token
+                    const hasRefresh = decodedToken && (
+                      decodedToken.refresh_token ||
+                      decodedToken.offline_access ||
+                      // Check if offline_access was requested in scope
+                      (typeof decodedToken.scope === 'string' && decodedToken.scope.includes('offline_access'))
+                    );
+                    
+                    return hasRefresh ? (
+                      <div className="text-xs text-green-600 dark:text-green-500 font-medium">
+                        ✓ Available - Auto-renewal enabled
                       </div>
-                    ))}
+                    ) : (
+                      <div className="text-xs text-yellow-600 dark:text-yellow-500">
+                        Not available - Add offline_access scope
+                      </div>
+                    );
+                  })()}
+                </div>
+              </div>
+            </div>
+
+            {/* Group Memberships from decoded token */}
+            {(() => {
+              // Extract groups from decoded ID token
+              const groups: string[] = [];
+              if (decodedToken) {
+                // Check common group claim names
+                const groupClaims = ['members', 'memberOf', 'groups', 'group', 'roles', 'cognito:groups'];
+                for (const claim of groupClaims) {
+                  const value = decodedToken[claim];
+                  if (Array.isArray(value)) {
+                    groups.push(...value.map(String));
+                  } else if (typeof value === 'string') {
+                    groups.push(...value.split(/[,\s]+/).filter(Boolean));
+                  }
+                }
+              }
+              
+              if (groups.length === 0) return null;
+              
+              return (
+                <div>
+                  <div className="mb-3">
+                    <div className="flex items-center gap-2 mb-1">
+                      <Users className="h-4 w-4 text-muted-foreground" />
+                      <span className="text-sm font-semibold">Group Memberships</span>
+                      <span className="text-xs text-muted-foreground/70">
+                        ({groups.length})
+                      </span>
+                    </div>
+                    <p className="text-xs text-muted-foreground/70 ml-6">
+                      OIDC groups from ID token claims
+                    </p>
+                  </div>
+                  <div className="bg-muted/30 rounded-lg p-4 border border-border">
+                    <div className="space-y-2 max-h-48 overflow-y-auto">
+                      {groups.map((group, index) => (
+                        <div
+                          key={index}
+                          className="text-sm font-mono text-foreground/80 break-all"
+                          title={group}
+                        >
+                          • {group}
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 </div>
-              </div>
-            )}
-
-            {/* Decoded JWT Token */}
-            {decodedToken && (
-              <div>
-                <div className="flex items-center gap-2 mb-3">
-                  <Code className="h-4 w-4 text-muted-foreground" />
-                  <span className="text-sm font-semibold">JWT Claims (ID Token)</span>
-                </div>
-                <div className="bg-muted/30 rounded-lg p-4 border border-border">
-                  <pre className="text-xs font-mono text-foreground/80 whitespace-pre-wrap break-all max-h-96 overflow-y-auto">
-                    {JSON.stringify(decodedToken, null, 2)}
-                  </pre>
-                </div>
-              </div>
-            )}
-
-            {/* Copy Tokens */}
-            <div className="flex gap-3">
-              {session?.accessToken && (
-                <button
-                  onClick={() => {
-                    navigator.clipboard.writeText(session.accessToken || '');
-                  }}
-                  className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 text-sm rounded-lg gradient-primary-br text-white hover:opacity-90 transition-opacity"
-                >
-                  <Code className="h-4 w-4" />
-                  Copy Access Token
-                </button>
-              )}
-              {session?.idToken && (
-                <button
-                  onClick={() => {
-                    navigator.clipboard.writeText(session.idToken || '');
-                  }}
-                  className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 text-sm rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
-                >
-                  <Code className="h-4 w-4" />
-                  Copy ID Token
-                </button>
-              )}
-            </div>
+              );
+            })()}
           </div>
         </DialogContent>
       </Dialog>
