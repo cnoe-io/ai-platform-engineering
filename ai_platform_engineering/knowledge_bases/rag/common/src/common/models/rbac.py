@@ -10,10 +10,12 @@ class Role:
     Role definitions with hierarchical permissions.
     
     Hierarchy (higher level inherits lower level permissions):
+    0. ANONYMOUS - No access (unauthenticated users)
     1. READONLY - Read-only access (GET, query, explore)
     2. INGESTONLY - Read + ingest data (POST ingest, manage jobs)
     3. ADMIN - Full access including deletions and bulk operations
     """
+    ANONYMOUS = "anonymous"
     READONLY = "readonly"
     INGESTONLY = "ingestonly"
     ADMIN = "admin"
@@ -37,3 +39,4 @@ class UserInfoResponse(BaseModel):
     is_authenticated: bool
     groups: List[str]
     permissions: List[str]  # List of permissions: ["read", "ingest", "delete"]
+    in_trusted_network: bool

@@ -17,7 +17,7 @@ logger = utils.get_logger(__name__)
 class OIDCProvider:
     """Represents an OIDC provider configuration with JWKS caching."""
     
-    def __init__(self, issuer: str, audience: str, name: str):
+    def __init__(self, issuer: str, audience: str, name: str, discovery_url: Optional[str] = None):
         """
         Initialize OIDC provider.
         
@@ -25,44 +25,95 @@ class OIDCProvider:
             issuer: OIDC issuer URL (e.g., https://keycloak.example.com/realms/production)
             audience: Expected audience claim (typically client_id)
             name: Human-readable name for this provider (e.g., "ui", "ingestor")
+            discovery_url: Optional explicit discovery URL (if not provided, constructs from issuer)
         """
         self.issuer = issuer
         self.audience = audience
         self.name = name
+        self.discovery_url = discovery_url
         self.jwks_uri: Optional[str] = None
         self.jwks_cache: Dict[str, Any] = {}
         self.jwks_cache_time: float = 0
         self.jwks_cache_ttl: int = 3600  # Cache JWKS for 1 hour
         
-        logger.info(f"Initialized OIDC provider '{name}': issuer={issuer}, audience={audience}")
+        if discovery_url:
+            logger.info(f"Initialized OIDC provider '{name}': issuer={issuer}, audience={audience}, discovery_url={discovery_url}")
+        else:
+            logger.info(f"Initialized OIDC provider '{name}': issuer={issuer}, audience={audience}")
     
     async def _fetch_jwks(self) -> Dict[str, Any]:
         """
         Fetch JWKS (JSON Web Key Set) from OIDC provider.
+        
+        Strategy:
+        1. Try explicit discovery URL if provided
+        2. Fallback to constructing from issuer if discovery URL fails or not set
         
         Returns:
             JWKS dictionary with keys
         """
         # Get JWKS URI from well-known configuration if not cached
         if not self.jwks_uri:
-            well_known_url = f"{self.issuer}/.well-known/openid-configuration"
-            logger.debug(f"Fetching OIDC configuration from {well_known_url}")
+            discovery_attempts = []
+            oidc_config = None
             
-            async with httpx.AsyncClient() as client:
-                response = await client.get(well_known_url, timeout=10.0)
-                response.raise_for_status()
-                config = response.json()
-                self.jwks_uri = config.get("jwks_uri")
-                
-                if not self.jwks_uri:
-                    raise ValueError(f"JWKS URI not found in OIDC configuration for {self.issuer}")
-                
-                logger.info(f"OIDC provider '{self.name}' JWKS URI: {self.jwks_uri}")
+            # Attempt 1: Try explicit discovery URL if provided
+            if self.discovery_url:
+                try:
+                    logger.debug(f"Provider '{self.name}': Attempting discovery with explicit URL: {self.discovery_url}")
+                    oidc_config = await self._fetch_oidc_config(self.discovery_url)
+                except Exception as e:
+                    logger.warning(f"Provider '{self.name}': Explicit discovery URL failed: {e}")
+                    discovery_attempts.append(f"Discovery URL: {e}")
+            
+            # Attempt 2: Construct from issuer if config not yet obtained
+            if not oidc_config and self.issuer:
+                try:
+                    constructed_url = f"{self.issuer}/.well-known/openid-configuration"
+                    logger.debug(f"Provider '{self.name}': Attempting discovery from issuer: {constructed_url}")
+                    oidc_config = await self._fetch_oidc_config(constructed_url)
+                except Exception as e:
+                    logger.warning(f"Provider '{self.name}': Discovery from issuer failed: {e}")
+                    discovery_attempts.append(f"Constructed from issuer: {e}")
+            
+            if not oidc_config:
+                error_msg = "All OIDC discovery attempts failed: " + "; ".join(discovery_attempts)
+                raise ValueError(error_msg)
+            
+            # Extract issuer from discovery if not explicitly set and available
+            if not self.issuer and oidc_config.get("issuer"):
+                self.issuer = oidc_config.get("issuer")
+                logger.info(f"OIDC provider '{self.name}': Extracted issuer from discovery: {self.issuer}")
+            
+            self.jwks_uri = oidc_config.get("jwks_uri")
+            
+            if not self.jwks_uri:
+                raise ValueError(f"JWKS URI not found in OIDC configuration for {self.issuer}")
+            
+            logger.info(f"OIDC provider '{self.name}' JWKS URI: {self.jwks_uri}")
         
         # Fetch JWKS
         logger.debug(f"Fetching JWKS from {self.jwks_uri}")
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(follow_redirects=True) as client:
             response = await client.get(self.jwks_uri, timeout=10.0)
+            response.raise_for_status()
+            return response.json()
+    
+    async def _fetch_oidc_config(self, well_known_url: str) -> Dict[str, Any]:
+        """
+        Fetch OIDC configuration from discovery endpoint.
+        
+        Args:
+            well_known_url: Discovery endpoint URL
+            
+        Returns:
+            OIDC configuration dictionary
+            
+        Raises:
+            Exception if fetch fails
+        """
+        async with httpx.AsyncClient(follow_redirects=True) as client:
+            response = await client.get(well_known_url, timeout=10.0)
             response.raise_for_status()
             return response.json()
     
@@ -159,26 +210,32 @@ class AuthManager:
         # Load UI provider
         ui_issuer = os.getenv("OIDC_ISSUER")
         ui_client_id = os.getenv("OIDC_CLIENT_ID")
+        ui_discovery_url = os.getenv("OIDC_DISCOVERY_URL")
         
-        if ui_issuer and ui_client_id:
+        # Require either issuer or discovery URL, plus client_id
+        if (ui_issuer or ui_discovery_url) and ui_client_id:
             self.providers["ui"] = OIDCProvider(
-                issuer=ui_issuer.rstrip("/"),  # Remove trailing slash
+                issuer=ui_issuer.rstrip("/") if ui_issuer else "",  # Empty string if only discovery URL
                 audience=ui_client_id,
-                name="ui"
+                name="ui",
+                discovery_url=ui_discovery_url
             )
             logger.info("UI OIDC provider configured")
         else:
-            logger.warning("UI OIDC provider not configured (OIDC_ISSUER or OIDC_CLIENT_ID missing)")
+            logger.warning("UI OIDC provider not configured (need OIDC_CLIENT_ID and either OIDC_ISSUER or OIDC_DISCOVERY_URL)")
         
         # Load Ingestor provider
         ingestor_issuer = os.getenv("INGESTOR_OIDC_ISSUER")
         ingestor_client_id = os.getenv("INGESTOR_OIDC_CLIENT_ID")
+        ingestor_discovery_url = os.getenv("INGESTOR_OIDC_DISCOVERY_URL")
         
-        if ingestor_issuer and ingestor_client_id:
+        # Require either issuer or discovery URL, plus client_id
+        if (ingestor_issuer or ingestor_discovery_url) and ingestor_client_id:
             self.providers["ingestor"] = OIDCProvider(
-                issuer=ingestor_issuer.rstrip("/"),
+                issuer=ingestor_issuer.rstrip("/") if ingestor_issuer else "",  # Empty string if only discovery URL
                 audience=ingestor_client_id,
-                name="ingestor"
+                name="ingestor",
+                discovery_url=ingestor_discovery_url
             )
             logger.info("Ingestor OIDC provider configured")
         else:

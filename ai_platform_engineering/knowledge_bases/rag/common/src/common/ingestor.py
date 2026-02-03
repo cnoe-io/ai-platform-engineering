@@ -44,16 +44,44 @@ class Client():
         self.oidc_issuer = os.getenv("INGESTOR_OIDC_ISSUER")
         self.oidc_client_id = os.getenv("INGESTOR_OIDC_CLIENT_ID")
         self.oidc_client_secret = os.getenv("INGESTOR_OIDC_CLIENT_SECRET")
+        # Discovery URL (optional - if set, use this instead of constructing from issuer)
+        self.oidc_discovery_url = os.getenv("INGESTOR_OIDC_DISCOVERY_URL")
+        # Scope is optional - if not set, don't send any scope (many providers don't need it for client credentials)
+        self.oidc_scope = os.getenv("INGESTOR_OIDC_SCOPE", "")
         
         # Token cache
         self._access_token: Optional[str] = None
         self._token_expiry: Optional[float] = None
+        self._token_endpoint: Optional[str] = None  # Discovered from OIDC metadata
         
-        # Determine authentication mode
-        if self.oidc_issuer and self.oidc_client_id and self.oidc_client_secret:
-            logger.info(f"Ingestor '{self.ingestor_name}' using OAuth2 client credentials authentication")
+        # Determine authentication mode and log configuration details
+        has_issuer = bool(self.oidc_issuer)
+        has_discovery_url = bool(self.oidc_discovery_url)
+        has_client_id = bool(self.oidc_client_id)
+        has_client_secret = bool(self.oidc_client_secret)
+        
+        # Need (issuer or discovery URL) AND client credentials
+        if (has_issuer or has_discovery_url) and has_client_id and has_client_secret:
+            logger.info(f"Ingestor '{self.ingestor_name}': OAuth2 client credentials DETECTED")
+            if has_discovery_url and has_issuer:
+                logger.info(f"  - INGESTOR_OIDC_DISCOVERY_URL: {self.oidc_discovery_url} (primary)")
+                logger.info(f"  - INGESTOR_OIDC_ISSUER: {self.oidc_issuer} (fallback)")
+            elif has_discovery_url:
+                logger.info(f"  - INGESTOR_OIDC_DISCOVERY_URL: {self.oidc_discovery_url} (will extract issuer)")
+            else:
+                logger.info(f"  - INGESTOR_OIDC_ISSUER: {self.oidc_issuer} (will construct discovery URL)")
+            logger.info(f"  - INGESTOR_OIDC_CLIENT_ID: {self.oidc_client_id}")
+            logger.info(f"  - INGESTOR_OIDC_CLIENT_SECRET: {'***' if self.oidc_client_secret else 'NOT SET'}")
+            logger.info(f"  - INGESTOR_OIDC_SCOPE: {self.oidc_scope if self.oidc_scope else '(none - will omit scope parameter)'}")
+            logger.info(f"  - Authentication mode: OAUTH2 (will send authenticated requests)")
         else:
-            logger.info(f"Ingestor '{self.ingestor_name}' using trusted network mode (no authentication)")
+            logger.info(f"Ingestor '{self.ingestor_name}': OAuth2 client credentials NOT fully configured")
+            logger.info(f"  - Need: (ISSUER or DISCOVERY_URL) + CLIENT_ID + CLIENT_SECRET")
+            logger.info(f"  - INGESTOR_OIDC_ISSUER: {'SET' if has_issuer else 'NOT SET'}")
+            logger.info(f"  - INGESTOR_OIDC_DISCOVERY_URL: {'SET' if has_discovery_url else 'NOT SET'}")
+            logger.info(f"  - INGESTOR_OIDC_CLIENT_ID: {'SET' if has_client_id else 'NOT SET'}")
+            logger.info(f"  - INGESTOR_OIDC_CLIENT_SECRET: {'SET' if has_client_secret else 'NOT SET'}")
+            logger.info(f"  - Authentication mode: TRUSTED NETWORK (will send unauthenticated requests)")
         
         # Note: Health check will be done during initialize() with aiohttp
     
@@ -93,6 +121,95 @@ class Client():
             self._ping_task = None
         logger.info(f"Ingestor {self.ingestor_name} shutdown complete")
     
+    async def _discover_token_endpoint(self) -> str:
+        """
+        Discover the token endpoint from OIDC provider's well-known configuration.
+        
+        This uses the standard OIDC Discovery mechanism to find the correct token endpoint
+        for any OIDC-compliant provider (Keycloak, Auth0, Okta, Duo, Azure AD, etc.)
+        
+        Strategy:
+        1. Try explicit INGESTOR_OIDC_DISCOVERY_URL if provided
+        2. Fallback to constructing from INGESTOR_OIDC_ISSUER if discovery URL fails or not set
+        
+        Returns:
+            Token endpoint URL
+            
+        Raises:
+            Exception if all discovery attempts fail
+        """
+        if self._token_endpoint:
+            return self._token_endpoint
+        
+        discovery_attempts = []
+        
+        # Attempt 1: Try explicit discovery URL if provided
+        if self.oidc_discovery_url:
+            try:
+                logger.info(f"Ingestor '{self.ingestor_name}': Attempting discovery with explicit URL: {self.oidc_discovery_url}")
+                return await self._fetch_discovery(self.oidc_discovery_url)
+            except Exception as e:
+                logger.warning(f"Ingestor '{self.ingestor_name}': Explicit discovery URL failed: {e}")
+                discovery_attempts.append(f"Discovery URL ({self.oidc_discovery_url}): {e}")
+        
+        # Attempt 2: Construct from issuer if available
+        if self.oidc_issuer:
+            try:
+                issuer = self.oidc_issuer.rstrip('/')
+                constructed_url = f"{issuer}/.well-known/openid-configuration"
+                logger.info(f"Ingestor '{self.ingestor_name}': Attempting discovery from issuer: {constructed_url}")
+                return await self._fetch_discovery(constructed_url)
+            except Exception as e:
+                logger.warning(f"Ingestor '{self.ingestor_name}': Discovery from issuer failed: {e}")
+                discovery_attempts.append(f"Constructed from issuer ({constructed_url}): {e}")
+        
+        # All attempts failed
+        error_msg = f"All OIDC discovery attempts failed:\n" + "\n".join(f"  - {attempt}" for attempt in discovery_attempts)
+        logger.error(f"Ingestor '{self.ingestor_name}': {error_msg}")
+        
+        # Try Keycloak-style fallback if we have an issuer
+        if self.oidc_issuer:
+            logger.warning(f"Ingestor '{self.ingestor_name}': Using Keycloak-style fallback endpoint")
+            issuer = self.oidc_issuer.rstrip('/')
+            self._token_endpoint = f"{issuer}/protocol/openid-connect/token"
+            return self._token_endpoint
+        
+        raise Exception(f"OIDC discovery failed and no issuer available for fallback. {error_msg}")
+    
+    async def _fetch_discovery(self, discovery_url: str) -> str:
+        """
+        Fetch OIDC discovery document and extract token endpoint.
+        
+        Args:
+            discovery_url: URL to fetch discovery document from
+            
+        Returns:
+            Token endpoint URL
+            
+        Raises:
+            Exception if fetch fails or token_endpoint not found
+        """
+        async with aiohttp.ClientSession() as session:
+            async with session.get(discovery_url, allow_redirects=True) as resp:
+                if resp.status == 404:
+                    raise aiohttp.ClientError(f"Discovery endpoint not found (404): {discovery_url}")
+                
+                resp.raise_for_status()
+                oidc_config = await resp.json()
+                
+                # Extract issuer from discovery document if not already set
+                if not self.oidc_issuer and oidc_config.get("issuer"):
+                    self.oidc_issuer = oidc_config.get("issuer")
+                    logger.info(f"Ingestor '{self.ingestor_name}': Extracted issuer from discovery: {self.oidc_issuer}")
+                
+                self._token_endpoint = oidc_config.get("token_endpoint")
+                if not self._token_endpoint:
+                    available_keys = list(oidc_config.keys())
+                    raise ValueError(f"token_endpoint not found in discovery document. Available keys: {available_keys}")
+                
+                logger.info(f"Ingestor '{self.ingestor_name}': ✓ Discovered token endpoint: {self._token_endpoint}")
+                return self._token_endpoint
+    
     async def _get_access_token(self) -> Optional[str]:
         """
         Get valid OAuth2 access token using client credentials flow.
@@ -103,31 +220,40 @@ class Client():
         Returns:
             Access token string or None
         """
-        # Check if OAuth2 is configured
-        if not self.oidc_issuer or not self.oidc_client_id or not self.oidc_client_secret:
+        # Check if OAuth2 is configured (need either issuer or discovery URL, plus client credentials)
+        if not (self.oidc_issuer or self.oidc_discovery_url) or not self.oidc_client_id or not self.oidc_client_secret:
             # Trusted network mode - no token needed
             return None
         
         # Check if cached token is still valid (with 60s buffer)
         if self._access_token and self._token_expiry:
             if time.time() < self._token_expiry - 60:
-                logger.debug(f"Using cached access token for ingestor '{self.ingestor_name}'")
+                logger.debug(f"Ingestor '{self.ingestor_name}': Using cached OAuth2 access token (expires in {int(self._token_expiry - time.time())}s)")
                 return self._access_token
         
-        # Fetch new token via client credentials grant
-        token_endpoint = f"{self.oidc_issuer}/protocol/openid-connect/token"
-        logger.info(f"Fetching new access token from {token_endpoint}")
+        # Discover token endpoint (cached after first discovery)
+        token_endpoint = await self._discover_token_endpoint()
+        logger.info(f"Ingestor '{self.ingestor_name}': Fetching new OAuth2 access token from {token_endpoint}")
         
         try:
             async with aiohttp.ClientSession() as session:
+                # Build token request data
+                token_data = {
+                    "grant_type": "client_credentials",
+                    "client_id": self.oidc_client_id,
+                    "client_secret": self.oidc_client_secret,
+                }
+                
+                # Only include scope if configured (many providers don't need it for client credentials)
+                if self.oidc_scope:
+                    token_data["scope"] = self.oidc_scope
+                    logger.debug(f"Ingestor '{self.ingestor_name}': Requesting token with scope: {self.oidc_scope}")
+                else:
+                    logger.debug(f"Ingestor '{self.ingestor_name}': Requesting token without scope parameter")
+                
                 async with session.post(
                     token_endpoint,
-                    data={
-                        "grant_type": "client_credentials",
-                        "client_id": self.oidc_client_id,
-                        "client_secret": self.oidc_client_secret,
-                        "scope": "openid"
-                    },
+                    data=token_data,
                     headers={"Content-Type": "application/x-www-form-urlencoded"}
                 ) as resp:
                     resp.raise_for_status()
@@ -137,14 +263,14 @@ class Client():
                     expires_in = token_data.get("expires_in", 3600)
                     self._token_expiry = time.time() + expires_in
                     
-                    logger.info(f"Access token acquired for ingestor '{self.ingestor_name}', expires in {expires_in}s")
+                    logger.info(f"Ingestor '{self.ingestor_name}': ✓ OAuth2 access token acquired successfully (expires in {expires_in}s)")
                     return self._access_token
                     
         except aiohttp.ClientError as e:
-            logger.error(f"Failed to fetch access token: {e}")
+            logger.error(f"Ingestor '{self.ingestor_name}': ✗ Failed to fetch OAuth2 access token: {e}")
             raise
         except Exception as e:
-            logger.error(f"Unexpected error fetching access token: {e}")
+            logger.error(f"Ingestor '{self.ingestor_name}': ✗ Unexpected error fetching OAuth2 access token: {e}")
             raise
     
     async def _get_auth_headers(self) -> Dict[str, str]:
@@ -154,15 +280,24 @@ class Client():
         Returns headers with Authorization Bearer token if OAuth2 is configured,
         otherwise returns basic headers for trusted network mode.
         
+        Also includes X-Ingestor-Type and X-Ingestor-Name headers for identification.
+        
         Returns:
             Dictionary of HTTP headers
         """
         headers = {'Content-Type': 'application/json'}
         
+        # Add ingestor identification headers
+        headers['X-Ingestor-Type'] = self.ingestor_type
+        headers['X-Ingestor-Name'] = self.ingestor_name
+        
         # Get access token (None if trusted network mode)
         token = await self._get_access_token()
         if token:
             headers['Authorization'] = f'Bearer {token}'
+            logger.debug(f"Ingestor '{self.ingestor_name}': Sending AUTHENTICATED request (OAuth2 Bearer token)")
+        else:
+            logger.debug(f"Ingestor '{self.ingestor_name}': Sending UNAUTHENTICATED request (trusted network mode)")
         
         return headers
     
