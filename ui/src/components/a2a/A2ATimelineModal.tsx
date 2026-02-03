@@ -449,7 +449,11 @@ function TraceView({
   const minTime = sortedEvents[0].timestamp.getTime();
   const maxTime = sortedEvents[sortedEvents.length - 1].timestamp.getTime();
   const timeRange = maxTime - minTime || 1000;
-  const timelineWidth = Math.max(1200, timeRange * zoom);
+  
+  // Scale timeline width based on event density and zoom
+  // Use 150px per second as base, with minimum of 1200px
+  const baseWidth = (timeRange / 1000) * 150; // 150px per second
+  const timelineWidth = Math.max(1200, baseWidth * zoom);
 
   const getIcon = (type: A2AEvent["type"]) => {
     const icons: Record<string, React.ElementType> = {
@@ -558,22 +562,32 @@ function TraceView({
           <div className="flex-1 relative" style={{ width: `${timelineWidth}px` }}>
             {/* Time Ruler */}
             <div className="h-10 border-b bg-background sticky top-0 z-10 relative">
-              {Array.from({ length: Math.ceil(timeRange / 1000) + 1 }).map((_, i) => {
-                const timeMs = i * 1000;
-                const position = (timeMs / timeRange) * timelineWidth;
+              {(() => {
+                // Adaptive tick spacing based on time range
+                let tickInterval = 1000; // Default 1 second
+                if (timeRange < 5000) tickInterval = 500; // 0.5s for short durations
+                else if (timeRange < 2000) tickInterval = 200; // 0.2s for very short
+                else if (timeRange > 60000) tickInterval = 5000; // 5s for long durations
+
+                const tickCount = Math.ceil(timeRange / tickInterval) + 1;
                 
-                return (
-                  <div
-                    key={i}
-                    className="absolute top-0 bottom-0 border-l border-border/30"
-                    style={{ left: `${position}px` }}
-                  >
-                    <span className="absolute top-2 left-2 text-[10px] text-muted-foreground font-mono whitespace-nowrap">
-                      {formatTime(timeMs)}
-                    </span>
-                  </div>
-                );
-              })}
+                return Array.from({ length: tickCount }).map((_, i) => {
+                  const timeMs = i * tickInterval;
+                  const position = (timeMs / timeRange) * timelineWidth;
+                  
+                  return (
+                    <div
+                      key={i}
+                      className="absolute top-0 bottom-0 border-l border-border/30"
+                      style={{ left: `${position}px` }}
+                    >
+                      <span className="absolute top-2 left-2 text-[10px] text-muted-foreground font-mono whitespace-nowrap">
+                        {formatTime(timeMs)}
+                      </span>
+                    </div>
+                  );
+                });
+              })()}
             </div>
 
             {/* Event Bars (one row per event) */}
