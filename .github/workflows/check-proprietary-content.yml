@@ -47,18 +47,19 @@ jobs:
         id: check-content
         run: |
           echo "Checking for proprietary content in changed files..."
-          
+
           # Define patterns to search for (case-insensitive)
           PATTERNS=(
             "cisco\.com"
             "@cisco"
             "outshift\.io"
-            "outshift\.cisco"
+            "outshift\.com"
+            "outshift\.ai"
             "cisco-eti"
             "eti-sre"
             "eti_sre"
           )
-          
+
           # Files to exclude from checks (regex patterns)
           EXCLUDE_PATTERNS=(
             "\.cursorrules$"
@@ -67,18 +68,18 @@ jobs:
             "CONTRIBUTING\.md$"
             "CODE_OF_CONDUCT\.md$"
           )
-          
+
           # Initialize variables
           VIOLATIONS_FOUND=false
           VIOLATION_DETAILS=""
-          
+
           # Check each changed file
           while IFS= read -r file; do
             # Skip if file doesn't exist or is binary
             if [ ! -f "$file" ]; then
               continue
             fi
-            
+
             # Check if file should be excluded
             SKIP_FILE=false
             for exclude_pattern in "${EXCLUDE_PATTERNS[@]}"; do
@@ -87,16 +88,16 @@ jobs:
                 break
               fi
             done
-            
+
             if [ "$SKIP_FILE" = true ]; then
               continue
             fi
-            
+
             # Check if file is binary
             if file "$file" | grep -q "binary"; then
               continue
             fi
-            
+
             # Search for each pattern in the file
             for pattern in "${PATTERNS[@]}"; do
               if grep -iqE "$pattern" "$file"; then
@@ -106,7 +107,7 @@ jobs:
               fi
             done
           done <<< "${{ steps.changed-files.outputs.all_changed_files }}"
-          
+
           # Set output
           if [ "$VIOLATIONS_FOUND" = true ]; then
             echo "violations_found=true" >> $GITHUB_OUTPUT
@@ -124,14 +125,14 @@ jobs:
           script: |
             const fs = require('fs');
             const violationDetails = fs.readFileSync('/tmp/violation_details.txt', 'utf8');
-            
+
             const body = `## ⚠️ Proprietary Content Detected
-            
-            This PR contains Cisco/Outshift-specific content that should not be in the open-source repository.
-            
-            ### Violations Found:
+
+            This PR contains proprietary content that should not be in the open-source repository.
+
+            ### Found Proprietary Content:
             ${violationDetails}
-            
+
             ### Allowed Patterns:
             These patterns are allowed in specific files:
             - \`.cursorrules\` - Project-specific development rules
@@ -139,31 +140,31 @@ jobs:
             - \`.git_commit_msg.txt\` - Temporary commit message file
             - \`CONTRIBUTING.md\` - Contributor guidelines
             - \`CODE_OF_CONDUCT.md\` - Code of conduct
-            
+
             ### How to Fix:
-            1. **Generic Examples**: Replace Cisco/Outshift-specific examples with generic ones:
+            1. **Generic Examples**: Replace company-specific examples with generic ones:
                - ❌ \`cisco.com\`, \`outshift.io\`
                - ✅ \`example.com\`, \`your-domain.com\`
-            
+
             2. **Email Addresses**: Use generic addresses:
                - ❌ \`user@cisco.com\`
                - ✅ \`user@example.com\`
-            
+
             3. **Group Names**: Use generic group names:
-               - ❌ \`eti_sre_admin\`, \`cisco-eti\`
+               - ❌ \`eti-sre\`, \`cisco-eti\`
                - ✅ \`admin-group\`, \`your-admin-group\`
-            
+
             4. **Internal URLs**: Remove or replace with placeholders:
-               - ❌ \`https://internal.outshift.io\`
+               - ❌ \`https://outshift.io\`
                - ✅ \`https://your-internal-domain.com\`
-            
+
             ### Need Help?
             If you believe these detections are false positives or should be allowed, please:
             1. Explain why in a comment on this PR
             2. Add the file to the exclusion list in \`.github/workflows/check-proprietary-content.yml\`
-            
+
             **This PR cannot be merged until these violations are resolved.**`;
-            
+
             github.rest.issues.createComment({
               issue_number: context.issue.number,
               owner: context.repo.owner,
