@@ -32,6 +32,53 @@ interface A2ATimelineModalProps {
   conversationId?: string;
 }
 
+interface CompressedEvent extends A2AEvent {
+  compressedCount?: number;
+  compressedEventIds?: string[];
+}
+
+// Compress consecutive streaming events to reduce noise
+function compressStreamingEvents(events: A2AEvent[]): CompressedEvent[] {
+  const compressed: CompressedEvent[] = [];
+  
+  for (let i = 0; i < events.length; i++) {
+    const event = events[i];
+    const isStreaming = 
+      event.artifact?.name === "streaming_result" ||
+      event.artifact?.name === "partial_result" ||
+      (event.type === "artifact" && event.artifact?.name?.includes("stream"));
+
+    // Check if we should compress with previous
+    const prev = compressed[compressed.length - 1];
+    const shouldCompress = 
+      prev &&
+      isStreaming &&
+      prev.artifact?.name === event.artifact?.name &&
+      prev.sourceAgent === event.sourceAgent &&
+      prev.displayName === event.displayName;
+
+    if (shouldCompress && prev.compressedCount) {
+      // Compress into previous
+      prev.compressedCount++;
+      prev.compressedEventIds!.push(event.id);
+      prev.timestamp = event.timestamp; // Update to latest timestamp
+      prev.displayContent = event.displayContent; // Keep latest content
+    } else if (isStreaming) {
+      // Start new compressed group
+      compressed.push({
+        ...event,
+        compressedCount: 1,
+        compressedEventIds: [event.id],
+      });
+    } else {
+      // Non-streaming event, add as-is
+      compressed.push(event);
+    }
+  }
+  
+  return compressed;
+}
+
 export function A2ATimelineModal({
   isOpen,
   onClose,
@@ -41,16 +88,19 @@ export function A2ATimelineModal({
   const [viewMode, setViewMode] = useState<"flow" | "agents" | "trace">("flow");
   const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
 
-  // Group events by agent
+  // Compress streaming events to reduce noise
+  const compressedEvents = useMemo(() => compressStreamingEvents(events), [events]);
+
+  // Group compressed events by agent
   const eventsByAgent = useMemo(() => {
-    const groups = new Map<string, A2AEvent[]>();
-    events.forEach(event => {
+    const groups = new Map<string, CompressedEvent[]>();
+    compressedEvents.forEach(event => {
       const agent = event.sourceAgent || "supervisor";
       if (!groups.has(agent)) groups.set(agent, []);
       groups.get(agent)!.push(event);
     });
     return groups;
-  }, [events]);
+  }, [compressedEvents]);
 
   const downloadTimeline = () => {
     const data = {
