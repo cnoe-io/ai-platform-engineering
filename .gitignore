@@ -258,3 +258,7 @@ coverage.json
 
 # Helm lock files - regenerated during build
 **/Chart.lock
+
+# Temporary commit message files
+.git_commit_msg.txt
+*.git_commit_msg.txt
