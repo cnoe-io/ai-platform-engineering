@@ -48,8 +48,6 @@ import { useChatStore } from "@/store/chat-store";
 import { useAdminRole } from "@/hooks/use-admin-role";
 import type { AgentConfig, AgentConfigCategory, WorkflowDifficulty } from "@/types/agent-config";
 import { generateInputFormFromPrompt } from "@/types/agent-config";
-import { WorkflowHistoryView } from "./WorkflowHistoryView";
-import type { WorkflowRun } from "@/types/workflow-run";
 
 interface AgentBuilderGalleryProps {
   onSelectConfig?: (config: AgentConfig, fromHistory?: boolean) => void;
@@ -148,7 +146,7 @@ export function AgentBuilderGallery({
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategory, setSelectedCategory] = useState<string>("All");
   const [deletingId, setDeletingId] = useState<string | null>(null);
-  const [viewMode, setViewMode] = useState<"all" | "quick-start" | "workflows" | "history">("all");
+  const [viewMode, setViewMode] = useState<"all" | "quick-start" | "workflows">("all");
   
   // Input form state for quick-start with placeholders
   const [activeFormConfig, setActiveFormConfig] = useState<AgentConfig | null>(null);
@@ -222,7 +220,6 @@ export function AgentBuilderGallery({
         selectedCategory === "All" || config.category === selectedCategory;
       
       const matchesViewMode =
-        viewMode === "history" || // History view doesn't filter configs
         viewMode === "all" ||
         (viewMode === "quick-start" && config.is_quick_start) ||
         (viewMode === "workflows" && !config.is_quick_start);
@@ -413,7 +410,7 @@ export function AgentBuilderGallery({
           {/* View Mode & Categories */}
           <div className="flex items-center gap-4 mt-4">
             <div className="flex items-center bg-muted/50 rounded-full p-1">
-              {(["all", "quick-start", "workflows", "history"] as const).map(mode => (
+              {(["all", "quick-start", "workflows"] as const).map(mode => (
                 <Button
                   key={mode}
                   variant="ghost"
@@ -424,10 +421,19 @@ export function AgentBuilderGallery({
                     viewMode === mode && "bg-primary text-primary-foreground"
                   )}
                 >
-                  {mode === "history" && <History className="h-3 w-3" />}
-                  {mode === "all" ? "All" : mode === "quick-start" ? "Quick Start" : mode === "workflows" ? "Multi-Step" : "History"}
+                  {mode === "all" ? "All" : mode === "quick-start" ? "Quick Start" : "Multi-Step"}
                 </Button>
               ))}
+              {/* History button - navigates to dedicated page */}
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => router.push('/agent-builder/history')}
+                className="rounded-full text-xs gap-1"
+              >
+                <History className="h-3 w-3" />
+                History
+              </Button>
             </div>
             
             <div className="flex gap-2 flex-wrap">
@@ -457,8 +463,8 @@ export function AgentBuilderGallery({
       {/* Content */}
       {!isLoading && (
         <div className="flex-1 overflow-y-auto">
-          {/* Favorites Section - Hidden in history view */}
-          {viewMode !== "history" && getFavoriteConfigs().length > 0 && searchQuery === "" && selectedCategory === "All" && (
+          {/* Favorites Section */}
+          {getFavoriteConfigs().length > 0 && searchQuery === "" && selectedCategory === "All" && (
             <div className="mb-8 p-4 bg-gradient-to-br from-yellow-500/10 to-amber-500/10 rounded-xl border border-yellow-500/30">
               <div className="flex items-center gap-2 mb-4">
                 <Star className="h-5 w-5 text-yellow-500 fill-current" />
@@ -541,29 +547,8 @@ export function AgentBuilderGallery({
             </div>
           )}
 
-          {/* Workflow Run History */}
-          {viewMode === "history" && (
-            <div className="mb-8">
-              <div className="flex items-center gap-2 mb-4">
-                <History className="h-5 w-5 text-primary" />
-                <h2 className="text-lg font-medium">Workflow Run History</h2>
-              </div>
-              <WorkflowHistoryView
-                onReRun={(run: WorkflowRun) => {
-                  // Find the workflow config and select it
-                  const config = configs.find(c => c.id === run.workflow_id);
-                  if (config) {
-                    onSelectConfig?.(config, true); // true indicates coming from history
-                  } else {
-                    alert("Workflow configuration not found. It may have been deleted.");
-                  }
-                }}
-              />
-            </div>
-          )}
-
           {/* Featured Section */}
-          {viewMode !== "workflows" && viewMode !== "history" && searchQuery === "" && selectedCategory === "All" && featuredConfigs.length > 0 && (
+          {viewMode !== "workflows" && searchQuery === "" && selectedCategory === "All" && featuredConfigs.length > 0 && (
             <div className="mb-8 p-4 bg-muted/30 rounded-xl border border-border/50">
               <div className="flex items-center gap-2 mb-4">
                 <Rocket className="h-4 w-4 text-primary" />
@@ -642,7 +627,7 @@ export function AgentBuilderGallery({
           )}
 
           {/* Quick Start Templates */}
-          {viewMode !== "workflows" && viewMode !== "history" && nonFeaturedQuickStartConfigs.length > 0 && (
+          {viewMode !== "workflows" && nonFeaturedQuickStartConfigs.length > 0 && (
             <div className="mb-8">
               <div className="flex items-center gap-2 mb-4">
                 <Zap className="h-5 w-5 text-primary" />
@@ -734,7 +719,7 @@ export function AgentBuilderGallery({
           )}
 
           {/* Multi-Step Workflows */}
-          {viewMode !== "quick-start" && viewMode !== "history" && workflowConfigs.length > 0 && (
+          {viewMode !== "quick-start" && workflowConfigs.length > 0 && (
             <div className="mb-8">
               <div className="flex items-center gap-2 mb-4">
                 <Workflow className="h-5 w-5 text-primary" />
