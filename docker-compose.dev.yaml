@@ -298,12 +298,64 @@ services:
     environment:
       - A2A_TRANSPORT=${A2A_TRANSPORT:-p2p}
       - MCP_MODE=stdio
+      - MCP_HOST=mcp-gitlab
+      - MCP_PORT=8000
       - SLIM_ENDPOINT=${SLIM_ENDPOINT:-http://slim-dataplane:46357}
       - ENABLE_TRACING=${ENABLE_TRACING:-false}
       - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
       - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
       - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
       - OTEL_EXPORTER_OTLP_TIMEOUT=${OTEL_EXPORTER_OTLP_TIMEOUT:-30000}
+      - GIT_AUTHOR_NAME=${GIT_AUTHOR_NAME:-AI Agent}
+      - GIT_AUTHOR_EMAIL=${GIT_AUTHOR_EMAIL:-ai-agent@cnoe.io}
+      - GIT_COMMITTER_NAME=${GIT_COMMITTER_NAME:-AI Agent}
+      - GIT_COMMITTER_EMAIL=${GIT_COMMITTER_EMAIL:-ai-agent@cnoe.io}
+    depends_on:
+      mcp-gitlab:
+        condition: service_started
+    profiles:
+      - gitlab
+      - all-agents
+
+  # GitLab MCP Server (@zereight/mcp-gitlab)
+  # Tool filtering is controlled via GITLAB_DENIED_TOOLS_REGEX using prefix matching (^prefix_)
+  #
+  # Example regex patterns for different permission levels:
+  #
+  # READ-ONLY (default) - blocks all write operations:
+  #   ^(delete_|remove_|create_|fork_|new_|update_|edit_|merge_|push_|publish_|retry_|cancel_|play_|promote_|upload_|resolve_|bulk_)|^(execute_graphql)$
+  #
+  # ALLOW CREATE (can create MRs, issues, etc.) - blocks delete/update:
+  #   ^(delete_|remove_|update_|edit_|merge_|push_|publish_|retry_|cancel_|play_|promote_|upload_|resolve_|bulk_)|^(execute_graphql)$
+  #
+  # ALLOW UPDATE (can update MRs, issues, etc.) - blocks delete/create:
+  #   ^(delete_|remove_|create_|fork_|new_)|^(execute_graphql)$
+  #
+  # ALLOW CREATE + UPDATE (full write access except delete):
+  #   ^(delete_|remove_)|^(execute_graphql)$
+  #
+  # To block specific tools, add them as exact matches: |^(tool1|tool2)$
+  # Example blocking approve/unapprove: ...|^(execute_graphql|approve_merge_request|unapprove_merge_request)$
+  #
+  # Note: execute_graphql is always blocked in the above examples as it bypasses prefix-based permission controls
+  mcp-gitlab:
+    image: zereight050/gitlab-mcp:latest
+    container_name: mcp-gitlab
+    env_file: [.env]
+    ports: ["18010:8000"]
+    environment:
+      - STREAMABLE_HTTP=true
+      - HOST=0.0.0.0
+      - PORT=8000
+      - MAX_SESSIONS=${GITLAB_MCP_MAX_SESSIONS:-1000}
+      - MAX_REQUESTS_PER_MINUTE=${GITLAB_MCP_MAX_REQUESTS_PER_MINUTE:-60}
+      - USE_PIPELINE=true
+      - GITLAB_API_URL=https://${GITLAB_HOST:-gitlab.com}/api/v4
+      - GITLAB_PERSONAL_ACCESS_TOKEN=${GITLAB_TOKEN}
+      # Option 1: Simple read-only mode (blocks all write operations)
+      - GITLAB_READ_ONLY_MODE=${GITLAB_READ_ONLY_MODE:-true}
+      # Option 2: Fine-grained control via regex (see examples in comments above)
+      # - GITLAB_DENIED_TOOLS_REGEX=${GITLAB_DENIED_TOOLS_REGEX:-^(delete_|remove_|create_|fork_|new_|update_|edit_|merge_|push_|publish_|retry_|cancel_|play_|promote_|upload_|resolve_|bulk_)|^(execute_graphql)$}
     profiles:
       - gitlab
       - all-agents
@@ -967,6 +1019,8 @@ services:
     depends_on: [rag_server]
     profiles:
       - backstage-ingestor
+
+
   # RAG Dependencies
   neo4j:
     image: neo4j:latest
