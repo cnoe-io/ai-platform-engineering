@@ -302,7 +302,14 @@ export function WorkflowHistoryView({ onReRun, workflowId }: WorkflowHistoryView
                 {!isExpanded && run.result_summary && run.status === "completed" && (
                   <div className="mb-3 p-2 rounded bg-green-500/5 text-xs">
                     <p className="font-medium mb-1 text-green-600 dark:text-green-400">Result:</p>
-                    <p className="text-muted-foreground line-clamp-2">{run.result_summary}</p>
+                    <div className="text-muted-foreground line-clamp-2 prose prose-sm max-w-none dark:prose-invert">
+                      <ReactMarkdown 
+                        remarkPlugins={[remarkGfm]}
+                        components={getMarkdownComponents()}
+                      >
+                        {run.result_summary}
+                      </ReactMarkdown>
+                    </div>
                   </div>
                 )}
 
