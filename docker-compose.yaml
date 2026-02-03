@@ -90,9 +90,9 @@ services:
   #                                          MongoDB                                                 #
   ####################################################################################################
   # MongoDB for CAIPE UI chat history and user settings
-  mongodb:
+  caipe-ui-mongodb:
     image: mongo:7.0
-    container_name: caipe-mongodb
+    container_name: caipe-ui-mongodb
     ports:
       - "27017:27017"
     environment:
@@ -100,14 +100,19 @@ services:
       - MONGO_INITDB_ROOT_PASSWORD=${MONGODB_ROOT_PASSWORD:-changeme}
       - MONGO_INITDB_DATABASE=${MONGODB_DATABASE:-caipe}
     volumes:
-      - mongodb_data:/data/db
-      - mongodb_config:/data/configdb
+      - caipe_ui_mongodb_data:/data/db
+      - caipe_ui_mongodb_config:/data/configdb
     healthcheck:
       test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
       interval: 10s
       timeout: 5s
       retries: 5
       start_period: 40s
+    profiles:
+      - caipe-ui-with-mongodb
+      - caipe-ui-minimal
+    profiles:
+      - caipe-ui-with-mongodb
 
   ####################################################################################################
   #                                      SLIM Transport                                              #
@@ -605,6 +610,106 @@ services:
       - all-agents
 
   ####################################################################################################
+  #                                      CAIPE UI & MongoDB                                          #
+  ####################################################################################################
+  # MongoDB for CAIPE UI chat history and user settings
+  caipe-ui-mongodb:
+    image: mongo:7.0
+    container_name: caipe-ui-mongodb
+    ports:
+      - "27017:27017"
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=${MONGODB_ROOT_USERNAME:-admin}
+      - MONGO_INITDB_ROOT_PASSWORD=${MONGODB_ROOT_PASSWORD:-changeme}
+      - MONGO_INITDB_DATABASE=${MONGODB_DATABASE:-caipe}
+    volumes:
+      - caipe_ui_mongodb_data:/data/db
+      - caipe_ui_mongodb_config:/data/configdb
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+    profiles:
+      - caipe-ui-with-mongodb
+
+  # MongoDB Admin UI (optional)
+  caipe-ui-mongo-express:
+    image: mongo-express:latest
+    container_name: caipe-ui-mongo-express
+    ports:
+      - "8081:8081"
+    environment:
+      - ME_CONFIG_MONGODB_ADMINUSERNAME=${MONGODB_ROOT_USERNAME:-admin}
+      - ME_CONFIG_MONGODB_ADMINPASSWORD=${MONGODB_ROOT_PASSWORD:-changeme}
+      - ME_CONFIG_MONGODB_URL=mongodb://${MONGODB_ROOT_USERNAME:-admin}:${MONGODB_ROOT_PASSWORD:-changeme}@caipe-ui-mongodb:27017/
+      - ME_CONFIG_BASICAUTH=false
+    depends_on:
+      caipe-ui-mongodb:
+        condition: service_healthy
+    profiles:
+      - caipe-ui-mongo-express
+
+  ####################################################################################################
+  #                                      CAIPE UI                                                    #
+  ####################################################################################################
+  # CAIPE UI - A2A Message Visualizer with 3-panel layout
+  # Features: Chat history, Chat UI with final output, A2A message stream visualization
+  # Includes Agent Builder for workflow creation and testing
+  #
+  # Configuration:
+  #   CAIPE_URL: URL of the CAIPE supervisor A2A endpoint
+  #   - Default (dev): http://localhost:8000
+  #   - Default (docker): http://caipe-supervisor:8000
+  #   - Override with: CAIPE_URL=http://your-host:port
+  #
+  #   MongoDB: For persistent chat history and user settings
+  #   - Configure via MONGODB_* environment variables
+  #   - See mongodb service configuration above
+  caipe-ui:
+    image: ghcr.io/cnoe-io/caipe-ui:${IMAGE_TAG:-0.2.12}
+    container_name: caipe-ui
+    ports: ["3000:3000"]
+    env_file:
+      - .env
+    environment:
+      - NODE_ENV=production
+      # CAIPE supervisor A2A endpoint URL
+      # Can be overridden with CAIPE_URL environment variable
+      - NEXT_PUBLIC_CAIPE_URL=${CAIPE_URL:-http://localhost:8000}
+      - CAIPE_URL=${CAIPE_URL:-http://localhost:8000}
+      # RAG Server URL for knowledge base API (internal Docker network)
+      - RAG_SERVER_URL=${RAG_SERVER_URL:-http://rag_server:9446}
+      - NEXT_PUBLIC_RAG_URL=${RAG_URL:-http://localhost:9446}
+      # RAG WebUI URL for iframe embedding (browser-accessible)
+      - NEXT_PUBLIC_RAG_WEBUI_URL=${RAG_WEBUI_URL:-http://localhost:9447}
+      # MongoDB configuration - Enable/disable MongoDB persistence
+      - NEXT_PUBLIC_MONGODB_ENABLED=${NEXT_PUBLIC_MONGODB_ENABLED:-false}
+      - MONGODB_URI=${MONGODB_URI:-mongodb://${MONGODB_ROOT_USERNAME:-admin}:${MONGODB_ROOT_PASSWORD:-changeme}@caipe-ui-mongodb:27017/${MONGODB_DATABASE:-caipe}?authSource=admin}
+      # NextAuth configuration (required for production)
+      # Generate a secret with: openssl rand -base64 32
+      - NEXTAUTH_SECRET=${NEXTAUTH_SECRET:-caipe-dev-secret-change-in-production}
+      - NEXTAUTH_URL=${NEXTAUTH_URL:-http://localhost:3000}
+      # SSO Configuration - set NEXT_PUBLIC_SSO_ENABLED=true to enable
+      - NEXT_PUBLIC_SSO_ENABLED=${NEXT_PUBLIC_SSO_ENABLED:-false}
+      - OIDC_ISSUER=${OIDC_ISSUER:-}
+      - OIDC_CLIENT_ID=${OIDC_CLIENT_ID:-}
+      - OIDC_CLIENT_SECRET=${OIDC_CLIENT_SECRET:-}
+      - OIDC_GROUP_CLAIM=${OIDC_GROUP_CLAIM:-}
+      - OIDC_REQUIRED_GROUP=${OIDC_REQUIRED_GROUP:-backstage-access}
+      - OIDC_REQUIRED_ADMIN_GROUP=${OIDC_REQUIRED_ADMIN_GROUP:-}
+      - OIDC_ENABLE_REFRESH_TOKEN=${OIDC_ENABLE_REFRESH_TOKEN:-true}
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    profiles:
+      - caipe-ui
+
+  ####################################################################################################
   #                                      RAG Services                                                #
   ####################################################################################################
   rag_server:
@@ -988,8 +1093,10 @@ services:
       - evaluation
 
 volumes:
-  mongodb_data:
-  mongodb_config:
+  caipe_ui_mongodb_data:
+    driver: local
+  caipe_ui_mongodb_config:
+    driver: local
   langfuse_postgres_data:
     driver: local
   langfuse_clickhouse_data:
