@@ -12,6 +12,7 @@ import { AuthGuard } from '../auth-guard'
 // Mock Next Auth
 jest.mock('next-auth/react', () => ({
   useSession: jest.fn(),
+  signOut: jest.fn(() => Promise.resolve()),
 }))
 
 // Mock Next Router
