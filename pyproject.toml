@@ -26,6 +26,7 @@ dependencies = [
     "nest-asyncio>=1.6.0",
     "prometheus-client==0.23.1",
     "pyjwt==2.10.1",
+    "clorm>=1.6.0",
 ]
 
 [tool.pytest.ini_options]
