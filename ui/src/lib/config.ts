@@ -22,6 +22,8 @@ export interface Config {
   isProd: boolean;
   /** Whether SSO authentication is enabled */
   ssoEnabled: boolean;
+  /** Whether MongoDB persistence is enabled */
+  mongodbEnabled: boolean;
   /** Whether to show sub-agent streaming cards in chat (experimental) */
   enableSubAgentCards: boolean;
   /** Main tagline displayed throughout the UI */
@@ -69,6 +71,8 @@ function getRuntimeEnv(key: string): string | undefined {
         return process.env.NEXT_PUBLIC_CAIPE_URL;
       case 'NEXT_PUBLIC_SSO_ENABLED':
         return process.env.NEXT_PUBLIC_SSO_ENABLED;
+      case 'NEXT_PUBLIC_MONGODB_ENABLED':
+        return process.env.NEXT_PUBLIC_MONGODB_ENABLED;
       case 'NEXT_PUBLIC_ENABLE_SUBAGENT_CARDS':
         return process.env.NEXT_PUBLIC_ENABLE_SUBAGENT_CARDS;
       case 'NEXT_PUBLIC_TAGLINE':
@@ -166,6 +170,19 @@ function isSsoEnabled(): boolean {
   const ssoEnv = getRuntimeEnv('NEXT_PUBLIC_SSO_ENABLED');
   if (ssoEnv !== undefined) {
     return ssoEnv === 'true';
+  }
+  return false;
+}
+
+/**
+ * Check if MongoDB persistence is enabled
+ * Disabled by default - set NEXT_PUBLIC_MONGODB_ENABLED=true to enable
+ * Priority: window.__ENV__ (runtime) > process.env (build-time)
+ */
+function isMongodbEnabled(): boolean {
+  const mongoEnv = getRuntimeEnv('NEXT_PUBLIC_MONGODB_ENABLED');
+  if (mongoEnv !== undefined) {
+    return mongoEnv === 'true';
   }
   return false;
 }
@@ -301,6 +318,7 @@ export const config: Config = {
   isDev: typeof process !== 'undefined' && process.env.NODE_ENV === 'development',
   isProd: typeof process !== 'undefined' && process.env.NODE_ENV === 'production',
   ssoEnabled: isSsoEnabled(),
+  mongodbEnabled: isMongodbEnabled(),
   enableSubAgentCards: isSubAgentCardsEnabled(),
   tagline: getTagline(),
   description: getDescription(),
@@ -326,6 +344,8 @@ export function getConfig<K extends keyof Config>(key: K): Config[K] {
       return getRagUrl() as Config[K];
     case 'ssoEnabled':
       return isSsoEnabled() as Config[K];
+    case 'mongodbEnabled':
+      return isMongodbEnabled() as Config[K];
     case 'enableSubAgentCards':
       return isSubAgentCardsEnabled() as Config[K];
     case 'tagline':
@@ -376,6 +396,7 @@ export function logConfig(): void {
       isDev: config.isDev,
       isProd: config.isProd,
       ssoEnabled: config.ssoEnabled,
+      mongodbEnabled: config.mongodbEnabled,
       enableSubAgentCards: config.enableSubAgentCards,
       tagline: config.tagline,
       description: config.description,
