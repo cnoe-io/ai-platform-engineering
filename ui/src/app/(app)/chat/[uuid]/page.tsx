@@ -46,6 +46,15 @@ function ChatUUIDPage() {
   const [error, setError] = useState<string | null>(null);
   const storageMode = getStorageMode(); // Synchronous storage mode
 
+  // Memoized callbacks (must be before early returns to maintain hooks order)
+  const handleDebugModeChange = useCallback((enabled: boolean) => {
+    setDebugMode(enabled);
+  }, []);
+
+  const handleContextPanelCollapse = useCallback((collapsed: boolean) => {
+    setContextPanelCollapsed(collapsed);
+  }, []);
+
   // Load conversation from MongoDB or localStorage
   useEffect(() => {
     // Only run on client side
@@ -231,15 +240,6 @@ function ChatUUIDPage() {
   const conversationTitle = conversation 
     ? ('_id' in conversation ? conversation.title : conversation.title)
     : undefined;
-
-  // Memoized callbacks to prevent unnecessary re-renders
-  const handleDebugModeChange = useCallback((enabled: boolean) => {
-    setDebugMode(enabled);
-  }, []);
-
-  const handleContextPanelCollapse = useCallback((collapsed: boolean) => {
-    setContextPanelCollapsed(collapsed);
-  }, []);
 
   return (
     <div className="flex-1 flex overflow-hidden">
