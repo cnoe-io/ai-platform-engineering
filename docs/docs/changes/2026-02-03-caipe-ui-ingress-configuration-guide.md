@@ -1,6 +1,12 @@
-# CAIPE UI Ingress Configuration
+# CAIPE UI Ingress Configuration Guide
 
-This document describes the ingress configuration options for CAIPE UI.
+**Date**: 2026-02-03  
+**Status**: Reference Guide  
+**Type**: Configuration Documentation
+
+## Summary
+
+This document describes the comprehensive ingress configuration options for CAIPE UI, including multiple hostnames, custom annotations, automatic redirects, TLS/SSL support, and path-based routing.
 
 ## Features
 

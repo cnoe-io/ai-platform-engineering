@@ -338,41 +338,46 @@ caipe-ui:
     data: []
       # See charts/ai-platform-engineering/charts/caipe-ui/values-external-secrets.yaml for examples
 
-######### MongoDB configuration #########
-mongodb:
-  nameOverride: "mongodb"
-  enabled: false  # Set to true to enable MongoDB
-  image:
-    repository: "mongo"
-    tag: "7.0"
-    pullPolicy: "IfNotPresent"
-  service:
-    port: 27017
-  persistence:
-    enabled: true
-    storageClass: ""  # Use default storage class or specify one
-    size: 10Gi
-  auth:
-    rootUsername: "admin"
-    rootPassword: "changeme"  # CHANGE THIS or use external secrets
-    database: "caipe"
-  # External Secrets for MongoDB credentials
-  externalSecrets:
-    enabled: false  # Set to true to use external secrets
-    apiVersion: "v1beta1"
-    secretStoreRef:
-      name: "vault"
-      kind: "ClusterSecretStore"
-    data: []
-      # - secretKey: MONGO_INITDB_ROOT_USERNAME
-      #   remoteRef:
-      #     key: dev/mongodb
-      #     property: username
-      # - secretKey: MONGO_INITDB_ROOT_PASSWORD
-      #   remoteRef:
-      #     key: dev/mongodb
-      #     property: password
+  # MongoDB configuration for CAIPE UI persistence
+  mongodb:
+    nameOverride: "mongodb"
+    enabled: false  # Set to true to enable MongoDB
+    image:
+      repository: "mongo"
+      tag: "7.0"
+      pullPolicy: "IfNotPresent"
+    service:
+      port: 27017
+    persistence:
+      enabled: true
+      storageClass: ""  # Use default storage class or specify one
+      size: 10Gi
+    auth:
+      rootUsername: "admin"
+      rootPassword: "changeme"  # CHANGE THIS or use external secrets
+      database: "caipe"
+    # External Secrets for MongoDB credentials
+    externalSecrets:
+      enabled: false  # Set to true to use external secrets
+      apiVersion: "v1beta1"
+      secretStoreRef:
+        name: "vault"
+        kind: "ClusterSecretStore"
+      data: []
+        # - secretKey: MONGO_INITDB_ROOT_USERNAME
+        #   remoteRef:
+        #     key: dev/mongodb
+        #     property: username
+        # - secretKey: MONGO_INITDB_ROOT_PASSWORD
+        #   remoteRef:
+        #     key: dev/mongodb
+        #     property: password
 
+######### RAG Stack configuration #########
+# RAG Stack - Complete stack including web, server, agent, Redis, and Milvus
+# Below values are only a subset of the values that are available in the rag-stack chart.
+# For more values, please refer to the rag-stack chart values.yaml file.
+rag-stack:
 ######### RAG Stack configuration #########
 # RAG Stack - Complete stack including web, server, agent, Redis, and Milvus
 # Below values are only a subset of the values that are available in the rag-stack chart.

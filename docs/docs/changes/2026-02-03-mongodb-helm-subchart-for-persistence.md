@@ -24,7 +24,7 @@ Users needed a simpler way to enable persistent, shareable chat history without 
 
 ### Subchart Architecture
 
-Created `charts/ai-platform-engineering/charts/mongodb/` as a dependency subchart with:
+Created `charts/ai-platform-engineering/charts/caipe-ui-mongodb/` as a dependency subchart with:
 
 1. **StatefulSet with volumeClaimTemplates** for reliable storage
 2. **Headless service** for StatefulSet pod networking
@@ -65,7 +65,7 @@ persistence:
 ### 1. MongoDB Subchart Structure
 
 ```
-charts/mongodb/
+charts/caipe-ui-mongodb/
 ├── Chart.yaml
 ├── values.yaml
 ├── values-external-secrets.yaml
@@ -151,7 +151,7 @@ livenessProbe:
 ### 5. Documentation
 
 Created comprehensive guides:
-- `charts/mongodb/README.md` - MongoDB deployment guide
+- `charts/caipe-ui-mongodb/README.md` - MongoDB deployment guide
 - `docs/docs/changes/2026-02-03-mongodb-setup-guide.md` - Setup documentation
 - `values-mongodb.yaml.example` - Complete example configuration
 
@@ -310,7 +310,7 @@ For users upgrading from localStorage to MongoDB:
 
 ## References
 
-- MongoDB Chart: `charts/ai-platform-engineering/charts/mongodb/`
+- MongoDB Chart: `charts/ai-platform-engineering/charts/caipe-ui-mongodb/`
 - Setup Guide: `docs/docs/changes/2026-02-03-mongodb-setup-guide.md`
 - Example Values: `charts/ai-platform-engineering/values-mongodb.yaml.example`
 - MongoDB Documentation: https://docs.mongodb.com/

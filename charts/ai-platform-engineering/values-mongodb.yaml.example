@@ -8,7 +8,7 @@
 # Or for production with external secrets:
 #   helm install ai-platform-engineering ./charts/ai-platform-engineering \
 #     -f ./charts/ai-platform-engineering/values-mongodb.yaml.example \
-#     --set mongodb.externalSecrets.enabled=true \
+#     --set caipe-ui.mongodb.externalSecrets.enabled=true \
 #     --set caipe-ui.externalSecrets.enabled=true
 
 tags:
@@ -18,68 +18,67 @@ global:
   caipeUi:
     enabled: true
 
-######### MongoDB Configuration #########
-mongodb:
-  enabled: true  # Enable MongoDB deployment
-  nameOverride: "mongodb"
-  
-  image:
-    repository: "mongo"
-    tag: "7.0"
-    pullPolicy: "IfNotPresent"
-  
-  service:
-    port: 27017
-  
-  # Persistent storage configuration
-  persistence:
-    enabled: true
-    storageClass: ""  # Use default storage class or specify: "gp3", "standard", etc.
-    size: 10Gi
-    accessModes:
-      - ReadWriteOnce
-  
-  # Authentication (for development/testing)
-  # IMPORTANT: Change these or use external secrets for production!
-  auth:
-    rootUsername: "admin"
-    rootPassword: "changeme"  # CHANGE THIS!
-    database: "caipe"
-  
-  # Resource limits (adjust based on your needs)
-  resources:
-    limits:
-      cpu: 500m
-      memory: 512Mi
-    requests:
-      cpu: 250m
-      memory: 256Mi
-  
-  # External Secrets (recommended for production)
-  externalSecrets:
-    enabled: false  # Set to true for production
-    apiVersion: "v1beta1"
-    secretStoreRef:
-      name: "vault"  # Your secret store name
-      kind: "ClusterSecretStore"
-    data:
-      - secretKey: MONGO_INITDB_ROOT_USERNAME
-        remoteRef:
-          key: dev/mongodb
-          property: username
-      - secretKey: MONGO_INITDB_ROOT_PASSWORD
-        remoteRef:
-          key: dev/mongodb
-          property: password
-      - secretKey: MONGO_INITDB_DATABASE
-        remoteRef:
-          key: dev/mongodb
-          property: database
-
 ######### CAIPE UI Configuration #########
 caipe-ui:
-  nameOverride: "caipe-ui"
-  
+  # MongoDB configuration for persistent chat history
+    mongodb:
+    enabled: true  # Enable MongoDB deployment
+    nameOverride: "mongodb"
+    
+    image:
+      repository: "mongo"
+      tag: "7.0"
+      pullPolicy: "IfNotPresent"
+    
+    service:
+      port: 27017
+    
+    # Persistent storage configuration
+    persistence:
+      enabled: true
+      storageClass: ""  # Use default storage class or specify: "gp3", "standard", etc.
+      size: 10Gi
+      accessModes:
+        - ReadWriteOnce
+    
+    # Authentication (for development/testing)
+    # IMPORTANT: Change these or use external secrets for production!
+    auth:
+      rootUsername: "admin"
+      rootPassword: "changeme"  # CHANGE THIS!
+      database: "caipe"
+    
+    # Resource limits (adjust based on your needs)
+    resources:
+      limits:
+        cpu: 500m
+        memory: 512Mi
+      requests:
+        cpu: 250m
+        memory: 256Mi
+    
+    # External Secrets (recommended for production)
+    externalSecrets:
+      enabled: false  # Set to true for production
+      apiVersion: "v1beta1"
+      secretStoreRef:
+        name: "vault"  # Your secret store name
+        kind: "ClusterSecretStore"
+      data:
+        - secretKey: MONGO_INITDB_ROOT_USERNAME
+          remoteRef:
+            key: dev/mongodb
+            property: username
+        - secretKey: MONGO_INITDB_ROOT_PASSWORD
+          remoteRef:
+            key: dev/mongodb
+            property: password
+        - secretKey: MONGO_INITDB_DATABASE
+          remoteRef:
+            key: dev/mongodb
+            property: database
+
+  # CAIPE UI application configuration
   image:
     repository: "ghcr.io/cnoe-io/caipe-ui"
     pullPolicy: "Always"
