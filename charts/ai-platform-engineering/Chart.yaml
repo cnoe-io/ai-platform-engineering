@@ -154,6 +154,7 @@ dependencies:
       - caipe-ui
     condition: global.caipeUi.enabled
   # MongoDB for CAIPE UI persistence
-  - name: mongodb
+  - name: caipe-ui-mongodb
     version: 0.1.0
-    condition: mongodb.enabled
+    condition: caipe-ui.mongodb.enabled
+    alias: mongodb
