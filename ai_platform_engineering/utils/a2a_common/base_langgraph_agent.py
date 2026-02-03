@@ -34,6 +34,8 @@ from langgraph.prebuilt import create_react_agent
 from langchain.agents import create_agent
 from deepagents.middleware import FilesystemMiddleware
 
+from ai_platform_engineering.utils.deepagents_custom.policy_middleware import PolicyMiddleware
+
 from .context_config import get_context_limit_for_provider, get_min_messages_to_keep, is_auto_compression_enabled
 from ai_platform_engineering.utils.metrics import MetricsCallbackHandler
 
@@ -566,39 +568,39 @@ Use this as the reference point for all date calculations. When users say "today
         mcp_mode = os.getenv("MCP_MODE", "stdio").lower()
         client = None
 
-        if mcp_mode == "http" or mcp_mode == "streamable_http":
-            logging.info(f"{agent_name}: Using HTTP transport for MCP client")
+        # Check if agent provides custom HTTP configuration (auto-detect HTTP-only agents)
+        custom_http_config = self.get_mcp_http_config()
 
-            # Check if agent provides custom HTTP configuration
-            custom_http_config = self.get_mcp_http_config()
+        if custom_http_config:
+            # Agent provides HTTP config - use HTTP mode regardless of MCP_MODE env var
+            # This allows HTTP-only agents (like GitHub with Copilot API) to work automatically
+            logging.info(f"{agent_name}: Using HTTP transport for MCP client (agent provides custom HTTP config)")
+            logging.info(f"Using custom HTTP MCP configuration for {agent_name}")
+            client = MultiServerMCPClient({
+                agent_name: {
+                    "transport": "streamable_http",
+                    **custom_http_config  # Spread custom config (url, headers, etc.)
+                }
+            })
+        elif mcp_mode == "http" or mcp_mode == "streamable_http":
+            # HTTP mode requested via environment but no custom config - use localhost
+            logging.info(f"{agent_name}: Using HTTP transport for MCP client (default localhost)")
+            mcp_host = os.getenv("MCP_HOST", "localhost")
+            mcp_port = os.getenv("MCP_PORT", "3000")
+            logging.info(f"Connecting to MCP server at {mcp_host}:{mcp_port}")
 
-            if custom_http_config:
-                # Use custom HTTP configuration (e.g., GitHub Copilot API)
-                logging.info(f"Using custom HTTP MCP configuration for {agent_name}")
-                client = MultiServerMCPClient({
-                    agent_name: {
-                        "transport": "streamable_http",
-                        **custom_http_config  # Spread custom config (url, headers, etc.)
-                    }
-                })
-            else:
-                # Use default HTTP configuration (localhost)
-                mcp_host = os.getenv("MCP_HOST", "localhost")
-                mcp_port = os.getenv("MCP_PORT", "3000")
-                logging.info(f"Connecting to MCP server at {mcp_host}:{mcp_port}")
+            # TBD: Handle user authentication
+            user_jwt = "TBD_USER_JWT"
 
-                # TBD: Handle user authentication
-                user_jwt = "TBD_USER_JWT"
-
-                client = MultiServerMCPClient({
-                    agent_name: {
-                        "transport": "streamable_http",
-                        "url": f"http://{mcp_host}:{mcp_port}/mcp/",
-                        "headers": {
-                            "Authorization": f"Bearer {user_jwt}",
-                        },
-                    }
-                })
+            client = MultiServerMCPClient({
+                agent_name: {
+                    "transport": "streamable_http",
+                    "url": f"http://{mcp_host}:{mcp_port}/mcp/",
+                    "headers": {
+                        "Authorization": f"Bearer {user_jwt}",
+                    },
+                }
+            })
         else:
             logging.info(f"{agent_name}: Using STDIO transport for MCP client")
             mcp_config = self.get_mcp_config(server_path)
@@ -762,18 +764,22 @@ Use this as the reference point for all date calculations. When users say "today
         # Build system prompt with filesystem usage instructions for state sharing
         system_prompt = self._get_system_instruction_with_date() + FILESYSTEM_USAGE_SUFFIX
         
-        # Create agent with FilesystemMiddleware for inter-subagent state sharing
-        # FilesystemMiddleware provides: read_file, write_file, ls, grep, glob, edit_file
+        # Create agent with PolicyMiddleware and FilesystemMiddleware
+        # PolicyMiddleware: Evaluates tool calls against ASP policy
+        # FilesystemMiddleware: Provides read_file, write_file, ls, grep, glob, edit_file
         subagent_graph = create_agent(
             model=model_with_name,
             tools=tools,
             system_prompt=system_prompt,
-            middleware=[FilesystemMiddleware()],
+            middleware=[
+                PolicyMiddleware(agent_name=agent_name, agent_type="subagent"),
+                FilesystemMiddleware(),
+            ],
             checkpointer=None,  # No checkpointer for subagents (parent manages state)
             name=agent_name,
         )
         
-        logger.info(f"✅ {agent_name} subagent graph created with {len(tools)} tools + FilesystemMiddleware")
+        logger.info(f"✅ {agent_name} subagent graph created with {len(tools)} tools + PolicyMiddleware + FilesystemMiddleware")
         return subagent_graph
 
     async def _load_mcp_tools(self, args: dict) -> list:
@@ -827,32 +833,36 @@ Use this as the reference point for all date calculations. When users say "today
         
         client = None
         
-        if mcp_mode in ("http", "streamable_http"):
-            logger.info(f"{agent_name}: Using HTTP transport for MCP client")
-            custom_http_config = self.get_mcp_http_config()
-            
-            if custom_http_config:
-                logger.info(f"Using custom HTTP MCP configuration for {agent_name}")
-                client = MultiServerMCPClient({
-                    agent_name: {
-                        "transport": "streamable_http",
-                        **custom_http_config
-                    }
-                })
-            else:
-                mcp_host = os.getenv("MCP_HOST", "localhost")
-                mcp_port = os.getenv("MCP_PORT", "3000")
-                logger.info(f"Connecting to MCP server at {mcp_host}:{mcp_port}")
-                user_jwt = "TBD_USER_JWT"
-                client = MultiServerMCPClient({
-                    agent_name: {
-                        "transport": "streamable_http",
-                        "url": f"http://{mcp_host}:{mcp_port}/mcp/",
-                        "headers": {
-                            "Authorization": f"Bearer {user_jwt}",
-                        },
-                    }
-                })
+        # Check if agent provides custom HTTP config (auto-detect HTTP-only agents like GitHub)
+        custom_http_config = self.get_mcp_http_config()
+        
+        if custom_http_config:
+            # Agent provides HTTP config - use HTTP mode regardless of MCP_MODE env var
+            # This allows HTTP-only agents (like GitHub with Copilot API) to work automatically
+            logger.info(f"{agent_name}: Using HTTP transport for MCP client (agent provides custom HTTP config)")
+            logger.info(f"Using custom HTTP MCP configuration for {agent_name}")
+            client = MultiServerMCPClient({
+                agent_name: {
+                    "transport": "streamable_http",
+                    **custom_http_config
+                }
+            })
+        elif mcp_mode in ("http", "streamable_http"):
+            # HTTP mode requested via environment but no custom config - use localhost
+            logger.info(f"{agent_name}: Using HTTP transport for MCP client (default localhost)")
+            mcp_host = os.getenv("MCP_HOST", "localhost")
+            mcp_port = os.getenv("MCP_PORT", "3000")
+            logger.info(f"Connecting to MCP server at {mcp_host}:{mcp_port}")
+            user_jwt = "TBD_USER_JWT"
+            client = MultiServerMCPClient({
+                agent_name: {
+                    "transport": "streamable_http",
+                    "url": f"http://{mcp_host}:{mcp_port}/mcp/",
+                    "headers": {
+                        "Authorization": f"Bearer {user_jwt}",
+                    },
+                }
+            })
         else:
             logger.info(f"{agent_name}: Using STDIO transport for MCP client")
             

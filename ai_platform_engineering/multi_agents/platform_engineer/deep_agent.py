@@ -40,6 +40,16 @@ from deepagents import create_deep_agent
 from ai_platform_engineering.utils.deepagents_custom.middleware import (
     DeterministicTaskMiddleware,
 )
+from ai_platform_engineering.utils.deepagents_custom.file_arg_middleware import (
+    CallToolWithFileArgMiddleware,
+)
+from ai_platform_engineering.utils.deepagents_custom.policy_middleware import (
+    PolicyMiddleware,
+)
+from ai_platform_engineering.utils.deepagents_custom.tools import (
+    tool_result_to_file,
+    wait,
+)
 from ai_platform_engineering.utils.deepagents_custom.state import file_reducer, DeepAgentState
 
 # Import agent classes for subagent definition creation
@@ -72,7 +82,6 @@ from ai_platform_engineering.multi_agents.tools import (
     list_workspace_files,
     clear_workspace,
     git,
-    curl,
     wget,
     grep,
     glob_find,
@@ -445,7 +454,11 @@ def create_caipe_subagent_def() -> dict:
         "tools": [caipe_response_tool],
         # Use interrupt_on for HITL
         "interrupt_on": {"CAIPEAgentResponse": True},
-        # No middleware - SubAgentMiddleware adds FilesystemMiddleware with shared backend
+        # PolicyMiddleware enforces tool call authorization
+        # SubAgentMiddleware will also add FilesystemMiddleware with shared StateBackend
+        "middleware": [
+            PolicyMiddleware(agent_name="caipe", agent_type="subagent"),
+        ],
     }
 
 
@@ -465,7 +478,7 @@ async def create_subagent_def(agent_instance, name: str, description: str, promp
         prompt_config: Optional prompt configuration dict with agent_prompts section
         
     Returns:
-        SubAgent dict with name, description, system_prompt, tools
+        SubAgent dict with name, description, system_prompt, tools, middleware
     """
     # Load MCP tools from the agent
     tools = await agent_instance._load_mcp_tools({})
@@ -488,14 +501,18 @@ async def create_subagent_def(agent_instance, name: str, description: str, promp
         system_prompt = agent_instance._get_system_instruction_with_date()
         logger.info(f"📝 Using built-in system_prompt for {name} subagent")
     
-    logger.info(f"📦 Created SubAgent def for {name} with {len(tools)} tools")
+    logger.info(f"📦 Created SubAgent def for {name} with {len(tools)} tools + PolicyMiddleware")
     
     return {
         "name": name,
         "description": description,
         "system_prompt": system_prompt,
         "tools": tools,
-        # No middleware - SubAgentMiddleware adds FilesystemMiddleware with shared backend
+        # PolicyMiddleware enforces tool call authorization (read-only tools, self-service mode, etc.)
+        # SubAgentMiddleware will also add FilesystemMiddleware with shared StateBackend
+        "middleware": [
+            PolicyMiddleware(agent_name=name, agent_type="subagent"),
+        ],
     }
 
 
@@ -698,21 +715,12 @@ class PlatformEngineerDeepAgent:
             format_markdown,
             fetch_url,
             get_current_date,
-            write_workspace_file,
-            read_workspace_file,
-            list_workspace_files,
-            clear_workspace,
-            git,
-            curl,
-            wget,
-            grep,
-            glob_find,
             jq,
             yq,
-            read_file_tool,
-            write_file_tool,
-            append_file,
-            list_files,
+            # Filesystem utility tool for tool output capture
+            tool_result_to_file,
+            # Wait tool for polling and async operations
+            wait,
         ]
         
         # Self-service task tools
@@ -853,7 +861,9 @@ Use `list_self_service_tasks` to see detailed information about all available wo
             subagents=subagent_defs,
             model=base_model,
             middleware=[
+                PolicyMiddleware(agent_name="platform_engineer", agent_type="deep_agent"),
                 DeterministicTaskMiddleware(),
+                CallToolWithFileArgMiddleware(),  # Auto-substitute file paths with contents
             ],
         )
         

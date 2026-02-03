@@ -15,15 +15,24 @@
 # Required Environment Variables:
 #   GITHUB_ORGS              - Comma-separated list of allowed GitHub organizations
 #   WORKFLOWS_REPO           - Repository containing GitHub Actions workflows (org/repo)
+#   JARVIS_WORKFLOWS_REPO    - Jarvis workflows repository with templates (e.g., cisco-eti/jarvis-workflows)
+#   ADMIN_REPO               - Admin repository for safe-settings (org/admin)
 #   GROUPS_AUTOMATION_REPO   - Repository for group management automation (org/repo)
 #   GROUPS_PATH              - Path to groups directory in the automation repo (e.g., groups)
 #   GROUPS_FILE_PATTERN      - File pattern for group files (e.g., *.yaml)
 #   DEFAULT_AWS_REGIONS      - Comma-separated list of allowed AWS regions
 #   EMAIL_DOMAIN             - Corporate email domain (e.g., company.com)
+#   JARVIS_WEBEX_ROOM_ID     - Webex room ID for Jarvis notifications
+#
+# Jira Transition IDs (defaults for OPENSD project):
+#   JIRA_TRANSITION_ID_ACKNOWLEDGE  - Transition to Acknowledge/Open (default: 781)
+#   JIRA_TRANSITION_ID_IN_PROGRESS  - Transition to In Progress (default: 4)
+#   JIRA_TRANSITION_ID_RESOLVE      - Transition to Resolved (default: 5)
+#   JIRA_RESOLUTION_ID_FIXED        - Resolution ID for Fixed (default: 10103)
 #
 # Subagents used in self-service tasks:
 #   - caipe: User input collection via forms
-#   - github: GitHub operations via gh CLI (also handles group management workflows)
+#   - github: GitHub operations (repository, PR, workflow management)
 #   - aws: AWS resource provisioning via workflow triggers
 #   - argocd: ArgoCD deployments via workflow triggers
 #   - aigateway: LLM API key management
@@ -31,7 +40,7 @@
 #   - jira: Jira ticket operations (when needed)
 #
 # Note: Group management operations are handled via GitHub workflows triggered
-# by the GitHub subagent using gh CLI.
+# by the GitHub subagent.
 #
 # Note: Backstage subagent is available for general catalog queries but not
 # used in self-service tasks. Self-service workflows trigger GitHub Actions
@@ -43,58 +52,188 @@
 
 Create GitHub Repo:
   tasks:
+    # Step 1: Get available Backstage projects
+    - display_text: "Fetch available Backstage projects"
+      llm_prompt: >
+        Query Backstage catalog using get_entities_by_query with:
+        - param_filter=["kind=system,spec.type=service"]
+        - param_fields=["metadata.name"]
+        
+        Extract the metadata.name from each item in the results.
+        Write the project names (one per line) to /projects.txt
+        
+        This list will be used as dropdown options in the input form.
+      subagent: "backstage"
+
+    # Step 2: Collect repository details
     - display_text: "Collect repository details from user"
       llm_prompt: >
+        Read /projects.txt to get the list of available projects.
+        
         Collect the following information from the user and write to /request.txt:
         - repo_name (required): Repository name (lowercase, no spaces, max 50 chars, use hyphens)
         - org_name (required): GitHub organization (one of: ${GITHUB_ORGS})
+        - project_name (required): Project name for team permissions - use field_values from /projects.txt
         - description (optional): Brief description of the repository
-        - template (optional): Template to use (none, template-base-repo, template-python-service, template-go-service)
-        - jira_issue_id (optional): Existing JIRA ticket ID
-        - user_email (required): Requester's email
+        - template (required): Template to use (repo-template, platform-demo, sre-go-helloworld)
+        - user_email (required): Requester's corporate email
         
         Format as key=value on each line. Write to /request.txt.
       subagent: "caipe"
 
+    # Step 3: Check if repository exists
     - display_text: "Check if repository exists"
       llm_prompt: >
         Read /request.txt to get repo_name and org_name.
-        Use gh CLI to check if the repository already exists:
-        gh repo view {org_name}/{repo_name}
+        Check if the repository {org_name}/{repo_name} already exists.
         
         Write result to /check_result.txt:
         - If repo exists: exists=true
         - If repo does not exist: exists=false
         
-        If exists=true, stop workflow and inform user.
+        If exists=true, stop workflow and inform user that the repository already exists.
       subagent: "github"
 
-    - display_text: "Trigger repo creation workflow"
+    # Step 4: Create repository from template
+    - display_text: "Create repository from template"
       llm_prompt: >
         Read /request.txt and /check_result.txt.
-        If exists=false, trigger the GitHub workflow using gh CLI:
+        If exists=false, create a new private repository {org_name}/{repo_name} 
+        using {org_name}/{template} as the template.
         
-        gh workflow run create-repo-add-backstage-component \
-          --repo ${WORKFLOWS_REPO} \
-          -f REPO_NAME={repo_name} \
-          -f ORG_NAME={org_name} \
-          -f PROJECT_NAME={project_name} \
-          -f DESCRIPTION="{description}" \
-          -f TEMPLATE_NAME={template} \
-          -f USER_EMAIL={user_email}
+        Write results to /repo_result.txt:
+        - repo_url=https://github.com/{org_name}/{repo_name}
+        - created=true (or created=false if failed)
         
-        Write the workflow run URL to /workflow_result.txt
+        Note: Repository creation is enabled in self-service mode.
       subagent: "github"
 
-    - display_text: "Send notification"
+    # Step 5: Fetch safe-settings template
+    - display_text: "Fetch safe-settings template from jarvis-workflows"
       llm_prompt: >
-        Read /request.txt and /workflow_result.txt.
-        Send a Webex message to user_email confirming the repository creation request.
-        Include:
-        - Repository name and organization
-        - Workflow run URL for tracking
-        - Expected completion time (typically 2-5 minutes)
-      subagent: "webex"
+        Fetch the safe-settings template from the jarvis-workflows repo.
+        
+        Parse the JARVIS_WORKFLOWS_REPO env var (format: owner/repo) to extract owner and repo.
+        For example, if JARVIS_WORKFLOWS_REPO=cisco-eti/jarvis-workflows:
+          - owner: cisco-eti
+          - repo: jarvis-workflows
+        
+        Use the get_file_contents tool with:
+          - owner: {extracted owner from ${JARVIS_WORKFLOWS_REPO}}
+          - repo: {extracted repo from ${JARVIS_WORKFLOWS_REPO}}
+          - path: templates/github_repo_creation/safe-settings-repo-template.yml
+        
+        Save the file content to /template.yml in the filesystem.
+        Write "template_fetched=true" to /template_status.txt
+      subagent: "github"
+
+    # Step 6: Create branch in admin repo
+    - display_text: "Create branch in admin repo"
+      llm_prompt: >
+        Read /request.txt to get repo_name.
+        
+        Create a new branch in the admin repo (${ADMIN_REPO}) with name:
+        create-repo-{repo_name}-{random_4_digit_suffix}
+        
+        Write the branch name to /branch_info.txt:
+        - branch_name=create-repo-{repo_name}-{suffix}
+      subagent: "github"
+
+    # Step 7: Process template and create config file
+    - display_text: "Process template and create config file"
+      llm_prompt: >
+        Read /request.txt to get repo_name, org_name, project_name, and template.
+        Read /template.yml to get the safe-settings template content.
+        
+        Process the template by replacing placeholders:
+        - {{ .REPO_NAME }} -> {repo_name}
+        - {{ .PROJECT_NAME }} -> {project_name}  
+        - {{ .TEMPLATE_REPO }} -> {template}
+        - Remove the {{- if .TEMPLATE_REPO }} and {{ end }} conditional lines
+        
+        The processed config will be used in the next step to create the PR.
+        Write the processed content to /processed_config.yml
+        Write "config_processed=true" to /config_status.txt
+      subagent: "github"
+
+    # Step 8: Create PR with config file
+    - display_text: "Create admin PR with config"
+      llm_prompt: >
+        Read /request.txt to get repo_name and template.
+        Read /branch_info.txt to get branch_name.
+        Read /processed_config.yml to get the config content.
+        
+        Create a pull request in ${ADMIN_REPO} that:
+        - Creates file .github/repos/{repo_name}.yml with the processed config content
+        - Uses branch {branch_name}
+        - Has title: "[Auto-generated][Jarvis] Create new repository {repo_name}"
+        - Has body: "This PR creates a new repository {repo_name} from template {template}. Auto-generated by Jarvis Agent."
+        - Targets the main branch
+        
+        Write PR URL to /admin_pr_result.txt:
+        - admin_pr_url={PR_URL}
+      subagent: "github"
+
+    # Step 9: Create Jira ticket for tracking
+    - display_text: "Create Jira ticket for tracking"
+      llm_prompt: >
+        Read /request.txt to get repo_name, org_name, user_email.
+        Read /repo_result.txt to get repo_url.
+        Read /admin_pr_result.txt to get admin_pr_url.
+        
+        Create a new Jira ticket in the OPENSD project with:
+        - Summary: "Repository creation request: {repo_name}"
+        - Description: Include repo_url, admin_pr_url, and requester email
+        - Assign to eti-jarvis.gen@cisco.com
+        - Transition to "In Progress" (transition ID: ${JIRA_TRANSITION_ID_IN_PROGRESS})
+        
+        Write result to /jira_result.txt:
+        - jira_issue_id={created ticket ID}
+        - jira_url={ticket URL}
+      subagent: "jira"
+
+    # Step 10: Wait for status checks then merge PR
+    - display_text: "Wait for status checks and merge PR"
+      llm_prompt: >
+        Read /admin_pr_result.txt to get admin_pr_url.
+        
+        Wait for all status checks to pass on the PR.
+        Use the wait tool to pause for 10 seconds between checks, for up to 3 minutes total.
+        Ignore the "Auto Approve PR / approve (pull_request)" check - it requires manual approval.
+        All other checks must pass (e.g., linting, validation, security scans).
+        
+        Write status check results to /status_checks_result.txt:
+        - checks_passed=true (if all non-approval checks pass)
+        - checks_passed=false (if any check fails)
+        - failed_checks=[list of failed check names]
+        
+        If checks_passed=false, stop and notify that the PR has failing checks.
+        
+        If checks_passed=true, merge the PR using squash merge and delete the branch.
+        
+        Write merge result to /pr_merged_result.txt:
+        - pr_merged=true (if merge succeeded)
+        - pr_merged=false (if merge failed)
+        - merge_error=[error message if failed]
+        
+        Note: Merging is enabled in self-service mode.
+      subagent: "github"
+
+    # Step 11: Resolve Jira ticket (if PR merged)
+    - display_text: "Resolve Jira ticket"
+      llm_prompt: >
+        Read /jira_result.txt to get jira_issue_id.
+        Read /pr_merged_result.txt to get pr_merged status.
+        
+        If pr_merged=true:
+        1. Add final comment that repository setup is complete
+        2. Transition to "Resolved" (transition ID: ${JIRA_TRANSITION_ID_RESOLVE}) with resolution "Fixed" (resolution ID: ${JIRA_RESOLUTION_ID_FIXED})
+        
+        Write result to /jira_resolve_result.txt:
+        - jira_resolved=true
+        
+        If pr_merged=false, add a comment noting the PR merge failed and do not resolve.
+      subagent: "jira"
 
 
 # =============================================================================
@@ -121,17 +260,15 @@ Create EC2 Instance:
     - display_text: "Trigger EC2 creation workflow"
       llm_prompt: >
         Read /request.txt.
-        Trigger the EC2 creation workflow using gh CLI:
-        
-        gh workflow run ec2-creation-submit-approval \
-          --repo ${WORKFLOWS_REPO} \
-          -f RESOURCE_NAME={instance_name} \
-          -f INSTANCE_TYPE={instance_type} \
-          -f VPC_NAME={vpc_name} \
-          -f REGION={region} \
-          -f ACCOUNT_NAME={account_name} \
-          -f PROJECT_NAME={project_name} \
-          -f USER_EMAIL={user_email}
+        Trigger the EC2 creation workflow (ec2-creation-submit-approval) in ${WORKFLOWS_REPO}
+        with the following parameters:
+        - RESOURCE_NAME: {instance_name}
+        - INSTANCE_TYPE: {instance_type}
+        - VPC_NAME: {vpc_name}
+        - REGION: {region}
+        - ACCOUNT_NAME: {account_name}
+        - PROJECT_NAME: {project_name}
+        - USER_EMAIL: {user_email}
         
         Write workflow run URL to /workflow_result.txt
       subagent: "aws"
@@ -165,17 +302,15 @@ Create EKS Cluster:
     - display_text: "Trigger EKS creation workflow"
       llm_prompt: >
         Read /request.txt.
-        Trigger the EKS creation workflow using gh CLI:
-        
-        gh workflow run ephemeral-eks-creation-submit-approval \
-          --repo ${WORKFLOWS_REPO} \
-          -f CLUSTER_NAME={cluster_name} \
-          -f K8S_VERSION={kubernetes_version} \
-          -f INSTANCE_TYPE={node_instance_type} \
-          -f NODE_COUNT={node_count} \
-          -f REGION={region} \
-          -f PROJECT_NAME={project_name} \
-          -f USER_EMAIL={user_email}
+        Trigger the EKS creation workflow (ephemeral-eks-creation-submit-approval) in ${WORKFLOWS_REPO}
+        with the following parameters:
+        - CLUSTER_NAME: {cluster_name}
+        - K8S_VERSION: {kubernetes_version}
+        - INSTANCE_TYPE: {node_instance_type}
+        - NODE_COUNT: {node_count}
+        - REGION: {region}
+        - PROJECT_NAME: {project_name}
+        - USER_EMAIL: {user_email}
         
         Write workflow run URL to /workflow_result.txt
       subagent: "aws"
@@ -208,16 +343,14 @@ Create S3 Bucket:
     - display_text: "Trigger S3 creation workflow"
       llm_prompt: >
         Read /request.txt.
-        Trigger the S3 creation workflow using gh CLI:
-        
-        gh workflow run s3-creation-submit-approval \
-          --repo ${WORKFLOWS_REPO} \
-          -f RESOURCE_NAME={bucket_name} \
-          -f REGION={region} \
-          -f VERSIONING={versioning} \
-          -f ENCRYPTION={encryption} \
-          -f PROJECT_NAME={project_name} \
-          -f USER_EMAIL={user_email}
+        Trigger the S3 creation workflow (s3-creation-submit-approval) in ${WORKFLOWS_REPO}
+        with the following parameters:
+        - RESOURCE_NAME: {bucket_name}
+        - REGION: {region}
+        - VERSIONING: {versioning}
+        - ENCRYPTION: {encryption}
+        - PROJECT_NAME: {project_name}
+        - USER_EMAIL: {user_email}
         
         Write workflow run URL to /workflow_result.txt
       subagent: "aws"
@@ -258,20 +391,18 @@ Deploy App to Common Cluster:
     - display_text: "Trigger ArgoCD deployment workflow"
       llm_prompt: >
         Read /request.txt.
-        Trigger the ArgoCD deployment workflow using gh CLI:
-        
-        gh workflow run deploy-app-to-common-cluster \
-          --repo ${WORKFLOWS_REPO} \
-          -f APP_NAME={app_name} \
-          -f PROJECT_NAME={project_name} \
-          -f REPO_NAME={repo_name} \
-          -f APP_NAMESPACE={namespace} \
-          -f ENVIRONMENT={environment} \
-          -f DEPLOYMENT_ENV={deployment_env} \
-          -f APP_HELM_CHART_VERSION={helm_chart_version} \
-          -f AUTO_APPROVE={auto_approve} \
-          -f JIRA_TICKET={jira_issue_id} \
-          -f USER_EMAIL={user_email}
+        Trigger the ArgoCD deployment workflow (deploy-app-to-common-cluster) in ${WORKFLOWS_REPO}
+        with the following parameters:
+        - APP_NAME: {app_name}
+        - PROJECT_NAME: {project_name}
+        - REPO_NAME: {repo_name}
+        - APP_NAMESPACE: {namespace}
+        - ENVIRONMENT: {environment}
+        - DEPLOYMENT_ENV: {deployment_env}
+        - APP_HELM_CHART_VERSION: {helm_chart_version}
+        - AUTO_APPROVE: {auto_approve}
+        - JIRA_TICKET: {jira_issue_id}
+        - USER_EMAIL: {user_email}
         
         Write workflow run URL to /workflow_result.txt
       subagent: "argocd"
@@ -365,7 +496,7 @@ Get LLM Spend Activity:
 # Group Management Operations (via GitHub Workflows)
 # =============================================================================
 # Group management operations are implemented through GitHub workflows.
-# The GitHub subagent triggers these workflows using gh CLI.
+# The GitHub subagent triggers these workflows.
 
 Add Users to Group:
   tasks:
@@ -383,13 +514,11 @@ Add Users to Group:
     - display_text: "Trigger group update workflow"
       llm_prompt: >
         Read /request.txt to get group_name, user_emails, requested_by.
-        Trigger the group update workflow using gh CLI:
-        
-        gh workflow run add-users-to-group \
-          --repo ${GROUPS_AUTOMATION_REPO} \
-          -f GROUP_NAME={group_name} \
-          -f USER_EMAILS={user_emails} \
-          -f REQUESTED_BY={requested_by}
+        Trigger the group update workflow (add-users-to-group) in ${GROUPS_AUTOMATION_REPO}
+        with the following parameters:
+        - GROUP_NAME: {group_name}
+        - USER_EMAILS: {user_emails}
+        - REQUESTED_BY: {requested_by}
         
         Write the workflow run URL to /group_result.txt
       subagent: "github"
@@ -419,13 +548,11 @@ Invite Users to GitHub Org:
     - display_text: "Trigger GitHub org invitation workflow"
       llm_prompt: >
         Read /request.txt to get org_name, user_emails, requested_by.
-        Trigger the GitHub org invitation workflow using gh CLI:
-        
-        gh workflow run invite-users-to-github-org \
-          --repo ${GROUPS_AUTOMATION_REPO} \
-          -f ORG_NAME={org_name} \
-          -f USER_EMAILS={user_emails} \
-          -f REQUESTED_BY={requested_by}
+        Trigger the GitHub org invitation workflow (invite-users-to-github-org) in ${GROUPS_AUTOMATION_REPO}
+        with the following parameters:
+        - ORG_NAME: {org_name}
+        - USER_EMAILS: {user_emails}
+        - REQUESTED_BY: {requested_by}
         
         Write the workflow run URL to /invite_result.txt
       subagent: "github"
@@ -454,12 +581,11 @@ List Groups:
     - display_text: "List available groups from repository"
       llm_prompt: >
         Read /request.txt to get filter_prefix and limit.
-        Use gh CLI to list groups from the groups automation repository:
+        List the contents of ${GROUPS_PATH} directory in ${GROUPS_AUTOMATION_REPO}.
         
-        gh api repos/${GROUPS_AUTOMATION_REPO}/contents/${GROUPS_PATH} \
-          --jq '.[].name' | head -n {limit}
+        If filter_prefix is provided, filter the results to match the prefix.
+        Limit results to {limit} entries.
         
-        If filter_prefix is provided, filter the results.
         Write results to /groups_result.txt with group names.
         Display formatted list to user.
       subagent: "github"
@@ -478,12 +604,12 @@ Find Users in Groups:
     - display_text: "Search for user group memberships"
       llm_prompt: >
         Read /request.txt to get user_emails.
-        For each user, search for their membership in the groups automation repo:
+        For each user, search for their email in the groups automation repo (${GROUPS_AUTOMATION_REPO})
+        within files matching ${GROUPS_FILE_PATTERN}.
         
-        gh search code "{user_id}" --repo ${GROUPS_AUTOMATION_REPO} \
-          --filename "${GROUPS_FILE_PATTERN}" --json path,textMatches
+        Extract the group names from the file paths where matches are found.
+        Compile a list of which groups each user belongs to.
         
-        Extract the group names from the paths and compile a list.
         Write results to /memberships_result.txt showing each user and their groups.
         Display formatted results to user.
       subagent: "github"
