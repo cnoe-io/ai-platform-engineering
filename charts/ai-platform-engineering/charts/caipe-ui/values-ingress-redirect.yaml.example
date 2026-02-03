@@ -1,0 +1,66 @@
+# Example: Ingress with Domain Redirect Configuration
+# This demonstrates how to set up automatic redirects from old domains to new domains
+# Useful when migrating to a new domain name while maintaining old URLs
+#
+# Usage:
+#   1. Copy this file and customize for your domains
+#   2. Deploy with: helm install -f your-values.yaml
+
+ingress:
+  enabled: true
+  className: "nginx"
+  
+  annotations:
+    # TLS/SSL Configuration (customize for your cert manager)
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    
+    # Force HTTPS
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    
+    # Security headers (optional but recommended)
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      more_set_headers "X-Frame-Options: SAMEORIGIN";
+      more_set_headers "X-Content-Type-Options: nosniff";
+      more_set_headers "X-XSS-Protection: 1; mode=block";
+  
+  # Primary host configuration
+  hosts:
+    - host: your-new-domain.com  # Replace with your new domain
+      paths:
+        - path: /
+          pathType: Prefix
+  
+  # TLS configuration
+  tls:
+    - secretName: your-new-domain-tls  # Replace with your TLS secret name
+      hosts:
+        - your-new-domain.com
+  
+  # Redirect configuration (optional)
+  # Creates separate ingress resources for redirecting old domains to new domain
+  # This feature requires the ingress-redirect.yaml template
+  redirectFrom:
+    - host: your-old-domain.com  # Replace with your old domain
+      redirectTo: "https://your-new-domain.com"  # Full URL to redirect to
+      tls:
+        secretName: your-old-domain-tls  # TLS secret for old domain
+      certManager:
+        issuer: "letsencrypt-prod"  # cert-manager issuer (optional)
+
+# Update application configuration to match new domain
+config:
+  NEXTAUTH_URL: "https://your-new-domain.com"  # MUST match primary domain
+  NEXT_PUBLIC_MONGODB_ENABLED: "true"
+  # ... other config ...
+
+# Example: Multiple redirects
+# redirectFrom:
+#   - host: old-domain-1.com
+#     redirectTo: "https://new-domain.com"
+#     tls:
+#       secretName: old-domain-1-tls
+#   - host: old-domain-2.com
+#     redirectTo: "https://new-domain.com"
+#     tls:
+#       secretName: old-domain-2-tls
