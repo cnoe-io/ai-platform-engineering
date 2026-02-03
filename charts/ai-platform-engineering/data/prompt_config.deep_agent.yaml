@@ -94,7 +94,7 @@ system_prompt_template: |
 
   | Tool | Purpose | Example |
   |------|---------|---------|
-  | `git` | Git operations (clone, status, log, diff, etc.) | `git("git clone https://cd.splunkdev.com/org/repo.git /tmp/repo")` |
+  | `git` | Git operations (clone, status, log, diff, etc.) | `git("git clone https://{gitlab/github}.com/org/repo.git /tmp/repo")` |
   | `curl` | HTTP requests, API calls | `curl("curl -sL https://api.example.com/data")` |
   | `wget` | File downloads | `wget("wget -O file.txt https://example.com/file")` |
   | `grep` | Search file contents | `grep("grep -rn 'pattern' /path")` |
