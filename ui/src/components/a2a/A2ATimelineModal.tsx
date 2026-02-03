@@ -109,7 +109,7 @@ export function A2ATimelineModal({
           {/* Event Flow View */}
           <TabsContent value="flow" className="flex-1 overflow-hidden mt-2">
             <EventFlowView
-              events={events}
+              events={compressedEvents}
               selectedEventId={selectedEventId}
               onSelectEvent={setSelectedEventId}
             />
@@ -127,7 +127,7 @@ export function A2ATimelineModal({
           {/* Trace View */}
           <TabsContent value="trace" className="flex-1 overflow-hidden mt-2">
             <TraceView
-              events={events}
+              events={compressedEvents}
               eventsByAgent={eventsByAgent}
               selectedEventId={selectedEventId}
               onSelectEvent={setSelectedEventId}
@@ -153,7 +153,7 @@ function EventFlowView({
   selectedEventId,
   onSelectEvent,
 }: {
-  events: A2AEvent[];
+  events: CompressedEvent[];
   selectedEventId: string | null;
   onSelectEvent: (id: string | null) => void;
 }) {
@@ -193,7 +193,9 @@ function EventFlowView({
           <div className="space-y-3">
             {events.map((event, idx) => {
               const Icon = getIcon(event.type);
-              const isSelected = selectedEventId === event.id;
+              const isSelected = event.compressedEventIds
+                ? event.compressedEventIds.includes(selectedEventId || "")
+                : selectedEventId === event.id;
               
               return (
                 <div
@@ -257,7 +259,7 @@ function AgentGroupView({
   selectedEventId,
   onSelectEvent,
 }: {
-  eventsByAgent: Map<string, A2AEvent[]>;
+  eventsByAgent: Map<string, CompressedEvent[]>;
   selectedEventId: string | null;
   onSelectEvent: (id: string | null) => void;
 }) {
@@ -316,7 +318,9 @@ function AgentGroupView({
               <div className="border-t p-3 space-y-2">
                 {agentEvents.map(event => {
                   const Icon = getIcon(event.type);
-                  const isSelected = selectedEventId === event.id;
+                  const isSelected = event.compressedEventIds
+                    ? event.compressedEventIds.includes(selectedEventId || "")
+                    : selectedEventId === event.id;
 
                   return (
                     <div
@@ -339,6 +343,11 @@ function AgentGroupView({
                              event.type === "status" ? "Status" :
                              event.type}
                           </Badge>
+                          {event.compressedCount && event.compressedCount > 1 && (
+                            <Badge variant="secondary" className="text-[10px] bg-primary/20">
+                              ×{event.compressedCount}
+                            </Badge>
+                          )}
                         </div>
                         <p className="text-xs text-muted-foreground line-clamp-1">{event.displayContent}</p>
                         <span className="text-[10px] text-muted-foreground/70 font-mono">
@@ -364,8 +373,8 @@ function TraceView({
   selectedEventId,
   onSelectEvent,
 }: {
-  events: A2AEvent[];
-  eventsByAgent: Map<string, A2AEvent[]>;
+  events: CompressedEvent[];
+  eventsByAgent: Map<string, CompressedEvent[]>;
   selectedEventId: string | null;
   onSelectEvent: (id: string | null) => void;
 }) {
