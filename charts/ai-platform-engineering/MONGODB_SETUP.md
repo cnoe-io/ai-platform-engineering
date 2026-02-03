@@ -200,7 +200,7 @@ The CAIPE UI ingress now supports:
 caipe-ui:
   ingress:
     hosts:
-      - host: grid.outshift.io
+      - host: caipe.example.com
         paths:
           - path: /
             pathType: Prefix
