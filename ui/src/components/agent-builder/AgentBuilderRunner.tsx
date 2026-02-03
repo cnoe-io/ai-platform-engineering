@@ -717,7 +717,7 @@ export function AgentBuilderRunner({
   const [streamingContent, setStreamingContent] = useState<string>("");
   const [showStreamingOutput, setShowStreamingOutput] = useState(true); // Expanded by default
   const [isSubmittingInput, setIsSubmittingInput] = useState(false);
-  const [showHistoryPanel, setShowHistoryPanel] = useState(false);
+  const [rightPanelTab, setRightPanelTab] = useState<"output" | "history">("output");
   const [currentRunId, setCurrentRunId] = useState<string | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -1563,18 +1563,6 @@ export function AgentBuilderRunner({
         </div>
 
         <div className="flex items-center gap-2">
-          {/* History Button */}
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setShowHistoryPanel(true)}
-            className="gap-1"
-            title="View workflow run history"
-          >
-            <History className="h-4 w-4" />
-            <span className="hidden sm:inline">History</span>
-          </Button>
-
           {status === "idle" && (
             <Button
               onClick={handleStart}
@@ -1719,15 +1707,37 @@ export function AgentBuilderRunner({
         </div>
         )}
 
-        {/* Right Panel - Output */}
+        {/* Right Panel - Output & History Tabs */}
         <div className={cn(
           "flex-1 flex flex-col min-h-0",
           !isOutputExpanded && "border-l border-border/50 pl-4"
         )}>
           <div className="flex items-center justify-between mb-3 shrink-0">
-            <h2 className="text-sm font-medium text-muted-foreground">
-              {finalResult ? "Result" : "Output"}
-            </h2>
+            {/* Tab Switcher */}
+            <div className="flex items-center gap-1 p-0.5 rounded-lg bg-muted/50">
+              <button
+                onClick={() => setRightPanelTab("output")}
+                className={cn(
+                  "px-3 py-1.5 text-xs font-medium rounded-md transition-colors",
+                  rightPanelTab === "output"
+                    ? "bg-background shadow-sm text-foreground"
+                    : "text-muted-foreground hover:text-foreground"
+                )}
+              >
+                {finalResult ? "Result" : "Output"}
+              </button>
+              <button
+                onClick={() => setRightPanelTab("history")}
+                className={cn(
+                  "px-3 py-1.5 text-xs font-medium rounded-md transition-colors",
+                  rightPanelTab === "history"
+                    ? "bg-background shadow-sm text-foreground"
+                    : "text-muted-foreground hover:text-foreground"
+                )}
+              >
+                History
+              </button>
+            </div>
             <div className="flex items-center gap-1">
               {/* Expand/Collapse button */}
               <Button
@@ -1819,158 +1829,108 @@ export function AgentBuilderRunner({
             </div>
           </div>
 
-          <ScrollArea className="flex-1">
-            <div className="pr-2">
-              {/* Idle state */}
-              {status === "idle" && (
-                <div className="flex flex-col items-center justify-center h-full py-12 text-center">
-                  <MessageSquare className="h-12 w-12 text-muted-foreground/20 mb-4" />
-                  <p className="text-muted-foreground">
-                    Results will appear here
-                  </p>
-                </div>
-              )}
+          {/* Tab Content */}
+          {rightPanelTab === "output" ? (
+            <ScrollArea className="flex-1">
+              <div className="pr-2">
+                {/* Idle state */}
+                {status === "idle" && (
+                  <div className="flex flex-col items-center justify-center h-full py-12 text-center">
+                    <MessageSquare className="h-12 w-12 text-muted-foreground/20 mb-4" />
+                    <p className="text-muted-foreground">
+                      Results will appear here
+                    </p>
+                  </div>
+                )}
 
-              {/* Running state - show streaming output */}
-              {status === "running" && !finalResult && (
-                <div className="space-y-4">
-                  {showStreamingOutput && streamingContent && (
-                    <StreamingOutputDisplay 
-                      content={streamingContent} 
-                      isFullscreen={isFullscreen}
-                      onExitFullscreen={() => setIsFullscreen(false)}
-                    />
-                  )}
-
-                  {!showStreamingOutput && (
-                    <div className="flex flex-col items-center justify-center py-12 text-center">
-                      <CAIPESpinner 
-                        size="md" 
-                        message={
-                          steps.length > 0 
-                            ? `Executing workflow... (Step ${activeStepIndex + 1} of ${steps.length})`
-                            : "Executing workflow..."
-                        } 
+                {/* Running state - show streaming output */}
+                {status === "running" && !finalResult && (
+                  <div className="space-y-4">
+                    {showStreamingOutput && streamingContent && (
+                      <StreamingOutputDisplay 
+                        content={streamingContent} 
+                        isFullscreen={isFullscreen}
+                        onExitFullscreen={() => setIsFullscreen(false)}
                       />
-                    </div>
-                  )}
-                </div>
-              )}
+                    )}
 
-              {/* Completed state - show final result or input form */}
-              {(status === "completed" || finalResult) && (
-                <ResultOrInputForm
-                  content={finalResult || streamingContent || "Workflow completed."}
-                  onSubmitInput={handleUserInputSubmit}
-                  isSubmitting={isSubmittingInput}
-                  structuredFields={structuredInputFields}
-                  structuredTitle={structuredInputTitle}
-                  isFullscreen={isFullscreen}
-                  onExitFullscreen={() => setIsFullscreen(false)}
-                />
-              )}
+                    {!showStreamingOutput && (
+                      <div className="flex flex-col items-center justify-center py-12 text-center">
+                        <CAIPESpinner 
+                          size="md" 
+                          message={
+                            steps.length > 0 
+                              ? `Executing workflow... (Step ${activeStepIndex + 1} of ${steps.length})`
+                              : "Executing workflow..."
+                          } 
+                        />
+                      </div>
+                    )}
+                  </div>
+                )}
 
-              {/* Failed state */}
-              {status === "failed" && (
-                <motion.div
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  className="flex flex-col items-center justify-center py-12 text-center"
-                >
-                  <XCircle className="h-12 w-12 text-red-500 mb-4" />
-                  <p className="text-lg font-medium text-foreground mb-2">
-                    Workflow Failed
-                  </p>
-                  <p className="text-sm text-muted-foreground max-w-md">
-                    {error || "An error occurred during execution"}
-                  </p>
-                </motion.div>
-              )}
+                {/* Completed state - show final result or input form */}
+                {(status === "completed" || finalResult) && (
+                  <ResultOrInputForm
+                    content={finalResult || streamingContent || "Workflow completed."}
+                    onSubmitInput={handleUserInputSubmit}
+                    isSubmitting={isSubmittingInput}
+                    structuredFields={structuredInputFields}
+                    structuredTitle={structuredInputTitle}
+                    isFullscreen={isFullscreen}
+                    onExitFullscreen={() => setIsFullscreen(false)}
+                  />
+                )}
 
-              {/* Cancelled state */}
-              {status === "cancelled" && (
-                <motion.div
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  className="flex flex-col items-center justify-center py-12 text-center"
-                >
-                  <Square className="h-12 w-12 text-muted-foreground mb-4" />
-                  <p className="text-lg font-medium text-foreground mb-2">
-                    Workflow Cancelled
-                  </p>
-                  <p className="text-sm text-muted-foreground">
-                    The workflow was stopped before completion
-                  </p>
-                </motion.div>
-              )}
+                {/* Failed state */}
+                {status === "failed" && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="flex flex-col items-center justify-center py-12 text-center"
+                  >
+                    <XCircle className="h-12 w-12 text-red-500 mb-4" />
+                    <p className="text-lg font-medium text-foreground mb-2">
+                      Workflow Failed
+                    </p>
+                    <p className="text-sm text-muted-foreground max-w-md">
+                      {error || "An error occurred during execution"}
+                    </p>
+                  </motion.div>
+                )}
+
+                {/* Cancelled state */}
+                {status === "cancelled" && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="flex flex-col items-center justify-center py-12 text-center"
+                  >
+                    <Square className="h-12 w-12 text-muted-foreground mb-4" />
+                    <p className="text-lg font-medium text-foreground mb-2">
+                      Workflow Cancelled
+                    </p>
+                    <p className="text-sm text-muted-foreground">
+                      The workflow was stopped before completion
+                    </p>
+                  </motion.div>
+                )}
+              </div>
+            </ScrollArea>
+          ) : (
+            <div className="flex-1 overflow-hidden">
+              <WorkflowHistoryView
+                workflowId={config.id}
+                onReRun={(run) => {
+                  setRightPanelTab("output");
+                  handleReset();
+                  setTimeout(() => handleStart(), 100);
+                }}
+              />
             </div>
-          </ScrollArea>
+          )}
         </div>
       </div>
-
-      {/* History Slide-Out Panel */}
-      <AnimatePresence>
-        {showHistoryPanel && (
-          <>
-            {/* Overlay */}
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="fixed inset-0 bg-black/50 backdrop-blur-sm z-40"
-              onClick={() => setShowHistoryPanel(false)}
-            />
-
-            {/* Slide-out Panel */}
-            <motion.div
-              initial={{ x: "100%" }}
-              animate={{ x: 0 }}
-              exit={{ x: "100%" }}
-              transition={{ type: "spring", damping: 30, stiffness: 300 }}
-              className="fixed right-0 top-0 bottom-0 w-full sm:w-[500px] bg-background border-l border-border shadow-2xl z-50 flex flex-col"
-            >
-              {/* Panel Header */}
-              <div className="flex items-center justify-between p-4 border-b border-border shrink-0">
-                <div className="flex items-center gap-3">
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => setShowHistoryPanel(false)}
-                    title="Back to workflow"
-                  >
-                    <ArrowLeft className="h-5 w-5" />
-                  </Button>
-                  <div className="flex items-center gap-2">
-                    <History className="h-5 w-5 text-primary" />
-                    <h2 className="text-lg font-semibold">Workflow Run History</h2>
-                  </div>
-                </div>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => setShowHistoryPanel(false)}
-                  title="Close"
-                >
-                  <X className="h-5 w-5" />
-                </Button>
-              </div>
-
-              {/* Panel Content */}
-              <div className="flex-1 overflow-hidden">
-                <WorkflowHistoryView
-                  workflowId={config.id}
-                  onReRun={(run) => {
-                    setShowHistoryPanel(false);
-                    handleReset();
-                    // Small delay to ensure reset is complete before starting
-                    setTimeout(() => handleStart(), 100);
-                  }}
-                />
-              </div>
-            </motion.div>
-          </>
-        )}
-      </AnimatePresence>
       
       {/* Fullscreen overlay backdrop */}
       <AnimatePresence>
