@@ -447,11 +447,18 @@ def create_caipe_subagent_def() -> dict:
     """
     caipe_response_tool = create_caipe_agent_response_tool()
     
+    # Include utility tools for filesystem operations
+    tools = [
+        caipe_response_tool,
+        tool_result_to_file,  # Save tool output to filesystem
+        wait,  # Async sleep for waiting scenarios
+    ]
+    
     return {
         "name": "caipe",
         "description": "Collects user input via forms, writes to filesystem for downstream agents",
         "system_prompt": CAIPE_SUBAGENT_PROMPT,
-        "tools": [caipe_response_tool],
+        "tools": tools,
         # Use interrupt_on for HITL
         "interrupt_on": {"CAIPEAgentResponse": True},
         # PolicyMiddleware enforces tool call authorization
@@ -488,6 +495,12 @@ async def create_subagent_def(agent_instance, name: str, description: str, promp
     if additional_tools:
         tools.extend(additional_tools)
     
+    # Add utility tools available to all subagents
+    # - tool_result_to_file: Save tool output to filesystem for downstream agents
+    # - wait: Async sleep for polling/waiting scenarios
+    # Note: FilesystemMiddleware provides read_file, write_file, etc. separately
+    tools.extend([tool_result_to_file, wait])
+    
     # Get system prompt - prefer prompt_config, fall back to agent's built-in
     system_prompt = None
     if prompt_config:
@@ -501,7 +514,7 @@ async def create_subagent_def(agent_instance, name: str, description: str, promp
         system_prompt = agent_instance._get_system_instruction_with_date()
         logger.info(f"📝 Using built-in system_prompt for {name} subagent")
     
-    logger.info(f"📦 Created SubAgent def for {name} with {len(tools)} tools + PolicyMiddleware")
+    logger.info(f"📦 Created SubAgent def for {name} with {len(tools)} tools (incl. utility tools) + PolicyMiddleware")
     
     return {
         "name": name,

@@ -52,6 +52,7 @@ source = { virtual = "." }
 dependencies = [
     { name = "a2a-sdk" },
     { name = "agntcy-app-sdk" },
+    { name = "clorm" },
     { name = "cnoe-agent-utils" },
     { name = "config" },
     { name = "cryptography" },
@@ -81,6 +82,7 @@ unittest = [
 requires-dist = [
     { name = "a2a-sdk", specifier = "==0.3.0" },
     { name = "agntcy-app-sdk", specifier = "==0.4.0" },
+    { name = "clorm", specifier = ">=1.6.0" },
     { name = "cnoe-agent-utils", specifier = "==0.3.9" },
     { name = "config", specifier = "==0.5.1" },
     { name = "cryptography", specifier = "==46.0.3" },
@@ -492,6 +494,39 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/3d/fa/656b739db8587d7b5dfa22e22ed02566950fbfbcdc20311993483657a5c0/click-8.3.1.tar.gz", hash = "sha256:12ff4785d337a1bb490bb7e9c2b1ee5da3112e94a8622f26a6c77f5d2fc6842a", size = 295065 }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/98/78/01c019cdb5d6498122777c1a43056ebb3ebfeef2076d9d026bfe15583b2b/click-8.3.1-py3-none-any.whl", hash = "sha256:981153a64e25f12d547d3426c367a4857371575ee7ad18df2a6183ab0545b2a6", size = 108274 },
+]
+
+[[package]]
+name = "clingo"
+version = "5.8.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "cffi" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/f0/05/1a8a34eea27e73e4c6f7c9d0654b4fd7f509a5fbbb7b3eae7735e5ecd1c2/clingo-5.8.0.tar.gz", hash = "sha256:e557d0ab209bfe185e4ae9dde531ca777be1b72a1a13a5d169926a1f9e4c4480", size = 1910050 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/be/24/a9e3d88607823580169484857c53ffb01640d1acb8c602b0bf9de3e14f4f/clingo-5.8.0-cp313-cp313-macosx_10_13_x86_64.whl", hash = "sha256:461ce0a8081fc5a0ec5e45719a505a4971e50c6e8fee3e422ea8bbaadc5384c9", size = 1765677 },
+    { url = "https://files.pythonhosted.org/packages/d0/8b/dfbd483f4405f951837d4911f9591a020624011c29a2ffe3e665f2764486/clingo-5.8.0-cp313-cp313-macosx_11_0_arm64.whl", hash = "sha256:88bf93b0f99fb9e42b3eb794e5ee221f3d90f128ecec421dd117eeb76940fc83", size = 1620692 },
+    { url = "https://files.pythonhosted.org/packages/f9/43/981c62bfd69af05228a1940e9ffa537cde561ddcbc59cc62bf81bdbd74e9/clingo-5.8.0-cp313-cp313-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:f7897f1acdab9628e1e427b88149519accd4b27b5a0004106c9e306c47727d72", size = 2156565 },
+    { url = "https://files.pythonhosted.org/packages/fa/52/36ea8e6c3a739af35a1106c10cc6f65db6c1363895ae0c678c1213610481/clingo-5.8.0-cp313-cp313-manylinux_2_17_i686.manylinux2014_i686.whl", hash = "sha256:024b3ed20d85da41956438a42c8b0ac347da14db7456a544bf58983ad5975d8c", size = 2428019 },
+    { url = "https://files.pythonhosted.org/packages/5a/49/8e74859dc653cf20a45bf43a32639c7bca722d34ff5131ba3e8c9176c9a5/clingo-5.8.0-cp313-cp313-manylinux_2_17_ppc64le.manylinux2014_ppc64le.whl", hash = "sha256:b2bebf7a0bee043100d5ed1493703e43e1dd43de97b362375deca8cf707ae196", size = 2518052 },
+    { url = "https://files.pythonhosted.org/packages/f9/a1/2945dc1a688d988d4d6d33dea337ba925356350d73d796616e9f65afb30e/clingo-5.8.0-cp313-cp313-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:967583dff5218adb4ed2cda56a53ec06eb518b52ece961bcf4bb84320e7334f5", size = 2259928 },
+    { url = "https://files.pythonhosted.org/packages/de/c9/8f71e8d9a1c0c5c3d790361ebe4b810d86edc752e4f5c529c0a9f52b765c/clingo-5.8.0-cp313-cp313-musllinux_1_2_i686.whl", hash = "sha256:1a8d0b56b1399b2d548e1fe1a27ca5af10bc8d03ad475416f3d4bf1c75b231bd", size = 3542581 },
+    { url = "https://files.pythonhosted.org/packages/c5/09/bcd1a74c3459c21d0f74416e36fd9d41b660c0fa87fc2cc4698cd68cc14f/clingo-5.8.0-cp313-cp313-musllinux_1_2_x86_64.whl", hash = "sha256:167a204ea123b1c9f7524934c898553943274f460103b96a2c451d3ea6f9fd2c", size = 3265131 },
+    { url = "https://files.pythonhosted.org/packages/45/b5/3ec2544305d450ac937489d831049e56f6fcefadc2d09a1db6627f74ae2a/clingo-5.8.0-cp313-cp313-win32.whl", hash = "sha256:9db5a00458c755ce170b4c7320aaa2a24a984e7f6759a414476b33fa9622a407", size = 1166933 },
+    { url = "https://files.pythonhosted.org/packages/2f/3a/f19b240f7778e965916e4a5304ee038cf1b35cfa7df1836567c37ebfa279/clingo-5.8.0-cp313-cp313-win_amd64.whl", hash = "sha256:6297a12c20bfe12405dd04c4505fcf72c855696018faed32b50cd0c6a4fd7499", size = 1369297 },
+]
+
+[[package]]
+name = "clorm"
+version = "1.6.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "clingo" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/ca/fa/84cb1bbd91320c5fe88b824bf01c3bf7313c8016b56997b1ea2f5d3dd099/clorm-1.6.1.tar.gz", hash = "sha256:a18f7635b6d28a6c4dc782c3a37ce4d871323fc0288e3b97c26ea11e3558ca18", size = 227990 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/4f/6f/35b8e404c495fe6c2cbe59d60e8ba8eaeb2881a8f66efc030dba8202a8c8/clorm-1.6.1-py3-none-any.whl", hash = "sha256:42a226a876de694c6be5f83a6400a41dcca26d9e34c9ac7d1590b7bfead5bc15", size = 152298 },
 ]
 
 [[package]]
