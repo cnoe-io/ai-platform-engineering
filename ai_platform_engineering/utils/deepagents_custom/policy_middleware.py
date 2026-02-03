@@ -46,13 +46,13 @@ except ImportError:
     Predicate = object
     ConstantStr = str
 
-# Import self-service mode context variable
+# Import self-service mode helper function
 try:
-    from ai_platform_engineering.agents.github.agent_github.tools import self_service_mode_ctx
+    from ai_platform_engineering.agents.github.agent_github.tools import is_self_service_mode
 except ImportError:
     # Fallback if the import fails
-    import contextvars
-    self_service_mode_ctx = contextvars.ContextVar('self_service_mode', default=False)
+    def is_self_service_mode() -> bool:
+        return False
 
 logger = logging.getLogger(__name__)
 
@@ -159,7 +159,7 @@ class PolicyMiddleware(AgentMiddleware):
         # Policy is at: policy/policy.lp
         return str(Path(__file__).parents[3] / "policy" / "policy.lp")
     
-    def _is_self_service_mode(self) -> bool:
+    def _check_self_service_mode(self) -> bool:
         """Check if we're running in self-service mode.
         
         Self-service mode is set by DeterministicTaskMiddleware when executing
@@ -169,8 +169,11 @@ class PolicyMiddleware(AgentMiddleware):
             True if self-service mode is active
         """
         try:
-            return self_service_mode_ctx.get()
-        except Exception:
+            result = is_self_service_mode()
+            logger.debug(f"[PolicyMiddleware] is_self_service_mode() returned: {result}")
+            return result
+        except Exception as e:
+            logger.warning(f"[PolicyMiddleware] is_self_service_mode() exception: {e}")
             return False
 
     def _is_allowed(self, tool_name: str) -> bool:
@@ -215,7 +218,7 @@ class PolicyMiddleware(AgentMiddleware):
             ]
             
             # Add self_service_mode fact if active
-            is_self_service = self._is_self_service_mode()
+            is_self_service = self._check_self_service_mode()
             if is_self_service:
                 facts_list.append(SelfServiceModeFact())
                 logger.debug(f"Policy evaluation with self_service_mode=True for {tool_name}")

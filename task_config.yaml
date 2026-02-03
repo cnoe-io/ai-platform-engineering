@@ -262,7 +262,7 @@ Create EC2 Instance:
         Collect the following information from the user and write to /request.txt:
         - resource_name (required): Name tag for the instance (lowercase, no spaces, use hyphens)
         - instance_type (required): EC2 instance type (t3.micro, t3.small, t3.medium, t3.large, t3.xlarge, m5.large, m5.xlarge)
-        - ami_type (required): AMI type (ubuntu, amazon-linux, or custom hardened image)
+        - ami_type (required): AMI type - valid values: AMAZON_LINUX_2, UBUNTU, WINDOWS, CISCO_HARDENED_AL2
         - vpc_name (optional): VPC name for the instance (default: ${DEFAULT_VPC_NAME})
         - is_public (optional): Whether instance should have public IP (true/false, default: true)
         - user_mgmt (optional): Enable S3-based user management (true/false, default: false)
@@ -618,9 +618,9 @@ Create S3 Bucket:
       llm_prompt: >
         Collect the following information from the user and write to /request.txt:
         - resource_name (required): S3 bucket name (must be globally unique, lowercase, no spaces)
-        - aws_account (required): AWS account name
-        - region (required): AWS region (us-east-2, us-west-2, etc.)
-        - env (required): Environment (sandbox/dev/staging/prod)
+        - aws_account (optional): AWS account name (default: ${DEFAULT_AWS_ACCOUNT})
+        - region (optional): AWS region (default: us-east-2)
+        - env (optional): Environment (sandbox/dev/staging/prod, default: sandbox)
         - is_public (optional): Whether bucket should be public (true/false, default: false)
         - application_name (optional): Application name tag (default: ${DEFAULT_APPLICATION_NAME})
         - component (optional): Component tag (default: platform)
@@ -654,9 +654,9 @@ Create S3 Bucket:
         
         Process the template by replacing placeholders with values from request.txt:
         - {{ .RESOURCE_NAME }} -> {resource_name}
-        - {{ .AWS_ACCOUNT }} -> {aws_account}
-        - {{ .REGION }} -> {region}
-        - {{ .ENV }} -> {env}
+        - {{ .AWS_ACCOUNT }} -> {aws_account} (default: ${DEFAULT_AWS_ACCOUNT})
+        - {{ .REGION }} -> {region} (default: us-east-2)
+        - {{ .ENV }} -> {env} (default: sandbox)
         - {{ .IS_PUBLIC }} -> {is_public} (default: false)
         - {{ .APPLICATION_NAME }} -> {application_name} (default: ${DEFAULT_APPLICATION_NAME})
         - {{ .COMPONENT }} -> {component} (default: platform)
