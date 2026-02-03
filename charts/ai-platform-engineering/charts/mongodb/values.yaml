@@ -1,0 +1,143 @@
+# Default values for mongodb
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+
+# This will set the replicaset count more information can be found here: https://kubernetes.io/docs/concepts/workloads/controllers/replicaset/
+replicaCount: 1
+
+# This sets the number of old ReplicaSets to retain for rollback
+# Kubernetes will automatically clean up ReplicaSets beyond this limit
+revisionHistoryLimit: 3
+
+# This sets the container image more information can be found here: https://kubernetes.io/docs/concepts/containers/images/
+image:
+  repository: mongo
+  # This sets the pull policy for images.
+  pullPolicy: IfNotPresent
+  # Overrides the image tag whose default is the chart appVersion.
+  tag: "7.0"
+
+# This is for the secrets for pulling an image from a private repository more information can be found here: https://kubernetes.io/docs/tasks/configure-pod-container/pull-image-private-registry/
+imagePullSecrets: []
+# This is to override the chart name.
+nameOverride: ""
+fullnameOverride: ""
+
+# This section builds out the service account more information can be found here: https://kubernetes.io/docs/concepts/security/service-accounts/
+serviceAccount:
+  # Specifies whether a service account should be created
+  create: true
+  # Automatically mount a ServiceAccount's API credentials?
+  automount: true
+  # Annotations to add to the service account
+  annotations: {}
+  # The name of the service account to use.
+  # If not set and create is true, a name is generated using the fullname template
+  name: ""
+
+# This is for setting Kubernetes Annotations to a Pod.
+# For more information checkout: https://kubernetes.io/docs/concepts/overview/working-with-objects/annotations/
+podAnnotations: {}
+# This is for setting Kubernetes Labels to a Pod.
+# For more information checkout: https://kubernetes.io/docs/concepts/overview/working-with-objects/labels/
+podLabels: {}
+
+podSecurityContext:
+  fsGroup: 999
+
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 999
+
+# This is for setting up a service more information can be found here: https://kubernetes.io/docs/concepts/services-networking/service/
+service:
+  # This sets the service type more information can be found here: https://kubernetes.io/docs/concepts/services-networking/service/#publishing-services-service-types
+  type: ClusterIP
+  # This sets the ports more information can be found here: https://kubernetes.io/docs/concepts/services-networking/service/#field-spec-ports
+  port: 27017
+
+resources: {}
+  # We usually recommend not to specify default resources and to leave this as a conscious
+  # choice for the user. This also increases chances charts run on environments with little
+  # resources, such as Minikube. If you do want to specify resources, uncomment the following
+  # lines, adjust them as necessary, and remove the curly braces after 'resources:'.
+  # limits:
+  #   cpu: 500m
+  #   memory: 512Mi
+  # requests:
+  #   cpu: 250m
+  #   memory: 256Mi
+
+# This is to setup the liveness and readiness probes more information can be found here: https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/
+livenessProbe:
+  exec:
+    command:
+      - mongosh
+      - --eval
+      - "db.adminCommand('ping')"
+  initialDelaySeconds: 30
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 3
+readinessProbe:
+  exec:
+    command:
+      - mongosh
+      - --eval
+      - "db.adminCommand('ping')"
+  initialDelaySeconds: 5
+  periodSeconds: 5
+  timeoutSeconds: 3
+  failureThreshold: 3
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity: {}
+
+# Persistence configuration for MongoDB data
+persistence:
+  # Enable persistent storage
+  enabled: true
+  # Storage class to use for the PVC (if not set, uses the default storage class)
+  storageClass: ""
+  # Access modes for the volume
+  accessModes:
+    - ReadWriteOnce
+  # Size of the persistent volume
+  size: 10Gi
+
+# MongoDB authentication
+auth:
+  # Root username
+  rootUsername: "admin"
+  # Root password - should be overridden or use external secrets
+  rootPassword: "changeme"
+  # Database name
+  database: "caipe"
+
+# External Secrets configuration for MongoDB credentials
+# These secrets are fetched from your secret store (Vault, AWS Secrets Manager, etc.)
+externalSecrets:
+  enabled: false  # Set to true to enable external secrets
+  apiVersion: "v1beta1"
+  secretStoreRef:
+    name: "vault"  # Your secret store name
+    kind: "ClusterSecretStore"  # or "SecretStore" for namespace-scoped
+  data: []
+    # Example configuration:
+    # - secretKey: MONGO_INITDB_ROOT_USERNAME
+    #   remoteRef:
+    #     key: dev/mongodb
+    #     property: username
+    # - secretKey: MONGO_INITDB_ROOT_PASSWORD
+    #   remoteRef:
+    #     key: dev/mongodb
+    #     property: password
+
+# Export values for parent chart import-values
+exports:
+  host: "mongodb"
+  port: 27017
+  database: "caipe"
