@@ -87,34 +87,6 @@ services:
     command: platform-engineer
 
   ####################################################################################################
-  #                                          MongoDB                                                 #
-  ####################################################################################################
-  # MongoDB for CAIPE UI chat history and user settings
-  caipe-ui-mongodb:
-    image: mongo:7.0
-    container_name: caipe-ui-mongodb
-    ports:
-      - "27017:27017"
-    environment:
-      - MONGO_INITDB_ROOT_USERNAME=${MONGODB_ROOT_USERNAME:-admin}
-      - MONGO_INITDB_ROOT_PASSWORD=${MONGODB_ROOT_PASSWORD:-changeme}
-      - MONGO_INITDB_DATABASE=${MONGODB_DATABASE:-caipe}
-    volumes:
-      - caipe_ui_mongodb_data:/data/db
-      - caipe_ui_mongodb_config:/data/configdb
-    healthcheck:
-      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 40s
-    profiles:
-      - caipe-ui-with-mongodb
-      - caipe-ui-minimal
-    profiles:
-      - caipe-ui-with-mongodb
-
-  ####################################################################################################
   #                                      SLIM Transport                                              #
   ####################################################################################################
   slim-dataplane:
@@ -668,7 +640,7 @@ services:
   #   - Configure via MONGODB_* environment variables
   #   - See mongodb service configuration above
   caipe-ui:
-    image: ghcr.io/cnoe-io/caipe-ui:${IMAGE_TAG:-0.2.12}
+    image: ghcr.io/cnoe-io/caipe-ui:${IMAGE_TAG:-0.2.14}
     container_name: caipe-ui
     ports: ["3000:3000"]
     env_file:
