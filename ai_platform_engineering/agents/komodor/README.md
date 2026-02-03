@@ -224,8 +224,6 @@ agent_komodor
 │   ├── __init__.py
 │   ├── a2a_server
 │   │   └── agent_executor.py
-│   ├── acp_server
-│   │   └── agent.json
 │   └── mcp_server
 │       ├── __init__.py
 │       └── mcp_komodor
