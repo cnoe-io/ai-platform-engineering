@@ -165,10 +165,10 @@ jobs:
               if (pct >= 80) color = 'brightgreen';
               else if (pct >= 60) color = 'yellow';
               else if (pct >= 40) color = 'orange';
-              return \`![${name}](https://img.shields.io/badge/${name}-${pct}%25-${color})\`;
+              return '![' + name + '](https://img.shields.io/badge/' + name + '-' + pct + '%25-' + color + ')';
             };
             
-            const comment = \`## 🧪 CAIPE UI Test Results
+            const comment = `## 🧪 CAIPE UI Test Results
             
             ${testStatusText}
             
@@ -191,11 +191,11 @@ jobs:
             
             ### ✅ Test Suites
             
-            - ✅ \`auth-guard.test.tsx\` - Route protection & authorization
-            - ✅ \`token-expiry-guard.test.tsx\` - Token expiry handling
-            - ✅ \`a2a-sdk-client.test.ts\` - A2A streaming SDK
-            - ✅ \`auth-utils.test.ts\` - Authentication utilities (100% coverage)
-            - ✅ \`auth-config.test.ts\` - OIDC configuration
+            - ✅ auth-guard.test.tsx - Route protection & authorization
+            - ✅ token-expiry-guard.test.tsx - Token expiry handling
+            - ✅ a2a-sdk-client.test.ts - A2A streaming SDK
+            - ✅ auth-utils.test.ts - Authentication utilities (100% coverage)
+            - ✅ auth-config.test.ts - OIDC configuration
             
             <details>
             <summary>📈 Coverage Thresholds</summary>
@@ -212,23 +212,23 @@ jobs:
             <summary>⚠️ Areas Needing Tests</summary>
             
             **High Priority:**
-            - \`hooks/use-a2a-streaming.ts\` - Core streaming functionality
-            - \`store/chat-store.ts\` - Chat state management
-            - \`store/agent-config-store.ts\` - Agent configuration
-            - \`lib/api-client.ts\` - API communication
-            - \`lib/storage-mode.ts\` - MongoDB/localStorage switching
+            - hooks/use-a2a-streaming.ts - Core streaming functionality
+            - store/chat-store.ts - Chat state management
+            - store/agent-config-store.ts - Agent configuration
+            - lib/api-client.ts - API communication
+            - lib/storage-mode.ts - MongoDB/localStorage switching
             
             **Medium Priority:**
-            - \`components/chat/ChatPanel.tsx\` - Main chat interface
-            - \`components/agent-builder/*\` - Agent builder UI
-            - \`lib/mongodb.ts\` - MongoDB integration
+            - components/chat/ChatPanel.tsx - Main chat interface
+            - components/agent-builder/* - Agent builder UI
+            - lib/mongodb.ts - MongoDB integration
             
             </details>
             
             ---
             
-            💡 **Run locally:** \`make caipe-ui-tests\`  
-            📦 **Full report:** Check workflow artifacts\`;
+            💡 **Run locally:** make caipe-ui-tests  
+            📦 **Full report:** Check workflow artifacts`;
             
             // Find existing comment
             const { data: comments } = await github.rest.issues.listComments({
