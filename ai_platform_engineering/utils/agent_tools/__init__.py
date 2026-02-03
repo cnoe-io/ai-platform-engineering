@@ -27,6 +27,7 @@ from ai_platform_engineering.utils.agent_tools.file_tool import (
     write_file,
     append_file,
     list_files,
+    edit_file,
 )
 
 __all__ = [
@@ -49,4 +50,5 @@ __all__ = [
     'write_file',  # write_file("/tmp/out.json", content)
     'append_file', # append_file("/tmp/log.txt", "entry\n")
     'list_files',  # list_files("/tmp/repo", pattern="*.yaml")
+    'edit_file',   # edit_file("/tmp/config.yaml", "old: value", "new: value")
 ]

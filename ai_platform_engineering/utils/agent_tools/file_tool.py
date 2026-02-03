@@ -221,4 +221,87 @@ def list_files(
         return f"ERROR: {e}"
 
 
-__all__ = ['read_file', 'write_file', 'append_file', 'list_files']
+@tool
+def edit_file(
+    path: str,
+    old_string: str,
+    new_string: str,
+    encoding: str = "utf-8",
+) -> str:
+    """
+    Edit a file by replacing a specific string with new content.
+
+    This is more efficient than write_file for small changes to large files,
+    as you only need to specify the part being changed.
+
+    Args:
+        path: Path to the file (absolute or relative)
+        old_string: The exact string to find and replace (must be unique in file)
+        new_string: The string to replace it with
+        encoding: File encoding (default: utf-8)
+
+    Returns:
+        Success message or "ERROR: <message>"
+
+    Examples:
+        # Change a config value
+        edit_file("/tmp/config.yaml", "replicas: 1", "replicas: 3")
+
+        # Update a function
+        edit_file("/tmp/app.py",
+            "def hello():\\n    return 'Hello'",
+            "def hello():\\n    return 'Hello, World!'")
+
+        # Fix a typo
+        edit_file("/tmp/README.md", "teh", "the")
+
+    Notes:
+        - old_string must exist exactly once in the file
+        - If old_string is not found, returns an error
+        - If old_string appears multiple times, returns an error (provide more context)
+        - Preserves file encoding
+    """
+    try:
+        file_path = Path(path).expanduser().resolve()
+
+        if not file_path.exists():
+            return f"ERROR: File not found: {path}"
+
+        if not file_path.is_file():
+            return f"ERROR: Not a file: {path}"
+
+        # Check file size
+        file_size = file_path.stat().st_size
+        if file_size > MAX_FILE_SIZE:
+            return f"ERROR: File too large ({file_size} bytes, max {MAX_FILE_SIZE})"
+
+        content = file_path.read_text(encoding=encoding)
+
+        # Check if old_string exists
+        count = content.count(old_string)
+        if count == 0:
+            return f"ERROR: String not found in file. Make sure old_string matches exactly (including whitespace/newlines)."
+        if count > 1:
+            return f"ERROR: String appears {count} times in file. Provide more surrounding context to make it unique."
+
+        # Perform the replacement
+        new_content = content.replace(old_string, new_string, 1)
+
+        # Check new content size
+        new_size = len(new_content.encode(encoding))
+        if new_size > MAX_WRITE_SIZE:
+            return f"ERROR: Resulting file too large ({new_size} bytes, max {MAX_WRITE_SIZE})"
+
+        file_path.write_text(new_content, encoding=encoding)
+
+        return f"Successfully edited {path}"
+
+    except UnicodeDecodeError as e:
+        return f"ERROR: Encoding error: {e}"
+    except PermissionError:
+        return f"ERROR: Permission denied: {path}"
+    except Exception as e:
+        return f"ERROR: {e}"
+
+
+__all__ = ['read_file', 'write_file', 'append_file', 'list_files', 'edit_file']
