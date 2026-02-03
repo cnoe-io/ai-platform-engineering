@@ -184,8 +184,8 @@ function isSubAgentCardsEnabled(): boolean {
 }
 
 /** Default branding values */
-const DEFAULT_TAGLINE = 'Multi-Agent Collaboration & Workflow Automation';
-const DEFAULT_DESCRIPTION = 'AI agents and native apps collaborating across tools and teams to get work done.';
+const DEFAULT_TAGLINE = 'Multi-Agent Workflow Automation';
+const DEFAULT_DESCRIPTION = 'Where Humans and AI agents collaborate to deliver high quality outcomes.';
 const DEFAULT_APP_NAME = 'CAIPE';
 const DEFAULT_LOGO_URL = '/logo.svg';
 const DEFAULT_GRADIENT_FROM = 'hsl(173,80%,40%)';
