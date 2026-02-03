@@ -1543,11 +1543,11 @@ export function AgentBuilderRunner({
           >
             <LayoutGrid className="h-5 w-5" />
           </Button>
-          {/* Back button - opens history panel */}
+          {/* Back button - navigates to history page */}
           <Button 
             variant="ghost" 
             size="icon" 
-            onClick={() => setShowHistoryPanel(true)} 
+            onClick={() => router.push('/agent-builder/history')} 
             title="View workflow history"
           >
             <ArrowLeft className="h-5 w-5" />
