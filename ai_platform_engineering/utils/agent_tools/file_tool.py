@@ -280,7 +280,7 @@ def edit_file(
         # Check if old_string exists
         count = content.count(old_string)
         if count == 0:
-            return f"ERROR: String not found in file. Make sure old_string matches exactly (including whitespace/newlines)."
+            return "ERROR: String not found in file. Make sure old_string matches exactly (including whitespace/newlines)."
         if count > 1:
             return f"ERROR: String appears {count} times in file. Provide more surrounding context to make it unique."
 
