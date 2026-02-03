@@ -259,7 +259,6 @@ class SlackChannelSyncer:
                 "type": "slack_thread",
                 "source_uri": thread_url,
                 "last_modified": int(float(thread_messages[-1].get("ts", "0"))),
-
             }
         )
         
@@ -368,11 +367,26 @@ async def sync_slack_channels(client: Client):
                 "channel_id": channel_id,
                 "channel_name": channel_name,
                 "last_ts": newest_ts,
-                "workspace_url": workspace_url
+                "workspace_url": workspace_url,
+                "lookback_days": lookback_days
             }
         )
         await client.upsert_datasource(datasource)
-        
+
+        # Prune old documents based on lookback period
+        # This removes documents older than lookback_days from Milvus and Neo4j
+        current_time = int(time.time())
+        lookback_seconds = lookback_days * 24 * 60 * 60
+        cutoff_timestamp = current_time - lookback_seconds
+
+        logger.info(f"Pruning documents older than {lookback_days} days ({ts_to_readable(cutoff_timestamp)}) for #{channel_name}")
+        try:
+            prune_result = await client.prune_documents(datasource_id, cutoff_timestamp)
+            logger.info(f"Prune result for #{channel_name}: {prune_result}")
+        except Exception as e:
+            logger.warning(f"Error pruning documents for #{channel_name}: {e}")
+            # Continue with ingestion even if prune fails
+
         # Convert messages to thread documents
         documents = syncer.group_messages_by_thread(messages, channel_id, channel_name, include_bots, datasource_id, client.ingestor_id or "")
         

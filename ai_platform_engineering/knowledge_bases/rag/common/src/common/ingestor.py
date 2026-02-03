@@ -426,6 +426,23 @@ class Client():
         job_info = await self.get_job(job_id)
         return job_info.status == JobStatus.TERMINATED
 
+    async def prune_documents(self, datasource_id: str, cutoff_timestamp: int) -> Dict[str, Any]:
+        """
+        Remove documents older than cutoff_timestamp from a datasource.
+        This is used for data retention to prune documents older than the lookback period.
+
+        :param datasource_id: ID of the datasource to prune
+        :param cutoff_timestamp: Unix timestamp - documents with last_modified < cutoff_timestamp will be deleted
+        :return: Prune result containing status and counts
+        """
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                url=f"{self.server_addr}/v1/datasource/{datasource_id}/prune",
+                params={"cutoff_timestamp": cutoff_timestamp}
+            ) as resp:
+                resp.raise_for_status()
+                return await resp.json()
+
     async def graph_find_entity(self, entity_type: str, entity_pk: str) -> Dict[str, Any]:
         """
         Find a graph entity by type and primary key

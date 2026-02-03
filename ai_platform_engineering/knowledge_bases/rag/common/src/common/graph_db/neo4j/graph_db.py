@@ -1223,6 +1223,45 @@ class Neo4jDB(GraphDB):
             await session.run(query) # type: ignore
             logger.info("Removed stale entities from the database")
 
+    async def remove_stale_by_timestamp(self, datasource_id: str, cutoff_timestamp: int) -> int:
+        """
+        Remove entities from a specific datasource that have last_modified older than cutoff_timestamp.
+        Used for data retention to prune old documents.
+
+        :param datasource_id: The datasource ID to prune entities from
+        :param cutoff_timestamp: Unix timestamp - entities with last_modified < cutoff_timestamp will be deleted
+        :return: Number of entities deleted
+        """
+        logger.debug(f"Removing stale entities for datasource {datasource_id} older than {cutoff_timestamp}")
+
+        escaped_tenant_label = self._escape_label(self.tenant_label)
+
+        # Match entities by datasource_id and check last_modified timestamp
+        # Use parameterized query for safety
+        query = f"""
+        MATCH (n:{escaped_tenant_label})
+        WHERE n.`{DATASOURCE_ID_KEY}` = $datasource_id
+          AND n.last_modified IS NOT NULL
+          AND n.last_modified < $cutoff_timestamp
+        DETACH DELETE n
+        RETURN count(n) as deleted_count
+        """
+
+        params = {
+            "datasource_id": datasource_id,
+            "cutoff_timestamp": cutoff_timestamp
+        }
+
+        logger.debug(f"Query: {query}")
+        logger.debug(f"Params: {params}")
+
+        async with self.driver.session(database=self.database) as session:
+            res = await session.run(query, params) # type: ignore
+            record = await res.single()
+            deleted_count = record.get("deleted_count", 0) if record else 0
+            logger.info(f"Removed {deleted_count} stale entities from datasource {datasource_id}")
+            return deleted_count
+
     async def relate_entities_by_property(self, entity_a_type: str, entity_b_type: str, relation_type: str,
                                           matching_properties: dict, relation_pk: str, relation_properties: (dict | None) = None):
         """

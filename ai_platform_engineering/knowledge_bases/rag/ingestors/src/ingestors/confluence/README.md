@@ -141,7 +141,8 @@ DataSourceInfo(
 - `space_name` - Human-readable space name
 - `url` - Direct link to page
 - `created_date` - Page creation timestamp
-- `last_modified` - Last modification timestamp
+- `last_modified` - Last modification Unix timestamp (for data retention pruning)
+- `last_modified_iso` - Last modification timestamp (ISO string for display)
 - `version` - Page version number
 - `author` - Page creator
 - `chunk_index` - Position in chunked document (0-indexed)
