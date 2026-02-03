@@ -10,10 +10,11 @@
  * - Added RBAC permission checks
  */
 
-import React, { useEffect, useMemo, useState, useCallback } from 'react'
+import React, { useEffect, useMemo, useState, useCallback, useRef } from 'react'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism'
 import { formatDistanceToNow } from 'date-fns'
+import { Database, RefreshCw } from 'lucide-react'
 import type { IngestionJob, DataSourceInfo, IngestorInfo } from './Models'
 import {
   getDataSources,
@@ -30,6 +31,7 @@ import {
 } from './api/index'
 import { getIconForType, ingestTypeConfigs, isIngestTypeAvailable } from './typeConfig'
 import { useRagPermissions, Permission } from '@/hooks/useRagPermissions'
+import { ScrollArea } from "@/components/ui/scroll-area"
 
 // Helper component to render icon (either emoji or SVG image)
 const IconRenderer = ({ icon, className = "w-5 h-5" }: { icon: string; className?: string }) => {
@@ -63,6 +65,7 @@ export default function IngestView() {
   // DataSources state
   const [dataSources, setDataSources] = useState<DataSourceInfo[]>([])
   const [loadingDataSources, setLoadingDataSources] = useState(true)
+  const [refreshingDataSources, setRefreshingDataSources] = useState(false)
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set())
   const [dataSourceJobs, setDataSourceJobs] = useState<Record<string, IngestionJob[]>>({})
   const [expandedJobs, setExpandedJobs] = useState<Set<string>>(new Set())
@@ -71,6 +74,7 @@ export default function IngestView() {
   // Ingestors state
   const [ingestors, setIngestors] = useState<IngestorInfo[]>([])
   const [loadingIngestors, setLoadingIngestors] = useState(false)
+  const [refreshingIngestors, setRefreshingIngestors] = useState(false)
   const [expandedIngestors, setExpandedIngestors] = useState<Set<string>>(new Set())
 
   // Confirmation dialogs state
@@ -157,14 +161,24 @@ export default function IngestView() {
     }
   }, [ingestors, ingestType])
 
+  // Track previously seen datasource IDs to avoid refetching jobs on refresh
+  const previousDataSourceIds = useRef<Set<string>>(new Set())
+
   useEffect(() => {
-    const fetchAllJobs = async () => {
-      for (const ds of dataSources) {
+    const fetchJobsForNewDataSources = async () => {
+      const currentIds = new Set(dataSources.map(ds => ds.datasource_id))
+      const newDataSources = dataSources.filter(ds => !previousDataSourceIds.current.has(ds.datasource_id))
+      
+      // Update the ref with current IDs
+      previousDataSourceIds.current = currentIds
+      
+      // Only fetch jobs for new datasources
+      for (const ds of newDataSources) {
         await fetchJobsForDataSource(ds.datasource_id)
       }
     }
     if (dataSources.length > 0) {
-      fetchAllJobs()
+      fetchJobsForNewDataSources()
     }
   }, [dataSources])
 
@@ -210,7 +224,12 @@ export default function IngestView() {
   }
 
   const fetchDataSources = async () => {
-    setLoadingDataSources(true)
+    const isRefresh = dataSources.length > 0
+    if (isRefresh) {
+      setRefreshingDataSources(true)
+    } else {
+      setLoadingDataSources(true)
+    }
     try {
       const response = await getDataSources()
       const datasources = response.datasources
@@ -219,11 +238,17 @@ export default function IngestView() {
       console.error('Failed to fetch data sources', error)
     } finally {
       setLoadingDataSources(false)
+      setRefreshingDataSources(false)
     }
   }
 
   const fetchIngestors = async () => {
-    setLoadingIngestors(true)
+    const isRefresh = ingestors.length > 0
+    if (isRefresh) {
+      setRefreshingIngestors(true)
+    } else {
+      setLoadingIngestors(true)
+    }
     try {
       const ingestorList = await getIngestors()
       setIngestors(ingestorList)
@@ -231,6 +256,7 @@ export default function IngestView() {
       console.error('Failed to fetch ingestors', error)
     } finally {
       setLoadingIngestors(false)
+      setRefreshingIngestors(false)
     }
   }
 
@@ -347,10 +373,37 @@ export default function IngestView() {
   }
 
   return (
-    <div className="p-6 overflow-auto h-full bg-background">
-      {/* Ingest URL Section */}
-      <section className="bg-card rounded-lg shadow-sm border border-border mb-6 p-5">
-        <h3 className="mb-4 text-lg font-semibold text-foreground">Ingest URL</h3>
+    <div className="h-full flex flex-col bg-background overflow-hidden">
+      {/* Compact Header with Gradient */}
+      <div className="relative overflow-hidden border-b border-border shrink-0">
+        {/* Gradient Background */}
+        <div 
+          className="absolute inset-0" 
+          style={{
+            background: `linear-gradient(to bottom right, color-mix(in srgb, var(--gradient-from) 15%, transparent) 0%, color-mix(in srgb, var(--gradient-to) 8%, transparent) 50%, transparent 100%)`
+          }}
+        />
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-primary/5 via-transparent to-transparent" />
+
+        <div className="relative px-6 py-3 flex items-center gap-3">
+          <div className="p-2 rounded-lg gradient-primary-br shadow-md shadow-primary/20">
+            <Database className="h-5 w-5 text-white" />
+          </div>
+          <div>
+            <h1 className="text-lg font-bold gradient-text">Data Sources</h1>
+            <p className="text-muted-foreground text-xs">
+              Ingest and manage your knowledge base sources
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* Scrollable Content */}
+      <ScrollArea className="flex-1">
+        <div className="p-6">
+          {/* Ingest URL Section */}
+          <section className="bg-card rounded-lg shadow-sm border border-border mb-6 p-5">
+            <h3 className="mb-4 text-lg font-semibold text-foreground">Ingest URL</h3>
 
         {/* Ingest Type Selection */}
         <div className="mb-4">
@@ -487,10 +540,10 @@ export default function IngestView() {
             <div className="flex items-center gap-3">
               <button
                 onClick={(e) => { e.stopPropagation(); fetchDataSources(); }}
-                disabled={loadingDataSources}
+                disabled={loadingDataSources || refreshingDataSources}
                 className="px-3 py-1 bg-muted hover:bg-muted/80 text-muted-foreground rounded text-sm transition-colors disabled:opacity-50"
               >
-                {loadingDataSources ? 'Refreshing...' : 'Refresh'}
+                {(loadingDataSources || refreshingDataSources) ? 'Refreshing...' : 'Refresh'}
               </button>
               <span className="text-xs text-muted-foreground group-open:rotate-180 transition-transform">▼</span>
             </div>
@@ -530,7 +583,7 @@ export default function IngestView() {
           </div>
         )}
 
-        {loadingDataSources ? (
+        {loadingDataSources && dataSources.length === 0 ? (
           <p className="text-muted-foreground">Loading data sources...</p>
         ) : dataSources.length === 0 ? (
           <p className="text-muted-foreground">No data sources found. Ingest a URL above to get started.</p>
@@ -859,16 +912,16 @@ export default function IngestView() {
               <div className="flex items-center gap-3">
                 <button
                   onClick={(e) => { e.stopPropagation(); fetchIngestors(); }}
-                  disabled={loadingIngestors}
+                  disabled={loadingIngestors || refreshingIngestors}
                   className="px-3 py-1 bg-muted hover:bg-muted/80 text-muted-foreground rounded text-sm transition-colors disabled:opacity-50"
                 >
-                  {loadingIngestors ? 'Refreshing...' : 'Refresh'}
+                  {(loadingIngestors || refreshingIngestors) ? 'Refreshing...' : 'Refresh'}
                 </button>
                 <span className="text-xs text-muted-foreground group-open:rotate-180 transition-transform">▼</span>
               </div>
             </summary>
             <div className="mt-4">
-              {loadingIngestors ? (
+              {loadingIngestors && ingestors.length === 0 ? (
                 <p className="text-muted-foreground text-xs">Loading ingestors...</p>
               ) : ingestors.length > 0 ? (
                 <div className="overflow-x-auto">
@@ -986,16 +1039,19 @@ export default function IngestView() {
               <h3 className="text-base font-semibold text-foreground">Ingestors</h3>
               <button
                 onClick={() => fetchIngestors()}
-                disabled={loadingIngestors}
+                disabled={loadingIngestors || refreshingIngestors}
                 className="px-3 py-1 bg-muted hover:bg-muted/80 text-muted-foreground rounded text-sm transition-colors disabled:opacity-50"
               >
-                {loadingIngestors ? 'Refreshing...' : 'Refresh'}
+                {(loadingIngestors || refreshingIngestors) ? 'Refreshing...' : 'Refresh'}
               </button>
             </div>
             <p className="text-muted-foreground">No ingestors found. Ingestors are background services that process and ingest data from various sources.</p>
           </div>
         )}
       </section>
+
+        </div>
+      </ScrollArea>
 
       {/* Delete Data Source Confirmation Dialog */}
       {showDeleteDataSourceConfirm && (

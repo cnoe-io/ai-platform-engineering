@@ -27,10 +27,14 @@ export function useRAGHealth(): UseRAGHealthResult {
   const [secondsUntilNextCheck, setSecondsUntilNextCheck] = useState(0);
   const [graphRagEnabled, setGraphRagEnabled] = useState<boolean>(true);
   const nextCheckTimeRef = useRef<number>(Date.now() + POLL_INTERVAL_MS);
+  const hasInitialCheckCompleted = useRef<boolean>(false);
   const url = config.ragUrl;
 
   const checkHealth = useCallback(async () => {
-    setStatus("checking");
+    // Only show "checking" state on initial load, not on subsequent polls
+    if (!hasInitialCheckCompleted.current) {
+      setStatus("checking");
+    }
 
     try {
       const data = await getHealthStatus();
@@ -44,11 +48,13 @@ export function useRAGHealth(): UseRAGHealthResult {
       
       setLastChecked(new Date());
       nextCheckTimeRef.current = Date.now() + POLL_INTERVAL_MS;
+      hasInitialCheckCompleted.current = true;
     } catch (error) {
       console.error("[RAG] Error checking health:", error);
       setStatus("disconnected");
       setLastChecked(new Date());
       nextCheckTimeRef.current = Date.now() + POLL_INTERVAL_MS;
+      hasInitialCheckCompleted.current = true;
     }
   }, []);
 
