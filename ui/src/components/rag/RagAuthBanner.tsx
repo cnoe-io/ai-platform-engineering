@@ -1,6 +1,6 @@
 "use client";
 
-import { AlertTriangle, Check, X } from "lucide-react";
+import { AlertTriangle, Check, X, Shield } from "lucide-react";
 import { useRagPermissions, Permission } from "@/hooks/useRagPermissions";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
@@ -25,6 +25,12 @@ export function RagAuthIndicator() {
           <AlertTriangle className="h-3 w-3 text-amber-600 dark:text-amber-400" />
           <span className="text-xs text-amber-900 dark:text-amber-100 font-medium">Unauthenticated</span>
         </div>
+        {userInfo.in_trusted_network && (
+          <div className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-blue-100/50 dark:bg-blue-950/30 border border-blue-300/50 dark:border-blue-800/50">
+            <Shield className="h-3 w-3 text-blue-600 dark:text-blue-400" />
+            <span className="text-xs text-blue-900 dark:text-blue-100 font-medium">Trusted network</span>
+          </div>
+        )}
         <TooltipProvider>
           <Tooltip>
             <TooltipTrigger asChild>
@@ -71,6 +77,12 @@ export function RagAuthIndicator() {
   return (
     <div className="flex items-center gap-2">
       <span className="text-xs text-muted-foreground">{userInfo.email}</span>
+      {userInfo.in_trusted_network && (
+        <div className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-blue-100/50 dark:bg-blue-950/30 border border-blue-300/50 dark:border-blue-800/50">
+          <Shield className="h-3 w-3 text-blue-600 dark:text-blue-400" />
+          <span className="text-xs text-blue-900 dark:text-blue-100 font-medium">Trusted network</span>
+        </div>
+      )}
       <TooltipProvider>
         <Tooltip>
           <TooltipTrigger asChild>

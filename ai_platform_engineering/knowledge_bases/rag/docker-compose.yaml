@@ -63,28 +63,41 @@ services:
         OIDC_GROUP_CLAIM: ${OIDC_GROUP_CLAIM}
         
         # Ingestor OIDC configuration (for OAuth2 client credentials)
-        INGESTOR_OIDC_ISSUER: ${INGESTOR_OIDC_ISSUER}
+        # Required: CLIENT_ID and CLIENT_SECRET
+        # Required: At least one of ISSUER or DISCOVERY_URL (both recommended for robustness)
+        INGESTOR_OIDC_ISSUER: ${INGESTOR_OIDC_ISSUER:-}
         INGESTOR_OIDC_CLIENT_ID: ${INGESTOR_OIDC_CLIENT_ID}
+        # INGESTOR_OIDC_DISCOVERY_URL: Optional explicit discovery URL
+        #   - If set, tries this first, then falls back to constructing from ISSUER
+        #   - Recommended for Duo Security and other providers with non-standard paths
+        #   - For Duo SSO: https://sso-xxx.sso.duosecurity.com/oauth/REALM_ID/.well-known/oauth-authorization-server
+        #   - For standard OIDC: typically ends with /.well-known/openid-configuration
+        # INGESTOR_OIDC_SCOPE: Optional scope for token requests (default: none)
+        #   - Most providers don't need scope for client credentials flow
+        #   - Duo Security may require specific scopes configured in your application
+        #   - Example: INGESTOR_OIDC_SCOPE=read:data write:data
         
-        # Trusted network access (optional - for local development)
+        # Trusted network access (optional - e.g. for local development)
         ALLOW_TRUSTED_NETWORK: ${ALLOW_TRUSTED_NETWORK:-true}
-        TRUSTED_NETWORK_CIDRS: ${TRUSTED_NETWORK_CIDRS:-127.0.0.0/8,172.16.0.0/12}
+        TRUSTED_NETWORK_CIDRS: ${TRUSTED_NETWORK_CIDRS:-127.0.0.0/8,192.168.0.0/16,172.16.0.0/12}
         TRUSTED_NETWORK_DEFAULT_ROLE: ${TRUSTED_NETWORK_DEFAULT_ROLE:-admin}
         # TRUSTED_NETWORK_TOKEN: ${TRUSTED_NETWORK_TOKEN}  # Optional shared secret
         
         # RBAC role assignment by group
+        # Default role for users who have authenticated via OIDC but don't match any group
         RBAC_DEFAULT_AUTHENTICATED_ROLE: ${RBAC_DEFAULT_AUTHENTICATED_ROLE:-readonly}
+        # Default role for client credentials tokens (machine-to-machine, e.g., ingestors)
+        # Client credentials don't have user/group info, so they get a fixed role
+        RBAC_CLIENT_CREDENTIALS_ROLE: ${RBAC_CLIENT_CREDENTIALS_ROLE:-ingestonly}
         # RBAC_READONLY_GROUPS: Optional (default: empty). Comma-separated list of group names.
         #   Users in these groups get READONLY role (can view/query data).
         #   Example: "engineering-readonly,analysts,viewers"
         RBAC_READONLY_GROUPS: ${RBAC_READONLY_GROUPS}
         # RBAC_INGESTONLY_GROUPS: Optional (default: empty). Comma-separated list of group names.
         #   Users in these groups get INGESTONLY role (READONLY + can ingest data).
-        #   Example: "data-team,ingestors"
         RBAC_INGESTONLY_GROUPS: ${RBAC_INGESTONLY_GROUPS}
         # RBAC_ADMIN_GROUPS: Optional (default: empty). Comma-separated list of group names.
         #   Users in these groups get ADMIN role (full access including delete operations).
-        #   Example: "platform-admins,rag-admins"
         RBAC_ADMIN_GROUPS: ${RBAC_ADMIN_GROUPS}
     restart: unless-stopped
     env_file:
@@ -110,6 +123,8 @@ services:
         INGESTOR_OIDC_ISSUER: ${INGESTOR_OIDC_ISSUER}
         INGESTOR_OIDC_CLIENT_ID: ${INGESTOR_OIDC_CLIENT_ID}
         INGESTOR_OIDC_CLIENT_SECRET: ${INGESTOR_OIDC_CLIENT_SECRET}
+        INGESTOR_OIDC_DISCOVERY_URL: ${INGESTOR_OIDC_DISCOVERY_URL:-}
+        INGESTOR_OIDC_SCOPE: ${INGESTOR_OIDC_SCOPE:-}
         MAX_CONCURRENT_JOBS: ${WEBLOADER_INGESTOR_MAX_CONCURRENT_JOBS:-10}
     restart: unless-stopped
     depends_on:
