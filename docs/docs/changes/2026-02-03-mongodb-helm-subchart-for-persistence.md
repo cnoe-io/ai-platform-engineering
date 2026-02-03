@@ -152,7 +152,7 @@ livenessProbe:
 
 Created comprehensive guides:
 - `charts/mongodb/README.md` - MongoDB deployment guide
-- `charts/ai-platform-engineering/MONGODB_SETUP.md` - Setup documentation
+- `docs/docs/changes/2026-02-03-mongodb-setup-guide.md` - Setup documentation
 - `values-mongodb.yaml.example` - Complete example configuration
 
 ## Consequences
@@ -311,7 +311,7 @@ For users upgrading from localStorage to MongoDB:
 ## References
 
 - MongoDB Chart: `charts/ai-platform-engineering/charts/mongodb/`
-- Setup Guide: `charts/ai-platform-engineering/MONGODB_SETUP.md`
+- Setup Guide: `docs/docs/changes/2026-02-03-mongodb-setup-guide.md`
 - Example Values: `charts/ai-platform-engineering/values-mongodb.yaml.example`
 - MongoDB Documentation: https://docs.mongodb.com/
 - Kubernetes StatefulSets: https://kubernetes.io/docs/concepts/workloads/controllers/statefulset/
