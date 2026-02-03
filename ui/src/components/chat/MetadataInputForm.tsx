@@ -11,6 +11,8 @@ export interface InputField {
   field_name: string;
   field_description: string;
   field_values?: string[] | null;
+  required?: boolean;  // Optional fields have required: false
+  default_value?: string | null;  // Pre-populated default value
 }
 
 export interface UserInputMetadata {
@@ -33,7 +35,16 @@ export function MetadataInputForm({
   onCancel,
   disabled = false,
 }: MetadataInputFormProps) {
-  const [formData, setFormData] = useState<Record<string, string>>({});
+  // Initialize form data with default values if provided
+  const [formData, setFormData] = useState<Record<string, string>>(() => {
+    const initial: Record<string, string> = {};
+    inputFields.forEach((field) => {
+      if (field.default_value) {
+        initial[field.field_name] = field.default_value;
+      }
+    });
+    return initial;
+  });
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -53,7 +64,9 @@ export function MetadataInputForm({
     const newErrors: Record<string, string> = {};
 
     inputFields.forEach((field) => {
-      if (!formData[field.field_name]?.trim()) {
+      // Only validate fields that are required (default to required if not specified)
+      const isRequired = field.required !== false;
+      if (isRequired && !formData[field.field_name]?.trim()) {
         newErrors[field.field_name] = "This field is required";
       }
     });
@@ -103,10 +116,17 @@ export function MetadataInputForm({
 
       {/* Form */}
       <form onSubmit={handleSubmit} className="space-y-4">
-        {inputFields.map((field, idx) => (
+        {inputFields.map((field, idx) => {
+          const isRequired = field.required !== false;
+          return (
           <div key={field.field_name} className="space-y-1.5">
-            <label className="text-sm font-medium text-foreground">
+            <label className="text-sm font-medium text-foreground flex items-center gap-1.5">
               {field.field_name.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())}
+              {isRequired ? (
+                <span className="text-red-400 text-xs">*</span>
+              ) : (
+                <span className="text-muted-foreground text-xs font-normal">(optional)</span>
+              )}
             </label>
 
             {field.field_description && (
@@ -170,7 +190,8 @@ export function MetadataInputForm({
               </motion.p>
             )}
           </div>
-        ))}
+        );
+        })}
 
         {/* Submit button */}
         <div className="flex justify-end gap-2 pt-2">
