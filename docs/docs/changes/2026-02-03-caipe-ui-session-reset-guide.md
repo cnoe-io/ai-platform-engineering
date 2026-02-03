@@ -1,4 +1,14 @@
-# Session Reset & Cookie Management Guide
+# CAIPE UI Session Reset & Cookie Management Guide
+
+**Date**: 2026-02-03  
+**Status**: Troubleshooting Guide  
+**Type**: Operations Documentation
+
+## Summary
+
+Comprehensive guide for resolving authentication issues in CAIPE UI, including automatic session recovery mechanisms, cookie management, and troubleshooting stuck authorization screens.
+
+---
 
 ## Problem: Stuck on "Verifying authorization..." Screen
 
@@ -310,5 +320,5 @@ If problems persist after these fixes:
 
 ---
 
-**Last Updated**: 2026-01-29  
+**Last Updated**: 2026-02-03  
 **Version**: 2.0 (Automatic Recovery Edition)

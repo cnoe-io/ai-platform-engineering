@@ -1,4 +1,14 @@
-# QUICK FIX: Clear Session and Test Share Feature
+# CAIPE UI MongoDB Chat Quick Fix Guide
+
+**Date**: 2026-02-03  
+**Status**: Troubleshooting Guide  
+**Type**: Operations Documentation
+
+## Summary
+
+Quick fix guide for resolving authentication session issues when working with MongoDB chat persistence. Addresses expired tokens, API call failures, and share functionality problems.
+
+---
 
 ## Problem
 
@@ -39,7 +49,7 @@ window.location.href = '/login';
 Open a **new terminal**:
 
 ```bash
-cd /Users/sraradhy/cisco/eti/sre/cnoe/ai-platform-engineering
+cd /path/to/ai-platform-engineering
 docker-compose --profile caipe-ui-dev ps mongodb
 ```
 
@@ -216,4 +226,3 @@ Share these outputs for further debugging.
 ---
 
 **TL;DR: Logout → Login → Clear localStorage → Create New Chat → Test Share**
-
