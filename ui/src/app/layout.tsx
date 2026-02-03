@@ -66,7 +66,7 @@ export const metadata: Metadata = {
   openGraph: {
     title: `${appName} UI`,
     description: fullDescription,
-    url: "https://caipe-ui.dev.outshift.io",
+    url: "https://caipe.example.com",
   },
 };
 
