@@ -1037,11 +1037,6 @@ Use this as the reference point for all date calculations. When users say "today
         if sessionId and "thread_id" not in configurable:
             configurable["thread_id"] = sessionId
 
-        # Set recursion limit for agents that need to process many items
-        # Default LangGraph limit is 25, increase to 100 for "all" queries
-        if "recursion_limit" not in configurable:
-            configurable["recursion_limit"] = 100
-
         # Add metrics callback handler to track MCP tool calls
         callbacks = list(config.get("callbacks") or [])
         callbacks.append(MetricsCallbackHandler(agent_name=agent_name))
@@ -1051,6 +1046,9 @@ Use this as the reference point for all date calculations. When users say "today
             tags=config.get("tags"),
             metadata=config.get("metadata"),
             configurable=configurable,
+            # Set recursion limit at TOP LEVEL of RunnableConfig (not in configurable)
+            # Default LangGraph limit is 25, we use 100 for complex agent workflows
+            recursion_limit=100,
         )
 
         # Ensure graph is initialized
