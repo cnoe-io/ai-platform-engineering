@@ -13,7 +13,7 @@
 - 🔍 **RAG/GraphRAG Agent:** Retrieval-augmented generation system for answering questions using vector embeddings and graph traversal.
 - 🌐 **Ingestion and Indexing:** Supports ingestion of URLs, as well as ingestors for AWS, Kubernetes, Backstage, and other data sources.
 - 📊 **Graph Database Integration:** Uses Neo4j for both data storage and ontology relationship management.
-- 🖥️ **Web Interface:** React-based UI for exploring ontologies, searching data, and visualizing relationships.
+
 
 ![CAIPE RAG Demo](docs/rag_gif.gif)
 
@@ -25,7 +25,7 @@ docker compose --profile apps up
 ```
 
 **Access Points:**
-- Web UI: [http://localhost:9447](http://localhost:9447)
+- Web UI: [http://localhost:9447/knowledge-bases](http://localhost:9447/knowledge-bases)
 - API Docs: [http://localhost:9446/docs](http://localhost:9446/docs)
 - Neo4j Browser: [http://localhost:7474](http://localhost:7474)
 
@@ -66,7 +66,6 @@ If you have Claude code, VS code, Cursor etc. you can connect upto the MCP serve
 - [Architecture Overview](Architecture.md) - System architecture and data flows
 - [Server](server/README.md) - Core API and orchestration layer
 - [Ontology Agent](agent_ontology/README.md) - Autonomous schema discovery
-- [Web UI](webui/README.md) - Frontend interface and visualization
 - [Ingestors](ingestors/README.md) - Data source integrations
 
 ## Connections
@@ -78,16 +77,12 @@ DEFAULT port configurations between components:
 - Connects to Redis over `6379`
 - Connects to Milvus over `19530`
 - Proxies to agent_ontology over `8098`
-- Serves Web UI and exposes REST API
+- Exposes REST API
 
 **Ontology Agent (Port 8098):**
 - Connects to Neo4j over `7687`
 - Connects to Redis over `6379`
 - Proxies queries from Server
-
-**Web UI (Port 9447):**
-- Connects to Server over `9446` (REST)
-- If authentication proxy is enabled, it acts as reverse proxy to the web ui.
 
 **CAIPE Agent (MCP):**
 - Connects to Server over `9446` (MCP tools)
@@ -120,7 +115,4 @@ cd server && uv sync && source .venv/bin/activate && python3 src/server/__main__
 
 # Ontology Agent
 cd agent_ontology && uv sync && source .venv/bin/activate && python3 src/agent_ontology/restapi.py
-
-# Web UI
-cd webui && npm install && npm run dev
 ```
