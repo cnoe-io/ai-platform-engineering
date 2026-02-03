@@ -1,0 +1,184 @@
+# Example values for enabling MongoDB with CAIPE UI
+# This file demonstrates how to configure MongoDB for persistent chat history
+#
+# Usage:
+#   helm install ai-platform-engineering ./charts/ai-platform-engineering \
+#     -f ./charts/ai-platform-engineering/values-mongodb.yaml.example
+#
+# Or for production with external secrets:
+#   helm install ai-platform-engineering ./charts/ai-platform-engineering \
+#     -f ./charts/ai-platform-engineering/values-mongodb.yaml.example \
+#     --set mongodb.externalSecrets.enabled=true \
+#     --set caipe-ui.externalSecrets.enabled=true
+
+tags:
+  caipe-ui: true  # Enable CAIPE UI
+
+global:
+  caipeUi:
+    enabled: true
+
+######### MongoDB Configuration #########
+mongodb:
+  enabled: true  # Enable MongoDB deployment
+  nameOverride: "mongodb"
+  
+  image:
+    repository: "mongo"
+    tag: "7.0"
+    pullPolicy: "IfNotPresent"
+  
+  service:
+    port: 27017
+  
+  # Persistent storage configuration
+  persistence:
+    enabled: true
+    storageClass: ""  # Use default storage class or specify: "gp3", "standard", etc.
+    size: 10Gi
+    accessModes:
+      - ReadWriteOnce
+  
+  # Authentication (for development/testing)
+  # IMPORTANT: Change these or use external secrets for production!
+  auth:
+    rootUsername: "admin"
+    rootPassword: "changeme"  # CHANGE THIS!
+    database: "caipe"
+  
+  # Resource limits (adjust based on your needs)
+  resources:
+    limits:
+      cpu: 500m
+      memory: 512Mi
+    requests:
+      cpu: 250m
+      memory: 256Mi
+  
+  # External Secrets (recommended for production)
+  externalSecrets:
+    enabled: false  # Set to true for production
+    apiVersion: "v1beta1"
+    secretStoreRef:
+      name: "vault"  # Your secret store name
+      kind: "ClusterSecretStore"
+    data:
+      - secretKey: MONGO_INITDB_ROOT_USERNAME
+        remoteRef:
+          key: dev/mongodb
+          property: username
+      - secretKey: MONGO_INITDB_ROOT_PASSWORD
+        remoteRef:
+          key: dev/mongodb
+          property: password
+      - secretKey: MONGO_INITDB_DATABASE
+        remoteRef:
+          key: dev/mongodb
+          property: database
+
+######### CAIPE UI Configuration #########
+caipe-ui:
+  nameOverride: "caipe-ui"
+  
+  image:
+    repository: "ghcr.io/cnoe-io/caipe-ui"
+    pullPolicy: "Always"
+  
+  service:
+    port: 3000
+  
+  # ConfigMap for non-sensitive configuration
+  config:
+    # Feature flags
+    NEXT_PUBLIC_ENABLE_SUBAGENT_CARDS: "true"
+    NEXT_PUBLIC_SSO_ENABLED: "true"
+    
+    # MongoDB configuration
+    NEXT_PUBLIC_MONGODB_ENABLED: "true"
+    MONGODB_DATABASE: "caipe"
+    
+    # NextAuth URL
+    NEXTAUTH_URL: "http://localhost:3000"  # Change to your domain
+    
+    # Node environment
+    NODE_ENV: "production"
+    
+    # Branding
+    NEXT_PUBLIC_TAGLINE: "Multi-Agent Workflow Automation"
+    NEXT_PUBLIC_DESCRIPTION: "Where Humans and AI agents collaborate to deliver high quality outcomes."
+    NEXT_PUBLIC_APP_NAME: "CAIPE"
+    NEXT_PUBLIC_LOGO_URL: "/logo.svg"
+    NEXT_PUBLIC_SHOW_POWERED_BY: "false"
+    NEXT_PUBLIC_PREVIEW_MODE: "false"
+    
+    # OIDC configuration (non-sensitive)
+    OIDC_REQUIRED_GROUP: "app-users"
+    OIDC_REQUIRED_ADMIN_GROUP: "app-admins"
+    OIDC_ENABLE_REFRESH_TOKEN: "true"
+    
+    # Support email
+    NEXT_PUBLIC_SUPPORT_EMAIL: "support@example.com"
+  
+  # External Secrets for sensitive data (OIDC, NextAuth, MongoDB URI, Langfuse)
+  externalSecrets:
+    enabled: false  # Set to true for production
+    apiVersion: "v1beta1"
+    secretStoreRef:
+      name: "vault"
+      kind: "ClusterSecretStore"
+    data:
+      # NextAuth secret
+      - secretKey: NEXTAUTH_SECRET
+        remoteRef:
+          key: dev/caipe-ui
+          property: NEXTAUTH_SECRET
+      
+      # OIDC credentials
+      - secretKey: OIDC_ISSUER
+        remoteRef:
+          key: dev/caipe-ui
+          property: OIDC_ISSUER
+      - secretKey: OIDC_CLIENT_ID
+        remoteRef:
+          key: dev/caipe-ui
+          property: OIDC_CLIENT_ID
+      - secretKey: OIDC_CLIENT_SECRET
+        remoteRef:
+          key: dev/caipe-ui
+          property: OIDC_CLIENT_SECRET
+      
+      # MongoDB connection URI
+      # Format: mongodb://username:password@ai-platform-engineering-mongodb:27017
+      - secretKey: MONGODB_URI
+        remoteRef:
+          key: dev/caipe-ui
+          property: MONGODB_URI
+      
+      # Langfuse (optional - for user feedback tracking)
+      - secretKey: LANGFUSE_SECRET_KEY
+        remoteRef:
+          key: dev/caipe-ui
+          property: LANGFUSE_SECRET_KEY
+      - secretKey: LANGFUSE_PUBLIC_KEY
+        remoteRef:
+          key: dev/caipe-ui
+          property: LANGFUSE_PUBLIC_KEY
+      - secretKey: LANGFUSE_HOST
+        remoteRef:
+          key: dev/caipe-ui
+          property: LANGFUSE_HOST
+
+######### Development/Testing Configuration (No External Secrets) #########
+# If not using external secrets, you can set secrets directly (NOT RECOMMENDED for production)
+#
+# 1. Create a Kubernetes secret manually:
+#
+# kubectl create secret generic ai-platform-engineering-caipe-ui-secret \
+#   --from-literal=NEXTAUTH_SECRET="$(openssl rand -base64 32)" \
+#   --from-literal=OIDC_ISSUER="https://your-oidc-provider" \
+#   --from-literal=OIDC_CLIENT_ID="your-client-id" \
+#   --from-literal=OIDC_CLIENT_SECRET="your-client-secret" \
+#   --from-literal=MONGODB_URI="mongodb://admin:changeme@ai-platform-engineering-mongodb:27017" \
+#   -n your-namespace
+#
+# 2. The deployment will automatically mount this secret
