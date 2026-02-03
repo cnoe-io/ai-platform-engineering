@@ -555,6 +555,11 @@ function TraceView({
                     <span className="text-xs text-white font-medium truncate">
                       {event.displayName}
                     </span>
+                    {event.compressedCount && event.compressedCount > 1 && (
+                      <Badge className="ml-auto text-[10px] bg-white/30 text-white border-white/40 shrink-0">
+                        ×{event.compressedCount}
+                      </Badge>
+                    )}
                   </div>
                 </div>
               );
