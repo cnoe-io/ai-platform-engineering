@@ -13,12 +13,27 @@ from langchain_core.tools import tool
 logger = logging.getLogger(__name__)
 
 # Configuration - set these environment variables
-LITELLM_API_URL = os.getenv("LITELLM_API_URL", "")
-LITELLM_API_KEY = os.getenv("LITELLM_API_KEY", "")
+# Support both naming conventions for flexibility
+LITELLM_API_URL = os.getenv("LITELLM_API_URL") or os.getenv("LITELLM_PROXY_URL", "")
+LITELLM_API_KEY = os.getenv("LITELLM_API_KEY") or os.getenv("LITELLM_MASTER_KEY", "")
+
+
+def _validate_config() -> str | None:
+    """Validate configuration and return error message if invalid."""
+    if not LITELLM_API_URL:
+        return "LiteLLM API URL not configured. Set LITELLM_API_URL or LITELLM_PROXY_URL environment variable."
+    if not LITELLM_API_URL.startswith(("http://", "https://")):
+        return f"LiteLLM API URL must start with http:// or https://, got: {LITELLM_API_URL}"
+    return None
 
 
 async def _list_models() -> dict:
     """Fetch available models from LiteLLM."""
+    config_error = _validate_config()
+    if config_error:
+        logger.error(config_error)
+        return {}
+    
     headers = {"Content-Type": "application/json"}
     if LITELLM_API_KEY:
         headers["Authorization"] = f"Bearer {LITELLM_API_KEY}"
@@ -157,6 +172,11 @@ async def create_llm_api_key(provider_name: str, model_name: str, user_email: st
         Result message with API key information.
     """
     try:
+        # Validate configuration
+        config_error = _validate_config()
+        if config_error:
+            return f"**Configuration Error:** {config_error}"
+        
         # Validate provider and model
         provider_model_map = await _list_models()
         
@@ -243,6 +263,11 @@ async def get_user_spend_activity(user_email: str, start_date: Optional[str] = N
         User's usage statistics and spending breakdown.
     """
     try:
+        # Validate configuration
+        config_error = _validate_config()
+        if config_error:
+            return f"**Configuration Error:** {config_error}"
+        
         headers = {
             "Content-Type": "application/json",
             "Authorization": f"Bearer {LITELLM_API_KEY}",
@@ -344,10 +369,15 @@ async def list_available_models() -> str:
         Formatted list of available providers and their models.
     """
     try:
+        # Validate configuration
+        config_error = _validate_config()
+        if config_error:
+            return f"**Configuration Error:** {config_error}"
+        
         provider_model_map = await _list_models()
         
         if not provider_model_map:
-            return "No models available or unable to fetch model list."
+            return "No models available or unable to fetch model list. Check LiteLLM service status."
         
         message = "## Available LLM Models\n\n"
         
