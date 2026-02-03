@@ -66,6 +66,7 @@ export interface UserInfo {
   is_authenticated: boolean;
   groups: string[];
   permissions: PermissionType[];
+  in_trusted_network: boolean;
 }
 
 /**

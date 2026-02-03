@@ -96,6 +96,44 @@ RBAC_ADMIN_GROUPS=admins,platform-team
 - `ingestonly`: readonly + ingest data and manage jobs
 - `admin`: ingestonly + delete resources and bulk operations
 
+### Authentication Methods & Role Assignment
+
+This table shows how different authentication methods map to roles and which environment variables control them:
+
+| Auth Method | Actor Type | Default Role | Role Controlled By | Required Env Vars | Optional Env Vars |
+|-------------|------------|--------------|-------------------|-------------------|-------------------|
+| **OAuth2 (UI)** | User | Based on groups | `RBAC_*_GROUPS` mappings, falls back to `RBAC_DEFAULT_AUTHENTICATED_ROLE` | `OIDC_ISSUER`<br>`OIDC_CLIENT_ID` | `OIDC_DISCOVERY_URL`<br>`OIDC_GROUP_CLAIM` |
+| **OAuth2 (Ingestor)** | Ingestor | `ingestonly` | `RBAC_CLIENT_CREDENTIALS_ROLE` | `INGESTOR_OIDC_ISSUER` or `INGESTOR_OIDC_DISCOVERY_URL`<br>`INGESTOR_OIDC_CLIENT_ID` | `INGESTOR_OIDC_SCOPE` |
+| **Trusted Network** | User or Ingestor | `admin` (dev default) | `TRUSTED_NETWORK_DEFAULT_ROLE` | `ALLOW_TRUSTED_NETWORK=true` | `TRUSTED_NETWORK_CIDRS`<br>`TRUSTED_NETWORK_TOKEN` |
+| **Anonymous** | Public | `anonymous` | N/A (fixed) | None | None |
+
+**Key Points:**
+
+1. **OAuth2 for UI (User Tokens)**
+   - Regular user authentication with JWT access tokens
+   - Role determined by group membership in token claims
+   - Falls back to `RBAC_DEFAULT_AUTHENTICATED_ROLE` (default: `readonly`) if no group match
+   - Group-to-role mapping: `RBAC_READONLY_GROUPS`, `RBAC_INGESTONLY_GROUPS`, `RBAC_ADMIN_GROUPS`
+
+2. **OAuth2 for Ingestors (Client Credentials)**
+   - Machine-to-machine authentication using client credentials flow
+   - No user context (uses `client_id` instead of email)
+   - Role controlled by `RBAC_CLIENT_CREDENTIALS_ROLE` (default: `ingestonly`)
+   - Token validated against `INGESTOR_OIDC_ISSUER` or `INGESTOR_OIDC_DISCOVERY_URL`
+   - Can send `X-Ingestor-Type` and `X-Ingestor-Name` headers for better logging
+
+3. **Trusted Network (Development)**
+   - IP-based or token-based trust for localhost/internal networks
+   - Useful for development, testing, or private deployments
+   - Role controlled by `TRUSTED_NETWORK_DEFAULT_ROLE` (default: `admin`)
+   - Can restrict to specific CIDRs via `TRUSTED_NETWORK_CIDRS`
+   - Can send `X-Ingestor-Type` and `X-Ingestor-Name` headers for better logging
+
+4. **Anonymous (Public)**
+   - No authentication required for public endpoints
+   - Fixed `anonymous` role with minimal permissions
+   - Used for health checks and public documentation
+
 
 ### Core Connection Settings
 
