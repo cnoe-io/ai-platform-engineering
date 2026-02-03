@@ -10,7 +10,7 @@ This setup adds MongoDB as a persistent storage backend for CAIPE UI, enabling:
 
 ## What's Included
 
-### 1. MongoDB Subchart (`charts/mongodb/`)
+### 1. MongoDB Subchart (`charts/caipe-ui-mongodb/`)
 
 A complete Helm chart for deploying MongoDB with:
 - **StatefulSet** for reliable persistent storage
@@ -51,7 +51,7 @@ Updated `charts/caipe-ui/` with:
 ### 3. Parent Chart Integration
 
 Updated `charts/ai-platform-engineering/`:
-- Added MongoDB subchart dependency
+- Added MongoDB subchart dependency (`caipe-ui-mongodb`)
 - Added MongoDB configuration section in values.yaml
 - Updated CAIPE UI configuration with MongoDB support
 
@@ -66,7 +66,7 @@ Updated `charts/ai-platform-engineering/`:
 
 **Ingress Examples**:
 - `charts/caipe-ui/values-ingress-redirect.yaml.example` - Generic domain redirect example
-- `charts/caipe-ui/INGRESS.md` - Complete ingress configuration guide
+- [CAIPE UI Ingress Configuration Guide](2026-02-03-caipe-ui-ingress-configuration-guide.md) - Complete ingress configuration guide
 
 ## Quick Start
 
@@ -231,7 +231,7 @@ caipe-ui:
           secretName: old-domain-example-com-tls
 ```
 
-See `charts/caipe-ui/INGRESS.md` for complete configuration guide.
+See [CAIPE UI Ingress Configuration Guide](2026-02-03-caipe-ui-ingress-configuration-guide.md) for complete configuration guide.
 
 ## External Secrets Setup
 
@@ -308,7 +308,7 @@ curl -I https://your-domain.example.com
 ## Troubleshooting
 
 See individual documentation files:
-- `charts/mongodb/README.md` - MongoDB troubleshooting
+- `charts/caipe-ui-mongodb/README.md` - MongoDB troubleshooting
 - `charts/caipe-ui/INGRESS.md` - Ingress troubleshooting
 
 ## Next Steps
@@ -323,8 +323,8 @@ See individual documentation files:
 
 ## References
 
-- MongoDB Chart: `charts/ai-platform-engineering/charts/mongodb/`
+- MongoDB Chart: `charts/ai-platform-engineering/charts/caipe-ui-mongodb/`
 - CAIPE UI Chart: `charts/ai-platform-engineering/charts/caipe-ui/`
 - MongoDB Examples: `charts/ai-platform-engineering/values-mongodb.yaml.example`
-- Ingress Guide: `charts/ai-platform-engineering/charts/caipe-ui/INGRESS.md`
+- Ingress Guide: [CAIPE UI Ingress Configuration Guide](2026-02-03-caipe-ui-ingress-configuration-guide.md)
 - Ingress Example: `charts/ai-platform-engineering/charts/caipe-ui/values-ingress-redirect.yaml.example`

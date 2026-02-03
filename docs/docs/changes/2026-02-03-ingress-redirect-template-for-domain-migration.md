@@ -128,7 +128,7 @@ spec:
 ### 2. Documentation
 
 **Generic Documentation** (no org-specific content):
-- `charts/caipe-ui/INGRESS.md` - Complete ingress configuration guide
+- [CAIPE UI Ingress Configuration Guide](2026-02-03-caipe-ui-ingress-configuration-guide.md) - Complete ingress configuration guide
 - `charts/caipe-ui/values-ingress-redirect.yaml.example` - Example configuration
 
 ### 3. Example Configuration
@@ -385,7 +385,7 @@ Recommended alerts:
 
 ## References
 
-- Ingress Guide: `charts/caipe-ui/INGRESS.md`
+- Ingress Guide: [CAIPE UI Ingress Configuration Guide](2026-02-03-caipe-ui-ingress-configuration-guide.md)
 - Example Config: `charts/caipe-ui/values-ingress-redirect.yaml.example`
 - NGINX Ingress Annotations: https://kubernetes.github.io/ingress-nginx/user-guide/nginx-configuration/annotations/
 - HTTP Status Codes: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/301
