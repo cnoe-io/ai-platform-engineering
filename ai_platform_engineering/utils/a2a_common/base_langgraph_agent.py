@@ -31,6 +31,10 @@ import tiktoken
 
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.prebuilt import create_react_agent
+from langchain.agents import create_agent
+from deepagents.middleware import FilesystemMiddleware
+
+from ai_platform_engineering.utils.deepagents_custom.policy_middleware import PolicyMiddleware
 
 from .context_config import get_context_limit_for_provider, get_min_messages_to_keep, is_auto_compression_enabled
 from ai_platform_engineering.utils.metrics import MetricsCallbackHandler
@@ -47,6 +51,17 @@ if not MCP_AVAILABLE:
 # Configuration for automatic output chunking
 CHUNK_SIZE_THRESHOLD = int(os.getenv("TOOL_OUTPUT_CHUNK_THRESHOLD", "50000"))  # 50KB default
 CHUNK_SIZE = int(os.getenv("TOOL_OUTPUT_CHUNK_SIZE", "10000"))  # 10KB chunks
+
+# Filesystem usage instructions appended to subagent prompts for state sharing
+FILESYSTEM_USAGE_SUFFIX = """
+
+## Filesystem State Sharing
+
+When operating as a subagent in workflows:
+- Read /request.txt for input parameters from the orchestrating agent
+- Write results to /result.txt or /workflow_result.txt
+- Use read_file and write_file for all state sharing between agents
+"""
 
 # Reduce verbosity of third-party libraries
 # Set this early before any imports use these loggers
@@ -404,6 +419,7 @@ Use this as the reference point for all date calculations. When users say "today
         - Return proper tuple format for response_format='content_and_artifact'
         - Log warnings for debugging
         - Truncate large outputs to prevent context overflow
+        - Add sync support for async-only tools (needed for subagent middleware)
 
         This prevents tool failures from crashing agents and closing A2A event streams.
         Subclasses can override _parse_tool_error() for service-specific error parsing.
@@ -415,7 +431,9 @@ Use this as the reference point for all date calculations. When users say "today
         Returns:
             List of wrapped tools with error handling
         """
+        import asyncio
         from functools import wraps
+        from langchain_core.tools import StructuredTool
 
         # Get max tool output size from environment (default 10KB for smaller context models)
         max_tool_output = int(os.getenv("MAX_TOOL_OUTPUT_SIZE", "10000"))
@@ -423,47 +441,103 @@ Use this as the reference point for all date calculations. When users say "today
         wrapped_tools = []
 
         for tool in tools:
-            # Store original methods
-            original_run = tool._run if hasattr(tool, '_run') else None
-            original_arun = tool._arun if hasattr(tool, '_arun') else None
+            try:
+                tool_name = tool.name
+                # Check if this is an async-only tool (has coroutine but no func)
+                has_sync = hasattr(tool, 'func') and tool.func is not None
+                has_async = hasattr(tool, 'coroutine') and tool.coroutine is not None
+                
+                logger.debug(f"Wrapping tool {tool_name}: has_sync={has_sync}, has_async={has_async}")
+                
+                if has_async and not has_sync:
+                    # This is an async-only tool - we need to create a new StructuredTool
+                    # with both func (sync) and coroutine (async) to support sync invocation
+                    original_coroutine = tool.coroutine
+                    
+                    # Create wrapped async function with error handling
+                    async def safe_coroutine(*args, _orig=original_coroutine, _tool_name=tool_name, _max_size=max_tool_output, **kwargs):
+                        try:
+                            result = await _orig(*args, **kwargs)
+                            result, was_truncated = self._truncate_tool_output(result, _tool_name, _max_size)
+                            return result
+                        except Exception as e:
+                            user_msg = self._parse_tool_error(e, _tool_name)
+                            logger.warning(f"{self.get_agent_name()} MCP tool error: {user_msg}")
+                            return (user_msg, {"error": str(e), "tool": _tool_name})
+                    
+                    # Create sync wrapper that runs async code
+                    def sync_wrapper(*args, _async_fn=safe_coroutine, _tool_name=tool_name, **kwargs):
+                        try:
+                            # Check if we're already in an async context
+                            try:
+                                loop = asyncio.get_running_loop()
+                            except RuntimeError:
+                                loop = None
 
-            # Create error-handled sync version
-            if original_run:
-                @wraps(original_run)
-                def safe_run(*args, _orig=original_run, _tool_name=tool.name, _max_size=max_tool_output, **kwargs):
-                    try:
-                        result = _orig(*args, **kwargs)
-                        # Truncate large outputs to prevent context overflow
-                        result, was_truncated = self._truncate_tool_output(result, _tool_name, _max_size)
-                        return result
-                    except Exception as e:
-                        user_msg = self._parse_tool_error(e, _tool_name)
-                        logger.warning(f"{self.get_agent_name()} MCP tool error: {user_msg}")
-                        # Return tuple format for response_format='content_and_artifact'
-                        return (user_msg, {"error": str(e), "tool": _tool_name})
+                            if loop and loop.is_running():
+                                # Already in async context - use nest_asyncio to allow nested run
+                                import nest_asyncio
+                                nest_asyncio.apply()
+                                result = loop.run_until_complete(_async_fn(*args, **kwargs))
+                            else:
+                                # Not in async context - create new event loop
+                                result = asyncio.run(_async_fn(*args, **kwargs))
+                            return result
+                        except Exception as e:
+                            user_msg = self._parse_tool_error(e, _tool_name)
+                            logger.warning(f"{self.get_agent_name()} MCP tool sync wrapper error: {user_msg}")
+                            return (user_msg, {"error": str(e), "tool": _tool_name})
+                    
+                    # Create new StructuredTool with both sync and async support
+                    new_tool = StructuredTool(
+                        name=tool.name,
+                        description=tool.description or "",
+                        args_schema=tool.args_schema,
+                        func=sync_wrapper,
+                        coroutine=safe_coroutine,
+                        response_format=getattr(tool, 'response_format', 'content'),
+                        metadata=tool.metadata,
+                    )
+                    wrapped_tools.append(new_tool)
+                    logger.debug(f"Created sync+async wrapper for tool: {tool.name}")
+                else:
+                    # Tool already has sync support or is sync-only - just wrap with error handling
+                    original_run = tool._run if hasattr(tool, '_run') else None
+                    original_arun = tool._arun if hasattr(tool, '_arun') else None
 
-                tool._run = safe_run
+                    if original_run:
+                        @wraps(original_run)
+                        def safe_run(*args, _orig=original_run, _tool_name=tool_name, _max_size=max_tool_output, **kwargs):
+                            try:
+                                result = _orig(*args, **kwargs)
+                                result, was_truncated = self._truncate_tool_output(result, _tool_name, _max_size)
+                                return result
+                            except Exception as e:
+                                user_msg = self._parse_tool_error(e, _tool_name)
+                                logger.warning(f"{self.get_agent_name()} MCP tool error: {user_msg}")
+                                return (user_msg, {"error": str(e), "tool": _tool_name})
+                        tool._run = safe_run
 
-            # Create error-handled async version
-            if original_arun:
-                @wraps(original_arun)
-                async def safe_arun(*args, _orig=original_arun, _tool_name=tool.name, _max_size=max_tool_output, **kwargs):
-                    try:
-                        result = await _orig(*args, **kwargs)
-                        # Truncate large outputs to prevent context overflow
-                        result, was_truncated = self._truncate_tool_output(result, _tool_name, _max_size)
-                        return result
-                    except Exception as e:
-                        user_msg = self._parse_tool_error(e, _tool_name)
-                        logger.warning(f"{self.get_agent_name()} MCP tool error: {user_msg}")
-                        # Return tuple format for response_format='content_and_artifact'
-                        return (user_msg, {"error": str(e), "tool": _tool_name})
+                    if original_arun:
+                        @wraps(original_arun)
+                        async def safe_arun(*args, _orig=original_arun, _tool_name=tool_name, _max_size=max_tool_output, **kwargs):
+                            try:
+                                result = await _orig(*args, **kwargs)
+                                result, was_truncated = self._truncate_tool_output(result, _tool_name, _max_size)
+                                return result
+                            except Exception as e:
+                                user_msg = self._parse_tool_error(e, _tool_name)
+                                logger.warning(f"{self.get_agent_name()} MCP tool error: {user_msg}")
+                                return (user_msg, {"error": str(e), "tool": _tool_name})
+                        tool._arun = safe_arun
 
-                tool._arun = safe_arun
+                    wrapped_tools.append(tool)
+            except Exception as e:
+                logger.error(f"Failed to wrap tool {tool_name}: {e}", exc_info=True)
+                # Add the unwrapped tool rather than failing completely
+                wrapped_tools.append(tool)
 
-            wrapped_tools.append(tool)
-
-        logger.info(f"Wrapped {len(wrapped_tools)} {self.get_agent_name()} MCP tools with error handling")
+        logger.info(f"Wrapped {len(wrapped_tools)} {self.get_agent_name()} MCP tools with error handling and sync support")
         return wrapped_tools
 
     async def _setup_mcp_and_graph(self, config: RunnableConfig) -> None:
@@ -494,39 +568,39 @@ Use this as the reference point for all date calculations. When users say "today
         mcp_mode = os.getenv("MCP_MODE", "stdio").lower()
         client = None
 
-        if mcp_mode == "http" or mcp_mode == "streamable_http":
-            logging.info(f"{agent_name}: Using HTTP transport for MCP client")
+        # Check if agent provides custom HTTP configuration (auto-detect HTTP-only agents)
+        custom_http_config = self.get_mcp_http_config()
 
-            # Check if agent provides custom HTTP configuration
-            custom_http_config = self.get_mcp_http_config()
+        if custom_http_config:
+            # Agent provides HTTP config - use HTTP mode regardless of MCP_MODE env var
+            # This allows HTTP-only agents (like GitHub with Copilot API) to work automatically
+            logging.info(f"{agent_name}: Using HTTP transport for MCP client (agent provides custom HTTP config)")
+            logging.info(f"Using custom HTTP MCP configuration for {agent_name}")
+            client = MultiServerMCPClient({
+                agent_name: {
+                    "transport": "streamable_http",
+                    **custom_http_config  # Spread custom config (url, headers, etc.)
+                }
+            })
+        elif mcp_mode == "http" or mcp_mode == "streamable_http":
+            # HTTP mode requested via environment but no custom config - use localhost
+            logging.info(f"{agent_name}: Using HTTP transport for MCP client (default localhost)")
+            mcp_host = os.getenv("MCP_HOST", "localhost")
+            mcp_port = os.getenv("MCP_PORT", "3000")
+            logging.info(f"Connecting to MCP server at {mcp_host}:{mcp_port}")
 
-            if custom_http_config:
-                # Use custom HTTP configuration (e.g., GitHub Copilot API)
-                logging.info(f"Using custom HTTP MCP configuration for {agent_name}")
-                client = MultiServerMCPClient({
-                    agent_name: {
-                        "transport": "streamable_http",
-                        **custom_http_config  # Spread custom config (url, headers, etc.)
-                    }
-                })
-            else:
-                # Use default HTTP configuration (localhost)
-                mcp_host = os.getenv("MCP_HOST", "localhost")
-                mcp_port = os.getenv("MCP_PORT", "3000")
-                logging.info(f"Connecting to MCP server at {mcp_host}:{mcp_port}")
+            # TBD: Handle user authentication
+            user_jwt = "TBD_USER_JWT"
 
-                # TBD: Handle user authentication
-                user_jwt = "TBD_USER_JWT"
-
-                client = MultiServerMCPClient({
-                    agent_name: {
-                        "transport": "streamable_http",
-                        "url": f"http://{mcp_host}:{mcp_port}/mcp/",
-                        "headers": {
-                            "Authorization": f"Bearer {user_jwt}",
-                        },
-                    }
-                })
+            client = MultiServerMCPClient({
+                agent_name: {
+                    "transport": "streamable_http",
+                    "url": f"http://{mcp_host}:{mcp_port}/mcp/",
+                    "headers": {
+                        "Authorization": f"Bearer {user_jwt}",
+                    },
+                }
+            })
         else:
             logging.info(f"{agent_name}: Using STDIO transport for MCP client")
             mcp_config = self.get_mcp_config(server_path)
@@ -647,6 +721,194 @@ Use this as the reference point for all date calculations. When users say "today
 
         # Agent initialization complete
         logger.info(f"✅ {agent_name} agent initialized with {len(tools)} tools")
+
+    async def get_subagent_graph(self, model=None):
+        """
+        Create and return a compiled graph suitable for use as a subagent in a deep agent.
+        
+        This method loads MCP tools and creates a react agent graph WITHOUT a checkpointer,
+        making it suitable for use as a subagent where the parent agent manages state.
+        
+        Args:
+            model: Optional LLM model to use. If None, uses self.model.
+            
+        Returns:
+            A compiled LangGraph that can be used as a subagent runnable.
+        """
+        agent_name = self.get_agent_name()
+        logger.info(f"🔧 Creating subagent graph for {agent_name}...")
+        
+        # Use provided model or default
+        llm = model or self.model
+        
+        # Load MCP tools
+        tools = await self._load_mcp_tools({})
+        
+        # Add additional tools from subclass (also wrap them for sync support)
+        additional_tools = self.get_additional_tools()
+        if additional_tools:
+            # Wrap additional tools with same sync support as MCP tools
+            wrapped_additional = self._wrap_mcp_tools(additional_tools, "subagent")
+            tools.extend(wrapped_additional)
+            logger.info(f"{agent_name}: Added {len(additional_tools)} custom tools for subagent")
+        
+        logger.info(f"🔧 Creating {agent_name} subagent graph with {len(tools)} tools...")
+        
+        # Configure model with agent name for proper tracing
+        model_with_name = llm.with_config(
+            run_name=agent_name,
+            tags=[f"agent:{agent_name}"],
+            metadata={"agent_name": agent_name}
+        )
+        
+        # Build system prompt with filesystem usage instructions for state sharing
+        system_prompt = self._get_system_instruction_with_date() + FILESYSTEM_USAGE_SUFFIX
+        
+        # Create agent with PolicyMiddleware and FilesystemMiddleware
+        # PolicyMiddleware: Evaluates tool calls against ASP policy
+        # FilesystemMiddleware: Provides read_file, write_file, ls, grep, glob, edit_file
+        subagent_graph = create_agent(
+            model=model_with_name,
+            tools=tools,
+            system_prompt=system_prompt,
+            middleware=[
+                PolicyMiddleware(agent_name=agent_name, agent_type="subagent"),
+                FilesystemMiddleware(),
+            ],
+            checkpointer=None,  # No checkpointer for subagents (parent manages state)
+            name=agent_name,
+        )
+        
+        logger.info(f"✅ {agent_name} subagent graph created with {len(tools)} tools + PolicyMiddleware + FilesystemMiddleware")
+        return subagent_graph
+
+    async def _load_mcp_tools(self, args: dict) -> list:
+        """
+        Load MCP tools for this agent.
+        
+        This is extracted from _setup_mcp_and_graph to allow reuse for subagent graph creation.
+        
+        Args:
+            args: Dictionary with optional 'thread_id' for tool wrapping
+            
+        Returns:
+            List of tools loaded from MCP
+        """
+        agent_name = self.get_agent_name()
+        mcp_mode = os.getenv("MCP_MODE", "stdio")
+        
+        # Compute default server path based on agent's module location
+        # This finds the MCP server relative to the agent's protocol_bindings/a2a_server/agent.py
+        agent_module = self.__class__.__module__
+        if agent_module:
+            import importlib
+            try:
+                module = importlib.import_module(agent_module)
+                if hasattr(module, '__file__') and module.__file__:
+                    # Navigate from protocol_bindings/a2a_server/agent.py up to mcp/
+                    agent_file = module.__file__
+                    # Go up: protocol_bindings/a2a_server/ -> protocol_bindings/ -> agent_X/ -> agent/ -> mcp/
+                    agent_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(agent_file))))
+                    server_path = os.path.join(agent_dir, "mcp", f"mcp_{agent_name}", "__main__.py")
+                    if not os.path.exists(server_path):
+                        # Try alternate path
+                        server_path = os.path.join(agent_dir, "mcp", f"mcp_{agent_name}", "server.py")
+                else:
+                    server_path = None
+            except Exception as e:
+                logger.debug(f"{agent_name}: Could not determine MCP server path from module: {e}")
+                server_path = None
+        else:
+            server_path = None
+        
+        # Override with environment variable if set
+        env_server_path = os.getenv(f"{agent_name.upper()}_MCP_SERVER_PATH")
+        if env_server_path:
+            server_path = env_server_path
+        
+        # If MCP not available, just return additional tools
+        if not MCP_AVAILABLE:
+            logger.warning(f"{agent_name}: MCP not available, using only additional tools")
+            return self.get_additional_tools() or []
+        
+        client = None
+        
+        # Check if agent provides custom HTTP config (auto-detect HTTP-only agents like GitHub)
+        custom_http_config = self.get_mcp_http_config()
+        
+        if custom_http_config:
+            # Agent provides HTTP config - use HTTP mode regardless of MCP_MODE env var
+            # This allows HTTP-only agents (like GitHub with Copilot API) to work automatically
+            logger.info(f"{agent_name}: Using HTTP transport for MCP client (agent provides custom HTTP config)")
+            logger.info(f"Using custom HTTP MCP configuration for {agent_name}")
+            client = MultiServerMCPClient({
+                agent_name: {
+                    "transport": "streamable_http",
+                    **custom_http_config
+                }
+            })
+        elif mcp_mode in ("http", "streamable_http"):
+            # HTTP mode requested via environment but no custom config - use localhost
+            logger.info(f"{agent_name}: Using HTTP transport for MCP client (default localhost)")
+            mcp_host = os.getenv("MCP_HOST", "localhost")
+            mcp_port = os.getenv("MCP_PORT", "3000")
+            logger.info(f"Connecting to MCP server at {mcp_host}:{mcp_port}")
+            user_jwt = "TBD_USER_JWT"
+            client = MultiServerMCPClient({
+                agent_name: {
+                    "transport": "streamable_http",
+                    "url": f"http://{mcp_host}:{mcp_port}/mcp/",
+                    "headers": {
+                        "Authorization": f"Bearer {user_jwt}",
+                    },
+                }
+            })
+        else:
+            logger.info(f"{agent_name}: Using STDIO transport for MCP client")
+            
+            if not server_path or not os.path.exists(server_path):
+                logger.warning(f"{agent_name}: MCP server path not found: {server_path}")
+                return self.get_additional_tools() or []
+            
+            try:
+                mcp_config = self.get_mcp_config(server_path)
+                logger.info(f"{agent_name}: MCP config loaded successfully")
+                
+                if mcp_config and "command" not in mcp_config:
+                    logger.info(f"{agent_name}: Multi-server MCP configuration detected with {len(mcp_config)} servers")
+                    client = MultiServerMCPClient(mcp_config)
+                else:
+                    client = MultiServerMCPClient({
+                        agent_name: mcp_config
+                    })
+            except (ValueError, NotImplementedError) as e:
+                logger.error(f"{agent_name}: Cannot load MCP config: {e}")
+                return self.get_additional_tools() or []
+        
+        if not client:
+            logger.warning(f"{agent_name}: No MCP client configured")
+            return self.get_additional_tools() or []
+        
+        # Get tools from MCP client
+        try:
+            tools = await client.get_tools()
+        except Exception as e:
+            logger.warning(f"{agent_name}: Failed to load MCP tools: {e}")
+            return self.get_additional_tools() or []
+        
+        # Allow subclasses to filter tools
+        tools = self._filter_mcp_tools(tools)
+        
+        # Allow subclasses to wrap tools
+        try:
+            tools = self._wrap_mcp_tools(tools, args.get("thread_id", "default"))
+        except Exception as e:
+            logger.error(f"{agent_name}: Failed to wrap MCP tools: {e}", exc_info=True)
+            # Return unwrapped tools rather than failing completely
+            pass
+        
+        logger.info(f"{agent_name}: Loaded {len(tools)} MCP tools")
+        return tools
 
     def _count_message_tokens(self, message: Any) -> int:
         """
@@ -1076,9 +1338,22 @@ Use this as the reference point for all date calculations. When users say "today
         try:
             if enable_streaming:
                 # Token-by-token streaming mode using 'messages' and 'custom' (for writer() events from tools)
-                logger.info(f"{agent_name}: Token-by-token streaming ENABLED")
+                # subgraphs=True enables streaming from subagent executions
+                logger.info(f"{agent_name}: Token-by-token streaming ENABLED (with subgraphs)")
                 processed_message_count = 0
-                async for item_type, item in self.graph.astream(inputs, config, stream_mode=['messages', 'custom']):
+                async for stream_item in self.graph.astream(inputs, config, stream_mode=['messages', 'custom'], subgraphs=True):
+                    # With subgraphs=True and stream_mode list, format is (namespace, mode, data)
+                    # namespace is a tuple like () for root or ("task:xxx",) for subagents
+                    if len(stream_item) == 3:
+                        namespace, item_type, item = stream_item
+                        if namespace:
+                            # Log subagent streaming for debugging
+                            logger.debug(f"{agent_name}: Subgraph event from {namespace}: {item_type}")
+                    else:
+                        # Fallback for (mode, data) format
+                        item_type, item = stream_item
+                        namespace = ()
+                    
                     # Process message stream
                     if item_type == 'custom':
                         # Handle custom events from writer() (e.g., sub-agent streaming)
@@ -1278,9 +1553,19 @@ Use this as the reference point for all date calculations. When users say "today
 
             else:
                 # Full message mode using 'values' (current behavior)
-                logger.info(f"{agent_name}: Token-by-token streaming DISABLED, using full message mode")
+                # subgraphs=True enables streaming from subagent executions
+                logger.info(f"{agent_name}: Token-by-token streaming DISABLED, using full message mode (with subgraphs)")
                 processed_message_count = 0
-                async for state in self.graph.astream(inputs, config, stream_mode='values'):
+                async for stream_item in self.graph.astream(inputs, config, stream_mode='values', subgraphs=True):
+                    # With subgraphs=True and single stream_mode, format is (namespace, data)
+                    if isinstance(stream_item, tuple) and len(stream_item) == 2:
+                        namespace, state = stream_item
+                        if namespace:
+                            logger.debug(f"{agent_name}: Subgraph values from {namespace}")
+                    else:
+                        # Fallback for dict format
+                        state = stream_item
+                    
                     # Extract messages from the state
                     if not isinstance(state, dict) or 'messages' not in state:
                         continue
