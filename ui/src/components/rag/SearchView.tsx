@@ -10,8 +10,10 @@
  */
 
 import React, { useState, useMemo, useEffect } from 'react';
+import { Search } from 'lucide-react';
 import type { QueryResult } from './Models';
 import { searchDocuments, getHealthStatus } from './api';
+import { ScrollArea } from "@/components/ui/scroll-area";
 
 interface SearchViewProps {
     onExploreEntity?: (entityType: string, primaryKey: string) => void;
@@ -138,7 +140,31 @@ export default function SearchView({ onExploreEntity }: SearchViewProps) {
     };
 
     return (
-        <div className="h-full bg-background p-6 overflow-auto">
+        <div className="h-full flex flex-col bg-background overflow-hidden">
+            {/* Compact Header with Gradient */}
+            <div className="relative overflow-hidden border-b border-border shrink-0">
+                {/* Gradient Background */}
+                <div 
+                    className="absolute inset-0" 
+                    style={{
+                        background: `linear-gradient(to bottom right, color-mix(in srgb, var(--gradient-from) 15%, transparent) 0%, color-mix(in srgb, var(--gradient-to) 8%, transparent) 50%, transparent 100%)`
+                    }}
+                />
+                <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-primary/5 via-transparent to-transparent" />
+
+                <div className="relative px-6 py-3 flex items-center gap-3">
+                    <div className="p-2 rounded-lg gradient-primary-br shadow-md shadow-primary/20">
+                        <Search className="h-5 w-5 text-white" />
+                    </div>
+                    <div>
+                        <h1 className="text-lg font-bold gradient-text">Search</h1>
+                        <p className="text-muted-foreground text-xs">
+                            Search and explore your knowledge base
+                        </p>
+                    </div>
+                </div>
+            </div>
+
             <style>{`
                 .slider::-webkit-slider-thumb {
                     appearance: none;
@@ -158,17 +184,13 @@ export default function SearchView({ onExploreEntity }: SearchViewProps) {
                     box-shadow: 0 2px 4px rgba(0,0,0,0.2);
                 }
             `}</style>
-            <div className="w-full max-w-6xl mx-auto">
-                <div className="text-center mb-8">
-                    <div className="text-4xl mb-4">🔍</div>
-                    <h1 className="text-3xl font-bold text-foreground mb-2">Search</h1>
-                    <p className="text-muted-foreground">
-                        Search and explore your knowledge base
-                    </p>
-                </div>
 
-                {/* Search Interface */}
-                <div className="bg-card rounded-lg shadow-sm border border-border p-6 mb-6">
+            {/* Scrollable Content */}
+            <ScrollArea className="flex-1">
+                <div className="p-6">
+                    <div className="w-full max-w-6xl mx-auto">
+                        {/* Search Interface */}
+                        <div className="bg-card rounded-lg shadow-sm border border-border p-6 mb-6">
                     <div className="flex gap-4 mb-4">
                         <input
                             type="text"
@@ -420,7 +442,9 @@ export default function SearchView({ onExploreEntity }: SearchViewProps) {
                     </div>
                 )}
                 </div>
-            </div>
+                    </div>
+                </div>
+            </ScrollArea>
         </div>
     );
 }
