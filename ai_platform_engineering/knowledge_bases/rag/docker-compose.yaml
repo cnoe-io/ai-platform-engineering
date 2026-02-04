@@ -56,25 +56,49 @@ services:
         EMBEDDINGS_PROVIDER: ${EMBEDDINGS_PROVIDER:-azure-openai}
         EMBEDDINGS_MODEL: ${EMBEDDINGS_MODEL:-text-embedding-3-small}
         # RBAC/Authentication configuration
-        # ALLOW_UNAUTHENTICATED: Optional (default: true). Set to "false" in production.
-        #   When true, allows unauthenticated service-to-service calls with ADMIN privileges.
-        #   WARNING: Only use "true" for development/testing. Production should use "false".
-        ALLOW_UNAUTHENTICATED: ${ALLOW_UNAUTHENTICATED:-true}
+        # OIDC JWT validation for UI tokens
+        OIDC_ISSUER: ${OIDC_ISSUER}
+        OIDC_CLIENT_ID: ${OIDC_CLIENT_ID}
+        # Group claim configuration (optional - auto-detects if not set)
+        OIDC_GROUP_CLAIM: ${OIDC_GROUP_CLAIM}
+        
+        # Ingestor OIDC configuration (for OAuth2 client credentials)
+        # Required: CLIENT_ID and CLIENT_SECRET
+        # Required: At least one of ISSUER or DISCOVERY_URL (both recommended for robustness)
+        INGESTOR_OIDC_ISSUER: ${INGESTOR_OIDC_ISSUER:-}
+        INGESTOR_OIDC_CLIENT_ID: ${INGESTOR_OIDC_CLIENT_ID}
+        # INGESTOR_OIDC_DISCOVERY_URL: Optional explicit discovery URL
+        #   - If set, tries this first, then falls back to constructing from ISSUER
+        #   - Recommended for Duo Security and other providers with non-standard paths
+        #   - For Duo SSO: https://sso-xxx.sso.duosecurity.com/oauth/REALM_ID/.well-known/oauth-authorization-server
+        #   - For standard OIDC: typically ends with /.well-known/openid-configuration
+        # INGESTOR_OIDC_SCOPE: Optional scope for token requests (default: none)
+        #   - Most providers don't need scope for client credentials flow
+        #   - Duo Security may require specific scopes configured in your application
+        #   - Example: INGESTOR_OIDC_SCOPE=read:data write:data
+        
+        # Trusted network access (optional - e.g. for local development)
+        ALLOW_TRUSTED_NETWORK: ${ALLOW_TRUSTED_NETWORK:-true}
+        TRUSTED_NETWORK_CIDRS: ${TRUSTED_NETWORK_CIDRS:-127.0.0.0/8,192.168.0.0/16,172.16.0.0/12}
+        TRUSTED_NETWORK_DEFAULT_ROLE: ${TRUSTED_NETWORK_DEFAULT_ROLE:-admin}
+        # TRUSTED_NETWORK_TOKEN: ${TRUSTED_NETWORK_TOKEN}  # Optional shared secret
+        
+        # RBAC role assignment by group
+        # Default role for users who have authenticated via OIDC but don't match any group
+        RBAC_DEFAULT_AUTHENTICATED_ROLE: ${RBAC_DEFAULT_AUTHENTICATED_ROLE:-readonly}
+        # Default role for client credentials tokens (machine-to-machine, e.g., ingestors)
+        # Client credentials don't have user/group info, so they get a fixed role
+        RBAC_CLIENT_CREDENTIALS_ROLE: ${RBAC_CLIENT_CREDENTIALS_ROLE:-ingestonly}
         # RBAC_READONLY_GROUPS: Optional (default: empty). Comma-separated list of group names.
         #   Users in these groups get READONLY role (can view/query data).
         #   Example: "engineering-readonly,analysts,viewers"
         RBAC_READONLY_GROUPS: ${RBAC_READONLY_GROUPS}
         # RBAC_INGESTONLY_GROUPS: Optional (default: empty). Comma-separated list of group names.
         #   Users in these groups get INGESTONLY role (READONLY + can ingest data).
-        #   Example: "data-team,ingestors"
         RBAC_INGESTONLY_GROUPS: ${RBAC_INGESTONLY_GROUPS}
         # RBAC_ADMIN_GROUPS: Optional (default: empty). Comma-separated list of group names.
         #   Users in these groups get ADMIN role (full access including delete operations).
-        #   Example: "platform-admins,rag-admins"
         RBAC_ADMIN_GROUPS: ${RBAC_ADMIN_GROUPS}
-        # RBAC_DEFAULT_ROLE: Optional (default: "readonly"). Must be one of: "readonly", "ingestonly", "admin".
-        #   Role assigned to authenticated users who don't match any of the above groups.
-        RBAC_DEFAULT_ROLE: ${RBAC_DEFAULT_ROLE:-readonly}
     restart: unless-stopped
     env_file:
       - ../../../.env
@@ -95,6 +119,12 @@ services:
         SYNC_INTERVAL: 86400 # 24 hours
         EXIT_AFTER_FIRST_SYNC: false
         RAG_SERVER_URL: ${RAG_SERVER_URL:-http://rag_server:9446}
+        # Ingestor OAuth2 client credentials (optional - uses trusted network if not set)
+        INGESTOR_OIDC_ISSUER: ${INGESTOR_OIDC_ISSUER}
+        INGESTOR_OIDC_CLIENT_ID: ${INGESTOR_OIDC_CLIENT_ID}
+        INGESTOR_OIDC_CLIENT_SECRET: ${INGESTOR_OIDC_CLIENT_SECRET}
+        INGESTOR_OIDC_DISCOVERY_URL: ${INGESTOR_OIDC_DISCOVERY_URL:-}
+        INGESTOR_OIDC_SCOPE: ${INGESTOR_OIDC_SCOPE:-}
         MAX_CONCURRENT_JOBS: ${WEBLOADER_INGESTOR_MAX_CONCURRENT_JOBS:-10}
     restart: unless-stopped
     depends_on:
@@ -134,23 +164,6 @@ services:
       dockerfile: ./build/Dockerfile.agent-ontology
     profiles:
       - apps
-
-  webui:
-    build:
-      context: .
-      dockerfile: build/Dockerfile.webui
-    container_name: rag-webui
-    environment:
-      RAG_SERVER_URL: ${RAG_SERVER_URL:-http://rag_server:9446}
-      NGINX_ENVSUBST_TEMPLATE_SUFFIX: ".conf"
-    depends_on:
-      - rag_server
-    ports:
-      - "${WEBUI_PORT:-9447}:80" # comment out for no unauthenticated access
-    profiles:
-      - apps
-      - rag_no_graph
-
 
 #####################
 # Ingestors
@@ -360,6 +373,55 @@ services:
     profiles:
       - caipe
 
+  # CAIPE UI - Next.js Web Interface
+  # Main web UI for interacting with CAIPE agents and knowledge bases
+  # Includes Use Cases gallery inspired by ag-ui composer
+  #
+  # Build: Uses build/Dockerfile.caipe-ui (Next.js standalone with Node.js server)
+  #
+  # Configuration:
+  #   CAIPE_URL: URL of the CAIPE supervisor A2A endpoint
+  #   - Default (dev): http://localhost:8000
+  #   - Default (docker): http://caipe-p2p:8000
+  #   - Override with: CAIPE_URL=http://your-host:port
+  caipe-ui:
+    build:
+      context: ../../..
+      dockerfile: build/Dockerfile.caipe-ui
+    container_name: caipe-ui
+    ports: ["9447:3000"]
+    env_file:
+      - ../../../.env
+    environment:
+      - NODE_ENV=production
+      # CAIPE supervisor A2A endpoint URL
+      # Can be overridden with CAIPE_URL environment variable
+      - NEXT_PUBLIC_CAIPE_URL=${CAIPE_URL:-http://localhost:8000}
+      - CAIPE_URL=${CAIPE_URL:-http://caipe-p2p:8000}
+      # RAG Server URL for knowledge base API (internal Docker network)
+      - RAG_SERVER_URL=${RAG_SERVER_URL:-http://rag_server:9446}
+      - NEXT_PUBLIC_RAG_URL=${RAG_URL:-http://localhost:9446}
+      # RAG WebUI URL for iframe embedding (browser-accessible)
+      - NEXT_PUBLIC_RAG_WEBUI_URL=${RAG_WEBUI_URL:-http://localhost:9447}
+      # NextAuth configuration (required for production)
+      # Generate a secret with: openssl rand -base64 32
+      - NEXTAUTH_SECRET=${NEXTAUTH_SECRET:-caipe-dev-secret-change-in-production}
+      - NEXTAUTH_URL=${NEXTAUTH_URL:-http://localhost:3000}
+      # SSO Configuration - reads from .env file
+      # Map OIDC_* variables from .env to CAIPE_UI_OIDC_* expected by the app
+      - CAIPE_UI_OIDC_ENABLED=${OIDC_ENABLED:-false}
+      - CAIPE_UI_OIDC_CLIENT_ID=${OIDC_CLIENT_ID:-}
+      - CAIPE_UI_OIDC_CLIENT_SECRET=${OIDC_CLIENT_SECRET:-}
+      - CAIPE_UI_OIDC_ISSUER=${OIDC_ISSUER:-}
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    profiles:
+      - apps
+
   rag-redis:
     image: redis
     command:
@@ -449,20 +511,7 @@ services:
   
 #####################
 # Test services
-#####################
-  oauth2-proxy:
-    container_name: oauth2-proxy
-    image: quay.io/oauth2-proxy/oauth2-proxy:v7.13.0
-    command: --config /oauth2-proxy.cfg
-    hostname: oauth2-proxy
-    volumes:
-      - "./oauth2-proxy.cfg:/oauth2-proxy.cfg"
-    restart: unless-stopped
-    ports:
-      - 9447:9447/tcp
-    profiles:
-      - oauth2
-      
+#####################      
   testwebsite:
     image: nginx:alpine
     container_name: test-website
@@ -478,7 +527,7 @@ services:
     build:
       context: .
       dockerfile: ./build/Dockerfile.ingestors
-    container_name: dummy-ingestor
+    container_name: dummy-graph-ingestor
     volumes:
       - ./tests/rag_graph_test:/app/data:ro
     environment:

@@ -19,7 +19,6 @@ server/
 # Future components will follow the same pattern:
 # agent_rag/tests/
 # agent_ontology/tests/
-# webui/tests/
 ```
 
 ## Running Tests
