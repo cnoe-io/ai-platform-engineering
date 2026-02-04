@@ -44,6 +44,7 @@ export function AppHeader() {
   React.useEffect(() => {
     if (session) {
       console.log('[AppHeader] Session role:', session.role);
+      // Note: groups removed from session to prevent oversized cookies
       console.log('[AppHeader] Is admin (with MongoDB check)?', isAdmin);
     }
   }, [session, isAdmin]);
@@ -285,7 +286,7 @@ export function AppHeader() {
                         </div>
                       </div>
                     )}
-                    
+
                     {/* Storage Status */}
                     <div className="bg-muted/30 rounded-lg p-3 border border-border/50">
                       <div className="flex items-center justify-between mb-2">

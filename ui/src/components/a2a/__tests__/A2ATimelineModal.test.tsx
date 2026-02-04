@@ -106,20 +106,20 @@ describe('A2ATimelineModal', () => {
   describe('Rendering', () => {
     it('should render when open', () => {
       render(<A2ATimelineModal {...defaultProps} />);
-      
+
       expect(screen.getByTestId('dialog')).toBeInTheDocument();
       expect(screen.getByTestId('dialog-title')).toHaveTextContent('A2A Event Debugger');
     });
 
     it('should not render when closed', () => {
       render(<A2ATimelineModal {...defaultProps} isOpen={false} />);
-      
+
       expect(screen.queryByTestId('dialog')).not.toBeInTheDocument();
     });
 
     it('should display event count and agent count', () => {
       render(<A2ATimelineModal {...defaultProps} />);
-      
+
       const header = screen.getByTestId('dialog-header');
       expect(header).toHaveTextContent('5 events');
       expect(header).toHaveTextContent('2 agents');
@@ -127,7 +127,7 @@ describe('A2ATimelineModal', () => {
 
     it('should render export button', () => {
       render(<A2ATimelineModal {...defaultProps} />);
-      
+
       const exportButton = screen.getByRole('button', { name: /export/i });
       expect(exportButton).toBeInTheDocument();
     });
@@ -136,7 +136,7 @@ describe('A2ATimelineModal', () => {
   describe('Event Compression', () => {
     it('should compress consecutive streaming events', () => {
       const { container } = render(<A2ATimelineModal {...defaultProps} />);
-      
+
       // The modal should compress events 3 and 4 (both streaming_result)
       // So we should see fewer than 5 events in the timeline
       // This is a simplified check - in reality we'd check the rendered event count
@@ -166,7 +166,7 @@ describe('A2ATimelineModal', () => {
       ];
 
       render(<A2ATimelineModal {...defaultProps} events={nonStreamingEvents} />);
-      
+
       expect(screen.getByTestId('dialog-header')).toHaveTextContent('2 events');
     });
   });
@@ -176,9 +176,9 @@ describe('A2ATimelineModal', () => {
       // Mock Blob constructor
       const mockBlob = { size: 1024, type: 'application/json' };
       global.Blob = jest.fn(() => mockBlob) as any;
-      
+
       const { container } = render(<A2ATimelineModal {...defaultProps} />);
-      
+
       // Mock document.createElement and related methods
       const mockLink = document.createElement('a');
       const createElementSpy = jest.spyOn(document, 'createElement').mockReturnValue(mockLink);
@@ -212,23 +212,23 @@ describe('A2ATimelineModal', () => {
         capturedData = content[0];
         return { size: 1024, type: 'application/json' };
       }) as any;
-      
+
       render(<A2ATimelineModal {...defaultProps} />);
-      
+
       const exportButton = screen.getByRole('button', { name: /export/i });
-      
+
       // Setup mocks for download
       const mockLink = document.createElement('a');
       jest.spyOn(document, 'createElement').mockReturnValue(mockLink);
       jest.spyOn(document.body, 'appendChild').mockImplementation();
       jest.spyOn(document.body, 'removeChild').mockImplementation();
       jest.spyOn(mockLink, 'click').mockImplementation();
-      
+
       fireEvent.click(exportButton);
 
       expect(global.Blob).toHaveBeenCalled();
       expect(capturedData).toBeTruthy();
-      
+
       const blobContent = JSON.parse(capturedData);
       expect(blobContent.conversationId).toBe('conv-123');
       expect(blobContent.eventCount).toBe(5);
@@ -240,7 +240,7 @@ describe('A2ATimelineModal', () => {
   describe('View Modes', () => {
     it('should render tabs for different view modes', () => {
       render(<A2ATimelineModal {...defaultProps} />);
-      
+
       expect(screen.getByTestId('tab-flow')).toBeInTheDocument();
       expect(screen.getByTestId('tab-agents')).toBeInTheDocument();
       expect(screen.getByTestId('tab-trace')).toBeInTheDocument();
@@ -248,7 +248,7 @@ describe('A2ATimelineModal', () => {
 
     it('should render all three view mode tabs', () => {
       render(<A2ATimelineModal {...defaultProps} />);
-      
+
       expect(screen.getByTestId('tab-flow')).toBeInTheDocument();
       expect(screen.getByTestId('tab-agents')).toBeInTheDocument();
       expect(screen.getByTestId('tab-trace')).toBeInTheDocument();
@@ -258,7 +258,7 @@ describe('A2ATimelineModal', () => {
   describe('Agent Grouping', () => {
     it('should group events by agent', () => {
       render(<A2ATimelineModal {...defaultProps} />);
-      
+
       // Events should be grouped: supervisor (1 event), argocd (4 events)
       const header = screen.getByTestId('dialog-header');
       expect(header).toHaveTextContent('2 agents');
@@ -277,7 +277,7 @@ describe('A2ATimelineModal', () => {
       ];
 
       render(<A2ATimelineModal {...defaultProps} events={eventsWithoutAgent} />);
-      
+
       expect(screen.getByTestId('dialog')).toBeInTheDocument();
     });
   });
@@ -285,7 +285,7 @@ describe('A2ATimelineModal', () => {
   describe('Empty State', () => {
     it('should handle empty events array', () => {
       render(<A2ATimelineModal {...defaultProps} events={[]} />);
-      
+
       const header = screen.getByTestId('dialog-header');
       expect(header).toHaveTextContent('0 events');
       expect(header).toHaveTextContent('0 agents');
@@ -296,7 +296,7 @@ describe('A2ATimelineModal', () => {
     it('should call onClose when dialog is closed', () => {
       const onCloseMock = jest.fn();
       render(<A2ATimelineModal {...defaultProps} onClose={onCloseMock} />);
-      
+
       // Dialog component receives onOpenChange callback
       // We need to trigger it through the mocked Dialog component
       // For now, just verify the prop is passed

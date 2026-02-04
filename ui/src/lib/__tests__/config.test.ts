@@ -11,7 +11,7 @@ describe('config - Extended', () => {
   beforeEach(() => {
     jest.resetModules();
     process.env = { ...originalEnv };
-    
+
     // Reset window.__ENV__
     if (typeof window !== 'undefined') {
       (window as any).__ENV__ = undefined;
@@ -200,9 +200,9 @@ describe('config - Extended', () => {
   describe('logConfig', () => {
     it('should call logConfig without throwing errors', () => {
       const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation();
-      
+
       expect(() => logConfig()).not.toThrow();
-      
+
       // logConfig may or may not log in test environment
       consoleLogSpy.mockRestore();
     });

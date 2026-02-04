@@ -129,25 +129,25 @@ export function AgentBuilderGallery({
   onCreateNew,
   onImportYaml,
 }: AgentBuilderGalleryProps) {
-  const { 
-    configs, 
-    isLoading, 
-    error, 
-    loadConfigs, 
-    deleteConfig, 
-    toggleFavorite, 
-    isFavorite, 
-    getFavoriteConfigs 
+  const {
+    configs,
+    isLoading,
+    error,
+    loadConfigs,
+    deleteConfig,
+    toggleFavorite,
+    isFavorite,
+    getFavoriteConfigs
   } = useAgentConfigStore();
   const { isAdmin } = useAdminRole();
   const router = useRouter();
   const { createConversation, setPendingMessage } = useChatStore();
-  
+
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategory, setSelectedCategory] = useState<string>("All");
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<"all" | "quick-start" | "workflows">("all");
-  
+
   // Input form state for quick-start with placeholders
   const [activeFormConfig, setActiveFormConfig] = useState<AgentConfig | null>(null);
   const [formValues, setFormValues] = useState<Record<string, string>>({});
@@ -162,13 +162,13 @@ export function AgentBuilderGallery({
       if (latestConfig) {
         const latestPrompt = latestConfig.tasks[0]?.llm_prompt || "";
         const currentPrompt = activeFormConfig.tasks[0]?.llm_prompt || "";
-        
+
         // Only update if the prompt has changed (to avoid infinite loop)
         if (latestPrompt !== currentPrompt) {
           console.log(`[AgentBuilderGallery] Config updated in store, refreshing dialog:`, latestConfig.id);
           console.log(`[AgentBuilderGallery] Old prompt:`, currentPrompt);
           console.log(`[AgentBuilderGallery] New prompt:`, latestPrompt);
-          
+
           // Update activeFormConfig with latest data
           setActiveFormConfig({ ...latestConfig, input_form: activeFormConfig.input_form });
           // Update editablePrompt with latest llm_prompt
@@ -215,15 +215,15 @@ export function AgentBuilderGallery({
         config.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
         config.description?.toLowerCase().includes(searchQuery.toLowerCase()) ||
         config.metadata?.tags?.some(tag => tag.toLowerCase().includes(searchQuery.toLowerCase()));
-      
+
       const matchesCategory =
         selectedCategory === "All" || config.category === selectedCategory;
-      
+
       const matchesViewMode =
         viewMode === "all" ||
         (viewMode === "quick-start" && config.is_quick_start) ||
         (viewMode === "workflows" && !config.is_quick_start);
-      
+
       return matchesSearch && matchesCategory && matchesViewMode;
     });
   }, [allConfigs, searchQuery, selectedCategory, viewMode]);
@@ -235,20 +235,20 @@ export function AgentBuilderGallery({
   // Featured quick-starts (shown in a separate section)
   const featuredIds = ["qs-deploy-status", "qs-incident-analysis", "qs-release-readiness"];
   const featuredConfigs = quickStartConfigs.filter(c => featuredIds.includes(c.id));
-  
+
   // Non-featured quick-starts (exclude featured ones to avoid duplicate keys)
   const nonFeaturedQuickStartConfigs = quickStartConfigs.filter(c => !featuredIds.includes(c.id));
 
   const handleDelete = async (config: AgentConfig, e: React.MouseEvent) => {
     e.stopPropagation();
-    
+
     // Confirm deletion
-    const confirmMessage = config.is_system 
+    const confirmMessage = config.is_system
       ? `Are you sure you want to delete the system template "${config.name}"? This action requires admin privileges.`
       : `Are you sure you want to delete "${config.name}"?`;
-    
+
     if (!confirm(confirmMessage)) return;
-    
+
     setDeletingId(config.id);
     try {
       await deleteConfig(config.id);
@@ -265,14 +265,14 @@ export function AgentBuilderGallery({
       // Always show modal for quick-starts to allow editing
       const inputForm = config.input_form || generateInputFormFromPrompt(config.tasks[0]?.llm_prompt || "", config.name);
       const basePrompt = config.tasks[0]?.llm_prompt || "";
-      
+
       console.log(`[AgentBuilderGallery] Opening quick-start: ${config.name}`);
       console.log(`[AgentBuilderGallery] Prompt from config:`, basePrompt);
       console.log(`[AgentBuilderGallery] Full config:`, config);
-      
-      setActiveFormConfig({ ...config, input_form: inputForm });
+
+      setActiveFormConfig({ ...config, input_form: inputForm || undefined });
       setEditablePrompt(basePrompt);
-      
+
       if (inputForm && inputForm.fields.length > 0) {
         const initialValues: Record<string, string> = {};
         inputForm.fields.forEach(f => { initialValues[f.name] = ""; });
@@ -290,7 +290,7 @@ export function AgentBuilderGallery({
   // Update editable prompt when form values change
   const updateEditablePrompt = (newFormValues: Record<string, string>) => {
     if (!activeFormConfig) return;
-    
+
     let prompt = activeFormConfig.tasks[0]?.llm_prompt || "";
     Object.entries(newFormValues).forEach(([key, value]) => {
       if (value.trim()) {
@@ -304,7 +304,7 @@ export function AgentBuilderGallery({
 
   const handleFormSubmit = () => {
     if (!activeFormConfig) return;
-    
+
     // Validate required fields if there are any
     if (activeFormConfig.input_form && activeFormConfig.input_form.fields.length > 0) {
       const errors: Record<string, string> = {};
@@ -313,13 +313,13 @@ export function AgentBuilderGallery({
           errors[field.name] = `${field.label} is required`;
         }
       });
-      
+
       if (Object.keys(errors).length > 0) {
         setFormErrors(errors);
         return;
       }
     }
-    
+
     // Use the editable prompt (which may have been modified by the user)
     setActiveFormConfig(null);
     onRunQuickStart?.(editablePrompt, activeFormConfig.name);
@@ -327,7 +327,7 @@ export function AgentBuilderGallery({
 
   const handleRunInChat = () => {
     if (!activeFormConfig) return;
-    
+
     // Validate required fields if there are any
     if (activeFormConfig.input_form && activeFormConfig.input_form.fields.length > 0) {
       const errors: Record<string, string> = {};
@@ -336,22 +336,22 @@ export function AgentBuilderGallery({
           errors[field.name] = `${field.label} is required`;
         }
       });
-      
+
       if (Object.keys(errors).length > 0) {
         setFormErrors(errors);
         return;
       }
     }
-    
+
     // Create a new conversation
     const conversationId = createConversation();
-    
+
     // Set the pending message to be auto-submitted when the chat loads
     setPendingMessage(editablePrompt);
-    
+
     // Close the modal
     setActiveFormConfig(null);
-    
+
     // Navigate to the chat page
     router.push(`/chat/${conversationId}`);
   };
@@ -384,7 +384,7 @@ export function AgentBuilderGallery({
                 </p>
               </div>
             </div>
-            
+
             <div className="flex items-center gap-2">
               <Button variant="outline" size="sm" onClick={onImportYaml} className="gap-2">
                 <Upload className="h-4 w-4" />
@@ -435,7 +435,7 @@ export function AgentBuilderGallery({
                 History
               </Button>
             </div>
-            
+
             <div className="flex gap-2 flex-wrap">
               {ALL_CATEGORIES.map(cat => (
                 <Button
@@ -475,7 +475,7 @@ export function AgentBuilderGallery({
                 {getFavoriteConfigs().map((config, index) => {
                   const Icon = ICON_MAP[config.thumbnail || (config.is_quick_start ? "Zap" : "Workflow")] || Zap;
                   const gradientClass = CATEGORY_COLORS[config.category] || CATEGORY_COLORS["Custom"];
-                  
+
                   return (
                     <motion.div
                       key={`fav-${config.id}`}
@@ -500,10 +500,10 @@ export function AgentBuilderGallery({
                           )}
                         </div>
                       </div>
-                      
+
                       {/* Arrow - hidden on hover when buttons appear */}
                       <ArrowRight className="h-4 w-4 text-muted-foreground group-hover:opacity-0 transition-all shrink-0" />
-                      
+
                       {/* Action buttons grouped - bottom-right on hover, replaces arrow */}
                       <div className="absolute bottom-2 right-2 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity bg-card/95 backdrop-blur-sm rounded-lg p-0.5 border border-border/30 shadow-sm">
                         <Button
@@ -518,20 +518,20 @@ export function AgentBuilderGallery({
                         {canModifyConfig(config) && (
                           <>
                             <div className="h-4 w-px bg-border/50" />
-                            <Button 
-                              variant="ghost" 
-                              size="icon" 
-                              className="h-7 w-7" 
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-7 w-7"
                               onClick={(e) => { e.stopPropagation(); onEditConfig?.(config); }}
                               title="Edit"
                             >
                               <Edit className="h-3.5 w-3.5" />
                             </Button>
-                            <Button 
-                              variant="ghost" 
-                              size="icon" 
-                              className="h-7 w-7 text-red-400 hover:text-red-500" 
-                              onClick={(e) => handleDelete(config, e)} 
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-7 w-7 text-red-400 hover:text-red-500"
+                              onClick={(e) => handleDelete(config, e)}
                               disabled={deletingId === config.id}
                               title="Delete"
                             >
@@ -576,10 +576,10 @@ export function AgentBuilderGallery({
                           ))}
                         </div>
                       </div>
-                      
+
                       {/* Arrow - hidden on hover */}
                       <ArrowRight className="h-4 w-4 text-muted-foreground group-hover:opacity-0 transition-all shrink-0" />
-                      
+
                       {/* Action buttons grouped - bottom-right on hover, replaces arrow */}
                       <div className="absolute bottom-2 right-2 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity bg-card/95 backdrop-blur-sm rounded-lg p-0.5 border border-border/30 shadow-sm">
                         <Button
@@ -597,20 +597,20 @@ export function AgentBuilderGallery({
                         {canModifyConfig(config) && (
                           <>
                             <div className="h-4 w-px bg-border/50" />
-                            <Button 
-                              variant="ghost" 
-                              size="icon" 
-                              className="h-7 w-7" 
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-7 w-7"
                               onClick={(e) => { e.stopPropagation(); onEditConfig?.(config); }}
                               title="Edit template"
                             >
                               <Edit className="h-3.5 w-3.5" />
                             </Button>
-                            <Button 
-                              variant="ghost" 
-                              size="icon" 
-                              className="h-7 w-7 text-red-400 hover:text-red-500" 
-                              onClick={(e) => handleDelete(config, e)} 
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-7 w-7 text-red-400 hover:text-red-500"
+                              onClick={(e) => handleDelete(config, e)}
                               disabled={deletingId === config.id}
                               title="Delete template"
                             >
@@ -638,7 +638,7 @@ export function AgentBuilderGallery({
                 {nonFeaturedQuickStartConfigs.map((config, index) => {
                   const Icon = ICON_MAP[config.thumbnail || "Zap"] || Zap;
                   const gradientClass = CATEGORY_COLORS[config.category] || CATEGORY_COLORS["Custom"];
-                  
+
                   return (
                     <motion.div
                       key={config.id}
@@ -671,7 +671,7 @@ export function AgentBuilderGallery({
                           ))}
                         </div>
                       </div>
-                      
+
                       {/* Action buttons grouped together - bottom-right on hover */}
                       <div className="absolute bottom-3 right-3 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity bg-card/95 backdrop-blur-sm rounded-lg p-0.5 border border-border/30 shadow-sm">
                         <Button
@@ -689,20 +689,20 @@ export function AgentBuilderGallery({
                         {canModifyConfig(config) && (
                           <>
                             <div className="h-4 w-px bg-border/50" />
-                            <Button 
-                              variant="ghost" 
-                              size="icon" 
-                              className="h-7 w-7" 
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-7 w-7"
                               onClick={(e) => { e.stopPropagation(); onEditConfig?.(config); }}
                               title="Edit template"
                             >
                               <Edit className="h-3.5 w-3.5" />
                             </Button>
-                            <Button 
-                              variant="ghost" 
-                              size="icon" 
-                              className="h-7 w-7 text-red-400 hover:text-red-500" 
-                              onClick={(e) => handleDelete(config, e)} 
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-7 w-7 text-red-400 hover:text-red-500"
+                              onClick={(e) => handleDelete(config, e)}
                               disabled={deletingId === config.id}
                               title="Delete template"
                             >
@@ -730,7 +730,7 @@ export function AgentBuilderGallery({
                 {workflowConfigs.map((config, index) => {
                   const Icon = ICON_MAP[config.thumbnail || "Workflow"] || Workflow;
                   const gradientClass = CATEGORY_COLORS[config.category] || CATEGORY_COLORS["Custom"];
-                  
+
                   return (
                     <motion.div
                       key={config.id}
@@ -749,7 +749,7 @@ export function AgentBuilderGallery({
                         <Workflow className="h-3.5 w-3.5" />
                         <span>{config.tasks.length} steps</span>
                       </div>
-                      
+
                       {/* Action buttons grouped together - bottom-right on hover */}
                       <div className="absolute bottom-4 right-4 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity bg-card/95 backdrop-blur-sm rounded-lg p-0.5 border border-border/30 shadow-sm">
                         <Button
@@ -896,7 +896,7 @@ export function AgentBuilderGallery({
               {/* Footer */}
               <div className="flex items-center justify-end gap-3 p-4 border-t bg-muted/30 shrink-0">
                 <Button variant="ghost" onClick={() => setActiveFormConfig(null)}>Cancel</Button>
-                <Button 
+                <Button
                   onClick={handleRunInChat}
                   variant="outline"
                   className="gap-2"
@@ -905,8 +905,8 @@ export function AgentBuilderGallery({
                   <MessageSquare className="h-4 w-4" />
                   Run in Chat
                 </Button>
-                <Button 
-                  onClick={handleFormSubmit} 
+                <Button
+                  onClick={handleFormSubmit}
                   className="gradient-primary text-white gap-2"
                   disabled={!editablePrompt.trim()}
                 >

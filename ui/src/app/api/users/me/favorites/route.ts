@@ -13,7 +13,7 @@ import type { User } from '@/types/mongodb';
 
 /**
  * User Favorites API
- * 
+ *
  * Stores user's favorite agent configuration IDs in MongoDB.
  * Favorites are stored as an array of config IDs in the user document.
  */
@@ -69,10 +69,10 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
       { email: user.email },
       {
         $set: {
-          favorites: uniqueFavorites,
+          favorites: uniqueFavorites as string[],
           updated_at: new Date(),
         },
-      }
+      } as any
     );
 
     console.log(`[Favorites] Updated favorites for ${user.email}: ${uniqueFavorites.length} items`);

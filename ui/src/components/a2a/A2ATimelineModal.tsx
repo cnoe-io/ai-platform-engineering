@@ -42,17 +42,17 @@ interface CompressedEvent extends A2AEvent {
 // Compress consecutive streaming events to reduce noise
 function compressStreamingEvents(events: A2AEvent[]): CompressedEvent[] {
   const compressed: CompressedEvent[] = [];
-  
+
   for (let i = 0; i < events.length; i++) {
     const event = events[i];
-    const isStreaming = 
+    const isStreaming =
       event.artifact?.name === "streaming_result" ||
       event.artifact?.name === "partial_result" ||
       (event.type === "artifact" && event.artifact?.name?.includes("stream"));
 
     // Check if we should compress with previous
     const prev = compressed[compressed.length - 1];
-    const shouldCompress = 
+    const shouldCompress =
       prev &&
       isStreaming &&
       prev.artifact?.name === event.artifact?.name &&
@@ -77,7 +77,7 @@ function compressStreamingEvents(events: A2AEvent[]): CompressedEvent[] {
       compressed.push(event);
     }
   }
-  
+
   return compressed;
 }
 
@@ -248,7 +248,7 @@ function EventFlowView({
               const isSelected = event.compressedEventIds
                 ? event.compressedEventIds.includes(selectedEventId || "")
                 : selectedEventId === event.id;
-              
+
               return (
                 <div
                   key={event.id}
@@ -270,8 +270,8 @@ function EventFlowView({
                   {/* Event card */}
                   <div className={cn(
                     "p-3 rounded-lg border transition-all",
-                    isSelected 
-                      ? "bg-primary/10 border-primary shadow-md" 
+                    isSelected
+                      ? "bg-primary/10 border-primary shadow-md"
                       : "bg-card border-border hover:border-primary/50 hover:shadow-sm"
                   )}>
                     <div className="flex items-center gap-2 mb-1 flex-wrap">
@@ -445,11 +445,11 @@ function TraceView({
 
   // Sort all events chronologically
   const sortedEvents = [...events].sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
-  
+
   const minTime = sortedEvents[0].timestamp.getTime();
   const maxTime = sortedEvents[sortedEvents.length - 1].timestamp.getTime();
   const timeRange = maxTime - minTime || 1000;
-  
+
   // Scale timeline width based on event density and zoom
   // Use 150px per second as base, with minimum of 1200px
   const baseWidth = (timeRange / 1000) * 150; // 150px per second
@@ -522,7 +522,7 @@ function TraceView({
             <div className="h-10 border-b px-3 flex items-center bg-background">
               <span className="text-xs font-medium text-muted-foreground">Event</span>
             </div>
-            
+
             {/* Event rows */}
             {sortedEvents.map((event) => {
               const Icon = getIcon(event.type);
@@ -570,11 +570,11 @@ function TraceView({
                 else if (timeRange > 60000) tickInterval = 5000; // 5s for long durations
 
                 const tickCount = Math.ceil(timeRange / tickInterval) + 1;
-                
+
                 return Array.from({ length: tickCount }).map((_, i) => {
                   const timeMs = i * tickInterval;
                   const position = (timeMs / timeRange) * timelineWidth;
-                  
+
                   return (
                     <div
                       key={i}
@@ -595,7 +595,7 @@ function TraceView({
               const Icon = getIcon(event.type);
               const agentColor = getAgentColor(event.sourceAgent || "supervisor");
               const isSelected = selectedEventId === event.id;
-              
+
               // Calculate horizontal position
               const eventTime = event.timestamp.getTime() - minTime;
               const xPosition = (eventTime / timeRange) * timelineWidth;

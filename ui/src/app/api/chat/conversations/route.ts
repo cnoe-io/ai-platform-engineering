@@ -103,6 +103,7 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
       sharing: {
         is_public: false,
         shared_with: [],
+        shared_with_teams: [],
         share_link_enabled: false,
       },
       tags: body.tags || [],

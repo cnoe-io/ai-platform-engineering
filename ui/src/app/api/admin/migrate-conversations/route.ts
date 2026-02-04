@@ -57,7 +57,7 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
     for (const conv of body.conversations) {
       try {
         // Check if conversation already exists in MongoDB
-        const existing = await conversations.findOne({ _id: conv.id });
+        const existing = await conversations.findOne({ _id: conv.id } as any);
         if (existing) {
           skipped++;
           continue;
@@ -85,7 +85,7 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
           tags: ['migrated-from-localstorage'],
           is_archived: false,
           is_pinned: false,
-        });
+        } as any);
 
         // Migrate messages if available
         if (conv.messages && conv.messages.length > 0) {

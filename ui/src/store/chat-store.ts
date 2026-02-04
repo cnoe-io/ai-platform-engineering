@@ -20,7 +20,7 @@ interface ChatState {
   streamingConversations: Map<string, StreamingState>;
   a2aEvents: A2AEvent[];
   pendingMessage: string | null; // Message to auto-submit when ChatPanel mounts
-  
+
   // Per-turn event tracking: selectedTurnId per conversation
   selectedTurnIds: Map<string, string>; // conversationId -> turnId
 
@@ -47,7 +47,7 @@ interface ChatState {
   setPendingMessage: (message: string | null) => void;
   consumePendingMessage: () => string | null;
   loadConversationsFromServer: () => Promise<void>; // Load conversations from server (MongoDB mode only)
-  
+
   // Turn selection actions for per-message event tracking
   setSelectedTurn: (conversationId: string, turnId: string | null) => void;
   getSelectedTurnId: (conversationId?: string) => string | null;
@@ -97,7 +97,7 @@ const storeImplementation = (set: any, get: any) => ({
         }
 
         // Update local state (in localStorage mode, this persists via Zustand)
-        set((state) => ({
+        set((state: ChatState) => ({
           conversations: [newConversation, ...state.conversations],
           activeConversationId: id,
           a2aEvents: [], // Clear global events for new conversation
@@ -106,7 +106,7 @@ const storeImplementation = (set: any, get: any) => ({
         return id;
       },
 
-      setActiveConversation: (id) => {
+      setActiveConversation: (id: string) => {
         // Just switch the active conversation
         // Events are now stored per-conversation, so no need to clear global events
         set({
@@ -114,15 +114,15 @@ const storeImplementation = (set: any, get: any) => ({
         });
       },
 
-      addMessage: (conversationId, message, turnId) => {
+      addMessage: (conversationId: string, message: Omit<ChatMessage, "id" | "timestamp" | "events">, turnId?: string) => {
         const messageId = generateId();
-        
+
         // Generate turnId for user messages, use provided turnId for assistant messages
         let messageTurnId = turnId;
         if (message.role === "user" && !turnId) {
           messageTurnId = generateId();
         }
-        
+
         const newMessage: ChatMessage = {
           ...message,
           id: messageId,
@@ -133,22 +133,22 @@ const storeImplementation = (set: any, get: any) => ({
 
         // Check if this is the first user message and we should auto-generate title
         const state = get();
-        const conversation = state.conversations.find(c => c.id === conversationId);
+        const conversation = state.conversations.find((c: Conversation) => c.id === conversationId);
         const isFirstUserMessage = conversation && conversation.messages.length === 0 && message.role === "user";
-        const newTitle = isFirstUserMessage 
+        const newTitle = isFirstUserMessage
           ? message.content.substring(0, 50).trim() || "New Conversation"
           : undefined;
 
-        set((state) => {
+        set((state: ChatState) => {
           // Update selectedTurnIds when a new user message is added
           const newSelectedTurnIds = new Map(state.selectedTurnIds);
           if (message.role === "user" && messageTurnId) {
             newSelectedTurnIds.set(conversationId, messageTurnId);
             console.log(`[Store] New turn started: ${messageTurnId} for conversation ${conversationId}`);
           }
-          
+
           return {
-            conversations: state.conversations.map((conv) =>
+            conversations: state.conversations.map((conv: Conversation) =>
               conv.id === conversationId
                 ? {
                     ...conv,
@@ -173,13 +173,13 @@ const storeImplementation = (set: any, get: any) => ({
         return messageId;
       },
 
-      updateMessage: (conversationId, messageId, updates) => {
-        set((state) => ({
-          conversations: state.conversations.map((conv) =>
+      updateMessage: (conversationId: string, messageId: string, updates: Partial<ChatMessage>) => {
+        set((state: ChatState) => ({
+          conversations: state.conversations.map((conv: Conversation) =>
             conv.id === conversationId
               ? {
                   ...conv,
-                  messages: conv.messages.map((msg) =>
+                  messages: conv.messages.map((msg: ChatMessage) =>
                     msg.id === messageId ? { ...msg, ...updates } : msg
                   ),
                   updatedAt: new Date(),
@@ -189,13 +189,13 @@ const storeImplementation = (set: any, get: any) => ({
         }));
       },
 
-      appendToMessage: (conversationId, messageId, content) => {
-        set((state) => ({
-          conversations: state.conversations.map((conv) =>
+      appendToMessage: (conversationId: string, messageId: string, content: string) => {
+        set((state: ChatState) => ({
+          conversations: state.conversations.map((conv: Conversation) =>
             conv.id === conversationId
               ? {
                   ...conv,
-                  messages: conv.messages.map((msg) =>
+                  messages: conv.messages.map((msg: ChatMessage) =>
                     msg.id === messageId
                       ? { ...msg, content: msg.content + content }
                       : msg
@@ -206,13 +206,13 @@ const storeImplementation = (set: any, get: any) => ({
         }));
       },
 
-      addEventToMessage: (conversationId, messageId, event) => {
-        set((state) => ({
-          conversations: state.conversations.map((conv) =>
+      addEventToMessage: (conversationId: string, messageId: string, event: A2AEvent) => {
+        set((state: ChatState) => ({
+          conversations: state.conversations.map((conv: Conversation) =>
             conv.id === conversationId
               ? {
                   ...conv,
-                  messages: conv.messages.map((msg) =>
+                  messages: conv.messages.map((msg: ChatMessage) =>
                     msg.id === messageId
                       ? { ...msg, events: [...msg.events, event] }
                       : msg
@@ -223,12 +223,12 @@ const storeImplementation = (set: any, get: any) => ({
         }));
       },
 
-      setStreaming: (streaming) => {
+      setStreaming: (streaming: boolean) => {
         set({ isStreaming: streaming });
       },
 
-      setConversationStreaming: (conversationId, state) => {
-        set((prev) => {
+      setConversationStreaming: (conversationId: string, state: StreamingState | null) => {
+        set((prev: ChatState) => {
           const newMap = new Map(prev.streamingConversations);
           if (state) {
             newMap.set(conversationId, state);
@@ -247,11 +247,11 @@ const storeImplementation = (set: any, get: any) => ({
         });
       },
 
-      isConversationStreaming: (conversationId) => {
+      isConversationStreaming: (conversationId: string) => {
         return get().streamingConversations.has(conversationId);
       },
 
-      cancelConversationRequest: (conversationId) => {
+      cancelConversationRequest: (conversationId: string) => {
         const state = get();
         const streamingState = state.streamingConversations.get(conversationId);
         if (streamingState) {
@@ -265,8 +265,8 @@ const storeImplementation = (set: any, get: any) => ({
             isStreaming: newMap.size > 0,
           });
           // Mark the message as cancelled
-          const conv = state.conversations.find(c => c.id === conversationId);
-          const msg = conv?.messages.find(m => m.id === streamingState.messageId);
+          const conv = state.conversations.find((c: Conversation) => c.id === conversationId);
+          const msg = conv?.messages.find((m: ChatMessage) => m.id === streamingState.messageId);
           if (msg && !msg.isFinal) {
             state.appendToMessage(conversationId, streamingState.messageId, "\n\n*Request cancelled*");
             state.updateMessage(conversationId, streamingState.messageId, { isFinal: true });
@@ -274,9 +274,9 @@ const storeImplementation = (set: any, get: any) => ({
         }
       },
 
-      addA2AEvent: (event, conversationId) => {
+      addA2AEvent: (event: A2AEvent, conversationId?: string) => {
         const convId = conversationId || get().activeConversationId;
-        set((prev) => {
+        set((prev: ChatState) => {
           // Add to global events for current session display
           const newGlobalEvents = [...prev.a2aEvents, event];
 
@@ -284,7 +284,7 @@ const storeImplementation = (set: any, get: any) => ({
           if (convId) {
             return {
               a2aEvents: newGlobalEvents,
-              conversations: prev.conversations.map((conv) =>
+              conversations: prev.conversations.map((conv: Conversation) =>
                 conv.id === convId
                   ? { ...conv, a2aEvents: [...conv.a2aEvents, event] }
                   : conv
@@ -296,11 +296,11 @@ const storeImplementation = (set: any, get: any) => ({
         });
       },
 
-      clearA2AEvents: (conversationId) => {
+      clearA2AEvents: (conversationId?: string) => {
         if (conversationId) {
           // Clear events for a specific conversation
-          set((prev) => ({
-            conversations: prev.conversations.map((conv) =>
+          set((prev: ChatState) => ({
+            conversations: prev.conversations.map((conv: Conversation) =>
               conv.id === conversationId
                 ? { ...conv, a2aEvents: [] }
                 : conv
@@ -312,22 +312,22 @@ const storeImplementation = (set: any, get: any) => ({
         }
       },
 
-      getConversationEvents: (conversationId) => {
-        const conv = get().conversations.find((c) => c.id === conversationId);
+      getConversationEvents: (conversationId: string) => {
+        const conv = get().conversations.find((c: Conversation) => c.id === conversationId);
         return conv?.a2aEvents || [];
       },
 
-      deleteConversation: async (id) => {
-        const storageMode = getStorageMode();
+      deleteConversation: async (id: string) => {
+        const storageMode = await getStorageMode();
 
         // Delete from local state first (instant UI update)
-        set((state) => {
+        set((state: ChatState) => {
           const wasActiveConversation = state.activeConversationId === id;
-          
+
           // Find the index of the conversation being deleted
-          const deletedIndex = state.conversations.findIndex((c) => c.id === id);
-          const newConversations = state.conversations.filter((c) => c.id !== id);
-          
+          const deletedIndex = state.conversations.findIndex((c: Conversation) => c.id === id);
+          const newConversations = state.conversations.filter((c: Conversation) => c.id !== id);
+
           // If this was the active conversation, select the next one intelligently
           let newActiveId = state.activeConversationId;
           if (wasActiveConversation) {
@@ -376,16 +376,16 @@ const storeImplementation = (set: any, get: any) => ({
 
       getActiveConversation: () => {
         const state = get();
-        return state.conversations.find((c) => c.id === state.activeConversationId);
+        return state.conversations.find((c: Conversation) => c.id === state.activeConversationId);
       },
 
-      updateMessageFeedback: (conversationId, messageId, feedback) => {
-        set((state) => ({
-          conversations: state.conversations.map((conv) =>
+      updateMessageFeedback: (conversationId: string, messageId: string, feedback: MessageFeedback) => {
+        set((state: ChatState) => ({
+          conversations: state.conversations.map((conv: Conversation) =>
             conv.id === conversationId
               ? {
                   ...conv,
-                  messages: conv.messages.map((msg) =>
+                  messages: conv.messages.map((msg: ChatMessage) =>
                     msg.id === messageId ? { ...msg, feedback } : msg
                   ),
                   updatedAt: new Date(),
@@ -395,9 +395,9 @@ const storeImplementation = (set: any, get: any) => ({
         }));
       },
 
-      updateConversationSharing: (conversationId, sharing) => {
-        set((state) => ({
-          conversations: state.conversations.map((conv) =>
+      updateConversationSharing: (conversationId: string, sharing: Conversation['sharing']) => {
+        set((state: ChatState) => ({
+          conversations: state.conversations.map((conv: Conversation) =>
             conv.id === conversationId
               ? {
                   ...conv,
@@ -410,12 +410,12 @@ const storeImplementation = (set: any, get: any) => ({
         console.log('[ChatStore] Updated conversation sharing:', conversationId, sharing);
       },
 
-      updateConversationTitle: async (conversationId, title) => {
-        const storageMode = getStorageMode();
-        
+      updateConversationTitle: async (conversationId: string, title: string) => {
+        const storageMode = await getStorageMode();
+
         // Update local state immediately (optimistic update)
-        set((state) => ({
-          conversations: state.conversations.map((conv) =>
+        set((state: ChatState) => ({
+          conversations: state.conversations.map((conv: Conversation) =>
             conv.id === conversationId
               ? {
                   ...conv,
@@ -463,7 +463,7 @@ const storeImplementation = (set: any, get: any) => ({
 
       loadConversationsFromServer: async () => {
         const storageMode = getStorageMode();
-        
+
         // Only load from server in MongoDB mode
         if (storageMode !== 'mongodb') {
           console.log('[ChatStore] localStorage mode - no server sync needed');
@@ -498,7 +498,7 @@ const storeImplementation = (set: any, get: any) => ({
             // Don't clear conversations on API error - preserve what we have
             return;
           }
-          
+
           console.log('[ChatStore] API Response:', {
             responseType: typeof response,
             responseIsNull: response === null,
@@ -513,7 +513,7 @@ const storeImplementation = (set: any, get: any) => ({
             keys: response ? Object.keys(response) : [],
             fullResponse: JSON.stringify(response).substring(0, 500)
           });
-          
+
           // Validate response structure
           // API client extracts data, so response is PaginatedResponse: { items: [...], total, page, page_size, has_more }
           if (!response || (typeof response === 'object' && Object.keys(response).length === 0)) {
@@ -521,7 +521,7 @@ const storeImplementation = (set: any, get: any) => ({
             // Don't clear conversations - preserve what we have
             return;
           }
-          
+
           if (!response.items || !Array.isArray(response.items)) {
             console.error('[ChatStore] Invalid response structure from MongoDB API:', {
               response,
@@ -534,10 +534,10 @@ const storeImplementation = (set: any, get: any) => ({
             // Don't clear existing conversations on invalid response
             return;
           }
-          
+
           const serverItems = response.items;
           console.log(`[ChatStore] Received ${serverItems.length} conversations from server (total: ${response.total})`);
-          
+
           // Get current local state to preserve messages
           const currentState = get();
           const localConversationsMap = new Map(
@@ -547,27 +547,28 @@ const storeImplementation = (set: any, get: any) => ({
           // Convert MongoDB conversations to local format, merging with local messages
           const serverConversations: Conversation[] = serverItems.map((conv) => {
             const localConv = localConversationsMap.get(conv._id);
-            
+
             // If we have local messages, preserve them (they're more up-to-date)
             // Otherwise use empty array (messages will be loaded when conversation is opened)
-            const messages = localConv?.messages && localConv.messages.length > 0
-              ? localConv.messages
+            const localConvTyped = localConv as Conversation | undefined;
+            const messages = localConvTyped?.messages && localConvTyped.messages.length > 0
+              ? localConvTyped.messages
               : [];
-            
-            const a2aEvents = localConv?.a2aEvents && localConv.a2aEvents.length > 0
-              ? localConv.a2aEvents
+
+            const a2aEvents = localConvTyped?.a2aEvents && localConvTyped.a2aEvents.length > 0
+              ? localConvTyped.a2aEvents
               : [];
 
             // Preserve title from server (source of truth), but fallback to local if server title is missing/empty
-            const title = (conv.title && conv.title.trim()) 
-              ? conv.title 
-              : (localConv?.title && localConv.title.trim())
-                ? localConv.title
+            const title = (conv.title && conv.title.trim())
+              ? conv.title
+              : (localConvTyped?.title && localConvTyped.title.trim())
+                ? localConvTyped.title
                 : "New Conversation";
 
             console.log(`[ChatStore] Mapping conversation ${conv._id}:`, {
               serverTitle: conv.title,
-              localTitle: localConv?.title,
+              localTitle: localConvTyped?.title,
               finalTitle: title,
               hasMessages: messages.length > 0
             });
@@ -599,12 +600,12 @@ const storeImplementation = (set: any, get: any) => ({
             // If local has messages and server doesn't, keep local messages
             if (localConv && localConv.messages.length > 0 && serverConv.messages.length === 0) {
               // Also preserve title if server title is missing/empty but local has one
-              const title = (serverConv.title && serverConv.title.trim()) 
-                ? serverConv.title 
+              const title = (serverConv.title && serverConv.title.trim())
+                ? serverConv.title
                 : (localConv.title && localConv.title.trim())
                   ? localConv.title
                   : "New Conversation";
-              
+
               return {
                 ...serverConv,
                 title,
@@ -625,12 +626,12 @@ const storeImplementation = (set: any, get: any) => ({
           const sortedConversations = finalConversations.sort(
             (a, b) => b.updatedAt.getTime() - a.updatedAt.getTime()
           );
-          
+
           // Log titles to debug
-          console.log(`[ChatStore] Final conversations with titles:`, 
+          console.log(`[ChatStore] Final conversations with titles:`,
             sortedConversations.map(c => ({ id: c.id.substring(0, 8), title: c.title, hasTitle: !!c.title }))
           );
-          
+
           set({
             conversations: sortedConversations,
           });
@@ -726,7 +727,7 @@ const storeImplementation = (set: any, get: any) => ({
         const turnIds = conv.messages
           .filter((m) => m.role === "user" && m.turnId)
           .map((m) => m.turnId!);
-        
+
         const index = turnIds.indexOf(selectedTurnId);
         return index === -1 ? turnIds.length : index + 1;
       },

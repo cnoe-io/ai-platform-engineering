@@ -24,23 +24,25 @@ function ChatUUIDPage() {
   const [contextPanelVisible, setContextPanelVisible] = useState(true);
   const [contextPanelCollapsed, setContextPanelCollapsed] = useState(false);
   const [debugMode, setDebugMode] = useState(false);
-  
+
   const { conversations: localConversations, setActiveConversation } = useChatStore();
   const caipeUrl = getConfig('caipeUrl');
-  
-  const handleTabChange = (tab: "chat" | "gallery" | "knowledge") => {
+
+  const handleTabChange = (tab: "chat" | "gallery" | "knowledge" | "admin") => {
     if (tab === "chat") {
       router.push("/chat");
     } else if (tab === "gallery") {
       router.push("/use-cases");
+    } else if (tab === "admin") {
+      router.push("/admin");
     } else {
       router.push("/knowledge-bases");
     }
   };
-  
+
   // Check store immediately (synchronous, no loading state!)
   const existingConv = localConversations.find((c) => c.id === uuid);
-  
+
   const [conversation, setConversation] = useState<Conversation | LocalConversation | null>(existingConv || null);
   const [loading, setLoading] = useState(!existingConv); // Only show spinner if NOT in store
   const [error, setError] = useState<string | null>(null);
@@ -98,20 +100,21 @@ function ChatUUIDPage() {
           try {
             const conv = await apiClient.getConversation(uuid);
             // Convert MongoDB conversation to local format
+            // Note: Messages are stored separately and loaded separately
             const localConv: LocalConversation = {
               id: conv._id,
               title: conv.title,
               createdAt: new Date(conv.created_at),
               updatedAt: new Date(conv.updated_at),
-              messages: conv.messages || [],
+              messages: [], // Messages will be loaded separately via API
               a2aEvents: [],
             };
-            
+
             // Add to Zustand store so ContextPanel can find it
             useChatStore.setState((state) => ({
               conversations: [localConv, ...state.conversations.filter(c => c.id !== uuid)],
             }));
-            
+
             setConversation(localConv);
           } catch (apiErr: any) {
             // Check store again - it might have been added while we were fetching
@@ -121,7 +124,7 @@ function ChatUUIDPage() {
               setConversation(storeConv);
               return;
             }
-            
+
             // Conversation doesn't exist in MongoDB (404) - this is expected for new conversations
             if (apiErr.message?.includes('not found') || apiErr.message?.includes('404')) {
               console.log("[ChatUUID] Conversation not found in MongoDB (expected for new conversations)");
@@ -137,12 +140,12 @@ function ChatUUIDPage() {
               messages: [],
               a2aEvents: [],
             };
-            
+
             // Add to Zustand store
             useChatStore.setState((state) => ({
               conversations: [newConv, ...state.conversations.filter(c => c.id !== uuid)],
             }));
-            
+
             setConversation(newConv);
           }
         } else {
@@ -156,12 +159,12 @@ function ChatUUIDPage() {
             messages: [],
             a2aEvents: [],
           };
-          
+
           // Add to Zustand store
           useChatStore.setState((state) => ({
             conversations: [newConv, ...state.conversations.filter(c => c.id !== uuid)],
           }));
-          
+
           setConversation(newConv);
         }
       } catch (err) {
@@ -175,12 +178,12 @@ function ChatUUIDPage() {
           messages: [],
           a2aEvents: [],
         };
-        
+
         // Add to Zustand store
         useChatStore.setState((state) => ({
           conversations: [newConv, ...state.conversations.filter(c => c.id !== uuid)],
         }));
-        
+
         setConversation(newConv);
       } finally {
         // CRITICAL: Always set the active conversation, even when loading from MongoDB
@@ -237,7 +240,7 @@ function ChatUUIDPage() {
     );
   }
 
-  const conversationTitle = conversation 
+  const conversationTitle = conversation
     ? ('_id' in conversation ? conversation.title : conversation.title)
     : undefined;
 
@@ -260,8 +263,8 @@ function ChatUUIDPage() {
           transition={{ duration: 0.2 }}
           className="h-full flex flex-col"
         >
-          <ChatPanel 
-            endpoint={caipeUrl} 
+          <ChatPanel
+            endpoint={caipeUrl}
             conversationId={uuid}
             conversationTitle={conversationTitle}
           />
