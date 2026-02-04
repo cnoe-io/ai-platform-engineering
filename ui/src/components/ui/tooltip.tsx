@@ -35,8 +35,8 @@ const TooltipStateContext = React.createContext<{
   open: boolean;
   setOpen: (open: boolean) => void;
   triggerRef: React.MutableRefObject<HTMLElement | null>;
-}>({ 
-  open: false, 
+}>({
+  open: false,
   setOpen: () => {},
   triggerRef: { current: null }
 });
@@ -96,7 +96,7 @@ export function TooltipTrigger({ children, asChild }: TooltipTriggerProps) {
   }, [triggerRef]);
 
   if (asChild && React.isValidElement(children)) {
-    return React.cloneElement(children as React.ReactElement<React.HTMLAttributes<HTMLElement>>, {
+    return React.cloneElement(children as React.ReactElement<any>, {
       ref: (node: HTMLElement | null) => {
         elementRef.current = node;
         if (typeof (children as any).ref === 'function') {
@@ -145,16 +145,16 @@ export function TooltipContent({
 
   React.useEffect(() => {
     if (!open || !triggerRef.current) return;
-    
+
     const updatePosition = () => {
       const trigger = triggerRef.current;
       if (!trigger) return;
-      
+
       const rect = trigger.getBoundingClientRect();
-      
+
       let top = 0;
       let left = 0;
-      
+
       switch (side) {
         case "top":
           top = rect.top - sideOffset;
@@ -173,16 +173,16 @@ export function TooltipContent({
           left = rect.right + sideOffset;
           break;
       }
-      
+
       setPosition({ top, left });
     };
-    
+
     updatePosition();
-    
+
     // Update position on scroll/resize
     window.addEventListener('scroll', updatePosition, true);
     window.addEventListener('resize', updatePosition);
-    
+
     return () => {
       window.removeEventListener('scroll', updatePosition, true);
       window.removeEventListener('resize', updatePosition);
@@ -201,7 +201,7 @@ export function TooltipContent({
         side === "right" && "-translate-y-1/2",
         className
       )}
-      style={{ 
+      style={{
         top: `${position.top}px`,
         left: `${position.left}px`,
       }}
@@ -214,6 +214,6 @@ export function TooltipContent({
   if (typeof window !== 'undefined') {
     return createPortal(content, document.body);
   }
-  
+
   return null;
 }

@@ -5,12 +5,13 @@ import { authOptions } from '@/lib/auth-config';
 
 export async function GET(request: NextRequest) {
   const session = await getServerSession(authOptions);
-  
+
   return NextResponse.json({
     authenticated: !!session,
     user: session?.user,
     role: session?.role,
-    groups: session?.groups,
+    // Note: groups removed from session to prevent oversized cookies
+    // Groups are now extracted client-side from idToken when needed
     isAuthorized: session?.isAuthorized,
     env: {
       ssoEnabled: process.env.NEXT_PUBLIC_SSO_ENABLED,

@@ -35,6 +35,8 @@ export default function AgentBuilderPage() {
       name: configName || "Quick Start",
       description: prompt.length > 100 ? prompt.substring(0, 100) + "..." : prompt,
       category: "Custom",
+      owner_id: "system",
+      is_system: false,
       tasks: [
         {
           display_text: "Execute prompt",
@@ -43,10 +45,10 @@ export default function AgentBuilderPage() {
         },
       ],
       is_quick_start: true,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
+      created_at: new Date(),
+      updated_at: new Date(),
     };
-    
+
     setSelectedConfig(tempConfig);
     setViewMode("runner");
   }, []);

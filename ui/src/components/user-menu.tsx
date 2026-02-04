@@ -320,7 +320,7 @@ export function UserMenu() {
               </div>
             </div>
           </DialogHeader>
-          
+
           <div className="p-6 overflow-y-auto max-h-[60vh] space-y-6">
             {/* Token Expiry Information */}
             <div>
@@ -345,7 +345,7 @@ export function UserMenu() {
                             const remaining = session.expiresAt - now;
                             const hours = Math.floor(remaining / 3600);
                             const minutes = Math.floor((remaining % 3600) / 60);
-                            return remaining > 0 
+                            return remaining > 0
                               ? `${hours}h ${minutes}m remaining`
                               : 'Expired';
                           })()}
@@ -377,7 +377,7 @@ export function UserMenu() {
                                   const remaining = session.refreshTokenExpiresAt - now;
                                   const days = Math.floor(remaining / 86400);
                                   const hours = Math.floor((remaining % 86400) / 3600);
-                                  return remaining > 0 
+                                  return remaining > 0
                                     ? `${days}d ${hours}h remaining`
                                     : 'Expired';
                                 })()}
@@ -447,9 +447,9 @@ export function UserMenu() {
                   }
                 }
               }
-              
+
               if (groups.length === 0) return null;
-              
+
               return (
                 <div>
                   <div className="mb-3">
@@ -500,12 +500,12 @@ export function UserMenu() {
               </div>
             </div>
           </DialogHeader>
-          
+
           <div className="p-6 overflow-y-auto max-h-[60vh]">
             {(["platform", "protocol", "frontend", "backend", "community"] as const).map((category) => {
               const items = techStack.filter(item => item.category === category);
               if (items.length === 0) return null;
-              
+
               return (
                 <div key={category} className="mb-6 last:mb-0">
                   <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">

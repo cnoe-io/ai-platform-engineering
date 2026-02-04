@@ -1,6 +1,6 @@
 /**
  * Storage mode detection and configuration
- * 
+ *
  * Determines whether the app should use MongoDB (persistent) or localStorage (local-only)
  * Provides graceful fallback when MongoDB is unavailable
  */
@@ -15,7 +15,7 @@ const CHECK_INTERVAL = 60000; // Re-check every 60 seconds
  */
 export async function isMongoDBAvailable(): Promise<boolean> {
   const now = Date.now();
-  
+
   // Return cached result if recent (within 60s)
   if (mongoDBAvailable !== null && (now - lastCheck) < CHECK_INTERVAL) {
     return mongoDBAvailable;
@@ -60,7 +60,7 @@ export async function isMongoDBAvailable(): Promise<boolean> {
       console.warn('[StorageMode] MongoDB backend unavailable, using localStorage only');
     }
 
-    return mongoDBAvailable;
+    return mongoDBAvailable === true;
   } catch (error) {
     console.warn('[StorageMode] Failed to check MongoDB availability:', error);
     mongoDBAvailable = false;

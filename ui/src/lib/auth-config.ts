@@ -234,7 +234,7 @@ export const authOptions: NextAuthOptions = {
         token.idToken = account.id_token;
         token.refreshToken = account.refresh_token;
         token.expiresAt = account.expires_at;
-        
+
         // Calculate refresh token expiry if refresh_expires_in is provided
         // Some OIDC providers (like Keycloak) include this field
         if (account.refresh_expires_in) {
@@ -265,15 +265,15 @@ export const authOptions: NextAuthOptions = {
       if (profile) {
         // Cast profile to Record for group extraction
         const profileData = profile as unknown as Record<string, unknown>;
-        
+
         // Extract groups for authorization check only (not stored in token)
         const groups = extractGroups(profileData);
-        
+
         // Only store the authorization result and role (NOT the groups array!)
         // Storing 40+ groups causes 8KB session cookies and browser crashes
         token.isAuthorized = hasRequiredGroup(groups);
         token.role = isAdminUser(groups) ? 'admin' : 'user';
-        
+
         // Debug logging (groups array is NOT stored in token)
         console.log('[Auth JWT] User groups count:', groups.length);
         console.log('[Auth JWT] Required admin group:', REQUIRED_ADMIN_GROUP);
@@ -293,7 +293,7 @@ export const authOptions: NextAuthOptions = {
 
       if (ENABLE_REFRESH_TOKEN && expiresAt) {
         const timeUntilExpiry = expiresAt - now;
-        
+
         // Don't attempt refresh if token is already expired by more than 1 hour
         // This prevents infinite refresh loops when refresh token is invalid
         if (timeUntilExpiry < -3600) {
@@ -303,7 +303,7 @@ export const authOptions: NextAuthOptions = {
             error: "RefreshTokenExpired",
           };
         }
-        
+
         const shouldRefresh = timeUntilExpiry < 5 * 60; // Refresh if less than 5 min remaining
 
         if (shouldRefresh) {
@@ -333,7 +333,7 @@ export const authOptions: NextAuthOptions = {
       // IMPORTANT: Minimize what we store to keep cookie under 4096 bytes!
       // Don't store full tokens in session - they're huge (2KB+ each)
       // Only store what the client actually needs
-      
+
       // Only pass tokens if they're valid (not expired)
       if (!token.error) {
         // Store access token and ID token for client-side use
@@ -341,15 +341,15 @@ export const authOptions: NextAuthOptions = {
         session.idToken = token.idToken as string; // Needed for decoding groups/claims client-side
         session.hasRefreshToken = !!token.refreshToken; // Indicate if refresh token is available
       }
-      
+
       session.error = token.error as string | undefined;
       session.isAuthorized = token.isAuthorized as boolean;
       session.expiresAt = token.expiresAt as number | undefined;
-      
+
       // Pass refresh token metadata (NOT the token itself - security)
       session.hasRefreshToken = !!token.refreshToken;
       session.refreshTokenExpiresAt = token.refreshTokenExpiresAt as number | undefined;
-      
+
       // Set role from token (OIDC group check only here)
       // MongoDB fallback check happens in API middleware (server-side only)
       session.role = (token.role as 'admin' | 'user') || 'user';
@@ -423,7 +423,6 @@ declare module "next-auth" {
     isAuthorized?: boolean;
     sub?: string; // User subject ID from OIDC
     expiresAt?: number; // Access token expiry (Unix timestamp)
-    hasRefreshToken?: boolean; // Whether refresh token is available
     refreshTokenExpiresAt?: number; // Refresh token expiry (Unix timestamp)
     role?: 'admin' | 'user';
   }

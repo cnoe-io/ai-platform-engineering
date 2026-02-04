@@ -7,7 +7,7 @@ import type { User } from '@/types/mongodb';
 
 export async function GET(request: NextRequest) {
   const session = await getServerSession(authOptions);
-  
+
   if (!session) {
     return NextResponse.json({
       authenticated: false,
@@ -18,9 +18,11 @@ export async function GET(request: NextRequest) {
   // Check MongoDB role
   let mongoRole = null;
   try {
-    const users = await getCollection<User>('users');
-    const dbUser = await users.findOne({ email: session.user?.email });
-    mongoRole = dbUser?.metadata?.role || null;
+    if (session.user?.email) {
+      const users = await getCollection<User>('users');
+      const dbUser = await users.findOne({ email: session.user.email } as any);
+      mongoRole = dbUser?.metadata?.role || null;
+    }
   } catch (error: any) {
     console.error('[Debug] MongoDB check failed:', error.message);
   }
@@ -31,7 +33,7 @@ export async function GET(request: NextRequest) {
       email: session.user?.email,
       name: session.user?.name,
       role: session.role,
-      groups: session.groups,
+      // Note: groups removed from session to prevent oversized cookies
       isAuthorized: session.isAuthorized,
     },
     config: {
@@ -39,8 +41,10 @@ export async function GET(request: NextRequest) {
       requiredAdminGroup: REQUIRED_ADMIN_GROUP,
     },
     checks: {
-      hasRequiredGroup: session.groups?.includes(REQUIRED_GROUP),
-      hasAdminGroup: session.groups?.includes(REQUIRED_ADMIN_GROUP),
+      // Note: groups removed from session to prevent oversized cookies
+      // Check authorization via session.isAuthorized instead
+      hasRequiredGroup: session.isAuthorized,
+      hasAdminGroup: session.role === 'admin',
       sessionRole: session.role,
       mongoRole,
       finalIsAdmin: session.role === 'admin' || mongoRole === 'admin',

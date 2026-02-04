@@ -29,7 +29,7 @@ describe('storage-mode', () => {
       });
 
       const result = await isMongoDBAvailable();
-      
+
       expect(result).toBe(true);
       expect(global.fetch).toHaveBeenCalledWith(
         '/api/chat/conversations?page=1&page_size=1',
@@ -47,13 +47,13 @@ describe('storage-mode', () => {
       });
 
       const result = await isMongoDBAvailable();
-      
+
       expect(result).toBe(false);
     });
 
     it('should return false when API returns 503 (MongoDB not configured)', async () => {
       const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation();
-      
+
       (global.fetch as jest.Mock).mockResolvedValueOnce({
         ok: false,
         status: 503,
@@ -61,36 +61,36 @@ describe('storage-mode', () => {
       });
 
       const result = await isMongoDBAvailable();
-      
+
       expect(result).toBe(false);
       expect(consoleLogSpy).toHaveBeenCalledWith(
         '[StorageMode] MongoDB not configured - using localStorage mode'
       );
-      
+
       consoleLogSpy.mockRestore();
     });
 
     it('should return false when API returns non-ok status', async () => {
       const consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation();
-      
+
       (global.fetch as jest.Mock).mockResolvedValueOnce({
         ok: false,
         status: 500,
       });
 
       const result = await isMongoDBAvailable();
-      
+
       expect(result).toBe(false);
       expect(consoleWarnSpy).toHaveBeenCalledWith(
         '[StorageMode] MongoDB backend unavailable, using localStorage only'
       );
-      
+
       consoleWarnSpy.mockRestore();
     });
 
     it('should return false when JSON parsing fails', async () => {
       const consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation();
-      
+
       (global.fetch as jest.Mock).mockResolvedValueOnce({
         ok: true,
         json: async () => {
@@ -99,29 +99,29 @@ describe('storage-mode', () => {
       });
 
       const result = await isMongoDBAvailable();
-      
+
       expect(result).toBe(false);
       expect(consoleWarnSpy).toHaveBeenCalledWith(
         '[StorageMode] Invalid JSON response from backend:',
         expect.any(Error)
       );
-      
+
       consoleWarnSpy.mockRestore();
     });
 
     it('should return false when fetch throws an error', async () => {
       const consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation();
-      
+
       (global.fetch as jest.Mock).mockRejectedValueOnce(new Error('Network error'));
 
       const result = await isMongoDBAvailable();
-      
+
       expect(result).toBe(false);
       expect(consoleWarnSpy).toHaveBeenCalledWith(
         '[StorageMode] Failed to check MongoDB availability:',
         expect.any(Error)
       );
-      
+
       consoleWarnSpy.mockRestore();
     });
 
@@ -156,7 +156,7 @@ describe('storage-mode', () => {
       });
 
       const mode = await getStorageMode();
-      
+
       expect(mode).toBe('mongodb');
     });
 
@@ -167,7 +167,7 @@ describe('storage-mode', () => {
       });
 
       const mode = await getStorageMode();
-      
+
       expect(mode).toBe('localStorage');
     });
   });
@@ -210,10 +210,10 @@ describe('storage-mode', () => {
         ok: true,
         json: async () => ({ success: true, data: [] }),
       });
-      
+
       await isMongoDBAvailable();
       const mode = getCachedStorageMode();
-      
+
       expect(mode).toBe('mongodb');
     });
 
@@ -222,10 +222,10 @@ describe('storage-mode', () => {
         ok: false,
         status: 503,
       });
-      
+
       await isMongoDBAvailable();
       const mode = getCachedStorageMode();
-      
+
       expect(mode).toBe('localStorage');
     });
   });

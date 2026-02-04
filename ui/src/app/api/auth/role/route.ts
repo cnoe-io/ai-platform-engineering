@@ -19,7 +19,7 @@ export async function GET(request: NextRequest) {
     try {
       const users = await getCollection<User>('users');
       const dbUser = await users.findOne({ email: session.user.email });
-      
+
       if (dbUser?.metadata?.role === 'admin') {
         role = 'admin';
         console.log(`[Auth Role API] User ${session.user.email} is admin via MongoDB profile`);
@@ -30,9 +30,9 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  return NextResponse.json({ 
+  return NextResponse.json({
     role,
     email: session.user.email,
-    groups: session.groups 
+    // Note: groups are extracted client-side from idToken to avoid oversized cookies
   }, { status: 200 });
 }

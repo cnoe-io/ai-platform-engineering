@@ -36,11 +36,11 @@ export function AuthGuard({ children }: AuthGuardProps) {
   // Check for corrupted session cookies on mount
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    
+
     // Check if session cookie is oversized (Chrome limit is 4096 bytes)
     const cookies = document.cookie;
     const sessionCookie = cookies.split(';').find(c => c.trim().startsWith('next-auth.session-token='));
-    
+
     if (sessionCookie && sessionCookie.length > 4096) {
       console.error(`[AuthGuard] Session cookie is too large (${sessionCookie.length} bytes), auto-clearing...`);
       localStorage.clear();
@@ -67,7 +67,7 @@ export function AuthGuard({ children }: AuthGuardProps) {
         if (!authChecked && !autoResetInitiated) {
           console.error("[AuthGuard] Authorization stuck for 15s - auto-resetting session...");
           setAutoResetInitiated(true);
-          
+
           // Clear everything
           if (typeof window !== 'undefined') {
             localStorage.clear();
@@ -77,7 +77,7 @@ export function AuthGuard({ children }: AuthGuardProps) {
               document.cookie = c.replace(/^ +/, "").replace(/=.*/, "=;expires=" + new Date().toUTCString() + ";path=/");
             });
           }
-          
+
           // Force redirect to login
           window.location.href = '/login?session_reset=auto';
         }
@@ -113,7 +113,7 @@ export function AuthGuard({ children }: AuthGuardProps) {
     // User is authenticated, check authorization and token expiry
     if (status === "authenticated") {
       // Check if TokenExpiryGuard is already handling expiry (prevents flickering)
-      const isTokenExpiryHandling = typeof window !== 'undefined' 
+      const isTokenExpiryHandling = typeof window !== 'undefined'
         ? sessionStorage.getItem('token-expiry-handling') === 'true'
         : false;
 
@@ -179,10 +179,10 @@ export function AuthGuard({ children }: AuthGuardProps) {
   if (status === "loading" || !authChecked) {
     const message = status === "loading"
       ? "Checking authentication..."
-      : loadingTimeout 
+      : loadingTimeout
         ? "Session verification stuck - click below to reset"
         : "Verifying authorization...";
-    
+
     const handleCancel = async () => {
       console.log("[AuthGuard] User manually resetting session...");
       // Clear everything including cookies
@@ -197,10 +197,10 @@ export function AuthGuard({ children }: AuthGuardProps) {
       // Force redirect to login instead of using signOut (which might also be stuck)
       window.location.href = '/login?session_reset=manual';
     };
-    
+
     return (
-      <LoadingScreen 
-        message={message} 
+      <LoadingScreen
+        message={message}
         showCancel={loadingTimeout}
         onCancel={handleCancel}
       />
