@@ -457,9 +457,16 @@ export default function SearchView({ onExploreEntity }: SearchViewProps) {
                                             placeholder="Search your knowledge base..."
                                             value={query}
                                             onChange={(e) => setQuery(e.target.value)}
-                                            className="w-full pl-10 pr-4 py-2 text-sm border border-border rounded-full focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent bg-background text-foreground shadow-sm"
+                                            className="w-full pl-10 pr-10 py-2 text-sm border border-border rounded-full focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent bg-background text-foreground shadow-sm"
                                             onKeyDown={(e) => e.key === 'Enter' && handleQuery()}
                                         />
+                                        <button
+                                            onClick={clearResults}
+                                            className="absolute right-3 top-1/2 -translate-y-1/2 p-0.5 rounded-full hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+                                            title="Clear results"
+                                        >
+                                            <X className="h-4 w-4" />
+                                        </button>
                                     </div>
                                     <button
                                         onClick={handleQuery}
@@ -497,17 +504,9 @@ export default function SearchView({ onExploreEntity }: SearchViewProps) {
                         {/* Results - scrollable area */}
                         <div className="flex-1 overflow-y-auto">
                             <div className="max-w-4xl mx-auto px-6 py-4">
-                                <div className="flex items-center justify-between mb-4">
-                                    <p className="text-sm text-muted-foreground">
-                                        {results.length} results for &quot;{lastQuery}&quot;
-                                    </p>
-                                    <button
-                                        onClick={clearResults}
-                                        className="text-sm text-primary hover:underline"
-                                    >
-                                        Clear results
-                                    </button>
-                                </div>
+                                <p className="text-sm text-muted-foreground mb-4">
+                                    {results.length} results for &quot;{lastQuery}&quot;
+                                </p>
 
                                 <div className="space-y-3 pb-8">
                                     {results.map((r, i) => {
