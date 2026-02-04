@@ -4,7 +4,9 @@ import React, { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { ThumbsUp, ThumbsDown, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
+import { submitFeedback } from "@/lib/langfuse";
 
 export type FeedbackType = "like" | "dislike" | null;
 
@@ -18,6 +20,10 @@ export interface Feedback {
 
 interface FeedbackButtonProps {
   messageId: string;
+  /** Optional trace ID for Langfuse feedback tracking. Falls back to messageId if not provided. */
+  traceId?: string;
+  /** Optional conversation ID for context */
+  conversationId?: string;
   feedback?: Feedback;
   onFeedbackChange?: (feedback: Feedback) => void;
   onFeedbackSubmit?: (feedback: Feedback) => void;
@@ -30,6 +36,8 @@ const DISLIKE_REASONS = ["Inaccurate", "Poorly Formatted", "Incomplete", "Off-to
 
 export function FeedbackButton({
   messageId,
+  traceId,
+  conversationId,
   feedback,
   onFeedbackChange,
   onFeedbackSubmit,
@@ -37,23 +45,32 @@ export function FeedbackButton({
 }: FeedbackButtonProps) {
   const [additionalFeedback, setAdditionalFeedback] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [popoverOpen, setPopoverOpen] = useState(false);
 
-  const handleThumbClick = (type: FeedbackType) => {
-    if (disabled || feedback?.submitted) return;
+  const handleThumbClick = (type: FeedbackType, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (disabled) return;
 
-    // Toggle feedback - if same type clicked, deselect
+    // If same type clicked, deselect (clear feedback)
     if (feedback?.type === type) {
       onFeedbackChange?.({
         type: null,
-        showFeedbackOptions: false
-      });
-    } else {
-      onFeedbackChange?.({
-        type,
-        showFeedbackOptions: true,
+        showFeedbackOptions: false,
+        submitted: false,
         reason: undefined,
         additionalFeedback: undefined,
       });
+      setPopoverOpen(false);
+    } else {
+      // New selection or changing feedback - open popover for reason selection
+      onFeedbackChange?.({
+        type,
+        showFeedbackOptions: true,
+        submitted: false,
+        reason: undefined,
+        additionalFeedback: undefined,
+      });
+      setPopoverOpen(true);
     }
   };
 
@@ -72,7 +89,7 @@ export function FeedbackButton({
   };
 
   const handleSubmitFeedback = async () => {
-    if (!feedback?.reason) return;
+    if (!feedback?.reason || !feedback?.type) return;
 
     setIsSubmitting(true);
 
@@ -83,132 +100,123 @@ export function FeedbackButton({
       showFeedbackOptions: false,
     };
 
+    // Send feedback to server-side API (which forwards to Langfuse if configured)
+    await submitFeedback({
+      traceId: traceId || messageId,
+      messageId,
+      feedbackType: feedback.type,
+      reason: feedback.reason,
+      additionalFeedback: feedback.reason === "Other" ? additionalFeedback : undefined,
+      conversationId,
+    });
+
     onFeedbackChange?.(finalFeedback);
     await onFeedbackSubmit?.(finalFeedback);
 
     setIsSubmitting(false);
     setAdditionalFeedback("");
+    setPopoverOpen(false);
   };
 
   const isLiked = feedback?.type === "like";
   const isDisliked = feedback?.type === "dislike";
-  const showFeedbackOptions = feedback?.showFeedbackOptions && !feedback?.submitted;
   const reasons = isLiked ? LIKE_REASONS : DISLIKE_REASONS;
   const showOtherInput = feedback?.reason === "Other";
 
   return (
-    <div className="space-y-2">
-      {/* Thumbs Up/Down Buttons - Inline style matching agent-forge */}
-      <div className="flex items-center gap-1">
-        {/* Thumbs Up */}
-        <button
-          onClick={() => handleThumbClick("like")}
-          disabled={disabled || feedback?.submitted}
-          className={cn(
-            "p-1 rounded transition-all",
-            isLiked
-              ? "opacity-100"
-              : "opacity-60 hover:opacity-100",
-            (disabled || feedback?.submitted) && "cursor-not-allowed opacity-50"
-          )}
-          title="Thumb up"
-        >
-          <ThumbsUp
+    <Popover open={popoverOpen} onOpenChange={setPopoverOpen}>
+      <PopoverTrigger asChild>
+        <div className="flex items-center gap-1">
+          {/* Thumbs Up Button */}
+          <Button
+            variant="ghost"
+            size="icon"
             className={cn(
-              "h-[18px] w-[18px]",
-              isLiked ? "fill-current text-green-500" : "text-muted-foreground"
+              "h-7 w-7 hover:bg-muted",
+              isLiked
+                ? "text-green-500 hover:text-green-600"
+                : "text-muted-foreground hover:text-foreground"
             )}
-          />
-        </button>
-
-        {/* Thumbs Down */}
-        <button
-          onClick={() => handleThumbClick("dislike")}
-          disabled={disabled || feedback?.submitted}
-          className={cn(
-            "p-1 rounded transition-all",
-            isDisliked
-              ? "opacity-100"
-              : "opacity-60 hover:opacity-100",
-            (disabled || feedback?.submitted) && "cursor-not-allowed opacity-50"
-          )}
-          title="Thumb down"
-        >
-          <ThumbsDown
-            className={cn(
-              "h-[18px] w-[18px]",
-              isDisliked ? "fill-current text-red-500" : "text-muted-foreground"
-            )}
-          />
-        </button>
-
-        {/* Submitted indicator */}
-        {feedback?.submitted && (
-          <span className="text-xs text-muted-foreground ml-2">
-            Thank you for your feedback!
-          </span>
-        )}
-      </div>
-
-      {/* Feedback Options Panel - Inline below message, matching agent-forge */}
-      <AnimatePresence>
-        {showFeedbackOptions && (
-          <motion.div
-            initial={{ opacity: 0, height: 0 }}
-            animate={{ opacity: 1, height: "auto" }}
-            exit={{ opacity: 0, height: 0 }}
-            className="p-3 bg-card rounded-lg border border-border"
+            disabled={disabled}
+            onClick={(e) => handleThumbClick("like", e)}
+            title="Helpful"
           >
-            {/* Reason Chips */}
-            <div className="flex flex-wrap gap-1.5 mb-3">
-              {reasons.map((reason) => (
-                <button
-                  key={reason}
-                  onClick={() => handleReasonClick(reason)}
-                  className={cn(
-                    "px-3 py-1 rounded-full text-xs font-medium transition-all",
-                    feedback?.reason === reason
-                      ? "bg-primary text-primary-foreground"
-                      : "bg-muted text-muted-foreground hover:bg-muted/80"
-                  )}
-                >
-                  {reason}
-                </button>
-              ))}
-            </div>
+            <ThumbsUp className={cn("h-3.5 w-3.5", isLiked && "fill-current")} />
+          </Button>
 
-            {/* Additional Feedback Text Area (for "Other") */}
-            <AnimatePresence>
-              {showOtherInput && (
-                <motion.div
-                  initial={{ opacity: 0, height: 0 }}
-                  animate={{ opacity: 1, height: "auto" }}
-                  exit={{ opacity: 0, height: 0 }}
-                  className="mb-3"
-                >
-                  <textarea
-                    value={additionalFeedback}
-                    onChange={(e) => setAdditionalFeedback(e.target.value)}
-                    placeholder="Provide additional feedback"
-                    className="w-full h-20 px-3 py-2 text-sm bg-muted/50 border border-border rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-primary/50"
-                  />
-                </motion.div>
+          {/* Thumbs Down Button */}
+          <Button
+            variant="ghost"
+            size="icon"
+            className={cn(
+              "h-7 w-7 hover:bg-muted",
+              isDisliked
+                ? "text-red-500 hover:text-red-600"
+                : "text-muted-foreground hover:text-foreground"
+            )}
+            disabled={disabled}
+            onClick={(e) => handleThumbClick("dislike", e)}
+            title="Not helpful"
+          >
+            <ThumbsDown className={cn("h-3.5 w-3.5", isDisliked && "fill-current")} />
+          </Button>
+        </div>
+      </PopoverTrigger>
+
+      {/* Feedback Options Popover */}
+      <PopoverContent side="top" align="end" className="p-3 w-72">
+        <div className="text-xs text-muted-foreground mb-3">
+          {isLiked ? "What did you like?" : "What went wrong?"}
+        </div>
+
+        {/* Reason Chips */}
+        <div className="flex flex-wrap gap-1.5 mb-3">
+          {reasons.map((reason) => (
+            <button
+              key={reason}
+              onClick={() => handleReasonClick(reason)}
+              className={cn(
+                "px-3 py-1 rounded-full text-xs font-medium transition-all",
+                feedback?.reason === reason
+                  ? "bg-primary text-primary-foreground"
+                  : "bg-muted text-muted-foreground hover:bg-muted/80"
               )}
-            </AnimatePresence>
-
-            {/* Submit Button */}
-            <Button
-              size="sm"
-              onClick={handleSubmitFeedback}
-              disabled={!feedback?.reason || isSubmitting}
-              className="gap-2"
             >
-              {isSubmitting && <Loader2 className="h-3 w-3 animate-spin" />}
-              Submit Feedback
-            </Button>
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </div>
+              {reason}
+            </button>
+          ))}
+        </div>
+
+        {/* Additional Feedback Text Area (for "Other") */}
+        <AnimatePresence>
+          {showOtherInput && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: "auto" }}
+              exit={{ opacity: 0, height: 0 }}
+              className="mb-3"
+            >
+              <textarea
+                value={additionalFeedback}
+                onChange={(e) => setAdditionalFeedback(e.target.value)}
+                placeholder="Provide additional feedback"
+                className="w-full h-20 px-3 py-2 text-sm bg-muted/50 border border-border rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-primary/50"
+              />
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Submit Button */}
+        <Button
+          size="sm"
+          onClick={handleSubmitFeedback}
+          disabled={!feedback?.reason || isSubmitting}
+          className="w-full gap-2"
+        >
+          {isSubmitting && <Loader2 className="h-3 w-3 animate-spin" />}
+          Submit Feedback
+        </Button>
+      </PopoverContent>
+    </Popover>
   );
 }

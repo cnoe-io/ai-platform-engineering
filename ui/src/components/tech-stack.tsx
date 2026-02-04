@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Layers, ExternalLink, X, ChevronUp } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { getConfig } from "@/lib/config";
 
 interface TechItem {
   name: string;
@@ -14,11 +15,16 @@ interface TechItem {
   category: "platform" | "protocol" | "frontend" | "backend" | "community";
 }
 
+// Helper to get CAIPE description dynamically
+function getCaipeDescription(): string {
+  return `${getConfig('tagline')} - ${getConfig('description')}`;
+}
+
 const techStack: TechItem[] = [
   // Platform
   {
     name: "CAIPE",
-    description: "Community AI Platform Engineering - Multi-Agent System for Platform Engineers",
+    get description() { return getCaipeDescription(); },
     url: "https://caipe.io",
     category: "platform",
   },

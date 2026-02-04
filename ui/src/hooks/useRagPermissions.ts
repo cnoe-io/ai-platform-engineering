@@ -23,13 +23,23 @@ export function useRagPermissions() {
     let mounted = true;
 
     async function fetchUserInfo() {
+      console.log('[useRagPermissions] Fetching RAG user info...');
       try {
         const info = await getUserInfo();
+        console.log('[useRagPermissions] RAG user info received:', {
+          email: info.email,
+          role: info.role,
+          is_authenticated: info.is_authenticated,
+          permissions: info.permissions,
+          groups: info.groups?.length ?? 0,
+          in_trusted_network: info.in_trusted_network
+        });
         if (mounted) {
           setUserInfo(info);
           setError(null);
         }
       } catch (err) {
+        console.error('[useRagPermissions] Failed to fetch RAG user info:', err);
         if (mounted) {
           setError(err as Error);
           setUserInfo(null);

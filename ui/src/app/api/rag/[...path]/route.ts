@@ -3,13 +3,17 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth-config';
 
 /**
- * RAG API Proxy with JWT Bearer Token
+ * RAG API Proxy with JWT Bearer Token Authentication
  *
  * Proxies requests from /api/rag/* to the RAG server with JWT authentication.
- * The RAG server validates the JWT token and extracts user identity/groups.
+ * The RAG server validates the JWT token and extracts user identity/groups/role.
  *
  * Authentication:
- * - Authorization: Bearer {access_token}
+ * - Authorization: Bearer {access_token} (OIDC JWT token)
+ *
+ * The RAG server ONLY supports JWT Bearer tokens, not OAuth2Proxy headers.
+ * If no JWT is available and trusted network is enabled on RAG server,
+ * requests from trusted IPs (like localhost) will still work.
  *
  * Example:
  *   /api/rag/healthz -> RAG_SERVER_URL/healthz (with Bearer token)
@@ -25,18 +29,27 @@ function getRagServerUrl(): string {
 /**
  * Get auth headers from the current session
  * 
+ * Extracts JWT access token from session and sends as Bearer token to RAG server.
+ * 
  * @returns Headers object with Authorization Bearer token for RAG server
  */
 async function getRbacHeaders(): Promise<Record<string, string>> {
-  const session = await getServerSession(authOptions);
-  
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
   };
 
-  // Pass access token as Bearer token
-  if (session?.accessToken) {
-    headers['Authorization'] = `Bearer ${session.accessToken}`;
+  try {
+    const session = await getServerSession(authOptions);
+    
+    // Pass JWT access token as Bearer token
+    // RAG server validates JWT and extracts email, groups, and determines role
+    if (session?.accessToken) {
+      headers['Authorization'] = `Bearer ${session.accessToken}`;
+    }
+  } catch (error) {
+    // If session retrieval fails, continue without auth headers
+    // RAG server may still allow access from trusted networks or anonymous users
+    console.debug('[RAG Proxy] Could not retrieve session, proceeding without auth headers:', error);
   }
 
   return headers;
@@ -57,10 +70,9 @@ export async function GET(
     targetUrl.searchParams.append(key, value);
   });
 
-  // Get auth headers from session
-  const headers = await getRbacHeaders();
-
   try {
+    // Get auth headers from session
+    const headers = await getRbacHeaders();
     const response = await fetch(targetUrl.toString(), {
       method: 'GET',
       headers,
@@ -86,9 +98,6 @@ export async function POST(
   const targetPath = path.join('/');
   const targetUrl = `${ragServerUrl}/${targetPath}`;
 
-  // Get auth headers from session
-  const headers = await getRbacHeaders();
-
   try {
     // Handle empty body POST requests (e.g., terminate job)
     let body: unknown = undefined;
@@ -102,6 +111,8 @@ export async function POST(
       }
     }
 
+    // Get auth headers from session
+    const headers = await getRbacHeaders();
     const fetchOptions: RequestInit = {
       method: 'POST',
       headers,
@@ -144,10 +155,9 @@ export async function DELETE(
     targetUrl.searchParams.append(key, value);
   });
 
-  // Get auth headers from session
-  const headers = await getRbacHeaders();
-
   try {
+    // Get auth headers from session
+    const headers = await getRbacHeaders();
     const response = await fetch(targetUrl.toString(), {
       method: 'DELETE',
       headers,

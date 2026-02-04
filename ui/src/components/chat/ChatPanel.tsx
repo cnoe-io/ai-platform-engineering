@@ -22,12 +22,15 @@ import { DEFAULT_AGENTS, CustomCall } from "./CustomCallButtons";
 import { AGENT_LOGOS } from "@/components/shared/AgentLogos";
 import { SubAgentCard, groupEventsByAgent, getAgentDisplayOrder, isRealSubAgent } from "./SubAgentCard";
 import { AgentStreamBox } from "./AgentStreamBox";
+import { MetadataInputForm, type UserInputMetadata, type InputField } from "./MetadataInputForm";
 
 interface ChatPanelProps {
   endpoint: string;
+  conversationId?: string; // MongoDB conversation UUID
+  conversationTitle?: string;
 }
 
-export function ChatPanel({ endpoint }: ChatPanelProps) {
+export function ChatPanel({ endpoint, conversationId, conversationTitle }: ChatPanelProps) {
   const { data: session } = useSession();
   const [input, setInput] = useState("");
   const [copiedId, setCopiedId] = useState<string | null>(null);
@@ -38,6 +41,12 @@ export function ChatPanel({ endpoint }: ChatPanelProps) {
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const scrollViewportRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  
+  // User input form state
+  const [pendingUserInput, setPendingUserInput] = useState<{
+    messageId: string;
+    metadata: UserInputMetadata;
+  } | null>(null);
 
   // Auto-scroll state
   const [isUserScrolledUp, setIsUserScrolledUp] = useState(false);
@@ -220,10 +229,25 @@ export function ChatPanel({ endpoint }: ChatPanelProps) {
         // Store ALL events in A2A Debug (no batching)
         const storeEvent = toStoreEvent(event, `event-${eventNum}-${Date.now()}`);
         addA2AEvent(storeEvent as Parameters<typeof addA2AEvent>[0], convId!);
+        
+        // ═══════════════════════════════════════════════════════════════
+        // DETECT USER INPUT FORM REQUEST
+        // ═══════════════════════════════════════════════════════════════
+        if (artifactName === "UserInputMetaData" && event.metadata) {
+          console.log(`[ChatPanel] 📝 USER INPUT FORM REQUESTED - Event #${eventNum}`);
+          const metadata = event.metadata as UserInputMetadata;
+          if (metadata.input_fields && metadata.input_fields.length > 0) {
+            console.log(`[ChatPanel] 📝 Form has ${metadata.input_fields.length} fields:`, metadata.input_fields.map(f => f.field_name));
+            setPendingUserInput({
+              messageId: assistantMsgId,
+              metadata,
+            });
+          }
+        }
 
         // 🔍 DEBUG: Condensed logging
         const isImportantEvent = artifactName === "final_result" || artifactName === "partial_result" ||
-                                  event.type === "status";
+                                  event.type === "status" || artifactName === "UserInputMetaData";
         if (isImportantEvent || eventNum % 50 === 0) {
           console.log(`[A2A SDK] #${eventNum} ${event.type}/${artifactName} len=${newContent?.length || 0} final=${event.isFinal} buf=${accumulatedText.length}`);
         }
@@ -413,6 +437,24 @@ export function ChatPanel({ endpoint }: ChatPanelProps) {
       cancelConversationRequest(activeConversationId);
     }
   };
+  
+  // Handle user input form submission
+  const handleUserInputSubmit = useCallback(async (formData: Record<string, string>) => {
+    if (!pendingUserInput) return;
+    
+    console.log("[ChatPanel] 📝 User input form submitted:", formData);
+    
+    // Format the form data as a message
+    const formattedMessage = Object.entries(formData)
+      .map(([key, value]) => `${key}: ${value}`)
+      .join("\n");
+    
+    // Clear pending input
+    setPendingUserInput(null);
+    
+    // Submit the form data as a new message
+    await submitMessage(formattedMessage);
+  }, [pendingUserInput, submitMessage]);
 
   // Handle @mention detection
   const handleInputChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
@@ -493,73 +535,92 @@ export function ChatPanel({ endpoint }: ChatPanelProps) {
   };
 
   return (
-    <div className="h-full flex flex-col bg-background relative">
+    <div className="h-full w-full flex flex-col bg-background relative">
       {/* Messages Area */}
-      <ScrollArea className="flex-1" viewportRef={scrollViewportRef}>
-        <div className="max-w-7xl mx-auto pl-1 pr-1 py-4 space-y-6">
-          {!conversation?.messages.length && (
-            <div className="text-center py-20">
-              <div className="w-16 h-16 mx-auto mb-6 rounded-2xl bg-gradient-to-br from-primary to-primary/60 flex items-center justify-center">
-                <Sparkles className="h-8 w-8 text-white" />
+      <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
+        <ScrollArea className="flex-1" viewportRef={scrollViewportRef}>
+          <div className="max-w-7xl mx-auto pl-1 pr-1 py-4 space-y-6">
+            {!conversation?.messages.length && (
+              <div className="text-center py-20">
+                <div className="w-16 h-16 mx-auto mb-6 rounded-2xl bg-gradient-to-br from-primary to-primary/60 flex items-center justify-center">
+                  <Sparkles className="h-8 w-8 text-white" />
+                </div>
+                <h2 className="text-2xl font-bold mb-2">Welcome to {getConfig('appName')}</h2>
+                <p className="text-muted-foreground max-w-md mx-auto mb-1">
+                  {getConfig('tagline')}
+                </p>
+                <p className="text-sm text-muted-foreground/80 max-w-lg mx-auto">
+                  {getConfig('description')}
+                </p>
               </div>
-              <h2 className="text-2xl font-bold mb-2">Welcome to CAIPE</h2>
-              <p className="text-muted-foreground max-w-md mx-auto">
-                Ask anything about your platform. I can help with ArgoCD, AWS, GitHub, Jira, and more.
-              </p>
-            </div>
-          )}
+            )}
 
-          <AnimatePresence mode="popLayout">
-            {conversation?.messages.map((msg, index) => {
-              const isLastMessage = index === conversation.messages.length - 1;
-              const isAssistantStreaming = isThisConversationStreaming && msg.role === "assistant" && isLastMessage;
+            <AnimatePresence mode="popLayout">
+              {conversation?.messages.map((msg, index) => {
+                const isLastMessage = index === conversation.messages.length - 1;
+                const isAssistantStreaming = isThisConversationStreaming && msg.role === "assistant" && isLastMessage;
 
-              // For retry: if user message, use its content; if assistant, find preceding user message
-              const getRetryContent = () => {
-                if (msg.role === "user") return msg.content;
-                // Find the user message right before this assistant message
-                for (let i = index - 1; i >= 0; i--) {
-                  if (conversation.messages[i].role === "user") {
-                    return conversation.messages[i].content;
-                  }
-                }
-                return null;
-              };
-
-              // Check if this is the last assistant message (latest answer)
-              const isLastAssistantMessage = msg.role === "assistant" && 
-                index === conversation.messages.length - 1;
-
-              return (
-                <ChatMessage
-                  key={msg.id}
-                  message={msg}
-                  onCopy={handleCopy}
-                  isCopied={copiedId === msg.id}
-                  isStreaming={isAssistantStreaming}
-                  isLatestAnswer={isLastAssistantMessage}
-                  onStop={isAssistantStreaming ? handleStop : undefined}
-                  onRetry={getRetryContent() ? () => handleRetry(getRetryContent()!) : undefined}
-                  feedback={msg.feedback}
-                  onFeedbackChange={(feedback) => {
-                    if (activeConversationId) {
-                      updateMessageFeedback(activeConversationId, msg.id, feedback);
+                // For retry: if user message, use its content; if assistant, find preceding user message
+                const getRetryContent = () => {
+                  if (msg.role === "user") return msg.content;
+                  // Find the user message right before this assistant message
+                  for (let i = index - 1; i >= 0; i--) {
+                    if (conversation.messages[i].role === "user") {
+                      return conversation.messages[i].content;
                     }
-                  }}
-                  onFeedbackSubmit={async (feedback) => {
-                    // TODO: Send feedback to backend
-                    console.log("Feedback submitted:", { messageId: msg.id, feedback });
-                    // Future: Send to /api/feedback endpoint
-                  }}
-                />
-              );
-            })}
-          </AnimatePresence>
+                  }
+                  return null;
+                };
 
-          {/* Invisible marker for scroll-to-bottom */}
-          <div ref={messagesEndRef} className="h-px" />
-        </div>
-      </ScrollArea>
+                // Check if this is the last assistant message (latest answer)
+                const isLastAssistantMessage = msg.role === "assistant" && 
+                  index === conversation.messages.length - 1;
+
+                return (
+                  <ChatMessage
+                    key={msg.id}
+                    message={msg}
+                    onCopy={handleCopy}
+                    isCopied={copiedId === msg.id}
+                    isStreaming={isAssistantStreaming}
+                    isLatestAnswer={isLastAssistantMessage}
+                    onStop={isAssistantStreaming ? handleStop : undefined}
+                    onRetry={getRetryContent() ? () => handleRetry(getRetryContent()!) : undefined}
+                    feedback={msg.feedback}
+                    onFeedbackChange={(feedback) => {
+                      if (activeConversationId) {
+                        updateMessageFeedback(activeConversationId, msg.id, feedback);
+                      }
+                    }}
+                    onFeedbackSubmit={async (feedback) => {
+                      // TODO: Send feedback to backend
+                      console.log("Feedback submitted:", { messageId: msg.id, feedback });
+                      // Future: Send to /api/feedback endpoint
+                    }}
+                    conversationId={conversationId}
+                  />
+                );
+              })}
+            </AnimatePresence>
+
+            {/* User Input Form */}
+            {pendingUserInput && pendingUserInput.metadata.input_fields && (
+              <MetadataInputForm
+                messageId={pendingUserInput.messageId}
+                title={pendingUserInput.metadata.input_title}
+                description={pendingUserInput.metadata.input_description}
+                inputFields={pendingUserInput.metadata.input_fields}
+                onSubmit={handleUserInputSubmit}
+                onCancel={() => setPendingUserInput(null)}
+                disabled={isThisConversationStreaming}
+              />
+            )}
+
+            {/* Invisible marker for scroll-to-bottom */}
+            <div ref={messagesEndRef} className="h-px" />
+          </div>
+        </ScrollArea>
+      </div>
 
       {/* Scroll to bottom button */}
       <AnimatePresence>
@@ -584,9 +645,9 @@ export function ChatPanel({ endpoint }: ChatPanelProps) {
         )}
       </AnimatePresence>
 
-      {/* Input Area */}
-      <div className="border-t border-border p-3">
-        <div className="max-w-7xl mx-auto space-y-2">
+      {/* Input Area - Fixed bottom, doesn't scroll */}
+      <div className="border-t border-border bg-background shrink-0">
+        <div className="max-w-7xl mx-auto px-6 py-3 space-y-2">
           {/* Queued Messages Display */}
           {queuedMessages.length > 0 && (
             <div className="space-y-2">
@@ -964,6 +1025,8 @@ interface ChatMessageProps {
   feedback?: Feedback;
   onFeedbackChange?: (feedback: Feedback) => void;
   onFeedbackSubmit?: (feedback: Feedback) => void;
+  // Conversation ID for Langfuse feedback tracking
+  conversationId?: string;
 }
 
 function ChatMessage({
@@ -977,6 +1040,7 @@ function ChatMessage({
   feedback,
   onFeedbackChange,
   onFeedbackSubmit,
+  conversationId,
 }: ChatMessageProps) {
   const isUser = message.role === "user";
   // Show raw stream expanded by default during streaming, hide after final output
@@ -1290,7 +1354,7 @@ function ChatMessage({
               <motion.div
                 initial={{ opacity: 0 }}
                 animate={{ opacity: isHovered ? 1 : 0.6 }}
-                className="flex items-center gap-2 mt-2 justify-end"
+                className="flex items-center gap-1 mt-2 justify-end"
               >
                 {/* Retry button */}
                 {onRetry && (
@@ -1343,7 +1407,7 @@ function ChatMessage({
               <motion.div
                 initial={{ opacity: 0 }}
                 animate={{ opacity: isHovered ? 1 : 0.6 }}
-                className="flex items-center gap-2 mt-2"
+                className="flex items-center gap-1 mt-2"
               >
                 {/* Collapse button - bottom right */}
                 {!isStreaming && displayContent && displayContent.length > 300 && (
@@ -1420,12 +1484,14 @@ function ChatMessage({
                 {/* Feedback buttons */}
                 <FeedbackButton
                   messageId={message.id}
+                  conversationId={conversationId}
                   feedback={feedback}
                   onFeedbackChange={onFeedbackChange}
                   onFeedbackSubmit={onFeedbackSubmit}
                 />
               </motion.div>
             )}
+
           </>
         )}
       </div>

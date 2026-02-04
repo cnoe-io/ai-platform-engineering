@@ -45,7 +45,7 @@ export function Popover({
 
   return (
     <PopoverStateContext.Provider value={{ open, setOpen }}>
-      <div className="relative inline-block">{children}</div>
+      <div className="relative inline-flex">{children}</div>
     </PopoverStateContext.Provider>
   );
 }

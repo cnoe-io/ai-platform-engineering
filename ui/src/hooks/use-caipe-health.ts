@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import { config } from "@/lib/config";
+import { getStorageMode } from "@/lib/storage-config";
 
 export type HealthStatus = "checking" | "connected" | "disconnected";
 
@@ -20,6 +21,8 @@ interface UseCAIPEHealthResult {
   secondsUntilNextCheck: number;
   agents: AgentInfo[];
   tags: string[];
+  mongoDBStatus: 'connected' | 'disconnected' | 'checking';
+  storageMode: 'mongodb' | 'localStorage' | null;
   checkNow: () => void;
 }
 
@@ -33,17 +36,24 @@ export function useCAIPEHealth(): UseCAIPEHealthResult {
   const [secondsUntilNextCheck, setSecondsUntilNextCheck] = useState(0);
   const [agents, setAgents] = useState<AgentInfo[]>([]);
   const [tags, setTags] = useState<string[]>([]);
+  const [mongoDBStatus, setMongoDBStatus] = useState<'connected' | 'disconnected' | 'checking'>('checking');
+  const [storageMode, setStorageMode] = useState<'mongodb' | 'localStorage' | null>(null);
   const nextCheckTimeRef = useRef<number>(Date.now() + POLL_INTERVAL_MS);
   const url = config.caipeUrl;
 
   const checkHealth = useCallback(async () => {
     setStatus("checking");
+    
+    // Get storage mode (synchronous, build-time determined)
+    const mode = getStorageMode();
+    setStorageMode(mode);
+    setMongoDBStatus(mode === 'mongodb' ? 'connected' : 'disconnected');
 
     try {
       // Use the A2A agent card endpoint which supports GET
-      // Base URL is like http://localhost:8000, agent card is at /.well-known/agent.json
+      // Base URL is like http://localhost:8000, agent card is at /.well-known/agent-card.json
       const baseUrl = url.replace(/\/$/, ''); // Remove trailing slash
-      const agentCardUrl = `${baseUrl}/.well-known/agent.json`;
+      const agentCardUrl = `${baseUrl}/.well-known/agent-card.json`;
 
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 5000);
@@ -160,6 +170,8 @@ export function useCAIPEHealth(): UseCAIPEHealthResult {
     secondsUntilNextCheck,
     agents,
     tags,
+    mongoDBStatus,
+    storageMode,
     checkNow: checkHealth,
   };
 }

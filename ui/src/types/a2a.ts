@@ -163,6 +163,13 @@ export interface Conversation {
   messages: ChatMessage[];
   /** A2A events for this conversation (for debug panel, tasks, output) */
   a2aEvents: A2AEvent[];
+  /** Sharing information (optional, only for MongoDB conversations) */
+  sharing?: {
+    is_public?: boolean;
+    shared_with?: string[];
+    shared_with_teams?: string[];
+    share_link_enabled?: boolean;
+  };
 }
 
 // Feedback types - matching agent-forge

@@ -66,6 +66,24 @@ export interface ParsedA2AEvent {
   taskId?: string;
   /** Source agent name if present (from artifact metadata) */
   sourceAgent?: string;
+  /** Whether user input is required */
+  requireUserInput?: boolean;
+  /** Structured metadata for user input forms */
+  metadata?: {
+    user_input?: boolean;
+    input_title?: string;
+    input_description?: string;
+    input_fields?: Array<{
+      field_name: string;
+      field_label?: string;
+      field_description?: string;
+      field_type?: string;
+      field_values?: string[];
+      placeholder?: string;
+      required?: boolean;
+      default_value?: string;
+    }>;
+  };
 }
 
 /**
@@ -82,9 +100,10 @@ export class A2ASDKClient {
     this.userEmail = config.userEmail;
 
     // Create fetch with authentication if token provided
+    // Note: Must bind fetch to window to avoid "Illegal invocation" error
     const fetchImpl = this.accessToken
       ? this.createAuthenticatedFetch(this.accessToken)
-      : fetch;
+      : fetch.bind(window);
 
     this.transport = new JsonRpcTransport({
       endpoint: config.endpoint,
@@ -99,9 +118,10 @@ export class A2ASDKClient {
     this.accessToken = token;
 
     // Recreate transport with new token
+    // Note: Must bind fetch to window to avoid "Illegal invocation" error
     const fetchImpl = token
       ? this.createAuthenticatedFetch(token)
-      : fetch;
+      : fetch.bind(window);
 
     this.transport = new JsonRpcTransport({
       endpoint: (this.transport as unknown as { endpoint: string }).endpoint,
@@ -344,15 +364,54 @@ export class A2ASDKClient {
 
     // Extract sourceAgent from artifact metadata
     const sourceAgent = artifact?.metadata?.sourceAgent as string | undefined;
+    
+    // Extract user input metadata if present
+    // Check both metadata.metadata (legacy) and DataPart (new format)
+    let requireUserInput = artifact?.metadata?.require_user_input as boolean | undefined;
+    let userInputMetadata = artifact?.metadata?.metadata as {
+      user_input?: boolean;
+      input_title?: string;
+      input_description?: string;
+      input_fields?: Array<{
+        field_name: string;
+        field_label?: string;
+        field_description?: string;
+        field_type?: string;
+        field_values?: string[];
+        placeholder?: string;
+        required?: boolean;
+        default_value?: string;
+      }>;
+    } | undefined;
+    
+    // For UserInputMetaData artifacts, extract data from DataPart
+    if (artifactName === "UserInputMetaData" && artifact?.parts) {
+      for (const part of artifact.parts) {
+        if ((part as DataPart).kind === "data" && (part as DataPart).data) {
+          const dataPart = part as DataPart;
+          userInputMetadata = dataPart.data as typeof userInputMetadata;
+          requireUserInput = true;
+          console.log(`[A2A SDK] 📝 Extracted UserInputMetaData from DataPart:`, {
+            title: userInputMetadata?.input_title,
+            fields: userInputMetadata?.input_fields?.length || 0
+          });
+          break;
+        }
+      }
+    }
 
     // Determine if this is a final result
     const isFinalResult = artifactName === "final_result" || artifactName === "partial_result";
     const shouldAppend = event.append !== false;
 
-    console.log(`[A2A SDK] #${eventNum} ARTIFACT: ${artifactName} append=${shouldAppend} content=${textContent.length} chars agent=${sourceAgent || 'none'}`);
+    console.log(`[A2A SDK] #${eventNum} ARTIFACT: ${artifactName} append=${shouldAppend} content=${textContent.length} chars agent=${sourceAgent || 'none'} requireUserInput=${requireUserInput || false}`);
 
     if (isFinalResult) {
       console.log(`[A2A SDK] 🎉 ${artifactName.toUpperCase()} RECEIVED!`);
+    }
+    
+    if (requireUserInput && userInputMetadata?.input_fields) {
+      console.log(`[A2A SDK] 📝 USER INPUT REQUESTED with ${userInputMetadata.input_fields.length} fields`);
     }
 
     return {
@@ -364,7 +423,9 @@ export class A2ASDKClient {
       shouldAppend,
       contextId: event.contextId,
       taskId: event.taskId,
-      sourceAgent, // Include sourceAgent in parsed event
+      sourceAgent,
+      requireUserInput,
+      metadata: userInputMetadata,
     };
   }
 

@@ -1,6 +1,7 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   MessageSquare,
@@ -10,52 +11,158 @@ import {
   ChevronLeft,
   ChevronRight,
   Sparkles,
-  Zap
+  Zap,
+  Database,
+  HardDrive,
+  Users2,
+  Shield,
+  Users,
+  TrendingUp
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useChatStore } from "@/store/chat-store";
 import { cn, formatDate, truncateText } from "@/lib/utils";
 import { UseCaseBuilderDialog } from "@/components/gallery/UseCaseBuilder";
+import { ShareButton } from "@/components/chat/ShareButton";
+import { getStorageMode, getStorageModeDisplay } from "@/lib/storage-config";
+import type { Conversation } from "@/types/a2a";
 
 interface SidebarProps {
-  activeTab: "chat" | "gallery" | "knowledge";
-  onTabChange: (tab: "chat" | "gallery" | "knowledge") => void;
+  activeTab: "chat" | "gallery" | "knowledge" | "admin";
+  onTabChange: (tab: "chat" | "gallery" | "knowledge" | "admin") => void;
   collapsed: boolean;
   onCollapse: (collapsed: boolean) => void;
   onUseCaseSaved?: () => void;
 }
 
 export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCaseSaved }: SidebarProps) {
+  const router = useRouter();
   const {
     conversations,
     activeConversationId,
     setActiveConversation,
     createConversation,
-    deleteConversation
+    deleteConversation,
+    loadConversationsFromServer
   } = useChatStore();
   const [useCaseBuilderOpen, setUseCaseBuilderOpen] = useState(false);
+  const storageMode = getStorageMode(); // Exclusive storage mode
+  const [isPending, startTransition] = useTransition();
+  const [sidebarWidth, setSidebarWidth] = useState(320); // Track sidebar width
+  const [isResizing, setIsResizing] = useState(false);
 
-  const handleNewChat = () => {
-    const id = createConversation();
-    setActiveConversation(id);
-    onTabChange("chat");
+  // Load conversations from server when sidebar mounts (MongoDB mode only)
+  // Always load from server to sync with database, but preserve local messages
+  useEffect(() => {
+    if (activeTab === "chat" && storageMode === 'mongodb') {
+      // Always load from server - the loadConversationsFromServer function
+      // will merge server data with local cache intelligently
+      loadConversationsFromServer().catch((error) => {
+        console.error('[Sidebar] Failed to load conversations:', error);
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab, storageMode]); // Intentionally exclude loadConversationsFromServer to prevent re-runs
+
+  // Handle mouse move for resizing
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!isResizing) return;
+      
+      const newWidth = Math.max(320, Math.min(500, e.clientX));
+      setSidebarWidth(newWidth);
+    };
+
+    const handleMouseUp = () => {
+      setIsResizing(false);
+    };
+
+    if (isResizing) {
+      document.addEventListener('mousemove', handleMouseMove);
+      document.addEventListener('mouseup', handleMouseUp);
+      return () => {
+        document.removeEventListener('mousemove', handleMouseMove);
+        document.removeEventListener('mouseup', handleMouseUp);
+      };
+    }
+  }, [isResizing]);
+
+  const handleNewChat = async () => {
+    try {
+      if (storageMode === 'mongodb') {
+        // MongoDB mode: Create conversation on server
+        const { apiClient } = await import('@/lib/api-client');
+        const conversation = await apiClient.createConversation({
+          title: "New Conversation",
+        });
+
+        // Add to local store immediately
+        const newConversation: Conversation = {
+          id: conversation._id,
+          title: conversation.title,
+          createdAt: new Date(conversation.created_at),
+          updatedAt: new Date(conversation.updated_at),
+          messages: [],
+          a2aEvents: [],
+        };
+
+        // Update store and wait for it to propagate
+        useChatStore.setState((state) => ({
+          conversations: [newConversation, ...state.conversations],
+          activeConversationId: conversation._id,
+        }));
+
+        // Small delay to ensure store update propagates before navigation
+        await new Promise(resolve => setTimeout(resolve, 0));
+
+        // Use React transition for smooth navigation
+        startTransition(() => {
+          router.push(`/chat/${conversation._id}`);
+        });
+      } else {
+        // Create conversation in localStorage
+        const conversationId = createConversation();
+
+        // Use React transition for smooth navigation
+        startTransition(() => {
+          router.push(`/chat/${conversationId}`);
+        });
+      }
+    } catch (error) {
+      console.error('[Sidebar] Failed to create conversation:', error);
+
+      // Fallback to localStorage
+      const conversationId = createConversation();
+      startTransition(() => {
+        router.push(`/chat/${conversationId}`);
+      });
+    }
   };
 
   return (
     <motion.div
       initial={false}
-      animate={{ width: collapsed ? 64 : 280 }}
+      animate={{ width: collapsed ? 64 : sidebarWidth }}
       transition={{ duration: 0.2 }}
-      className="flex flex-col h-full bg-card/50 backdrop-blur-sm border-r border-border/50 shrink-0 overflow-hidden"
+      className="relative flex flex-col h-full bg-card/50 backdrop-blur-sm border-r border-border/50 shrink-0 z-10"
     >
+      {/* Resize Handle */}
+      {!collapsed && (
+        <div
+          onMouseDown={() => setIsResizing(true)}
+          className="absolute right-0 top-0 h-full w-1 hover:w-1.5 bg-transparent hover:bg-primary/50 cursor-col-resize transition-all z-20"
+          title="Drag to resize sidebar"
+        />
+      )}
       {/* Collapse Toggle */}
-      <div className="flex items-center justify-end p-2 h-12">
+      <div className="flex items-center justify-end p-2 h-12 shrink-0">
         <Button
           variant="ghost"
           size="icon"
           onClick={() => onCollapse(!collapsed)}
-          className="h-8 w-8 hover:bg-muted"
+          className="h-8 w-8 hover:bg-muted shrink-0"
         >
           {collapsed ? (
             <ChevronRight className="h-4 w-4" />
@@ -67,18 +174,52 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
 
       {/* New Chat Button */}
       {activeTab === "chat" && (
-        <div className="px-2 pb-2">
+        <div className="px-2 pb-2 shrink-0">
           <Button
             onClick={handleNewChat}
             className={cn(
               "w-full gap-2 bg-primary/10 hover:bg-primary/20 text-primary border border-primary/30 hover-glow",
-              collapsed && "px-0"
+              collapsed && "px-2"
             )}
             variant="ghost"
+            size={collapsed ? "icon" : "default"}
           >
-            <Plus className="h-4 w-4" />
-            {!collapsed && <span>New Chat</span>}
+            <Plus className="h-4 w-4 shrink-0" />
+            {!collapsed && <span className="whitespace-nowrap">New Chat</span>}
           </Button>
+        </div>
+      )}
+
+      {/* Storage Mode Indicator - Subtle icon with tooltip */}
+      {activeTab === "chat" && !collapsed && (
+        <div className="absolute bottom-2 right-2 z-10 overflow-visible">
+          <TooltipProvider delayDuration={200}>
+            {storageMode === 'localStorage' ? (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <div className="p-1.5 rounded-md bg-amber-500/10 border border-amber-500/20 hover:bg-amber-500/20 transition-colors cursor-help">
+                    <HardDrive className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400" />
+                  </div>
+                </TooltipTrigger>
+                <TooltipContent side="top" sideOffset={8} className="bg-amber-600 dark:bg-amber-500 text-white border-amber-700">
+                  <p className="font-medium">Local Storage Mode</p>
+                  <p className="text-amber-100 text-[10px] mt-0.5">Browser-only • Not shareable</p>
+                </TooltipContent>
+              </Tooltip>
+            ) : (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <div className="p-1.5 rounded-md bg-green-500/10 border border-green-500/20 hover:bg-green-500/20 transition-colors cursor-help">
+                    <Database className="h-3.5 w-3.5 text-green-600 dark:text-green-400" />
+                  </div>
+                </TooltipTrigger>
+                <TooltipContent side="top" sideOffset={8} className="bg-green-600 dark:bg-green-500 text-white border-green-700">
+                  <p className="font-medium">MongoDB Mode</p>
+                  <p className="text-green-100 text-[10px] mt-0.5">Persistent • Shareable • Teams</p>
+                </TooltipContent>
+              </Tooltip>
+            )}
+          </TooltipProvider>
         </div>
       )}
 
@@ -95,21 +236,40 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
           <ScrollArea className="flex-1 min-w-0">
             <div className="px-2 space-y-1 pb-4">
               <AnimatePresence mode="popLayout">
-                {conversations.map((conv, index) => (
-                  <motion.div
+                {conversations.map((conv, index) => {
+                  // Check if conversation is shared
+                  const isShared = conv.sharing && (
+                    conv.sharing.is_public ||
+                    (conv.sharing.shared_with && conv.sharing.shared_with.length > 0) ||
+                    (conv.sharing.shared_with_teams && conv.sharing.shared_with_teams.length > 0) ||
+                    conv.sharing.share_link_enabled
+                  );
+
+                  return (
+                  <div
                     key={conv.id}
-                    initial={{ opacity: 0, x: -10 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    exit={{ opacity: 0, x: -10 }}
-                    transition={{ delay: index * 0.02 }}
-                    className={cn(
-                      "group relative flex items-center gap-2 p-2 rounded-lg cursor-pointer transition-all",
-                      activeConversationId === conv.id
-                        ? "bg-primary/10 border border-primary/30"
-                        : "hover:bg-muted/50 border border-transparent"
-                    )}
-                    onClick={() => setActiveConversation(conv.id)}
+                    className="group/conv"
                   >
+                    <motion.div
+                      initial={{ opacity: 0, x: -10 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      exit={{ opacity: 0, x: -10 }}
+                      transition={{ delay: index * 0.02 }}
+                      className={cn(
+                        "group relative flex items-center gap-2 p-2 rounded-lg cursor-pointer transition-all min-w-0",
+                        activeConversationId === conv.id
+                          ? "bg-primary/10 border border-primary/30"
+                          : isShared
+                            ? "hover:bg-muted/50 border border-blue-500/20"
+                            : "hover:bg-muted/50 border border-transparent"
+                      )}
+                      onClick={() => {
+                        setActiveConversation(conv.id);
+                        startTransition(() => {
+                          router.push(`/chat/${conv.id}`);
+                        });
+                      }}
+                    >
                     <div className={cn(
                       "shrink-0 w-8 h-8 rounded-md flex items-center justify-center",
                       activeConversationId === conv.id
@@ -127,29 +287,90 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
                     {!collapsed && (
                       <>
                         <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium truncate">
-                            {truncateText(conv.title, 20)}
-                          </p>
-                          <p className="text-xs text-muted-foreground">
+                          <div className="flex items-center gap-1 min-w-0">
+                            <p className="text-sm font-medium truncate flex-1" title={conv.title}>
+                              {truncateText(conv.title, sidebarWidth > 350 ? 40 : sidebarWidth > 320 ? 25 : 20)}
+                            </p>
+                            {isShared && (
+                              <TooltipProvider>
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <Users2 className="h-3 w-3 text-blue-500 shrink-0" />
+                                  </TooltipTrigger>
+                                  <TooltipContent side="right">
+                                    <p className="text-xs">Shared conversation</p>
+                                  </TooltipContent>
+                                </Tooltip>
+                              </TooltipProvider>
+                            )}
+                          </div>
+                          <p className="text-xs text-muted-foreground truncate">
                             {formatDate(conv.updatedAt)}
                           </p>
                         </div>
 
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            deleteConversation(conv.id);
-                          }}
-                        >
-                          <Trash2 className="h-3 w-3" />
-                        </Button>
+                        <div className="flex items-center gap-0.5 shrink-0">
+                          <div className="opacity-0 group-hover:opacity-100 transition-opacity">
+                            <ShareButton
+                              conversationId={conv.id}
+                              conversationTitle={conv.title}
+                              isOwner={new Date(conv.createdAt) > new Date('2026-01-28')}
+                            />
+                          </div>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity"
+                            onClick={async (e) => {
+                              console.log('[Sidebar] Delete clicked for:', conv.id);
+                              e.stopPropagation();
+                              
+                              // Check if this is the only conversation
+                              const conversationsBeforeDelete = useChatStore.getState().conversations;
+                              const isOnlyConversation = conversationsBeforeDelete.length === 1;
+                              const isDeletingActiveConversation = activeConversationId === conv.id;
+                              
+                              console.log('[Sidebar] Before delete:', {
+                                count: conversationsBeforeDelete.length,
+                                isOnly: isOnlyConversation,
+                                isDeletingActive: isDeletingActiveConversation
+                              });
+                              
+                              // Delete conversation (this updates the store and sets new activeConversationId)
+                              await deleteConversation(conv.id);
+                              
+                              // Wait for store to update
+                              await new Promise(resolve => setTimeout(resolve, 100));
+                              
+                              // Get updated state
+                              const storeState = useChatStore.getState();
+                              const newActiveId = storeState.activeConversationId;
+                              const remainingConversations = storeState.conversations;
+                              
+                              console.log('[Sidebar] After delete:', {
+                                newActiveId,
+                                remainingCount: remainingConversations.length
+                              });
+                              
+                              // Navigate based on whether there are remaining conversations
+                              if (newActiveId && remainingConversations.length > 0) {
+                                console.log('[Sidebar] Navigating to next conversation:', newActiveId);
+                                router.replace(`/chat/${newActiveId}`);
+                              } else {
+                                console.log('[Sidebar] No conversations left, navigating to /chat');
+                                router.replace('/chat');
+                              }
+                            }}
+                          >
+                            <Trash2 className="h-3 w-3" />
+                          </Button>
+                        </div>
                       </>
                     )}
                   </motion.div>
-                ))}
+                  </div>
+                  );
+                })}
               </AnimatePresence>
 
               {conversations.length === 0 && !collapsed && (
@@ -264,6 +485,49 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
             </div>
           )}
         </>
+      )}
+
+      {/* Admin mode - Dashboard info */}
+      {activeTab === "admin" && (
+        <div className="flex-1 flex flex-col p-4">
+          {!collapsed && (
+            <>
+              <div className="mb-4">
+                <div className="flex items-center gap-2 mb-2">
+                  <Shield className="h-4 w-4 text-red-500" />
+                  <p className="text-sm font-semibold">Admin Dashboard</p>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Use tabs to navigate between Users, Teams, Statistics, and System Health
+                </p>
+              </div>
+
+              <div className="space-y-2 text-xs">
+                <div className="p-2 rounded bg-muted/50 border border-primary/20">
+                  <p className="text-muted-foreground mb-2">Features</p>
+                  <div className="space-y-1 text-muted-foreground">
+                    <div className="flex items-center gap-2">
+                      <Users className="h-3 w-3" />
+                      <span>User & Role Management</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Users className="h-3 w-3" />
+                      <span>Team Collaboration</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <TrendingUp className="h-3 w-3" />
+                      <span>Usage Analytics</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Database className="h-3 w-3" />
+                      <span>System Monitoring</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </>
+          )}
+        </div>
       )}
 
       {/* Use Case Builder Dialog */}

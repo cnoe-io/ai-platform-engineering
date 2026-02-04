@@ -3,18 +3,22 @@
 import React from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useSession } from "next-auth/react";
+import { useAdminRole } from "@/hooks/use-admin-role";
 import {
   Github,
   BookOpen,
   Zap,
   Loader2,
-  Database
+  Database,
+  Shield,
 } from "lucide-react";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { UserMenu } from "@/components/user-menu";
 import { SettingsPanel } from "@/components/settings-panel";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { getConfig } from "@/lib/config";
 import { useChatStore } from "@/store/chat-store";
 import { useCAIPEHealth } from "@/hooks/use-caipe-health";
 import { useRAGHealth } from "@/hooks/use-rag-health";
@@ -23,10 +27,27 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 export function AppHeader() {
   const pathname = usePathname();
+  const { data: session } = useSession();
+  const { isAdmin } = useAdminRole();
   const { isStreaming } = useChatStore();
+
+  // Debug logging for admin tab
+  React.useEffect(() => {
+    if (session) {
+      console.log('[AppHeader] Session role:', session.role);
+      // Note: groups removed from session to prevent oversized cookies
+      console.log('[AppHeader] Is admin (with MongoDB check)?', isAdmin);
+    }
+  }, [session, isAdmin]);
 
   // Health check for CAIPE supervisor (polls every 30 seconds)
   const { 
@@ -34,7 +55,9 @@ export function AppHeader() {
     url: caipeUrl, 
     secondsUntilNextCheck: caipeNextCheck, 
     agents, 
-    tags 
+    tags,
+    mongoDBStatus,
+    storageMode
   } = useCAIPEHealth();
   
   // Health check for RAG server (polls every 30 seconds)
@@ -57,7 +80,9 @@ export function AppHeader() {
   const getActiveTab = () => {
     if (pathname?.startsWith("/chat")) return "chat";
     if (pathname?.startsWith("/knowledge-bases")) return "knowledge";
-    return "gallery";
+    if (pathname?.startsWith("/agent-builder") || pathname?.startsWith("/use-cases")) return "agent-builder";
+    if (pathname?.startsWith("/admin")) return "admin";
+    return "agent-builder"; // Default to Agentic Workflows (formerly use-cases)
   };
 
   const activeTab = getActiveTab();
@@ -65,33 +90,39 @@ export function AppHeader() {
   return (
     <header className="h-14 border-b border-border/50 bg-card/50 backdrop-blur-xl flex items-center justify-between px-4 shrink-0 z-50">
       <div className="flex items-center gap-4">
-        {/* Logo */}
-        <div
-          className="flex items-center gap-2.5 cursor-default"
-          title="Community AI Platform Engineering"
+        {/* Logo - clickable to home */}
+        <Link
+          href="/"
+          className="flex items-center gap-2.5 cursor-pointer hover:opacity-80 transition-opacity"
+          title={getConfig('tagline')}
         >
           <img
-            src="/logo.svg"
-            alt="CAIPE Logo"
+            src={getConfig('logoUrl')}
+            alt={`${getConfig('appName')} Logo`}
             className="h-8 w-auto"
           />
-          <span className="font-bold text-base gradient-text">CAIPE</span>
-        </div>
+          <span className="font-bold text-base gradient-text">{getConfig('appName')}</span>
+          {getConfig('previewMode') && (
+            <span className="px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider bg-amber-500/20 text-amber-500 border border-amber-500/30 rounded">
+              Preview
+            </span>
+          )}
+        </Link>
 
-        {/* Navigation Pills - Use Cases first for prominence */}
+        {/* Navigation Pills - Agentic Workflows first for prominence */}
         <div className="flex items-center bg-muted/50 rounded-full p-1">
           <Link
-            href="/use-cases"
+            href="/agent-builder"
             prefetch={true}
             className={cn(
               "flex items-center gap-1.5 px-4 py-1.5 rounded-full text-sm font-medium transition-all",
-              activeTab === "gallery"
+              activeTab === "agent-builder"
                 ? "gradient-primary text-white shadow-sm"
                 : "text-muted-foreground hover:text-foreground"
             )}
           >
             <Zap className="h-3.5 w-3.5" />
-            Use Cases
+            Agentic Workflows
           </Link>
           <Link
             href="/chat"
@@ -118,6 +149,47 @@ export function AppHeader() {
             <Database className="h-3.5 w-3.5" />
             Knowledge Bases
           </Link>
+          {/* Admin tab - only visible to admin users, disabled if MongoDB not configured */}
+          {isAdmin && (
+            <TooltipProvider delayDuration={300}>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  {storageMode === 'mongodb' ? (
+                    <Link
+                      href="/admin"
+                      prefetch={true}
+                      className={cn(
+                        "flex items-center gap-1.5 px-4 py-1.5 rounded-full text-sm font-medium transition-all",
+                        activeTab === "admin"
+                          ? "bg-red-500 text-white shadow-sm"
+                          : "text-muted-foreground hover:text-foreground"
+                      )}
+                    >
+                      <Shield className="h-3.5 w-3.5" />
+                      Admin
+                    </Link>
+                  ) : (
+                    <div
+                      className={cn(
+                        "flex items-center gap-1.5 px-4 py-1.5 rounded-full text-sm font-medium transition-all cursor-not-allowed",
+                        "text-muted-foreground/50 opacity-50"
+                      )}
+                    >
+                      <Shield className="h-3.5 w-3.5" />
+                      Admin
+                    </div>
+                  )}
+                </TooltipTrigger>
+                {storageMode !== 'mongodb' && (
+                  <TooltipContent side="bottom" className="max-w-xs">
+                    <p className="text-xs">
+                      Admin dashboard requires MongoDB to be configured. Please set up MongoDB to enable user and team management.
+                    </p>
+                  </TooltipContent>
+                )}
+              </Tooltip>
+            </TooltipProvider>
+          )}
         </div>
       </div>
 
@@ -214,7 +286,51 @@ export function AppHeader() {
                         </div>
                       </div>
                     )}
-                    
+
+                    {/* Storage Status */}
+                    <div className="bg-muted/30 rounded-lg p-3 border border-border/50">
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                          Storage Backend
+                        </div>
+                        <div className={cn(
+                          "flex items-center gap-1.5 px-2 py-0.5 rounded-full border",
+                          mongoDBStatus === 'connected' && "bg-green-500/10 border-green-500/20",
+                          mongoDBStatus === 'disconnected' && "bg-amber-500/10 border-amber-500/20",
+                          mongoDBStatus === 'checking' && "bg-muted/50 border-border"
+                        )}>
+                          {mongoDBStatus === 'checking' ? (
+                            <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
+                          ) : (
+                            <span className={cn(
+                              "inline-block w-1.5 h-1.5 rounded-full",
+                              mongoDBStatus === 'connected' && "bg-green-400",
+                              mongoDBStatus === 'disconnected' && "bg-amber-400"
+                            )} />
+                          )}
+                          <span className={cn(
+                            "text-[10px] font-bold",
+                            mongoDBStatus === 'connected' && "text-green-600 dark:text-green-400",
+                            mongoDBStatus === 'disconnected' && "text-amber-600 dark:text-amber-400",
+                            mongoDBStatus === 'checking' && "text-muted-foreground"
+                          )}>
+                            {mongoDBStatus === 'checking' ? 'Checking' : mongoDBStatus === 'connected' ? 'MongoDB' : 'localStorage'}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="text-xs text-muted-foreground">
+                        {mongoDBStatus === 'connected' && (
+                          <span>✓ Persistent storage with cross-device sync</span>
+                        )}
+                        {mongoDBStatus === 'disconnected' && (
+                          <span>Local browser storage (no sync)</span>
+                        )}
+                        {mongoDBStatus === 'checking' && (
+                          <span>Checking backend availability...</span>
+                        )}
+                      </div>
+                    </div>
+
                     {/* Integrations */}
                     {tags.length > 0 && (
                       <div>
