@@ -76,10 +76,20 @@ export interface UserInfo {
  * hasPermission(userInfo, Permission.DELETE)
  */
 export function hasPermission(userInfo: UserInfo | null, permission: PermissionType): boolean {
-  if (!userInfo) return false;
-  if (!userInfo.permissions) return false;
-  if (!Array.isArray(userInfo.permissions)) return false;
-  return userInfo.permissions.includes(permission);
+  const result = (() => {
+    if (!userInfo) return false;
+    if (!userInfo.permissions) return false;
+    if (!Array.isArray(userInfo.permissions)) return false;
+    return userInfo.permissions.includes(permission);
+  })();
+  
+  console.log(`[hasPermission] Checking '${permission}': ${result}`, {
+    hasUserInfo: !!userInfo,
+    permissions: userInfo?.permissions,
+    isArray: Array.isArray(userInfo?.permissions)
+  });
+  
+  return result;
 }
 
 // ============================================================================
@@ -308,14 +318,34 @@ export async function getOntologyVersion() {
 // ============================================================================
 
 export async function getUserInfo(): Promise<UserInfo> {
+  console.log('[getUserInfo] Fetching from /api/user/info...');
   // Use the new Next.js API endpoint instead of RAG server
   const response = await fetch('/api/user/info', {
     credentials: 'include',
   });
 
   if (!response.ok) {
+    console.error('[getUserInfo] Failed with status:', response.status);
     throw new Error(`Failed to fetch user info: ${response.status}`);
   }
 
-  return response.json();
+  const data = await response.json();
+  console.log('[getUserInfo] Received data:', data);
+  console.log('[getUserInfo] Permissions type:', typeof data.permissions, Array.isArray(data.permissions) ? 'array' : 'not array');
+  console.log('[getUserInfo] Permissions value:', data.permissions);
+  
+  // Normalize permissions to array if it comes as object
+  if (data.permissions && !Array.isArray(data.permissions)) {
+    console.warn('[getUserInfo] ⚠️  Permissions came as object, converting to array:', data.permissions);
+    
+    // Convert object like {can_read: true, can_ingest: true, can_delete: true} to array
+    // Extract keys where value is true, and remove "can_" prefix
+    data.permissions = Object.entries(data.permissions)
+      .filter(([_, value]) => value === true)
+      .map(([key, _]) => key.replace(/^can_/, ''));
+    
+    console.log('[getUserInfo] ✅ Converted permissions to:', data.permissions);
+  }
+  
+  return data;
 }

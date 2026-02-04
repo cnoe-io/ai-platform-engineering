@@ -6,11 +6,9 @@ import { authOptions } from '@/lib/auth-config';
  * User Info API Endpoint - Proxy to RAG Server
  *
  * This endpoint proxies to the RAG server's /v1/user/info endpoint.
- * The RAG server determines role and permissions based on auth headers.
+ * The RAG server determines role and permissions based on JWT Bearer token.
  * 
- * Supports hybrid authentication:
- * 1. JWT Bearer token (preferred)
- * 2. OAuth2Proxy-style headers (fallback)
+ * Authentication: JWT Bearer token only (RAG server does not support OAuth2Proxy headers)
  */
 
 function getRagServerUrl(): string {
@@ -27,27 +25,25 @@ async function getRbacHeaders(): Promise<Record<string, string>> {
   try {
     const session = await getServerSession(authOptions);
     
-    // Prefer JWT Bearer token if available (most secure, includes all claims)
+    // Debug logging
+    console.log('[User Info] Session state:', {
+      hasSession: !!session,
+      hasUser: !!session?.user,
+      userEmail: session?.user?.email,
+      hasAccessToken: !!session?.accessToken,
+      accessTokenPrefix: session?.accessToken ? session.accessToken.substring(0, 20) + '...' : 'MISSING',
+      expiresAt: session?.expiresAt ? new Date((session.expiresAt as number) * 1000).toISOString() : 'N/A'
+    });
+    
+    // Pass JWT access token as Bearer token
+    // RAG server validates JWT and extracts email, groups, and determines role
     if (session?.accessToken) {
       headers['Authorization'] = `Bearer ${session.accessToken}`;
-      return headers;
-    }
-    
-    // Fall back to OAuth2Proxy-style headers
-    if (session?.user?.email) {
-      headers['X-Forwarded-Email'] = session.user.email;
-      
-      const groups = (session as any).groups || (session.user as any).groups || [];
-      if (Array.isArray(groups) && groups.length > 0) {
-        headers['X-Forwarded-Groups'] = groups.join(',');
-      }
-      
-      if (session.user.name) {
-        headers['X-Forwarded-User'] = session.user.name;
-      }
+    } else {
+      console.warn('[User Info] ⚠️  No accessToken in session - RAG server will use trusted network or anonymous');
     }
   } catch (error) {
-    console.debug('[User Info] Could not retrieve session, proceeding without auth headers:', error);
+    console.error('[User Info] Error retrieving session:', error);
   }
 
   return headers;
@@ -58,6 +54,12 @@ export async function GET() {
   const targetUrl = `${ragServerUrl}/v1/user/info`;
   const headers = await getRbacHeaders();
 
+  // Debug logging
+  console.log('[User Info] Request headers:', {
+    hasAuthorization: !!headers['Authorization'],
+    authHeader: headers['Authorization'] ? `${headers['Authorization'].substring(0, 20)}...` : 'MISSING'
+  });
+
   try {
     const response = await fetch(targetUrl, {
       method: 'GET',
@@ -65,6 +67,16 @@ export async function GET() {
     });
 
     const data = await response.json();
+    
+    // Debug logging
+    console.log('[User Info] RAG response:', {
+      status: response.status,
+      is_authenticated: data.is_authenticated,
+      role: data.role,
+      permissions: data.permissions,
+      email: data.email
+    });
+    
     return NextResponse.json(data, { status: response.status });
   } catch (error) {
     console.error('[User Info] Error fetching from RAG server:', error);
