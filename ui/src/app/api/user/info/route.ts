@@ -6,8 +6,11 @@ import { authOptions } from '@/lib/auth-config';
  * User Info API Endpoint - Proxy to RAG Server
  *
  * This endpoint proxies to the RAG server's /v1/user/info endpoint.
- * The RAG server determines role and permissions based on the JWT token
- * we pass via Authorization header.
+ * The RAG server determines role and permissions based on auth headers.
+ * 
+ * Supports hybrid authentication:
+ * 1. JWT Bearer token (preferred)
+ * 2. OAuth2Proxy-style headers (fallback)
  */
 
 function getRagServerUrl(): string {
@@ -17,15 +20,34 @@ function getRagServerUrl(): string {
 }
 
 async function getRbacHeaders(): Promise<Record<string, string>> {
-  const session = await getServerSession(authOptions);
-  
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
   };
 
-  // Pass access token as Bearer token
-  if (session?.accessToken) {
-    headers['Authorization'] = `Bearer ${session.accessToken}`;
+  try {
+    const session = await getServerSession(authOptions);
+    
+    // Prefer JWT Bearer token if available (most secure, includes all claims)
+    if (session?.accessToken) {
+      headers['Authorization'] = `Bearer ${session.accessToken}`;
+      return headers;
+    }
+    
+    // Fall back to OAuth2Proxy-style headers
+    if (session?.user?.email) {
+      headers['X-Forwarded-Email'] = session.user.email;
+      
+      const groups = (session as any).groups || (session.user as any).groups || [];
+      if (Array.isArray(groups) && groups.length > 0) {
+        headers['X-Forwarded-Groups'] = groups.join(',');
+      }
+      
+      if (session.user.name) {
+        headers['X-Forwarded-User'] = session.user.name;
+      }
+    }
+  } catch (error) {
+    console.debug('[User Info] Could not retrieve session, proceeding without auth headers:', error);
   }
 
   return headers;
