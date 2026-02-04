@@ -1,7 +1,7 @@
 # CAIPE UI Ingress Configuration Guide
 
-**Date**: 2026-02-03  
-**Status**: Reference Guide  
+**Date**: 2026-02-03
+**Status**: Reference Guide
 **Type**: Configuration Documentation
 
 ## Summary
@@ -74,7 +74,7 @@ caipe-ui:
     annotations:
       # Automatic certificate provisioning
       cert-manager.io/cluster-issuer: "letsencrypt-prod"
-      
+
       # Force HTTPS
       nginx.ingress.kubernetes.io/ssl-redirect: "true"
       nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
@@ -147,19 +147,19 @@ The chart supports automatic redirects from old domains to new domains using the
 caipe-ui:
   ingress:
     enabled: true
-    
+
     # Primary domain
     hosts:
       - host: new-domain.com
         paths:
           - path: /
             pathType: Prefix
-    
+
     tls:
       - secretName: new-domain-tls
         hosts:
           - new-domain.com
-    
+
     # Redirect old domains to new domain
     redirectFrom:
       - host: old-domain.com

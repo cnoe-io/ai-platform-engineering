@@ -24,15 +24,15 @@ caipe-ui:
     mongodb:
     enabled: true  # Enable MongoDB deployment
     nameOverride: "mongodb"
-    
+
     image:
       repository: "mongo"
       tag: "7.0"
       pullPolicy: "IfNotPresent"
-    
+
     service:
       port: 27017
-    
+
     # Persistent storage configuration
     persistence:
       enabled: true
@@ -40,14 +40,14 @@ caipe-ui:
       size: 10Gi
       accessModes:
         - ReadWriteOnce
-    
+
     # Authentication (for development/testing)
     # IMPORTANT: Change these or use external secrets for production!
     auth:
       rootUsername: "admin"
       rootPassword: "changeme"  # CHANGE THIS!
       database: "caipe"
-    
+
     # Resource limits (adjust based on your needs)
     resources:
       limits:
@@ -56,7 +56,7 @@ caipe-ui:
       requests:
         cpu: 250m
         memory: 256Mi
-    
+
     # External Secrets (recommended for production)
     externalSecrets:
       enabled: false  # Set to true for production
@@ -82,26 +82,26 @@ caipe-ui:
   image:
     repository: "ghcr.io/cnoe-io/caipe-ui"
     pullPolicy: "Always"
-  
+
   service:
     port: 3000
-  
+
   # ConfigMap for non-sensitive configuration
   config:
     # Feature flags
     NEXT_PUBLIC_ENABLE_SUBAGENT_CARDS: "true"
     NEXT_PUBLIC_SSO_ENABLED: "true"
-    
+
     # MongoDB configuration
     NEXT_PUBLIC_MONGODB_ENABLED: "true"
     MONGODB_DATABASE: "caipe"
-    
+
     # NextAuth URL
     NEXTAUTH_URL: "http://localhost:3000"  # Change to your domain
-    
+
     # Node environment
     NODE_ENV: "production"
-    
+
     # Branding
     NEXT_PUBLIC_TAGLINE: "Multi-Agent Workflow Automation"
     NEXT_PUBLIC_DESCRIPTION: "Where Humans and AI agents collaborate to deliver high quality outcomes."
@@ -109,15 +109,15 @@ caipe-ui:
     NEXT_PUBLIC_LOGO_URL: "/logo.svg"
     NEXT_PUBLIC_SHOW_POWERED_BY: "false"
     NEXT_PUBLIC_PREVIEW_MODE: "false"
-    
+
     # OIDC configuration (non-sensitive)
     OIDC_REQUIRED_GROUP: "app-users"
     OIDC_REQUIRED_ADMIN_GROUP: "app-admins"
     OIDC_ENABLE_REFRESH_TOKEN: "true"
-    
+
     # Support email
     NEXT_PUBLIC_SUPPORT_EMAIL: "support@example.com"
-  
+
   # External Secrets for sensitive data (OIDC, NextAuth, MongoDB URI, Langfuse)
   externalSecrets:
     enabled: false  # Set to true for production
@@ -131,7 +131,7 @@ caipe-ui:
         remoteRef:
           key: dev/caipe-ui
           property: NEXTAUTH_SECRET
-      
+
       # OIDC credentials
       - secretKey: OIDC_ISSUER
         remoteRef:
@@ -145,14 +145,14 @@ caipe-ui:
         remoteRef:
           key: dev/caipe-ui
           property: OIDC_CLIENT_SECRET
-      
+
       # MongoDB connection URI
       # Format: mongodb://username:password@ai-platform-engineering-mongodb:27017
       - secretKey: MONGODB_URI
         remoteRef:
           key: dev/caipe-ui
           property: MONGODB_URI
-      
+
       # Langfuse (optional - for user feedback tracking)
       - secretKey: LANGFUSE_SECRET_KEY
         remoteRef:

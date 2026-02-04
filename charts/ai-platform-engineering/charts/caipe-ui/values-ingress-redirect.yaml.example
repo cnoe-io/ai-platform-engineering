@@ -9,34 +9,34 @@
 ingress:
   enabled: true
   className: "nginx"
-  
+
   annotations:
     # TLS/SSL Configuration (customize for your cert manager)
     cert-manager.io/cluster-issuer: "letsencrypt-prod"
-    
+
     # Force HTTPS
     nginx.ingress.kubernetes.io/ssl-redirect: "true"
     nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
-    
+
     # Security headers (optional but recommended)
     nginx.ingress.kubernetes.io/configuration-snippet: |
       more_set_headers "X-Frame-Options: SAMEORIGIN";
       more_set_headers "X-Content-Type-Options: nosniff";
       more_set_headers "X-XSS-Protection: 1; mode=block";
-  
+
   # Primary host configuration
   hosts:
     - host: your-new-domain.com  # Replace with your new domain
       paths:
         - path: /
           pathType: Prefix
-  
+
   # TLS configuration
   tls:
     - secretName: your-new-domain-tls  # Replace with your TLS secret name
       hosts:
         - your-new-domain.com
-  
+
   # Redirect configuration (optional)
   # Creates separate ingress resources for redirecting old domains to new domain
   # This feature requires the ingress-redirect.yaml template

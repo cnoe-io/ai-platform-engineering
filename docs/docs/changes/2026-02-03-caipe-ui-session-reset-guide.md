@@ -1,7 +1,7 @@
 # CAIPE UI Session Reset & Cookie Management Guide
 
-**Date**: 2026-02-03  
-**Status**: Troubleshooting Guide  
+**Date**: 2026-02-03
+**Status**: Troubleshooting Guide
 **Type**: Operations Documentation
 
 ## Summary
@@ -102,16 +102,16 @@ setTimeout(() => {
 const handleReset = () => {
   // Clear localStorage
   localStorage.clear();
-  
+
   // Clear sessionStorage
   sessionStorage.clear();
-  
+
   // Clear ALL cookies (not just signOut)
   document.cookie.split(";").forEach((c) => {
     document.cookie = c.replace(/^ +/, "")
       .replace(/=.*/, "=;expires=" + new Date().toUTCString() + ";path=/");
   });
-  
+
   // Force redirect (bypasses any NextAuth state)
   window.location.href = '/login?session_reset=manual';
 };
@@ -230,10 +230,10 @@ NEXT_PUBLIC_SSO_ENABLED=false
    # Stop all
    docker-compose down
    cd ui && rm -rf .next
-   
+
    # Start MongoDB
    docker-compose up -d mongodb
-   
+
    # Start UI
    npm run dev
    ```
@@ -278,7 +278,7 @@ NEXT_PUBLIC_SSO_ENABLED=false
 
 2. **No More Manual Cookie Deletion**: Automatic recovery handles all scenarios
 
-3. **Clear User Feedback**: 
+3. **Clear User Feedback**:
    - Shows exact step ("Checking authentication...", "Verifying authorization...")
    - Progress indication (spinner)
    - Emergency reset button after 5s
@@ -320,5 +320,5 @@ If problems persist after these fixes:
 
 ---
 
-**Last Updated**: 2026-02-03  
+**Last Updated**: 2026-02-03
 **Version**: 2.0 (Automatic Recovery Edition)

@@ -1,7 +1,7 @@
 # MongoDB Helm Subchart for CAIPE UI Persistence
 
-**Date**: 2026-02-03  
-**Status**: Implemented  
+**Date**: 2026-02-03
+**Status**: Implemented
 **Type**: Feature Addition
 
 ## Summary
@@ -200,7 +200,7 @@ Created comprehensive guides:
 ### Alternative 1: External MongoDB Requirement
 **Rejected**: Too complex for users, requires separate deployment and management
 
-**Pros**: 
+**Pros**:
 - No changes to Helm chart
 - Users control MongoDB version and configuration
 

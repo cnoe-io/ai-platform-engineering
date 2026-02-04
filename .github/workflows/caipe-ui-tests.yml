@@ -48,7 +48,7 @@ jobs:
         working-directory: ui
         continue-on-error: true
         run: npm test -- --coverage --coverageReporters=text --coverageReporters=json-summary
-      
+
       - name: Set test results
         id: test-results
         run: |
@@ -70,18 +70,18 @@ jobs:
             node -e "
               const coverage = require('./coverage/coverage-summary.json');
               const total = coverage.total;
-              
+
               // Calculate overall percentage
               const overall = Math.round(
                 (total.lines.pct + total.statements.pct + total.functions.pct + total.branches.pct) / 4
               );
-              
+
               // Extract individual metrics
               const lines = total.lines.pct.toFixed(2);
               const statements = total.statements.pct.toFixed(2);
               const functions = total.functions.pct.toFixed(2);
               const branches = total.branches.pct.toFixed(2);
-              
+
               const linesCovered = total.lines.covered;
               const linesTotal = total.lines.total;
               const stmtsCovered = total.statements.covered;
@@ -90,7 +90,7 @@ jobs:
               const funcsTotal = total.functions.total;
               const branchesCovered = total.branches.covered;
               const branchesTotal = total.branches.total;
-              
+
               console.log('percentage=' + overall);
               console.log('lines=' + lines);
               console.log('statements=' + statements);
@@ -104,7 +104,7 @@ jobs:
               console.log('funcsTotal=' + funcsTotal);
               console.log('branchesCovered=' + branchesCovered);
               console.log('branchesTotal=' + branchesTotal);
-              
+
               // Find files with lowest coverage
               const files = Object.entries(coverage)
                 .filter(([path]) => path !== 'total')
@@ -116,7 +116,7 @@ jobs:
                 }))
                 .sort((a, b) => a.coverage - b.coverage)
                 .slice(0, 10);
-              
+
               console.log('lowCoverageFiles=' + JSON.stringify(files));
             " >> $GITHUB_OUTPUT
             echo "✅ Coverage extracted successfully"
@@ -146,19 +146,19 @@ jobs:
             const funcsTotal = '${{ steps.coverage.outputs.funcsTotal }}' || '0';
             const branchesCovered = '${{ steps.coverage.outputs.branchesCovered }}' || '0';
             const branchesTotal = '${{ steps.coverage.outputs.branchesTotal }}' || '0';
-            
+
             // Test status section
-            const testStatusText = testStatus === 'passed' 
-              ? '✅ **All tests passed**' 
+            const testStatusText = testStatus === 'passed'
+              ? '✅ **All tests passed**'
               : '❌ **Tests failed** - Please review the logs';
-            
+
             // Create coverage badge color
             let badgeColor = 'red';
             let statusEmoji = '🔴';
             if (percentage >= 80) { badgeColor = 'brightgreen'; statusEmoji = '🟢'; }
             else if (percentage >= 60) { badgeColor = 'yellow'; statusEmoji = '🟡'; }
             else if (percentage >= 40) { badgeColor = 'orange'; statusEmoji = '🟠'; }
-            
+
             // Create metric badges
             const getMetricBadge = (pct, name) => {
               let color = 'red';
@@ -167,80 +167,80 @@ jobs:
               else if (pct >= 40) color = 'orange';
               return '![' + name + '](https://img.shields.io/badge/' + name + '-' + pct + '%25-' + color + ')';
             };
-            
+
             const comment = `## 🧪 CAIPE UI Test Results
-            
+
             ${testStatusText}
-            
+
             ### ${statusEmoji} Overall Coverage: ${percentage}%
-            
+
             ![Coverage](https://img.shields.io/badge/overall-${percentage}%25-${badgeColor})
             ${getMetricBadge(lines, 'lines')}
             ${getMetricBadge(statements, 'statements')}
             ${getMetricBadge(functions, 'functions')}
             ${getMetricBadge(branches, 'branches')}
-            
+
             ### 📊 Detailed Coverage
-            
+
             | Metric | Covered | Total | Percentage |
             |--------|---------|-------|------------|
             | **Lines** | ${linesCovered} | ${linesTotal} | ${lines}% |
             | **Statements** | ${stmtsCovered} | ${stmtsTotal} | ${statements}% |
             | **Functions** | ${funcsCovered} | ${funcsTotal} | ${functions}% |
             | **Branches** | ${branchesCovered} | ${branchesTotal} | ${branches}% |
-            
+
             ### ✅ Test Suites
-            
+
             - ✅ auth-guard.test.tsx - Route protection & authorization
             - ✅ token-expiry-guard.test.tsx - Token expiry handling
             - ✅ a2a-sdk-client.test.ts - A2A streaming SDK
             - ✅ auth-utils.test.ts - Authentication utilities (100% coverage)
             - ✅ auth-config.test.ts - OIDC configuration
-            
+
             <details>
             <summary>📈 Coverage Thresholds</summary>
-            
+
             | Threshold | Target | Current | Status |
             |-----------|--------|---------|--------|
             | Minimum | 40% | ${percentage}% | ${percentage >= 40 ? '✅ Pass' : '❌ Fail'} |
             | Good | 60% | ${percentage}% | ${percentage >= 60 ? '✅ Pass' : '⚠️ Below target'} |
             | Excellent | 80% | ${percentage}% | ${percentage >= 80 ? '✅ Pass' : '⚠️ Below target'} |
-            
+
             </details>
-            
+
             <details>
             <summary>⚠️ Areas Needing Tests</summary>
-            
+
             **High Priority:**
             - hooks/use-a2a-streaming.ts - Core streaming functionality
             - store/chat-store.ts - Chat state management
             - store/agent-config-store.ts - Agent configuration
             - lib/api-client.ts - API communication
             - lib/storage-mode.ts - MongoDB/localStorage switching
-            
+
             **Medium Priority:**
             - components/chat/ChatPanel.tsx - Main chat interface
             - components/agent-builder/* - Agent builder UI
             - lib/mongodb.ts - MongoDB integration
-            
+
             </details>
-            
+
             ---
-            
-            💡 **Run locally:** make caipe-ui-tests  
+
+            💡 **Run locally:** make caipe-ui-tests
             📦 **Full report:** Check workflow artifacts`;
-            
+
             // Find existing comment
             const { data: comments } = await github.rest.issues.listComments({
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: context.issue.number,
             });
-            
-            const existingComment = comments.find(c => 
+
+            const existingComment = comments.find(c =>
               c.user.type === 'Bot' && c.body.includes('🧪 CAIPE UI Test Results')
             );
-            
+
             if (existingComment) {
               await github.rest.issues.updateComment({
                 owner: context.repo.owner,
@@ -264,7 +264,7 @@ jobs:
           name: coverage-report
           path: ui/coverage/
           retention-days: 7
-      
+
       - name: Fail if tests failed
         if: steps.jest.outcome == 'failure'
         run: |
