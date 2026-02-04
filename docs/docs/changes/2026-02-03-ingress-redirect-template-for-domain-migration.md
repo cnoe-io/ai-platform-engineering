@@ -1,7 +1,7 @@
 # Ingress Redirect Template for Domain Migration
 
-**Date**: 2026-02-03  
-**Status**: Implemented  
+**Date**: 2026-02-03
+**Status**: Implemented
 **Type**: Feature Addition
 
 ## Summary
@@ -47,7 +47,7 @@ caipe-ui:
         paths:
           - path: /
             pathType: Prefix
-    
+
     # Redirect old domains
     redirectFrom:
       - host: old-domain.com
@@ -143,7 +143,7 @@ ingress:
       paths:
         - path: /
           pathType: Prefix
-  
+
   redirectFrom:
     - host: old-domain-1.com
       redirectTo: "https://new-domain.com"
