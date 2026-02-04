@@ -35,7 +35,6 @@ from common.models.server import (
 from common.models.rag import DataSourceInfo, IngestorInfo, valid_metadata_keys
 from common.models.rbac import Role, UserContext, UserInfoResponse
 from server.rbac import (
-    require_authenticated_user,
     get_user_or_anonymous,
     require_role,
     has_permission,
@@ -1344,7 +1343,7 @@ async def _reverse_proxy(request: Request):
     its own RBAC implementation since it's only accessible through this proxy.
     """
     # Manually invoke the RBAC check since app.add_route doesn't support Depends()
-    user = await get_current_user(request)
+    user = await get_user_or_anonymous(request)
     
     # Determine required role based on method and path
     # GET /status endpoints are read-only, allow READONLY access
