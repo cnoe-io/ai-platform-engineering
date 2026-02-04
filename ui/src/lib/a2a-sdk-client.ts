@@ -32,7 +32,6 @@ import { v4 as uuidv4 } from "uuid";
 
 // Re-export types for convenience
 export type A2AStreamEvent = Message | Task | TaskStatusUpdateEvent | TaskArtifactUpdateEvent;
-export type { HITLInputField, HITLFormData, HITLDecision };
 
 export interface A2ASDKClientConfig {
   /** The A2A endpoint URL (e.g., http://localhost:8000) */

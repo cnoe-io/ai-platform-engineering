@@ -136,8 +136,12 @@ affinity: {}
 
 # Environment variables (non-sensitive configuration)
 env:
-  # CAIPE Supervisor URL - should point to the supervisor-agent service
-  NEXT_PUBLIC_A2A_BASE_URL: "http://ai-platform-engineering-supervisor-agent:8000"
+  # NEXT_PUBLIC_A2A_BASE_URL (REQUIRED for production):
+  #   The URL that browsers use to reach the CAIPE agent.
+  #   Must be set to your external/ingress URL for production deployments.
+  #   Example: "https://caipe-api.example.com"
+  #   Default "http://localhost:8000" only works for local development.
+  NEXT_PUBLIC_A2A_BASE_URL: "http://localhost:8000"
 
 # ConfigMap for non-sensitive configuration
 # These values are mounted as environment variables to the pod

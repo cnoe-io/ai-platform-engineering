@@ -795,8 +795,8 @@ Deploy App to Common Cluster:
         - environment (optional): Target environment (dev/staging/prod, default: dev)
         - app_namespace (optional): Kubernetes namespace (default: {app_name}-{environment})
         - app_deployment_repo (optional): Deployment repo name (default: {app_name}-deployment)
-        - cluster_name (optional): Target cluster name (default: comn-dev-use2-1)
-        - cluster_address (optional): Target cluster API address (default: https://A9EDA6D83ABE1896B92C50B3BACC7C27.gr7.us-east-2.eks.amazonaws.com)
+        - cluster_name (optional): Target cluster name (default: ${DEFAULT_CLUSTER_NAME})
+        - cluster_address (optional): Target cluster API address (default: ${DEFAULT_CLUSTER_ADDRESS})
         - org_name (required): GitHub organization (one of: ${GITHUB_ORGS})
         - user_email (required): Requester's corporate email
         
@@ -862,8 +862,8 @@ Deploy App to Common Cluster:
         - environment: dev
         - app_namespace: {app_name}-{environment}
         - app_deployment_repo: {app_name}-deployment
-        - cluster_name: comn-dev-use2-1
-        - cluster_address: https://A9EDA6D83ABE1896B92C50B3BACC7C27.gr7.us-east-2.eks.amazonaws.com
+        - cluster_name: ${DEFAULT_CLUSTER_NAME}
+        - cluster_address: ${DEFAULT_CLUSTER_ADDRESS}
         
         Process each template by replacing placeholders:
         - {{ .APP_NAME }} -> {app_name}

@@ -1,25 +1,32 @@
 # ============================================================================
-# CAIPE DOCKER COMPOSE DEV CONFIGURATION
+# CAIPE DOCKER COMPOSE DEV CONFIGURATION - SINGLE NODE DEEP AGENT
 # ============================================================================
-# Development version of docker-compose.yaml with local builds and file mounts.
-# For setup instructions and agent orchestration details, refer to:
+# Development version with local builds and file mounts.
+# For setup instructions, refer to:
 #   https://cnoe-io.github.io/ai-platform-engineering/getting-started/quick-start
 #
-# This docker-compose file supports P2P and SLIM transport via profiles.
-# Agent selection and configuration are controlled through environment variables
-# in the .env file—see documentation for full list and descriptions.
+# This docker-compose runs the CAIPE deep agent as a single container with
+# MCP tools loaded in-process via stdio transport.
+#
+# Optional profiles:
+#   - tracing: Enable Langfuse tracing
+#   - rag: Enable RAG services
+#   - graph_rag: Enable RAG with graph database
+#   - caipe-ui: Enable CAIPE web UI
+#
+# Example: docker compose -f docker-compose.dev.yaml --profile tracing up
 # ============================================================================
 
 services:
 
   ####################################################################################################
-  #                                 CAIPE Supervisor Deep Agent                                      #
+  #                                    CAIPE Deep Agent                                             #
   ####################################################################################################
-  caipe-supervisor:
+  caipe:
     build:
       context: .
       dockerfile: build/Dockerfile
-    container_name: caipe-supervisor
+    container_name: caipe-dev
     volumes:
       - ${PROMPT_CONFIG_PATH:-./charts/ai-platform-engineering/data/prompt_config.deep_agent.yaml}:/app/prompt_config.yaml
       - ./ai_platform_engineering:/app/ai_platform_engineering
@@ -28,66 +35,15 @@ services:
     ports:
       - "8000:8000"
     environment:
-      # A2A transport configuration (p2p or slim)
-      - A2A_TRANSPORT=${A2A_TRANSPORT:-p2p}
       # Prompt configuration file path
-      - PROMPT_CONFIG_PATH=${PROMPT_CONFIG_PATH:-./prompt_config.yaml}
-
-      # Slim dataplane endpoint configuration
-      - SLIM_ENDPOINT=${SLIM_ENDPOINT:-http://slim-dataplane:46357}
-
-      # Agent connectivity configuration
-      - AGENT_CONNECTIVITY_ENABLE_BACKGROUND=${AGENT_CONNECTIVITY_ENABLE_BACKGROUND:-true}
-      - SKIP_AGENT_CONNECTIVITY_CHECK=${SKIP_AGENT_CONNECTIVITY_CHECK:-false}
-      - ENABLE_ARTIFACT_STREAMING=true
-
-      # Agent hostname mappings for agent connectivity.
-      # These environment variables allow the CAIPE agent to connect to sub-agents for multi-agent orchestration.
-      # If you add new agents/services, include a corresponding *_AGENT_HOST assignment below.
-      - ARGOCD_AGENT_HOST=agent-argocd
-      - AWS_AGENT_HOST=agent-aws
-      - BACKSTAGE_AGENT_HOST=agent-backstage
-      - CONFLUENCE_AGENT_HOST=agent-confluence
-      - GITLAB_AGENT_HOST=agent-gitlab
-      - GITHUB_AGENT_HOST=agent-github
-      - JIRA_AGENT_HOST=agent-jira
-      - KOMODOR_AGENT_HOST=agent-komodor
-      - PAGERDUTY_AGENT_HOST=agent-pagerduty
-      - PETSTORE_AGENT_HOST=agent-petstore
-      - SLACK_AGENT_HOST=agent-slack
-      - SPLUNK_AGENT_HOST=agent-splunk
-      - WEATHER_AGENT_HOST=agent-weather
-      - WEBEX_AGENT_HOST=agent-webex
-
-      # RAG Service Configuration
-      - RAG_SERVER_URL=${RAG_SERVER_URL:-http://rag_server:9446}
-      - ENABLE_RAG=${ENABLE_RAG:-false}
+      - PROMPT_CONFIG_PATH=/app/prompt_config.yaml
 
       # GitHub Token for git operations
       - GITHUB_TOKEN=${GITHUB_PERSONAL_ACCESS_TOKEN}
 
-      # The following ENABLE_* environment variables control the activation of individual sub-agents for multi-agent orchestration.
-      # In .env file, set each variable to 'true' to enable the corresponding agent, or 'false' to disable it.
-      # Example: ENABLE_ARGOCD=true enables the ArgoCD agent, allowing the platform engineer to route tasks related to Kubernetes application management.
-      # These flags allow you to fine-tune which domain-specific agents are available as tools to the main platform engineer agent at runtime.
-      # Update these variables as needed based on your deployment requirements, security posture, or available agent containers.
-
-      - ENABLE_ARGOCD=${ENABLE_ARGOCD:-false}
-      - ENABLE_AWS=${ENABLE_AWS:-false}
-      - ENABLE_BACKSTAGE=${ENABLE_BACKSTAGE:-false}
-      - ENABLE_CONFLUENCE=${ENABLE_CONFLUENCE:-false}
-      - ENABLE_GITHUB=${ENABLE_GITHUB:-false}
-      - ENABLE_GITLAB=${ENABLE_GITLAB:-false}
-      - ENABLE_JIRA=${ENABLE_JIRA:-false}
-      - ENABLE_KOMODOR=${ENABLE_KOMODOR:-false}
-      - ENABLE_PAGERDUTY=${ENABLE_PAGERDUTY:-false}
-      - ENABLE_PETSTORE=${ENABLE_PETSTORE:-false}
+      # RAG Service Configuration
+      - RAG_SERVER_URL=${RAG_SERVER_URL:-http://rag_server:9446}
       - ENABLE_RAG=${ENABLE_RAG:-false}
-      - ENABLE_SLACK=${ENABLE_SLACK:-false}
-      - ENABLE_SPLUNK=${ENABLE_SPLUNK:-false}
-      - ENABLE_WEBEX=${ENABLE_WEBEX:-false}
-      - ENABLE_WEBEX=${ENABLE_WEBEX:-false}
-      - ENABLE_WEATHER=${ENABLE_WEATHER:-false}
 
       # Tracing configuration (will be read from .env if ENABLE_TRACING=true)
       - ENABLE_TRACING=${ENABLE_TRACING:-false}
@@ -97,707 +53,37 @@ services:
       - LANGFUSE_SESSION_ID=${LANGFUSE_SESSION_ID:-ai-platform-engineering}
       - LANGFUSE_USER_ID=${LANGFUSE_USER_ID:-platform-engineer}
       - OTEL_EXPORTER_OTLP_TIMEOUT=${OTEL_EXPORTER_OTLP_TIMEOUT:-30000}
+
+      # Artifact streaming
+      - ENABLE_ARTIFACT_STREAMING=true
     command: platform-engineer
 
   ####################################################################################################
-  #                                      SLIM Transport                                              #
+  #                                       CAIPE UI                                                  #
   ####################################################################################################
-  slim-dataplane:
-    image: ghcr.io/agntcy/slim:0.6.1
-    container_name: slim-dataplane
-    ports: ["46357:46357"]
-    environment:
-      - PASSWORD=${SLIM_GATEWAY_PASSWORD:-dummy_password}
-      - CONFIG_PATH=/config.yaml
-    volumes: ["./slim-config.yaml:/config.yaml"]
-    command: ["/slim", "--config", "/config.yaml"]
-    profiles:
-      - slim
-
-  slim-control-plane:
-    image: ghcr.io/agntcy/slim/control-plane:0.0.1
-    container_name: slim-control-plane
-    ports: ["50051:50051", "50052:50052"]
-    environment:
-      - PASSWORD=${SLIM_GATEWAY_PASSWORD:-dummy_password}
-      - CONFIG_PATH=/config.yaml
-    volumes: ["./slim-config.yaml:/config.yaml"]
-    command: ["/slim", "--config", "/config.yaml"]
-    profiles:
-      - slim
-
-  ####################################################################################################
-  #                                         Sub-Agents                                               #
-  ####################################################################################################
-  # AWS Agent
-  agent-aws:
-    build:
-      context: .
-      dockerfile: build/agents/Dockerfile.a2a
-      args:
-        - AGENT_NAME=aws
-    container_name: agent-aws
-    volumes:
-      - ./charts/ai-platform-engineering/data/prompt_config.aws_agent.yaml:/app/prompt_config.aws_agent.yaml
-      # Mount only agent_aws subdirectory to preserve .venv from build
-      - ./ai_platform_engineering/agents/aws/agent_aws:/app/ai_platform_engineering/agents/agent/agent_aws
-      - ./ai_platform_engineering/utils:/app/ai_platform_engineering/utils
-    env_file: [.env]
-    ports: ["8012:8000"]
-    environment:
-      - A2A_TRANSPORT=${A2A_TRANSPORT:-p2p}
-      - MCP_MODE=http
-      - SLIM_ENDPOINT=${SLIM_ENDPOINT:-http://slim-dataplane:46357}
-      - AWS_AGENT_BACKEND=${AWS_AGENT_BACKEND:-langgraph}
-      - ENABLE_TRACING=${ENABLE_TRACING:-false}
-      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
-      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
-      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
-      - OTEL_EXPORTER_OTLP_TIMEOUT=${OTEL_EXPORTER_OTLP_TIMEOUT:-30000}
-      - AWS_REGION=${AWS_REGION}
-      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
-      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
-      - ENABLE_EKS_MCP=${ENABLE_EKS_MCP:-false}
-      - ENABLE_COST_EXPLORER_MCP=${ENABLE_COST_EXPLORER_MCP:-false}
-      - ENABLE_IAM_MCP=${ENABLE_IAM_MCP:-false}
-      - IAM_MCP_READONLY=${IAM_MCP_READONLY:-true}
-      - USE_AWS_CLI_AS_TOOL=${USE_AWS_CLI_AS_TOOL:-true}
-      # Multi-account support - format: "name1:id1,name2:id2" or just "id1,id2"
-      - DEFAULT_AWS_ACCOUNT_ID=${DEFAULT_AWS_ACCOUNT_ID:-outshift-common-dev:123456789012}
-      - AWS_ACCOUNT_LIST=${AWS_ACCOUNT_LIST:-account1:123456789012,account2:123456789013}
-      - CROSS_ACCOUNT_ROLE_NAME=${CROSS_ACCOUNT_ROLE_NAME:-caipe-read-only}
-      - STRANDS_LOG_LEVEL=${STRANDS_LOG_LEVEL:-INFO}
-      - FASTMCP_LOG_LEVEL=${FASTMCP_LOG_LEVEL:-ERROR}
-    profiles:
-      - aws
-      - all-agents
-
-  # Petstore Agent
-  agent-petstore:
-    build:
-      context: .
-      dockerfile: build/agents/Dockerfile.a2a
-      args:
-        - AGENT_NAME=template
-        - AGENT_PACKAGE=petstore
-    container_name: agent-petstore
-    volumes:
-      - ./charts/ai-platform-engineering/data/prompt_config.petstore_agent.yaml:/app/prompt_config.petstore_agent.yaml
-      # Mount template agent directory (petstore uses template)
-      - ./ai_platform_engineering/agents/template/agent_petstore:/app/ai_platform_engineering/agents/agent/agent_petstore
-      - ./ai_platform_engineering/utils:/app/ai_platform_engineering/utils
-    env_file: [.env]
-    ports: ["8013:8000"]
-    environment:
-      - A2A_TRANSPORT=${A2A_TRANSPORT:-p2p}
-      - MCP_MODE=http
-      - MCP_PORT=443
-      - MCP_HOST=petstore.outshift.io
-      - PETSTORE_API_KEY=${PETSTORE_API_KEY}
-      - SLIM_ENDPOINT=${SLIM_ENDPOINT:-http://slim-dataplane:46357}
-      - ENABLE_TRACING=${ENABLE_TRACING:-false}
-      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
-      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
-      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
-      - OTEL_EXPORTER_OTLP_TIMEOUT=${OTEL_EXPORTER_OTLP_TIMEOUT:-30000}
-    profiles:
-      - petstore
-      - all-agents
-
-  # GitHub
-  agent-github:
-    build:
-      context: .
-      dockerfile: build/agents/Dockerfile.a2a
-      args:
-        - AGENT_NAME=github
-    container_name: agent-github
-    volumes:
-      - ./charts/ai-platform-engineering/data/prompt_config.github_agent.yaml:/app/prompt_config.github_agent.yaml
-      - ./ai_platform_engineering/agents/github/agent_github:/app/ai_platform_engineering/agents/agent/agent_github
-      - ./ai_platform_engineering/utils:/app/ai_platform_engineering/utils
-    env_file: [.env]
-    ports: ["8001:8000"]
-    environment:
-      - A2A_TRANSPORT=${A2A_TRANSPORT:-p2p}
-      - MCP_MODE=http
-      - SLIM_ENDPOINT=${SLIM_ENDPOINT:-http://slim-dataplane:46357}
-      - ENABLE_TRACING=${ENABLE_TRACING:-false}
-      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
-      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
-      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
-      - OTEL_EXPORTER_OTLP_TIMEOUT=${OTEL_EXPORTER_OTLP_TIMEOUT:-30000}
-      - GH_TOKEN=${GITHUB_PERSONAL_ACCESS_TOKEN}  # gh CLI authentication
-    # Docker socket mount is only needed when MCP_MODE=stdio
-    # For local Github Offical MCP server execution.
-    # Uncomment this when MCP_MODE=stdio is supported
-    # volumes: ["/var/run/docker.sock:/var/run/docker.sock"]
-    profiles:
-      - github
-      - all-agents
-
-  # GitLab
-  agent-gitlab:
-    build:
-      context: .
-      dockerfile: build/agents/Dockerfile.a2a
-      args:
-        - AGENT_NAME=gitlab # key for tracing
-    container_name: agent-gitlab
-    volumes:
-      - ./charts/ai-platform-engineering/data/prompt_config.gitlab_agent.yaml:/app/prompt_config.gitlab_agent.yaml
-      - ./ai_platform_engineering/agents/gitlab/agent_gitlab:/app/ai_platform_engineering/agents/agent/agent_gitlab
-      - ./ai_platform_engineering/utils:/app/ai_platform_engineering/utils
-    env_file: [.env]
-    ports: ["8014:8000"]
-    environment:
-      - A2A_TRANSPORT=${A2A_TRANSPORT:-p2p}
-      - MCP_MODE=stdio
-      - SLIM_ENDPOINT=${SLIM_ENDPOINT:-http://slim-dataplane:46357}
-      - ENABLE_TRACING=${ENABLE_TRACING:-false}
-      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
-      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
-      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
-      - OTEL_EXPORTER_OTLP_TIMEOUT=${OTEL_EXPORTER_OTLP_TIMEOUT:-30000}
-    profiles:
-      - gitlab
-      - all-agents
-
-  # Weather Agent
-  agent-weather:
-    build:
-      context: .
-      dockerfile: build/agents/Dockerfile.a2a
-      args:
-        - AGENT_NAME=weather
-    container_name: agent-weather
-    volumes:
-      - ./charts/ai-platform-engineering/data/prompt_config.weather_agent.yaml:/app/prompt_config.weather_agent.yaml
-      - ./ai_platform_engineering/agents/weather/agent_weather:/app/ai_platform_engineering/agents/agent/agent_weather
-      - ./ai_platform_engineering/utils:/app/ai_platform_engineering/utils
-    env_file: [.env]
-    ports: ["8002:8000"]
-    environment:
-      - A2A_TRANSPORT=${A2A_TRANSPORT:-p2p}
-      - MCP_MODE=http
-      - MCP_HOST=weather.outshift.io
-      - MCP_PORT=8000
-      - SLIM_ENDPOINT=${SLIM_ENDPOINT:-http://slim-dataplane:46357}
-    profiles:
-      - weather
-      - all-agents
-
-  # Backstage Agent
-  agent-backstage:
-    build:
-      context: .
-      dockerfile: build/agents/Dockerfile.a2a
-      args:
-        - AGENT_NAME=backstage
-    container_name: agent-backstage
-    volumes:
-      - ./charts/ai-platform-engineering/data/prompt_config.backstage_agent.yaml:/app/prompt_config.backstage_agent.yaml
-      - ./ai_platform_engineering/agents/backstage/agent_backstage:/app/ai_platform_engineering/agents/agent/agent_backstage
-      - ./ai_platform_engineering/utils:/app/ai_platform_engineering/utils
-    env_file: [.env]
-    ports: ["8003:8000"]
-    environment:
-      - A2A_TRANSPORT=${A2A_TRANSPORT:-p2p}
-      - MCP_MODE=http
-      - MCP_HOST=mcp-backstage
-      - MCP_PORT=8000
-      - SLIM_ENDPOINT=${SLIM_ENDPOINT:-http://slim-dataplane:46357}
-    depends_on:
-      mcp-backstage:
-        condition: service_healthy
-    profiles:
-      - backstage
-      - all-agents
-
-  mcp-backstage:
-    build:
-      context: .
-      dockerfile: build/agents/Dockerfile.mcp
-      args:
-        - AGENT_NAME=backstage
-    container_name: mcp-backstage
-    env_file: [.env]
-    ports: ["18001:8000"]
-    volumes:
-      - ./ai_platform_engineering/agents/backstage/mcp/mcp_backstage:/app/mcp_backstage
-    environment:
-      - MCP_MODE=http
-      - MCP_HOST=0.0.0.0
-      - MCP_PORT=8000
-    healthcheck:
-      test: ["CMD", "python", "-c", "import socket; s=socket.socket(); s.settimeout(1); result=s.connect_ex(('localhost', 8000)); s.close(); exit(0 if result == 0 else 1)"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 15s
-    profiles:
-      - backstage
-      - all-agents
-
-  # ArgoCD Agents
-  agent-argocd:
-    build:
-      context: .
-      dockerfile: build/agents/Dockerfile.a2a
-      args:
-        - AGENT_NAME=argocd
-    container_name: agent-argocd
-    volumes:
-      - ./charts/ai-platform-engineering/data/prompt_config.argocd_agent.yaml:/app/prompt_config.argocd_agent.yaml
-      - ./ai_platform_engineering/agents/argocd/agent_argocd:/app/ai_platform_engineering/agents/agent/agent_argocd
-      - ./ai_platform_engineering/utils:/app/ai_platform_engineering/utils
-    env_file: [.env]
-    ports: ["8004:8000"]
-    environment:
-      - A2A_TRANSPORT=${A2A_TRANSPORT:-p2p}
-      - MCP_MODE=http
-      - MCP_HOST=mcp-argocd
-      - MCP_PORT=8000
-      - SLIM_ENDPOINT=${SLIM_ENDPOINT:-http://slim-dataplane:46357}
-    depends_on:
-      mcp-argocd:
-        condition: service_healthy
-    profiles:
-      - argocd
-      - all-agents
-
-  mcp-argocd:
-    build:
-      context: .
-      dockerfile: build/agents/Dockerfile.mcp
-      args:
-        - AGENT_NAME=argocd
-    container_name: mcp-argocd
-    env_file: [.env]
-    ports: ["18002:8000"]
-    volumes:
-      - ./ai_platform_engineering/agents/argocd/mcp/mcp_argocd:/app/mcp_argocd
-    environment:
-      - MCP_MODE=http
-      - MCP_HOST=0.0.0.0
-      - MCP_PORT=8000
-    healthcheck:
-      test: ["CMD", "python", "-c", "import socket; s=socket.socket(); s.settimeout(1); result=s.connect_ex(('localhost', 8000)); s.close(); exit(0 if result == 0 else 1)"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 15s
-    profiles:
-      - argocd
-      - all-agents
-
-  # Confluence Agents
-  agent-confluence:
-    build:
-      context: .
-      dockerfile: build/agents/Dockerfile.a2a
-      args:
-        - AGENT_NAME=confluence
-    container_name: agent-confluence
-    volumes:
-      - ./charts/ai-platform-engineering/data/prompt_config.confluence_agent.yaml:/app/prompt_config.confluence_agent.yaml
-      - ./ai_platform_engineering/agents/confluence/agent_confluence:/app/ai_platform_engineering/agents/agent/agent_confluence
-      - ./ai_platform_engineering/utils:/app/ai_platform_engineering/utils
-    env_file: [.env]
-    ports: ["8005:8000"]
-    environment:
-      - A2A_TRANSPORT=${A2A_TRANSPORT:-p2p}
-      - MCP_MODE=http
-      - MCP_HOST=mcp-confluence
-      - MCP_PORT=8000
-      - SLIM_ENDPOINT=${SLIM_ENDPOINT:-http://slim-dataplane:46357}
-    depends_on:
-      mcp-confluence:
-        condition: service_started
-    profiles:
-      - confluence
-      - all-agents
-
-  mcp-confluence:
-    image: ghcr.io/sooperset/mcp-atlassian:latest
-    container_name: mcp-confluence
-    env_file: [.env]
-    ports: ["18003:8000"]
-    environment:
-      - CONFLUENCE_URL=${CONFLUENCE_URL}
-      - CONFLUENCE_USERNAME=${CONFLUENCE_USERNAME}
-      - CONFLUENCE_API_TOKEN=${CONFLUENCE_API_TOKEN}
-    profiles:
-      - confluence
-      - all-agents
-
-  # Jira Agent
-  agent-jira:
-    build:
-      context: .
-      dockerfile: build/agents/Dockerfile.a2a
-      args:
-        - AGENT_NAME=jira
-    container_name: agent-jira
-    env_file: [.env]
-    volumes:
-      - ./charts/ai-platform-engineering/data/prompt_config.jira_agent.yaml:/app/prompt_config.jira_agent.yaml
-      - ./ai_platform_engineering/agents/jira/agent_jira:/app/ai_platform_engineering/agents/agent/agent_jira
-      - ./ai_platform_engineering/utils:/app/ai_platform_engineering/utils
-    ports: ["8006:8000"]
-    environment:
-      - A2A_TRANSPORT=${A2A_TRANSPORT:-p2p}
-      - MCP_MODE=http
-      - MCP_HOST=mcp-jira
-      - MCP_PORT=8000
-      - SLIM_ENDPOINT=${SLIM_ENDPOINT:-http://slim-dataplane:46357}
-    depends_on:
-      mcp-jira:
-        condition: service_healthy
-    profiles:
-      - jira
-      - all-agents
-
-  mcp-jira:
-    build:
-      context: .
-      dockerfile: build/agents/Dockerfile.mcp
-      args:
-        - AGENT_NAME=jira
-    container_name: mcp-jira
-    env_file: [.env]
-    ports: ["18004:8000"]
-    volumes:
-      - ./ai_platform_engineering/agents/jira/mcp/mcp_jira:/app/mcp_jira
-    environment:
-      - MCP_MODE=http
-      - MCP_HOST=0.0.0.0
-      - MCP_PORT=8000
-    healthcheck:
-      test: ["CMD", "python", "-c", "import socket; s=socket.socket(); s.settimeout(1); result=s.connect_ex(('localhost', 8000)); s.close(); exit(0 if result == 0 else 1)"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 15s
-    profiles:
-      - jira
-      - all-agents
-
-  # Komodor Agent
-  agent-komodor:
-    build:
-      context: .
-      dockerfile: build/agents/Dockerfile.a2a
-      args:
-        - AGENT_NAME=komodor
-    container_name: agent-komodor
-    volumes:
-      - ./charts/ai-platform-engineering/data/prompt_config.komodor_agent.yaml:/app/prompt_config.komodor_agent.yaml
-      - ./ai_platform_engineering/agents/komodor/agent_komodor:/app/ai_platform_engineering/agents/agent/agent_komodor
-      - ./ai_platform_engineering/utils:/app/ai_platform_engineering/utils
-    env_file: [.env]
-    ports: ["8007:8000"]
-    environment:
-      - A2A_TRANSPORT=${A2A_TRANSPORT:-p2p}
-      - MCP_MODE=http
-      - MCP_HOST=mcp-komodor
-      - MCP_PORT=8000
-      - SLIM_ENDPOINT=${SLIM_ENDPOINT:-http://slim-dataplane:46357}
-    depends_on:
-      mcp-komodor:
-        condition: service_healthy
-    profiles:
-      - komodor
-  mcp-komodor:
-    build:
-      context: .
-      dockerfile: build/agents/Dockerfile.mcp
-      args:
-        - AGENT_NAME=komodor
-    container_name: mcp-komodor
-    env_file: [.env]
-    ports: ["18005:8000"]
-    volumes:
-      - ./ai_platform_engineering/agents/komodor/mcp/mcp_komodor:/app/mcp_komodor
-    environment:
-      - MCP_MODE=http
-      - MCP_HOST=0.0.0.0
-      - MCP_PORT=8000
-    healthcheck:
-      test: ["CMD", "python", "-c", "import socket; s=socket.socket(); s.settimeout(1); result=s.connect_ex(('localhost', 8000)); s.close(); exit(0 if result == 0 else 1)"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 15s
-    profiles:
-      - komodor
-      - all-agents
-
-  # PagerDuty Agent
-  agent-pagerduty:
-    build:
-      context: .
-      dockerfile: build/agents/Dockerfile.a2a
-      args:
-        - AGENT_NAME=pagerduty
-    container_name: agent-pagerduty
-    volumes:
-      - ./charts/ai-platform-engineering/data/prompt_config.pagerduty_agent.yaml:/app/prompt_config.pagerduty_agent.yaml
-      - ./ai_platform_engineering/agents/pagerduty/agent_pagerduty:/app/ai_platform_engineering/agents/agent/agent_pagerduty
-      - ./ai_platform_engineering/utils:/app/ai_platform_engineering/utils
-    env_file: [.env]
-    ports: ["8008:8000"]
-    environment:
-      - A2A_TRANSPORT=${A2A_TRANSPORT:-p2p}
-      - MCP_MODE=http
-      - MCP_HOST=mcp-pagerduty
-      - MCP_PORT=8000
-      - SLIM_ENDPOINT=${SLIM_ENDPOINT:-http://slim-dataplane:46357}
-    depends_on:
-      mcp-pagerduty:
-        condition: service_healthy
-    profiles:
-      - pagerduty
-      - all-agents
-
-  mcp-pagerduty:
-    build:
-      context: .
-      dockerfile: build/agents/Dockerfile.mcp
-      args:
-        - AGENT_NAME=pagerduty
-    container_name: mcp-pagerduty
-    env_file: [.env]
-    ports: ["18006:8000"]
-    volumes:
-      - ./ai_platform_engineering/agents/pagerduty/mcp/mcp_pagerduty:/app/mcp_pagerduty
-    environment:
-      - MCP_MODE=http
-      - MCP_HOST=0.0.0.0
-      - MCP_PORT=8000
-    healthcheck:
-      test: ["CMD", "python", "-c", "import socket; s=socket.socket(); s.settimeout(1); result=s.connect_ex(('localhost', 8000)); s.close(); exit(0 if result == 0 else 1)"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 15s
-    profiles:
-      - pagerduty
-      - all-agents
-
-  # Slack Agent
-  agent-slack:
-    build:
-      context: .
-      dockerfile: build/agents/Dockerfile.a2a
-      args:
-        - AGENT_NAME=slack
-    container_name: agent-slack
-    volumes:
-      - ./charts/ai-platform-engineering/data/prompt_config.slack_agent.yaml:/app/prompt_config.slack_agent.yaml
-      - ./ai_platform_engineering/agents/slack/agent_slack:/app/ai_platform_engineering/agents/agent/agent_slack
-      - ./ai_platform_engineering/utils:/app/ai_platform_engineering/utils
-    env_file: [.env]
-    ports: ["8009:8000"]
-    environment:
-      - A2A_TRANSPORT=${A2A_TRANSPORT:-p2p}
-      - MCP_MODE=http
-      - MCP_HOST=mcp-slack
-      - MCP_PORT=8000
-      - SLIM_ENDPOINT=${SLIM_ENDPOINT:-http://slim-dataplane:46357}
-    depends_on:
-      mcp-slack:
-        condition: service_healthy
-    profiles:
-      - slack
-      - all-agents
-
-  mcp-slack:
-    build:
-      context: .
-      dockerfile: build/agents/Dockerfile.mcp
-      args:
-        - AGENT_NAME=slack
-    container_name: mcp-slack
-    env_file: [.env]
-    ports: ["18007:8000"]
-    volumes:
-      - ./ai_platform_engineering/agents/slack/mcp/mcp_slack:/app/mcp_slack
-    environment:
-      - MCP_MODE=http
-      - MCP_HOST=0.0.0.0
-      - MCP_PORT=8000
-    healthcheck:
-      test: ["CMD", "python", "-c", "import socket; s=socket.socket(); s.settimeout(1); result=s.connect_ex(('localhost', 8000)); s.close(); exit(0 if result == 0 else 1)"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 15s
-    profiles:
-      - slack
-      - all-agents
-
-  # Splunk
-  agent-splunk:
-    build:
-      context: .
-      dockerfile: build/agents/Dockerfile.a2a
-      args:
-        - AGENT_NAME=splunk
-    container_name: agent-splunk
-    volumes:
-      - ./charts/ai-platform-engineering/data/prompt_config.splunk_agent.yaml:/app/prompt_config.splunk_agent.yaml
-      - ./ai_platform_engineering/agents/splunk/agent_splunk:/app/ai_platform_engineering/agents/agent/agent_splunk
-      - ./ai_platform_engineering/utils:/app/ai_platform_engineering/utils
-    env_file: [.env]
-    ports: ["8010:8000"]
-    environment:
-      - A2A_TRANSPORT=${A2A_TRANSPORT:-p2p}
-      - MCP_MODE=http
-      - MCP_HOST=mcp-splunk
-      - MCP_PORT=8000
-      - SLIM_ENDPOINT=${SLIM_ENDPOINT:-http://slim-dataplane:46357}
-    depends_on:
-      mcp-splunk:
-        condition: service_healthy
-    profiles:
-      - splunk
-      - all-agents
-
-  mcp-splunk:
-    build:
-      context: .
-      dockerfile: build/agents/Dockerfile.mcp
-      args:
-        - AGENT_NAME=splunk
-    container_name: mcp-splunk
-    env_file: [.env]
-    ports: ["18008:8000"]
-    volumes:
-      - ./ai_platform_engineering/agents/splunk/mcp/mcp_splunk:/app/mcp_splunk
-    environment:
-      - MCP_MODE=http
-      - MCP_HOST=0.0.0.0
-      - MCP_PORT=8000
-    healthcheck:
-      test: ["CMD", "python", "-c", "import socket; s=socket.socket(); s.settimeout(1); result=s.connect_ex(('localhost', 8000)); s.close(); exit(0 if result == 0 else 1)"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 15s
-    profiles:
-      - splunk
-      - all-agents
-
-  # Webex
-  agent-webex:
-    build:
-      context: .
-      dockerfile: build/agents/Dockerfile.a2a
-      args:
-        - AGENT_NAME=webex
-    container_name: agent-webex
-    volumes:
-      - ./charts/ai-platform-engineering/data/prompt_config.webex_agent.yaml:/app/prompt_config.webex_agent.yaml
-      - ./ai_platform_engineering/agents/webex/agent_webex:/app/ai_platform_engineering/agents/agent/agent_webex
-      - ./ai_platform_engineering/utils:/app/ai_platform_engineering/utils
-    env_file: [.env]
-    ports: ["8011:8000"]
-    environment:
-      - A2A_TRANSPORT=${A2A_TRANSPORT:-p2p}
-      - MCP_MODE=http
-      - MCP_HOST=mcp-webex
-      - MCP_PORT=8000
-      - SLIM_ENDPOINT=${SLIM_ENDPOINT:-http://slim-dataplane:46357}
-    depends_on:
-      mcp-webex:
-        condition: service_healthy
-    profiles:
-      - webex
-      - all-agents
-
-  mcp-webex:
-    build:
-      context: .
-      dockerfile: build/agents/Dockerfile.mcp
-      args:
-        - AGENT_NAME=webex
-    container_name: mcp-webex
-    env_file: [.env]
-    ports: ["18009:8000"]
-    volumes:
-      - ./ai_platform_engineering/agents/webex/mcp/mcp_webex:/app/mcp_webex
-    environment:
-      - MCP_MODE=http
-      - MCP_HOST=0.0.0.0
-      - MCP_PORT=8000
-    healthcheck:
-      test: ["CMD", "python", "-c", "import socket; s=socket.socket(); s.settimeout(1); result=s.connect_ex(('localhost', 8000)); s.close(); exit(0 if result == 0 else 1)"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 15s
-    profiles:
-      - webex
-      - all-agents
-
-  # Backstage Plugin (Agent Forge)
-  backstage-agent-forge:
-    image: ghcr.io/cnoe-io/backstage-plugin-agent-forge:0.2.7
-    container_name: backstage-agent-forge
-    ports: ["13000:3000"]
-    environment:
-      - NODE_ENV=development
-      - AGENT_FORGE_BASE_URL=${AGENT_FORGE_BASE_URL:-http://localhost:8000}
-    profiles:
-      - agentforge
-      - all-agents
-
-  ####################################################################################################
-  #                                      CAIPE UI                                                    #
-  ####################################################################################################
-  # CAIPE UI - A2A Message Visualizer with 3-panel layout
-  # Features: Chat history, Chat UI with final output, A2A message stream visualization
-  # Includes Use Cases gallery inspired by ag-ui composer
-  #
-  # Build: Uses build/Dockerfile.caipe-ui (Next.js standalone with Node.js server)
-  #
-  # Configuration:
-  #   CAIPE_URL: URL of the CAIPE supervisor A2A endpoint
-  #   - Default (dev): http://localhost:8000
-  #   - Default (docker): http://caipe-supervisor:8000
-  #   - Override with: CAIPE_URL=http://your-host:port
   caipe-ui:
     build:
       context: .
       dockerfile: build/Dockerfile.caipe-ui
     container_name: caipe-ui
-    ports: ["3000:3000"]
+    ports: ["3001:3000"]
     env_file:
       - .env
     environment:
       - NODE_ENV=production
-      # CAIPE supervisor A2A endpoint URL
-      # Can be overridden with CAIPE_URL environment variable
-      - NEXT_PUBLIC_CAIPE_URL=${CAIPE_URL:-http://localhost:8000}
-      - CAIPE_URL=${CAIPE_URL:-http://localhost:8000}
-      # RAG Server URL for knowledge base API (internal Docker network)
+      # NEXT_PUBLIC_A2A_BASE_URL is the URL browsers use to reach the CAIPE agent
+      - NEXT_PUBLIC_A2A_BASE_URL=${NEXT_PUBLIC_A2A_BASE_URL:-http://localhost:8000}
       - RAG_SERVER_URL=${RAG_SERVER_URL:-http://rag_server:9446}
       - NEXT_PUBLIC_RAG_URL=${RAG_URL:-http://localhost:9446}
-      # RAG WebUI URL for iframe embedding (browser-accessible)
       - NEXT_PUBLIC_RAG_WEBUI_URL=${RAG_WEBUI_URL:-http://localhost:9447}
-      # NextAuth configuration (required for production)
-      # Generate a secret with: openssl rand -base64 32
       - NEXTAUTH_SECRET=${NEXTAUTH_SECRET:-caipe-dev-secret-change-in-production}
-      - NEXTAUTH_URL=${NEXTAUTH_URL:-http://localhost:3000}
-      # SSO Configuration - reads from .env file
-      # Map OIDC_* variables from .env to CAIPE_UI_OIDC_* expected by the app
+      - NEXTAUTH_URL=${NEXTAUTH_URL:-http://localhost:3001}
       - CAIPE_UI_OIDC_ENABLED=${OIDC_ENABLED:-false}
       - CAIPE_UI_OIDC_CLIENT_ID=${OIDC_CLIENT_ID:-}
       - CAIPE_UI_OIDC_CLIENT_SECRET=${OIDC_CLIENT_SECRET:-}
       - CAIPE_UI_OIDC_ISSUER=${OIDC_ISSUER:-}
     depends_on:
-      - caipe-supervisor
+      - caipe
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/api/health"]
       interval: 30s
@@ -863,7 +149,7 @@ services:
       - rag
       - graph_rag
 
-  web_ingestor:
+  rag_web_ingestor:
     image: ghcr.io/cnoe-io/caipe-rag-ingestors:${IMAGE_TAG:-stable}
     container_name: web-ingestor
     environment:
@@ -878,25 +164,6 @@ services:
     profiles:
       - rag
       - graph_rag
-
-  # Dummy Graph Ingestor - for testing graph RAG with sample data
-  # Requires RAG services to be running first: docker compose -f docker-compose.dev.yaml --profile graph_rag up -d
-  # Then run: docker compose -f docker-compose.dev.yaml --profile dummy-ingestor up --build dummy-graph-ingestor
-  dummy-graph-ingestor:
-    build:
-      context: ./ai_platform_engineering/knowledge_bases/rag
-      dockerfile: ./build/Dockerfile.ingestors
-    image: dummy-graph-ingestor:local
-    container_name: dummy-ingestor
-    environment:
-      - RAG_SERVER_URL=http://rag_server:9446
-      - INGESTOR_TYPE=test_dummy_graph
-      - DUMMY_ENTITIES_FILE=/app/data/dummy_entities.json
-      - LOG_LEVEL=${LOG_LEVEL:-INFO}
-    volumes:
-      - ./ai_platform_engineering/knowledge_bases/rag/tests/rag_graph_test:/app/data:ro
-    profiles:
-      - dummy-ingestor
 
   backstage_ingestor:
     build:
@@ -1039,7 +306,9 @@ services:
       - rag
       - graph_rag
 
-  # Langfuse Tracing Services
+  ####################################################################################################
+  #                                    Langfuse Tracing Services                                    #
+  ####################################################################################################
   langfuse-worker:
     image: langfuse/langfuse-worker:3
     container_name: langfuse-worker
@@ -1204,37 +473,6 @@ services:
       - langfuse_postgres_data:/var/lib/postgresql/data
     profiles:
       - tracing
-
-  # Evaluation Webhook Service
-  evaluation-webhook:
-    build:
-      context: ./evals
-      dockerfile: Dockerfile
-    container_name: evaluation-webhook
-    restart: unless-stopped
-    depends_on:
-      langfuse-web:
-        condition: service_started
-    ports: ["8024:8000"]
-    env_file: [.env]
-    environment:
-      - PLATFORM_ENGINEER_URL=http://platform-engineering:8000
-      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
-      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
-      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
-      - OTEL_EXPORTER_OTLP_TIMEOUT=${OTEL_EXPORTER_OTLP_TIMEOUT:-30000}
-      - OPENAI_API_KEY=${OPENAI_API_KEY}
-      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
-    volumes:
-      - ./evals/datasets:/app/datasets
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 10s
-    profiles:
-      - evaluation
 
 volumes:
   langfuse_postgres_data:

@@ -2,13 +2,13 @@ import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
 import { Conversation, ChatMessage, A2AEvent, MessageFeedback } from "@/types/a2a";
 import { generateId } from "@/lib/utils";
-import { A2AClient } from "@/lib/a2a-client";
 
 // Track streaming state per conversation
+// Using a generic client interface that requires abort() method
 interface StreamingState {
   conversationId: string;
   messageId: string;
-  client: A2AClient;
+  client: { abort: () => void };
 }
 
 interface ChatState {
