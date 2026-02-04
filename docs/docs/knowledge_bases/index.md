@@ -68,5 +68,11 @@ Interfaces:
 - Entity exploration and relationship browsing
 
 
+## Configuration & Security
+
+### Authentication & RBAC
+Learn how to configure authentication and role-based access control for the RAG server:
+- [RAG Server Authentication & RBAC Configuration](authentication.md)
+
 ### Further Reading
 - [Unified RAG Github discussion](https://github.com/cnoe-io/ai-platform-engineering/discussions/196)

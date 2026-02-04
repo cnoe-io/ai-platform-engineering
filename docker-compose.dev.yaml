@@ -906,8 +906,7 @@ services:
     depends_on: [rag_server]
     ports: ["9447:80"]
     profiles:
-      - rag
-      - graph_rag
+      - rag-legacy-webui
 
   web_ingestor:
     image: ghcr.io/cnoe-io/caipe-rag-ingestors:${IMAGE_TAG:-stable}
