@@ -56,12 +56,9 @@ class JiraAgent(BaseLangGraphAgent):
         if not jira_api_url:
             raise ValueError("ATLASSIAN_API_URL must be set as an environment variable.")
 
-        # Project path is the mcp/ directory (parent of mcp_jira/) where pyproject.toml lives
-        project_path = os.path.dirname(os.path.dirname(server_path))
-        
         return {
             "command": "uv",
-            "args": ["run", "--project", project_path, server_path],
+            "args": ["run", "--project", os.path.dirname(server_path), server_path],
             "env": {
                 "ATLASSIAN_TOKEN": jira_token,
                 "ATLASSIAN_API_URL": jira_api_url,
