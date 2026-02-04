@@ -14,6 +14,7 @@ import { CameraController, SigmaInstanceCapture, GraphDragController, GraphEvent
 import { getColorForNode, getSigmaEdgeStyle, EvaluationResult, getEvaluationResult } from '../shared/graphStyles';
 import { generateNodeId, generateRelationId, extractRelationId, generateEdgeKey } from '../shared/graphUtils';
 import { getOntologyGraphStats, getOntologyEntitiesBatch, getOntologyRelationsBatch, regenerateOntology, clearOntology, getOntologyAgentStatus } from '../../api';
+import { useRagPermissions, Permission } from '@/hooks/useRagPermissions';
 
 interface OntologyGraphProps {}
 
@@ -24,6 +25,8 @@ const truncateLabel = (label: string, maxLength: number = 30): string => {
 };
 
 export default function OntologyGraphSigma({}: OntologyGraphProps) {
+    const { hasPermission } = useRagPermissions();
+    
     // Theme detection for label colors
     const { resolvedTheme } = useTheme();
     const isDarkMode = resolvedTheme === "dark" || resolvedTheme?.includes("night") || resolvedTheme === "midnight" || resolvedTheme === "nord";
@@ -436,9 +439,9 @@ export default function OntologyGraphSigma({}: OntologyGraphProps) {
 
     return (
         <div className="w-full h-full bg-background flex flex-col">
-            <div className="flex-1 flex flex-col p-4 min-h-0">
+            <div className="flex-1 flex flex-col min-h-0">
                 {/* Graph Container */}
-                <div className="flex-1 rounded-lg shadow-sm bg-card min-h-0 flex flex-col relative border border-border overflow-hidden">
+                <div className="flex-1 bg-card min-h-0 flex flex-col relative overflow-hidden">
                     {/* Hover Card */}
                     {hoveredNode && (
                         <OntologyNodeHoverCard
@@ -469,7 +472,7 @@ export default function OntologyGraphSigma({}: OntologyGraphProps) {
                         <div className="flex-1 w-full min-h-0 relative">
                             {/* Loading Overlay */}
                             {isLoading && (
-                                <div className="absolute inset-0 bg-background/90 flex items-center justify-center z-10 rounded-lg">
+                                <div className="absolute inset-0 bg-background/90 flex items-center justify-center z-10">
                                     <div className="text-center space-y-4">
                                         <Loader2 className="h-12 w-12 animate-spin text-primary mx-auto" />
                                         <p className="text-lg font-semibold text-foreground">Loading graph data...</p>
@@ -482,6 +485,7 @@ export default function OntologyGraphSigma({}: OntologyGraphProps) {
                                 graph={graph}
                                 style={{ width: '100%', height: '100%', position: 'absolute', top: 0, left: 0 }}
                                 settings={{
+                                    allowInvalidContainer: true,
                                     renderEdgeLabels: true,
                                     defaultEdgeType: "arrow",
                                     labelRenderedSizeThreshold: 1,  // Show labels on all nodes (was 10)
@@ -512,268 +516,266 @@ export default function OntologyGraphSigma({}: OntologyGraphProps) {
                                     <FullScreenControl />
                                 </ControlsContainer>
                             </SigmaContainer>
+
+                            {/* Bottom Controls - Overlay */}
+                            {graphStats && (
+                                <div className="absolute bottom-3 left-3 right-3 z-20">
+                                    <div className="flex items-center justify-between text-sm p-2 rounded-lg shadow-lg border bg-card/95 backdrop-blur-sm text-muted-foreground">
+                                        <div className="flex gap-1.5 flex-wrap">
+                                            <button
+                                                onClick={() => setShowFiltersModal(true)}
+                                                className="px-2 py-1 text-xs rounded-md bg-green-500 hover:bg-green-600 text-white font-medium flex items-center gap-1"
+                                                title="Filter entity types"
+                                            >
+                                                <Filter className="h-3 w-3" />
+                                                Filters
+                                            </button>
+                                            <button
+                                                onClick={() => setShowSettingsModal(true)}
+                                                className="px-2 py-1 text-xs rounded-md bg-blue-500 hover:bg-blue-600 text-white font-medium flex items-center gap-1"
+                                                title="Layout settings"
+                                            >
+                                                <Settings className="h-3 w-3" />
+                                                Settings
+                                            </button>
+                                            <button
+                                                onClick={handleRefresh}
+                                                className="px-2 py-1 text-xs rounded-md bg-gray-500 hover:bg-gray-600 text-white font-medium flex items-center gap-1"
+                                                title="Refresh graph data"
+                                            >
+                                                <RefreshCw className="h-3 w-3" />
+                                                Refresh
+                                            </button>
+                                            <button
+                                                onClick={handleReanalyze}
+                                                disabled={isReanalyzing || !hasPermission(Permission.INGEST)}
+                                                className="px-2 py-1 text-xs rounded-md bg-purple-500 hover:bg-purple-600 text-white font-medium flex items-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed"
+                                                title={!hasPermission(Permission.INGEST) ? 'Insufficient permissions to re-analyse ontology' : 'Re-analyse ontology relationships'}
+                                            >
+                                                <RotateCcw className={`h-3 w-3 ${isReanalyzing ? 'animate-spin' : ''}`} />
+                                                Re-analyse
+                                            </button>
+                                            <button
+                                                onClick={handleDelete}
+                                                disabled={isDeleting || !hasPermission(Permission.DELETE)}
+                                                className="px-2 py-1 text-xs rounded-md bg-red-500 hover:bg-red-600 text-white font-medium flex items-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed"
+                                                title={!hasPermission(Permission.DELETE) ? 'Insufficient permissions to delete ontology' : 'Delete ontology'}
+                                            >
+                                                <Trash2 className="h-3 w-3" />
+                                                Delete
+                                            </button>
+                                        </div>
+                                        <span className="text-xs ml-2 shrink-0">
+                                            {visibleStats.nodes}/{graphStats?.node_count ?? 0} nodes
+                                        </span>
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Agent Status Bar - Overlay */}
+                            {agentStatus && agentStatus.status !== 'idle' && (
+                                <div className={`absolute top-3 left-3 right-3 z-20 p-2 rounded-lg flex items-center gap-2 shadow-lg ${
+                                    agentStatus.status === 'processing' || agentStatus.status === 'running' ? 'bg-primary text-primary-foreground' :
+                                    agentStatus.status === 'error' ? 'bg-destructive text-destructive-foreground' :
+                                    'bg-muted/95 backdrop-blur-sm'
+                                }`}>
+                                    {(agentStatus.status === 'processing' || agentStatus.status === 'running') && (
+                                        <Loader2 className="h-4 w-4 animate-spin" />
+                                    )}
+                                    <span className="text-sm font-medium">
+                                        {agentStatus.status === 'processing' && (agentStatus.message || 'Processing...')}
+                                        {agentStatus.status === 'running' && (agentStatus.message || 'Running...')}
+                                        {agentStatus.status === 'error' && (agentStatus.message || 'Error')}
+                                        {agentStatus.status === 'completed' && 'Completed'}
+                                    </span>
+                                    {agentStatus.progress && (
+                                        <span className="text-xs opacity-80">
+                                            ({agentStatus.progress.current}/{agentStatus.progress.total})
+                                        </span>
+                                    )}
+                                </div>
+                            )}
                         </div>
                     )}
                 </div>
-
-                {/* Bottom Controls */}
-                {graphStats && dataReady && (
-                    <div className="flex gap-4 mt-4 flex-shrink-0">
-                        <div className="flex items-center justify-between text-sm p-3 rounded-lg shadow-sm border bg-card text-muted-foreground flex-1">
-                            <div className="flex gap-2">
-                                <button
-                                    onClick={() => setShowFiltersModal(true)}
-                                    className="px-3 py-1.5 text-xs rounded-md bg-green-500 hover:bg-green-600 text-white font-medium flex items-center gap-1.5"
-                                    title="Filter entity types"
-                                >
-                                    <Filter className="h-3 w-3" />
-                                    Filters
-                                </button>
-                                <button
-                                    onClick={() => setShowSettingsModal(true)}
-                                    className="px-3 py-1.5 text-xs rounded-md bg-blue-500 hover:bg-blue-600 text-white font-medium flex items-center gap-1.5"
-                                    title="Layout settings"
-                                >
-                                    <Settings className="h-3 w-3" />
-                                    Settings
-                                </button>
-                                <button
-                                    onClick={handleRefresh}
-                                    className="px-3 py-1.5 text-xs rounded-md bg-gray-500 hover:bg-gray-600 text-white font-medium flex items-center gap-1.5"
-                                    title="Refresh graph data"
-                                >
-                                    <RefreshCw className="h-3 w-3" />
-                                    Refresh
-                                </button>
-                                <button
-                                    onClick={handleReanalyze}
-                                    disabled={isReanalyzing}
-                                    className="px-3 py-1.5 text-xs rounded-md bg-purple-500 hover:bg-purple-600 text-white font-medium flex items-center gap-1.5 disabled:opacity-50"
-                                    title="Re-analyse ontology relationships"
-                                >
-                                    <RotateCcw className={`h-3 w-3 ${isReanalyzing ? 'animate-spin' : ''}`} />
-                                    Re-analyse
-                                </button>
-                                <button
-                                    onClick={handleDelete}
-                                    disabled={isDeleting}
-                                    className="px-3 py-1.5 text-xs rounded-md bg-red-500 hover:bg-red-600 text-white font-medium flex items-center gap-1.5 disabled:opacity-50"
-                                    title="Delete ontology"
-                                >
-                                    <Trash2 className="h-3 w-3" />
-                                    Delete
-                                </button>
-                            </div>
-                            <span className="text-xs">
-                                {visibleStats.nodes}/{graphStats.node_count} nodes
-                            </span>
-                        </div>
-                    </div>
-                )}
-
-                {/* Agent Status Bar */}
-                {agentStatus && (
-                    <div className={`mt-3 p-3 rounded-lg flex items-center gap-3 ${
-                        agentStatus.status === 'idle' ? 'bg-muted/50' :
-                        agentStatus.status === 'processing' || agentStatus.status === 'running' ? 'bg-primary text-primary-foreground' :
-                        agentStatus.status === 'error' ? 'bg-destructive text-destructive-foreground' :
-                        'bg-muted/50'
-                    }`}>
-                        {(agentStatus.status === 'processing' || agentStatus.status === 'running') && (
-                            <Loader2 className="h-4 w-4 animate-spin" />
-                        )}
-                        <span className="text-sm font-medium">
-                            {agentStatus.status === 'idle' && 'Agent: Idle'}
-                            {agentStatus.status === 'processing' && (agentStatus.message || 'Processing...')}
-                            {agentStatus.status === 'running' && (agentStatus.message || 'Running...')}
-                            {agentStatus.status === 'error' && (agentStatus.message || 'Error')}
-                            {agentStatus.status === 'completed' && 'Agent: Completed'}
-                        </span>
-                        {agentStatus.progress && (
-                            <span className="text-xs opacity-80">
-                                ({agentStatus.progress.current}/{agentStatus.progress.total})
-                            </span>
-                        )}
-                    </div>
-                )}
-
-                {/* Filters Modal */}
-                {showFiltersModal && (
-                    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-                        <div className="bg-card rounded-lg shadow-xl border border-border w-full max-w-md max-h-[80vh] overflow-hidden">
-                            <div className="flex items-center justify-between p-4 border-b border-border">
-                                <h3 className="text-lg font-semibold text-foreground">Filter Settings</h3>
-                                <button onClick={() => setShowFiltersModal(false)} className="text-muted-foreground hover:text-foreground">
-                                    <X className="h-5 w-5" />
-                                </button>
-                            </div>
-                            <div className="p-4 space-y-4 overflow-y-auto max-h-[60vh]">
-                                <div>
-                                    <h4 className="text-sm font-medium text-foreground mb-2">Entity Types</h4>
-                                    <div className="flex gap-2 mb-3">
-                                        <button onClick={selectAllEntityTypes} className="px-2 py-1 text-xs rounded bg-primary text-primary-foreground">Select All</button>
-                                        <button onClick={deselectAllEntityTypes} className="px-2 py-1 text-xs rounded bg-muted text-foreground border border-border">Deselect All</button>
-                                    </div>
-                                    <div className="space-y-1 max-h-48 overflow-y-auto">
-                                        {allEntityTypes.map(entityType => (
-                                            <label key={entityType} className="flex items-center gap-2 text-sm cursor-pointer hover:bg-muted/50 p-1 rounded">
-                                                <input
-                                                    type="checkbox"
-                                                    checked={selectedEntityTypes.has(entityType)}
-                                                    onChange={() => toggleEntityType(entityType)}
-                                                    className="rounded border-border"
-                                                />
-                                                <span className="text-foreground">{entityType}</span>
-                                            </label>
-                                        ))}
-                                    </div>
-                                </div>
-                                <div>
-                                    <h4 className="text-sm font-medium text-foreground mb-2">Relations</h4>
-                                    <div className="space-y-2">
-                                        <label className="flex items-center gap-2 text-sm cursor-pointer">
-                                            <input
-                                                type="radio"
-                                                name="relationFilter"
-                                                checked={relationFilterMode === 'accepted-only'}
-                                                onChange={() => setRelationFilterMode('accepted-only')}
-                                            />
-                                            <span className="text-muted-foreground">— Accepted Only</span>
-                                        </label>
-                                        <label className="flex items-center gap-2 text-sm cursor-pointer">
-                                            <input
-                                                type="radio"
-                                                name="relationFilter"
-                                                checked={relationFilterMode === 'all'}
-                                                onChange={() => setRelationFilterMode('all')}
-                                            />
-                                            <span className="text-orange-500">— — Show All</span>
-                                        </label>
-                                        <label className="flex items-center gap-2 text-sm cursor-pointer">
-                                            <input
-                                                type="radio"
-                                                name="relationFilter"
-                                                checked={relationFilterMode === 'rejected-uncertain-only'}
-                                                onChange={() => setRelationFilterMode('rejected-uncertain-only')}
-                                            />
-                                            <span className="text-red-500">— — Rejected & Uncertain Only</span>
-                                        </label>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                )}
-
-                {/* Settings Modal */}
-                {showSettingsModal && (
-                    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-                        <div className="bg-card rounded-lg shadow-xl border border-border w-full max-w-md">
-                            <div className="flex items-center justify-between p-4 border-b border-border">
-                                <h3 className="text-lg font-semibold text-foreground">Layout Settings</h3>
-                                <button onClick={() => setShowSettingsModal(false)} className="text-muted-foreground hover:text-foreground">
-                                    <X className="h-5 w-5" />
-                                </button>
-                            </div>
-                            <div className="p-4 space-y-5">
-                                <p className="text-xs text-muted-foreground">
-                                    Adjust ForceAtlas2 layout parameters. Click Apply to re-layout the graph.
-                                </p>
-
-                                {/* Iterations */}
-                                <div className="space-y-2">
-                                    <div className="flex justify-between items-center">
-                                        <label className="text-sm font-medium text-foreground">Iterations</label>
-                                        <span className="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded">{layoutSettings.iterations}</span>
-                                    </div>
-                                    <input
-                                        type="range"
-                                        min="10"
-                                        max="500"
-                                        step="10"
-                                        value={layoutSettings.iterations}
-                                        onChange={(e) => setLayoutSettings(prev => ({ ...prev, iterations: parseInt(e.target.value) }))}
-                                        className="w-full h-2 bg-muted rounded-lg appearance-none cursor-pointer accent-primary"
-                                    />
-                                    <p className="text-xs text-muted-foreground">Higher = more accurate layout, but slower</p>
-                                </div>
-
-                                {/* Gravity */}
-                                <div className="space-y-2">
-                                    <div className="flex justify-between items-center">
-                                        <label className="text-sm font-medium text-foreground">Gravity</label>
-                                        <span className="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded">{layoutSettings.gravity.toFixed(1)}</span>
-                                    </div>
-                                    <input
-                                        type="range"
-                                        min="0.1"
-                                        max="10"
-                                        step="0.1"
-                                        value={layoutSettings.gravity}
-                                        onChange={(e) => setLayoutSettings(prev => ({ ...prev, gravity: parseFloat(e.target.value) }))}
-                                        className="w-full h-2 bg-muted rounded-lg appearance-none cursor-pointer accent-primary"
-                                    />
-                                    <p className="text-xs text-muted-foreground">Higher = nodes pull toward center</p>
-                                </div>
-
-                                {/* Scaling Ratio */}
-                                <div className="space-y-2">
-                                    <div className="flex justify-between items-center">
-                                        <label className="text-sm font-medium text-foreground">Scaling Ratio</label>
-                                        <span className="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded">{layoutSettings.scalingRatio}</span>
-                                    </div>
-                                    <input
-                                        type="range"
-                                        min="1"
-                                        max="100"
-                                        step="1"
-                                        value={layoutSettings.scalingRatio}
-                                        onChange={(e) => setLayoutSettings(prev => ({ ...prev, scalingRatio: parseInt(e.target.value) }))}
-                                        className="w-full h-2 bg-muted rounded-lg appearance-none cursor-pointer accent-primary"
-                                    />
-                                    <p className="text-xs text-muted-foreground">Higher = nodes spread further apart</p>
-                                </div>
-
-                                {/* Slow Down */}
-                                <div className="space-y-2">
-                                    <div className="flex justify-between items-center">
-                                        <label className="text-sm font-medium text-foreground">Slow Down</label>
-                                        <span className="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded">{layoutSettings.slowDown.toFixed(1)}</span>
-                                    </div>
-                                    <input
-                                        type="range"
-                                        min="0.1"
-                                        max="2"
-                                        step="0.1"
-                                        value={layoutSettings.slowDown}
-                                        onChange={(e) => setLayoutSettings(prev => ({ ...prev, slowDown: parseFloat(e.target.value) }))}
-                                        className="w-full h-2 bg-muted rounded-lg appearance-none cursor-pointer accent-primary"
-                                    />
-                                    <p className="text-xs text-muted-foreground">Higher = smoother, slower convergence</p>
-                                </div>
-
-                                {/* Action Buttons */}
-                                <div className="flex gap-2 pt-2 border-t border-border">
-                                    <button
-                                        onClick={() => setLayoutSettings({ iterations: 100, gravity: 1.0, scalingRatio: 10, slowDown: 0.6 })}
-                                        className="flex-1 px-3 py-2 text-sm rounded-md bg-muted hover:bg-muted/80 text-foreground"
-                                    >
-                                        Reset Defaults
-                                    </button>
-                                    <button
-                                        onClick={applyLayout}
-                                        disabled={isApplyingLayout}
-                                        className="flex-1 px-3 py-2 text-sm rounded-md bg-primary hover:bg-primary/90 text-primary-foreground disabled:opacity-50 flex items-center justify-center gap-2"
-                                    >
-                                        {isApplyingLayout && <Loader2 className="h-3 w-3 animate-spin" />}
-                                        Apply Layout
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                )}
             </div>
+
+            {/* Filters Modal */}
+            {showFiltersModal && (
+                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+                    <div className="bg-card rounded-lg shadow-xl border border-border w-full max-w-md max-h-[80vh] overflow-hidden">
+                        <div className="flex items-center justify-between p-4 border-b border-border">
+                            <h3 className="text-lg font-semibold text-foreground">Filter Settings</h3>
+                            <button onClick={() => setShowFiltersModal(false)} className="text-muted-foreground hover:text-foreground">
+                                <X className="h-5 w-5" />
+                            </button>
+                        </div>
+                        <div className="p-4 space-y-4 overflow-y-auto max-h-[60vh]">
+                            <div>
+                                <h4 className="text-sm font-medium text-foreground mb-2">Entity Types</h4>
+                                <div className="flex gap-2 mb-3">
+                                    <button onClick={selectAllEntityTypes} className="px-2 py-1 text-xs rounded bg-primary text-primary-foreground">Select All</button>
+                                    <button onClick={deselectAllEntityTypes} className="px-2 py-1 text-xs rounded bg-muted text-foreground border border-border">Deselect All</button>
+                                </div>
+                                <div className="space-y-1 max-h-48 overflow-y-auto">
+                                    {allEntityTypes.map(entityType => (
+                                        <label key={entityType} className="flex items-center gap-2 text-sm cursor-pointer hover:bg-muted/50 p-1 rounded">
+                                            <input
+                                                type="checkbox"
+                                                checked={selectedEntityTypes.has(entityType)}
+                                                onChange={() => toggleEntityType(entityType)}
+                                                className="rounded border-border"
+                                            />
+                                            <span className="text-foreground">{entityType}</span>
+                                        </label>
+                                    ))}
+                                </div>
+                            </div>
+                            <div>
+                                <h4 className="text-sm font-medium text-foreground mb-2">Relations</h4>
+                                <div className="space-y-2">
+                                    <label className="flex items-center gap-2 text-sm cursor-pointer">
+                                        <input
+                                            type="radio"
+                                            name="relationFilter"
+                                            checked={relationFilterMode === 'accepted-only'}
+                                            onChange={() => setRelationFilterMode('accepted-only')}
+                                        />
+                                        <span className="text-muted-foreground">— Accepted Only</span>
+                                    </label>
+                                    <label className="flex items-center gap-2 text-sm cursor-pointer">
+                                        <input
+                                            type="radio"
+                                            name="relationFilter"
+                                            checked={relationFilterMode === 'all'}
+                                            onChange={() => setRelationFilterMode('all')}
+                                        />
+                                        <span className="text-orange-500">— — Show All</span>
+                                    </label>
+                                    <label className="flex items-center gap-2 text-sm cursor-pointer">
+                                        <input
+                                            type="radio"
+                                            name="relationFilter"
+                                            checked={relationFilterMode === 'rejected-uncertain-only'}
+                                            onChange={() => setRelationFilterMode('rejected-uncertain-only')}
+                                        />
+                                        <span className="text-red-500">— — Rejected & Uncertain Only</span>
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Settings Modal */}
+            {showSettingsModal && (
+                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+                    <div className="bg-card rounded-lg shadow-xl border border-border w-full max-w-md">
+                        <div className="flex items-center justify-between p-4 border-b border-border">
+                            <h3 className="text-lg font-semibold text-foreground">Layout Settings</h3>
+                            <button onClick={() => setShowSettingsModal(false)} className="text-muted-foreground hover:text-foreground">
+                                <X className="h-5 w-5" />
+                            </button>
+                        </div>
+                        <div className="p-4 space-y-5">
+                            <p className="text-xs text-muted-foreground">
+                                Adjust ForceAtlas2 layout parameters. Click Apply to re-layout the graph.
+                            </p>
+
+                            {/* Iterations */}
+                            <div className="space-y-2">
+                                <div className="flex justify-between items-center">
+                                    <label className="text-sm font-medium text-foreground">Iterations</label>
+                                    <span className="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded">{layoutSettings.iterations}</span>
+                                </div>
+                                <input
+                                    type="range"
+                                    min="10"
+                                    max="500"
+                                    step="10"
+                                    value={layoutSettings.iterations}
+                                    onChange={(e) => setLayoutSettings(prev => ({ ...prev, iterations: parseInt(e.target.value) }))}
+                                    className="w-full h-2 bg-muted rounded-lg appearance-none cursor-pointer accent-primary"
+                                />
+                                <p className="text-xs text-muted-foreground">Higher = more accurate layout, but slower</p>
+                            </div>
+
+                            {/* Gravity */}
+                            <div className="space-y-2">
+                                <div className="flex justify-between items-center">
+                                    <label className="text-sm font-medium text-foreground">Gravity</label>
+                                    <span className="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded">{layoutSettings.gravity.toFixed(1)}</span>
+                                </div>
+                                <input
+                                    type="range"
+                                    min="0.1"
+                                    max="10"
+                                    step="0.1"
+                                    value={layoutSettings.gravity}
+                                    onChange={(e) => setLayoutSettings(prev => ({ ...prev, gravity: parseFloat(e.target.value) }))}
+                                    className="w-full h-2 bg-muted rounded-lg appearance-none cursor-pointer accent-primary"
+                                />
+                                <p className="text-xs text-muted-foreground">Higher = nodes pull toward center</p>
+                            </div>
+
+                            {/* Scaling Ratio */}
+                            <div className="space-y-2">
+                                <div className="flex justify-between items-center">
+                                    <label className="text-sm font-medium text-foreground">Scaling Ratio</label>
+                                    <span className="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded">{layoutSettings.scalingRatio}</span>
+                                </div>
+                                <input
+                                    type="range"
+                                    min="1"
+                                    max="50"
+                                    step="1"
+                                    value={layoutSettings.scalingRatio}
+                                    onChange={(e) => setLayoutSettings(prev => ({ ...prev, scalingRatio: parseInt(e.target.value) }))}
+                                    className="w-full h-2 bg-muted rounded-lg appearance-none cursor-pointer accent-primary"
+                                />
+                                <p className="text-xs text-muted-foreground">Higher = more spread out nodes</p>
+                            </div>
+
+                            {/* Slow Down */}
+                            <div className="space-y-2">
+                                <div className="flex justify-between items-center">
+                                    <label className="text-sm font-medium text-foreground">Slow Down</label>
+                                    <span className="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded">{layoutSettings.slowDown.toFixed(1)}</span>
+                                </div>
+                                <input
+                                    type="range"
+                                    min="0.1"
+                                    max="2"
+                                    step="0.1"
+                                    value={layoutSettings.slowDown}
+                                    onChange={(e) => setLayoutSettings(prev => ({ ...prev, slowDown: parseFloat(e.target.value) }))}
+                                    className="w-full h-2 bg-muted rounded-lg appearance-none cursor-pointer accent-primary"
+                                />
+                                <p className="text-xs text-muted-foreground">Higher = more stable but slower convergence</p>
+                            </div>
+
+                            {/* Action Buttons */}
+                            <div className="flex gap-2 pt-2 border-t border-border">
+                                <button
+                                    onClick={() => setLayoutSettings({ iterations: 100, gravity: 1.0, scalingRatio: 10, slowDown: 0.6 })}
+                                    className="flex-1 px-3 py-2 text-sm rounded-md bg-muted hover:bg-muted/80 text-foreground"
+                                >
+                                    Reset Defaults
+                                </button>
+                                <button
+                                    onClick={applyLayout}
+                                    disabled={isApplyingLayout}
+                                    className="flex-1 px-3 py-2 text-sm rounded-md bg-primary hover:bg-primary/90 text-primary-foreground disabled:opacity-50 flex items-center justify-center gap-2"
+                                >
+                                    {isApplyingLayout && <Loader2 className="h-3 w-3 animate-spin" />}
+                                    Apply Layout
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }

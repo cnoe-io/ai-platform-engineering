@@ -34,7 +34,14 @@ from common.models.server import (
 )
 from common.models.rag import DataSourceInfo, IngestorInfo, valid_metadata_keys
 from common.models.rbac import Role, UserContext, UserInfoResponse
-from server.rbac import get_current_user, require_role, has_permission
+from server.rbac import (
+    require_authenticated_user,
+    get_user_or_anonymous,
+    require_role,
+    has_permission,
+    get_permissions,
+    is_trusted_request
+)
 from common.graph_db.neo4j.graph_db import Neo4jDB
 from common.graph_db.base import GraphDB
 from common.constants import (
@@ -262,57 +269,76 @@ def generate_ingestor_id(ingestor_name: str, ingestor_type: str) -> str:
     - Show/hide features based on role-based permissions
     - Enable/disable action buttons based on what the user can do
     
-    **No specific role required** - any authenticated user (or unauthenticated if 
-    ALLOW_UNAUTHENTICATED is enabled) can access their own information.
+    **No authentication required** - this endpoint is accessible to all users.
+    - Authenticated users will see their email, role, and groups
+    - Unauthenticated users will see email as "anonymous" with no permissions
+    - Trusted network users will see email as "trusted-network"
     
-    **Permissions explained:**
-    - `can_read`: Can query and view data (READONLY, INGESTONLY, ADMIN)
-    - `can_ingest`: Can ingest new data and manage ingestion jobs (INGESTONLY, ADMIN)
-    - `can_delete`: Can delete resources and perform bulk operations (ADMIN only)
+    **Permissions list:**
+    - `read`: Can query and view data (READONLY, INGESTONLY, ADMIN)
+    - `ingest`: Can ingest new data and manage ingestion jobs (INGESTONLY, ADMIN)
+    - `delete`: Can delete resources and perform bulk operations (ADMIN only)
     """,
     responses={
         200: {
             "description": "Successfully retrieved user information",
             "content": {
                 "application/json": {
-                    "example": {
-                        "email": "user@example.com",
-                        "role": "readonly",
-                        "is_authenticated": True,
-                        "groups": ["engineering", "platform-team"],
-                        "permissions": {
-                            "can_read": True,
-                            "can_ingest": False,
-                            "can_delete": False
+                    "examples": {
+                        "authenticated": {
+                            "summary": "Authenticated user",
+                            "value": {
+                                "email": "user@example.com",
+                                "role": "readonly",
+                                "is_authenticated": True,
+                                "groups": ["engineering", "platform-team"],
+                                "permissions": ["read"],
+                                "in_trusted_network": False
+                            }
+                        },
+                        "anonymous": {
+                            "summary": "Anonymous user",
+                            "value": {
+                                "email": "anonymous",
+                                "role": "anonymous",
+                                "is_authenticated": False,
+                                "groups": [],
+                                "permissions": [],
+                                "in_trusted_network": False
+                            }
+                        },
+                        "trusted_network": {
+                            "summary": "Trusted network user",
+                            "value": {
+                                "email": "trusted-network",
+                                "role": "admin",
+                                "is_authenticated": False,
+                                "groups": [],
+                                "permissions": ["read", "ingest", "delete"],
+                                "in_trusted_network": True
+                            }
                         }
-                    }
-                }
-            }
-        },
-        401: {
-            "description": "Authentication required but not provided",
-            "content": {
-                "application/json": {
-                    "example": {
-                        "detail": "Authentication required. Please ensure you are logged in through the authentication proxy."
                     }
                 }
             }
         }
     }
 )
-async def get_user_info(user: UserContext = Depends(get_current_user)):
+async def get_user_info(
+    request: Request,
+    user: UserContext = Depends(get_user_or_anonymous)
+):
     """Get current user's authentication and role information."""
+    # Determine if request is from trusted network
+    trusted = is_trusted_request(request)
+    
     return UserInfoResponse(
         email=user.email,
         role=user.role,
         is_authenticated=user.is_authenticated,
         groups=user.groups,
-        permissions={
-            "can_read": has_permission(user.role, Role.READONLY),
-            "can_ingest": has_permission(user.role, Role.INGESTONLY),
-            "can_delete": has_permission(user.role, Role.ADMIN),
-        }
+        permissions=get_permissions(user.role),
+        in_trusted_network=trusted
     )
 
 # ============================================================================
@@ -1318,7 +1344,8 @@ async def _reverse_proxy(request: Request):
     its own RBAC implementation since it's only accessible through this proxy.
     """
     # Manually invoke the RBAC check since app.add_route doesn't support Depends()
-    user = await get_current_user(request)
+    from server.auth import get_auth_manager
+    user = await require_authenticated_user(request, get_auth_manager())
     if not has_permission(user.role, Role.ADMIN):
         raise HTTPException(
             status_code=403,
