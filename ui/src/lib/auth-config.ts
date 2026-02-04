@@ -416,7 +416,7 @@ declare module "next-auth" {
   interface Session {
     accessToken?: string;
     idToken?: string; // Needed for client-side group extraction (not stored in cookie, fetched on demand)
-    hasRefreshToken?: boolean; // Indicate if refresh token is available
+    hasRefreshToken?: boolean; // Whether refresh token is available
     error?: string;
     // groups removed from session - too large (40+ groups = 8KB cookie!)
     // Instead, extract groups client-side from idToken when needed
