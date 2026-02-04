@@ -1,0 +1,1232 @@
+# Self-Service Tasks Configuration for Platform Engineer Deep Agent
+# 
+# Each task maps to a quick action that users can trigger. Tasks are composed
+# of steps that delegate work to specialized subagents.
+#
+# All tasks use filesystem-based state passing:
+#   1. CAIPE subagent collects user input and writes to /request.txt
+#   2. Subsequent subagents read from filesystem, execute operations, write results
+#   3. Results are displayed directly to the user in the chat interface
+#
+# Environment Variable Substitution:
+#   Values like ${VAR_NAME} are substituted from environment variables at runtime.
+#   See deploy/.env.example for required variables.
+#
+# Required Environment Variables:
+#   GITHUB_ORGS              - Comma-separated list of allowed GitHub organizations
+#   WORKFLOWS_REPO           - Repository containing GitHub Actions workflows (org/repo)
+#   JARVIS_WORKFLOWS_REPO    - Jarvis workflows repository with templates (org/repo)
+#   TERRAFORM_INFRA_REPO     - Terraform infrastructure repository (org/repo)
+#   ADMIN_REPO               - Admin repository for safe-settings (org/admin)
+#   GROUPS_AUTOMATION_REPO   - Repository for group management automation (org/repo)
+#   GROUPS_PATH              - Path to groups directory in the automation repo (e.g., groups)
+#   GROUPS_FILE_PATTERN      - File pattern for group files (e.g., *.yaml)
+#   DEFAULT_AWS_REGIONS      - Comma-separated list of allowed AWS regions
+#   EMAIL_DOMAIN             - Corporate email domain (e.g., company.com)
+#   JIRA_ASSIGNEE            - Default Jira ticket assignee email
+#   DEFAULT_VPC_NAME         - Default VPC name for AWS resources
+#   DEFAULT_AWS_ACCOUNT      - Default AWS account name
+#   DEFAULT_APPLICATION_NAME - Default application name tag for AWS resources
+#   DATA_CLASSIFICATION      - Data classification tag value
+#   DATA_TAXONOMY            - Data taxonomy tag value
+#   TF_STATE_BUCKET_NONPROD  - Terraform state bucket for dev/staging
+#   TF_STATE_BUCKET_SANDBOX  - Terraform state bucket for sandbox
+#   TF_STATE_BUCKET_PROD     - Terraform state bucket for production
+#
+# Jira Transition IDs (defaults for OPENSD project):
+#   JIRA_TRANSITION_ID_ACKNOWLEDGE  - Transition to Acknowledge/Open (default: 781)
+#   JIRA_TRANSITION_ID_IN_PROGRESS  - Transition to In Progress (default: 4)
+#   JIRA_TRANSITION_ID_RESOLVE      - Transition to Resolved (default: 5)
+#   JIRA_RESOLUTION_ID_FIXED        - Resolution ID for Fixed (default: 10103)
+#
+# Subagents used in self-service tasks:
+#   - caipe: User input collection via forms
+#   - github: GitHub operations (repository, PR, branch, file management)
+#   - backstage: Backstage catalog queries
+#   - aigateway: LLM API key management and spend tracking
+#   - jira: Jira ticket operations
+#   - webex: Webex messaging and notifications
+#
+# Additional Environment Variables for Webex:
+#   WEBEX_TOKEN                - Webex API token
+#   WEBEX_ROOM_ID              - Default Webex room ID for notifications
+#
+# Note: Group management operations are handled via GitHub workflows triggered
+# by the GitHub subagent.
+#
+# Note: AWS infrastructure tasks (EC2, EKS, S3) use MCP-based template processing
+# and create Terraform PRs in the terraform-infra repo for approval.
+
+# =============================================================================
+# GitHub Operations
+# =============================================================================
+
+Create GitHub Repo:
+  tasks:
+    # Step 1: Get available Backstage projects
+    - display_text: "Fetch available Backstage projects"
+      llm_prompt: >
+        Query Backstage catalog using get_entities_by_query with:
+        - param_filter=["kind=system,spec.type=service"]
+        - param_fields=["metadata.name"]
+        
+        Extract the metadata.name from each item in the results.
+        Write the project names (one per line) to /projects.txt
+        
+        This list will be used as dropdown options in the input form.
+      subagent: "backstage"
+
+    # Step 2: Collect repository details
+    - display_text: "Collect repository details from user"
+      llm_prompt: >
+        Read /projects.txt to get the list of available projects.
+        
+        Collect the following information from the user and write to /request.txt:
+        - repo_name (required): Repository name (lowercase, no spaces, max 50 chars, use hyphens)
+        - org_name (required): GitHub organization (one of: ${GITHUB_ORGS})
+        - project_name (required): Project name for team permissions - use field_values from /projects.txt
+        - description (optional): Brief description of the repository
+        - template (required): Template to use (repo-template, platform-demo, sre-go-helloworld)
+        - user_email (required): Requester's corporate email
+        
+        Format as key=value on each line. Write to /request.txt.
+      subagent: "caipe"
+
+    # Step 3: Check if repository exists
+    - display_text: "Check if repository exists"
+      llm_prompt: >
+        Read /request.txt to get repo_name and org_name.
+        Check if the repository {org_name}/{repo_name} already exists.
+        
+        Write result to /check_result.txt:
+        - If repo exists: exists=true
+        - If repo does not exist: exists=false
+        
+        If exists=true, stop workflow and inform user that the repository already exists.
+      subagent: "github"
+
+    # Step 4: Create repository from template
+    - display_text: "Create repository from template"
+      llm_prompt: >
+        Read /request.txt and /check_result.txt.
+        If exists=false, create a new private repository {org_name}/{repo_name} 
+        using {org_name}/{template} as the template.
+        
+        Write results to /repo_result.txt:
+        - repo_url=https://github.com/{org_name}/{repo_name}
+        - created=true (or created=false if failed)
+        
+      subagent: "github"
+
+    # Step 5: Fetch safe-settings template
+    - display_text: "Fetch safe-settings template from jarvis-workflows"
+      llm_prompt: >
+        Fetch the safe-settings template from the jarvis-workflows repo.
+        
+        Parse the JARVIS_WORKFLOWS_REPO env var (format: owner/repo) to extract owner and repo.
+        For example, if JARVIS_WORKFLOWS_REPO=myorg/workflows:
+          - owner: myorg
+          - repo: workflows
+        
+        Use the get_file_contents tool with:
+          - owner: {extracted owner from ${JARVIS_WORKFLOWS_REPO}}
+          - repo: {extracted repo from ${JARVIS_WORKFLOWS_REPO}}
+          - path: templates/github_repo_creation/safe-settings-repo-template.yml
+        
+        Save the file content to /template.yml in the filesystem.
+        Write "template_fetched=true" to /template_status.txt
+      subagent: "github"
+
+    # Step 6: Create branch in admin repo
+    - display_text: "Create branch in admin repo"
+      llm_prompt: >
+        Read /request.txt to get repo_name.
+        
+        Create a new branch in the admin repo (${ADMIN_REPO}) with name:
+        create-repo-{repo_name}-{random_4_digit_suffix}
+        
+        Write the branch name to /branch_info.txt:
+        - branch_name=create-repo-{repo_name}-{suffix}
+      subagent: "github"
+
+    # Step 7: Process template and create config file
+    - display_text: "Process template and create config file"
+      llm_prompt: >
+        Read /request.txt to get repo_name, org_name, project_name, and template.
+        Read /template.yml to get the safe-settings template content.
+        
+        Process the template by replacing placeholders:
+        - {{ .REPO_NAME }} -> {repo_name}
+        - {{ .PROJECT_NAME }} -> {project_name}  
+        - {{ .TEMPLATE_REPO }} -> {template}
+        - Remove the {{- if .TEMPLATE_REPO }} and {{ end }} conditional lines
+        
+        The processed config will be used in the next step to create the PR.
+        Write the processed content to /processed_config.yml
+        Write "config_processed=true" to /config_status.txt
+      subagent: "github"
+
+    # Step 8: Create PR with config file
+    - display_text: "Create admin PR with config"
+      llm_prompt: >
+        Read /request.txt to get repo_name and template.
+        Read /branch_info.txt to get branch_name.
+        Read /processed_config.yml to get the config content.
+        
+        Create a pull request in ${ADMIN_REPO} that:
+        - Creates file .github/repos/{repo_name}.yml with the processed config content
+        - Uses branch {branch_name}
+        - Has title: "[Auto-generated][Jarvis] Create new repository {repo_name}"
+        - Has body: "This PR creates a new repository {repo_name} from template {template}. Auto-generated by Jarvis Agent."
+        - Targets the main branch
+        
+        Write PR URL to /admin_pr_result.txt:
+        - admin_pr_url={PR_URL}
+      subagent: "github"
+
+    # Step 9: Create Jira ticket for tracking
+    - display_text: "Create Jira ticket for tracking"
+      llm_prompt: >
+        Read /request.txt to get repo_name, org_name, user_email.
+        Read /repo_result.txt to get repo_url.
+        Read /admin_pr_result.txt to get admin_pr_url.
+        
+        Create a new Jira ticket in the OPENSD project with:
+        - Summary: "Repository creation request: {repo_name}"
+        - Description: Include repo_url, admin_pr_url, and requester email
+        - Assign to ${JIRA_ASSIGNEE}
+        - Transition to "Acknowledge" to indicate work has started
+        
+        Note: Available transitions are "Blocked", "Acknowledge", and "Close Ticket".
+        
+        Write result to /jira_result.txt:
+        - jira_issue_id={created ticket ID}
+        - jira_url={ticket URL}
+      subagent: "jira"
+
+    # Step 10: Wait for status checks then merge PR
+    - display_text: "Wait for status checks and merge PR"
+      llm_prompt: >
+        Read /admin_pr_result.txt to get admin_pr_url.
+        
+        Wait for all status checks to pass on the PR.
+        Use the wait tool to pause for 10 seconds between checks, for up to 3 minutes total.
+        Ignore the "Auto Approve PR / approve (pull_request)" check - it requires manual approval.
+        All other checks must pass (e.g., linting, validation, security scans).
+        
+        Write status check results to /status_checks_result.txt:
+        - checks_passed=true (if all non-approval checks pass)
+        - checks_passed=false (if any check fails)
+        - failed_checks=[list of failed check names]
+        
+        If checks_passed=false, stop and notify that the PR has failing checks.
+        
+        If checks_passed=true, merge the PR using squash merge and delete the branch.
+        
+        Write merge result to /pr_merged_result.txt:
+        - pr_merged=true (if merge succeeded)
+        - pr_merged=false (if merge failed)
+        - merge_error=[error message if failed]
+        
+        Note: Merging is enabled in self-service mode.
+      subagent: "github"
+
+    # Step 11: Close Jira ticket (if PR merged)
+    - display_text: "Close Jira ticket"
+      llm_prompt: >
+        Read /jira_result.txt to get jira_issue_id.
+        Read /pr_merged_result.txt to get pr_merged status.
+        
+        If pr_merged=true:
+        1. Add final comment that repository setup is complete
+        2. Transition to "Close Ticket" to mark the request as completed
+        
+        Note: Available transitions are "Blocked", "Acknowledge", and "Close Ticket".
+        
+        Write result to /jira_close_result.txt:
+        - jira_closed=true
+        
+        If pr_merged=false, add a comment noting the PR merge failed and do not close.
+      subagent: "jira"
+
+
+# =============================================================================
+# AWS Operations
+# =============================================================================
+
+Create EC2 Instance:
+  tasks:
+    # Step 1: Collect EC2 instance details from user
+    - display_text: "Collect EC2 instance details"
+      llm_prompt: >
+        Collect the following information from the user and write to /request.txt:
+        - resource_name (required): Name tag for the instance (lowercase, no spaces, use hyphens)
+        - instance_type (required): EC2 instance type (t3.micro, t3.small, t3.medium, t3.large, t3.xlarge, m5.large, m5.xlarge)
+        - ami_type (required): AMI type - valid values: AMAZON_LINUX_2, UBUNTU, WINDOWS, CISCO_HARDENED_AL2
+        - vpc_name (optional): VPC name for the instance (default: ${DEFAULT_VPC_NAME})
+        - is_public (optional): Whether instance should have public IP (true/false, default: true)
+        - user_mgmt (optional): Enable S3-based user management (true/false, default: false)
+        - aws_account (optional): AWS account name (default: ${DEFAULT_AWS_ACCOUNT})
+        - region (optional): AWS region (default: us-east-2)
+        - availability_zone (optional): Availability zone suffix (a/b/c, default: b)
+        - env (optional): Environment tag (sandbox/dev/staging/prod, default: sandbox)
+        - application_name (optional): Application name tag (default: ${DEFAULT_APPLICATION_NAME})
+        - component (optional): Component tag (default: platform)
+        - resource_owner (optional): Resource owner tag (default: platform_team)
+        - owner_email_alias (required): Owner email alias for tagging
+        - user_email (required): Requester's corporate email
+        
+        Format as key=value on each line. Write to /request.txt.
+      subagent: "caipe"
+
+    # Step 2: Fetch EC2 terraform template
+    - display_text: "Fetch EC2 terraform template"
+      llm_prompt: >
+        Fetch the EC2 terraform template from the workflows templates repo.
+        
+        Parse the JARVIS_WORKFLOWS_REPO env var (format: owner/repo) to extract owner and repo.
+        Use the get_file_contents tool with:
+          - owner: {extracted owner from ${JARVIS_WORKFLOWS_REPO}}
+          - repo: {extracted repo from ${JARVIS_WORKFLOWS_REPO}}
+          - path: templates/ec2_creation/ec2.tf
+        
+        Save the file content to /ec2_template.tf in the filesystem.
+        Write "template_fetched=true" to /template_status.txt
+      subagent: "github"
+
+    # Step 3: Process template with user values
+    - display_text: "Process EC2 template with user values"
+      llm_prompt: >
+        Read /request.txt to get all user values.
+        Read /ec2_template.tf to get the template content.
+        
+        Process the template by replacing placeholders with values from request.txt:
+        - {{ .RESOURCE_NAME }} -> {resource_name}
+        - {{ .INSTANCE_TYPE }} -> {instance_type}
+        - {{ .AMI_TYPE }} -> {ami_type}
+        - {{ .VPC_NAME }} -> {vpc_name} (default: ${DEFAULT_VPC_NAME})
+        - {{ .IS_PUBLIC }} -> {is_public} (default: true)
+        - {{ .USER_MGMT}} -> {user_mgmt} (default: false)
+        - {{ .IGNORE_AMI_CHANGES }} -> true
+        - {{ .AWS_ACCOUNT }} -> {aws_account} (default: ${DEFAULT_AWS_ACCOUNT})
+        - {{ .REGION }} -> {region} (default: us-east-2)
+        - {{ .AVAILABILITY_ZONE }} -> {availability_zone} (default: b)
+        - {{ .ENV | lower }} -> {env} (default: sandbox)
+        - {{ .ENV }} -> {env} (default: sandbox)
+        - {{ .APPLICATION_NAME }} -> {application_name} (default: ${DEFAULT_APPLICATION_NAME})
+        - {{ .COMPONENT }} -> {component} (default: platform)
+        - {{ .RESOURCE_OWNER }} -> {resource_owner} (default: platform_team)
+        - {{ .DATA_CLASSIFICATION }} -> ${DATA_CLASSIFICATION}
+        - {{ .DATA_TAXONOMY }} -> ${DATA_TAXONOMY}
+        - {{ .MODULE_VERSION }} -> latest
+        - {{ .CISCO_MAIL_ALIAS }} -> {owner_email_alias}
+        
+        Write the processed terraform content to /processed_ec2.tf
+        Write "config_processed=true" to /config_status.txt
+      subagent: "github"
+
+    # Step 4: Create branch in terraform-infra repo
+    - display_text: "Create branch in terraform-infra repo"
+      llm_prompt: >
+        Read /request.txt to get resource_name.
+        
+        Create a new branch in the ${TERRAFORM_INFRA_REPO} with name:
+        ec2-{resource_name}-{random_4_digit_suffix}
+        
+        Write the branch name to /branch_info.txt:
+        - branch_name=ec2-{resource_name}-{suffix}
+      subagent: "github"
+
+    # Step 5: Push terraform config to branch
+    - display_text: "Push EC2 terraform config to branch"
+      llm_prompt: >
+        Read /request.txt to get resource_name.
+        Read /branch_info.txt to get branch_name.
+        Read /processed_ec2.tf to get the processed terraform content.
+        
+        Parse ${TERRAFORM_INFRA_REPO} (format: owner/repo) to extract owner and repo.
+        
+        Create a new file in the terraform-infra repo:
+        - Path: generated_iac/ec2/{resource_name}/ec2.tf
+        - Content: {processed terraform content from /processed_ec2.tf}
+        - Branch: {branch_name}
+        - Commit message: "[Jarvis] Add EC2 instance {resource_name}"
+        
+        Write "file_created=true" to /file_status.txt
+      subagent: "github"
+
+    # Step 6: Create PR in terraform-infra repo
+    - display_text: "Create PR for EC2 instance"
+      llm_prompt: >
+        Read /request.txt to get resource_name, user_email.
+        Read /branch_info.txt to get branch_name.
+        
+        Create a pull request in ${TERRAFORM_INFRA_REPO} that:
+        - Uses branch {branch_name}
+        - Has title: "[Jarvis] Create EC2 instance {resource_name}"
+        - Has body: |
+            ## EC2 Instance Request
+            
+            **Instance Name:** {resource_name}
+            **Requested By:** {user_email}
+            
+            This PR creates a new EC2 instance via Jarvis self-service automation.
+            
+            ### Approval Required
+            Please review the terraform configuration and approve if acceptable.
+        - Targets the main branch
+        
+        Write PR URL to /ec2_pr_result.txt:
+        - pr_url={PR_URL}
+        - pr_number={PR_NUMBER}
+      subagent: "github"
+
+    # Step 7: Create Jira ticket for tracking
+    - display_text: "Create Jira ticket for EC2 request"
+      llm_prompt: >
+        Read /request.txt to get resource_name, user_email.
+        Read /ec2_pr_result.txt to get pr_url.
+        
+        Create a new Jira ticket in the OPENSD project with:
+        - Summary: "EC2 instance creation request: {resource_name}"
+        - Description: |
+            EC2 Instance Request
+            
+            Instance Name: {resource_name}
+            Requested By: {user_email}
+            
+            Terraform PR: {pr_url}
+            
+            This request was submitted via Jarvis self-service.
+        - Assign to ${JIRA_ASSIGNEE}
+        - Transition to "Acknowledge" to indicate work has started
+        
+        Note: Available transitions are "Blocked", "Acknowledge", and "Close Ticket".
+        
+        Write result to /jira_result.txt:
+        - jira_issue_id={created ticket ID}
+        - jira_url={ticket URL}
+      subagent: "jira"
+
+    # Step 8: Send Webex notification
+    - display_text: "Send Webex notification"
+      llm_prompt: >
+        Read /request.txt to get resource_name, user_email.
+        Read /ec2_pr_result.txt to get pr_url.
+        Read /jira_result.txt to get jira_url.
+        
+        Send a notification to the Webex room using the post_message tool with:
+        - room_id: ${WEBEX_ROOM_ID}
+        - markdown: |
+            ## 🖥️ EC2 Instance Request Submitted
+            
+            **Instance Name:** {resource_name}
+            **Requested By:** {user_email}
+            
+            📋 **Terraform PR:** {pr_url}
+            🎫 **Jira Ticket:** {jira_url}
+            
+            Please review and approve the PR to provision the instance.
+      subagent: "webex"
+
+
+
+Create EKS Cluster:
+  tasks:
+    # Step 1: Collect EKS cluster details from user
+    - display_text: "Collect EKS cluster details"
+      llm_prompt: >
+        Collect the following information from the user and write to /request.txt:
+        - cluster_name (required): Name of the EKS cluster (lowercase, no spaces, use hyphens)
+        - k8s_version (optional): Kubernetes version (default: 1.32)
+        - instance_type (optional): EC2 instance type for nodes (default: m7a.large)
+        - vpc_cidr (optional): VPC CIDR block (default: 10.0.0.0/16)
+        - min_node_size (optional): Minimum number of worker nodes (default: 1)
+        - max_node_size (optional): Maximum number of worker nodes (default: 3)
+        - desired_node_size (optional): Desired number of worker nodes (default: 1)
+        - aws_account (optional): AWS account name (default: ${DEFAULT_AWS_ACCOUNT})
+        - region (optional): AWS region (default: us-east-2)
+        - env (optional): Environment tag (sandbox/dev/staging/prod, default: sandbox)
+        - application_name (optional): Application name tag (default: ${DEFAULT_APPLICATION_NAME})
+        - component (optional): Component tag (default: platform)
+        - resource_owner (optional): Resource owner tag (default: platform_team)
+        - owner_email_alias (required): Owner email alias for tagging
+        - user_email (required): Requester's corporate email
+        
+        Format as key=value on each line. Write to /request.txt.
+      subagent: "caipe"
+
+    # Step 2: Fetch EKS terraform template
+    - display_text: "Fetch EKS terraform template"
+      llm_prompt: >
+        Fetch the EKS terraform template from the workflows templates repo.
+        
+        Parse the JARVIS_WORKFLOWS_REPO env var (format: owner/repo) to extract owner and repo.
+        Use the get_file_contents tool with:
+          - owner: {extracted owner from ${JARVIS_WORKFLOWS_REPO}}
+          - repo: {extracted repo from ${JARVIS_WORKFLOWS_REPO}}
+          - path: templates/ephemeral_eks_cluster/eks.tf
+        
+        Save the file content to /eks_template.tf in the filesystem.
+        Write "template_fetched=true" to /template_status.txt
+      subagent: "github"
+
+    # Step 3: Process template with user values
+    - display_text: "Process EKS template with user values"
+      llm_prompt: >
+        Read /request.txt to get all user values.
+        Read /eks_template.tf to get the template content.
+        
+        Process the template by replacing placeholders with values from request.txt:
+        - {{ .CLUSTER_NAME }} -> {cluster_name}
+        - {{ .K8S_VERSION }} -> {k8s_version} (default: 1.32)
+        - {{ .INSTANCE_TYPE }} -> {instance_type} (default: m7a.large)
+        - {{ .VPC_CIDR }} -> {vpc_cidr} (default: 10.0.0.0/16)
+        - {{ .MINIMUM_NODE_SIZE }} -> {min_node_size} (default: 1)
+        - {{ .MAXIMUM_NODE_SIZE }} -> {max_node_size} (default: 3)
+        - {{ .DESIRED_NODE_SIZE }} -> {desired_node_size} (default: 1)
+        - {{ .AWS_ACCOUNT }} -> {aws_account} (default: ${DEFAULT_AWS_ACCOUNT})
+        - {{ .REGION }} -> {region} (default: us-east-2)
+        - {{ .ENV | lower }} -> {env} (default: sandbox)
+        - {{ .ENV }} -> {env} (default: sandbox)
+        - {{ .APPLICATION_NAME }} -> {application_name} (default: ${DEFAULT_APPLICATION_NAME})
+        - {{ .COMPONENT }} -> {component} (default: platform)
+        - {{ .RESOURCE_OWNER }} -> {resource_owner} (default: platform_team)
+        - {{ .DATA_CLASSIFICATION }} -> ${DATA_CLASSIFICATION}
+        - {{ .DATA_TAXONOMY }} -> ${DATA_TAXONOMY}
+        - {{ .MODULE_VERSION }} -> 0.7.5
+        - {{ .CISCO_MAIL_ALIAS }} -> {owner_email_alias}
+        
+        Write the processed terraform content to /processed_eks.tf
+        Write "config_processed=true" to /config_status.txt
+      subagent: "github"
+
+    # Step 4: Create branch in terraform-infra repo
+    - display_text: "Create branch in terraform-infra repo"
+      llm_prompt: >
+        Read /request.txt to get cluster_name.
+        
+        Create a new branch in the ${TERRAFORM_INFRA_REPO} with name:
+        eks-{cluster_name}-{random_4_digit_suffix}
+        
+        Write the branch name to /branch_info.txt:
+        - branch_name=eks-{cluster_name}-{suffix}
+      subagent: "github"
+
+    # Step 5: Push terraform config to branch
+    - display_text: "Push EKS terraform config to branch"
+      llm_prompt: >
+        Read /request.txt to get cluster_name.
+        Read /branch_info.txt to get branch_name.
+        Read /processed_eks.tf to get the processed terraform content.
+        
+        Parse ${TERRAFORM_INFRA_REPO} (format: owner/repo) to extract owner and repo.
+        
+        Create a new file in the terraform-infra repo:
+        - Path: generated_iac/ephemeral-eks-clusters/{cluster_name}/eks.tf
+        - Content: {processed terraform content from /processed_eks.tf}
+        - Branch: {branch_name}
+        - Commit message: "[Jarvis] Add EKS cluster {cluster_name}"
+        
+        Write "file_created=true" to /file_status.txt
+      subagent: "github"
+
+    # Step 6: Create PR in terraform-infra repo
+    - display_text: "Create PR for EKS cluster"
+      llm_prompt: >
+        Read /request.txt to get cluster_name, user_email.
+        Read /branch_info.txt to get branch_name.
+        
+        Create a pull request in ${TERRAFORM_INFRA_REPO} that:
+        - Uses branch {branch_name}
+        - Has title: "[Jarvis] Create EKS cluster {cluster_name}"
+        - Has body: |
+            ## EKS Cluster Request
+            
+            **Cluster Name:** {cluster_name}
+            **Requested By:** {user_email}
+            
+            This PR creates a new ephemeral EKS cluster via Jarvis self-service automation.
+            
+            ### Approval Required
+            Please review the terraform configuration and approve if acceptable.
+            
+            **Note:** EKS cluster provisioning takes 15-20 minutes after PR merge.
+        - Targets the main branch
+        
+        Write PR URL to /eks_pr_result.txt:
+        - pr_url={PR_URL}
+        - pr_number={PR_NUMBER}
+      subagent: "github"
+
+    # Step 7: Create Jira ticket for tracking
+    - display_text: "Create Jira ticket for EKS request"
+      llm_prompt: >
+        Read /request.txt to get cluster_name, user_email.
+        Read /eks_pr_result.txt to get pr_url.
+        
+        Create a new Jira ticket in the OPENSD project with:
+        - Summary: "EKS cluster creation request: {cluster_name}"
+        - Description: |
+            EKS Cluster Request
+            
+            Cluster Name: {cluster_name}
+            Requested By: {user_email}
+            
+            Terraform PR: {pr_url}
+            
+            This request was submitted via Jarvis self-service.
+            Note: Cluster provisioning takes 15-20 minutes after PR merge.
+        - Assign to ${JIRA_ASSIGNEE}
+        - Transition to "Acknowledge" to indicate work has started
+        
+        Note: Available transitions are "Blocked", "Acknowledge", and "Close Ticket".
+        
+        Write result to /jira_result.txt:
+        - jira_issue_id={created ticket ID}
+        - jira_url={ticket URL}
+      subagent: "jira"
+
+    # Step 8: Send Webex notification
+    - display_text: "Send Webex notification"
+      llm_prompt: >
+        Read /request.txt to get cluster_name, user_email.
+        Read /eks_pr_result.txt to get pr_url.
+        Read /jira_result.txt to get jira_url.
+        
+        Send a notification to the Webex room using the post_message tool with:
+        - room_id: ${WEBEX_ROOM_ID}
+        - markdown: |
+            ## ☸️ EKS Cluster Request Submitted
+            
+            **Cluster Name:** {cluster_name}
+            **Requested By:** {user_email}
+            
+            📋 **Terraform PR:** {pr_url}
+            🎫 **Jira Ticket:** {jira_url}
+            
+            Please review and approve the PR to provision the cluster.
+            ⏱️ Note: Cluster provisioning takes 15-20 minutes after PR merge.
+      subagent: "webex"
+
+
+
+Create S3 Bucket:
+  tasks:
+    # Step 1: Collect S3 bucket details from user
+    - display_text: "Collect S3 bucket details"
+      llm_prompt: >
+        Collect the following information from the user and write to /request.txt:
+        - resource_name (required): S3 bucket name (must be globally unique, lowercase, no spaces)
+        - aws_account (optional): AWS account name (default: ${DEFAULT_AWS_ACCOUNT})
+        - region (optional): AWS region (default: us-east-2)
+        - env (optional): Environment (sandbox/dev/staging/prod, default: sandbox)
+        - is_public (optional): Whether bucket should be public (true/false, default: false)
+        - application_name (optional): Application name tag (default: ${DEFAULT_APPLICATION_NAME})
+        - component (optional): Component tag (default: platform)
+        - resource_owner (optional): Resource owner tag (default: platform_team)
+        - owner_email_alias (required): Owner email alias for tagging
+        - user_email (required): Requester's corporate email
+        
+        Format as key=value on each line. Write to /request.txt.
+      subagent: "caipe"
+
+    # Step 2: Fetch S3 terraform template
+    - display_text: "Fetch S3 terraform template"
+      llm_prompt: >
+        Fetch the S3 terraform template from the workflows templates repo.
+        
+        Parse the JARVIS_WORKFLOWS_REPO env var (format: owner/repo) to extract owner and repo.
+        Use the get_file_contents tool with:
+          - owner: {extracted owner from ${JARVIS_WORKFLOWS_REPO}}
+          - repo: {extracted repo from ${JARVIS_WORKFLOWS_REPO}}
+          - path: templates/s3_creation/s3.tf
+        
+        Save the file content to /s3_template.tf in the filesystem.
+        Write "template_fetched=true" to /template_status.txt
+      subagent: "github"
+
+    # Step 3: Process template with user values
+    - display_text: "Process S3 template with user values"
+      llm_prompt: >
+        Read /request.txt to get all user values.
+        Read /s3_template.tf to get the template content.
+        
+        Process the template by replacing placeholders with values from request.txt:
+        - {{ .RESOURCE_NAME }} -> {resource_name}
+        - {{ .AWS_ACCOUNT }} -> {aws_account} (default: ${DEFAULT_AWS_ACCOUNT})
+        - {{ .REGION }} -> {region} (default: us-east-2)
+        - {{ .ENV }} -> {env} (default: sandbox)
+        - {{ .IS_PUBLIC }} -> {is_public} (default: false)
+        - {{ .APPLICATION_NAME }} -> {application_name} (default: ${DEFAULT_APPLICATION_NAME})
+        - {{ .COMPONENT }} -> {component} (default: platform)
+        - {{ .RESOURCE_OWNER }} -> {resource_owner} (default: platform_team)
+        - {{ .DATA_CLASSIFICATION }} -> ${DATA_CLASSIFICATION}
+        - {{ .DATA_TAXONOMY }} -> ${DATA_TAXONOMY}
+        - {{ .TF_MODULE_VERSION }} -> 1.0.6
+        - {{ .CISCO_MAIL_ALIAS }} -> {owner_email_alias}
+        
+        Handle the conditional backend bucket logic:
+        - If env is "dev" or "staging": bucket = "${TF_STATE_BUCKET_NONPROD}"
+        - If env is "sandbox": bucket = "${TF_STATE_BUCKET_SANDBOX}"
+        - Otherwise: bucket = "${TF_STATE_BUCKET_PROD}"
+        
+        Write the processed terraform content to /processed_s3.tf
+        Write "config_processed=true" to /config_status.txt
+      subagent: "github"
+
+    # Step 4: Create branch in terraform-infra repo
+    - display_text: "Create branch in terraform-infra repo"
+      llm_prompt: >
+        Read /request.txt to get resource_name.
+        
+        Create a new branch in the ${TERRAFORM_INFRA_REPO} with name:
+        s3-{resource_name}-{random_4_digit_suffix}
+        
+        Write the branch name to /branch_info.txt:
+        - branch_name=s3-{resource_name}-{suffix}
+      subagent: "github"
+
+    # Step 5: Push terraform config to branch
+    - display_text: "Push S3 terraform config to branch"
+      llm_prompt: >
+        Read /request.txt to get resource_name.
+        Read /branch_info.txt to get branch_name.
+        Read /processed_s3.tf to get the processed terraform content.
+        
+        Parse ${TERRAFORM_INFRA_REPO} (format: owner/repo) to extract owner and repo.
+        
+        Create a new file in the terraform-infra repo:
+        - Path: generated_iac/s3/{resource_name}/s3.tf
+        - Content: {processed terraform content from /processed_s3.tf}
+        - Branch: {branch_name}
+        - Commit message: "[Jarvis] Add S3 bucket {resource_name}"
+        
+        Write "file_created=true" to /file_status.txt
+      subagent: "github"
+
+    # Step 6: Create PR in terraform-infra repo
+    - display_text: "Create PR for S3 bucket"
+      llm_prompt: >
+        Read /request.txt to get resource_name, user_email.
+        Read /branch_info.txt to get branch_name.
+        
+        Create a pull request in ${TERRAFORM_INFRA_REPO} that:
+        - Uses branch {branch_name}
+        - Has title: "[Jarvis] Create S3 bucket {resource_name}"
+        - Has body: |
+            ## S3 Bucket Request
+            
+            **Bucket Name:** {resource_name}
+            **Requested By:** {user_email}
+            
+            This PR creates a new S3 bucket via Jarvis self-service automation.
+            
+            ### Approval Required
+            Please review the terraform configuration and approve if acceptable.
+        - Targets the main branch
+        
+        Write PR URL to /s3_pr_result.txt:
+        - pr_url={PR_URL}
+        - pr_number={PR_NUMBER}
+      subagent: "github"
+
+    # Step 7: Create Jira ticket for tracking
+    - display_text: "Create Jira ticket for S3 request"
+      llm_prompt: >
+        Read /request.txt to get resource_name, user_email.
+        Read /s3_pr_result.txt to get pr_url.
+        
+        Create a new Jira ticket in the OPENSD project with:
+        - Summary: "S3 bucket creation request: {resource_name}"
+        - Description: |
+            S3 Bucket Request
+            
+            Bucket Name: {resource_name}
+            Requested By: {user_email}
+            
+            Terraform PR: {pr_url}
+            
+            This request was submitted via Jarvis self-service.
+        - Assign to ${JIRA_ASSIGNEE}
+        - Transition to "Acknowledge" to indicate work has started
+        
+        Note: Available transitions are "Blocked", "Acknowledge", and "Close Ticket".
+        
+        Write result to /jira_result.txt:
+        - jira_issue_id={created ticket ID}
+        - jira_url={ticket URL}
+      subagent: "jira"
+
+    # Step 8: Send Webex notification
+    - display_text: "Send Webex notification"
+      llm_prompt: >
+        Read /request.txt to get resource_name, user_email.
+        Read /s3_pr_result.txt to get pr_url.
+        Read /jira_result.txt to get jira_url.
+        
+        Send a notification to the Webex room using the post_message tool with:
+        - room_id: ${WEBEX_ROOM_ID}
+        - markdown: |
+            ## 🪣 S3 Bucket Request Submitted
+            
+            **Bucket Name:** {resource_name}
+            **Requested By:** {user_email}
+            
+            📋 **Terraform PR:** {pr_url}
+            🎫 **Jira Ticket:** {jira_url}
+            
+            Please review and approve the PR to create the bucket.
+      subagent: "webex"
+
+
+# =============================================================================
+# ArgoCD Operations
+# =============================================================================
+
+Deploy App to Common Cluster:
+  tasks:
+    # Step 1: Collect deployment details from user
+    - display_text: "Collect deployment details"
+      llm_prompt: >
+        Collect the following information from the user and write to /request.txt:
+        - app_name (required): Name of the application (lowercase, no spaces, use hyphens)
+        - app_helm_chart_version (required): Helm chart version to deploy
+        - environment (optional): Target environment (dev/staging/prod, default: dev)
+        - app_namespace (optional): Kubernetes namespace (default: {app_name}-{environment})
+        - app_deployment_repo (optional): Deployment repo name (default: {app_name}-deployment)
+        - cluster_name (optional): Target cluster name (default: ${DEFAULT_CLUSTER_NAME})
+        - cluster_address (optional): Target cluster API address (default: ${DEFAULT_CLUSTER_ADDRESS})
+        - org_name (required): GitHub organization (one of: ${GITHUB_ORGS})
+        - user_email (required): Requester's corporate email
+        
+        Format as key=value on each line. Write to /request.txt.
+      subagent: "caipe"
+
+    # Step 2: Check if deployment repo exists
+    - display_text: "Check if deployment repo exists"
+      llm_prompt: >
+        Read /request.txt to get app_name, app_deployment_repo, org_name.
+        
+        If app_deployment_repo is not set, use "{app_name}-deployment" as the repo name.
+        
+        Check if the repository {org_name}/{app_deployment_repo} already exists.
+        
+        Write result to /repo_check.txt:
+        - repo_exists=true (if repo exists)
+        - repo_exists=false (if repo does not exist)
+        - deployment_repo={app_deployment_repo}
+      subagent: "github"
+
+    # Step 3: Create deployment repo if needed
+    - display_text: "Create deployment repo if needed"
+      llm_prompt: >
+        Read /request.txt to get app_name, org_name.
+        Read /repo_check.txt to get repo_exists, deployment_repo.
+        
+        If repo_exists=false:
+        - Create a new private repository {org_name}/{deployment_repo}
+        - Initialize with a README describing it as an ArgoCD deployment repo for {app_name}
+        
+        Write result to /repo_create.txt:
+        - repo_created=true (if created)
+        - repo_created=false (if skipped because it already exists)
+        - repo_url=https://github.com/{org_name}/{deployment_repo}
+      subagent: "github"
+
+    # Step 4: Fetch ArgoCD templates
+    - display_text: "Fetch ArgoCD deployment templates"
+      llm_prompt: >
+        Fetch the ArgoCD deployment templates from the workflows templates repo.
+        
+        Parse the JARVIS_WORKFLOWS_REPO env var (format: owner/repo) to extract owner and repo.
+        
+        Fetch the following template files:
+        1. templates/create_argocd_deployment/application/values.yaml -> /argocd_templates/values.yaml
+        2. templates/create_argocd_deployment/application/config.json -> /argocd_templates/config.json
+        3. templates/create_argocd_deployment/applicationset/applicationset.yaml -> /argocd_templates/applicationset.yaml
+        4. templates/create_argocd_deployment/project/project.yaml -> /argocd_templates/project.yaml
+        5. templates/create_argocd_deployment/projectapp/projectapp.yaml -> /argocd_templates/projectapp.yaml
+        6. templates/create_argocd_deployment/cluster/cluster-config.json -> /argocd_templates/cluster-config.json
+        
+        Write "templates_fetched=true" to /template_status.txt
+      subagent: "github"
+
+    # Step 5: Process templates with user values
+    - display_text: "Process ArgoCD templates with user values"
+      llm_prompt: >
+        Read /request.txt to get all user values.
+        Read all template files from /argocd_templates/.
+        
+        Set defaults if not provided:
+        - environment: dev
+        - app_namespace: {app_name}-{environment}
+        - app_deployment_repo: {app_name}-deployment
+        - cluster_name: ${DEFAULT_CLUSTER_NAME}
+        - cluster_address: ${DEFAULT_CLUSTER_ADDRESS}
+        
+        Process each template by replacing placeholders:
+        - {{ .APP_NAME }} -> {app_name}
+        - {{ .APP_HELM_CHART_VERSION }} -> {app_helm_chart_version}
+        - {{ .ENVIRONMENT }} -> {environment}
+        - {{ .APP_NAMESPACE }} -> {app_namespace}
+        - {{ .APP_DEPLOYMENT_REPO }} -> {app_deployment_repo}
+        - {{ .CLUSTER_NAME }} -> {cluster_name}
+        - {{ .CLUSTER_ADDRESS }} -> {cluster_address}
+        
+        Write processed templates to /processed_argocd/:
+        - /processed_argocd/values.yaml
+        - /processed_argocd/config.json
+        - /processed_argocd/applicationset.yaml
+        - /processed_argocd/project.yaml
+        - /processed_argocd/projectapp.yaml
+        - /processed_argocd/cluster-config.json
+        
+        Write "templates_processed=true" to /process_status.txt
+      subagent: "github"
+
+    # Step 6: Create branch in deployment repo
+    - display_text: "Create branch in deployment repo"
+      llm_prompt: >
+        Read /request.txt to get app_name.
+        Read /repo_check.txt to get deployment_repo.
+        
+        Parse org_name from /request.txt.
+        
+        Create a new branch in {org_name}/{deployment_repo} with name:
+        deploy-{app_name}-{random_4_digit_suffix}
+        
+        Write the branch name to /branch_info.txt:
+        - branch_name=deploy-{app_name}-{suffix}
+      subagent: "github"
+
+    # Step 7: Push ArgoCD manifests to deployment repo
+    - display_text: "Push ArgoCD manifests to deployment repo"
+      llm_prompt: >
+        Read /request.txt to get app_name, environment, org_name.
+        Read /repo_check.txt to get deployment_repo.
+        Read /branch_info.txt to get branch_name.
+        Read all processed templates from /processed_argocd/.
+        
+        Push the following files to {org_name}/{deployment_repo} on branch {branch_name}:
+        
+        1. applications/{app_name}/{environment}/{cluster_name}/values.yaml
+           Content: /processed_argocd/values.yaml
+        
+        2. applications/{app_name}/{environment}/{cluster_name}/config.json
+           Content: /processed_argocd/config.json
+        
+        3. applicationsets/{app_name}/{environment}/applicationset.yaml
+           Content: /processed_argocd/applicationset.yaml
+        
+        4. projects/{app_name}/{environment}/project.yaml
+           Content: /processed_argocd/project.yaml
+        
+        5. projects/{app_name}/{environment}/projectapp.yaml
+           Content: /processed_argocd/projectapp.yaml
+        
+        6. clusters/{app_name}/{environment}/{cluster_name}/cluster-config.json
+           Content: /processed_argocd/cluster-config.json
+        
+        Use commit message: "[Jarvis] Add ArgoCD deployment for {app_name} to {environment}"
+        
+        Write "files_pushed=true" to /push_status.txt
+      subagent: "github"
+
+    # Step 8: Create PR in deployment repo
+    - display_text: "Create PR for ArgoCD deployment"
+      llm_prompt: >
+        Read /request.txt to get app_name, environment, user_email, org_name.
+        Read /repo_check.txt to get deployment_repo.
+        Read /branch_info.txt to get branch_name.
+        
+        Create a pull request in {org_name}/{deployment_repo} that:
+        - Uses branch {branch_name}
+        - Has title: "[Jarvis] Deploy {app_name} to {environment}"
+        - Has body: |
+            ## ArgoCD Deployment Request
+            
+            **Application:** {app_name}
+            **Environment:** {environment}
+            **Requested By:** {user_email}
+            
+            This PR adds ArgoCD deployment manifests via Jarvis self-service automation.
+            
+            ### What's Included
+            - Application values and config
+            - ApplicationSet for multi-cluster deployment
+            - Project definition
+            - Cluster configuration
+            
+            ### After Merge
+            ArgoCD will automatically sync and deploy the application.
+        - Targets the main branch
+        
+        Write PR URL to /deployment_pr_result.txt:
+        - pr_url={PR_URL}
+        - pr_number={PR_NUMBER}
+      subagent: "github"
+
+    # Step 9: Create Jira ticket for tracking
+    - display_text: "Create Jira ticket for deployment"
+      llm_prompt: >
+        Read /request.txt to get app_name, environment, user_email.
+        Read /deployment_pr_result.txt to get pr_url.
+        Read /repo_create.txt to get repo_created, repo_url.
+        
+        Create a new Jira ticket in the OPENSD project with:
+        - Summary: "ArgoCD deployment request: {app_name} to {environment}"
+        - Description: |
+            ArgoCD Deployment Request
+            
+            Application: {app_name}
+            Environment: {environment}
+            Requested By: {user_email}
+            
+            Deployment PR: {pr_url}
+            Deployment Repo: {repo_url}
+            New Repo Created: {repo_created}
+            
+            This request was submitted via Jarvis self-service.
+        - Assign to ${JIRA_ASSIGNEE}
+        - Transition to "Acknowledge" to indicate work has started
+        
+        Note: Available transitions are "Blocked", "Acknowledge", and "Close Ticket".
+        
+        Write result to /jira_result.txt:
+        - jira_issue_id={created ticket ID}
+        - jira_url={ticket URL}
+      subagent: "jira"
+
+    # Step 13: Send Webex notification
+    - display_text: "Send Webex notification"
+      llm_prompt: >
+        Read /request.txt to get app_name, environment, user_email.
+        Read /argocd_pr_result.txt to get pr_url.
+        Read /repo_create.txt to get repo_url.
+        Read /jira_result.txt to get jira_url.
+        
+        Send a notification to the Webex room using the post_message tool with:
+        - room_id: ${WEBEX_ROOM_ID}
+        - markdown: |
+            ## 🚀 ArgoCD Deployment Request Submitted
+            
+            **Application:** {app_name}
+            **Environment:** {environment}
+            **Requested By:** {user_email}
+            
+            📋 **Deployment PR:** {pr_url}
+            📦 **Deployment Repo:** {repo_url}
+            🎫 **Jira Ticket:** {jira_url}
+            
+            Please review and approve the PR to deploy the application.
+      subagent: "webex"
+
+
+# =============================================================================
+# AI Gateway Operations
+# =============================================================================
+
+Create LLM API Key:
+  tasks:
+    # Step 1: Fetch available providers and models
+    - display_text: "Fetch available LLM providers and models"
+      llm_prompt: >
+        Use the list_available_models tool to get all available LLM providers and their models.
+        
+        From the results, extract:
+        1. The list of provider names (one per line) and write to /providers.txt
+        2. The full model identifiers in "provider/model" format (one per line) and write to /models.txt
+        
+        Example /providers.txt content:
+        openai
+        anthropic
+        bedrock
+        
+        Example /models.txt content:
+        openai/gpt-4o
+        openai/gpt-4-turbo
+        anthropic/claude-3-5-sonnet
+        anthropic/claude-3-opus
+        
+        These lists will be used as dropdown options in the input form.
+      subagent: "aigateway"
+
+    # Step 2: Collect user request
+    - display_text: "Collect LLM API key request details"
+      llm_prompt: >
+        Read /providers.txt to get the list of available providers.
+        Read /models.txt to get the list of available models.
+        
+        Collect the following information from the user and write to /request.txt:
+        - provider_name (required): LLM provider - use field_values from /providers.txt
+        - model_name (required): Model to use - use field_values from /models.txt
+          Note: Show models filtered by selected provider, or show all in "provider/model" format
+        - user_email (required): User's corporate email address
+        
+        Format as key=value on each line. Write to /request.txt.
+      subagent: "caipe"
+
+    # Step 3: Create or retrieve virtual key
+    - display_text: "Generate LLM virtual key"
+      llm_prompt: >
+        Read /request.txt to get provider_name, model_name, and user_email.
+        
+        If model_name contains a "/" (e.g., "openai/gpt-4o"), extract just the model part.
+        For example: "openai/gpt-4o" -> provider_name="openai", model_name="gpt-4o"
+        
+        Use the create_llm_api_key tool with:
+        - provider_name: {provider_name}
+        - model_name: {model_name}
+        - user_email: {user_email}
+        
+        The tool returns a formatted message with:
+        - The generated API key
+        - Base URL for the LLM gateway
+        - Python usage example
+        - Budget information
+        
+        Display the tool output directly to the user.
+      subagent: "aigateway"
+
+
+Get LLM Spend Activity:
+  tasks:
+    # Step 1: Collect user email and date range
+    - display_text: "Collect spend query details"
+      llm_prompt: >
+        Collect the following information from the user and write to /request.txt:
+        - user_email (required): Email address to check spend for
+        - start_date (optional): Start date in YYYY-MM-DD format
+        - end_date (optional): End date in YYYY-MM-DD format
+        
+        Format as key=value on each line. Write to /request.txt.
+      subagent: "caipe"
+
+    # Step 2: Retrieve and display spend report
+    - display_text: "Get spend report"
+      llm_prompt: >
+        Read /request.txt to get user_email, start_date, end_date.
+        
+        Use the get_user_spend_activity tool with:
+        - user_email: {user_email}
+        - start_date: {start_date} (if provided)
+        - end_date: {end_date} (if provided)
+        
+        The tool returns a formatted report with budget status and recent activity.
+        Display the tool output directly to the user.
+      subagent: "aigateway"
+
+
+# =============================================================================
+# Group Management Operations (via GitHub Workflows)
+# =============================================================================
+# Group management operations are implemented through GitHub workflows.
+# The GitHub subagent triggers these workflows.
+
+Add Users to Group:
+  tasks:
+    - display_text: "Collect group and user details"
+      llm_prompt: >
+        Collect the following information from the user and write to /request.txt:
+        - group_name (required): Group name to add users to
+        - user_emails (required): Comma-separated list of corporate email addresses
+        - requested_by (required): Email of the requester
+        
+        If user doesn't know the group name, suggest running "List Groups" first.
+        Format as key=value on each line. Write to /request.txt.
+      subagent: "caipe"
+
+    - display_text: "Trigger group update workflow"
+      llm_prompt: >
+        Read /request.txt to get group_name, user_emails, requested_by.
+        Trigger the group update workflow (add-users-to-group) in ${GROUPS_AUTOMATION_REPO}
+        with the following parameters:
+        - GROUP_NAME: {group_name}
+        - USER_EMAILS: {user_emails}
+        - REQUESTED_BY: {requested_by}
+        
+        Write the workflow run URL to /group_result.txt
+        
+        Display to user:
+        - Workflow run URL for tracking
+        - Note: A PR will be created that needs approval before changes take effect
+      subagent: "github"
+
+
+Invite Users to GitHub Org:
+  tasks:
+    - display_text: "Collect invitation details"
+      llm_prompt: >
+        Collect the following information from the user and write to /request.txt:
+        - org_name (required): GitHub organization (one of: ${GITHUB_ORGS})
+        - user_emails (required): Comma-separated list of corporate email addresses to invite
+        - requested_by (required): Email of the requester
+        
+        Format as key=value on each line. Write to /request.txt.
+      subagent: "caipe"
+
+    - display_text: "Trigger GitHub org invitation workflow"
+      llm_prompt: >
+        Read /request.txt to get org_name, user_emails, requested_by.
+        Trigger the GitHub org invitation workflow (invite-users-to-github-org) in ${GROUPS_AUTOMATION_REPO}
+        with the following parameters:
+        - ORG_NAME: {org_name}
+        - USER_EMAILS: {user_emails}
+        - REQUESTED_BY: {requested_by}
+        
+        Write the workflow run URL to /invite_result.txt
+        
+        Display to user:
+        - Workflow run URL for tracking
+        - Users will receive GitHub org invitations via email
+        - A PR will be created to add users to the org's group
+      subagent: "github"
+
+
+List Groups:
+  tasks:
+    - display_text: "Collect filter criteria"
+      llm_prompt: >
+        Collect the following information from the user and write to /request.txt:
+        - filter_prefix (optional): Filter groups by prefix or team name
+        - limit (optional): Maximum number of groups to return (default: 50)
+        
+        Format as key=value on each line. Write to /request.txt.
+      subagent: "caipe"
+
+    - display_text: "List available groups from repository"
+      llm_prompt: >
+        Read /request.txt to get filter_prefix and limit.
+        List the contents of ${GROUPS_PATH} directory in ${GROUPS_AUTOMATION_REPO}.
+        
+        If filter_prefix is provided, filter the results to match the prefix.
+        Limit results to {limit} entries.
+        
+        Write results to /groups_result.txt with group names.
+        Display formatted list to user.
+      subagent: "github"
+
+
+Find Users in Groups:
+  tasks:
+    - display_text: "Collect user emails"
+      llm_prompt: >
+        Collect the following information from the user and write to /request.txt:
+        - user_emails (required): Comma-separated list of corporate email addresses to search
+        
+        Format as key=value on each line. Write to /request.txt.
+      subagent: "caipe"
+
+    - display_text: "Search for user group memberships"
+      llm_prompt: >
+        Read /request.txt to get user_emails.
+        For each user, search for their email in the groups automation repo (${GROUPS_AUTOMATION_REPO})
+        within files matching ${GROUPS_FILE_PATTERN}.
+        
+        Extract the group names from the file paths where matches are found.
+        Compile a list of which groups each user belongs to.
+        
+        Write results to /memberships_result.txt showing each user and their groups.
+        Display formatted results to user.
+      subagent: "github"
