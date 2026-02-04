@@ -1,0 +1,110 @@
+# DevOps Agent Manifest Example
+# This demonstrates a complex agent with multiple protocols and integrations
+
+manifest_version: "1.0"
+
+metadata:
+  name: "devops"
+  display_name: "DevOps Agent"
+  version: "0.1.0"
+  description: "A comprehensive DevOps automation agent that manages deployments, monitors infrastructure, and handles incident response"
+  author: "CNOE Contributors"
+  author_email: "info@cnoe.io"
+  license: "Apache-2.0"
+  tags:
+    - "devops"
+    - "deployment"
+    - "infrastructure"
+    - "automation"
+    - "monitoring"
+
+protocols:
+  - a2a
+  - mcp
+
+transports:
+  - http
+  - sse
+
+skills:
+  - id: "deployment_management"
+    name: "Deployment Management"
+    description: "Manage application deployments across multiple environments"
+    tags:
+      - "deployment"
+      - "kubernetes"
+      - "helm"
+    examples:
+      - "Deploy version 2.1.0 to production"
+      - "Rollback the staging deployment"
+      - "What's the current version in production?"
+      - "Show me the deployment history"
+  
+  - id: "infrastructure_monitoring"
+    name: "Infrastructure Monitoring"
+    description: "Monitor infrastructure health and performance metrics"
+    tags:
+      - "monitoring"
+      - "metrics"
+      - "health"
+    examples:
+      - "What's the CPU usage of production cluster?"
+      - "Show me error rates for the last hour"
+      - "Are all services healthy?"
+      - "Check the status of database replicas"
+  
+  - id: "incident_response"
+    name: "Incident Response"
+    description: "Handle incident detection, triage, and resolution workflows"
+    tags:
+      - "incident"
+      - "alert"
+      - "resolution"
+    examples:
+      - "Create an incident for high error rate"
+      - "What are the active incidents?"
+      - "Resolve incident INC-1234"
+      - "Notify the on-call engineer"
+
+dependencies:
+  - source: "pypi"
+    name: "kubernetes"
+    version: ">=28.0.0"
+  
+  - source: "pypi"
+    name: "prometheus-client"
+    version: ">=0.19.0"
+  
+  - source: "pypi"
+    name: "pyyaml"
+    version: ">=6.0.0"
+
+environment:
+  - name: "KUBECONFIG_PATH"
+    description: "Path to Kubernetes configuration file"
+    required: true
+  
+  - name: "PROMETHEUS_URL"
+    description: "URL for Prometheus metrics server"
+    required: true
+  
+  - name: "SLACK_WEBHOOK_URL"
+    description: "Slack webhook URL for notifications"
+    required: false
+  
+  - name: "PAGERDUTY_API_KEY"
+    description: "PagerDuty API key for incident management"
+    required: false
+  
+  - name: "ENABLE_AUTO_ROLLBACK"
+    description: "Enable automatic rollback on deployment failures"
+    required: false
+    default: "false"
+
+capabilities:
+  streaming: true
+  pushNotifications: true
+
+docker_config:
+  base_image: "python:3.13-slim"
+
