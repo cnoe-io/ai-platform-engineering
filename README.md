@@ -68,7 +68,51 @@ Together, these sub-agents enable users to perform complex operations using agen
 * 🚀 *Sync the ‘production’ ArgoCD application to the latest commit*
 * 🚀 *Get the status of the 'frontend' ArgoCD application*
 
-## 📦 Quick Doc Links
+## 🚀 Quick Start with Docker Compose
+
+Run CAIPE locally with a single command:
+
+```bash
+# Clone the repository
+git clone https://github.com/cnoe-io/ai-platform-engineering.git
+cd ai-platform-engineering
+
+# Copy and configure environment variables
+cp .env.example .env
+# Edit .env with your API keys (OPENAI_API_KEY, etc.)
+
+# Run CAIPE with the web UI
+docker compose --profile caipe-ui up
+```
+
+Access the UI at **http://localhost:3001** and the API at **http://localhost:8000**.
+
+### Optional Profiles
+
+Enable additional features with profiles:
+
+```bash
+# With tracing (Langfuse)
+docker compose --profile caipe-ui --profile tracing up
+
+# With RAG (knowledge base)
+docker compose --profile caipe-ui --profile rag up
+
+# Development mode (build from source)
+docker compose -f docker-compose.dev.yaml --profile caipe-ui up --build
+```
+
+### Kubernetes Deployment
+
+For Kubernetes, use the Helm chart:
+
+```bash
+helm install caipe charts/ai-platform-engineering \
+  --set tags.caipe-ui=true \
+  --set caipe-ui.env.NEXT_PUBLIC_A2A_BASE_URL="https://your-caipe-api.example.com"
+```
+
+## 📦 Documentation
 
 - [Quick Start Guide](https://cnoe-io.github.io/ai-platform-engineering/getting-started/quick-start)
 - Setup

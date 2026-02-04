@@ -109,8 +109,10 @@ function getRuntimeEnv(key: string): string | undefined {
  * Get the CAIPE A2A endpoint URL
  *
  * Priority:
- * 1. Runtime/Build-time: NEXT_PUBLIC_A2A_BASE_URL
- * 2. Default: http://localhost:8000 (dev) or http://caipe-supervisor:8000 (prod/docker)
+ * 1. Runtime: window.__ENV__.NEXT_PUBLIC_A2A_BASE_URL (injected at container start)
+ * 2. Build-time: NEXT_PUBLIC_CAIPE_URL or NEXT_PUBLIC_A2A_BASE_URL
+ * 3. Server-side: CAIPE_URL or A2A_ENDPOINT
+ * 4. Default: http://localhost:8000 (dev) or http://caipe:8000 (prod/docker)
  */
 function getCaipeUrl(): string {
   // Check for NEXT_PUBLIC_A2A_BASE_URL (runtime or build-time)
@@ -121,7 +123,7 @@ function getCaipeUrl(): string {
 
   // Default based on environment
   const isProduction = typeof process !== 'undefined' && process.env.NODE_ENV === 'production';
-  return isProduction ? 'http://caipe-supervisor:8000' : 'http://localhost:8000';
+  return isProduction ? 'http://caipe:8000' : 'http://localhost:8000';
 }
 
 /**

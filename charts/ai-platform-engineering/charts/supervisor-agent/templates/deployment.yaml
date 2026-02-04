@@ -71,8 +71,11 @@ spec:
             - secretRef:
                 name: {{ $llmSecretName }}
             {{- end }}
+            {{- /* Only include supervisor-agent-env ConfigMap in multi-agent mode */ -}}
+            {{- if eq (default "single-node" .Values.global.deploymentMode) "multi-agent" }}
             - configMapRef:
                 name: {{ printf "%s-supervisor-agent-env" .Release.Name }}
+            {{- end }}
           env:
             - name: AGENT_PROTOCOL
               value: {{ .Values.multiAgentConfig.protocol | quote }}
