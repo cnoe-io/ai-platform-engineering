@@ -192,17 +192,17 @@ export function KnowledgeSidebar({ collapsed, onCollapse, graphRagEnabled }: Kno
 
       {/* Auth Status at bottom */}
       <div className={cn(
-        "p-3 border-t border-border/50",
-        collapsed && "flex justify-center"
+        "border-t border-border/50",
+        collapsed ? "p-2 flex justify-center" : "p-3"
       )}>
         {!collapsed && (
-          <div className="flex items-center justify-between">
-            <span className="text-xs text-muted-foreground">RAG Status</span>
+          <div className="flex flex-col items-center gap-2">
+            <span className="text-[10px] text-muted-foreground uppercase tracking-wider">RAG Status</span>
             <RagAuthIndicator />
           </div>
         )}
         {collapsed && (
-          <RagAuthIndicator />
+          <RagAuthIndicator compact />
         )}
       </div>
     </motion.div>
