@@ -527,7 +527,7 @@ services:
     build:
       context: .
       dockerfile: ./build/Dockerfile.ingestors
-    container_name: dummy-ingestor
+    container_name: dummy-graph-ingestor
     volumes:
       - ./tests/rag_graph_test:/app/data:ro
     environment:

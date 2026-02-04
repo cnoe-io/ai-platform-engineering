@@ -105,7 +105,7 @@ export default function KnowledgeBasesLayout({
 
   // Connected - show sidebar + content layout
   return (
-    <div className="flex-1 flex overflow-hidden">
+    <div className="flex-1 flex min-h-0">
       {/* Sidebar */}
       <KnowledgeSidebar
         collapsed={sidebarCollapsed}
@@ -114,7 +114,7 @@ export default function KnowledgeBasesLayout({
       />
 
       {/* Main Content */}
-      <div className="flex-1 min-w-0 overflow-hidden">
+      <div className="flex-1 min-w-0 overflow-y-auto">
         {children}
       </div>
     </div>
