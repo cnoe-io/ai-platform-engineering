@@ -65,7 +65,7 @@ export interface UserInfo {
   role: string;
   is_authenticated: boolean;
   groups: string[];
-  permissions: PermissionType[];
+  permissions?: PermissionType[];
   in_trusted_network: boolean;
 }
 
@@ -76,7 +76,10 @@ export interface UserInfo {
  * hasPermission(userInfo, Permission.DELETE)
  */
 export function hasPermission(userInfo: UserInfo | null, permission: PermissionType): boolean {
-  return userInfo?.permissions.includes(permission) ?? false;
+  if (!userInfo) return false;
+  if (!userInfo.permissions) return false;
+  if (!Array.isArray(userInfo.permissions)) return false;
+  return userInfo.permissions.includes(permission);
 }
 
 // ============================================================================
