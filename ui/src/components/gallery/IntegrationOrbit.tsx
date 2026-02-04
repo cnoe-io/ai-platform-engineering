@@ -2,6 +2,7 @@
 
 import React from "react";
 import { motion } from "framer-motion";
+import { getConfig, getLogoFilterClass } from "@/lib/config";
 
 // Integration logos - simple single-color icons for small containers
 // Sources: simpleicons.org, devicons
@@ -289,7 +290,7 @@ export function IntegrationOrbit() {
         }}
         transition={{ duration: 3, repeat: Infinity, ease: "easeInOut" }}
       >
-        <img src="/logo.svg" alt="CAIPE" className="w-14 h-14 filter brightness-0 invert" />
+        <img src={getConfig('logoUrl')} alt={getConfig('appName')} className={`w-14 h-14 ${getLogoFilterClass()}`} />
       </motion.div>
 
       {/* Inner Orbit - closer integrations */}

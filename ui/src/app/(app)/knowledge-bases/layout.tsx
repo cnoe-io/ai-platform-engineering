@@ -8,11 +8,13 @@ import {
   Database,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { CAIPESpinner } from "@/components/ui/caipe-spinner";
 import { config } from "@/lib/config";
 import { useRAGHealth } from "@/hooks/use-rag-health";
 import { KnowledgeSidebar } from "@/components/rag/KnowledgeSidebar";
+import { AuthGuard } from "@/components/auth-guard";
 
-export default function KnowledgeBasesLayout({
+function KnowledgeBasesLayoutContent({
   children,
 }: {
   children: React.ReactNode;
@@ -71,34 +73,8 @@ export default function KnowledgeBasesLayout({
   // Loading state
   if (ragHealth === "checking") {
     return (
-      <div className="flex-1 flex flex-col bg-background overflow-hidden">
-        {/* Header with Gradient */}
-        <div className="relative overflow-hidden border-b border-border shrink-0">
-          <div 
-            className="absolute inset-0" 
-            style={{
-              background: `linear-gradient(to bottom right, color-mix(in srgb, var(--gradient-from) 15%, transparent) 0%, color-mix(in srgb, var(--gradient-to) 8%, transparent) 50%, transparent 100%)`
-            }}
-          />
-          <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-primary/5 via-transparent to-transparent" />
-
-          <div className="relative px-6 py-3 flex items-center gap-3">
-            <div className="p-2 rounded-lg gradient-primary-br shadow-md shadow-primary/20">
-              <Database className="h-5 w-5 text-white" />
-            </div>
-            <div>
-              <h1 className="text-lg font-bold gradient-text">Knowledge Bases</h1>
-              <p className="text-muted-foreground text-xs">
-                Connecting to RAG server...
-              </p>
-            </div>
-          </div>
-        </div>
-
-        <div className="flex-1 flex flex-col items-center justify-center text-muted-foreground">
-          <Loader2 className="h-16 w-16 animate-spin text-primary" />
-          <p className="mt-4 text-lg">Connecting to RAG server...</p>
-        </div>
+      <div className="flex-1 flex flex-col items-center justify-center bg-background">
+        <CAIPESpinner size="lg" message="Connecting to RAG server..." />
       </div>
     );
   }
@@ -118,5 +94,19 @@ export default function KnowledgeBasesLayout({
         {children}
       </div>
     </div>
+  );
+}
+
+export default function KnowledgeBasesLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  return (
+    <AuthGuard>
+      <KnowledgeBasesLayoutContent>
+        {children}
+      </KnowledgeBasesLayoutContent>
+    </AuthGuard>
   );
 }

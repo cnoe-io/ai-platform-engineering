@@ -35,43 +35,43 @@ const themes = [
 
 // Gradient theme options
 const gradientThemes = [
-  { 
-    id: "default", 
-    label: "Default (Teal → Purple)", 
+  {
+    id: "default",
+    label: "Default (Teal → Purple)",
     description: "Original vibrant gradient",
-    from: "hsl(173,80%,40%)", 
+    from: "hsl(173,80%,40%)",
     to: "hsl(270,75%,60%)",
     preview: "from-[hsl(173,80%,40%)] to-[hsl(270,75%,60%)]"
   },
-  { 
-    id: "minimal", 
-    label: "Minimal (Gray → Dark Gray)", 
+  {
+    id: "minimal",
+    label: "Minimal (Gray → Dark Gray)",
     description: "Subtle, professional",
-    from: "hsl(220,10%,40%)", 
+    from: "hsl(220,10%,40%)",
     to: "hsl(220,10%,25%)",
     preview: "from-gray-600 to-gray-800"
   },
-  { 
-    id: "professional", 
-    label: "Professional (Blue → Navy)", 
+  {
+    id: "professional",
+    label: "Professional (Blue → Navy)",
     description: "Corporate, trustworthy",
-    from: "hsl(210,60%,50%)", 
+    from: "hsl(210,60%,50%)",
     to: "hsl(210,80%,30%)",
     preview: "from-blue-500 to-blue-800"
   },
-  { 
-    id: "ocean", 
-    label: "Ocean (Cyan → Blue)", 
+  {
+    id: "ocean",
+    label: "Ocean (Cyan → Blue)",
     description: "Cool, calming",
-    from: "hsl(195,80%,45%)", 
+    from: "hsl(195,80%,45%)",
     to: "hsl(220,80%,45%)",
     preview: "from-cyan-500 to-blue-600"
   },
-  { 
-    id: "sunset", 
-    label: "Sunset (Orange → Pink)", 
+  {
+    id: "sunset",
+    label: "Sunset (Orange → Pink)",
     description: "Warm, energetic",
-    from: "hsl(30,80%,55%)", 
+    from: "hsl(30,80%,55%)",
     to: "hsl(340,70%,55%)",
     preview: "from-orange-500 to-pink-500"
   },

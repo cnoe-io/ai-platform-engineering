@@ -19,11 +19,13 @@ function ChatPage() {
   // Use centralized configuration for CAIPE URL (use dynamic config for runtime injection)
   const caipeUrl = getConfig('caipeUrl');
 
-  const handleTabChange = (tab: "chat" | "gallery" | "knowledge") => {
+  const handleTabChange = (tab: "chat" | "gallery" | "knowledge" | "admin") => {
     if (tab === "chat") {
       router.push("/chat");
     } else if (tab === "gallery") {
       router.push("/use-cases");
+    } else if (tab === "admin") {
+      router.push("/admin");
     } else {
       router.push("/knowledge-bases");
     }

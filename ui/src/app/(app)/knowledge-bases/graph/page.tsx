@@ -46,9 +46,5 @@ function GraphPage() {
 }
 
 export default function Graph() {
-  return (
-    <AuthGuard>
-      <GraphPage />
-    </AuthGuard>
-  );
+  return <GraphPage />;
 }

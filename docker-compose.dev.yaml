@@ -100,6 +100,51 @@ services:
     command: platform-engineer
 
   ####################################################################################################
+  #                                          MongoDB                                                 #
+  ####################################################################################################
+  # MongoDB for CAIPE UI chat history and user settings
+  mongodb:
+    image: mongo:7.0
+    container_name: caipe-mongodb-dev
+    ports:
+      - "27017:27017"
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=${MONGODB_ROOT_USERNAME:-admin}
+      - MONGO_INITDB_ROOT_PASSWORD=${MONGODB_ROOT_PASSWORD:-changeme}
+      - MONGO_INITDB_DATABASE=${MONGODB_DATABASE:-caipe}
+    volumes:
+      - mongodb_data:/data/db
+      - mongodb_config:/data/configdb
+    command: ["mongod", "--quiet", "--logpath", "/dev/null"]
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+    profiles:
+      - caipe-ui
+      - caipe-ui-mongodb
+
+  # MongoDB Admin UI
+  mongo-express:
+    image: mongo-express:latest
+    container_name: caipe-mongo-express-dev
+    ports:
+      - "8081:8081"
+    environment:
+      - ME_CONFIG_MONGODB_ADMINUSERNAME=${MONGODB_ROOT_USERNAME:-admin}
+      - ME_CONFIG_MONGODB_ADMINPASSWORD=${MONGODB_ROOT_PASSWORD:-changeme}
+      - ME_CONFIG_MONGODB_URL=mongodb://${MONGODB_ROOT_USERNAME:-admin}:${MONGODB_ROOT_PASSWORD:-changeme}@mongodb:27017/
+      - ME_CONFIG_BASICAUTH=false
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    profiles:
+      - caipe-ui
+      - caipe-ui-mongo-express
+
+  ####################################################################################################
   #                                      SLIM Transport                                              #
   ####################################################################################################
   slim-dataplane:
@@ -163,7 +208,7 @@ services:
       - IAM_MCP_READONLY=${IAM_MCP_READONLY:-true}
       - USE_AWS_CLI_AS_TOOL=${USE_AWS_CLI_AS_TOOL:-true}
       # Multi-account support - format: "name1:id1,name2:id2" or just "id1,id2"
-      - DEFAULT_AWS_ACCOUNT_ID=${DEFAULT_AWS_ACCOUNT_ID:-outshift-common-dev:123456789012}
+      - DEFAULT_AWS_ACCOUNT_ID=${DEFAULT_AWS_ACCOUNT_ID:-common-dev:123456789012}
       - AWS_ACCOUNT_LIST=${AWS_ACCOUNT_LIST:-account1:123456789012,account2:123456789013}
       - CROSS_ACCOUNT_ROLE_NAME=${CROSS_ACCOUNT_ROLE_NAME:-caipe-read-only}
       - STRANDS_LOG_LEVEL=${STRANDS_LOG_LEVEL:-INFO}
@@ -816,6 +861,7 @@ services:
     ports: ["9446:9446"]
     environment:
       - LOG_LEVEL=DEBUG
+      - ALLOW_UNAUTHENTICATED=true
       - REDIS_URL=redis://rag-redis:6379/0
       - NEO4J_ADDR=neo4j://neo4j:7687
       - NEO4J_ONTOLOGY_ADDR=neo4j://neo4j-ontology:7688
@@ -860,8 +906,7 @@ services:
     depends_on: [rag_server]
     ports: ["9447:80"]
     profiles:
-      - rag
-      - graph_rag
+      - rag-legacy-webui
 
   web_ingestor:
     image: ghcr.io/cnoe-io/caipe-rag-ingestors:${IMAGE_TAG:-stable}
@@ -876,8 +921,7 @@ services:
     restart: unless-stopped
     depends_on: [rag_server]
     profiles:
-      - rag
-      - graph_rag
+      - web_ingestor
 
   # Dummy Graph Ingestor - for testing graph RAG with sample data
   # Requires RAG services to be running first: docker compose -f docker-compose.dev.yaml --profile graph_rag up -d
@@ -923,8 +967,6 @@ services:
     depends_on: [rag_server]
     profiles:
       - backstage-ingestor
-      - graph_rag
-
   # RAG Dependencies
   neo4j:
     image: neo4j:latest
@@ -1237,6 +1279,10 @@ services:
       - evaluation
 
 volumes:
+  mongodb_data:
+    driver: local
+  mongodb_config:
+    driver: local
   langfuse_postgres_data:
     driver: local
   langfuse_clickhouse_data:
