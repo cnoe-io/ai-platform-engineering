@@ -101,8 +101,10 @@ function getRuntimeEnv(key: string): string | undefined {
  * Get the CAIPE A2A endpoint URL
  *
  * Priority:
- * 1. Runtime/Build-time: NEXT_PUBLIC_A2A_BASE_URL
- * 2. Default: http://localhost:8000 (dev) or http://caipe-supervisor:8000 (prod/docker)
+ * 1. Runtime: window.__ENV__.NEXT_PUBLIC_A2A_BASE_URL (injected at container start)
+ * 2. Build-time: NEXT_PUBLIC_CAIPE_URL or NEXT_PUBLIC_A2A_BASE_URL
+ * 3. Server-side: CAIPE_URL or A2A_ENDPOINT
+ * 4. Default: http://localhost:8000 (dev) or http://caipe:8000 (prod/docker)
  */
 function getCaipeUrl(): string {
   // Check for NEXT_PUBLIC_A2A_BASE_URL (runtime or build-time)
@@ -113,7 +115,7 @@ function getCaipeUrl(): string {
 
   // Default based on environment
   const isProduction = typeof process !== 'undefined' && process.env.NODE_ENV === 'production';
-  return isProduction ? 'http://caipe-supervisor:8000' : 'http://localhost:8000';
+  return isProduction ? 'http://caipe:8000' : 'http://localhost:8000';
 }
 
 /**
@@ -158,17 +160,28 @@ function isSsoEnabled(): boolean {
 }
 
 /**
- * Check if RAG is enabled
- * RAG is enabled by default - set NEXT_PUBLIC_RAG_ENABLED=false to disable
- * Priority: window.__RUNTIME_ENV__ (client) > process.env (server)
+ * Check if RAG (knowledge base) is enabled
+ * Disabled by default - set ENABLE_RAG=true or NEXT_PUBLIC_RAG_ENABLED=true to enable
+ * Priority: NEXT_PUBLIC_ENABLE_RAG > NEXT_PUBLIC_RAG_ENABLED > ENABLE_RAG
+ * All resolved via window.__RUNTIME_ENV__ (client) > process.env (server)
  */
 function isRagEnabled(): boolean {
-  const ragEnv = getRuntimeEnv('NEXT_PUBLIC_RAG_ENABLED');
-  if (ragEnv !== undefined) {
-    return ragEnv === 'true';
+  // Check NEXT_PUBLIC_ENABLE_RAG first (client-accessible, single-node mode)
+  const enableRagEnv = getRuntimeEnv('NEXT_PUBLIC_ENABLE_RAG');
+  if (enableRagEnv !== undefined) {
+    return enableRagEnv === 'true';
   }
-  // Default: enabled (for backward compatibility)
-  return true;
+  // Check NEXT_PUBLIC_RAG_ENABLED (client-accessible, multi-node mode)
+  const ragEnabledEnv = getRuntimeEnv('NEXT_PUBLIC_RAG_ENABLED');
+  if (ragEnabledEnv !== undefined) {
+    return ragEnabledEnv === 'true';
+  }
+  // Fall back to server-side ENABLE_RAG
+  const serverRagEnv = getRuntimeEnv('ENABLE_RAG');
+  if (serverRagEnv !== undefined) {
+    return serverRagEnv === 'true';
+  }
+  return false;
 }
 
 /**
