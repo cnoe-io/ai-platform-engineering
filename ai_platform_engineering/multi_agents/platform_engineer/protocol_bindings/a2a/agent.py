@@ -6,7 +6,7 @@ import json
 import logging
 import os
 from collections.abc import AsyncIterable
-from typing import Any, Optional
+from typing import Any
 
 # A2A tracing is disabled via cnoe-agent-utils disable_a2a_tracing() in main.py
 from a2a.types import (
@@ -23,48 +23,27 @@ from ai_platform_engineering.multi_agents.platform_engineer.prompts import (
 )
 from ai_platform_engineering.multi_agents.platform_engineer.response_format import PlatformEngineerResponse
 from cnoe_agent_utils import LLMFactory
-from cnoe_agent_utils.tracing import TracingManager
+from cnoe_agent_utils.tracing import TracingManager, trace_agent_stream
 from ai_platform_engineering.utils.a2a_common.langmem_utils import (
     summarize_messages,
     preflight_context_check,
 )
 from langchain_core.messages import AIMessage, AIMessageChunk, ToolMessage
-from langgraph.types import Command
-
-# Import GraphInterrupt for proper HITL handling
-try:
-    from langgraph.errors import GraphInterrupt
-except ImportError:
-    # Fallback for older versions
-    GraphInterrupt = None
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 class AIPlatformEngineerA2ABinding:
   """
-  AI Platform Engineer Multi-Agent System (MAS) for platform engineering tasks.
+  AI Platform Engineer Multi-Agent System (MAS) for currency conversion.
   """
 
   SYSTEM_INSTRUCTION = system_prompt
 
   def __init__(self):
-      # Store the MAS instance (not yet initialized - call ensure_initialized() first)
-      self._mas_instance = AIPlatformEngineerMAS()
-      self.graph = None  # Set after ensure_initialized()
+      self.graph = AIPlatformEngineerMAS().get_graph()
       self.tracing = TracingManager()
       self._execution_plan_sent = False
-      self._initialized = False
-  
-  async def ensure_initialized(self) -> None:
-      """Ensure the agent is initialized with MCP tools loaded."""
-      if self._initialized:
-          return
-      
-      await self._mas_instance.ensure_initialized()
-      self.graph = self._mas_instance.get_graph()
-      self._initialized = True
-      logging.info("✅ AIPlatformEngineerA2ABinding initialized with MCP tools")
 
   async def _repair_orphaned_tool_calls(self, config: dict) -> None:
       """
@@ -120,19 +99,6 @@ class AIPlatformEngineerA2ABinding:
 
           if not orphaned:
               return
-
-          # CRITICAL: Check for pending deterministic task execution
-          # If pending_task_tool_call_id is in state, skip cleaning up that specific tool call
-          # This allows DeterministicTaskMiddleware to inject task calls that will be
-          # executed by the tools node without being cleaned up
-          pending_task_id = state.values.get("pending_task_tool_call_id")
-          if pending_task_id and pending_task_id in orphaned:
-              logging.info(
-                  f"⏳ Supervisor: Skipping repair of pending deterministic task tool call: {pending_task_id}"
-              )
-              del orphaned[pending_task_id]
-              if not orphaned:
-                  return
 
           orphaned_names = [info[1] for info in orphaned.values()]
           logging.warning(
@@ -206,31 +172,16 @@ class AIPlatformEngineerA2ABinding:
               continue
       return None
 
-  # NOTE: Not using @trace_agent_stream decorator because it doesn't support the 'command' parameter
-  # needed for HITL resume functionality. Manual tracing is handled via TracingManager.
-  async def stream(
-      self,
-      query: Optional[str],
-      context_id: str,
-      trace_id: Optional[str] = None,
-      command: Optional[Command] = None,
-  ) -> AsyncIterable[dict[str, Any]]:
-      logging.debug(f"Starting stream with query: {query}, context_id: {context_id}, trace_id: {trace_id}, has_command: {command is not None}")
-      
-      # Ensure agent is initialized with MCP tools (lazy loading on first stream)
-      await self.ensure_initialized()
-      
+  @trace_agent_stream("platform_engineer", update_input=True)
+  async def stream(self, query, context_id, trace_id=None) -> AsyncIterable[dict[str, Any]]:
+      logging.debug(f"Starting stream with query: {query}, context_id: {context_id}, trace_id: {trace_id}")
       # Reset execution plan state for each new stream
       self._execution_plan_sent = False
 
       # Track tool calls to ensure every AIMessage.tool_call gets a ToolMessage
       pending_tool_calls = {}  # {tool_call_id: tool_name}
 
-      # Build input based on whether we have a query or a command (resume from interrupt)
-      if command is not None:
-          inputs = command
-      else:
-          inputs = {'messages': [('user', query or '')]}
+      inputs = {'messages': [('user', query)]}
       config = self.tracing.create_config(context_id)
 
       # Ensure metadata exists in config for tools to access
@@ -323,119 +274,24 @@ class AIPlatformEngineerA2ABinding:
 
           if enable_streaming:
               # Use astream with multiple stream modes to get both token-level streaming AND custom events
-              # stream_mode=['messages', 'custom', 'updates'] enables:
+              # stream_mode=['messages', 'custom'] enables:
               # - 'messages': Token-level streaming via AIMessageChunk
               # - 'custom': Custom events from sub-agents via get_stream_writer()
-              # - 'updates': Updates including __interrupt__ events for HITL forms
-              stream_mode = ['messages', 'custom', 'updates']
+              stream_mode = ['messages', 'custom']
               logging.info("Supervisor: Token-by-token streaming ENABLED")
           else:
               # Use values mode for complete messages (better spacing, less responsive)
-              stream_mode = ['values', 'custom', 'updates']
+              stream_mode = ['values', 'custom']
               logging.info("Supervisor: Token-by-token streaming DISABLED, using full message mode")
 
-          # Track if we've hit an interrupt (HITL form)
-          is_interrupt = False
-
-          async for stream_item in self.graph.astream(inputs, config, stream_mode=stream_mode, subgraphs=True):
-              # Handle variable tuple format from subgraphs=True
-              # With subgraphs=True, format is (path, stream_mode, event)
-              # Without subgraphs, format is (stream_mode, event)
-              if isinstance(stream_item, tuple):
-                  if len(stream_item) == 3:
-                      path, event_type, event = stream_item
-                  elif len(stream_item) == 2:
-                      path = None
-                      event_type, event = stream_item
-                  else:
-                      # Unexpected format, try to handle gracefully
-                      path = None
-                      event_type = stream_item[0] if len(stream_item) > 0 else None
-                      event = stream_item[1] if len(stream_item) > 1 else stream_item
-              else:
-                  path = None
-                  event_type = None
-                  event = stream_item
-
-              # Skip processing after an interrupt - client needs to respond first
-              if is_interrupt:
-                  continue
-
-              # Handle __interrupt__ events (Human-in-the-Loop forms)
-              if isinstance(event, dict) and "__interrupt__" in event:
-                  logging.info(f"Interrupt received: {event}")
-                  intr_obj = event.get("__interrupt__")
-                  intr = intr_obj[0] if isinstance(intr_obj, (list, tuple)) and intr_obj else intr_obj
-
-                  # Extract the interrupt value (HITL request data)
-                  intr_value = getattr(intr, "value", None)
-                  if intr_value is None and isinstance(intr, dict):
-                      intr_value = intr
-
-                  logging.info(f"[Interrupt] Extracted value: {type(intr_value)}")
-
-                  # The HITL middleware generates data in format:
-                  # {'action_requests': [{'name': 'CAIPEAgentResponse', 'arguments': {'metadata': {'input_fields': [...]}}, 'description': '...'}],
-                  #  'review_configs': [{'action_name': 'CAIPEAgentResponse', 'allowed_decisions': [...]}]}
-                  # Note: Standard HITL uses 'arguments', but some implementations use 'args'
-                  action_requests = []
-                  if isinstance(intr_value, dict):
-                      action_requests = intr_value.get("action_requests", [])
-                      logging.info(f"[Interrupt] Found {len(action_requests)} action_requests in dict, keys: {list(intr_value.keys())}")
-                  elif isinstance(intr_value, list):
-                      action_requests = intr_value
-                      logging.info(f"[Interrupt] intr_value is list with {len(action_requests)} items")
-                  else:
-                      logging.warning(f"[Interrupt] Unexpected intr_value type: {type(intr_value)}, value: {intr_value}")
-
-                  tool_calls = []
-                  for action_req in action_requests:
-                      try:
-                          logging.info(f"[Interrupt] Processing action_req: {json.dumps(action_req, default=str)[:500]}")
-                          name = action_req.get("name", "CAIPEAgentResponse")
-                          # HITL middleware uses 'arguments', but also check 'args' for compatibility
-                          args = action_req.get("arguments", {}) or action_req.get("args", {})
-                          description = action_req.get("description", "")
-                          
-                          # The args should already contain metadata.input_fields from HITL middleware
-                          # Just pass them through directly
-                          tool_calls.append({
-                              "name": name,
-                              "args": args,
-                              "id": getattr(intr, "id", None),
-                          })
-                          logging.info(f"[Interrupt] Parsed action request: name={name}, has_metadata={bool(args.get('metadata') if isinstance(args, dict) else False)}, args_keys={list(args.keys()) if isinstance(args, dict) else 'not dict'}")
-                      except Exception as e:
-                          logging.warning(f"Failed to parse interrupt action request: {e}", exc_info=True)
-
-                  if not tool_calls:
-                      logging.warning("[Interrupt] No tool_calls extracted from interrupt, skipping")
-                      continue
-
-                  # Create synthetic AIMessage with tool_calls for form display
-                  synth_msg = AIMessage(
-                      content="Please provide the required information.",
-                      tool_calls=tool_calls,
-                  )
-                  logging.info(f"[Interrupt] Yielding form with {len(tool_calls)} tool_calls")
-                  is_interrupt = True
-                  yield {
-                      "event_type": "interrupt",
-                      "message": synth_msg,
-                      "is_task_complete": False,
-                      "require_user_input": True,
-                      "content": "",
-                      "agent_type": "caipe",
-                      "node_name": "caipe",
-                  }
-                  continue
+          async for item_type, item in self.graph.astream(inputs, config, stream_mode=stream_mode):
 
               # Handle custom A2A event payloads from sub-agents
-              if event_type == 'custom' and isinstance(event, dict):
+              if item_type == 'custom' and isinstance(item, dict):
                   # Handle different custom event types
-                  if event.get("type") == "a2a_event":
+                  if item.get("type") == "a2a_event":
                       # Legacy a2a_event format (text-based)
-                      custom_text = event.get("data", "")
+                      custom_text = item.get("data", "")
                       if custom_text:
                           logging.debug(f"Processing custom a2a_event from sub-agent: {len(custom_text)} chars")
                           yield {
@@ -444,9 +300,9 @@ class AIPlatformEngineerA2ABinding:
                               "content": custom_text,
                           }
                       continue
-                  elif event.get("type") == "human_prompt":
-                      prompt_text = event.get("prompt", "")
-                      options = event.get("options", [])
+                  elif item.get("type") == "human_prompt":
+                      prompt_text = item.get("prompt", "")
+                      options = item.get("options", [])
                       logging.debug("Received human-in-the-loop prompt from sub-agent")
                       yield {
                           "is_task_complete": False,
@@ -455,18 +311,18 @@ class AIPlatformEngineerA2ABinding:
                           "metadata": {"options": options} if options else {},
                       }
                       continue
-                  elif event.get("type") == "artifact-update":
+                  elif item.get("type") == "artifact-update":
                       # New artifact-update format from sub-agents (full A2A event)
                       # Yield the entire event dict for the executor to handle
                       logging.debug("Received artifact-update custom event from sub-agent, forwarding to executor")
-                      yield event
+                      yield item
                       continue
 
               # Process message stream
-              if event_type != 'messages':
+              if item_type != 'messages':
                   continue
 
-              message = event[0] if event else None
+              message = item[0] if item else None
               if not message:
                   continue
 
@@ -962,86 +818,8 @@ class AIPlatformEngineerA2ABinding:
 
           # Don't yield completion event - keep queue open for follow-up questions
           return
-      # Handle GraphInterrupt (HITL) specially - don't treat as a streaming failure
+      # Fallback to old method if astream doesn't work
       except Exception as e:
-          # Check if this is a GraphInterrupt (HITL form request)
-          exception_type = type(e).__name__
-          is_graph_interrupt = (
-              "Interrupt" in exception_type or 
-              (GraphInterrupt is not None and isinstance(e, GraphInterrupt))
-          )
-          
-          if is_graph_interrupt:
-              logging.info(f"🔄 GraphInterrupt caught in stream exception handler - propagating as HITL form")
-              
-              # Extract interrupt value from exception
-              interrupt_value = None
-              if hasattr(e, 'value'):
-                  interrupt_value = e.value
-              elif hasattr(e, 'args') and e.args:
-                  first_arg = e.args[0]
-                  if hasattr(first_arg, 'value'):
-                      interrupt_value = first_arg.value
-                  elif isinstance(first_arg, tuple) and len(first_arg) > 0:
-                      first_intr = first_arg[0]
-                      if hasattr(first_intr, 'value'):
-                          interrupt_value = first_intr.value
-                      elif isinstance(first_intr, dict):
-                          interrupt_value = first_intr
-                  elif isinstance(first_arg, dict):
-                      interrupt_value = first_arg
-              
-              if interrupt_value:
-                  logging.info(f"[Interrupt from exception] Extracted value type: {type(interrupt_value)}")
-                  
-                  # Extract action_requests
-                  action_requests = []
-                  if isinstance(interrupt_value, dict):
-                      action_requests = interrupt_value.get("action_requests", [])
-                      logging.info(f"[Interrupt from exception] Found {len(action_requests)} action_requests")
-                  elif isinstance(interrupt_value, list):
-                      action_requests = interrupt_value
-                  
-                  # Build tool_calls for the form
-                  tool_calls = []
-                  for action_req in action_requests:
-                      try:
-                          name = action_req.get("name", "CAIPEAgentResponse")
-                          # HITL uses 'arguments', also check 'args' for compatibility
-                          args = action_req.get("arguments", {}) or action_req.get("args", {})
-                          tool_calls.append({
-                              "name": name,
-                              "args": args,
-                              "id": action_req.get("id"),
-                          })
-                          logging.info(f"[Interrupt from exception] Parsed: name={name}, has_metadata={bool(args.get('metadata') if isinstance(args, dict) else False)}")
-                      except Exception as parse_err:
-                          logging.warning(f"Failed to parse action_request: {parse_err}")
-                  
-                  if tool_calls:
-                      # Create synthetic AIMessage with tool_calls for form display
-                      synth_msg = AIMessage(
-                          content="Please provide the required information.",
-                          tool_calls=tool_calls,
-                      )
-                      logging.info(f"[Interrupt from exception] Yielding form with {len(tool_calls)} tool_calls")
-                      yield {
-                          "event_type": "interrupt",
-                          "message": synth_msg,
-                          "is_task_complete": False,
-                          "require_user_input": True,
-                          "content": "",
-                          "agent_type": "caipe",
-                          "node_name": "caipe",
-                      }
-                      return
-                  else:
-                      logging.warning("[Interrupt from exception] No tool_calls extracted, cannot show form")
-              else:
-                  logging.warning(f"[Interrupt from exception] Could not extract interrupt value from: {e}")
-              
-              # If we couldn't extract the form data, fall through to error handling
-          
           error_str = str(e)
           logging.warning(f"Token-level streaming failed, falling back to message-level: {e}")
 
@@ -1080,70 +858,7 @@ class AIPlatformEngineerA2ABinding:
               "clear_accumulators": True,
               "content": "🔄 Switching to fallback streaming mode...",
           }
-          
-          # Wrap fallback streaming in try/except to catch GraphInterrupt
-          try:
-            async for item_type, item in self.graph.astream(inputs, config, stream_mode=['messages', 'custom', 'updates']):
-
-              # Handle __interrupt__ events (HITL forms) in fallback streaming
-              # When interrupt() is called, it yields an event with __interrupt__ key
-              if isinstance(item, dict) and "__interrupt__" in item:
-                  logging.info(f"[Fallback] __interrupt__ event received: {item}")
-                  intr_obj = item.get("__interrupt__")
-                  intr = intr_obj[0] if isinstance(intr_obj, (list, tuple)) and intr_obj else intr_obj
-                  
-                  # Extract the interrupt value (HITL request data)
-                  intr_value = getattr(intr, "value", None)
-                  if intr_value is None and isinstance(intr, dict):
-                      intr_value = intr
-                  
-                  logging.info(f"[Fallback Interrupt] Extracted value: {type(intr_value)}")
-                  
-                  # Extract action_requests
-                  action_requests = []
-                  if isinstance(intr_value, dict):
-                      action_requests = intr_value.get("action_requests", [])
-                      logging.info(f"[Fallback Interrupt] Found {len(action_requests)} action_requests, keys: {list(intr_value.keys())}")
-                  elif isinstance(intr_value, list):
-                      action_requests = intr_value
-                  
-                  # Build tool_calls for the form
-                  tool_calls = []
-                  for action_req in action_requests:
-                      try:
-                          logging.info(f"[Fallback Interrupt] Processing action_req: {json.dumps(action_req, default=str)[:500]}")
-                          name = action_req.get("name", "CAIPEAgentResponse")
-                          # HITL uses 'arguments', also check 'args' for compatibility
-                          args = action_req.get("arguments", {}) or action_req.get("args", {})
-                          tool_calls.append({
-                              "name": name,
-                              "args": args,
-                              "id": action_req.get("id"),
-                          })
-                          logging.info(f"[Fallback Interrupt] Parsed: name={name}, has_metadata={bool(args.get('metadata') if isinstance(args, dict) else False)}")
-                      except Exception as parse_err:
-                          logging.warning(f"[Fallback Interrupt] Failed to parse action_request: {parse_err}")
-                  
-                  if tool_calls:
-                      # Create synthetic AIMessage with tool_calls for form display
-                      synth_msg = AIMessage(
-                          content="Please provide the required information.",
-                          tool_calls=tool_calls,
-                      )
-                      logging.info(f"[Fallback Interrupt] Yielding form with {len(tool_calls)} tool_calls")
-                      yield {
-                          "event_type": "interrupt",
-                          "message": synth_msg,
-                          "is_task_complete": False,
-                          "require_user_input": True,
-                          "content": "",
-                          "agent_type": "caipe",
-                          "node_name": "caipe",
-                      }
-                      return
-                  else:
-                      logging.warning("[Fallback Interrupt] No tool_calls extracted from interrupt")
-                  continue
+          async for item_type, item in self.graph.astream(inputs, config, stream_mode=['messages', 'custom', 'updates']):
 
               # Handle custom A2A event payloads emitted via get_stream_writer()
               if isinstance(item, dict):
@@ -1238,86 +953,6 @@ class AIPlatformEngineerA2ABinding:
                       logging.info(f"🎯 AIMessage content preview: {content_preview}...")
                       accumulated_ai_content.append(str(message.content))
                   final_ai_message = message
-          except Exception as fallback_ex:
-              # Handle GraphInterrupt from fallback streaming (HITL form request)
-              exception_type = type(fallback_ex).__name__
-              is_graph_interrupt = (
-                  "Interrupt" in exception_type or 
-                  (GraphInterrupt is not None and isinstance(fallback_ex, GraphInterrupt))
-              )
-              
-              if is_graph_interrupt:
-                  logging.info(f"🔄 GraphInterrupt caught in FALLBACK stream - propagating as HITL form")
-                  
-                  # Extract interrupt value from exception
-                  interrupt_value = None
-                  if hasattr(fallback_ex, 'value'):
-                      interrupt_value = fallback_ex.value
-                  elif hasattr(fallback_ex, 'args') and fallback_ex.args:
-                      first_arg = fallback_ex.args[0]
-                      if hasattr(first_arg, 'value'):
-                          interrupt_value = first_arg.value
-                      elif isinstance(first_arg, tuple) and len(first_arg) > 0:
-                          first_intr = first_arg[0]
-                          if hasattr(first_intr, 'value'):
-                              interrupt_value = first_intr.value
-                          elif isinstance(first_intr, dict):
-                              interrupt_value = first_intr
-                      elif isinstance(first_arg, dict):
-                          interrupt_value = first_arg
-                  
-                  if interrupt_value:
-                      logging.info(f"[Fallback Interrupt] Extracted value type: {type(interrupt_value)}")
-                      
-                      # Extract action_requests
-                      action_requests = []
-                      if isinstance(interrupt_value, dict):
-                          action_requests = interrupt_value.get("action_requests", [])
-                          logging.info(f"[Fallback Interrupt] Found {len(action_requests)} action_requests")
-                      elif isinstance(interrupt_value, list):
-                          action_requests = interrupt_value
-                      
-                      # Build tool_calls for the form
-                      tool_calls = []
-                      for action_req in action_requests:
-                          try:
-                              name = action_req.get("name", "CAIPEAgentResponse")
-                              # HITL uses 'arguments', also check 'args' for compatibility
-                              args = action_req.get("arguments", {}) or action_req.get("args", {})
-                              tool_calls.append({
-                                  "name": name,
-                                  "args": args,
-                                  "id": action_req.get("id"),
-                              })
-                              logging.info(f"[Fallback Interrupt] Parsed: name={name}, has_metadata={bool(args.get('metadata') if isinstance(args, dict) else False)}")
-                          except Exception as parse_err:
-                              logging.warning(f"Failed to parse action_request in fallback: {parse_err}")
-                      
-                      if tool_calls:
-                          # Create synthetic AIMessage with tool_calls for form display
-                          synth_msg = AIMessage(
-                              content="Please provide the required information.",
-                              tool_calls=tool_calls,
-                          )
-                          logging.info(f"[Fallback Interrupt] Yielding form with {len(tool_calls)} tool_calls")
-                          yield {
-                              "event_type": "interrupt",
-                              "message": synth_msg,
-                              "is_task_complete": False,
-                              "require_user_input": True,
-                              "content": "",
-                              "agent_type": "caipe",
-                              "node_name": "caipe",
-                          }
-                          return
-                      else:
-                          logging.warning("[Fallback Interrupt] No tool_calls extracted, cannot show form")
-                  else:
-                      logging.warning(f"[Fallback Interrupt] Could not extract interrupt value from: {fallback_ex}")
-              else:
-                  # Re-raise non-interrupt exceptions
-                  logging.error(f"Fallback streaming failed with non-interrupt exception: {fallback_ex}")
-                  raise
 
       # After EITHER primary or fallback streaming completes, parse the final response to extract is_task_complete
       logging.info(f"🔍 POST-STREAM PARSING: final_ai_message={final_ai_message is not None}, accumulated_chunks={len(accumulated_ai_content)}")
