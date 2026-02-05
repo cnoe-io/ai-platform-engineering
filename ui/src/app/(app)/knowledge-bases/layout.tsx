@@ -89,8 +89,8 @@ function KnowledgeBasesLayoutContent({
         graphRagEnabled={graphRagEnabled}
       />
 
-      {/* Main Content */}
-      <div className="flex-1 min-w-0 overflow-y-auto">
+      {/* Main Content - flex-col to allow children to control their own height/scroll */}
+      <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
         {children}
       </div>
     </div>
