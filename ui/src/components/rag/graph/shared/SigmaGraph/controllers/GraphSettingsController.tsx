@@ -34,12 +34,22 @@ const GraphSettingsController: FC<PropsWithChildren<GraphSettingsControllerProps
                 // Determine which node to use for highlighting (hovered node only)
                 const activeNode = hoveredNode;
 
+                // Reset highlighted state - only set true for hovered or selected
+                res.highlighted = false;
+
                 if (activeNode) {
                     // When a node is hovered, highlight it and its neighbors
-                    if (node === activeNode || graph.neighbors(activeNode).includes(node)) {
+                    if (node === activeNode) {
+                        // The hovered node itself
                         res.zIndex = 1;
-                        // Show label for connected nodes
                         res.forceLabel = true;
+                        res.highlighted = true; // Trigger white background only for hovered node
+                        res.labelColor = data.color || '#1f2937';
+                    } else if (graph.neighbors(activeNode).includes(node)) {
+                        // Neighbor nodes - show but no white background
+                        res.zIndex = 1;
+                        res.forceLabel = true;
+                        // No highlighted = true, so no white background
                     } else {
                         res.color = "#E2E2E2";
                         res.zIndex = 0;
@@ -61,10 +71,8 @@ const GraphSettingsController: FC<PropsWithChildren<GraphSettingsControllerProps
                 // Add distinct visual marker for selected nodes
                 if (isSelected) {
                     // Darken the node color by reducing brightness
-                    // Parse the original color and make it darker
                     const originalColor = data.color || '#999999';
 
-                    // Simple darkening: convert hex to RGB, multiply by 0.5 (50% darker)
                     const darkenColor = (hex: string): string => {
                         const r = parseInt(hex.slice(1, 3), 16);
                         const g = parseInt(hex.slice(3, 5), 16);
@@ -77,14 +85,15 @@ const GraphSettingsController: FC<PropsWithChildren<GraphSettingsControllerProps
                         return `#${newR.toString(16).padStart(2, '0')}${newG.toString(16).padStart(2, '0')}${newB.toString(16).padStart(2, '0')}`;
                     };
 
-                    res.color = darkenColor(originalColor); // 50% darker version of original color
-                    res.zIndex = Math.max(res.zIndex || 0, 3); // Keep selected on top
-                    res.forceLabel = true; // Always show label for selected node
-                    // Make the node significantly larger
+                    res.color = darkenColor(originalColor);
+                    res.zIndex = Math.max(res.zIndex || 0, 3);
+                    res.forceLabel = true;
+                    res.highlighted = true; // Trigger Sigma's hover-style rendering with white background
                     res.size = (data.size || 15) * 1.8;
-                    // Make the label bold
                     res.labelWeight = 'bold';
-                    res.labelSize = 14; // Slightly larger label
+                    res.labelSize = 14;
+                    // Use darkened node color for label (readable against white background)
+                    res.labelColor = darkenColor(originalColor);
                 }
 
                 return res;
