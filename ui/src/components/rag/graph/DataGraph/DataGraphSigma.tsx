@@ -1,14 +1,24 @@
 "use client";
 
 import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
+import { useTheme } from "next-themes";
+import { SigmaContainer } from "@react-sigma/core";
 import { MultiDirectedGraph } from 'graphology';
 import forceAtlas2 from 'graphology-layout-forceatlas2';
 import { Loader2, RefreshCw } from 'lucide-react';
 import { exploreEntityNeighborhood, getEntityTypes, getDataGraphStats } from '../../api';
-import { SigmaGraph } from '../shared/SigmaGraph';
 import DataNodeHoverCard from './DataNodeHoverCard';
+import DataNodeDetailsCard from './DataNodeDetailsCard';
 import { getColorForNode } from '../shared/graphStyles';
 import { generateNodeId, generateRelationId, extractRelationId, generateEdgeKey } from '../shared/graphUtils';
+import '../shared/sigma-styles.css';
+
+// Import controllers
+import CameraController from '../shared/SigmaGraph/controllers/CameraController';
+import SigmaInstanceCapture from '../shared/SigmaGraph/controllers/SigmaInstanceCapture';
+import GraphDragController from '../shared/SigmaGraph/controllers/GraphDragController';
+import GraphSettingsController from '../shared/SigmaGraph/controllers/GraphSettingsController';
+import GraphEventsController from '../shared/SigmaGraph/controllers/GraphEventsController';
 
 interface DataGraphSigmaProps {
     exploreEntityData?: { entityType: string; primaryKey: string } | null;
@@ -30,7 +40,17 @@ interface RelationData {
     relation_pk?: string;
 }
 
+// Truncate label helper
+const truncateLabel = (text: string, maxLength: number = 25): string => {
+    if (!text) return '';
+    return text.length > maxLength ? text.substring(0, maxLength) + '...' : text;
+};
+
 export default function DataGraphSigma({ exploreEntityData, onExploreComplete }: DataGraphSigmaProps) {
+    // Theme detection for label colors
+    const { resolvedTheme } = useTheme();
+    const isDarkMode = resolvedTheme === "dark" || resolvedTheme?.includes("night") || resolvedTheme === "midnight" || resolvedTheme === "nord";
+
     // Graph instance
     const graph = useMemo(() => new MultiDirectedGraph(), []);
 
@@ -43,6 +63,7 @@ export default function DataGraphSigma({ exploreEntityData, onExploreComplete }:
     const [isDragging, setIsDragging] = useState<boolean>(false);
     const [sigmaInstance, setSigmaInstance] = useState<any>(null);
     const [graphStats, setGraphStats] = useState<{ node_count: number; relation_count: number } | null>(null);
+    const [layoutKey, setLayoutKey] = useState(0);
 
     // Data storage
     const graphData = useRef<{
@@ -57,7 +78,7 @@ export default function DataGraphSigma({ exploreEntityData, onExploreComplete }:
     const initialEntity = useRef<{ entityType: string; primaryKey: string } | null>(null);
 
     // Main exploration function
-    const exploreEntity = async (entityType: string, primaryKey: string, merge: boolean = false) => {
+    const exploreEntity = useCallback(async (entityType: string, primaryKey: string, merge: boolean = false) => {
         if (!entityType || !primaryKey) {
             console.error('Missing entityType or primaryKey:', { entityType, primaryKey });
             return;
@@ -114,6 +135,7 @@ export default function DataGraphSigma({ exploreEntityData, onExploreComplete }:
             await buildGraph(centerNodeId, relations || []);
             setExploredEntity(entity);
             setDataReady(true);
+            setLayoutKey(k => k + 1); // Force remount
 
             // Store the initial entity if this is the first exploration
             if (!initialEntity.current) {
@@ -131,7 +153,7 @@ export default function DataGraphSigma({ exploreEntityData, onExploreComplete }:
         }
 
         setIsLoading(false);
-    };
+    }, [graph]);
 
     // Build graph from stored data
     const buildGraph = async (centerNodeId: string, relations: RelationData[]) => {
@@ -150,8 +172,12 @@ export default function DataGraphSigma({ exploreEntityData, onExploreComplete }:
             const isCenterNode = nodeId === centerNodeId;
             const nodeSize = isCenterNode ? 25 : 15;
 
+            // Use primary key as label for data nodes
+            const pk = entity.primary_key || entity.all_properties?._entity_pk || '';
+            const labelText = pk ? `${entityType}: ${truncateLabel(pk, 20)}` : entityType;
+
             graph.addNode(nodeId, {
-                label: entityType,
+                label: labelText,
                 size: nodeSize,
                 color: color,
                 entityType: entityType,
@@ -203,15 +229,15 @@ export default function DataGraphSigma({ exploreEntityData, onExploreComplete }:
             const relationIds = groupRelations.map((r: any) => extractRelationId(r) || '');
             const edgeKey = generateEdgeKey(sourceNodeId, targetNodeId, relationIds, 'DATA');
 
-            const edgeColor = '#d1d5db';
+            const edgeColor = '#94a3b8'; // slate-400
             const label = groupRelations.length === 1
                 ? primaryRelation.relation_name
-                : `${hasBidirectional ? '⟷  ' : ''}... ×${groupRelations.length}`;
+                : `${hasBidirectional ? '⟷ ' : ''}${groupRelations.length} relations`;
 
             if (!graph.hasEdge(edgeKey)) {
                 try {
                     graph.addEdgeWithKey(edgeKey, sourceNodeId, targetNodeId, {
-                        label: label,
+                        label: truncateLabel(label, 30),
                         type: hasBidirectional ? "line" : "arrow",
                         size: 2,
                         color: edgeColor,
@@ -247,7 +273,7 @@ export default function DataGraphSigma({ exploreEntityData, onExploreComplete }:
             }
 
             const normalized = (degree - minDegree) / degreeRange;
-            const nodeSize = 8 + (normalized * 17);
+            const nodeSize = 10 + (normalized * 15);
             graph.setNodeAttribute(nodeId, 'size', nodeSize);
         });
 
@@ -271,6 +297,12 @@ export default function DataGraphSigma({ exploreEntityData, onExploreComplete }:
         setSelectedElement({ type: 'node', id: nodeId, data: nodeData });
     }, []);
 
+    // Handle expand from details card
+    const handleExpandNode = useCallback((entityType: string, primaryKey: string) => {
+        exploreEntity(entityType, primaryKey, true); // merge = true to expand
+        setSelectedElement(null);
+    }, [exploreEntity]);
+
     const handleClearExploration = async () => {
         if (initialEntity.current) {
             graph.clear();
@@ -292,20 +324,24 @@ export default function DataGraphSigma({ exploreEntityData, onExploreComplete }:
             exploreEntity(exploreEntityData.entityType, exploreEntityData.primaryKey, false);
             onExploreComplete?.();
         }
-    }, [exploreEntityData, onExploreComplete]);
+    }, [exploreEntityData, onExploreComplete, exploreEntity]);
 
-    // Empty state component
-    const emptyState = (
-        <div className="flex-1 w-full p-8 flex items-center justify-center">
-            <div className="text-center space-y-4 max-w-md">
-                <div className="text-6xl text-blue-500 mb-4">📊</div>
-                <h3 className="text-2xl font-bold text-foreground">Data Exploration</h3>
-                <p className="text-muted-foreground">
-                    Search for entities in the Search tab, then click "Explore" to visualize their relationships.
-                </p>
+    // Empty state
+    if (!dataReady && !isLoading) {
+        return (
+            <div className="w-full h-full bg-background flex flex-col">
+                <div className="flex-1 flex items-center justify-center p-8">
+                    <div className="text-center space-y-4 max-w-md">
+                        <div className="text-6xl text-blue-500 mb-4">📊</div>
+                        <h3 className="text-2xl font-bold text-foreground">Data Exploration</h3>
+                        <p className="text-muted-foreground">
+                            Search for entities in the Search tab, then click "Explore" to visualize their relationships.
+                        </p>
+                    </div>
+                </div>
             </div>
-        </div>
-    );
+        );
+    }
 
     return (
         <div className="w-full h-full bg-background flex flex-col">
@@ -334,24 +370,66 @@ export default function DataGraphSigma({ exploreEntityData, onExploreComplete }:
 
                 {/* Graph Container */}
                 <div className="flex-1 rounded-lg shadow-sm bg-card min-h-0 flex flex-col relative border border-border overflow-hidden">
+                    {/* Loading Overlay */}
+                    {isLoading && (
+                        <div className="absolute inset-0 bg-background/90 flex items-center justify-center z-10 rounded-lg">
+                            <div className="text-center space-y-4">
+                                <Loader2 className="h-12 w-12 animate-spin text-primary mx-auto" />
+                                <p className="text-lg font-semibold text-foreground">Loading graph data...</p>
+                                <p className="text-sm text-muted-foreground">Fetching entities and relations</p>
+                            </div>
+                        </div>
+                    )}
+
                     {/* Hover Card */}
-                    {hoveredNode && <DataNodeHoverCard hoveredNode={hoveredNode} graph={graph} />}
+                    {hoveredNode && !selectedElement && (
+                        <DataNodeHoverCard hoveredNode={hoveredNode} graph={graph} />
+                    )}
 
                     <div className="flex-1 min-h-0 w-full">
-                        <SigmaGraph
+                        <SigmaContainer
+                            key={layoutKey}
                             graph={graph}
-                            dataReady={dataReady}
-                            isLoading={isLoading}
-                            hoveredNode={hoveredNode}
-                            setHoveredNode={setHoveredNode}
-                            isDragging={isDragging}
-                            setIsDragging={setIsDragging}
-                            selectedElement={selectedElement}
-                            onNodeClick={handleNodeClick}
-                            onSigmaReady={setSigmaInstance}
-                            filters={{}}
-                            emptyStateComponent={emptyState}
-                        />
+                            style={{ width: '100%', height: '100%' }}
+                            settings={{
+                                renderEdgeLabels: true,
+                                defaultEdgeType: "arrow",
+                                labelRenderedSizeThreshold: 5, // Lower threshold to show more labels
+                                labelDensity: 0.5,
+                                labelGridCellSize: 100,
+                                labelFont: "Inter, system-ui, sans-serif",
+                                labelWeight: "600",
+                                labelSize: 11,
+                                labelColor: { attribute: "labelColor", color: isDarkMode ? "#ffffff" : "#1f2937" },
+                                edgeLabelSize: 10,
+                                zIndex: true,
+                                allowInvalidContainer: true,
+                            }}
+                        >
+                            <SigmaInstanceCapture onSigmaReady={setSigmaInstance} />
+                            <CameraController />
+                            <GraphDragController setIsDragging={setIsDragging} />
+                            <GraphSettingsController
+                                hoveredNode={hoveredNode}
+                                selectedNodeId={selectedElement?.type === 'node' ? selectedElement.id : null}
+                            />
+                            <GraphEventsController
+                                setHoveredNode={setHoveredNode}
+                                onNodeClick={handleNodeClick}
+                                isDragging={isDragging}
+                            />
+
+                            {/* Node Details Card - shown when a node is clicked */}
+                            {selectedElement && selectedElement.type === 'node' && (
+                                <DataNodeDetailsCard
+                                    nodeId={selectedElement.id}
+                                    nodeData={selectedElement.data}
+                                    graph={graph}
+                                    onClose={() => setSelectedElement(null)}
+                                    onExplore={handleExpandNode}
+                                />
+                            )}
+                        </SigmaContainer>
                     </div>
                 </div>
 

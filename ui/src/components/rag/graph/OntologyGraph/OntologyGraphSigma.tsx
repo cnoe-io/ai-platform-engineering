@@ -1,14 +1,15 @@
 "use client";
 
-import React, { useState, useCallback, useEffect, useMemo } from 'react';
+import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { useTheme } from "next-themes";
-import { SigmaContainer, ControlsContainer, ZoomControl, FullScreenControl } from "@react-sigma/core";
+import { SigmaContainer } from "@react-sigma/core";
 import { MultiDirectedGraph } from "graphology";
 import forceAtlas2 from "graphology-layout-forceatlas2";
 import { Loader2, RefreshCw, Settings, Filter, RotateCcw, Trash2, X } from 'lucide-react';
 import '../shared/sigma-styles.css';
 
 import OntologyNodeHoverCard from './OntologyNodeHoverCard';
+import OntologyNodeDetailsCard from './OntologyNodeDetailsCard';
 import OntologyGraphDataController, { OntologyFilters } from './OntologyGraphDataController';
 import { CameraController, SigmaInstanceCapture, GraphDragController, GraphEventsController, GraphSettingsController } from '../shared/SigmaGraph';
 import { getColorForNode, getSigmaEdgeStyle, EvaluationResult, getEvaluationResult } from '../shared/graphStyles';
@@ -37,14 +38,19 @@ export default function OntologyGraphSigma({}: OntologyGraphProps) {
     // State management
     const [dataReady, setDataReady] = useState(false);
     const [isLoading, setIsLoading] = useState(true);
+    const [refreshCounter, setRefreshCounter] = useState(0); // Used to trigger data reload
+    const [layoutKey, setLayoutKey] = useState(0); // Used to force SigmaContainer remount after layout
     const [allEntityTypes, setAllEntityTypes] = useState<string[]>([]);
     const [selectedEntityTypes, setSelectedEntityTypes] = useState<Set<string>>(new Set());
-    const [selectedElement, setSelectedElement] = useState<{ type: 'node'; id: string; data: any } | null>(null);
+    const [selectedNode, setSelectedNode] = useState<{ id: string; data: any } | null>(null);
     const [hoveredNode, setHoveredNode] = useState<string | null>(null);
     const [isDragging, setIsDragging] = useState<boolean>(false);
     const [graphStats, setGraphStats] = useState<{ node_count: number; relation_count: number } | null>(null);
     const [sigmaInstance, setSigmaInstance] = useState<any>(null);
     const [relationFilterMode, setRelationFilterMode] = useState<'accepted-only' | 'all' | 'rejected-uncertain-only'>('all');
+
+    // Advanced mode state (shared between node and edge cards)
+    const [advancedMode, setAdvancedMode] = useState(false);
 
     // Modal states
     const [showFiltersModal, setShowFiltersModal] = useState(false);
@@ -52,12 +58,18 @@ export default function OntologyGraphSigma({}: OntologyGraphProps) {
     const [isReanalyzing, setIsReanalyzing] = useState(false);
     const [isDeleting, setIsDeleting] = useState(false);
 
-    // Agent status
+    // Agent status - matches the actual API response structure
     const [agentStatus, setAgentStatus] = useState<{
         status: string;
+        is_processing?: boolean;
+        is_evaluating?: boolean;
+        agent_status_msg?: string;
         message?: string;
         progress?: { current: number; total: number };
     } | null>(null);
+
+    // Track previous agent busy state to detect when processing completes
+    const wasAgentBusyRef = useRef(false);
 
     // Layout settings
     const [layoutSettings, setLayoutSettings] = useState({
@@ -71,7 +83,12 @@ export default function OntologyGraphSigma({}: OntologyGraphProps) {
     // Node click handler
     const handleNodeClick = useCallback((nodeId: string, nodeData: any) => {
         console.log('Node clicked:', nodeId);
-        setSelectedElement({ type: 'node', id: nodeId, data: nodeData });
+        setSelectedNode({ id: nodeId, data: nodeData });
+    }, []);
+
+    // Toggle advanced mode
+    const toggleAdvancedMode = useCallback(() => {
+        setAdvancedMode(prev => !prev);
     }, []);
 
     // Refresh function
@@ -79,6 +96,7 @@ export default function OntologyGraphSigma({}: OntologyGraphProps) {
         graph.clear();
         setDataReady(false);
         setIsLoading(true);
+        setRefreshCounter(c => c + 1); // Increment to trigger useEffect
     }, [graph]);
 
     // Re-analyse (regenerate ontology)
@@ -124,6 +142,15 @@ export default function OntologyGraphSigma({}: OntologyGraphProps) {
 
         setIsApplyingLayout(true);
         try {
+            // Randomize positions first so new layout settings have visible effect
+            graph.forEachNode((node) => {
+                const angle = Math.random() * 2 * Math.PI;
+                const radius = Math.random() * 500;
+                graph.setNodeAttribute(node, 'x', Math.cos(angle) * radius);
+                graph.setNodeAttribute(node, 'y', Math.sin(angle) * radius);
+            });
+            
+            // Apply ForceAtlas2 with current settings
             forceAtlas2.assign(graph, {
                 iterations: layoutSettings.iterations,
                 settings: {
@@ -134,7 +161,9 @@ export default function OntologyGraphSigma({}: OntologyGraphProps) {
                     barnesHutTheta: 0.5,
                 },
             });
-            // Force a re-render by triggering state update
+            
+            // Force SigmaContainer to remount with new positions
+            setLayoutKey(k => k + 1);
             setShowSettingsModal(false);
         } catch (err) {
             console.error('Failed to apply layout:', err);
@@ -171,9 +200,24 @@ export default function OntologyGraphSigma({}: OntologyGraphProps) {
             try {
                 const status = await getOntologyAgentStatus() as {
                     status: string;
+                    is_processing?: boolean;
+                    is_evaluating?: boolean;
+                    agent_status_msg?: string;
                     message?: string;
                     progress?: { current: number; total: number };
                 };
+                
+                const isCurrentlyBusy = status.is_processing || status.is_evaluating;
+                
+                // Detect transition from busy to idle - trigger refresh
+                if (wasAgentBusyRef.current && !isCurrentlyBusy) {
+                    console.log('Agent finished processing, refreshing graph...');
+                    handleRefresh();
+                }
+                
+                // Update the ref for next poll
+                wasAgentBusyRef.current = !!isCurrentlyBusy;
+                
                 setAgentStatus(status);
             } catch (err) {
                 console.error('Failed to get agent status:', err);
@@ -188,7 +232,7 @@ export default function OntologyGraphSigma({}: OntologyGraphProps) {
         const interval = setInterval(pollAgentStatus, 3000);
 
         return () => clearInterval(interval);
-    }, []);
+    }, [handleRefresh]);
 
     // Load ontology data
     useEffect(() => {
@@ -334,12 +378,13 @@ export default function OntologyGraphSigma({}: OntologyGraphProps) {
                         graph.addEdgeWithKey(edgeKey, sourceNodeId, targetNodeId, {
                             label: truncateLabel(label, 40),
                             type: "arrow",
-                            size: 2,
+                            size: 3,  // Slightly larger for better click detection
                             color: edgeColor,
                             originalColor: edgeColor,
-                            originalSize: 2,
+                            originalSize: 3,
                             evaluationResult: evalResult,
                             relationCount: groupRelations.length,
+                            relationIds: relationIds,  // Store relation IDs on edge for click handler
                         });
 
                         nodeDegrees.set(sourceNodeId, (nodeDegrees.get(sourceNodeId) || 0) + 1);
@@ -393,7 +438,7 @@ export default function OntologyGraphSigma({}: OntologyGraphProps) {
         };
 
         loadOntologyData();
-    }, [dataReady, graph]);
+    }, [dataReady, refreshCounter, graph]);
 
     // Compute filters for controllers
     const filters: OntologyFilters = useMemo(() => {
@@ -438,10 +483,9 @@ export default function OntologyGraphSigma({}: OntologyGraphProps) {
     }, [graph, filters]);
 
     return (
-        <div className="w-full h-full bg-background flex flex-col">
-            <div className="flex-1 flex flex-col min-h-0">
-                {/* Graph Container */}
-                <div className="flex-1 bg-card min-h-0 flex flex-col relative overflow-hidden">
+        <div className="absolute inset-0 bg-background flex flex-col">
+            {/* Graph Container - takes full height */}
+            <div className="flex-1 bg-card min-h-0 flex flex-col relative overflow-hidden">
                     {/* Hover Card */}
                     {hoveredNode && (
                         <OntologyNodeHoverCard
@@ -452,24 +496,46 @@ export default function OntologyGraphSigma({}: OntologyGraphProps) {
                     )}
 
                     {!dataReady && !isLoading ? (
-                        <div className="flex-1 w-full p-8 flex items-center justify-center">
+                        <div className="absolute inset-0 flex items-center justify-center p-8">
                             <div className="text-center space-y-4 max-w-md">
-                                <div className="text-6xl text-primary mb-4">🌐</div>
-                                <h3 className="text-2xl font-bold text-foreground">Ontology Graph</h3>
-                                <p className="text-muted-foreground">
-                                    No ontology data found. Use Data Sources to ingest entities, then analyze the ontology.
-                                </p>
-                                <button
-                                    onClick={handleRefresh}
-                                    className="mt-4 px-4 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 flex items-center gap-2 mx-auto"
-                                >
-                                    <RefreshCw className="h-4 w-4" />
-                                    Refresh
-                                </button>
+                                {/* Show processing status when agent is working */}
+                                {agentStatus && (agentStatus.is_processing || agentStatus.is_evaluating) ? (
+                                    <>
+                                        <Loader2 className="h-16 w-16 animate-spin text-primary mx-auto" />
+                                        <h3 className="text-2xl font-bold text-foreground">
+                                            {agentStatus.is_processing ? 'Processing Ontology' : 'Evaluating Relations'}
+                                        </h3>
+                                        <p className="text-muted-foreground">
+                                            {agentStatus.agent_status_msg || 'Please wait while the ontology is being analysed...'}
+                                        </p>
+                                        {agentStatus.progress && (
+                                            <p className="text-sm text-muted-foreground">
+                                                Progress: {agentStatus.progress.current}/{agentStatus.progress.total}
+                                            </p>
+                                        )}
+                                    </>
+                                ) : (
+                                    <>
+                                        <div className="text-6xl text-primary mb-4">🌐</div>
+                                        <h3 className="text-2xl font-bold text-foreground">Ontology Graph</h3>
+                                        <p className="text-muted-foreground">
+                                            No ontology data found. Use Data Sources to ingest entities, then analyze the ontology.
+                                        </p>
+                                        <button
+                                            onClick={handleReanalyze}
+                                            disabled={isReanalyzing || !hasPermission(Permission.INGEST)}
+                                            className="mt-4 px-4 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 flex items-center gap-2 mx-auto disabled:opacity-50 disabled:cursor-not-allowed"
+                                            title={!hasPermission(Permission.INGEST) ? 'Insufficient permissions to analyse ontology' : 'Analyse ontology relationships'}
+                                        >
+                                            <RotateCcw className={`h-4 w-4 ${isReanalyzing ? 'animate-spin' : ''}`} />
+                                            Analyse
+                                        </button>
+                                    </>
+                                )}
                             </div>
                         </div>
                     ) : (
-                        <div className="flex-1 w-full min-h-0 relative">
+                        <div className="absolute inset-0">
                             {/* Loading Overlay */}
                             {isLoading && (
                                 <div className="absolute inset-0 bg-background/90 flex items-center justify-center z-10">
@@ -482,6 +548,7 @@ export default function OntologyGraphSigma({}: OntologyGraphProps) {
                             )}
 
                             <SigmaContainer
+                                key={layoutKey}
                                 graph={graph}
                                 style={{ width: '100%', height: '100%', position: 'absolute', top: 0, left: 0 }}
                                 settings={{
@@ -494,7 +561,7 @@ export default function OntologyGraphSigma({}: OntologyGraphProps) {
                                     labelFont: "Inter, system-ui, sans-serif",
                                     labelWeight: "600",
                                     labelSize: 12,
-                                    labelColor: { color: isDarkMode ? "#ffffff" : "#1f2937" },  // White for dark mode, dark gray for light mode
+                                    labelColor: { attribute: "labelColor", color: isDarkMode ? "#ffffff" : "#1f2937" },
                                     zIndex: true,
                                 }}
                             >
@@ -503,7 +570,7 @@ export default function OntologyGraphSigma({}: OntologyGraphProps) {
                                 <GraphDragController setIsDragging={setIsDragging} />
                                 <GraphSettingsController
                                     hoveredNode={hoveredNode}
-                                    selectedNodeId={selectedElement?.type === 'node' ? selectedElement.id : null}
+                                    selectedNodeId={selectedNode?.id || null}
                                 />
                                 <GraphEventsController
                                     setHoveredNode={setHoveredNode}
@@ -511,10 +578,20 @@ export default function OntologyGraphSigma({}: OntologyGraphProps) {
                                     isDragging={isDragging}
                                 />
                                 <OntologyGraphDataController filters={filters} />
-                                <ControlsContainer position="bottom-right">
-                                    <ZoomControl />
-                                    <FullScreenControl />
-                                </ControlsContainer>
+
+                                {/* Node Details Card - shown when a node is clicked */}
+                                {selectedNode && (
+                                    <OntologyNodeDetailsCard
+                                        nodeId={selectedNode.id}
+                                        nodeData={selectedNode.data}
+                                        graph={graph}
+                                        onClose={() => setSelectedNode(null)}
+                                        advancedMode={advancedMode}
+                                        onToggleAdvanced={toggleAdvancedMode}
+                                        onRefreshGraph={handleRefresh}
+                                    />
+                                )}
+                                
                             </SigmaContainer>
 
                             {/* Bottom Controls - Overlay */}
@@ -573,20 +650,19 @@ export default function OntologyGraphSigma({}: OntologyGraphProps) {
                             )}
 
                             {/* Agent Status Bar - Overlay */}
-                            {agentStatus && agentStatus.status !== 'idle' && (
+                            {agentStatus && (agentStatus.is_processing || agentStatus.is_evaluating || agentStatus.status === 'error') && (
                                 <div className={`absolute top-3 left-3 right-3 z-20 p-2 rounded-lg flex items-center gap-2 shadow-lg ${
-                                    agentStatus.status === 'processing' || agentStatus.status === 'running' ? 'bg-primary text-primary-foreground' :
+                                    agentStatus.is_processing || agentStatus.is_evaluating ? 'bg-primary text-primary-foreground' :
                                     agentStatus.status === 'error' ? 'bg-destructive text-destructive-foreground' :
                                     'bg-muted/95 backdrop-blur-sm'
                                 }`}>
-                                    {(agentStatus.status === 'processing' || agentStatus.status === 'running') && (
+                                    {(agentStatus.is_processing || agentStatus.is_evaluating) && (
                                         <Loader2 className="h-4 w-4 animate-spin" />
                                     )}
                                     <span className="text-sm font-medium">
-                                        {agentStatus.status === 'processing' && (agentStatus.message || 'Processing...')}
-                                        {agentStatus.status === 'running' && (agentStatus.message || 'Running...')}
+                                        {agentStatus.is_processing && (agentStatus.agent_status_msg || 'Processing...')}
+                                        {agentStatus.is_evaluating && !agentStatus.is_processing && (agentStatus.agent_status_msg || 'Evaluating...')}
                                         {agentStatus.status === 'error' && (agentStatus.message || 'Error')}
-                                        {agentStatus.status === 'completed' && 'Completed'}
                                     </span>
                                     {agentStatus.progress && (
                                         <span className="text-xs opacity-80">
@@ -598,7 +674,6 @@ export default function OntologyGraphSigma({}: OntologyGraphProps) {
                         </div>
                     )}
                 </div>
-            </div>
 
             {/* Filters Modal */}
             {showFiltersModal && (
