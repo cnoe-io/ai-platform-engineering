@@ -23,12 +23,13 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 # ---------- Stage 2: Final runtime image ----------
 FROM python:3.13-slim
 
-# Install only runtime dependencies
+# Install only runtime dependencies (including uv for MCP STDIO subprocess execution)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     wget \
     curl \
     grep \
+    && pip install uv \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 

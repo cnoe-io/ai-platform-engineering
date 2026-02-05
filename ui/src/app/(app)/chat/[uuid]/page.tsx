@@ -240,10 +240,6 @@ function ChatUUIDPage() {
     );
   }
 
-  const conversationTitle = conversation
-    ? ('_id' in conversation ? conversation.title : conversation.title)
-    : undefined;
-
   return (
     <div className="flex-1 flex overflow-hidden">
       {/* Sidebar - with conversation history */}
@@ -265,8 +261,6 @@ function ChatUUIDPage() {
         >
           <ChatPanel
             endpoint={caipeUrl}
-            conversationId={uuid}
-            conversationTitle={conversationTitle}
           />
         </motion.div>
       </div>
