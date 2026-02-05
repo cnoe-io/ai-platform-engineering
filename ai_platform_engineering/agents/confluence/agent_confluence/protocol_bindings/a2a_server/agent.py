@@ -56,12 +56,17 @@ class ConfluenceAgent(BaseLangGraphAgent):
         if not confluence_api_url:
             raise ValueError("CONFLUENCE_API_URL must be set as an environment variable.")
 
+        atlassian_email = os.getenv("ATLASSIAN_EMAIL")
+        if not atlassian_email:
+            raise ValueError("ATLASSIAN_EMAIL must be set as an environment variable.")
+
         return {
             "command": "uv",
             "args": ["run", "--project", os.path.dirname(server_path), server_path],
             "env": {
                 "ATLASSIAN_TOKEN": confluence_token,
                 "CONFLUENCE_API_URL": confluence_api_url,
+                "ATLASSIAN_EMAIL": atlassian_email,
             },
             "transport": "stdio",
         }
