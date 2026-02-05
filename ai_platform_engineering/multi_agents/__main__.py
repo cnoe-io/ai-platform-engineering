@@ -46,6 +46,24 @@ def platform_engineer(ctx):
     logging.error(f"Unsupported agent protocol: {agent_protocol}. Please set AGENT_PROTOCOL to 'fastapi' or 'a2a'.")
     click.echo(f"Unsupported agent protocol: {agent_protocol}. Please set AGENT_PROTOCOL to 'fastapi' or 'a2a'.")
 
+@main.command('platform-engineer-single')
+@click.pass_context
+def platform_engineer_single(ctx):
+  """Start the AI Platform Engineer system in single-node mode.
+  
+  This mode runs the deep agent with MCP tools loaded in-process via stdio transport.
+  Uses the upstream deepagents library for task-based execution.
+  """
+  host = ctx.obj.get('host', AGENT_HOST)
+  port = ctx.obj.get('port', None)
+  click.echo("Starting AI Platform Engineer system (single-node mode)...")
+  logging.info(f"Starting A2A single-node server on {host}:{port or AGENT_PORT}")
+  
+  uvicorn.run(
+    "ai_platform_engineering.multi_agents.platform_engineer.protocol_bindings.a2a.main_single:app",
+    host=host,
+    port=port or AGENT_PORT)
+
 @main.command()
 @click.pass_context
 def incident_engineer(ctx):

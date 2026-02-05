@@ -7,8 +7,8 @@ export default function Home() {
   const router = useRouter();
   
   useEffect(() => {
-    // Redirect to use-cases by default
-    router.replace("/use-cases");
+    // Redirect to workflows (agent-builder) by default
+    router.replace("/agent-builder");
   }, [router]);
 
   return null;

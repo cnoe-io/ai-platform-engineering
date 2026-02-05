@@ -45,7 +45,6 @@ venv-run = $(venv-activate) && $(load-env) &&
 	langgraph-dev evals test \
 	build-docker-a2a build-docker-a2a-tag build-docker-a2a-push build-docker-a2a-tag-and-push \
 	run-docker-a2a \
-	registry-agntcy-directory \
 	add-copyright-license-headers help
 
 ## ========== Setup & Clean ==========
@@ -244,11 +243,6 @@ run-local-docker-mcp: build-docker-mcp
 test: setup-venv build ## Run tests using pytest and coverage
 	@uv add pytest-asyncio pytest-cov --dev
 	@uv run pytest -v --tb=short --disable-warnings --maxfail=1 --ignore=evals --ignore=mcp --cov=$(AGENT_PKG_NAME) --cov-report=term --cov-report=xml
-
-## ========== AGNTCY Directory ==========
-
-registry-agntcy-directory:  ## Push agent.json to AGNTCY registry
-	@dirctl hub push outshift_platform_engineering/$(AGENT_DIR_NAME) ./$(AGENT_PKG_NAME)/protocol_bindings/acp_server/agent.json
 
 ## ========== Licensing & Help ==========
 

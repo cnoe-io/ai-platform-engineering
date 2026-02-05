@@ -1,3 +1,4 @@
+{{- if ne (default "multi-agent" .Values.global.deploymentMode) "single-node" }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -140,3 +141,4 @@ spec:
       tolerations:
         {{- toYaml . | nindent 8 }}
       {{- end }}
+{{- end }}

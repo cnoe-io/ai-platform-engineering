@@ -140,6 +140,7 @@ request_handler = DefaultRequestHandler(
   push_sender= push_sender
 )
 
+# Build A2A Starlette app
 a2a_server = A2AStarletteApplication(
   agent_card=get_agent_card(host, port, external_url),
   http_handler=request_handler

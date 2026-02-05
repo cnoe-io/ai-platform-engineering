@@ -1,0 +1,41 @@
+{{- if and (include "caipe-ui.ingress.enabled" . | eq "true") .Values.ingress.redirectFrom -}}
+{{- range .Values.ingress.redirectFrom }}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "caipe-ui.fullname" $ }}-redirect-{{ .host | replace "." "-" }}
+  labels:
+    {{- include "caipe-ui.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: redirect
+  annotations:
+    # Force HTTPS redirect
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    # Permanent redirect to new domain
+    nginx.ingress.kubernetes.io/permanent-redirect: {{ .redirectTo | quote }}
+    # Optional: cert-manager for TLS
+    {{- if .certManager }}
+    cert-manager.io/cluster-issuer: {{ .certManager.issuer | default "letsencrypt-prod" | quote }}
+    {{- end }}
+spec:
+  ingressClassName: {{ $.Values.ingress.className | default "nginx" }}
+  {{- if .tls }}
+  tls:
+    - hosts:
+        - {{ .host | quote }}
+      secretName: {{ .tls.secretName | default (printf "%s-tls" (.host | replace "." "-")) }}
+  {{- end }}
+  rules:
+    - host: {{ .host | quote }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "caipe-ui.fullname" $ }}
+                port:
+                  number: {{ $.Values.service.port }}
+{{- end }}
+{{- end }}

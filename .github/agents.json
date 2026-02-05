@@ -30,7 +30,6 @@
   "rag_components": [
     "agent-ontology",
     "server",
-    "webui",
     "ingestors"
   ]
 }

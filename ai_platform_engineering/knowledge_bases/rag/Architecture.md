@@ -10,7 +10,6 @@ The RAG (Retrieval-Augmented Generation) platform is a knowledge base system tha
 |-----------|------|---------|
 | **Server** | 9446 | REST API for ingestion, hybrid search, and graph exploration |
 | **Ontology Agent** | 8098 | Automated schema discovery and relationship evaluation |
-| **Web UI** | 9447 | React interface for search, ingestion, and visualization |
 | **Ingestors** | - | External scripts that pull data from various sources |
 
 ## Component Communication
@@ -22,12 +21,6 @@ The RAG (Retrieval-Augmented Generation) platform is a knowledge base system tha
 │ Backstage)  │───(REST)──►│  Server  │◄────────────────────►│                  │
 └─────────────┘            │ (FastAPI)│                      └──────────────────┘
  Ingest docs               │          │                               │
-                           │          │                               │
-┌─────────────┐            │          │                               │
-│   Web UI    │            │          │                               │
-│ (React +    │───(REST)──►│          │                               │
-│  Sigma.js)  │            │          │                               │
-└─────────────┘            │          │                               │
                            │          │                               │
 ┌─────────────┐            │          │                               │
 │ AI Agent    │            │          │                               │
@@ -120,37 +113,37 @@ Neo4j Data Graph → Ontology Agent
 ### 3. Query & Search
 
 ```
-User Query → Web UI → Server API (/v1/query)
-                           │
-                           ▼
-                  Apply Metadata Filters
-                  (datasource, type)
-                           │
-                ┌──────────┴──────────┐
-                ▼                     ▼
-         Semantic Search         BM25 Search
-         (dense vectors)         (sparse vectors)
-                │                     │
-                └──────────┬──────────┘
-                           ▼
-                  Weighted Reranking
-                  (configurable weights)
-                           │
-                           ▼
-                  Results with Scores
+User Query → Server API (/v1/query)
+                   │
+                   ▼
+          Apply Metadata Filters
+          (datasource, type)
+                   │
+        ┌──────────┴──────────┐
+        ▼                     ▼
+ Semantic Search         BM25 Search
+ (dense vectors)         (sparse vectors)
+        │                     │
+        └──────────┬──────────┘
+                   ▼
+          Weighted Reranking
+          (configurable weights)
+                   │
+                   ▼
+          Results with Scores
 ```
 
 **Key Features:**
 - Hybrid search combines semantic (dense vectors) and keyword (BM25) matching
-- Adjustable weight sliders for semantic vs. keyword balance
+- Adjustable weight parameters for semantic vs. keyword balance
 - Filter by datasource, entity type, document type
 - Graph entity exploration from search results
 
 ### 4. Graph Visualization
 
 ```
-Web UI → Server API
-            │
+Server API
+    │
     ┌───────┴────────┐
     ▼                ▼
 Ontology Graph   Data Graph
@@ -158,11 +151,6 @@ Ontology Graph   Data Graph
     ▼                ▼
 Entity Types     Entity Instances
 + Relations      + Neighborhoods
-    │                │
-    └────────┬───────┘
-             ▼
-      Sigma.js Graph
-      (ForceAtlas2)
 ```
 
 **Two Graph Views:**
@@ -195,18 +183,6 @@ Entity Types     Entity Instances
 - Automatic synchronization to data graph
 - Background processing with manual trigger support
 
-### Web UI (Port 9447)
-
-**Technologies:** React 18, TypeScript, Vite, Tailwind CSS, Sigma.js
-
-**Key Features:**
-- Three-tab interface: Ingest, Search, Graph
-- URL ingestion with sitemap discovery
-- Hybrid search with adjustable semantic/keyword weights
-- Interactive graph visualization with ForceAtlas2 layout
-- Real-time job progress tracking
-- Entity exploration with keyboard shortcuts
-
 ### Ingestors
 
 **Available Ingestors:**
@@ -238,11 +214,6 @@ Entity Types     Entity Instances
 - **FastAPI** for REST API services
 - **LangChain** for LLM integration
 - **LangGraph** for agent workflows
-
-### Frontend
-- **React** with TypeScript
-- **Vite** for build tooling
-- **Tailwind CSS** for styling
 
 ### Infrastructure
 - **Docker** and **Docker Compose** for containerization
