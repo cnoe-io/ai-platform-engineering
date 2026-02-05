@@ -1,11 +1,10 @@
 # Copyright 2025 CNOE
 # SPDX-License-Identifier: Apache-2.0
 
-import json
 import logging
 import uuid
 from dataclasses import dataclass, field
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict
 from typing_extensions import override
 
 from a2a.server.agent_execution import AgentExecutor, RequestContext
@@ -27,9 +26,6 @@ from ai_platform_engineering.multi_agents.platform_engineer.protocol_bindings.a2
     AIPlatformEngineerA2ABinding
 )
 from cnoe_agent_utils.tracing import extract_trace_id_from_context
-from langchain_core.messages import AIMessage
-from langchain_core.messages.base import message_to_dict
-from langgraph.types import Command
 
 logger = logging.getLogger(__name__)
 
@@ -382,8 +378,56 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
         logger.info(f"Task {task.id} completed.")
 
     async def _handle_user_input_required(self, content: str, task: A2ATask,
-                                          event_queue: EventQueue):
-        """Handle user input required event."""
+                                          event_queue: EventQueue, metadata: Optional[Dict] = None):
+        """
+        Handle user input required event.
+        
+        Args:
+            content: The text content describing the input request
+            task: The current A2A task
+            event_queue: Event queue for sending events
+            metadata: Optional metadata containing form field definitions (backward compatible)
+                     Expected structure: {
+                         "user_input": True,
+                         "input_title": "Form Title",
+                         "input_description": "Description",
+                         "input_fields": [
+                             {
+                                 "field_name": "repo_name",
+                                 "field_label": "Repository Name",
+                                 "field_description": "...",
+                                 "field_type": "text",
+                                 "required": True,
+                                 ...
+                             }
+                         ]
+                     }
+        """
+        # If metadata with form fields is provided, send it as a separate artifact
+        # This allows the UI to render a structured form instead of just text
+        if metadata and metadata.get("input_fields"):
+            logger.info(f"📝 Sending user input form metadata with {len(metadata.get('input_fields', []))} fields")
+            
+            # Create a DataPart artifact with the form metadata
+            form_artifact = new_data_artifact(
+                name="UserInputMetaData",
+                description="Structured user input form definition",
+                data=metadata
+            )
+            
+            # Send the form metadata artifact
+            await self._safe_enqueue_event(
+                event_queue,
+                TaskArtifactUpdateEvent(
+                    artifact=form_artifact,
+                    append=False,
+                    last_chunk=False,
+                    context_id=task.context_id,
+                    task_id=task.id,
+                )
+            )
+        
+        # Send the status update with the text content (backward compatible)
         await self._safe_enqueue_event(
             event_queue,
             TaskStatusUpdateEvent(
@@ -510,110 +554,11 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
             trace_id = str(uuid.uuid4()).replace('-', '').lower()
             logger.info(f"Generated ROOT trace_id: {trace_id}")
 
-        # Check for resume command from form submission
-        # Resume metadata can come from:
-        # 1. context.metadata (legacy)
-        # 2. Message parts containing DataPart with resume key (A2A SDK)
-        resume_cmd: Optional[Command] = None
-        metadata = getattr(context, "metadata", None) or {}
-        
-        # Also check message parts for DataPart containing resume
-        if context.message and hasattr(context.message, 'parts'):
-            for part in context.message.parts:
-                # Handle Part wrapper (root.data pattern)
-                if hasattr(part, 'root') and hasattr(part.root, 'data'):
-                    data_content = part.root.data
-                    if isinstance(data_content, dict) and 'resume' in data_content:
-                        logger.info("📦 Found resume command in message DataPart")
-                        metadata = data_content
-                        break
-                # Handle direct DataPart
-                elif hasattr(part, 'data') and isinstance(part.data, dict):
-                    if 'resume' in part.data:
-                        logger.info("📦 Found resume command in direct DataPart")
-                        metadata = part.data
-                        break
-                # Handle dict parts
-                elif isinstance(part, dict) and 'data' in part:
-                    data_content = part.get('data', {})
-                    if isinstance(data_content, dict) and 'resume' in data_content:
-                        logger.info("📦 Found resume command in dict DataPart")
-                        metadata = data_content
-                        break
-        
-        if isinstance(metadata, dict) and metadata.get("resume"):
-            # Convert frontend decisions to HITL response format
-            logger.info("🔄 Processing resume command from form submission")
-            decisions = metadata["resume"].get("decisions", [])
-            responses = []
-            is_response = False
-            
-            for decision in decisions:
-                action_name = decision.get("action_name", "")
-                decision_type = decision.get("type", "")
-                logger.info(f"  Decision: type={decision_type}, action={action_name}")
-                
-                # Log user's form selections (passed via HITL resume mechanism)
-                if action_name == "CAIPEAgentResponse":
-                    inner_args = decision.get("args", {}).get("args", {})
-                    user_inputs = inner_args.get("user_inputs", {})
-                    
-                    # If user_inputs not found, extract from metadata.input_fields
-                    if not user_inputs:
-                        meta = inner_args.get("metadata", {})
-                        input_fields = meta.get("input_fields", [])
-                        if input_fields:
-                            logger.info(f"  📋 Extracting values from {len(input_fields)} input_fields")
-                            user_inputs = {}
-                            for fld in input_fields:
-                                field_name = fld.get("field_name", "")
-                                field_value = fld.get("value")
-                                if field_name and field_value is not None:
-                                    user_inputs[field_name] = field_value
-                    
-                    if user_inputs:
-                        logger.info(f"  📋 Form has {len(user_inputs)} user inputs (passed via HITL resume)")
-                
-                if decision_type in ("accept", "approve"):
-                    # LangChain HITL expects "approve" not "accept"
-                    responses.append({"type": "approve"})
-                elif decision_type == "edit":
-                    edited_args = decision.get("args", {}).get("args", {})
-                    responses.append({
-                        "type": "edit",
-                        "edited_action": {
-                            "name": action_name,
-                            "args": edited_args
-                        }
-                    })
-                elif decision_type == "reject":
-                    # Reject includes a message explaining why
-                    reject_message = decision.get("message", "User rejected the request")
-                    responses.append({
-                        "type": "reject",
-                        "message": reject_message
-                    })
-                elif decision_type == "response":
-                    is_response = True
-                    message = decision.get("args", "") or decision.get("message", "")
-                    responses.append({
-                        "type": "reject",
-                        "message": message
-                    })
-            
-            logger.info(f"📦 Created resume Command with {len(responses)} decisions")
-            # LangChain HITL expects resume={"decisions": [...]}
-            resume_cmd = Command(
-                resume={"decisions": responses},
-                update={"inputs": [{"tasks": []}]} if is_response else {}
-            )
-            query = None  # Don't use query when resuming
-
         # Initialize state
         state = StreamState()
 
         try:
-            async for event in self.agent.stream(query, context_id, trace_id, command=resume_cmd):
+            async for event in self.agent.stream(query, context_id, trace_id):
                 # FIX for A2A Streaming Duplication (Retry/Fallback):
                 # When the agent encounters an error (e.g., orphaned tool calls) and retries,
                 # the executor may have already accumulated content from the failed attempt.
@@ -677,50 +622,6 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                 if not isinstance(event, dict):
                     continue
 
-                # Handle interrupt events (HITL forms)
-                if event.get('event_type') == 'interrupt':
-                    msg = event.get('message')
-                    if msg and hasattr(msg, 'tool_calls') and msg.tool_calls:
-                        # Convert to A2A format for frontend form display
-                        data = message_to_dict(msg)["data"]
-                        ak = data.get("additional_kwargs") or {}
-                        ak["agent_type"] = event.get("agent_type", "caipe")
-                        data["additional_kwargs"] = ak
-                        
-                        # Send the form data as an artifact FIRST (before final status)
-                        # This ensures the frontend receives the form before the stream ends
-                        form_artifact = Artifact(
-                            artifact_id=str(uuid.uuid4()),
-                            name="caipe_form",
-                            description="User input form",
-                            parts=[Part(root=DataPart(data=data))]
-                        )
-                        await self._send_artifact(event_queue, task, form_artifact, append=False)
-                        logger.info(f"Task {task.id} sent caipe_form artifact with form data.")
-                        
-                        # Then send the input-required status (final=True will end the stream)
-                        await self._safe_enqueue_event(
-                            event_queue,
-                            TaskStatusUpdateEvent(
-                                status=TaskStatus(
-                                    state=TaskState.input_required,
-                                    message=new_agent_text_message(
-                                        "Please provide the required information.",
-                                        task.context_id,
-                                        task.id
-                                    ),
-                                ),
-                                final=True,
-                                context_id=task.context_id,
-                                task_id=task.id,
-                            )
-                        )
-                        
-                        state.user_input_required = True
-                        logger.info(f"Task {task.id} requires user input (HITL form).")
-                        return
-                    continue
-
                 # Handle artifact payloads (execution plan, etc.)
                 artifact_payload = event.get('artifact')
                 if artifact_payload:
@@ -764,7 +665,9 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                 # 3. User input required
                 if event.get('require_user_input'):
                     state.user_input_required = True
-                    await self._handle_user_input_required(content, task, event_queue)
+                    # Pass metadata from event (contains form field definitions)
+                    metadata = event.get('metadata')
+                    await self._handle_user_input_required(content, task, event_queue, metadata)
                     return
 
                 # 4. Streaming chunk

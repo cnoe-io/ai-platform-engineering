@@ -1,88 +1,71 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
-import Link from "next/link";
-import { usePathname } from "next/navigation";
+import React, { useState } from "react";
 import {
   Loader2,
   WifiOff,
   RefreshCw,
+  Database,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { CAIPESpinner } from "@/components/ui/caipe-spinner";
 import { config } from "@/lib/config";
-import { getHealthStatus } from "@/components/rag/api";
-import { cn } from "@/lib/utils";
+import { useRAGHealth } from "@/hooks/use-rag-health";
+import { KnowledgeSidebar } from "@/components/rag/KnowledgeSidebar";
+import { AuthGuard } from "@/components/auth-guard";
 
-export default function KnowledgeBasesLayout({
+function KnowledgeBasesLayoutContent({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  const pathname = usePathname();
-  const [ragHealth, setRagHealth] = useState<
-    "connected" | "disconnected" | "checking"
-  >("checking");
-  const [ragHealthDetails, setRagHealthDetails] = useState<string | null>(null);
-  const [graphRagEnabled, setGraphRagEnabled] = useState<boolean>(true);
-
-  const checkRagHealth = async () => {
-    setRagHealth("checking");
-    setRagHealthDetails(null);
-    try {
-      const data = await getHealthStatus();
-      if (data.status === "healthy") {
-        setRagHealth("connected");
-        setGraphRagEnabled(data.config?.graph_rag_enabled ?? true);
-      } else {
-        setRagHealth("disconnected");
-        setRagHealthDetails(`RAG server reported unhealthy: ${JSON.stringify(data)}`);
-      }
-    } catch (error: unknown) {
-      console.error("[RAG] Error checking health:", error);
-      setRagHealth("disconnected");
-      setRagHealthDetails(
-        error instanceof Error ? error.message : "Unknown error"
-      );
-    }
-  };
-
-  useEffect(() => {
-    checkRagHealth();
-    const interval = setInterval(checkRagHealth, 30000);
-    return () => clearInterval(interval);
-  }, []);
-
-  const getActiveTab = () => {
-    if (pathname?.includes("/ingest")) return "ingest";
-    if (pathname?.includes("/search")) return "search";
-    if (pathname?.includes("/graph")) return "graph";
-    return "ingest";
-  };
-
-  const activeTab = getActiveTab();
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  
+  // Use the shared RAG health hook
+  const { status: ragHealth, graphRagEnabled, checkNow: checkRagHealth } = useRAGHealth();
 
   // Disconnected state
   if (ragHealth === "disconnected") {
     return (
-      <div className="flex-1 flex flex-col items-center justify-center bg-background text-muted-foreground p-4 text-center">
-        <WifiOff className="h-16 w-16 mb-4 text-destructive" />
-        <h2 className="text-2xl font-bold mb-2 text-foreground">RAG Server Unavailable</h2>
-        <p className="text-lg mb-4">
-          Unable to connect to the RAG server at{" "}
-          <span className="font-mono text-sm text-foreground">{config.ragUrl}</span>
-        </p>
-        {ragHealthDetails && (
-          <p className="text-sm text-destructive mb-4 max-w-md break-all">
-            Error: {ragHealthDetails}
+      <div className="flex-1 flex flex-col bg-background overflow-hidden">
+        {/* Header with Gradient */}
+        <div className="relative overflow-hidden border-b border-border shrink-0">
+          <div 
+            className="absolute inset-0" 
+            style={{
+              background: `linear-gradient(to bottom right, color-mix(in srgb, var(--gradient-from) 15%, transparent) 0%, color-mix(in srgb, var(--gradient-to) 8%, transparent) 50%, transparent 100%)`
+            }}
+          />
+          <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-primary/5 via-transparent to-transparent" />
+
+          <div className="relative px-6 py-3 flex items-center gap-3">
+            <div className="p-2 rounded-lg bg-destructive/20 shadow-sm">
+              <WifiOff className="h-5 w-5 text-destructive" />
+            </div>
+            <div>
+              <h1 className="text-lg font-bold text-foreground">Knowledge Bases</h1>
+              <p className="text-destructive text-xs">
+                RAG Server Unavailable
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div className="flex-1 flex flex-col items-center justify-center text-muted-foreground p-4 text-center">
+          <WifiOff className="h-16 w-16 mb-4 text-destructive" />
+          <h2 className="text-2xl font-bold mb-2 text-foreground">RAG Server Unavailable</h2>
+          <p className="text-lg mb-4">
+            Unable to connect to the RAG server at{" "}
+            <span className="font-mono text-sm text-foreground">{config.ragUrl}</span>
           </p>
-        )}
-        <Button
-          onClick={checkRagHealth}
-          className="mt-4 flex items-center gap-2"
-        >
-          <RefreshCw className="h-4 w-4" />
-          Retry Connection
-        </Button>
+          <Button
+            onClick={checkRagHealth}
+            className="mt-4 flex items-center gap-2"
+          >
+            <RefreshCw className="h-4 w-4" />
+            Retry Connection
+          </Button>
+        </div>
       </div>
     );
   }
@@ -90,75 +73,40 @@ export default function KnowledgeBasesLayout({
   // Loading state
   if (ragHealth === "checking") {
     return (
-      <div className="flex-1 flex flex-col items-center justify-center bg-background text-muted-foreground">
-        <Loader2 className="h-16 w-16 animate-spin text-primary" />
-        <p className="mt-4 text-lg">Connecting to RAG server...</p>
+      <div className="flex-1 flex flex-col items-center justify-center bg-background">
+        <CAIPESpinner size="lg" message="Connecting to RAG server..." />
       </div>
     );
   }
 
-  // Connected - show tabbed interface
+  // Connected - show sidebar + content layout
   return (
-    <div className="flex-1 flex flex-col overflow-hidden">
-      {/* Compact Tab Navigation with connection status */}
-      <div className="flex-shrink-0 w-full px-6 py-2 border-b border-border bg-card/50">
-        <div className="flex items-center justify-between">
-          {/* Tab Navigation */}
-          <nav className="flex gap-6" aria-label="Tabs">
-            <Link
-              href="/knowledge-bases/ingest"
-              prefetch={true}
-              className={cn(
-                "shrink-0 py-2 text-sm font-semibold transition-all duration-200 flex items-center gap-2 border-b-2",
-                activeTab === "ingest"
-                  ? "border-primary text-primary"
-                  : "border-transparent text-muted-foreground hover:text-foreground"
-              )}
-            >
-              <span>🗃️</span> Data Sources
-            </Link>
-            <Link
-              href="/knowledge-bases/search"
-              prefetch={true}
-              className={cn(
-                "shrink-0 py-2 text-sm font-semibold transition-all duration-200 flex items-center gap-2 border-b-2",
-                activeTab === "search"
-                  ? "border-primary text-primary"
-                  : "border-transparent text-muted-foreground hover:text-foreground"
-              )}
-            >
-              <span>🔍</span> Search
-            </Link>
-            <Link
-              href="/knowledge-bases/graph"
-              prefetch={true}
-              className={cn(
-                "shrink-0 py-2 text-sm font-semibold transition-all duration-200 flex items-center gap-2 border-b-2",
-                !graphRagEnabled
-                  ? "border-transparent text-muted-foreground/50 cursor-not-allowed pointer-events-none"
-                  : activeTab === "graph"
-                  ? "border-primary text-primary"
-                  : "border-transparent text-muted-foreground hover:text-foreground"
-              )}
-              title={!graphRagEnabled ? "Graph RAG is disabled" : ""}
-            >
-              <span>✳</span> Graph
-            </Link>
-          </nav>
+    <div className="flex-1 flex min-h-0">
+      {/* Sidebar */}
+      <KnowledgeSidebar
+        collapsed={sidebarCollapsed}
+        onCollapse={setSidebarCollapsed}
+        graphRagEnabled={graphRagEnabled}
+      />
 
-          {/* Connection Status */}
-          <div className="flex items-center gap-2">
-            <span className={cn(
-              "h-2 w-2 rounded-full",
-              ragHealth === "connected" ? "bg-emerald-500" : "bg-destructive"
-            )} />
-            <span className="text-xs uppercase tracking-wide text-muted-foreground">{ragHealth}</span>
-          </div>
-        </div>
+      {/* Main Content */}
+      <div className="flex-1 min-w-0 overflow-y-auto">
+        {children}
       </div>
-
-      {/* Tab Content */}
-      {children}
     </div>
+  );
+}
+
+export default function KnowledgeBasesLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  return (
+    <AuthGuard>
+      <KnowledgeBasesLayoutContent>
+        {children}
+      </KnowledgeBasesLayoutContent>
+    </AuthGuard>
   );
 }

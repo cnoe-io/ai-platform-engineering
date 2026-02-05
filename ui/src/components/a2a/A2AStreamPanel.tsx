@@ -22,6 +22,7 @@ import {
   Copy,
   Check,
   Download,
+  Clock,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -29,6 +30,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { useChatStore } from "@/store/chat-store";
 import { A2AEvent } from "@/types/a2a";
 import { cn, formatTimestamp, truncateText } from "@/lib/utils";
+import { A2ATimelineModal } from "./A2ATimelineModal";
 
 const iconMap: Record<string, React.ElementType> = {
   Layers,
@@ -51,6 +53,7 @@ export function A2AStreamPanel() {
   const { isStreaming, clearA2AEvents, activeConversationId, conversations } = useChatStore();
   const [filter, setFilter] = React.useState<FilterType>("all");
   const [expanded, setExpanded] = React.useState<string | null>(null);
+  const [timelineOpen, setTimelineOpen] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   // Get events for the active conversation (triggers re-render when conversations change)
@@ -208,6 +211,16 @@ export function A2AStreamPanel() {
           <Button
             variant="ghost"
             size="icon"
+            onClick={() => setTimelineOpen(true)}
+            className="h-8 w-8"
+            title="View timeline"
+            disabled={a2aEvents.length === 0}
+          >
+            <Clock className="h-4 w-4" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
             onClick={downloadEvents}
             className="h-8 w-8"
             title="Download events as JSON"
@@ -226,6 +239,14 @@ export function A2AStreamPanel() {
           </Button>
         </div>
       </div>
+
+      {/* Timeline Modal */}
+      <A2ATimelineModal
+        isOpen={timelineOpen}
+        onClose={() => setTimelineOpen(false)}
+        events={a2aEvents}
+        conversationId={activeConversationId || undefined}
+      />
 
       {/* Filters */}
       <div className="flex items-center gap-1 p-2 border-b border-border/50 overflow-x-auto scrollbar-modern">

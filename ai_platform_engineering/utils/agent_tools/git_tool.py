@@ -76,7 +76,7 @@ def _detect_git_provider(url: str) -> str:
     """Detect git provider from URL: 'github', 'gitlab', or 'unknown'.
 
     Also checks GITLAB_HOST and GITHUB_HOST environment variables for
-    custom/enterprise instances (e.g., cd.splunkdev.com for GitLab).
+    custom/enterprise instances (e.g., gitlab.customhost.com for GitLab).
     """
     url_lower = url.lower()
     parsed = urlparse(url_lower)

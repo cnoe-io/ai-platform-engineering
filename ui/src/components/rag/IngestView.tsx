@@ -7,12 +7,14 @@
  * - Added "use client" directive for Next.js
  * - Changed import paths for local modules
  * - Added dark mode classes
+ * - Added RBAC permission checks
  */
 
-import React, { useEffect, useMemo, useState, useCallback } from 'react'
+import React, { useEffect, useMemo, useState, useCallback, useRef } from 'react'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism'
 import { formatDistanceToNow } from 'date-fns'
+import { Database, RefreshCw } from 'lucide-react'
 import type { IngestionJob, DataSourceInfo, IngestorInfo } from './Models'
 import {
   getDataSources,
@@ -26,13 +28,35 @@ import {
   terminateJob,
   WEBLOADER_INGESTOR_ID,
   CONFLUENCE_INGESTOR_ID
-} from './api'
-import { getIconForType } from './typeConfig'
+} from './api/index'
+import { getIconForType, ingestTypeConfigs, isIngestTypeAvailable } from './typeConfig'
+import { useRagPermissions, Permission } from '@/hooks/useRagPermissions'
+import { ScrollArea } from "@/components/ui/scroll-area"
+
+// Helper component to render icon (either emoji or SVG image)
+const IconRenderer = ({ icon, className = "w-5 h-5" }: { icon: string; className?: string }) => {
+  const isEmoji = !icon.startsWith('/')
+  
+  if (isEmoji) {
+    return <span className="text-lg">{icon}</span>
+  }
+  
+  return (
+    <img 
+      src={icon} 
+      alt="" 
+      className={className}
+      style={{ display: 'inline-block' }}
+    />
+  )
+}
 
 export default function IngestView() {
+  const { hasPermission } = useRagPermissions()
+  
   // Ingestion state
   const [url, setUrl] = useState('')
-  const [ingestType, setIngestType] = useState<'web' | 'confluence'>('web')
+  const [ingestType, setIngestType] = useState<string>('web')
   const [checkForSiteMap, setCheckForSiteMap] = useState(true)
   const [sitemapMaxUrls, setSitemapMaxUrls] = useState(2000)
   const [description, setDescription] = useState('')
@@ -41,6 +65,7 @@ export default function IngestView() {
   // DataSources state
   const [dataSources, setDataSources] = useState<DataSourceInfo[]>([])
   const [loadingDataSources, setLoadingDataSources] = useState(true)
+  const [refreshingDataSources, setRefreshingDataSources] = useState(false)
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set())
   const [dataSourceJobs, setDataSourceJobs] = useState<Record<string, IngestionJob[]>>({})
   const [expandedJobs, setExpandedJobs] = useState<Set<string>>(new Set())
@@ -49,6 +74,7 @@ export default function IngestView() {
   // Ingestors state
   const [ingestors, setIngestors] = useState<IngestorInfo[]>([])
   const [loadingIngestors, setLoadingIngestors] = useState(false)
+  const [refreshingIngestors, setRefreshingIngestors] = useState(false)
   const [expandedIngestors, setExpandedIngestors] = useState<Set<string>>(new Set())
 
   // Confirmation dialogs state
@@ -117,14 +143,42 @@ export default function IngestView() {
     fetchIngestors()
   }, [])
 
+  // Effect to auto-select first available ingest type when ingestors load
   useEffect(() => {
-    const fetchAllJobs = async () => {
-      for (const ds of dataSources) {
+    if (ingestors.length > 0) {
+      // Check if current ingestType is still available
+      const isCurrentTypeAvailable = isIngestTypeAvailable(ingestType, ingestors)
+      
+      if (!isCurrentTypeAvailable) {
+        // Find first available ingest type
+        const availableType = Object.keys(ingestTypeConfigs).find(type =>
+          isIngestTypeAvailable(type, ingestors)
+        )
+        if (availableType) {
+          setIngestType(availableType)
+        }
+      }
+    }
+  }, [ingestors, ingestType])
+
+  // Track previously seen datasource IDs to avoid refetching jobs on refresh
+  const previousDataSourceIds = useRef<Set<string>>(new Set())
+
+  useEffect(() => {
+    const fetchJobsForNewDataSources = async () => {
+      const currentIds = new Set(dataSources.map(ds => ds.datasource_id))
+      const newDataSources = dataSources.filter(ds => !previousDataSourceIds.current.has(ds.datasource_id))
+      
+      // Update the ref with current IDs
+      previousDataSourceIds.current = currentIds
+      
+      // Only fetch jobs for new datasources
+      for (const ds of newDataSources) {
         await fetchJobsForDataSource(ds.datasource_id)
       }
     }
     if (dataSources.length > 0) {
-      fetchAllJobs()
+      fetchJobsForNewDataSources()
     }
   }, [dataSources])
 
@@ -170,7 +224,12 @@ export default function IngestView() {
   }
 
   const fetchDataSources = async () => {
-    setLoadingDataSources(true)
+    const isRefresh = dataSources.length > 0
+    if (isRefresh) {
+      setRefreshingDataSources(true)
+    } else {
+      setLoadingDataSources(true)
+    }
     try {
       const response = await getDataSources()
       const datasources = response.datasources
@@ -179,11 +238,17 @@ export default function IngestView() {
       console.error('Failed to fetch data sources', error)
     } finally {
       setLoadingDataSources(false)
+      setRefreshingDataSources(false)
     }
   }
 
   const fetchIngestors = async () => {
-    setLoadingIngestors(true)
+    const isRefresh = ingestors.length > 0
+    if (isRefresh) {
+      setRefreshingIngestors(true)
+    } else {
+      setLoadingIngestors(true)
+    }
     try {
       const ingestorList = await getIngestors()
       setIngestors(ingestorList)
@@ -191,6 +256,7 @@ export default function IngestView() {
       console.error('Failed to fetch ingestors', error)
     } finally {
       setLoadingIngestors(false)
+      setRefreshingIngestors(false)
     }
   }
 
@@ -307,38 +373,75 @@ export default function IngestView() {
   }
 
   return (
-    <div className="p-6 overflow-auto h-full bg-background">
-      {/* Ingest URL Section */}
-      <section className="bg-card rounded-lg shadow-sm border border-border mb-6 p-5">
-        <h3 className="mb-4 text-lg font-semibold text-foreground">Ingest URL</h3>
+    <div className="h-full flex flex-col bg-background overflow-hidden">
+      {/* Compact Header with Gradient */}
+      <div className="relative overflow-hidden border-b border-border shrink-0">
+        {/* Gradient Background */}
+        <div 
+          className="absolute inset-0" 
+          style={{
+            background: `linear-gradient(to bottom right, color-mix(in srgb, var(--gradient-from) 15%, transparent) 0%, color-mix(in srgb, var(--gradient-to) 8%, transparent) 50%, transparent 100%)`
+          }}
+        />
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-primary/5 via-transparent to-transparent" />
+
+        <div className="relative px-6 py-3 flex items-center gap-3">
+          <div className="p-2 rounded-lg gradient-primary-br shadow-md shadow-primary/20">
+            <Database className="h-5 w-5 text-white" />
+          </div>
+          <div>
+            <h1 className="text-lg font-bold gradient-text">Data Sources</h1>
+            <p className="text-muted-foreground text-xs">
+              Ingest and manage your knowledge base sources
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* Scrollable Content */}
+      <ScrollArea className="flex-1">
+        <div className="p-6">
+          {/* Ingest URL Section */}
+          <section className="bg-card rounded-lg shadow-sm border border-border mb-6 p-5">
+            <h3 className="mb-4 text-lg font-semibold text-foreground">Ingest URL</h3>
 
         {/* Ingest Type Selection */}
         <div className="mb-4">
           <label className="block text-sm font-medium text-foreground mb-2">
             Ingest Type *
           </label>
-          <div className="flex gap-2">
-            <button
-              onClick={() => setIngestType('web')}
-              className={`px-4 py-2 rounded text-sm font-medium transition-colors ${
-                ingestType === 'web'
-                  ? 'bg-primary text-primary-foreground'
-                  : 'bg-muted text-muted-foreground hover:bg-muted/80'
-              }`}
-            >
-              Web
-            </button>
-            <button
-              onClick={() => setIngestType('confluence')}
-              className={`px-4 py-2 rounded text-sm font-medium transition-colors ${
-                ingestType === 'confluence'
-                  ? 'bg-primary text-primary-foreground'
-                  : 'bg-muted text-muted-foreground hover:bg-muted/80'
-              }`}
-            >
-              Confluence
-            </button>
+          <div className="flex gap-2 flex-wrap">
+            {Object.entries(ingestTypeConfigs).map(([type, config]) => {
+              const isAvailable = isIngestTypeAvailable(type, ingestors)
+              return (
+                <button
+                  key={type}
+                  onClick={() => isAvailable && setIngestType(type)}
+                  disabled={!isAvailable}
+                  className={`px-3 py-1.5 rounded text-xs font-medium transition-colors ${
+                    ingestType === type
+                      ? 'bg-primary text-primary-foreground'
+                      : isAvailable
+                        ? 'bg-muted text-muted-foreground hover:bg-muted/80'
+                        : 'bg-muted/50 text-muted-foreground/50 cursor-not-allowed'
+                  }`}
+                  title={!isAvailable ? `No ${config.requiredIngestorType} ingestor available` : `Ingest as ${config.label}`}
+                >
+                  {config.icon && (
+                    <span className="mr-1.5 inline-flex items-center">
+                      <IconRenderer icon={config.icon} className="w-3.5 h-3.5" />
+                    </span>
+                  )}
+                  {config.label}
+                </button>
+              )
+            })}
           </div>
+          {ingestors.length === 0 && !loadingIngestors && (
+            <p className="text-xs text-orange-600 dark:text-orange-400 mt-2">
+              ⚠️ No ingestors detected. Please ensure ingestor services are running.
+            </p>
+          )}
         </div>
 
         {/* URL Input */}
@@ -356,7 +459,9 @@ export default function IngestView() {
             />
             <button
               onClick={handleIngest}
-              className="px-6 py-2 bg-primary hover:bg-primary/90 text-primary-foreground rounded-md transition-colors"
+              className="px-6 py-2 bg-primary hover:bg-primary/90 text-primary-foreground rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              disabled={!hasPermission(Permission.INGEST)}
+              title={!hasPermission(Permission.INGEST) ? 'Insufficient permissions to ingest data' : 'Ingest this URL'}
             >
               Ingest
             </button>
@@ -435,10 +540,10 @@ export default function IngestView() {
             <div className="flex items-center gap-3">
               <button
                 onClick={(e) => { e.stopPropagation(); fetchDataSources(); }}
-                disabled={loadingDataSources}
+                disabled={loadingDataSources || refreshingDataSources}
                 className="px-3 py-1 bg-muted hover:bg-muted/80 text-muted-foreground rounded text-sm transition-colors disabled:opacity-50"
               >
-                {loadingDataSources ? 'Refreshing...' : 'Refresh'}
+                {(loadingDataSources || refreshingDataSources) ? 'Refreshing...' : 'Refresh'}
               </button>
               <span className="text-xs text-muted-foreground group-open:rotate-180 transition-transform">▼</span>
             </div>
@@ -459,24 +564,26 @@ export default function IngestView() {
             </button>
             {sourceTypes.map(type => {
               const count = dataSources.filter(ds => ds.source_type === type).length
+              const icon = getIconForType(type)
               return (
                 <button
                   key={type}
                   onClick={() => setSelectedSourceType(type)}
-                  className={`px-2.5 py-1 rounded text-xs font-medium transition-colors ${
+                  className={`px-2.5 py-1 rounded text-xs font-medium transition-colors inline-flex items-center gap-1.5 ${
                     selectedSourceType === type
                       ? 'bg-primary text-primary-foreground'
                       : 'bg-muted text-muted-foreground hover:bg-muted/80'
                   }`}
                 >
-                  {type} ({count})
+                  {icon && <IconRenderer icon={icon} className="w-3.5 h-3.5" />}
+                  <span>{type} ({count})</span>
                 </button>
               )
             })}
           </div>
         )}
 
-        {loadingDataSources ? (
+        {loadingDataSources && dataSources.length === 0 ? (
           <p className="text-muted-foreground">Loading data sources...</p>
         ) : dataSources.length === 0 ? (
           <p className="text-muted-foreground">No data sources found. Ingest a URL above to get started.</p>
@@ -513,7 +620,7 @@ export default function IngestView() {
                           <span className="text-muted-foreground font-mono text-sm select-none">
                             {isExpanded ? '−' : '+'}
                           </span>
-                          {icon && <span className="text-lg">{icon}</span>}
+                          {icon && <IconRenderer icon={icon} className="w-5 h-5" />}
                           <span className="max-w-xs truncate">
                             {ds.datasource_id.length > 50 ? `${ds.datasource_id.substring(0, 50)}...` : ds.datasource_id}
                           </span>
@@ -541,16 +648,16 @@ export default function IngestView() {
                             <button
                               onClick={(e) => { e.stopPropagation(); handleReloadDataSource(ds.datasource_id); }}
                               className="bg-orange-500 hover:bg-orange-600 text-white font-bold py-1 px-2 rounded text-xs disabled:opacity-50 disabled:cursor-not-allowed"
-                              disabled={hasActiveJob || !supportsReload}
-                              title={!supportsReload ? 'Reload not supported for this datasource type' : hasActiveJob ? 'Cannot reload while a job is active' : 'Reload this datasource'}
+                              disabled={hasActiveJob || !supportsReload || !hasPermission(Permission.INGEST)}
+                              title={!hasPermission(Permission.INGEST) ? 'Insufficient permissions to reload data' : !supportsReload ? 'Reload not supported for this datasource type' : hasActiveJob ? 'Cannot reload while a job is active' : 'Reload this datasource'}
                             >
                               Reload
                             </button>
                             <button
                               onClick={(e) => { e.stopPropagation(); setShowDeleteDataSourceConfirm(ds.datasource_id); }}
                               className="bg-destructive hover:bg-destructive/90 text-destructive-foreground font-bold py-1 px-2 rounded text-xs disabled:opacity-50 disabled:cursor-not-allowed"
-                              disabled={hasActiveJob}
-                              title={hasActiveJob ? 'Cannot delete while a job is active' : 'Delete this datasource'}
+                              disabled={hasActiveJob || !hasPermission(Permission.DELETE)}
+                              title={!hasPermission(Permission.DELETE) ? 'Insufficient permissions to delete datasources' : hasActiveJob ? 'Cannot delete while a job is active' : 'Delete this datasource'}
                             >
                               Delete
                             </button>
@@ -679,8 +786,9 @@ export default function IngestView() {
                                           {isJobActive && (
                                             <button
                                               onClick={(e) => { e.stopPropagation(); handleTerminateJob(ds.datasource_id, job.job_id); }}
-                                              className="bg-destructive hover:bg-destructive/90 text-destructive-foreground font-bold py-1 px-2 rounded text-xs flex-shrink-0"
-                                              title="Stop this job"
+                                              className="bg-destructive hover:bg-destructive/90 text-destructive-foreground font-bold py-1 px-2 rounded text-xs flex-shrink-0 disabled:opacity-50 disabled:cursor-not-allowed"
+                                              disabled={!hasPermission(Permission.INGEST)}
+                                              title={!hasPermission(Permission.INGEST) ? 'Insufficient permissions to terminate jobs' : 'Stop this job'}
                                             >
                                               Stop
                                             </button>
@@ -794,6 +902,156 @@ export default function IngestView() {
         )}
         </details>
       </section>
+
+      {/* Ingestors Section */}
+      <section className="bg-card rounded-lg shadow-sm border border-border mb-6 p-5">
+        {ingestors.length > 0 || loadingIngestors ? (
+          <details className="group">
+            <summary className="cursor-pointer text-base font-semibold text-foreground hover:text-foreground/80 flex items-center justify-between">
+              <span>Ingestors ({ingestors.length})</span>
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={(e) => { e.stopPropagation(); fetchIngestors(); }}
+                  disabled={loadingIngestors || refreshingIngestors}
+                  className="px-3 py-1 bg-muted hover:bg-muted/80 text-muted-foreground rounded text-sm transition-colors disabled:opacity-50"
+                >
+                  {(loadingIngestors || refreshingIngestors) ? 'Refreshing...' : 'Refresh'}
+                </button>
+                <span className="text-xs text-muted-foreground group-open:rotate-180 transition-transform">▼</span>
+              </div>
+            </summary>
+            <div className="mt-4">
+              {loadingIngestors && ingestors.length === 0 ? (
+                <p className="text-muted-foreground text-xs">Loading ingestors...</p>
+              ) : ingestors.length > 0 ? (
+                <div className="overflow-x-auto">
+                  <table className="min-w-full text-xs text-left text-muted-foreground">
+                    <thead className="text-xs text-foreground uppercase bg-muted">
+                      <tr>
+                        <th scope="col" className="px-3 py-2">Ingestor</th>
+                        <th scope="col" className="px-3 py-2">Type</th>
+                        <th scope="col" className="px-3 py-2">Last Seen</th>
+                        <th scope="col" className="px-3 py-2">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {ingestors.map(ingestor => {
+                        const isExpanded = expandedIngestors.has(ingestor.ingestor_id)
+                        const isDefaultWebloader = ingestor.ingestor_id === WEBLOADER_INGESTOR_ID
+                        const icon = getIconForType(ingestor.ingestor_type);
+
+                        return (
+                          <React.Fragment key={ingestor.ingestor_id}>
+                            <tr className="bg-card border-b border-border hover:bg-muted/50 cursor-pointer text-xs" onClick={() => toggleIngestor(ingestor.ingestor_id)}>
+                              <td className="px-3 py-2 font-medium text-foreground whitespace-nowrap flex items-center gap-2" title={ingestor.ingestor_id}>
+                                <span className="text-muted-foreground font-mono text-sm select-none">
+                                  {isExpanded ? '−' : '+'}
+                                </span>
+                                {icon && <IconRenderer icon={icon} className="w-4 h-4" />}
+                                {ingestor.ingestor_name}
+                              </td>
+                              <td className="px-3 py-2">{ingestor.ingestor_type}</td>
+                              <td className="px-3 py-2" title={ingestor.last_seen ? new Date(ingestor.last_seen * 1000).toLocaleString() : 'Never'}>
+                                {ingestor.last_seen ? formatRelativeTime(ingestor.last_seen) : 'Never'}
+                              </td>
+                              <td className="px-3 py-2">
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); setShowDeleteIngestorConfirm(ingestor.ingestor_id); }}
+                                  className="bg-destructive hover:bg-destructive/90 text-destructive-foreground font-bold py-1 px-2 rounded text-xs disabled:opacity-50 disabled:cursor-not-allowed"
+                                  disabled={isDefaultWebloader || !hasPermission(Permission.DELETE)}
+                                  title={!hasPermission(Permission.DELETE) ? 'Insufficient permissions to delete ingestors' : isDefaultWebloader ? 'Cannot delete default webloader ingestor' : 'Delete this ingestor (metadata only)'}
+                                >
+                                  Delete
+                                </button>
+                              </td>
+                            </tr>
+                            {isExpanded && (
+                              <tr className="bg-muted/30">
+                                <td colSpan={4} className="p-4">
+                                  <div className="bg-card rounded-lg p-4 shadow-sm border border-border">
+                                    <div className="grid grid-cols-2 gap-4 text-xs mb-4">
+                                      <div>
+                                        <p className="text-xs font-medium text-muted-foreground mb-1">Ingestor ID</p>
+                                        <p className="font-mono text-xs text-foreground break-all">{ingestor.ingestor_id}</p>
+                                      </div>
+                                      <div>
+                                        <p className="text-xs font-medium text-muted-foreground mb-1">Name</p>
+                                        <p className="text-foreground">{ingestor.ingestor_name}</p>
+                                      </div>
+                                      <div>
+                                        <p className="text-xs font-medium text-muted-foreground mb-1">Type</p>
+                                        <p className="text-foreground">{ingestor.ingestor_type}</p>
+                                      </div>
+                                      <div>
+                                        <p className="text-xs font-medium text-muted-foreground mb-1">Last Seen</p>
+                                        <p className="text-foreground">
+                                          {ingestor.last_seen ? new Date(ingestor.last_seen * 1000).toLocaleString() : 'Never'}
+                                        </p>
+                                      </div>
+                                    </div>
+
+                                    {ingestor.description && (
+                                      <div className="mb-4">
+                                        <p className="text-xs font-medium text-muted-foreground mb-1">Description</p>
+                                        <p className="text-sm text-foreground bg-muted/50 p-3 rounded">{ingestor.description}</p>
+                                      </div>
+                                    )}
+
+                                    {ingestor.metadata && Object.keys(ingestor.metadata).length > 0 && (
+                                      <details className="rounded-lg bg-muted/50 p-3">
+                                        <summary className="cursor-pointer text-xs font-semibold text-foreground hover:text-foreground/80">
+                                          Metadata ({Object.keys(ingestor.metadata).length} {Object.keys(ingestor.metadata).length === 1 ? 'field' : 'fields'})
+                                        </summary>
+                                        <div className="mt-2">
+                                          <SyntaxHighlighter
+                                            language="json"
+                                            style={vscDarkPlus}
+                                            customStyle={{
+                                              margin: 0,
+                                              borderRadius: '0.375rem',
+                                              fontSize: '0.75rem',
+                                              maxHeight: '300px'
+                                            }}
+                                          >
+                                            {JSON.stringify(ingestor.metadata, null, 2)}
+                                          </SyntaxHighlighter>
+                                        </div>
+                                      </details>
+                                    )}
+                                  </div>
+                                </td>
+                              </tr>
+                            )}
+                          </React.Fragment>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <p className="text-muted-foreground text-xs">No ingestors found.</p>
+              )}
+            </div>
+          </details>
+        ) : (
+          <div>
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-base font-semibold text-foreground">Ingestors</h3>
+              <button
+                onClick={() => fetchIngestors()}
+                disabled={loadingIngestors || refreshingIngestors}
+                className="px-3 py-1 bg-muted hover:bg-muted/80 text-muted-foreground rounded text-sm transition-colors disabled:opacity-50"
+              >
+                {(loadingIngestors || refreshingIngestors) ? 'Refreshing...' : 'Refresh'}
+              </button>
+            </div>
+            <p className="text-muted-foreground">No ingestors found. Ingestors are background services that process and ingest data from various sources.</p>
+          </div>
+        )}
+      </section>
+
+        </div>
+      </ScrollArea>
 
       {/* Delete Data Source Confirmation Dialog */}
       {showDeleteDataSourceConfirm && (

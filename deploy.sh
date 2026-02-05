@@ -41,6 +41,7 @@ USE_SLIM=false
 [ "$ENABLE_SPLUNK" = "true" ] && PROFILES="$PROFILES,splunk"
 [ "$ENABLE_WEBEX" = "true" ] && PROFILES="$PROFILES,webex"
 [ "$ENABLE_AGENT_FORGE" = "true" ] && PROFILES="$PROFILES,agentforge"
+[ "$ENABLE_CAIPE_UI" = "true" ] && PROFILES="$PROFILES,caipe-ui"
 [ "$ENABLE_RAG" = "true" ] && PROFILES="$PROFILES,rag"
 [ "$ENABLE_GRAPH_RAG" = "true" ] && PROFILES="$PROFILES,rag"
 [ "$ENABLE_TRACING" = "true" ] && PROFILES="$PROFILES,tracing"

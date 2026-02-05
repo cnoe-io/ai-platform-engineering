@@ -1,20 +1,58 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { getServerSession } from 'next-auth';
+import { authOptions } from '@/lib/auth-config';
 
 /**
- * RAG API Proxy
+ * RAG API Proxy with JWT Bearer Token Authentication
  *
- * Proxies requests from /api/rag/* to the RAG server.
- * This allows the browser to access the RAG server without CORS issues.
+ * Proxies requests from /api/rag/* to the RAG server with JWT authentication.
+ * The RAG server validates the JWT token and extracts user identity/groups/role.
+ *
+ * Authentication:
+ * - Authorization: Bearer {access_token} (OIDC JWT token)
+ *
+ * The RAG server ONLY supports JWT Bearer tokens, not OAuth2Proxy headers.
+ * If no JWT is available and trusted network is enabled on RAG server,
+ * requests from trusted IPs (like localhost) will still work.
  *
  * Example:
- *   /api/rag/healthz -> RAG_SERVER_URL/healthz
- *   /api/rag/v1/query -> RAG_SERVER_URL/v1/query
+ *   /api/rag/healthz -> RAG_SERVER_URL/healthz (with Bearer token)
+ *   /api/rag/v1/query -> RAG_SERVER_URL/v1/query (with Bearer token)
  */
 
 function getRagServerUrl(): string {
   return process.env.RAG_SERVER_URL ||
          process.env.NEXT_PUBLIC_RAG_URL ||
          'http://localhost:9446';
+}
+
+/**
+ * Get auth headers from the current session
+ * 
+ * Extracts JWT access token from session and sends as Bearer token to RAG server.
+ * 
+ * @returns Headers object with Authorization Bearer token for RAG server
+ */
+async function getRbacHeaders(): Promise<Record<string, string>> {
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  };
+
+  try {
+    const session = await getServerSession(authOptions);
+    
+    // Pass JWT access token as Bearer token
+    // RAG server validates JWT and extracts email, groups, and determines role
+    if (session?.accessToken) {
+      headers['Authorization'] = `Bearer ${session.accessToken}`;
+    }
+  } catch (error) {
+    // If session retrieval fails, continue without auth headers
+    // RAG server may still allow access from trusted networks or anonymous users
+    console.debug('[RAG Proxy] Could not retrieve session, proceeding without auth headers:', error);
+  }
+
+  return headers;
 }
 
 export async function GET(
@@ -33,11 +71,11 @@ export async function GET(
   });
 
   try {
+    // Get auth headers from session
+    const headers = await getRbacHeaders();
     const response = await fetch(targetUrl.toString(), {
       method: 'GET',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers,
     });
 
     const data = await response.json();
@@ -73,11 +111,11 @@ export async function POST(
       }
     }
 
+    // Get auth headers from session
+    const headers = await getRbacHeaders();
     const fetchOptions: RequestInit = {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers,
     };
 
     if (body !== undefined) {
@@ -118,11 +156,11 @@ export async function DELETE(
   });
 
   try {
+    // Get auth headers from session
+    const headers = await getRbacHeaders();
     const response = await fetch(targetUrl.toString(), {
       method: 'DELETE',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers,
     });
 
     if (response.status === 204) {

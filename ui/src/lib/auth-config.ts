@@ -12,6 +12,7 @@ import type { NextAuthOptions } from "next-auth";
  * - NEXT_PUBLIC_SSO_ENABLED: "true" to enable SSO, otherwise disabled
  * - OIDC_GROUP_CLAIM: The OIDC claim name for groups (default: auto-detect from memberOf, groups, etc.)
  * - OIDC_REQUIRED_GROUP: Group name required for access (default: "backstage-access")
+ * - OIDC_REQUIRED_ADMIN_GROUP: Group name for admin access (default: none)
  * - OIDC_ENABLE_REFRESH_TOKEN: "true" to enable refresh token support (default: true if not set)
  */
 
@@ -26,38 +27,44 @@ export const GROUP_CLAIM = process.env.OIDC_GROUP_CLAIM || "";
 // Required group for authorization
 export const REQUIRED_GROUP = process.env.OIDC_REQUIRED_GROUP || "backstage-access";
 
+// Required admin group for admin access
+export const REQUIRED_ADMIN_GROUP = process.env.OIDC_REQUIRED_ADMIN_GROUP || "";
+
 // Default group claim names to check (in order of priority)
-const DEFAULT_GROUP_CLAIMS = ["memberOf", "groups", "group", "roles", "cognito:groups"];
+// Note: Duo SSO uses "members" for full group list, "groups" for limited set
+const DEFAULT_GROUP_CLAIMS = ["members", "memberOf", "groups", "group", "roles", "cognito:groups"];
 
 // Helper to extract groups from OIDC claims
+// Combines groups from multiple claims (Duo uses both "groups" and "members")
 function extractGroups(profile: Record<string, unknown>): string[] {
+  const allGroups = new Set<string>();
+
   // If a specific claim is configured, use only that
   if (GROUP_CLAIM) {
     const value = profile[GROUP_CLAIM];
     if (Array.isArray(value)) {
-      return value.map(String);
+      value.map(String).forEach(g => allGroups.add(g));
+    } else if (typeof value === "string") {
+      value.split(/[,\s]+/).filter(Boolean).forEach(g => allGroups.add(g));
+    } else {
+      console.warn(`OIDC group claim "${GROUP_CLAIM}" not found in profile`);
     }
-    if (typeof value === "string") {
-      return value.split(/[,\s]+/).filter(Boolean);
-    }
-    // Claim not found or empty
-    console.warn(`OIDC group claim "${GROUP_CLAIM}" not found in profile`);
-    return [];
+    return Array.from(allGroups);
   }
 
-  // Auto-detect: check various common group claim names
+  // Auto-detect: check ALL common group claim names and combine them
+  // This is important for Duo SSO which uses both "groups" and "members"
   for (const claim of DEFAULT_GROUP_CLAIMS) {
     const value = profile[claim];
     if (Array.isArray(value)) {
-      return value.map(String);
-    }
-    if (typeof value === "string") {
+      value.map(String).forEach(g => allGroups.add(g));
+    } else if (typeof value === "string") {
       // Some providers return comma-separated or space-separated groups
-      return value.split(/[,\s]+/).filter(Boolean);
+      value.split(/[,\s]+/).filter(Boolean).forEach(g => allGroups.add(g));
     }
   }
 
-  return [];
+  return Array.from(allGroups);
 }
 
 // Helper to check if user has required group
@@ -70,6 +77,18 @@ export function hasRequiredGroup(groups: string[]): boolean {
     const groupLower = group.toLowerCase();
     const requiredLower = REQUIRED_GROUP.toLowerCase();
     return groupLower === requiredLower || groupLower.includes(`cn=${requiredLower}`);
+  });
+}
+
+// Helper to check if user is in admin group
+export function isAdminUser(groups: string[]): boolean {
+  if (!REQUIRED_ADMIN_GROUP) return false; // No admin group configured
+
+  return groups.some((group) => {
+    // Handle both simple group names and full DN paths
+    const groupLower = group.toLowerCase();
+    const adminGroupLower = REQUIRED_ADMIN_GROUP.toLowerCase();
+    return groupLower === adminGroupLower || groupLower.includes(`cn=${adminGroupLower}`);
   });
 }
 
@@ -127,7 +146,21 @@ async function refreshAccessToken(token: {
       }),
     });
 
-    const refreshedTokens = await response.json();
+    // Check content-type before parsing - OIDC providers may return HTML error pages
+    const contentType = response.headers.get("content-type") || "";
+    let refreshedTokens: any;
+
+    if (contentType.includes("application/json")) {
+      refreshedTokens = await response.json();
+    } else {
+      // Response is not JSON (likely HTML error page)
+      const text = await response.text();
+      console.error("[Auth] Token refresh returned non-JSON response:", text.substring(0, 200));
+      return {
+        ...token,
+        error: "RefreshTokenExpired",
+      };
+    }
 
     if (!response.ok) {
       console.error("[Auth] Token refresh failed:", refreshedTokens);
@@ -201,7 +234,7 @@ export const authOptions: NextAuthOptions = {
         token.idToken = account.id_token;
         token.refreshToken = account.refresh_token;
         token.expiresAt = account.expires_at;
-        
+
         // Calculate refresh token expiry if refresh_expires_in is provided
         // Some OIDC providers (like Keycloak) include this field
         if (account.refresh_expires_in) {
@@ -228,14 +261,24 @@ export const authOptions: NextAuthOptions = {
         }
       }
 
-      // Extract and store groups from profile
+      // Extract and check groups from profile (but DON'T store them - too large!)
       if (profile) {
-        // Cast profile to Record for storage and group extraction
+        // Cast profile to Record for group extraction
         const profileData = profile as unknown as Record<string, unknown>;
-        token.profile = profileData;
+
+        // Extract groups for authorization check only (not stored in token)
         const groups = extractGroups(profileData);
-        token.groups = groups;
+
+        // Only store the authorization result and role (NOT the groups array!)
+        // Storing 40+ groups causes 8KB session cookies and browser crashes
         token.isAuthorized = hasRequiredGroup(groups);
+        token.role = isAdminUser(groups) ? 'admin' : 'user';
+
+        // Debug logging (groups array is NOT stored in token)
+        console.log('[Auth JWT] User groups count:', groups.length);
+        console.log('[Auth JWT] Required admin group:', REQUIRED_ADMIN_GROUP);
+        console.log('[Auth JWT] User role:', token.role);
+        console.log('[Auth JWT] Is authorized:', token.isAuthorized);
       }
 
       // Return early if this is a forced update
@@ -250,9 +293,26 @@ export const authOptions: NextAuthOptions = {
 
       if (ENABLE_REFRESH_TOKEN && expiresAt) {
         const timeUntilExpiry = expiresAt - now;
+
+        // Don't attempt refresh if token is already expired by more than 1 hour
+        // This prevents infinite refresh loops when refresh token is invalid
+        if (timeUntilExpiry < -3600) {
+          console.warn(`[Auth] Token expired ${Math.abs(timeUntilExpiry)}s ago - refresh token likely invalid, marking session as expired`);
+          return {
+            ...token,
+            error: "RefreshTokenExpired",
+          };
+        }
+
         const shouldRefresh = timeUntilExpiry < 5 * 60; // Refresh if less than 5 min remaining
 
         if (shouldRefresh) {
+          // Don't attempt refresh if there's already an error (prevents loops)
+          if (token.error) {
+            console.warn(`[Auth] Token refresh already failed (${token.error}), skipping refresh attempt`);
+            return token;
+          }
+
           console.log(`[Auth] Token expires in ${timeUntilExpiry}s, attempting refresh...`);
 
           // Only attempt refresh if we have a refresh token
@@ -270,56 +330,42 @@ export const authOptions: NextAuthOptions = {
     },
     async session({ session, token }) {
       // Send properties to the client
-      session.accessToken = token.accessToken as string;
-      session.idToken = token.idToken as string;
+      // IMPORTANT: Minimize what we store to keep cookie under 4096 bytes!
+      // Don't store full tokens in session - they're huge (2KB+ each)
+      // Only store what the client actually needs
+
+      // Only pass tokens if they're valid (not expired)
+      if (!token.error) {
+        // Store access token and ID token for client-side use
+        session.accessToken = token.accessToken as string;
+        session.idToken = token.idToken as string; // Needed for decoding groups/claims client-side
+        session.hasRefreshToken = !!token.refreshToken; // Indicate if refresh token is available
+      }
+
       session.error = token.error as string | undefined;
-      session.groups = token.groups as string[];
       session.isAuthorized = token.isAuthorized as boolean;
       session.expiresAt = token.expiresAt as number | undefined;
-      
+
       // Pass refresh token metadata (NOT the token itself - security)
       session.hasRefreshToken = !!token.refreshToken;
       session.refreshTokenExpiresAt = token.refreshTokenExpiresAt as number | undefined;
 
-      // If token refresh failed, log the user out
+      // Set role from token (OIDC group check only here)
+      // MongoDB fallback check happens in API middleware (server-side only)
+      session.role = (token.role as 'admin' | 'user') || 'user';
+
+      // If token refresh failed, mark session as invalid and DON'T include tokens
       if (token.error === "RefreshTokenExpired" || token.error === "RefreshTokenError") {
         console.error(`[Auth] Session invalid due to: ${token.error}`);
         session.error = token.error;
+        // Clear tokens from session to reduce cookie size
+        session.accessToken = undefined;
       }
 
-      // Pass user info from token profile to session
-      // Handle various OIDC provider claim formats (Duo, Okta, Azure AD, etc.)
-      if (token.profile) {
-        const profile = token.profile as Record<string, unknown>;
-
-        // Extract name - support Duo (fullname, firstname/lastname) and standard (name, preferred_username)
-        const fullName =
-          (profile.fullname as string) ||
-          (profile.name as string) ||
-          `${(profile.firstname as string) || ""} ${(profile.lastname as string) || ""}`.trim() ||
-          (profile.preferred_username as string) ||
-          (profile.username as string) ||
-          session.user?.name ||
-          "User";
-
-        // Extract email - fallback to username for some providers
-        const email =
-          (profile.email as string) ||
-          (profile.username as string) ||
-          session.user?.email;
-
-        // Extract sub (subject) for unique user identifier
-        const sub = (profile.sub as string) || (profile.id as string);
-
-        session.user = {
-          name: fullName,
-          email: email,
-          image: (profile.picture as string) || session.user?.image,
-        };
-
-        // Add sub to session for display in user menu
-        session.sub = sub;
-      }
+      // User info is already populated by NextAuth from the profile() callback
+      // We don't store profile in token anymore (saves session cookie size)
+      // Just pass through the sub if available
+      session.sub = token.sub as string | undefined;
 
       return session;
     },
@@ -332,21 +378,53 @@ export const authOptions: NextAuthOptions = {
     strategy: "jwt",
     maxAge: 24 * 60 * 60, // 24 hours
   },
+  // Explicitly disable session store (we use JWT only)
+  // This prevents NextAuth from trying to write SST files
+  adapter: undefined,
+  cookies: {
+    sessionToken: {
+      name: `next-auth.session-token`,
+      options: {
+        httpOnly: true,
+        sameSite: 'lax',
+        path: '/',
+        secure: process.env.NODE_ENV === 'production',
+        // Reduce session cookie size by not storing everything in cookie
+        maxAge: 24 * 60 * 60, // 24 hours
+      },
+    },
+  },
   debug: process.env.NODE_ENV === "development",
+  // Disable NextAuth's internal logging persistence to prevent SST file errors
+  logger: {
+    error(code, metadata) {
+      console.error('[NextAuth] Error:', code, metadata);
+    },
+    warn(code) {
+      console.warn('[NextAuth] Warning:', code);
+    },
+    debug(code, metadata) {
+      if (process.env.NODE_ENV === "development") {
+        console.debug('[NextAuth] Debug:', code, metadata);
+      }
+    },
+  },
 };
 
 // Extend next-auth types
 declare module "next-auth" {
   interface Session {
     accessToken?: string;
-    idToken?: string;
+    idToken?: string; // Needed for client-side group extraction (not stored in cookie, fetched on demand)
+    hasRefreshToken?: boolean; // Whether refresh token is available
     error?: string;
-    groups?: string[];
+    // groups removed from session - too large (40+ groups = 8KB cookie!)
+    // Instead, extract groups client-side from idToken when needed
     isAuthorized?: boolean;
     sub?: string; // User subject ID from OIDC
     expiresAt?: number; // Access token expiry (Unix timestamp)
-    hasRefreshToken?: boolean; // Whether refresh token is available
     refreshTokenExpiresAt?: number; // Refresh token expiry (Unix timestamp)
+    role?: 'admin' | 'user';
   }
 }
 
@@ -358,8 +436,9 @@ declare module "next-auth/jwt" {
     expiresAt?: number;
     refreshTokenExpiresAt?: number;
     error?: string;
-    profile?: Record<string, unknown>;
-    groups?: string[];
+    // groups removed - too large (40+ groups = 8KB cookie!)
+    // profile removed - not needed
     isAuthorized?: boolean;
+    role?: 'admin' | 'user';
   }
 }

@@ -3,6 +3,35 @@ agent_description: |
   The AI Platform Engineer — Deep Agent is the central orchestrator in the CAIPE (Community AI Platform Engineering) ecosystem.
   It coordinates specialized sub-agents and tools, and can optionally use a RAG knowledge base when that agent/tool is connected.
 
+request_user_input_guidance: |
+  ## `request_user_input` - For collecting structured information from users
+
+  When you need specific information from the user to proceed with a task, use the `request_user_input` tool instead of asking in natural language. This tool renders a structured form in the UI, making it easier for users to provide the required information.
+
+  **WHEN TO USE `request_user_input`:**
+  - When you need specific parameters to execute a task (e.g., repository name, visibility settings)
+  - When the user needs to choose from predefined options (e.g., Public/Private, Yes/No)
+  - When you need multiple pieces of information at once
+  - When the information has specific formats (URLs, emails, numbers)
+
+  **WHEN NOT TO USE:**
+  - For simple yes/no confirmations (just ask in natural language)
+  - When you already have all the information you need
+  - For clarifying questions that don't need structured input
+
+  **EXAMPLE:**
+  ```
+  request_user_input(
+      title="Create GitHub Repository",
+      description="Please provide the details for the new repository",
+      fields=[
+          {"field_name": "repository_name", "field_label": "Repository Name", "field_type": "text", "required": True},
+          {"field_name": "visibility", "field_label": "Visibility", "field_type": "select", "field_values": ["Public", "Private"], "required": True},
+          {"field_name": "initialize_readme", "field_label": "Initialize with README", "field_type": "boolean", "required": False}
+      ]
+  )
+  ```
+
 system_prompt_template: |
   # AI Platform Engineer - Deep Agent
 
@@ -65,7 +94,7 @@ system_prompt_template: |
 
   | Tool | Purpose | Example |
   |------|---------|---------|
-  | `git` | Git operations (clone, status, log, diff, etc.) | `git("git clone https://cd.splunkdev.com/org/repo.git /tmp/repo")` |
+  | `git` | Git operations (clone, status, log, diff, etc.) | `git("git clone https://{{gitlab/github}}.com/org/repo.git /tmp/repo")` |
   | `curl` | HTTP requests, API calls | `curl("curl -sL https://api.example.com/data")` |
   | `wget` | File downloads | `wget("wget -O file.txt https://example.com/file")` |
   | `grep` | Search file contents | `grep("grep -rn 'pattern' /path")` |
@@ -645,9 +674,9 @@ agent_prompts:
 
       **For Slack thread sources:**
       - Extract channel_id and timestamp from metadata
-      - Build link: `https://{workspace}.slack.com/archives/{channel_id}/p{timestamp}`
+      - Build link: `https://{{workspace}}.slack.com/archives/{{channel_id}}/p{{timestamp}}`
       - Remove dots from timestamp (1734567890.123456 → p1734567890123456)
-      - Format as: `[Slack Thread]({link})`
+      - Format as: `[Slack Thread]({{link}})`
 
       **Required format at bottom of response:**
       ```

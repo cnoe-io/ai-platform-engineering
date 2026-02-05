@@ -34,7 +34,13 @@ from common.models.server import (
 )
 from common.models.rag import DataSourceInfo, IngestorInfo, valid_metadata_keys
 from common.models.rbac import Role, UserContext, UserInfoResponse
-from server.rbac import get_current_user, require_role, has_permission
+from server.rbac import (
+    get_user_or_anonymous,
+    require_role,
+    has_permission,
+    get_permissions,
+    is_trusted_request
+)
 from common.graph_db.neo4j.graph_db import Neo4jDB
 from common.graph_db.base import GraphDB
 from common.constants import (
@@ -262,57 +268,76 @@ def generate_ingestor_id(ingestor_name: str, ingestor_type: str) -> str:
     - Show/hide features based on role-based permissions
     - Enable/disable action buttons based on what the user can do
     
-    **No specific role required** - any authenticated user (or unauthenticated if 
-    ALLOW_UNAUTHENTICATED is enabled) can access their own information.
+    **No authentication required** - this endpoint is accessible to all users.
+    - Authenticated users will see their email, role, and groups
+    - Unauthenticated users will see email as "anonymous" with no permissions
+    - Trusted network users will see email as "trusted-network"
     
-    **Permissions explained:**
-    - `can_read`: Can query and view data (READONLY, INGESTONLY, ADMIN)
-    - `can_ingest`: Can ingest new data and manage ingestion jobs (INGESTONLY, ADMIN)
-    - `can_delete`: Can delete resources and perform bulk operations (ADMIN only)
+    **Permissions list:**
+    - `read`: Can query and view data (READONLY, INGESTONLY, ADMIN)
+    - `ingest`: Can ingest new data and manage ingestion jobs (INGESTONLY, ADMIN)
+    - `delete`: Can delete resources and perform bulk operations (ADMIN only)
     """,
     responses={
         200: {
             "description": "Successfully retrieved user information",
             "content": {
                 "application/json": {
-                    "example": {
-                        "email": "user@example.com",
-                        "role": "readonly",
-                        "is_authenticated": True,
-                        "groups": ["engineering", "platform-team"],
-                        "permissions": {
-                            "can_read": True,
-                            "can_ingest": False,
-                            "can_delete": False
+                    "examples": {
+                        "authenticated": {
+                            "summary": "Authenticated user",
+                            "value": {
+                                "email": "user@example.com",
+                                "role": "readonly",
+                                "is_authenticated": True,
+                                "groups": ["engineering", "platform-team"],
+                                "permissions": ["read"],
+                                "in_trusted_network": False
+                            }
+                        },
+                        "anonymous": {
+                            "summary": "Anonymous user",
+                            "value": {
+                                "email": "anonymous",
+                                "role": "anonymous",
+                                "is_authenticated": False,
+                                "groups": [],
+                                "permissions": [],
+                                "in_trusted_network": False
+                            }
+                        },
+                        "trusted_network": {
+                            "summary": "Trusted network user",
+                            "value": {
+                                "email": "trusted-network",
+                                "role": "admin",
+                                "is_authenticated": False,
+                                "groups": [],
+                                "permissions": ["read", "ingest", "delete"],
+                                "in_trusted_network": True
+                            }
                         }
-                    }
-                }
-            }
-        },
-        401: {
-            "description": "Authentication required but not provided",
-            "content": {
-                "application/json": {
-                    "example": {
-                        "detail": "Authentication required. Please ensure you are logged in through the authentication proxy."
                     }
                 }
             }
         }
     }
 )
-async def get_user_info(user: UserContext = Depends(get_current_user)):
+async def get_user_info(
+    request: Request,
+    user: UserContext = Depends(get_user_or_anonymous)
+):
     """Get current user's authentication and role information."""
+    # Determine if request is from trusted network
+    trusted = is_trusted_request(request)
+    
     return UserInfoResponse(
         email=user.email,
         role=user.role,
         is_authenticated=user.is_authenticated,
         groups=user.groups,
-        permissions={
-            "can_read": has_permission(user.role, Role.READONLY),
-            "can_ingest": has_permission(user.role, Role.INGESTONLY),
-            "can_delete": has_permission(user.role, Role.ADMIN),
-        }
+        permissions=get_permissions(user.role),
+        in_trusted_network=trusted
     )
 
 # ============================================================================
@@ -1338,18 +1363,27 @@ async def _reverse_proxy(request: Request):
     Reverse proxy to ontology agent service, which runs a separate FastAPI instance,
     and is responsible for handling ontology related requests.
     
-    Protected with ADMIN role - all ontology operations are admin-level operations
-    (accept/reject relations, regenerate ontology, etc.).
+    Read-only operations (GET /status) require READONLY role.
+    Write operations (POST/DELETE) require ADMIN role.
     
     This acts as a security gateway - the ontology agent service doesn't need
     its own RBAC implementation since it's only accessible through this proxy.
     """
     # Manually invoke the RBAC check since app.add_route doesn't support Depends()
-    user = await get_current_user(request)
-    if not has_permission(user.role, Role.ADMIN):
+    user = await get_user_or_anonymous(request)
+    
+    # Determine required role based on method and path
+    # GET /status endpoints are read-only, allow READONLY access
+    # All other operations (POST/DELETE) require ADMIN
+    is_status_endpoint = request.url.path.endswith('/status')
+    is_read_only = request.method == 'GET' and is_status_endpoint
+    
+    required_role = Role.READONLY if is_read_only else Role.ADMIN
+    
+    if not has_permission(user.role, required_role):
         raise HTTPException(
             status_code=403,
-            detail=f"Insufficient permissions. Required role: {Role.ADMIN}, your role: {user.role}"
+            detail=f"Insufficient permissions. Required role: {required_role}, your role: {user.role}"
         )
     
     logger.info(f"Ontology agent request by {user.email} to {request.url.path}")

@@ -55,79 +55,85 @@ The server will be available at `http://localhost:9446`
 
 ## Configuration
 
-### RBAC/Authentication Settings
+## Configuration
 
-The server supports role-based access control (RBAC) (currently integrated with OAuth2Proxy):
+### Authentication
 
+**JWT Validation (Production):**
 ```bash
-# Allow unauthenticated requests (for service-to-service communication)
-# When enabled, requests without OAuth2Proxy headers default to ADMIN role
-ALLOW_UNAUTHENTICATED=true
+# OIDC configuration for UI token validation
+OIDC_ISSUER=https://your-keycloak.com/realms/production
+OIDC_CLIENT_ID=rag-ui
+OIDC_GROUP_CLAIM=groups  # Optional: auto-detects (memberOf, groups, roles, cognito:groups)
 
-# Group-to-role mappings (comma-separated group names)
+# OIDC configuration for ingestor token validation
+INGESTOR_OIDC_ISSUER=https://your-keycloak.com/realms/production
+INGESTOR_OIDC_CLIENT_ID=rag-ingestor
+```
+
+**Trusted Network (Development):**
+```bash
+# Enable IP-based trust for localhost/internal networks
+ALLOW_TRUSTED_NETWORK=true
+TRUSTED_NETWORK_CIDRS=127.0.0.0/8,172.16.0.0/12
+TRUSTED_NETWORK_DEFAULT_ROLE=admin
+TRUSTED_NETWORK_TOKEN=optional-shared-secret  # Alternative to IP check
+```
+
+**RBAC (Role Assignment):**
+```bash
+# Default role for authenticated users without group match
+RBAC_DEFAULT_AUTHENTICATED_ROLE=readonly
+
+# Map groups to roles (comma-separated)
 RBAC_READONLY_GROUPS=viewers,analysts
 RBAC_INGESTONLY_GROUPS=data-engineers,etl
 RBAC_ADMIN_GROUPS=admins,platform-team
-
-# Default role for authenticated users not in any configured group
-RBAC_DEFAULT_ROLE=readonly
 ```
 
-#### Role Hierarchy
+**Role Permissions:**
+- `readonly`: View and query data
+- `ingestonly`: readonly + ingest data and manage jobs
+- `admin`: ingestonly + delete resources and bulk operations
 
-The system defines three hierarchical roles:
+### Authentication Methods & Role Assignment
 
-| Role | Level | Permissions |
-|------|-------|-------------|
-| **READONLY** | 1 | View all data, query documents, explore graphs |
-| **INGESTONLY** | 2 | READONLY + ingest data, manage ingestion jobs |
-| **ADMIN** | 3 | INGESTONLY + delete resources, bulk operations, ontology management |
+This table shows how different authentication methods map to roles and which environment variables control them:
 
-Higher roles inherit all permissions from lower roles.
+| Auth Method | Actor Type | Default Role | Role Controlled By | Required Env Vars | Optional Env Vars |
+|-------------|------------|--------------|-------------------|-------------------|-------------------|
+| **OAuth2 (UI)** | User | Based on groups | `RBAC_*_GROUPS` mappings, falls back to `RBAC_DEFAULT_AUTHENTICATED_ROLE` | `OIDC_ISSUER`<br>`OIDC_CLIENT_ID` | `OIDC_DISCOVERY_URL`<br>`OIDC_GROUP_CLAIM` |
+| **OAuth2 (Ingestor)** | Ingestor | `ingestonly` | `RBAC_CLIENT_CREDENTIALS_ROLE` | `INGESTOR_OIDC_ISSUER` or `INGESTOR_OIDC_DISCOVERY_URL`<br>`INGESTOR_OIDC_CLIENT_ID` | `INGESTOR_OIDC_SCOPE` |
+| **Trusted Network** | User or Ingestor | `admin` (dev default) | `TRUSTED_NETWORK_DEFAULT_ROLE` | `ALLOW_TRUSTED_NETWORK=true` | `TRUSTED_NETWORK_CIDRS`<br>`TRUSTED_NETWORK_TOKEN` |
+| **Anonymous** | Public | `anonymous` | N/A (fixed) | None | None |
 
-#### OAuth2Proxy Integration
+**Key Points:**
 
-When OAuth2Proxy is deployed in front of the server, it sets these headers:
+1. **OAuth2 for UI (User Tokens)**
+   - Regular user authentication with JWT access tokens
+   - Role determined by group membership in token claims
+   - Falls back to `RBAC_DEFAULT_AUTHENTICATED_ROLE` (default: `readonly`) if no group match
+   - Group-to-role mapping: `RBAC_READONLY_GROUPS`, `RBAC_INGESTONLY_GROUPS`, `RBAC_ADMIN_GROUPS`
 
-- `X-Forwarded-Email`: User's email address
-- `X-Forwarded-Groups`: Comma-separated list of groups
+2. **OAuth2 for Ingestors (Client Credentials)**
+   - Machine-to-machine authentication using client credentials flow
+   - No user context (uses `client_id` instead of email)
+   - Role controlled by `RBAC_CLIENT_CREDENTIALS_ROLE` (default: `ingestonly`)
+   - Token validated against `INGESTOR_OIDC_ISSUER` or `INGESTOR_OIDC_DISCOVERY_URL`
+   - Can send `X-Ingestor-Type` and `X-Ingestor-Name` headers for better logging
 
-The server determines the user's role based on group membership:
+3. **Trusted Network (Development)**
+   - IP-based or token-based trust for localhost/internal networks
+   - Useful for development, testing, or private deployments
+   - Role controlled by `TRUSTED_NETWORK_DEFAULT_ROLE` (default: `admin`)
+   - Can restrict to specific CIDRs via `TRUSTED_NETWORK_CIDRS`
+   - Can send `X-Ingestor-Type` and `X-Ingestor-Name` headers for better logging
 
-1. If user belongs to any `RBAC_ADMIN_GROUPS` → **ADMIN** role
-2. Else if user belongs to any `RBAC_INGESTONLY_GROUPS` → **INGESTONLY** role
-3. Else if user belongs to any `RBAC_READONLY_GROUPS` → **READONLY** role
-4. Else → Use `RBAC_DEFAULT_ROLE`
+4. **Anonymous (Public)**
+   - No authentication required for public endpoints
+   - Fixed `anonymous` role with minimal permissions
+   - Used for health checks and public documentation
 
-#### Unauthenticated Access
-
-When `ALLOW_UNAUTHENTICATED=true`:
-- Requests WITHOUT X-Forwarded auth headers (e.g., from ingestors, internal services) default to **ADMIN** role
-- Useful for service-to-service communication within Kubernetes clusters
-
-When `ALLOW_UNAUTHENTICATED=false`:
-- All requests must have valid OAuth2Proxy headers
-- Unauthenticated requests receive HTTP 401
-
-#### User Info Endpoint
-
-The UI can call `GET /v1/user/info` to retrieve the current user's role and permissions:
-
-```json
-{
-  "email": "user@example.com",
-  "role": "ingestonly",
-  "is_authenticated": true,
-  "groups": ["data-engineers", "viewers"],
-  "permissions": {
-    "can_read": true,
-    "can_ingest": true,
-    "can_delete": false
-  }
-}
-```
-
-Use this endpoint to show/hide UI features based on user permissions.
 
 ### Core Connection Settings
 

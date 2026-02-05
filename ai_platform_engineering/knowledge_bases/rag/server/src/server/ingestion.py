@@ -943,7 +943,7 @@ class DocumentProcessor:
                     message=f"Adding {len(deduped_chunks)} document chunks to vector database"
                 )
 
-                await self.vstore.aadd_documents(deduped_chunks, ids=deduped_chunk_ids, batch_size=self.batch_size)
+                await self.vstore.aupsert(documents=deduped_chunks, ids=deduped_chunk_ids, batch_size=self.batch_size)
                 self.logger.info(f"Successfully added {len(deduped_chunks)} chunks to vector database")
                 
                 # Update job with success message

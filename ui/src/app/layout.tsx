@@ -4,6 +4,8 @@ import { Inter, JetBrains_Mono, Source_Sans_3, IBM_Plex_Sans } from "next/font/g
 import { ThemeProvider } from "@/components/theme-provider";
 import { AuthProvider } from "@/components/auth-provider";
 import { TokenExpiryGuard } from "@/components/token-expiry-guard";
+import { ThemeInjector } from "@/components/theme-injector";
+import { ToastProvider } from "@/components/ui/toast";
 import "./globals.css";
 
 // Primary font: Inter - Used by OpenAI, clean and highly readable
@@ -39,9 +41,20 @@ const jetbrainsMono = JetBrains_Mono({
   fallback: ["monospace", "Courier New"],
 });
 
+// Branding defaults
+const DEFAULT_TAGLINE = "Multi-Agent Collaboration & Workflow Automation";
+const DEFAULT_DESCRIPTION = "AI agents and native apps collaborating across tools and teams to get work done.";
+const DEFAULT_APP_NAME = "CAIPE";
+
+// Get branding from environment variables
+const tagline = process.env.NEXT_PUBLIC_TAGLINE || DEFAULT_TAGLINE;
+const description = process.env.NEXT_PUBLIC_DESCRIPTION || DEFAULT_DESCRIPTION;
+const appName = process.env.NEXT_PUBLIC_APP_NAME || DEFAULT_APP_NAME;
+const fullDescription = `${tagline} - ${description}`;
+
 export const metadata: Metadata = {
-  title: "CAIPE UI",
-  description: "Community AI Platform Engineering - Multi-Agent System for Platform Engineers",
+  title: `${appName} UI`,
+  description: fullDescription,
   icons: {
     icon: [
       { url: "/favicon.ico", sizes: "any" },
@@ -51,9 +64,9 @@ export const metadata: Metadata = {
     apple: "/favicon.ico",
   },
   openGraph: {
-    title: "CAIPE UI",
-    description: "Community AI Platform Engineering - Multi-Agent System for Platform Engineers",
-    url: "https://caipe-ui.dev.outshift.io",
+    title: `${appName} UI`,
+    description: fullDescription,
+    url: "https://caipe.example.com",
   },
 };
 
@@ -76,8 +89,11 @@ export default function RootLayout({
             disableTransitionOnChange={false}
             themes={["light", "dark", "midnight", "nord", "tokyo"]}
           >
-            <TokenExpiryGuard />
-            {children}
+            <ToastProvider>
+              <ThemeInjector />
+              <TokenExpiryGuard />
+              {children}
+            </ToastProvider>
           </ThemeProvider>
         </AuthProvider>
       </body>

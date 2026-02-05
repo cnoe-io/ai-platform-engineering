@@ -21,9 +21,5 @@ function IngestPage() {
 }
 
 export default function Ingest() {
-  return (
-    <AuthGuard>
-      <IngestPage />
-    </AuthGuard>
-  );
+  return <IngestPage />;
 }

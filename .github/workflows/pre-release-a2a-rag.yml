@@ -40,9 +40,6 @@ jobs:
             server:
               - 'ai_platform_engineering/knowledge_bases/rag/server/**'
               - 'ai_platform_engineering/knowledge_bases/rag/build/Dockerfile.server'
-            webui:
-              - 'ai_platform_engineering/knowledge_bases/rag/webui/**'
-              - 'ai_platform_engineering/knowledge_bases/rag/build/Dockerfile.webui'
 
 
       - name: Set matrix based on changes
@@ -53,10 +50,9 @@ jobs:
           CHANGED_AGENT_RAG: ${{ steps.filter.outputs.agent-rag }}
           CHANGED_AGENT_ONTOLOGY: ${{ steps.filter.outputs.agent-ontology }}
           CHANGED_SERVER: ${{ steps.filter.outputs.server }}
-          CHANGED_WEBUI: ${{ steps.filter.outputs.webui }}
         with:
           script: |
-            const allComponents = ['agent-ontology', 'server', 'webui', 'ingestors'];
+            const allComponents = ['agent-ontology', 'server', 'ingestors'];
             const buildAll = process.env.BUILD_ALL === 'true';
             let selected;
             if (buildAll) {
@@ -223,7 +219,7 @@ jobs:
       packages: write
     strategy:
       matrix:
-        component: ['ingestors', 'agent-ontology', 'server', 'webui']
+        component: ['ingestors', 'agent-ontology', 'server']
       fail-fast: false
     env:
       OWNER: ${{ github.repository_owner }}
