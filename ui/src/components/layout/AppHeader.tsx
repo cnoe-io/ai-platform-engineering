@@ -69,13 +69,19 @@ export function AppHeader() {
     graphRagEnabled
   } = useRAGHealth();
 
+  // Check if RAG is enabled in config
+  const ragEnabled = getConfig('ragEnabled');
+
   // Fetch version info
   const { versionInfo } = useVersion();
 
   // Combined status: if either is checking -> checking, if either is disconnected -> disconnected, else connected
+  // Note: Only include RAG in status if it's enabled
   const getCombinedStatus = () => {
-    if (caipeStatus === "checking" || ragStatus === "checking") return "checking";
-    if (caipeStatus === "disconnected" || ragStatus === "disconnected") return "disconnected";
+    if (caipeStatus === "checking") return "checking";
+    if (ragEnabled && ragStatus === "checking") return "checking";
+    if (caipeStatus === "disconnected") return "disconnected";
+    if (ragEnabled && ragStatus === "disconnected") return "disconnected";
     return "connected";
   };
 
@@ -140,19 +146,22 @@ export function AppHeader() {
           >
             💬 Chat
           </Link>
-          <Link
-            href="/knowledge-bases"
-            prefetch={true}
-            className={cn(
-              "flex items-center gap-1.5 px-4 py-1.5 rounded-full text-sm font-medium transition-all",
-              activeTab === "knowledge"
-                ? "bg-primary text-primary-foreground shadow-sm"
-                : "text-muted-foreground hover:text-foreground"
-            )}
-          >
-            <Database className="h-3.5 w-3.5" />
-            Knowledge Bases
-          </Link>
+          {/* Knowledge Bases tab - only show if RAG is enabled */}
+          {ragEnabled && (
+            <Link
+              href="/knowledge-bases"
+              prefetch={true}
+              className={cn(
+                "flex items-center gap-1.5 px-4 py-1.5 rounded-full text-sm font-medium transition-all",
+                activeTab === "knowledge"
+                  ? "bg-primary text-primary-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              <Database className="h-3.5 w-3.5" />
+              Knowledge Bases
+            </Link>
+          )}
           {/* Admin tab - only visible to admin users, disabled if MongoDB not configured */}
           {isAdmin && (
             <TooltipProvider delayDuration={300}>
@@ -362,44 +371,48 @@ export function AppHeader() {
                     )}
                   </div>
 
-                  {/* Divider */}
-                  <div className="border-t border-border/50" />
+                  {/* RAG Server Section - only show if RAG is enabled */}
+                  {ragEnabled && (
+                    <>
+                      {/* Divider */}
+                      <div className="border-t border-border/50" />
 
-                  {/* RAG Server Section */}
-                  <div className="space-y-3">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <div className="text-sm font-bold text-foreground">RAG Server</div>
-                        <div className={cn(
-                          "px-2 py-0.5 rounded-full text-[10px] font-bold",
-                          ragStatus === "connected" && "bg-green-500/15 text-green-400 border border-green-500/30",
-                          ragStatus === "checking" && "bg-amber-500/15 text-amber-400 border border-amber-500/30",
-                          ragStatus === "disconnected" && "bg-red-500/15 text-red-400 border border-red-500/30"
-                        )}>
-                          {ragStatus === "connected" ? "ONLINE" : ragStatus === "checking" ? "CHECKING" : "OFFLINE"}
+                      <div className="space-y-3">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <div className="text-sm font-bold text-foreground">RAG Server</div>
+                            <div className={cn(
+                              "px-2 py-0.5 rounded-full text-[10px] font-bold",
+                              ragStatus === "connected" && "bg-green-500/15 text-green-400 border border-green-500/30",
+                              ragStatus === "checking" && "bg-amber-500/15 text-amber-400 border border-amber-500/30",
+                              ragStatus === "disconnected" && "bg-red-500/15 text-red-400 border border-red-500/30"
+                            )}>
+                              {ragStatus === "connected" ? "ONLINE" : ragStatus === "checking" ? "CHECKING" : "OFFLINE"}
+                            </div>
+                          </div>
+                          <div className="text-[10px] text-muted-foreground font-mono">
+                            Next check: {ragNextCheck}s
+                          </div>
+                        </div>
+                        <div className="text-xs text-muted-foreground font-mono break-all bg-muted/30 rounded px-2 py-1">
+                          {ragUrl}
+                        </div>
+
+                        {/* Graph RAG Status */}
+                        <div className="flex items-center justify-between bg-muted/20 rounded px-2 py-1.5">
+                          <div className="text-xs text-muted-foreground">Knowledge Graph</div>
+                          <div className={cn(
+                            "px-2 py-0.5 rounded-full text-[10px] font-bold",
+                            graphRagEnabled 
+                              ? "bg-green-500/15 text-green-400 border border-green-500/30"
+                              : "bg-gray-500/15 text-gray-400 border border-gray-500/30"
+                          )}>
+                            {graphRagEnabled ? "ON" : "OFF"}
+                          </div>
                         </div>
                       </div>
-                      <div className="text-[10px] text-muted-foreground font-mono">
-                        Next check: {ragNextCheck}s
-                      </div>
-                    </div>
-                    <div className="text-xs text-muted-foreground font-mono break-all bg-muted/30 rounded px-2 py-1">
-                      {ragUrl}
-                    </div>
-
-                    {/* Graph RAG Status */}
-                    <div className="flex items-center justify-between bg-muted/20 rounded px-2 py-1.5">
-                      <div className="text-xs text-muted-foreground">Knowledge Graph</div>
-                      <div className={cn(
-                        "px-2 py-0.5 rounded-full text-[10px] font-bold",
-                        graphRagEnabled 
-                          ? "bg-green-500/15 text-green-400 border border-green-500/30"
-                          : "bg-gray-500/15 text-gray-400 border border-gray-500/30"
-                      )}>
-                        {graphRagEnabled ? "ON" : "OFF"}
-                      </div>
-                    </div>
-                  </div>
+                    </>
+                  )}
                 </div>
                 
                 {/* Footer */}
