@@ -454,7 +454,6 @@ export default function IngestView() {
         get_child_pages: ingestType === 'confluence' ? includeSubPages : undefined,
       })
       const { datasource_id, job_id, message } = response
-      alert(`✅ ${message}`)
       await fetchDataSources()
       if (datasource_id) {
         await fetchJobsForDataSource(datasource_id)
