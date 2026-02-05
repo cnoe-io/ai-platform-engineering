@@ -1,7 +1,7 @@
 "use client";
 
 import React, { ReactNode } from 'react';
-import { SigmaContainer, ControlsContainer, ZoomControl, FullScreenControl } from "@react-sigma/core";
+import { SigmaContainer } from "@react-sigma/core";
 import { MultiDirectedGraph } from "graphology";
 import { Loader2 } from 'lucide-react';
 import '../sigma-styles.css';
@@ -156,10 +156,7 @@ export default function SigmaGraph({
                         />
                         <GraphDataController filters={filters} customFilterLogic={customFilterLogic} />
 
-                        <ControlsContainer position="bottom-right">
-                            <ZoomControl />
-                            <FullScreenControl />
-                        </ControlsContainer>
+                        
 
                         {/* Details Cards - positioned absolutely to appear in fullscreen */}
                         {detailsCardComponent && (

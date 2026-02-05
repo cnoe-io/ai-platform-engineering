@@ -15,12 +15,12 @@ function SearchPage() {
   }, [router]);
 
   return (
-    <div className="flex-1 flex">
+    <div className="flex-1 flex flex-col min-h-0">
       <motion.div
         key="search"
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
-        className="flex-1 h-full"
+        className="flex-1 flex flex-col min-h-0"
       >
         <SearchView onExploreEntity={handleExploreEntity} />
       </motion.div>

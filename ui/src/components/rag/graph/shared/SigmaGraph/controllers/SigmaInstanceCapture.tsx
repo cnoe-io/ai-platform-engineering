@@ -7,7 +7,10 @@ interface SigmaInstanceCaptureProps {
     onSigmaReady: (sigma: any) => void;
 }
 
-const SigmaInstanceCapture: FC<PropsWithChildren<SigmaInstanceCaptureProps>> = ({ children, onSigmaReady }) => {
+const SigmaInstanceCapture: FC<PropsWithChildren<SigmaInstanceCaptureProps>> = ({ 
+    children, 
+    onSigmaReady,
+}) => {
     const sigma = useSigma();
 
     useEffect(() => {

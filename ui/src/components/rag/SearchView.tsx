@@ -11,9 +11,9 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { Search, SlidersHorizontal, X, ExternalLink } from 'lucide-react';
+import { Search, SlidersHorizontal, X, ExternalLink, Database, ArrowRight } from 'lucide-react';
 import type { QueryResult } from './Models';
-import { searchDocuments, getHealthStatus } from './api';
+import { searchDocuments, getHealthStatus, getDataSources } from './api';
 import { motion, AnimatePresence } from 'framer-motion';
 import { getColorForType } from './graph/shared/graphStyles';
 import ReactMarkdown from 'react-markdown';
@@ -107,9 +107,10 @@ const fastTransition = { duration: 0.1 };
 
 interface SearchViewProps {
     onExploreEntity?: (entityType: string, primaryKey: string) => void;
+    onNavigateToDataSources?: () => void;
 }
 
-export default function SearchView({ onExploreEntity }: SearchViewProps) {
+export default function SearchView({ onExploreEntity, onNavigateToDataSources }: SearchViewProps) {
     // Query state - matching QueryRequest model
     const [query, setQuery] = useState('');
     const [limit, setLimit] = useState(10);
@@ -132,6 +133,9 @@ export default function SearchView({ onExploreEntity }: SearchViewProps) {
     // Graph RAG configuration
     const [graphRagEnabled, setGraphRagEnabled] = useState<boolean>(true);
 
+    // Data sources count for empty state
+    const [dataSourcesCount, setDataSourcesCount] = useState<number | null>(null);
+
     // Fetch valid filter keys and supported doc types on component mount
     useEffect(() => {
         const fetchFilterConfig = async () => {
@@ -148,6 +152,20 @@ export default function SearchView({ onExploreEntity }: SearchViewProps) {
             }
         };
         fetchFilterConfig();
+    }, []);
+
+    // Fetch data sources count to show empty state suggestion
+    useEffect(() => {
+        const fetchDataSourcesCount = async () => {
+            try {
+                const response = await getDataSources();
+                setDataSourcesCount(response.datasources?.length ?? 0);
+            } catch (error) {
+                console.error('Failed to fetch data sources:', error);
+                setDataSourcesCount(0);
+            }
+        };
+        fetchDataSourcesCount();
     }, []);
 
     // Filter management functions
@@ -369,7 +387,7 @@ export default function SearchView({ onExploreEntity }: SearchViewProps) {
                         animate={{ opacity: 1 }}
                         exit={{ opacity: 0 }}
                         transition={fastTransition}
-                        className="h-full flex flex-col items-center justify-center px-6 py-8"
+                        className="h-full flex flex-col items-center pt-[18vh] px-6 py-8"
                     >
                         {/* Logo/Title */}
                         <div className="mb-8 text-center">
@@ -428,6 +446,33 @@ export default function SearchView({ onExploreEntity }: SearchViewProps) {
                         <div className="mt-8 text-center text-sm text-muted-foreground">
                             <p>Press <kbd className="px-2 py-0.5 rounded bg-muted border border-border text-xs">Enter</kbd> to search</p>
                         </div>
+
+                        {/* Empty data sources suggestion */}
+                        {dataSourcesCount === 0 && (
+                            <motion.div
+                                initial={{ opacity: 0, y: 10 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                transition={{ delay: 0.2 }}
+                                className="mt-6 p-4 rounded-xl bg-primary/5 border border-primary/20 max-w-lg text-center"
+                            >
+                                <div className="flex items-center justify-center gap-2 mb-2">
+                                    <Database className="h-5 w-5 text-primary" />
+                                    <span className="font-medium text-foreground">No data sources yet</span>
+                                </div>
+                                <p className="text-sm text-muted-foreground mb-3">
+                                    To search your knowledge base, you need to ingest some data sources first.
+                                </p>
+                                {onNavigateToDataSources && (
+                                    <button
+                                        onClick={onNavigateToDataSources}
+                                        className="inline-flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-full text-sm font-medium hover:bg-primary/90 transition-colors"
+                                    >
+                                        Add Data Sources
+                                        <ArrowRight className="h-4 w-4" />
+                                    </button>
+                                )}
+                            </motion.div>
+                        )}
                     </motion.div>
                 ) : (
                     // Results state (search bar at top)
