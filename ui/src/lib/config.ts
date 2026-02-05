@@ -22,6 +22,8 @@ export interface Config {
   isProd: boolean;
   /** Whether SSO authentication is enabled */
   ssoEnabled: boolean;
+  /** Whether RAG knowledge bases are enabled */
+  ragEnabled: boolean;
   /** Whether MongoDB persistence is enabled */
   mongodbEnabled: boolean;
   /** Whether to show sub-agent streaming cards in chat (experimental) */
@@ -67,10 +69,10 @@ function getRuntimeEnv(key: string): string | undefined {
     switch (key) {
       case 'NEXT_PUBLIC_A2A_BASE_URL':
         return process.env.NEXT_PUBLIC_A2A_BASE_URL;
-      case 'NEXT_PUBLIC_CAIPE_URL':
-        return process.env.NEXT_PUBLIC_CAIPE_URL;
       case 'NEXT_PUBLIC_SSO_ENABLED':
         return process.env.NEXT_PUBLIC_SSO_ENABLED;
+      case 'NEXT_PUBLIC_RAG_ENABLED':
+        return process.env.NEXT_PUBLIC_RAG_ENABLED;
       case 'NEXT_PUBLIC_MONGODB_ENABLED':
         return process.env.NEXT_PUBLIC_MONGODB_ENABLED;
       case 'NEXT_PUBLIC_ENABLE_SUBAGENT_CARDS':
@@ -107,26 +109,14 @@ function getRuntimeEnv(key: string): string | undefined {
  * Get the CAIPE A2A endpoint URL
  *
  * Priority:
- * 1. Runtime: window.__ENV__.NEXT_PUBLIC_A2A_BASE_URL (injected at container start)
- * 2. Build-time: NEXT_PUBLIC_CAIPE_URL or NEXT_PUBLIC_A2A_BASE_URL
- * 3. Server-side: CAIPE_URL or A2A_ENDPOINT
- * 4. Default: http://localhost:8000 (dev) or http://caipe-supervisor:8000 (prod/docker)
+ * 1. Runtime/Build-time: NEXT_PUBLIC_A2A_BASE_URL
+ * 2. Default: http://localhost:8000 (dev) or http://caipe-supervisor:8000 (prod/docker)
  */
 function getCaipeUrl(): string {
-  // Runtime or build-time environment variable
-  const envUrl = getRuntimeEnv('NEXT_PUBLIC_A2A_BASE_URL') || getRuntimeEnv('NEXT_PUBLIC_CAIPE_URL');
+  // Check for NEXT_PUBLIC_A2A_BASE_URL (runtime or build-time)
+  const envUrl = getRuntimeEnv('NEXT_PUBLIC_A2A_BASE_URL');
   if (envUrl) {
     return envUrl;
-  }
-
-  // Server-side environment variable
-  if (typeof process !== 'undefined' && process.env.CAIPE_URL) {
-    return process.env.CAIPE_URL;
-  }
-
-  // Legacy support for A2A_ENDPOINT
-  if (typeof process !== 'undefined' && process.env.A2A_ENDPOINT) {
-    return process.env.A2A_ENDPOINT;
   }
 
   // Default based on environment
@@ -172,6 +162,20 @@ function isSsoEnabled(): boolean {
     return ssoEnv === 'true';
   }
   return false;
+}
+
+/**
+ * Check if RAG is enabled
+ * RAG is enabled by default - set NEXT_PUBLIC_RAG_ENABLED=false to disable
+ * Priority: window.__ENV__ (runtime) > process.env (build-time)
+ */
+function isRagEnabled(): boolean {
+  const ragEnv = getRuntimeEnv('NEXT_PUBLIC_RAG_ENABLED');
+  if (ragEnv !== undefined) {
+    return ragEnv === 'true';
+  }
+  // Default: enabled (for backward compatibility)
+  return true;
 }
 
 /**
@@ -318,6 +322,7 @@ export const config: Config = {
   isDev: typeof process !== 'undefined' && process.env.NODE_ENV === 'development',
   isProd: typeof process !== 'undefined' && process.env.NODE_ENV === 'production',
   ssoEnabled: isSsoEnabled(),
+  ragEnabled: isRagEnabled(),
   mongodbEnabled: isMongodbEnabled(),
   enableSubAgentCards: isSubAgentCardsEnabled(),
   tagline: getTagline(),
@@ -344,6 +349,8 @@ export function getConfig<K extends keyof Config>(key: K): Config[K] {
       return getRagUrl() as Config[K];
     case 'ssoEnabled':
       return isSsoEnabled() as Config[K];
+    case 'ragEnabled':
+      return isRagEnabled() as Config[K];
     case 'mongodbEnabled':
       return isMongodbEnabled() as Config[K];
     case 'enableSubAgentCards':
@@ -396,6 +403,7 @@ export function logConfig(): void {
       isDev: config.isDev,
       isProd: config.isProd,
       ssoEnabled: config.ssoEnabled,
+      ragEnabled: config.ragEnabled,
       mongodbEnabled: config.mongodbEnabled,
       enableSubAgentCards: config.enableSubAgentCards,
       tagline: config.tagline,

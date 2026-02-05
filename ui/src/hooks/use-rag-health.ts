@@ -20,6 +20,7 @@ interface UseRAGHealthResult {
 /**
  * Hook to check RAG server health status
  * Polls every 30 seconds to check if RAG server is healthy
+ * Returns "disconnected" immediately if RAG is disabled via config
  */
 export function useRAGHealth(): UseRAGHealthResult {
   const [status, setStatus] = useState<HealthStatus>("checking");
@@ -29,6 +30,7 @@ export function useRAGHealth(): UseRAGHealthResult {
   const nextCheckTimeRef = useRef<number>(Date.now() + POLL_INTERVAL_MS);
   const hasInitialCheckCompleted = useRef<boolean>(false);
   const url = config.ragUrl;
+  const ragEnabled = config.ragEnabled;
 
   const checkHealth = useCallback(async () => {
     // Only show "checking" state on initial load, not on subsequent polls
@@ -69,6 +71,13 @@ export function useRAGHealth(): UseRAGHealthResult {
   }, []);
 
   useEffect(() => {
+    // If RAG is disabled, don't check health at all
+    if (!ragEnabled) {
+      setStatus("disconnected");
+      hasInitialCheckCompleted.current = true;
+      return;
+    }
+
     // Check immediately on mount
     checkHealth();
 
@@ -76,7 +85,7 @@ export function useRAGHealth(): UseRAGHealthResult {
     const interval = setInterval(checkHealth, POLL_INTERVAL_MS);
 
     return () => clearInterval(interval);
-  }, [checkHealth]);
+  }, [checkHealth, ragEnabled]);
 
   return {
     status,
