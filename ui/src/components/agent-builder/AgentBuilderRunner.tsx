@@ -903,23 +903,22 @@ export function AgentBuilderRunner({
       }
 
       // Handle structured user input request (from request_user_input tool)
-      if (event.requireUserInput && event.metadata?.input_fields) {
+      if (event.requiresInput && event.hitlFormData?.inputFields) {
         console.log("[AgentBuilderRunner] 📝 Received structured user input request");
-        const fields = event.metadata.input_fields;
+        const fields = event.hitlFormData.inputFields;
         
         // Convert backend field format to DetectedInputField format
         const convertedFields: DetectedInputField[] = fields.map((f) => ({
           name: f.field_name,
-          label: f.field_label || f.field_name,
+          label: f.field_name,
           description: f.field_description,
-          type: (f.field_type === "select" ? "select" : 
-                 f.field_type === "boolean" ? "boolean" : "text") as "text" | "select" | "boolean",
-          options: f.field_values,
+          type: (f.field_values && f.field_values.length > 0 ? "select" : "text") as "text" | "select" | "boolean",
+          options: f.field_values || undefined,
           required: f.required ?? true,
         }));
         
         setStructuredInputFields(convertedFields);
-        setStructuredInputTitle(event.metadata.input_title || "User Input Required");
+        setStructuredInputTitle("User Input Required");
         setFinalResult(content); // Show the description as content
         setStatus("completed"); // Pause for user input
         setIsThinking(false);
