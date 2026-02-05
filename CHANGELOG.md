@@ -1,3 +1,200 @@
+## 0.2.15 (2026-02-05)
+
+## 0.2.14-rc.7 (2026-02-05)
+
+### Feat
+
+- **ui,rag**: add RAG disable feature and trusted network config
+- **ui**: add version display in System Status popover
+
+### Fix
+
+- **ui**: improve Docker build network resilience for npm ci
+
+## 0.2.14-rc.6 (2026-02-05)
+
+### Fix
+
+- lint/js issues
+- **rag**: crash when collectiond doesnt exist
+- some layout fixes; node details card
+- graph view now works
+- **ui**: knowledgebases page now defaults to search
+- **ui**: search bar improvements
+- **ui**: redesigned datasources section
+
+## 0.2.14-rc.5 (2026-02-05)
+
+### Feat
+
+- **gitlab**: add MCP server config and comprehensive documentation
+
+### Fix
+
+- **gitlab**: escape curly braces in prompt configs and set INFO log level
+- **lang**: fix splunk specific gitlab instance
+- **code**: lint
+- clean-up argocd.json
+
+## 0.2.14-rc.4 (2026-02-04)
+
+### Feat
+
+- **rag**: add JWT authentication and RBAC documentation
+- **ci**: enhance CAIPE UI test coverage reporting in PRs
+- **ci**: add CAIPE UI test automation and fix test mocks
+- **ui**: add mongodbEnabled to config system
+- **docker**: add CAIPE UI service with MongoDB integration
+- **docker**: add CAIPE UI with MongoDB profiles and enable flag
+- **ui**: compress streaming events in A2A timeline views
+- **ui**: redesign A2A timeline with trace view and fix workflow history thumbnail
+- **ui**: move workflow history to right panel and improve UX
+- **ui**: add A2A timeline view and fix workflow thumbnail markdown rendering
+- **charts**: integrate MongoDB and update CAIPE UI configuration
+- **charts**: add ingress redirect template for domain migration
+- **charts**: add MongoDB Helm subchart for CAIPE UI persistence
+- **ui**: add dedicated workflow history page
+- **ui**: back button now opens workflow history panel
+- **ui**: add CAIPE spinner overlay while saving workflow
+- **ui**: migrate favorites from localStorage to MongoDB
+- **ui**: add structured user input form rendering
+- **backend**: add UserInputMetaData artifact support for request_user_input
+- **ui**: improve OIDC info dialog and fix auth initialization
+- **ui**: add AuthGuard to all knowledge-bases and admin pages
+- **ui**: disable admin tab when MongoDB is not configured
+- **ui**: restore three-panel chat layout with MongoDB persistence
+- **agentic-workflows**: enhance execution output with fullscreen and copy features
+- add favorites and edit functionality to quick-start templates
+- move 'Run in Chat' to quick-start dialog
+- add 'Run in Chat' button to agent builder
+- **sidebar**: implement hover-based visibility for share and delete buttons
+- **sidebar**: add resizable width, truncation indicator, and dynamic text expansion
+- add agent builder UI and MongoDB chat history improvements
+- **ui**: add admin dashboard, teams management, and various UI improvements
+- **ui**: make agents selection optional in Use Case Builder
+- **ui**: implement share button and dialog for conversations
+- **ui**: integrate MongoDB persistence with chat UI
+- **ui**: implement complete MongoDB persistence with Next.js API routes
+- **dev**: add mongo-express web UI for MongoDB management
+- **backend**: integrate chat API routes with FastAPI server
+- **ui**: complete Phase 3 - share dialog and status UI
+- **ui**: implement Phase 3 core - UUID routing and MongoDB integration
+- **backend**: implement Phase 2 - audit logging and notifications
+- **backend**: implement MongoDB chat history backend (Phase 1)
+- **dev**: add MongoDB service to docker-compose.dev.yaml
+
+### Fix
+
+- **rag**: resolve linting errors in RAG server restapi
+- **ui**: implement hybrid auth for RAG proxy with JWT Bearer and OAuth2Proxy fallback
+- **ui**: restore TypeScript strict mode with pragmatic relaxations
+- **ui**: resolve TypeScript compilation errors for production build
+- **ci**: resolve syntax error in CAIPE UI tests workflow
+- **ui**: add ZoomIn and ZoomOut imports to A2A timeline
+- **ui**: add missing compression function and zoom imports
+- **ui**: add missing imports for A2A timeline modal
+- **ui**: resolve React hooks order violation in ChatUUIDPage
+- clean-up
+- replace Azure OpenAI endpoint with generic example
+- replace Outshift-specific URLs with generic examples
+- **ui**: extract run ID from wrapped API response
+- **ui**: make handleEvent async to await workflow saves
+- **ui**: ensure workflow saves complete before navigation
+- **ui**: ensure workflow status updates even when navigating away
+- **ui**: improve workflow history UX and handle incomplete runs
+- **ui**: parse wrapped API response for favorites
+- **ui**: resolve workflow execution history not saving due to React closure issue
+- **ui**: handle undefined favorites in MongoDB response
+- **ui**: extract UserInputMetaData from DataPart in A2A artifacts
+- **ui**: bind fetch to window context to prevent illegal invocation error
+- **ui**: update agent card endpoint to non-deprecated URL
+- **ui**: improve chat input box positioning and width
+- ensure input textbox remains visible and accessible
+- resolve chat panel scroll and context panel persistence issues
+- remove ... icon
+- **ui**: improve chat history text truncation when sidebar resizes
+- **ui**: feedback popover opens for both thumbs up and down
+- **ui**: improve feedback button UX and fix icon spacing
+- **ui**: persist conversation titles to MongoDB on auto-generation
+- **ui**: prevent SSR API calls causing crash loop
+- **ui**: hide share button for legacy localStorage conversations
+- **ui**: resolve new conversation creation and TypeScript build errors
+- **ui**: resolve TypeScript build errors for MongoDB integration
+- **ui**: improve UX for sharing legacy conversations
+- **ui**: resolve infinite authorization loop with automatic session recovery
+- **ui**: resolve AuthGuard infinite loading on login
+- **ui**: add graceful error handling for legacy conversations
+- **ui**: new chat button now creates MongoDB conversations
+- **ui**: render share dialog as centered modal overlay
+- **ui**: sync conversations to MongoDB on creation
+- **ui**: center share dialog on screen
+- **ui**: auto-initialize users and improve share search
+- **ui**: update API routes for Next.js 15+ async params
+- **ui**: correct authOptions import path in api-middleware
+- **backend**: make MongoDB lifespan accept app parameter
+- **backend**: correct FastAPI/Starlette app mounting order
+- **ui**: add API proxy rewrites for MongoDB chat backend
+- **backend**: properly mount chat API routes on FastAPI
+- **ui**: redirect /chat to UUID-based conversation URL
+
+### Refactor
+
+- **charts**: reorganize MongoDB under caipe-ui context
+- **ui**: complete branding update for login/logout pages
+- **ui**: update branding to Multi-Agent Collaboration & Workflow Automation
+- remove all MongoDB integration from entire project
+
+### Perf
+
+- **ui**: optimize A2A trace view timeline scaling and tick spacing
+- **ui**: reduce workflow history auto-refresh from 3s to 15s
+
+## 0.2.14-rc.3 (2026-02-04)
+
+## 0.2.14-rc.2 (2026-02-04)
+
+### Feat
+
+- **rag**: ui improvements for rbac, configs and readme
+- **rag**: auth rework for user and ingestor
+- **ui**: unified connection status popup
+- **ingestor**: add OAuth2 client credentials authentication support
+- **auth**: implement JWT validation for RAG server with multi-provider support
+- **ui**: add rag rbac to knowledge-bases tab
+- **ui**: add ingestor type availability logic; fix icons
+- **ui**: add back ingestors section
+
+### Fix
+
+- remove webui from build
+- clear results in search
+- **ui**: better UX for knowledge base page
+- **ui**: fix the flickering kb page
+- remove old webui references
+- linting issues
+- **rag**: use upsert instead of add
+- lint
+- **rag**: add missing lock file
+- **ui**: add permission tooltip with new user-info endpoint
+- **rag**: cleaner response for user-info endpoint
+- **ui**: get permissions directly from RAG server
+
+## 0.2.14-rc.1 (2026-02-03)
+
+### Feat
+
+- **task-config**: update self service tasks
+- **streaming**: enable subagent token streaming
+- **task-config**: initial task config implementation
+- **ui**: add manual refresh token button to test token validity
+- **ui**: display refresh token metadata in OIDC token dialog
+
+### Fix
+
+- **webex**: fix mcp tools in webex agent and update tasks
+- **create-github-repo**: fix mcp tools and add backstage step
+- **ui**: prevent AuthGuard from getting stuck on 'Verifying authorization'
+
 ## 0.2.14 (2026-01-28)
 
 ### Fix
