@@ -604,7 +604,7 @@ services:
       retries: 5
       start_period: 40s
     profiles:
-      - caipe-ui-with-mongodb
+      - caipe-ui-mongodb
 
   # MongoDB Admin UI (optional)
   caipe-ui-mongo-express:
@@ -640,7 +640,7 @@ services:
   #   - Configure via MONGODB_* environment variables
   #   - See mongodb service configuration above
   caipe-ui:
-    image: ghcr.io/cnoe-io/caipe-ui:${IMAGE_TAG:-0.2.15}
+    image: ai-platform-engineering-caipe-ui:latest
     container_name: caipe-ui
     ports: ["3000:3000"]
     env_file:
@@ -657,9 +657,9 @@ services:
       - NEXT_PUBLIC_RAG_URL=${RAG_URL:-http://localhost:9446}
       # RAG WebUI URL for iframe embedding (browser-accessible)
       - NEXT_PUBLIC_RAG_WEBUI_URL=${RAG_WEBUI_URL:-http://localhost:9447}
-      # MongoDB configuration - Enable/disable MongoDB persistence
+      # MongoDB - host matches service name caipe-ui-mongodb; credentials/database from .env
       - NEXT_PUBLIC_MONGODB_ENABLED=${NEXT_PUBLIC_MONGODB_ENABLED:-false}
-      - MONGODB_URI=${MONGODB_URI:-mongodb://${MONGODB_ROOT_USERNAME:-admin}:${MONGODB_ROOT_PASSWORD:-changeme}@caipe-ui-mongodb:27017/${MONGODB_DATABASE:-caipe}?authSource=admin}
+      - MONGODB_URI=mongodb://${MONGODB_ROOT_USERNAME:-admin}:${MONGODB_ROOT_PASSWORD:-changeme}@caipe-ui-mongodb:27017/${MONGODB_DATABASE:-caipe}?authSource=admin
       # NextAuth configuration (required for production)
       # Generate a secret with: openssl rand -base64 32
       - NEXTAUTH_SECRET=${NEXTAUTH_SECRET:-caipe-dev-secret-change-in-production}

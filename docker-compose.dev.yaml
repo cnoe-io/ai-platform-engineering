@@ -103,7 +103,7 @@ services:
   #                                          MongoDB                                                 #
   ####################################################################################################
   # MongoDB for CAIPE UI chat history and user settings
-  mongodb:
+  caipe-ui-mongodb:
     image: mongo:7.0
     container_name: caipe-mongodb-dev
     ports:
@@ -123,11 +123,10 @@ services:
       retries: 5
       start_period: 40s
     profiles:
-      - caipe-ui
       - caipe-ui-mongodb
 
   # MongoDB Admin UI
-  mongo-express:
+  caipe-ui-mongo-express:
     image: mongo-express:latest
     container_name: caipe-mongo-express-dev
     ports:
@@ -135,13 +134,12 @@ services:
     environment:
       - ME_CONFIG_MONGODB_ADMINUSERNAME=${MONGODB_ROOT_USERNAME:-admin}
       - ME_CONFIG_MONGODB_ADMINPASSWORD=${MONGODB_ROOT_PASSWORD:-changeme}
-      - ME_CONFIG_MONGODB_URL=mongodb://${MONGODB_ROOT_USERNAME:-admin}:${MONGODB_ROOT_PASSWORD:-changeme}@mongodb:27017/
+      - ME_CONFIG_MONGODB_URL=mongodb://${MONGODB_ROOT_USERNAME:-admin}:${MONGODB_ROOT_PASSWORD:-changeme}@caipe-ui-mongodb:27017/
       - ME_CONFIG_BASICAUTH=false
     depends_on:
-      mongodb:
+      caipe-ui-mongodb:
         condition: service_healthy
     profiles:
-      - caipe-ui
       - caipe-ui-mongo-express
 
   ####################################################################################################
@@ -892,6 +890,8 @@ services:
       # Generate a secret with: openssl rand -base64 32
       - NEXTAUTH_SECRET=${NEXTAUTH_SECRET:-caipe-dev-secret-change-in-production}
       - NEXTAUTH_URL=${NEXTAUTH_URL:-http://localhost:3000}
+      # MongoDB - host matches service name caipe-ui-mongodb in both compose files
+      - MONGODB_URI=${MONGODB_URI:-mongodb://${MONGODB_ROOT_USERNAME:-admin}:${MONGODB_ROOT_PASSWORD:-changeme}@caipe-ui-mongodb:27017/${MONGODB_DATABASE:-caipe}?authSource=admin}
       # SSO Configuration - reads from .env file
       # Map OIDC_* variables from .env to CAIPE_UI_OIDC_* expected by the app
       - CAIPE_UI_OIDC_ENABLED=${OIDC_ENABLED:-false}
@@ -906,6 +906,7 @@ services:
       # - NEXT_PUBLIC_LOGO_URL=${NEXT_PUBLIC_LOGO_URL:-}
     depends_on:
       - caipe-supervisor
+      - caipe-ui-mongodb
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/api/health"]
       interval: 30s
