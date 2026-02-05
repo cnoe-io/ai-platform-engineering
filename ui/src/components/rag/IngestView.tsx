@@ -1,20 +1,41 @@
 "use client";
 
 /**
- * IngestView - Ported directly from RAG WebUI with minimal changes
+ * IngestView - Data Sources Management
  *
- * Changes from original:
- * - Added "use client" directive for Next.js
- * - Changed import paths for local modules
- * - Added dark mode classes
- * - Added RBAC permission checks
+ * Redesigned with:
+ * - shadcn/ui components (Button, Input, Badge)
+ * - Framer Motion animations
+ * - Modern styling consistent with SearchView and UseCasesGallery
+ * - Information-dense layout with metrics placeholders
  */
 
 import React, { useEffect, useMemo, useState, useCallback, useRef } from 'react'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism'
 import { formatDistanceToNow } from 'date-fns'
-import { Database, RefreshCw } from 'lucide-react'
+import { 
+  Database, 
+  RefreshCw, 
+  ChevronDown, 
+  ChevronRight,
+  Trash2,
+  RotateCcw,
+  StopCircle,
+  Activity,
+  Server,
+  FileText,
+  AlertCircle,
+  CheckCircle2,
+  Clock,
+  Loader2,
+  Link as LinkIcon,
+  Settings,
+  X,
+  Plus,
+  Search
+} from 'lucide-react'
+import { motion, AnimatePresence } from 'framer-motion'
 import type { IngestionJob, DataSourceInfo, IngestorInfo } from './Models'
 import {
   getDataSources,
@@ -32,6 +53,37 @@ import {
 import { getIconForType, ingestTypeConfigs, isIngestTypeAvailable } from './typeConfig'
 import { useRagPermissions, Permission } from '@/hooks/useRagPermissions'
 import { ScrollArea } from "@/components/ui/scroll-area"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Badge } from "@/components/ui/badge"
+import { cn } from "@/lib/utils"
+
+// Animation variants
+const fadeIn = {
+  initial: { opacity: 0 },
+  animate: { opacity: 1 },
+  exit: { opacity: 0 }
+}
+
+const expandCollapse = {
+  initial: { height: 0, opacity: 0 },
+  animate: { height: "auto", opacity: 1 },
+  exit: { height: 0, opacity: 0 }
+}
+
+const staggerContainer = {
+  animate: {
+    transition: {
+      staggerChildren: 0.05
+    }
+  }
+}
+
+const slideUp = {
+  initial: { opacity: 0, y: 10 },
+  animate: { opacity: 1, y: 0 },
+  exit: { opacity: 0, y: -10 }
+}
 
 // Helper component to render icon (either emoji or SVG image)
 const IconRenderer = ({ icon, className = "w-5 h-5" }: { icon: string; className?: string }) => {
@@ -51,6 +103,82 @@ const IconRenderer = ({ icon, className = "w-5 h-5" }: { icon: string; className
   )
 }
 
+// Status badge component with consistent styling
+const StatusBadge = ({ status }: { status: string }) => {
+  const getStatusConfig = (status: string) => {
+    switch (status) {
+      case 'completed':
+        return { 
+          className: 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30',
+          icon: <CheckCircle2 className="h-3 w-3" />
+        }
+      case 'failed':
+      case 'terminated':
+        return { 
+          className: 'bg-destructive/20 text-destructive border-destructive/30',
+          icon: <AlertCircle className="h-3 w-3" />
+        }
+      case 'completed_with_errors':
+        return { 
+          className: 'bg-orange-500/20 text-orange-400 border-orange-500/30',
+          icon: <AlertCircle className="h-3 w-3" />
+        }
+      case 'in_progress':
+        return { 
+          className: 'bg-primary/20 text-primary border-primary/30',
+          icon: <Loader2 className="h-3 w-3 animate-spin" />
+        }
+      case 'pending':
+        return { 
+          className: 'bg-muted text-muted-foreground border-border',
+          icon: <Clock className="h-3 w-3" />
+        }
+      default:
+        return { 
+          className: 'bg-muted text-muted-foreground border-border',
+          icon: null
+        }
+    }
+  }
+
+  const config = getStatusConfig(status)
+  const formatStatus = (status: string): string => {
+    return status
+      .split('_')
+      .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+      .join(' ')
+  }
+
+  return (
+    <span className={cn(
+      "inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium border",
+      config.className
+    )}>
+      {config.icon}
+      {formatStatus(status)}
+    </span>
+  )
+}
+
+// Progress bar component with gradient
+const ProgressBar = ({ progress, total, current }: { progress: number; total: number; current: number }) => {
+  return (
+    <div className="flex items-center gap-2 mt-2">
+      <div className="flex-1 bg-muted rounded-full h-2 overflow-hidden">
+        <motion.div 
+          className="h-full rounded-full gradient-primary-br"
+          initial={{ width: 0 }}
+          animate={{ width: `${Math.max(0, Math.min(100, progress))}%` }}
+          transition={{ duration: 0.3 }}
+        />
+      </div>
+      <span className="text-xs font-medium text-muted-foreground whitespace-nowrap tabular-nums">
+        {current}/{total} ({Math.round(progress)}%)
+      </span>
+    </div>
+  )
+}
+
 export default function IngestView() {
   const { hasPermission } = useRagPermissions()
   
@@ -61,6 +189,7 @@ export default function IngestView() {
   const [sitemapMaxUrls, setSitemapMaxUrls] = useState(2000)
   const [description, setDescription] = useState('')
   const [includeSubPages, setIncludeSubPages] = useState(false)
+  const [showAdvancedOptions, setShowAdvancedOptions] = useState(false)
 
   // DataSources state
   const [dataSources, setDataSources] = useState<DataSourceInfo[]>([])
@@ -70,34 +199,42 @@ export default function IngestView() {
   const [dataSourceJobs, setDataSourceJobs] = useState<Record<string, IngestionJob[]>>({})
   const [expandedJobs, setExpandedJobs] = useState<Set<string>>(new Set())
   const [selectedSourceType, setSelectedSourceType] = useState<string>('all')
+  const [searchQuery, setSearchQuery] = useState('')
 
   // Ingestors state
   const [ingestors, setIngestors] = useState<IngestorInfo[]>([])
   const [loadingIngestors, setLoadingIngestors] = useState(false)
   const [refreshingIngestors, setRefreshingIngestors] = useState(false)
   const [expandedIngestors, setExpandedIngestors] = useState<Set<string>>(new Set())
+  const [showIngestors, setShowIngestors] = useState(false)
 
   // Confirmation dialogs state
   const [showDeleteDataSourceConfirm, setShowDeleteDataSourceConfirm] = useState<string | null>(null)
   const [showDeleteIngestorConfirm, setShowDeleteIngestorConfirm] = useState<string | null>(null)
+  const [showReIngestConfirm, setShowReIngestConfirm] = useState<string | null>(null)
   const [isDeletingDataSource, setIsDeletingDataSource] = useState(false)
+  const [isReIngesting, setIsReIngesting] = useState(false)
 
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1)
   const itemsPerPage = 10
 
-  // Utility function to format status strings
-  const formatStatus = (status: string): string => {
-    return status
-      .split('_')
-      .map(word => word.charAt(0).toUpperCase() + word.slice(1))
-      .join(' ')
-  }
-
   // Utility function to format timestamps as relative time
   const formatRelativeTime = (timestamp: number): string => {
     return formatDistanceToNow(new Date(timestamp * 1000), { addSuffix: true })
   }
+
+  // Calculate stats
+  const stats = useMemo(() => {
+    const activeJobs = Object.values(dataSourceJobs).flat().filter(
+      job => job.status === 'in_progress' || job.status === 'pending'
+    ).length
+    return {
+      totalDataSources: dataSources.length,
+      activeJobs,
+      totalIngestors: ingestors.length
+    }
+  }, [dataSources, dataSourceJobs, ingestors])
 
   // Get unique source types from dataSources
   const sourceTypes = useMemo(() => {
@@ -105,12 +242,24 @@ export default function IngestView() {
     return Array.from(types).sort()
   }, [dataSources])
 
-  // Filter and sort dataSources by selected type
+  // Filter and sort dataSources by selected type and search query
   const filteredDataSources = useMemo(() => {
     let filtered = dataSources
 
+    // Filter by source type
     if (selectedSourceType !== 'all') {
-      filtered = dataSources.filter(ds => ds.source_type === selectedSourceType)
+      filtered = filtered.filter(ds => ds.source_type === selectedSourceType)
+    }
+
+    // Filter by search query
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase().trim()
+      filtered = filtered.filter(ds => 
+        ds.datasource_id.toLowerCase().includes(query) ||
+        ds.source_type.toLowerCase().includes(query) ||
+        ds.description?.toLowerCase().includes(query) ||
+        ds.ingestor_id.toLowerCase().includes(query)
+      )
     }
 
     return [...filtered].sort((a, b) => {
@@ -118,7 +267,7 @@ export default function IngestView() {
       if (typeComparison !== 0) return typeComparison
       return b.last_updated - a.last_updated
     })
-  }, [dataSources, selectedSourceType])
+  }, [dataSources, selectedSourceType, searchQuery])
 
   // Calculate pagination
   const totalPages = Math.ceil(filteredDataSources.length / itemsPerPage)
@@ -130,7 +279,7 @@ export default function IngestView() {
 
   useEffect(() => {
     setCurrentPage(1)
-  }, [selectedSourceType])
+  }, [selectedSourceType, searchQuery])
 
   useEffect(() => {
     if (ingestType !== 'confluence') {
@@ -146,11 +295,9 @@ export default function IngestView() {
   // Effect to auto-select first available ingest type when ingestors load
   useEffect(() => {
     if (ingestors.length > 0) {
-      // Check if current ingestType is still available
       const isCurrentTypeAvailable = isIngestTypeAvailable(ingestType, ingestors)
       
       if (!isCurrentTypeAvailable) {
-        // Find first available ingest type
         const availableType = Object.keys(ingestTypeConfigs).find(type =>
           isIngestTypeAvailable(type, ingestors)
         )
@@ -169,10 +316,8 @@ export default function IngestView() {
       const currentIds = new Set(dataSources.map(ds => ds.datasource_id))
       const newDataSources = dataSources.filter(ds => !previousDataSourceIds.current.has(ds.datasource_id))
       
-      // Update the ref with current IDs
       previousDataSourceIds.current = currentIds
       
-      // Only fetch jobs for new datasources
       for (const ds of newDataSources) {
         await fetchJobsForDataSource(ds.datasource_id)
       }
@@ -349,15 +494,17 @@ export default function IngestView() {
   }
 
   const handleReloadDataSource = async (datasourceId: string) => {
+    setIsReIngesting(true)
     try {
-      const response = await reloadDataSource(datasourceId)
-      const { message } = response
-      alert(`🔄 ${message}`)
+      await reloadDataSource(datasourceId)
       await fetchDataSources()
       await fetchJobsForDataSource(datasourceId)
     } catch (error: any) {
-      console.error('Error reloading data source:', error)
-      alert(`❌ Reload failed: ${error?.message || 'unknown error'}`)
+      console.error('Error re-ingesting data source:', error)
+      alert(`❌ Re-ingest failed: ${error?.message || 'unknown error'}`)
+    } finally {
+      setIsReIngesting(false)
+      setShowReIngestConfirm(null)
     }
   }
 
@@ -374,7 +521,7 @@ export default function IngestView() {
 
   return (
     <div className="h-full flex flex-col bg-background overflow-hidden">
-      {/* Compact Header with Gradient */}
+      {/* Compact Header with Gradient and Stats */}
       <div className="relative overflow-hidden border-b border-border shrink-0">
         {/* Gradient Background */}
         <div 
@@ -385,734 +532,986 @@ export default function IngestView() {
         />
         <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-primary/5 via-transparent to-transparent" />
 
-        <div className="relative px-6 py-3 flex items-center gap-3">
-          <div className="p-2 rounded-lg gradient-primary-br shadow-md shadow-primary/20">
-            <Database className="h-5 w-5 text-white" />
-          </div>
-          <div>
-            <h1 className="text-lg font-bold gradient-text">Data Sources</h1>
-            <p className="text-muted-foreground text-xs">
-              Ingest and manage your knowledge base sources
-            </p>
+        <div className="relative px-6 py-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="p-2 rounded-lg gradient-primary-br shadow-md shadow-primary/20">
+                <Database className="h-5 w-5 text-white" />
+              </div>
+              <div>
+                <h1 className="text-lg font-bold gradient-text">Data Sources</h1>
+                <p className="text-muted-foreground text-xs">
+                  Ingest and manage your knowledge base sources
+                </p>
+              </div>
+            </div>
+
+            {/* Stats Row */}
+            <div className="flex items-center gap-4">
+              <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-card/50 border border-border/50">
+                <FileText className="h-4 w-4 text-primary" />
+                <span className="text-sm font-medium">{stats.totalDataSources}</span>
+                <span className="text-xs text-muted-foreground">Sources</span>
+              </div>
+              <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-card/50 border border-border/50">
+                <Activity className={cn("h-4 w-4", stats.activeJobs > 0 ? "text-primary animate-pulse" : "text-muted-foreground")} />
+                <span className="text-sm font-medium">{stats.activeJobs}</span>
+                <span className="text-xs text-muted-foreground">Active</span>
+              </div>
+              <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-card/50 border border-border/50">
+                <Server className="h-4 w-4 text-muted-foreground" />
+                <span className="text-sm font-medium">{stats.totalIngestors}</span>
+                <span className="text-xs text-muted-foreground">Ingestors</span>
+              </div>
+            </div>
           </div>
         </div>
       </div>
 
       {/* Scrollable Content */}
       <ScrollArea className="flex-1">
-        <div className="p-6">
+        <div className="p-6 space-y-6">
           {/* Ingest URL Section */}
-          <section className="bg-card rounded-lg shadow-sm border border-border mb-6 p-5">
-            <h3 className="mb-4 text-lg font-semibold text-foreground">Ingest URL</h3>
-
-        {/* Ingest Type Selection */}
-        <div className="mb-4">
-          <label className="block text-sm font-medium text-foreground mb-2">
-            Ingest Type *
-          </label>
-          <div className="flex gap-2 flex-wrap">
-            {Object.entries(ingestTypeConfigs).map(([type, config]) => {
-              const isAvailable = isIngestTypeAvailable(type, ingestors)
-              return (
-                <button
-                  key={type}
-                  onClick={() => isAvailable && setIngestType(type)}
-                  disabled={!isAvailable}
-                  className={`px-3 py-1.5 rounded text-xs font-medium transition-colors ${
-                    ingestType === type
-                      ? 'bg-primary text-primary-foreground'
-                      : isAvailable
-                        ? 'bg-muted text-muted-foreground hover:bg-muted/80'
-                        : 'bg-muted/50 text-muted-foreground/50 cursor-not-allowed'
-                  }`}
-                  title={!isAvailable ? `No ${config.requiredIngestorType} ingestor available` : `Ingest as ${config.label}`}
-                >
-                  {config.icon && (
-                    <span className="mr-1.5 inline-flex items-center">
-                      <IconRenderer icon={config.icon} className="w-3.5 h-3.5" />
-                    </span>
-                  )}
-                  {config.label}
-                </button>
-              )
-            })}
-          </div>
-          {ingestors.length === 0 && !loadingIngestors && (
-            <p className="text-xs text-orange-600 dark:text-orange-400 mt-2">
-              ⚠️ No ingestors detected. Please ensure ingestor services are running.
-            </p>
-          )}
-        </div>
-
-        {/* URL Input */}
-        <div className="mb-4">
-          <label className="block text-sm font-medium text-foreground mb-2">
-            URL *
-          </label>
-          <div className="flex gap-2">
-            <input
-              type="url"
-              placeholder="https://docs.example.com"
-              value={url}
-              onChange={(e) => setUrl(e.target.value)}
-              className="flex-1 px-4 py-2 border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent bg-background text-foreground"
-            />
-            <button
-              onClick={handleIngest}
-              className="px-6 py-2 bg-primary hover:bg-primary/90 text-primary-foreground rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              disabled={!hasPermission(Permission.INGEST)}
-              title={!hasPermission(Permission.INGEST) ? 'Insufficient permissions to ingest data' : 'Ingest this URL'}
-            >
-              Ingest
-            </button>
-          </div>
-          {ingestType === 'web' && (
-            <div className="mt-2 ml-2">
-              <label className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  checked={checkForSiteMap}
-                  onChange={(e) => setCheckForSiteMap(e.target.checked)}
-                  className="rounded border-border text-primary focus:ring-primary"
-                />
-                <span className="text-sm text-muted-foreground">Check for sitemap</span>
-              </label>
+          <motion.section 
+            className="bg-card rounded-xl shadow-sm border border-border p-5"
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.3 }}
+          >
+            <div className="flex items-center gap-2 mb-4">
+              <Plus className="h-5 w-5 text-primary" />
+              <h3 className="text-base font-semibold text-foreground">Ingest URL</h3>
             </div>
-          )}
-          {ingestType === 'confluence' && (
-            <div className="mt-2 ml-2">
-              <label className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  checked={includeSubPages}
-                  onChange={(e) => setIncludeSubPages(e.target.checked)}
-                  className="rounded border-border text-primary focus:ring-primary"
-                />
-                <span className="text-sm text-muted-foreground">Include child pages</span>
+
+            {/* Ingest Type Selection - Pill Style */}
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-muted-foreground mb-2">
+                Source Type
               </label>
-            </div>
-          )}
-        </div>
-
-        {/* Optional Configuration */}
-        <details className="mb-4 rounded-lg bg-muted/50 p-4">
-          <summary className="cursor-pointer text-sm font-semibold text-foreground">Optional Configuration</summary>
-          <div className="md:col-span-2 mt-4">
-              <label className="block text-sm font-medium text-muted-foreground mb-1">
-                Description
-              </label>
-              <textarea
-                placeholder="A short description, this may help agents to glance at what this source is about"
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                className="w-full px-4 py-2 border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent bg-background text-foreground resize-none"
-                rows={2}
-              />
-          </div>
-          <div className="grid gap-4 md:grid-cols-2 mt-3">
-            {ingestType === 'web' && checkForSiteMap && (
-              <div>
-                <label className="block text-sm font-medium text-muted-foreground mb-1">
-                  Sitemap Max URLs
-                </label>
-                <input
-                  type="number"
-                  min={0}
-                  placeholder="2000"
-                  value={sitemapMaxUrls}
-                  onChange={(e) => setSitemapMaxUrls(Number(e.target.value))}
-                  className="w-full px-4 py-2 border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent bg-background text-foreground"
-                />
-                <p className="mt-1 text-xs text-muted-foreground">
-                  Maximum number of URLs to fetch from sitemap (0 = no limit)
-                </p>
-              </div>
-            )}
-          </div>
-        </details>
-      </section>
-
-      {/* Data Sources Section */}
-      <section className="bg-card rounded-lg shadow-sm border border-border mb-6 p-5">
-        <details className="group" open>
-          <summary className="cursor-pointer text-base font-semibold text-foreground hover:text-foreground/80 flex items-center justify-between mb-4">
-            <span>Data Sources ({dataSources.length})</span>
-            <div className="flex items-center gap-3">
-              <button
-                onClick={(e) => { e.stopPropagation(); fetchDataSources(); }}
-                disabled={loadingDataSources || refreshingDataSources}
-                className="px-3 py-1 bg-muted hover:bg-muted/80 text-muted-foreground rounded text-sm transition-colors disabled:opacity-50"
-              >
-                {(loadingDataSources || refreshingDataSources) ? 'Refreshing...' : 'Refresh'}
-              </button>
-              <span className="text-xs text-muted-foreground group-open:rotate-180 transition-transform">▼</span>
-            </div>
-          </summary>
-
-        {/* Filter Buttons */}
-        {sourceTypes.length > 0 && (
-          <div className="flex flex-wrap gap-2 mb-4">
-            <button
-              onClick={() => setSelectedSourceType('all')}
-              className={`px-2.5 py-1 rounded text-xs font-medium transition-colors ${
-                selectedSourceType === 'all'
-                  ? 'bg-primary text-primary-foreground'
-                  : 'bg-muted text-muted-foreground hover:bg-muted/80'
-              }`}
-            >
-              All ({dataSources.length})
-            </button>
-            {sourceTypes.map(type => {
-              const count = dataSources.filter(ds => ds.source_type === type).length
-              const icon = getIconForType(type)
-              return (
-                <button
-                  key={type}
-                  onClick={() => setSelectedSourceType(type)}
-                  className={`px-2.5 py-1 rounded text-xs font-medium transition-colors inline-flex items-center gap-1.5 ${
-                    selectedSourceType === type
-                      ? 'bg-primary text-primary-foreground'
-                      : 'bg-muted text-muted-foreground hover:bg-muted/80'
-                  }`}
-                >
-                  {icon && <IconRenderer icon={icon} className="w-3.5 h-3.5" />}
-                  <span>{type} ({count})</span>
-                </button>
-              )
-            })}
-          </div>
-        )}
-
-        {loadingDataSources && dataSources.length === 0 ? (
-          <p className="text-muted-foreground">Loading data sources...</p>
-        ) : dataSources.length === 0 ? (
-          <p className="text-muted-foreground">No data sources found. Ingest a URL above to get started.</p>
-        ) : filteredDataSources.length === 0 ? (
-          <p className="text-muted-foreground">No data sources found for type: {selectedSourceType}</p>
-        ) : (
-          <div className="overflow-x-auto max-h-[720px] overflow-y-auto">
-            <table className="min-w-full text-sm text-left text-muted-foreground">
-              <thead className="text-xs text-foreground uppercase bg-muted">
-                <tr>
-                  <th scope="col" className="px-4 py-3">Datasource ID</th>
-                  <th scope="col" className="px-4 py-3">Type</th>
-                  <th scope="col" className="px-4 py-3">Status</th>
-                  <th scope="col" className="px-4 py-3">Last Updated</th>
-                  <th scope="col" className="px-4 py-3">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {paginatedDataSources.map(ds => {
-                  const isExpanded = expandedRows.has(ds.datasource_id)
-                  const jobs = dataSourceJobs[ds.datasource_id] || []
-                  const latestJob = jobs[0]
-                  const hasActiveJob = latestJob && (latestJob.status === 'in_progress' || latestJob.status === 'pending')
-                  const isWebloaderDatasource = ds.ingestor_id === WEBLOADER_INGESTOR_ID
-                  const isConfluenceDatasource = ds.ingestor_id === CONFLUENCE_INGESTOR_ID
-                  const supportsReload = isWebloaderDatasource || isConfluenceDatasource
-
-                  const icon = getIconForType(ds.source_type);
-
+              <div className="flex gap-2 flex-wrap">
+                {Object.entries(ingestTypeConfigs).map(([type, config]) => {
+                  const isAvailable = isIngestTypeAvailable(type, ingestors)
                   return (
-                    <React.Fragment key={ds.datasource_id}>
-                      <tr className="bg-card border-b border-border hover:bg-muted/50 cursor-pointer" onClick={() => toggleRow(ds.datasource_id)}>
-                        <td className="px-4 py-3 font-medium text-foreground whitespace-nowrap flex items-center gap-2" title={ds.datasource_id}>
-                          <span className="text-muted-foreground font-mono text-sm select-none">
-                            {isExpanded ? '−' : '+'}
-                          </span>
-                          {icon && <IconRenderer icon={icon} className="w-5 h-5" />}
-                          <span className="max-w-xs truncate">
-                            {ds.datasource_id.length > 50 ? `${ds.datasource_id.substring(0, 50)}...` : ds.datasource_id}
-                          </span>
-                        </td>
-                        <td className="px-4 py-3">{ds.source_type}</td>
-                        <td className="px-4 py-3">
-                          {latestJob ? (
-                            <span className={`text-xs px-2 py-0.5 rounded ${
-                              latestJob.status === 'completed' ? 'bg-emerald-500/20 text-emerald-600 dark:text-emerald-400' :
-                              latestJob.status === 'failed' ? 'bg-destructive/20 text-destructive' :
-                              latestJob.status === 'terminated' ? 'bg-destructive/20 text-destructive' :
-                              latestJob.status === 'completed_with_errors' ? 'bg-orange-500/20 text-orange-600 dark:text-orange-400' :
-                              latestJob.status === 'in_progress' ? 'bg-primary/20 text-primary' :
-                              'bg-muted text-muted-foreground'
-                            }`}>
-                              {formatStatus(latestJob.status)}
-                            </span>
-                          ) : (
-                            <span className="text-xs text-muted-foreground">No jobs</span>
-                          )}
-                        </td>
-                        <td className="px-4 py-3" title={new Date(ds.last_updated * 1000).toLocaleString()}>{formatRelativeTime(ds.last_updated)}</td>
-                        <td className="px-4 py-3">
-                          <div className="flex gap-2">
-                            <button
-                              onClick={(e) => { e.stopPropagation(); handleReloadDataSource(ds.datasource_id); }}
-                              className="bg-orange-500 hover:bg-orange-600 text-white font-bold py-1 px-2 rounded text-xs disabled:opacity-50 disabled:cursor-not-allowed"
-                              disabled={hasActiveJob || !supportsReload || !hasPermission(Permission.INGEST)}
-                              title={!hasPermission(Permission.INGEST) ? 'Insufficient permissions to reload data' : !supportsReload ? 'Reload not supported for this datasource type' : hasActiveJob ? 'Cannot reload while a job is active' : 'Reload this datasource'}
-                            >
-                              Reload
-                            </button>
-                            <button
-                              onClick={(e) => { e.stopPropagation(); setShowDeleteDataSourceConfirm(ds.datasource_id); }}
-                              className="bg-destructive hover:bg-destructive/90 text-destructive-foreground font-bold py-1 px-2 rounded text-xs disabled:opacity-50 disabled:cursor-not-allowed"
-                              disabled={hasActiveJob || !hasPermission(Permission.DELETE)}
-                              title={!hasPermission(Permission.DELETE) ? 'Insufficient permissions to delete datasources' : hasActiveJob ? 'Cannot delete while a job is active' : 'Delete this datasource'}
-                            >
-                              Delete
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                      {isExpanded && (
-                        <tr className="bg-muted/30">
-                          <td colSpan={5} className="p-6">
-                            <div className="bg-card rounded-lg p-5 shadow-sm border border-border">
-                              <div className="grid grid-cols-3 gap-6 text-sm mb-6">
-                                <div>
-                                  <p className="text-xs font-medium text-muted-foreground mb-1">Datasource ID</p>
-                                  <p className="font-mono text-xs text-foreground break-all">{ds.datasource_id}</p>
-                                </div>
-                                <div>
-                                  <p className="text-xs font-medium text-muted-foreground mb-1">Ingestor ID</p>
-                                  <p className="font-mono text-xs text-foreground break-all">{ds.ingestor_id}</p>
-                                </div>
-                                <div>
-                                  <p className="text-xs font-medium text-muted-foreground mb-1">Type</p>
-                                  <p className="text-foreground">{ds.source_type}</p>
-                                </div>
-                                <div>
-                                  <p className="text-xs font-medium text-muted-foreground mb-1">Default Chunk Size</p>
-                                  <p className="text-foreground">{ds.default_chunk_size}</p>
-                                </div>
-                                <div>
-                                  <p className="text-xs font-medium text-muted-foreground mb-1">Default Chunk Overlap</p>
-                                  <p className="text-foreground">{ds.default_chunk_overlap}</p>
-                                </div>
-                                <div>
-                                  <p className="text-xs font-medium text-muted-foreground mb-1">Last Updated</p>
-                                  <p className="text-foreground">{new Date(ds.last_updated * 1000).toLocaleString()}</p>
-                                </div>
-                              </div>
-
-                              {ds.description && (
-                                <div className="mb-6">
-                                  <p className="text-xs font-medium text-muted-foreground mb-2">Description</p>
-                                  <p className="text-sm text-foreground bg-muted/50 p-3 rounded">{ds.description}</p>
-                                </div>
-                              )}
-
-                              {ds.metadata && Object.keys(ds.metadata).length > 0 && (
-                                <details className="mb-6 rounded-lg bg-muted/50 p-3">
-                                  <summary className="cursor-pointer text-xs font-semibold text-foreground hover:text-foreground/80">
-                                    Metadata ({Object.keys(ds.metadata).length} {Object.keys(ds.metadata).length === 1 ? 'field' : 'fields'})
-                                  </summary>
-                                  <div className="mt-2">
-                                    <SyntaxHighlighter
-                                      language="json"
-                                      style={vscDarkPlus}
-                                      customStyle={{
-                                        margin: 0,
-                                        borderRadius: '0.375rem',
-                                        fontSize: '0.75rem',
-                                        maxHeight: '400px'
-                                      }}
-                                    >
-                                      {JSON.stringify(ds.metadata, null, 2)}
-                                    </SyntaxHighlighter>
-                                  </div>
-                                </details>
-                              )}
-
-                            {/* Jobs Section */}
-                            {jobs.length > 0 && (
-                              <div>
-                                <div className="flex items-center justify-between mb-3 pb-3 border-b border-border">
-                                  <h5 className="text-sm font-semibold text-foreground">Ingestion Jobs</h5>
-                                  <span className="text-xs text-muted-foreground bg-muted px-2 py-1 rounded">{jobs.length} total</span>
-                                </div>
-                                <div className="space-y-2">
-                                  {jobs.map((job) => {
-                                    const isJobExpanded = expandedJobs.has(job.job_id)
-                                    const isJobActive = job.status === 'in_progress' || job.status === 'pending'
-                                    const progress = (job.total > 0 && job.progress_counter >= 0)
-                                      ? Math.min(100, (job.progress_counter / job.total) * 100)
-                                      : 0
-
-                                    return (
-                                      <div
-                                        key={job.job_id}
-                                        className="border border-border rounded-lg p-3 bg-card hover:bg-muted/50 cursor-pointer transition-colors"
-                                        onClick={(e) => { e.stopPropagation(); toggleJob(job.job_id); }}
-                                      >
-                                        {/* Job Header */}
-                                        <div className="flex items-center justify-between gap-2">
-                                          <div className="flex-1 min-w-0">
-                                            <div className="flex items-center gap-2">
-                                              <span className="text-muted-foreground font-mono text-sm select-none">
-                                                {isJobExpanded ? '−' : '+'}
-                                              </span>
-                                              <span className="font-mono text-xs text-muted-foreground truncate">{job.job_id}</span>
-                                              <span className={`text-xs px-2 py-0.5 rounded ${
-                                                job.status === 'completed' ? 'bg-emerald-500/20 text-emerald-600 dark:text-emerald-400' :
-                                                job.status === 'failed' ? 'bg-destructive/20 text-destructive' :
-                                                job.status === 'terminated' ? 'bg-destructive/20 text-destructive' :
-                                                job.status === 'completed_with_errors' ? 'bg-orange-500/20 text-orange-600 dark:text-orange-400' :
-                                                job.status === 'in_progress' ? 'bg-primary/20 text-primary' :
-                                                'bg-muted text-muted-foreground'
-                                              }`}>
-                                                {formatStatus(job.status)}
-                                              </span>
-                                            </div>
-
-                                            {/* Progress Bar */}
-                                            {isJobActive && job.total > 0 && (
-                                              <div className="flex items-center gap-2 mt-2">
-                                                <div className="flex-1 bg-muted rounded-full h-2">
-                                                  <div className="bg-primary h-2 rounded-full transition-all" style={{ width: `${Math.max(0, progress)}%` }}></div>
-                                                </div>
-                                                <span className="text-xs font-medium text-muted-foreground whitespace-nowrap">
-                                                  {job.progress_counter}/{job.total} ({Math.round(progress)}%)
-                                                </span>
-                                              </div>
-                                            )}
-                                            {/* Status Message */}
-                                            {!isJobExpanded && (
-                                              <p className="text-xs text-muted-foreground mt-1 line-clamp-2 break-words">{job.message}</p>
-                                            )}
-                                          </div>
-
-                                          {/* Terminate Button */}
-                                          {isJobActive && (
-                                            <button
-                                              onClick={(e) => { e.stopPropagation(); handleTerminateJob(ds.datasource_id, job.job_id); }}
-                                              className="bg-destructive hover:bg-destructive/90 text-destructive-foreground font-bold py-1 px-2 rounded text-xs flex-shrink-0 disabled:opacity-50 disabled:cursor-not-allowed"
-                                              disabled={!hasPermission(Permission.INGEST)}
-                                              title={!hasPermission(Permission.INGEST) ? 'Insufficient permissions to terminate jobs' : 'Stop this job'}
-                                            >
-                                              Stop
-                                            </button>
-                                          )}
-                                        </div>
-
-                                        {/* Job Details - Collapsible */}
-                                        {isJobExpanded && (
-                                          <div className="mt-3 pt-3 border-t border-border space-y-2" onClick={(e) => e.stopPropagation()}>
-                                            <div className="grid grid-cols-2 gap-2 text-xs text-foreground">
-                                              <div><strong>Created:</strong> {new Date(job.created_at).toLocaleString()}</div>
-                                              {job.completed_at && <div><strong>Completed:</strong> {new Date(job.completed_at).toLocaleString()}</div>}
-                                              <div><strong>Processed:</strong> {job.progress_counter}</div>
-                                              <div><strong>Failed:</strong> {job.failed_counter}</div>
-                                              {job.total > 0 && <div><strong>Total:</strong> {job.total}</div>}
-                                            </div>
-                                            <div className="text-xs break-words text-foreground">
-                                              <strong>Message:</strong> {job.message}
-                                            </div>
-
-                                              {/* Error Messages */}
-                                              {job.error_msgs && job.error_msgs.length > 0 && (
-                                              <details className="rounded-lg bg-destructive/10 p-2 mt-2">
-                                                <summary className="cursor-pointer text-xs font-semibold text-destructive hover:text-destructive/80">
-                                                  Errors ({job.error_msgs.length})
-                                                </summary>
-                                                <div className="mt-2 space-y-1 max-h-48 overflow-y-auto">
-                                                  {job.error_msgs.map((error: string, index: number) => (
-                                                    <div key={index} className="text-xs text-destructive bg-destructive/20 p-2 rounded border-l-2 border-destructive">
-                                                      {error}
-                                                    </div>
-                                                  ))}
-                                                </div>
-                                              </details>
-                                            )}
-                                          </div>
-                                        )}
-                                      </div>
-                                    )
-                                  })}
-                                </div>
-                              </div>
-                            )}
-                            </div>
-                          </td>
-                        </tr>
+                    <Button
+                      key={type}
+                      onClick={() => isAvailable && setIngestType(type)}
+                      disabled={!isAvailable}
+                      variant={ingestType === type ? "default" : "outline"}
+                      size="sm"
+                      className={cn(
+                        "rounded-full transition-all",
+                        ingestType === type && "shadow-sm",
+                        !isAvailable && "opacity-50 cursor-not-allowed"
                       )}
-                    </React.Fragment>
+                      title={!isAvailable ? `No ${config.requiredIngestorType} ingestor available` : `Ingest as ${config.label}`}
+                    >
+                      {config.icon && (
+                        <span className="mr-1">
+                          <IconRenderer icon={config.icon} className="w-3.5 h-3.5" />
+                        </span>
+                      )}
+                      {config.label}
+                    </Button>
                   )
                 })}
-              </tbody>
-            </table>
+              </div>
+              {ingestors.length === 0 && !loadingIngestors && (
+                <p className="text-xs text-orange-400 mt-2 flex items-center gap-1">
+                  <AlertCircle className="h-3 w-3" />
+                  No ingestors detected. Please ensure ingestor services are running.
+                </p>
+              )}
+            </div>
 
-            {/* Pagination Controls */}
-            {totalPages > 1 && (
-              <div className="flex items-center justify-between px-4 py-3 border-t border-border bg-card">
-                <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                  <span>
-                    Showing {((currentPage - 1) * itemsPerPage) + 1} to {Math.min(currentPage * itemsPerPage, filteredDataSources.length)} of {filteredDataSources.length} results
-                  </span>
+            {/* URL Input */}
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-muted-foreground mb-2">
+                URL
+              </label>
+              <div className="flex gap-2">
+                <div className="relative flex-1">
+                  <LinkIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    type="url"
+                    placeholder="https://docs.example.com"
+                    value={url}
+                    onChange={(e) => setUrl(e.target.value)}
+                    className="pl-10"
+                    onKeyDown={(e) => e.key === 'Enter' && handleIngest()}
+                  />
                 </div>
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
-                    disabled={currentPage === 1}
-                    className="px-3 py-1 text-sm font-medium text-foreground bg-card border border-border rounded-md hover:bg-muted disabled:opacity-50 disabled:cursor-not-allowed"
+                <Button
+                  onClick={handleIngest}
+                  disabled={!url || !hasPermission(Permission.INGEST)}
+                  title={!hasPermission(Permission.INGEST) ? 'Insufficient permissions to ingest data' : 'Ingest this URL'}
+                >
+                  Ingest
+                </Button>
+              </div>
+              
+              {/* Quick options */}
+              {ingestType === 'web' && (
+                <label className="flex items-center gap-2 mt-2 ml-1 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={checkForSiteMap}
+                    onChange={(e) => setCheckForSiteMap(e.target.checked)}
+                    className="rounded border-border text-primary focus:ring-primary h-4 w-4"
+                  />
+                  <span className="text-sm text-muted-foreground">Check for sitemap</span>
+                </label>
+              )}
+              {ingestType === 'confluence' && (
+                <label className="flex items-center gap-2 mt-2 ml-1 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={includeSubPages}
+                    onChange={(e) => setIncludeSubPages(e.target.checked)}
+                    className="rounded border-border text-primary focus:ring-primary h-4 w-4"
+                  />
+                  <span className="text-sm text-muted-foreground">Include child pages</span>
+                </label>
+              )}
+            </div>
+
+            {/* Advanced Options - Animated Collapsible */}
+            <div>
+              <button
+                onClick={() => setShowAdvancedOptions(!showAdvancedOptions)}
+                className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
+              >
+                <Settings className="h-4 w-4" />
+                <span>Advanced Options</span>
+                <motion.div
+                  animate={{ rotate: showAdvancedOptions ? 180 : 0 }}
+                  transition={{ duration: 0.2 }}
+                >
+                  <ChevronDown className="h-4 w-4" />
+                </motion.div>
+              </button>
+
+              <AnimatePresence>
+                {showAdvancedOptions && (
+                  <motion.div
+                    initial={{ height: 0, opacity: 0 }}
+                    animate={{ height: "auto", opacity: 1 }}
+                    exit={{ height: 0, opacity: 0 }}
+                    transition={{ duration: 0.2 }}
+                    className="overflow-hidden"
                   >
-                    Previous
-                  </button>
+                    <div className="mt-4 p-4 rounded-lg bg-muted/50 border border-border/50 space-y-4">
+                      <div>
+                        <label className="block text-sm font-medium text-muted-foreground mb-1">
+                          Description
+                        </label>
+                        <textarea
+                          placeholder="A short description to help agents understand this source"
+                          value={description}
+                          onChange={(e) => setDescription(e.target.value)}
+                          className="w-full px-3 py-2 border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent bg-background text-foreground text-sm resize-none"
+                          rows={2}
+                        />
+                      </div>
+                      {ingestType === 'web' && checkForSiteMap && (
+                        <div>
+                          <label className="block text-sm font-medium text-muted-foreground mb-1">
+                            Sitemap Max URLs
+                          </label>
+                          <Input
+                            type="number"
+                            min={0}
+                            placeholder="2000"
+                            value={sitemapMaxUrls}
+                            onChange={(e) => setSitemapMaxUrls(Number(e.target.value))}
+                            className="w-48"
+                          />
+                          <p className="mt-1 text-xs text-muted-foreground">
+                            Maximum URLs to fetch from sitemap (0 = no limit)
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+          </motion.section>
 
-                  <div className="flex items-center gap-1">
-                    {Array.from({ length: totalPages }, (_, i) => i + 1).map(page => {
-                      const showPage = page === 1 ||
-                                      page === totalPages ||
-                                      (page >= currentPage - 1 && page <= currentPage + 1)
+          {/* Data Sources Section */}
+          <motion.section 
+            className="bg-card rounded-xl shadow-sm border border-border"
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.3, delay: 0.1 }}
+          >
+            {/* Section Header */}
+            <div className="px-5 py-4 border-b border-border flex items-center justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <h3 className="text-base font-semibold text-foreground">Data Sources</h3>
+                <Badge variant="secondary" className="text-xs">
+                  {filteredDataSources.length} {selectedSourceType !== 'all' || searchQuery ? `of ${dataSources.length}` : ''}
+                </Badge>
+              </div>
+              
+              {/* Search Input and Refresh Button - Right Aligned */}
+              <div className="flex items-center gap-2">
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    type="text"
+                    placeholder="Search data sources..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="pl-9 pr-8 h-9 w-64"
+                  />
+                  {searchQuery && (
+                    <button
+                      onClick={() => setSearchQuery('')}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded-full hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  )}
+                </div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={fetchDataSources}
+                  disabled={loadingDataSources || refreshingDataSources}
+                  className="gap-2"
+                >
+                  <RefreshCw className={cn("h-4 w-4", refreshingDataSources && "animate-spin")} />
+                  {refreshingDataSources ? 'Refreshing...' : 'Refresh'}
+                </Button>
+              </div>
+            </div>
 
-                      if (!showPage) {
-                        if (page === currentPage - 2 || page === currentPage + 2) {
-                          return <span key={page} className="px-2 text-muted-foreground">...</span>
-                        }
-                        return null
-                      }
+            {/* Filter Pills */}
+            {sourceTypes.length > 0 && (
+              <div className="px-5 py-3 border-b border-border/50 flex flex-wrap gap-2">
+                <Button
+                  variant={selectedSourceType === 'all' ? "default" : "ghost"}
+                  size="sm"
+                  onClick={() => setSelectedSourceType('all')}
+                  className="rounded-full h-7 text-xs"
+                >
+                  All ({dataSources.length})
+                </Button>
+                {sourceTypes.map(type => {
+                  const count = dataSources.filter(ds => ds.source_type === type).length
+                  const icon = getIconForType(type)
+                  return (
+                    <Button
+                      key={type}
+                      variant={selectedSourceType === type ? "default" : "ghost"}
+                      size="sm"
+                      onClick={() => setSelectedSourceType(type)}
+                      className="rounded-full h-7 text-xs gap-1.5"
+                    >
+                      {icon && <IconRenderer icon={icon} className="w-3.5 h-3.5" />}
+                      {type} ({count})
+                    </Button>
+                  )
+                })}
+              </div>
+            )}
+
+            {/* Data Sources List */}
+            <div className="p-5">
+              {loadingDataSources && dataSources.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
+                  <Loader2 className="h-8 w-8 animate-spin mb-3" />
+                  <p>Loading data sources...</p>
+                </div>
+              ) : dataSources.length === 0 ? (
+                // Empty State
+                <motion.div 
+                  className="flex flex-col items-center justify-center py-12 text-center"
+                  initial={{ opacity: 0, scale: 0.95 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                >
+                  <div className="p-4 rounded-2xl gradient-primary-br shadow-lg shadow-primary/20 mb-4">
+                    <Database className="h-8 w-8 text-white" />
+                  </div>
+                  <h3 className="text-lg font-semibold mb-2">No data sources yet</h3>
+                  <p className="text-muted-foreground text-sm max-w-sm mb-4">
+                    Ingest a URL above to start building your knowledge base
+                  </p>
+                </motion.div>
+              ) : filteredDataSources.length === 0 ? (
+                <p className="text-muted-foreground text-center py-8">
+                  No data sources found for type: {selectedSourceType}
+                </p>
+              ) : (
+                <div className="space-y-2">
+                  <div>
+                    {paginatedDataSources.map((ds, index) => {
+                      const isExpanded = expandedRows.has(ds.datasource_id)
+                      const jobs = dataSourceJobs[ds.datasource_id] || []
+                      const latestJob = jobs[0]
+                      const hasActiveJob = latestJob && (latestJob.status === 'in_progress' || latestJob.status === 'pending')
+                      const isWebloaderDatasource = ds.ingestor_id === WEBLOADER_INGESTOR_ID
+                      const isConfluenceDatasource = ds.ingestor_id === CONFLUENCE_INGESTOR_ID
+                      const supportsReload = isWebloaderDatasource || isConfluenceDatasource
+                      const icon = getIconForType(ds.source_type)
 
                       return (
-                        <button
-                          key={page}
-                          onClick={() => setCurrentPage(page)}
-                          className={`px-3 py-1 text-sm font-medium rounded-md ${
-                            currentPage === page
-                              ? 'bg-primary text-primary-foreground'
-                              : 'text-foreground bg-card border border-border hover:bg-muted'
-                          }`}
+                        <motion.div
+                          key={ds.datasource_id}
+                          initial={{ opacity: 0, y: 10 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          transition={{ delay: index * 0.03 }}
+                          className={cn(
+                            "border border-border rounded-lg overflow-hidden transition-all duration-200",
+                            isExpanded ? "ring-1 ring-primary/20 shadow-sm" : "hover:border-border/80"
+                          )}
                         >
-                          {page}
-                        </button>
+                          {/* Row Header */}
+                          <div 
+                            className="flex items-center gap-3 px-4 py-3 cursor-pointer hover:bg-muted/30 transition-colors"
+                            onClick={() => toggleRow(ds.datasource_id)}
+                          >
+                            <motion.div
+                              animate={{ rotate: isExpanded ? 90 : 0 }}
+                              transition={{ duration: 0.2 }}
+                            >
+                              <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                            </motion.div>
+                            
+                            {icon && <IconRenderer icon={icon} className="w-5 h-5" />}
+                            
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2">
+                                <span className="font-medium text-sm truncate max-w-md" title={ds.datasource_id}>
+                                  {ds.datasource_id.length > 60 ? `${ds.datasource_id.substring(0, 60)}...` : ds.datasource_id}
+                                </span>
+                                <Badge variant="secondary" className="text-[10px] shrink-0">
+                                  {ds.source_type}
+                                </Badge>
+                              </div>
+                              <p className="text-xs text-muted-foreground mt-0.5">
+                                Updated {formatRelativeTime(ds.last_updated)}
+                              </p>
+                            </div>
+
+                            <div className="flex items-center gap-3 shrink-0">
+                              {latestJob ? (
+                                <StatusBadge status={latestJob.status} />
+                              ) : (
+                                <span className="text-xs text-muted-foreground">No jobs</span>
+                              )}
+
+                              <div className="flex gap-1" onClick={(e) => e.stopPropagation()}>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => setShowReIngestConfirm(ds.datasource_id)}
+                                  disabled={hasActiveJob || !supportsReload || !hasPermission(Permission.INGEST)}
+                                  className="h-7 w-7 p-0"
+                                  title={!hasPermission(Permission.INGEST) ? 'Insufficient permissions' : !supportsReload ? 'Re-ingest not supported' : hasActiveJob ? 'Job in progress' : 'Re-ingest'}
+                                >
+                                  <RotateCcw className="h-3.5 w-3.5" />
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => setShowDeleteDataSourceConfirm(ds.datasource_id)}
+                                  disabled={hasActiveJob || !hasPermission(Permission.DELETE)}
+                                  className="h-7 w-7 p-0 hover:bg-destructive/10 hover:text-destructive"
+                                  title={!hasPermission(Permission.DELETE) ? 'Insufficient permissions' : hasActiveJob ? 'Job in progress' : 'Delete'}
+                                >
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                </Button>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Expanded Content */}
+                          <AnimatePresence>
+                            {isExpanded && (
+                              <motion.div
+                                initial={{ height: 0, opacity: 0 }}
+                                animate={{ height: "auto", opacity: 1 }}
+                                exit={{ height: 0, opacity: 0 }}
+                                transition={{ duration: 0.15 }}
+                                className="overflow-hidden"
+                              >
+                                <div className="px-4 py-4 bg-muted/20 border-t border-border space-y-4">
+                                  {/* Metadata Grid */}
+                                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                                    <div>
+                                      <p className="text-xs font-medium text-muted-foreground mb-1">Datasource ID</p>
+                                      <p className="font-mono text-xs text-foreground break-all">{ds.datasource_id}</p>
+                                    </div>
+                                    <div>
+                                      <p className="text-xs font-medium text-muted-foreground mb-1">Ingestor ID</p>
+                                      <p className="font-mono text-xs text-foreground break-all">{ds.ingestor_id}</p>
+                                    </div>
+                                    <div>
+                                      <p className="text-xs font-medium text-muted-foreground mb-1">Chunk Size</p>
+                                      <p className="text-foreground">{ds.default_chunk_size}</p>
+                                    </div>
+                                    <div>
+                                      <p className="text-xs font-medium text-muted-foreground mb-1">Chunk Overlap</p>
+                                      <p className="text-foreground">{ds.default_chunk_overlap}</p>
+                                    </div>
+                                  </div>
+
+                                  {/* Metrics Placeholder */}
+                                  <div className="p-3 rounded-lg border border-dashed border-border/50 bg-muted/30">
+                                    <p className="text-xs text-muted-foreground text-center">
+                                      Metrics will be displayed here
+                                    </p>
+                                  </div>
+
+                                  {ds.description && (
+                                    <div>
+                                      <p className="text-xs font-medium text-muted-foreground mb-1">Description</p>
+                                      <p className="text-sm text-foreground bg-muted/50 p-3 rounded-lg">{ds.description}</p>
+                                    </div>
+                                  )}
+
+                                  {ds.metadata && Object.keys(ds.metadata).length > 0 && (
+                                    <details className="rounded-lg bg-muted/50 border border-border/50">
+                                      <summary className="cursor-pointer text-xs font-medium text-foreground px-3 py-2 hover:bg-muted/50">
+                                        Metadata ({Object.keys(ds.metadata).length} fields)
+                                      </summary>
+                                      <div className="px-3 pb-3">
+                                        <SyntaxHighlighter
+                                          language="json"
+                                          style={vscDarkPlus}
+                                          customStyle={{
+                                            margin: 0,
+                                            borderRadius: '0.5rem',
+                                            fontSize: '0.75rem',
+                                            maxHeight: '300px'
+                                          }}
+                                        >
+                                          {JSON.stringify(ds.metadata, null, 2)}
+                                        </SyntaxHighlighter>
+                                      </div>
+                                    </details>
+                                  )}
+
+                                  {/* Jobs Section */}
+                                  {jobs.length > 0 && (
+                                    <div>
+                                      <div className="flex items-center justify-between mb-3">
+                                        <h5 className="text-sm font-semibold text-foreground flex items-center gap-2">
+                                          <Activity className="h-4 w-4" />
+                                          Ingestion Jobs
+                                        </h5>
+                                        <Badge variant="secondary" className="text-xs">
+                                          {jobs.length} total
+                                        </Badge>
+                                      </div>
+                                      <div className="space-y-2">
+                                        {jobs.map((job) => {
+                                          const isJobExpanded = expandedJobs.has(job.job_id)
+                                          const isJobActive = job.status === 'in_progress' || job.status === 'pending'
+                                          const progress = (job.total > 0 && job.progress_counter >= 0)
+                                            ? Math.min(100, (job.progress_counter / job.total) * 100)
+                                            : 0
+
+                                          return (
+                                            <div
+                                              key={job.job_id}
+                                              className="border border-border rounded-lg bg-card overflow-hidden"
+                                            >
+                                              <div 
+                                                className="p-3 cursor-pointer hover:bg-muted/30 transition-colors"
+                                                onClick={(e) => { e.stopPropagation(); toggleJob(job.job_id); }}
+                                              >
+                                                <div className="flex items-center justify-between gap-2">
+                                                  <div className="flex-1 min-w-0">
+                                                    <div className="flex items-center gap-2">
+                                                      <motion.div
+                                                        animate={{ rotate: isJobExpanded ? 90 : 0 }}
+                                                        transition={{ duration: 0.2 }}
+                                                      >
+                                                        <ChevronRight className="h-3 w-3 text-muted-foreground" />
+                                                      </motion.div>
+                                                      <span className="font-mono text-xs text-muted-foreground truncate">
+                                                        {job.job_id}
+                                                      </span>
+                                                      <StatusBadge status={job.status} />
+                                                    </div>
+
+                                                    {isJobActive && job.total > 0 && (
+                                                      <ProgressBar 
+                                                        progress={progress} 
+                                                        total={job.total} 
+                                                        current={job.progress_counter} 
+                                                      />
+                                                    )}
+
+                                                    {!isJobExpanded && (
+                                                      <p className="text-xs text-muted-foreground mt-1 line-clamp-1">
+                                                        {job.message}
+                                                      </p>
+                                                    )}
+                                                  </div>
+
+                                                  {isJobActive && (
+                                                    <Button
+                                                      variant="ghost"
+                                                      size="sm"
+                                                      onClick={(e) => { e.stopPropagation(); handleTerminateJob(ds.datasource_id, job.job_id); }}
+                                                      disabled={!hasPermission(Permission.INGEST)}
+                                                      className="h-7 px-2 hover:bg-destructive/10 hover:text-destructive"
+                                                    >
+                                                      <StopCircle className="h-3.5 w-3.5 mr-1" />
+                                                      Stop
+                                                    </Button>
+                                                  )}
+                                                </div>
+                                              </div>
+
+                                              <AnimatePresence>
+                                                {isJobExpanded && (
+                                                  <motion.div
+                                                    initial={{ height: 0, opacity: 0 }}
+                                                    animate={{ height: "auto", opacity: 1 }}
+                                                    exit={{ height: 0, opacity: 0 }}
+                                                    transition={{ duration: 0.15 }}
+                                                    className="overflow-hidden"
+                                                  >
+                                                    <div className="px-3 pb-3 pt-2 border-t border-border space-y-2" onClick={(e) => e.stopPropagation()}>
+                                                      <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
+                                                        <div>
+                                                          <span className="font-medium text-muted-foreground">Created:</span>
+                                                          <p className="text-foreground">{new Date(job.created_at).toLocaleString()}</p>
+                                                        </div>
+                                                        {job.completed_at && (
+                                                          <div>
+                                                            <span className="font-medium text-muted-foreground">Completed:</span>
+                                                            <p className="text-foreground">{new Date(job.completed_at).toLocaleString()}</p>
+                                                          </div>
+                                                        )}
+                                                        <div>
+                                                          <span className="font-medium text-muted-foreground">Processed:</span>
+                                                          <p className="text-foreground">{job.progress_counter}</p>
+                                                        </div>
+                                                        <div>
+                                                          <span className="font-medium text-muted-foreground">Failed:</span>
+                                                          <p className={job.failed_counter > 0 ? "text-destructive" : "text-foreground"}>
+                                                            {job.failed_counter}
+                                                          </p>
+                                                        </div>
+                                                      </div>
+                                                      
+                                                      <div className="text-xs">
+                                                        <span className="font-medium text-muted-foreground">Message:</span>
+                                                        <p className="text-foreground mt-0.5">{job.message}</p>
+                                                      </div>
+
+                                                      {job.error_msgs && job.error_msgs.length > 0 && (
+                                                        <details className="rounded-lg bg-destructive/10 border border-destructive/20">
+                                                          <summary className="cursor-pointer text-xs font-medium text-destructive px-2 py-1.5 hover:bg-destructive/20">
+                                                            Errors ({job.error_msgs.length})
+                                                          </summary>
+                                                          <div className="px-2 pb-2 space-y-1 max-h-32 overflow-y-auto">
+                                                            {job.error_msgs.map((error: string, index: number) => (
+                                                              <div key={index} className="text-xs text-destructive bg-destructive/20 p-2 rounded border-l-2 border-destructive">
+                                                                {error}
+                                                              </div>
+                                                            ))}
+                                                          </div>
+                                                        </details>
+                                                      )}
+                                                    </div>
+                                                  </motion.div>
+                                                )}
+                                              </AnimatePresence>
+                                            </div>
+                                          )
+                                        })}
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
+                              </motion.div>
+                            )}
+                          </AnimatePresence>
+                        </motion.div>
                       )
                     })}
                   </div>
 
-                  <button
-                    onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
-                    disabled={currentPage === totalPages}
-                    className="px-3 py-1 text-sm font-medium text-foreground bg-card border border-border rounded-md hover:bg-muted disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    Next
-                  </button>
+                  {/* Pagination */}
+                  {totalPages > 1 && (
+                    <div className="flex items-center justify-between pt-4 border-t border-border mt-4">
+                      <p className="text-sm text-muted-foreground">
+                        Showing {((currentPage - 1) * itemsPerPage) + 1} to {Math.min(currentPage * itemsPerPage, filteredDataSources.length)} of {filteredDataSources.length}
+                      </p>
+                      <div className="flex items-center gap-1">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                          disabled={currentPage === 1}
+                        >
+                          Previous
+                        </Button>
+                        {Array.from({ length: totalPages }, (_, i) => i + 1)
+                          .filter(page => page === 1 || page === totalPages || (page >= currentPage - 1 && page <= currentPage + 1))
+                          .map((page, idx, arr) => (
+                            <React.Fragment key={page}>
+                              {idx > 0 && arr[idx - 1] !== page - 1 && (
+                                <span className="px-2 text-muted-foreground">...</span>
+                              )}
+                              <Button
+                                variant={currentPage === page ? "default" : "outline"}
+                                size="sm"
+                                onClick={() => setCurrentPage(page)}
+                                className="w-8 h-8 p-0"
+                              >
+                                {page}
+                              </Button>
+                            </React.Fragment>
+                          ))
+                        }
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                          disabled={currentPage === totalPages}
+                        >
+                          Next
+                        </Button>
+                      </div>
+                    </div>
+                  )}
                 </div>
-              </div>
-            )}
-          </div>
-        )}
-        </details>
-      </section>
-
-      {/* Ingestors Section */}
-      <section className="bg-card rounded-lg shadow-sm border border-border mb-6 p-5">
-        {ingestors.length > 0 || loadingIngestors ? (
-          <details className="group">
-            <summary className="cursor-pointer text-base font-semibold text-foreground hover:text-foreground/80 flex items-center justify-between">
-              <span>Ingestors ({ingestors.length})</span>
-              <div className="flex items-center gap-3">
-                <button
-                  onClick={(e) => { e.stopPropagation(); fetchIngestors(); }}
-                  disabled={loadingIngestors || refreshingIngestors}
-                  className="px-3 py-1 bg-muted hover:bg-muted/80 text-muted-foreground rounded text-sm transition-colors disabled:opacity-50"
-                >
-                  {(loadingIngestors || refreshingIngestors) ? 'Refreshing...' : 'Refresh'}
-                </button>
-                <span className="text-xs text-muted-foreground group-open:rotate-180 transition-transform">▼</span>
-              </div>
-            </summary>
-            <div className="mt-4">
-              {loadingIngestors && ingestors.length === 0 ? (
-                <p className="text-muted-foreground text-xs">Loading ingestors...</p>
-              ) : ingestors.length > 0 ? (
-                <div className="overflow-x-auto">
-                  <table className="min-w-full text-xs text-left text-muted-foreground">
-                    <thead className="text-xs text-foreground uppercase bg-muted">
-                      <tr>
-                        <th scope="col" className="px-3 py-2">Ingestor</th>
-                        <th scope="col" className="px-3 py-2">Type</th>
-                        <th scope="col" className="px-3 py-2">Last Seen</th>
-                        <th scope="col" className="px-3 py-2">Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {ingestors.map(ingestor => {
-                        const isExpanded = expandedIngestors.has(ingestor.ingestor_id)
-                        const isDefaultWebloader = ingestor.ingestor_id === WEBLOADER_INGESTOR_ID
-                        const icon = getIconForType(ingestor.ingestor_type);
-
-                        return (
-                          <React.Fragment key={ingestor.ingestor_id}>
-                            <tr className="bg-card border-b border-border hover:bg-muted/50 cursor-pointer text-xs" onClick={() => toggleIngestor(ingestor.ingestor_id)}>
-                              <td className="px-3 py-2 font-medium text-foreground whitespace-nowrap flex items-center gap-2" title={ingestor.ingestor_id}>
-                                <span className="text-muted-foreground font-mono text-sm select-none">
-                                  {isExpanded ? '−' : '+'}
-                                </span>
-                                {icon && <IconRenderer icon={icon} className="w-4 h-4" />}
-                                {ingestor.ingestor_name}
-                              </td>
-                              <td className="px-3 py-2">{ingestor.ingestor_type}</td>
-                              <td className="px-3 py-2" title={ingestor.last_seen ? new Date(ingestor.last_seen * 1000).toLocaleString() : 'Never'}>
-                                {ingestor.last_seen ? formatRelativeTime(ingestor.last_seen) : 'Never'}
-                              </td>
-                              <td className="px-3 py-2">
-                                <button
-                                  onClick={(e) => { e.stopPropagation(); setShowDeleteIngestorConfirm(ingestor.ingestor_id); }}
-                                  className="bg-destructive hover:bg-destructive/90 text-destructive-foreground font-bold py-1 px-2 rounded text-xs disabled:opacity-50 disabled:cursor-not-allowed"
-                                  disabled={isDefaultWebloader || !hasPermission(Permission.DELETE)}
-                                  title={!hasPermission(Permission.DELETE) ? 'Insufficient permissions to delete ingestors' : isDefaultWebloader ? 'Cannot delete default webloader ingestor' : 'Delete this ingestor (metadata only)'}
-                                >
-                                  Delete
-                                </button>
-                              </td>
-                            </tr>
-                            {isExpanded && (
-                              <tr className="bg-muted/30">
-                                <td colSpan={4} className="p-4">
-                                  <div className="bg-card rounded-lg p-4 shadow-sm border border-border">
-                                    <div className="grid grid-cols-2 gap-4 text-xs mb-4">
-                                      <div>
-                                        <p className="text-xs font-medium text-muted-foreground mb-1">Ingestor ID</p>
-                                        <p className="font-mono text-xs text-foreground break-all">{ingestor.ingestor_id}</p>
-                                      </div>
-                                      <div>
-                                        <p className="text-xs font-medium text-muted-foreground mb-1">Name</p>
-                                        <p className="text-foreground">{ingestor.ingestor_name}</p>
-                                      </div>
-                                      <div>
-                                        <p className="text-xs font-medium text-muted-foreground mb-1">Type</p>
-                                        <p className="text-foreground">{ingestor.ingestor_type}</p>
-                                      </div>
-                                      <div>
-                                        <p className="text-xs font-medium text-muted-foreground mb-1">Last Seen</p>
-                                        <p className="text-foreground">
-                                          {ingestor.last_seen ? new Date(ingestor.last_seen * 1000).toLocaleString() : 'Never'}
-                                        </p>
-                                      </div>
-                                    </div>
-
-                                    {ingestor.description && (
-                                      <div className="mb-4">
-                                        <p className="text-xs font-medium text-muted-foreground mb-1">Description</p>
-                                        <p className="text-sm text-foreground bg-muted/50 p-3 rounded">{ingestor.description}</p>
-                                      </div>
-                                    )}
-
-                                    {ingestor.metadata && Object.keys(ingestor.metadata).length > 0 && (
-                                      <details className="rounded-lg bg-muted/50 p-3">
-                                        <summary className="cursor-pointer text-xs font-semibold text-foreground hover:text-foreground/80">
-                                          Metadata ({Object.keys(ingestor.metadata).length} {Object.keys(ingestor.metadata).length === 1 ? 'field' : 'fields'})
-                                        </summary>
-                                        <div className="mt-2">
-                                          <SyntaxHighlighter
-                                            language="json"
-                                            style={vscDarkPlus}
-                                            customStyle={{
-                                              margin: 0,
-                                              borderRadius: '0.375rem',
-                                              fontSize: '0.75rem',
-                                              maxHeight: '300px'
-                                            }}
-                                          >
-                                            {JSON.stringify(ingestor.metadata, null, 2)}
-                                          </SyntaxHighlighter>
-                                        </div>
-                                      </details>
-                                    )}
-                                  </div>
-                                </td>
-                              </tr>
-                            )}
-                          </React.Fragment>
-                        )
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              ) : (
-                <p className="text-muted-foreground text-xs">No ingestors found.</p>
               )}
             </div>
-          </details>
-        ) : (
-          <div>
-            <div className="flex items-center justify-between mb-3">
-              <h3 className="text-base font-semibold text-foreground">Ingestors</h3>
-              <button
-                onClick={() => fetchIngestors()}
-                disabled={loadingIngestors || refreshingIngestors}
-                className="px-3 py-1 bg-muted hover:bg-muted/80 text-muted-foreground rounded text-sm transition-colors disabled:opacity-50"
-              >
-                {(loadingIngestors || refreshingIngestors) ? 'Refreshing...' : 'Refresh'}
-              </button>
-            </div>
-            <p className="text-muted-foreground">No ingestors found. Ingestors are background services that process and ingest data from various sources.</p>
-          </div>
-        )}
-      </section>
+          </motion.section>
 
+          {/* Ingestors Section */}
+          <motion.section 
+            className="bg-card rounded-xl shadow-sm border border-border"
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.3, delay: 0.2 }}
+          >
+            <button
+              onClick={() => setShowIngestors(!showIngestors)}
+              className="w-full px-5 py-4 flex items-center justify-between hover:bg-muted/30 transition-colors"
+            >
+              <div className="flex items-center gap-3">
+                <Server className="h-5 w-5 text-muted-foreground" />
+                <h3 className="text-base font-semibold text-foreground">Ingestors</h3>
+                <Badge variant="secondary" className="text-xs">
+                  {ingestors.length}
+                </Badge>
+              </div>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={(e) => { e.stopPropagation(); fetchIngestors(); }}
+                  disabled={loadingIngestors || refreshingIngestors}
+                  className="gap-2"
+                >
+                  <RefreshCw className={cn("h-4 w-4", refreshingIngestors && "animate-spin")} />
+                </Button>
+                <motion.div
+                  animate={{ rotate: showIngestors ? 180 : 0 }}
+                  transition={{ duration: 0.2 }}
+                >
+                  <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                </motion.div>
+              </div>
+            </button>
+
+            <AnimatePresence>
+              {showIngestors && (
+                <motion.div
+                  initial={{ height: 0, opacity: 0 }}
+                  animate={{ height: "auto", opacity: 1 }}
+                  exit={{ height: 0, opacity: 0 }}
+                  transition={{ duration: 0.2 }}
+                  className="overflow-hidden"
+                >
+                  <div className="px-5 pb-5 border-t border-border pt-4">
+                    {loadingIngestors && ingestors.length === 0 ? (
+                      <div className="flex items-center justify-center py-8 text-muted-foreground">
+                        <Loader2 className="h-5 w-5 animate-spin mr-2" />
+                        Loading ingestors...
+                      </div>
+                    ) : ingestors.length === 0 ? (
+                      <p className="text-muted-foreground text-center py-8">
+                        No ingestors found. Ingestors are background services that process and ingest data.
+                      </p>
+                    ) : (
+                      <div className="space-y-2">
+                        {ingestors.map((ingestor, index) => {
+                          const isExpanded = expandedIngestors.has(ingestor.ingestor_id)
+                          const isDefaultWebloader = ingestor.ingestor_id === WEBLOADER_INGESTOR_ID
+                          const icon = getIconForType(ingestor.ingestor_type)
+
+                          return (
+                            <motion.div
+                              key={ingestor.ingestor_id}
+                              initial={{ opacity: 0, y: 10 }}
+                              animate={{ opacity: 1, y: 0 }}
+                              transition={{ delay: index * 0.03 }}
+                              className="border border-border rounded-lg overflow-hidden"
+                            >
+                              <div 
+                                className="flex items-center gap-3 px-4 py-3 cursor-pointer hover:bg-muted/30 transition-colors"
+                                onClick={() => toggleIngestor(ingestor.ingestor_id)}
+                              >
+                                <motion.div
+                                  animate={{ rotate: isExpanded ? 90 : 0 }}
+                                  transition={{ duration: 0.2 }}
+                                >
+                                  <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                                </motion.div>
+                                
+                                {icon && <IconRenderer icon={icon} className="w-4 h-4" />}
+                                
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center gap-2">
+                                    <span className="font-medium text-sm">{ingestor.ingestor_name}</span>
+                                    <Badge variant="secondary" className="text-[10px]">
+                                      {ingestor.ingestor_type}
+                                    </Badge>
+                                    {isDefaultWebloader && (
+                                      <Badge variant="outline" className="text-[10px]">
+                                        Default
+                                      </Badge>
+                                    )}
+                                  </div>
+                                  <p className="text-xs text-muted-foreground mt-0.5">
+                                    Last seen: {ingestor.last_seen ? formatRelativeTime(ingestor.last_seen) : 'Never'}
+                                  </p>
+                                </div>
+
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={(e) => { e.stopPropagation(); setShowDeleteIngestorConfirm(ingestor.ingestor_id); }}
+                                  disabled={isDefaultWebloader || !hasPermission(Permission.DELETE)}
+                                  className="h-7 w-7 p-0 hover:bg-destructive/10 hover:text-destructive"
+                                  title={isDefaultWebloader ? 'Cannot delete default webloader' : 'Delete ingestor'}
+                                >
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                </Button>
+                              </div>
+
+                              <AnimatePresence>
+                                {isExpanded && (
+                                  <motion.div
+                                    initial={{ height: 0, opacity: 0 }}
+                                    animate={{ height: "auto", opacity: 1 }}
+                                    exit={{ height: 0, opacity: 0 }}
+                                    transition={{ duration: 0.2 }}
+                                    className="overflow-hidden"
+                                  >
+                                    <div className="px-4 py-4 bg-muted/20 border-t border-border space-y-3">
+                                      <div className="grid grid-cols-2 gap-4 text-sm">
+                                        <div>
+                                          <p className="text-xs font-medium text-muted-foreground mb-1">Ingestor ID</p>
+                                          <p className="font-mono text-xs text-foreground break-all">{ingestor.ingestor_id}</p>
+                                        </div>
+                                        <div>
+                                          <p className="text-xs font-medium text-muted-foreground mb-1">Last Seen</p>
+                                          <p className="text-foreground text-sm">
+                                            {ingestor.last_seen ? new Date(ingestor.last_seen * 1000).toLocaleString() : 'Never'}
+                                          </p>
+                                        </div>
+                                      </div>
+
+                                      {ingestor.description && (
+                                        <div>
+                                          <p className="text-xs font-medium text-muted-foreground mb-1">Description</p>
+                                          <p className="text-sm text-foreground bg-muted/50 p-3 rounded-lg">{ingestor.description}</p>
+                                        </div>
+                                      )}
+
+                                      {ingestor.metadata && Object.keys(ingestor.metadata).length > 0 && (
+                                        <details className="rounded-lg bg-muted/50 border border-border/50">
+                                          <summary className="cursor-pointer text-xs font-medium text-foreground px-3 py-2 hover:bg-muted/50">
+                                            Metadata ({Object.keys(ingestor.metadata).length} fields)
+                                          </summary>
+                                          <div className="px-3 pb-3">
+                                            <SyntaxHighlighter
+                                              language="json"
+                                              style={vscDarkPlus}
+                                              customStyle={{
+                                                margin: 0,
+                                                borderRadius: '0.5rem',
+                                                fontSize: '0.75rem',
+                                                maxHeight: '200px'
+                                              }}
+                                            >
+                                              {JSON.stringify(ingestor.metadata, null, 2)}
+                                            </SyntaxHighlighter>
+                                          </div>
+                                        </details>
+                                      )}
+                                    </div>
+                                  </motion.div>
+                                )}
+                              </AnimatePresence>
+                            </motion.div>
+                          )
+                        })}
+                      </div>
+                    )}
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </motion.section>
         </div>
       </ScrollArea>
 
       {/* Delete Data Source Confirmation Dialog */}
-      {showDeleteDataSourceConfirm && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-card p-6 rounded-lg shadow-xl max-w-md w-full mx-4 border border-border">
-            <h3 className="text-lg font-bold text-foreground mb-4">Delete Data Source</h3>
-            <p className="text-muted-foreground mb-6">
-              Are you sure you want to delete this data source? This will permanently remove all associated documents and data. This action cannot be undone.
-            </p>
-            <div className="flex justify-end gap-3">
-              <button
-                onClick={() => setShowDeleteDataSourceConfirm(null)}
-                disabled={isDeletingDataSource}
-                className="px-4 py-2 bg-muted hover:bg-muted/80 text-foreground rounded-md disabled:opacity-50 disabled:cursor-not-allowed">
-                Cancel
-              </button>
-              <button
-                onClick={() => handleDeleteDataSource(showDeleteDataSourceConfirm)}
-                disabled={isDeletingDataSource}
-                className="px-4 py-2 bg-destructive hover:bg-destructive/90 text-destructive-foreground rounded-md disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2">
-                {isDeletingDataSource && (
-                  <svg className="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                  </svg>
-                )}
-                {isDeletingDataSource ? 'Deleting...' : 'Delete Data Source'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <AnimatePresence>
+        {showDeleteDataSourceConfirm && (
+          <motion.div 
+            className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setShowDeleteDataSourceConfirm(null)}
+          >
+            <motion.div 
+              className="bg-card p-6 rounded-xl shadow-2xl max-w-md w-full mx-4 border border-border"
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center gap-3 mb-4">
+                <div className="p-2 rounded-lg bg-destructive/10">
+                  <Trash2 className="h-5 w-5 text-destructive" />
+                </div>
+                <h3 className="text-lg font-bold text-foreground">Delete Data Source</h3>
+              </div>
+              <p className="text-muted-foreground mb-6">
+                Are you sure you want to delete this data source? This will permanently remove all associated documents and data. This action cannot be undone.
+              </p>
+              <div className="flex justify-end gap-3">
+                <Button
+                  variant="ghost"
+                  onClick={() => setShowDeleteDataSourceConfirm(null)}
+                  disabled={isDeletingDataSource}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  variant="destructive"
+                  onClick={() => handleDeleteDataSource(showDeleteDataSourceConfirm)}
+                  disabled={isDeletingDataSource}
+                >
+                  {isDeletingDataSource && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
+                  {isDeletingDataSource ? 'Deleting...' : 'Delete Data Source'}
+                </Button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Re-ingest Confirmation Dialog */}
+      <AnimatePresence>
+        {showReIngestConfirm && (
+          <motion.div 
+            className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setShowReIngestConfirm(null)}
+          >
+            <motion.div 
+              className="bg-card p-6 rounded-xl shadow-2xl max-w-md w-full mx-4 border border-border"
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center gap-3 mb-4">
+                <div className="p-2 rounded-lg bg-primary/10">
+                  <RotateCcw className="h-5 w-5 text-primary" />
+                </div>
+                <h3 className="text-lg font-bold text-foreground">Re-ingest Data Source</h3>
+              </div>
+              <p className="text-muted-foreground mb-6">
+                This will re-fetch and re-process all content from this data source. Existing documents will be updated with fresh content.
+              </p>
+              <div className="flex justify-end gap-3">
+                <Button
+                  variant="ghost"
+                  onClick={() => setShowReIngestConfirm(null)}
+                  disabled={isReIngesting}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  onClick={() => handleReloadDataSource(showReIngestConfirm)}
+                  disabled={isReIngesting}
+                >
+                  {isReIngesting && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
+                  {isReIngesting ? 'Re-ingesting...' : 'Re-ingest'}
+                </Button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Delete Ingestor Confirmation Dialog */}
-      {showDeleteIngestorConfirm && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-card p-6 rounded-lg shadow-xl max-w-md w-full mx-4 border border-border">
-            <h3 className="text-lg font-bold text-foreground mb-4">Delete Ingestor</h3>
-            <p className="text-muted-foreground mb-4">
-              Are you sure you want to delete this ingestor?
-            </p>
-            <div className="bg-primary/10 border-l-4 border-primary p-3 mb-6">
-              <p className="text-sm text-primary">
-                <strong>Note:</strong> This will only remove the ingestor metadata. It will <strong>NOT</strong> delete any associated datasources or ingested data.
+      <AnimatePresence>
+        {showDeleteIngestorConfirm && (
+          <motion.div 
+            className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setShowDeleteIngestorConfirm(null)}
+          >
+            <motion.div 
+              className="bg-card p-6 rounded-xl shadow-2xl max-w-md w-full mx-4 border border-border"
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center gap-3 mb-4">
+                <div className="p-2 rounded-lg bg-destructive/10">
+                  <Trash2 className="h-5 w-5 text-destructive" />
+                </div>
+                <h3 className="text-lg font-bold text-foreground">Delete Ingestor</h3>
+              </div>
+              <p className="text-muted-foreground mb-4">
+                Are you sure you want to delete this ingestor?
               </p>
-            </div>
-            <div className="flex justify-end gap-3">
-              <button
-                onClick={() => setShowDeleteIngestorConfirm(null)}
-                className="px-4 py-2 bg-muted hover:bg-muted/80 text-foreground rounded-md">
-                Cancel
-              </button>
-              <button
-                onClick={() => handleDeleteIngestor(showDeleteIngestorConfirm)}
-                className="px-4 py-2 bg-destructive hover:bg-destructive/90 text-destructive-foreground rounded-md">
-                Delete Ingestor
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+              <div className="bg-primary/10 border-l-4 border-primary p-3 mb-6 rounded-r-lg">
+                <p className="text-sm text-primary">
+                  <strong>Note:</strong> This will only remove the ingestor metadata. It will <strong>NOT</strong> delete any associated datasources or ingested data.
+                </p>
+              </div>
+              <div className="flex justify-end gap-3">
+                <Button
+                  variant="ghost"
+                  onClick={() => setShowDeleteIngestorConfirm(null)}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  variant="destructive"
+                  onClick={() => handleDeleteIngestor(showDeleteIngestorConfirm)}
+                >
+                  Delete Ingestor
+                </Button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   )
 }
