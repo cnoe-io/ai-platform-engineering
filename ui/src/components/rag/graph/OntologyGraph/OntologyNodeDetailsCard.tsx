@@ -168,7 +168,7 @@ export default function OntologyNodeDetailsCard({
                 let evaluations: any[] = [];
                 
                 // Parse heuristics - keyed by relation ID
-                const heuristicsData = heuristicsResponse.heuristics || heuristicsResponse;
+                const heuristicsData = (heuristicsResponse as any).heuristics || heuristicsResponse;
                 if (heuristicsData && typeof heuristicsData === 'object') {
                     heuristics = Object.entries(heuristicsData).map(([relationId, data]: [string, any]) => ({
                         relationId,
@@ -177,7 +177,7 @@ export default function OntologyNodeDetailsCard({
                 }
                 
                 // Parse evaluations - keyed by relation ID, with nested evaluation object
-                const evaluationsData = evaluationsResponse.evaluations || evaluationsResponse;
+                const evaluationsData = (evaluationsResponse as any).evaluations || evaluationsResponse;
                 if (evaluationsData && typeof evaluationsData === 'object') {
                     evaluations = Object.entries(evaluationsData).map(([relationId, data]: [string, any]) => ({
                         relationId,
@@ -219,7 +219,7 @@ export default function OntologyNodeDetailsCard({
     const handleAccept = useCallback(async (relationId: string) => {
         setActionLoading('accept');
         try {
-            await acceptOntologyRelation(relationId, '', {});
+            await acceptOntologyRelation(relationId, '', []);
             onRefreshGraph?.();
         } catch (err) {
             console.error('Failed to accept relation:', err);
