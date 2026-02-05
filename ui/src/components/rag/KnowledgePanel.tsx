@@ -24,7 +24,7 @@ import GraphView from "./GraphView";
 type TabType = "ingest" | "search" | "graph";
 
 export function KnowledgePanel() {
-  const [activeTab, setActiveTab] = useState<TabType>("ingest");
+  const [activeTab, setActiveTab] = useState<TabType>("search");
   const [exploreEntityData, setExploreEntityData] = useState<{ entityType: string; primaryKey: string } | null>(null);
 
   // Use the shared RAG health hook
@@ -38,6 +38,11 @@ export function KnowledgePanel() {
 
   const handleExploreComplete = useCallback(() => {
     setExploreEntityData(null);
+  }, []);
+
+  // Handle navigation to data sources from search empty state
+  const handleNavigateToDataSources = useCallback(() => {
+    setActiveTab("ingest");
   }, []);
 
   // Disconnected state
@@ -101,16 +106,6 @@ export function KnowledgePanel() {
       <div className="flex-shrink-0 w-full px-6 py-2 border-b border-border bg-card/50">
         <nav className="flex gap-6" aria-label="Tabs">
           <button
-            onClick={() => setActiveTab('ingest')}
-            className={`shrink-0 py-2 text-sm font-semibold transition-all duration-200 flex items-center gap-2 border-b-2 ${
-              activeTab === 'ingest'
-                ? 'border-primary text-primary'
-                : 'border-transparent text-muted-foreground hover:text-foreground'
-            }`}
-          >
-            <span>🗃️</span> Data Sources
-          </button>
-          <button
             onClick={() => setActiveTab('search')}
             className={`shrink-0 py-2 text-sm font-semibold transition-all duration-200 flex items-center gap-2 border-b-2 ${
               activeTab === 'search'
@@ -119,6 +114,16 @@ export function KnowledgePanel() {
             }`}
           >
             <span>🔍</span> Search
+          </button>
+          <button
+            onClick={() => setActiveTab('ingest')}
+            className={`shrink-0 py-2 text-sm font-semibold transition-all duration-200 flex items-center gap-2 border-b-2 ${
+              activeTab === 'ingest'
+                ? 'border-primary text-primary'
+                : 'border-transparent text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            <span>🗃️</span> Data Sources
           </button>
           <button
             onClick={graphRagEnabled ? () => setActiveTab('graph') : undefined}
@@ -141,7 +146,10 @@ export function KnowledgePanel() {
       <div className="flex-1 min-h-0 w-full overflow-hidden">
         {activeTab === 'ingest' && <IngestView />}
         {activeTab === 'search' && (
-          <SearchView onExploreEntity={handleExploreEntity} />
+          <SearchView 
+            onExploreEntity={handleExploreEntity} 
+            onNavigateToDataSources={handleNavigateToDataSources}
+          />
         )}
         {activeTab === 'graph' && (
           <GraphView

@@ -7,8 +7,8 @@ export default function KnowledgeBases() {
   const router = useRouter();
   
   useEffect(() => {
-    // Redirect to ingest by default
-    router.replace("/knowledge-bases/ingest");
+    // Redirect to search by default
+    router.replace("/knowledge-bases/search");
   }, [router]);
 
   return null;
