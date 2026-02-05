@@ -167,8 +167,50 @@ agent-gitlab:
   image:
     repository: "ghcr.io/cnoe-io/agent-gitlab"
     pullPolicy: "Always"
+  env:
+    GIT_AUTHOR_NAME: "AI Agent"
+    GIT_AUTHOR_EMAIL: "ai-agent@cnoe.io"
+    GIT_COMMITTER_NAME: "AI Agent"
+    GIT_COMMITTER_EMAIL: "ai-agent@cnoe.io"
   mcp:
-    useRemoteMcpServer: true
+    image:
+      repository: "zereight050/gitlab-mcp"
+      tag: "latest"
+      pullPolicy: "Always"
+    mode: "http" # Options: stdio, http
+    port: 8000
+    env:
+      STREAMABLE_HTTP: "true"
+      HOST: "0.0.0.0"
+      PORT: "8000"
+      MAX_SESSIONS: "1000"
+      MAX_REQUESTS_PER_MINUTE: "60"
+      USE_PIPELINE: "true"
+      # GITLAB_API_URL and GITLAB_PERSONAL_ACCESS_TOKEN should come from agentSecrets
+      # Option 1: Simple read-only mode (blocks all write operations)
+      GITLAB_READ_ONLY_MODE: "true"
+      # Option 2: Fine-grained control via regex (uncomment and customize)
+      # Tool filtering via regex. Uses ^ for prefix matching.
+      # Example patterns:
+      #
+      # READ-ONLY - blocks all write operations:
+      #   ^(delete_|remove_|create_|fork_|new_|update_|edit_|merge_|push_|publish_|retry_|cancel_|play_|promote_|upload_|resolve_|bulk_)|^(execute_graphql)$
+      #
+      # ALLOW CREATE - blocks delete/update:
+      #   ^(delete_|remove_|update_|edit_|merge_|push_|publish_|retry_|cancel_|play_|promote_|upload_|resolve_|bulk_)|^(execute_graphql)$
+      #
+      # ALLOW UPDATE - blocks delete/create:
+      #   ^(delete_|remove_|create_|fork_|new_)|^(execute_graphql)$
+      #
+      # ALLOW CREATE + UPDATE - blocks only delete:
+      #   ^(delete_|remove_)|^(execute_graphql)$
+      #
+      # To block specific tools, add them as exact matches: |^(tool1|tool2)$
+      # Example: ...|^(execute_graphql|approve_merge_request|unapprove_merge_request)$
+      #
+      # Note: execute_graphql is always blocked as it bypasses prefix-based permission controls
+      #
+      # GITLAB_DENIED_TOOLS_REGEX: "^(delete_|remove_|create_|fork_|new_|update_|edit_|merge_|push_|publish_|retry_|cancel_|play_|promote_|upload_|resolve_|bulk_)|^(execute_graphql)$"
 
 agent-jira:
   nameOverride: "agent-jira"

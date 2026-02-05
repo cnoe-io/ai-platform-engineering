@@ -73,8 +73,26 @@ def _sanitize_output(text: str, tokens: Optional[List[str]] = None) -> str:
 
 
 def _detect_git_provider(url: str) -> str:
-    """Detect git provider from URL: 'github', 'gitlab', or 'unknown'."""
+    """Detect git provider from URL: 'github', 'gitlab', or 'unknown'.
+
+    Also checks GITLAB_HOST and GITHUB_HOST environment variables for
+    custom/enterprise instances (e.g., gitlab.customhost.com for GitLab).
+    """
     url_lower = url.lower()
+    parsed = urlparse(url_lower)
+    host = parsed.netloc or url_lower
+
+    # Check for custom GitLab host from environment
+    gitlab_host = os.getenv("GITLAB_HOST", "").lower()
+    if gitlab_host and gitlab_host in host:
+        return 'gitlab'
+
+    # Check for custom GitHub host from environment
+    github_host = os.getenv("GITHUB_HOST", "").lower()
+    if github_host and github_host in host:
+        return 'github'
+
+    # Standard detection
     if 'github.com' in url_lower or 'github' in url_lower:
         return 'github'
     elif 'gitlab.com' in url_lower or 'gitlab' in url_lower:
@@ -97,16 +115,21 @@ def _get_auth_token(provider: str) -> Optional[str]:
     )
 
 
-def _inject_token_into_url(url: str, token: str) -> str:
+def _inject_token_into_url(url: str, token: str, provider: str = 'unknown') -> str:
     """
     Inject auth token into git HTTPS URL.
 
-    Transforms: https://github.com/owner/repo.git
-    Into: https://x-access-token:TOKEN@github.com/owner/repo.git
+    For GitHub: https://x-access-token:TOKEN@github.com/owner/repo.git
+    For GitLab: https://gitlab-ci-token:TOKEN@gitlab.com/owner/repo.git
     """
     parsed = urlparse(url)
     if parsed.scheme in ('http', 'https') and not parsed.username:
-        netloc_with_auth = f"x-access-token:{token}@{parsed.netloc}"
+        # GitLab uses gitlab-ci-token, GitHub uses x-access-token
+        if provider == 'gitlab':
+            username = 'gitlab-ci-token'
+        else:
+            username = 'x-access-token'
+        netloc_with_auth = f"{username}:{token}@{parsed.netloc}"
         return parsed._replace(netloc=netloc_with_auth).geturl()
     return url
 
@@ -137,6 +160,7 @@ def _run_git_command(
 
     Detects URLs in the command and injects auth tokens automatically.
     All output is sanitized to prevent credential leakage.
+
     """
     tokens_to_redact = _get_all_tokens()
 
@@ -149,7 +173,7 @@ def _run_git_command(
             provider = _detect_git_provider(url)
             token = _get_auth_token(provider)
             if token:
-                authenticated_url = _inject_token_into_url(url, token)
+                authenticated_url = _inject_token_into_url(url, token, provider)
                 # Replace URL with authenticated version
                 for i, arg in enumerate(cmd_args):
                     if arg == url:
@@ -157,12 +181,15 @@ def _run_git_command(
                         break
                 logger.debug(f"Using {provider} token for authentication")
 
+        # Pass current environment to ensure GIT_AUTHOR_NAME, GIT_AUTHOR_EMAIL,
+        # GIT_COMMITTER_NAME, GIT_COMMITTER_EMAIL are available for commits
         result = subprocess.run(
             cmd_args,
             cwd=cwd,
             capture_output=True,
             text=True,
-            timeout=GIT_TIMEOUT
+            timeout=GIT_TIMEOUT,
+            env=os.environ.copy()
         )
 
         return {
