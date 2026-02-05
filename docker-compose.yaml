@@ -640,7 +640,7 @@ services:
   #   - Configure via MONGODB_* environment variables
   #   - See mongodb service configuration above
   caipe-ui:
-    image: ai-platform-engineering-caipe-ui:latest
+    image: ghcr.io/cnoe-io/caipe-ui:${IMAGE_TAG:-0.2.15}
     container_name: caipe-ui
     ports: ["3000:3000"]
     env_file:
