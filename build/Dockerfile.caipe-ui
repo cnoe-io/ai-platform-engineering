@@ -26,11 +26,28 @@ RUN if [ -f package-lock.json ]; then npm ci; \
 FROM node:20-alpine AS build
 WORKDIR /app
 
+# Build args for version info
+ARG IMAGE_TAG=dev
+ARG GIT_COMMIT=unknown
+ARG BUILD_DATE
+
 COPY --from=deps /app/node_modules ./node_modules
 COPY ui .
 
 # Disable telemetry during build
 ENV NEXT_TELEMETRY_DISABLED=1
+
+# Create version info file
+RUN BUILD_DATE_VALUE="${BUILD_DATE}"; \
+    if [ -z "$BUILD_DATE_VALUE" ]; then \
+        BUILD_DATE_VALUE=$(date -u +%Y-%m-%dT%H:%M:%SZ); \
+    fi; \
+    printf '{"version":"%s","gitCommit":"%s","buildDate":"%s"}\n' \
+    "${IMAGE_TAG}" \
+    "${GIT_COMMIT}" \
+    "$BUILD_DATE_VALUE" \
+    > public/version.json && \
+    cat public/version.json
 
 # Build Next.js standalone application without baking in NEXT_PUBLIC_* vars
 # These will be injected at runtime via env-config.js
@@ -51,6 +68,9 @@ RUN addgroup --system --gid 1001 nodejs && \
 COPY --from=build /app/public ./public
 COPY --from=build --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=build --chown=nextjs:nodejs /app/.next/static ./.next/static
+
+# Copy version info
+COPY --from=build /app/public/version.json ./public/version.json
 
 # Copy entrypoint script for runtime env injection
 COPY --chown=nextjs:nodejs build/entrypoint.sh /app/entrypoint.sh

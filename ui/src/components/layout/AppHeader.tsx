@@ -22,6 +22,7 @@ import { getConfig } from "@/lib/config";
 import { useChatStore } from "@/store/chat-store";
 import { useCAIPEHealth } from "@/hooks/use-caipe-health";
 import { useRAGHealth } from "@/hooks/use-rag-health";
+import { useVersion } from "@/hooks/use-version";
 import {
   Popover,
   PopoverContent,
@@ -67,6 +68,9 @@ export function AppHeader() {
     secondsUntilNextCheck: ragNextCheck,
     graphRagEnabled
   } = useRAGHealth();
+
+  // Fetch version info
+  const { versionInfo } = useVersion();
 
   // Combined status: if either is checking -> checking, if either is disconnected -> disconnected, else connected
   const getCombinedStatus = () => {
@@ -399,16 +403,36 @@ export function AppHeader() {
                 </div>
                 
                 {/* Footer */}
-                <div className="px-4 py-2.5 bg-muted/20 border-t border-border/50 flex items-center justify-between text-xs">
-                  <div className="flex items-center gap-2 text-muted-foreground">
-                    <span className="inline-block w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
-                    <span>Health checks active (30s interval)</span>
+                <div className="px-4 py-2.5 bg-muted/20 border-t border-border/50 space-y-1.5">
+                  <div className="flex items-center justify-between text-xs">
+                    <div className="flex items-center gap-2 text-muted-foreground">
+                      <span className="inline-block w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
+                      <span>Health checks active (30s interval)</span>
+                    </div>
+                    <div className="text-muted-foreground">
+                      {combinedStatus === "connected" ? "All systems operational" : 
+                       combinedStatus === "checking" ? "Checking status..." : 
+                       "Check logs for details"}
+                    </div>
                   </div>
-                  <div className="text-muted-foreground">
-                    {combinedStatus === "connected" ? "All systems operational" : 
-                     combinedStatus === "checking" ? "Checking status..." : 
-                     "Check logs for details"}
-                  </div>
+                  {versionInfo && (
+                    <div className="flex items-center justify-between text-[10px] text-muted-foreground font-mono">
+                      <div className="flex items-center gap-2">
+                        <span className="font-semibold text-primary">UI Version:</span>
+                        <span>{versionInfo.version}</span>
+                        {versionInfo.gitCommit !== "unknown" && (
+                          <span className="text-muted-foreground/60">
+                            ({versionInfo.gitCommit.substring(0, 7)})
+                          </span>
+                        )}
+                      </div>
+                      {versionInfo.buildDate && (
+                        <span className="text-muted-foreground/60">
+                          Built: {new Date(versionInfo.buildDate).toLocaleDateString()}
+                        </span>
+                      )}
+                    </div>
+                  )}
                 </div>
               </div>
             </PopoverContent>

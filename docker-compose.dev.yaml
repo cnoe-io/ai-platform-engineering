@@ -868,6 +868,10 @@ services:
     build:
       context: .
       dockerfile: build/Dockerfile.caipe-ui
+      args:
+        - IMAGE_TAG=${IMAGE_TAG:-dev}
+        - GIT_COMMIT=${GIT_COMMIT:-unknown}
+        - BUILD_DATE=${BUILD_DATE:-}
     container_name: caipe-ui
     ports: ["3000:3000"]
     env_file:
@@ -893,6 +897,12 @@ services:
       - CAIPE_UI_OIDC_CLIENT_ID=${OIDC_CLIENT_ID:-}
       - CAIPE_UI_OIDC_CLIENT_SECRET=${OIDC_CLIENT_SECRET:-}
       - CAIPE_UI_OIDC_ISSUER=${OIDC_ISSUER:-}
+      # UI Branding - explicitly unset to use defaults (no Grid branding)
+      # To enable custom branding, uncomment and set in .env file
+      # - NEXT_PUBLIC_APP_NAME=${NEXT_PUBLIC_APP_NAME:-}
+      # - NEXT_PUBLIC_TAGLINE=${NEXT_PUBLIC_TAGLINE:-}
+      # - NEXT_PUBLIC_DESCRIPTION=${NEXT_PUBLIC_DESCRIPTION:-}
+      # - NEXT_PUBLIC_LOGO_URL=${NEXT_PUBLIC_LOGO_URL:-}
     depends_on:
       - caipe-supervisor
     healthcheck:
