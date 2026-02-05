@@ -1,3 +1,8 @@
+{{- /*
+This ConfigMap is only needed in multi-agent mode where sub-agents run as separate containers.
+In single-node mode, MCP tools are loaded in-process via stdio transport.
+*/ -}}
+{{- if eq (default "single-node" .Values.global.deploymentMode) "multi-agent" }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -12,3 +17,4 @@ data:
   ENABLE_{{ $ENV }}: "true"
   {{- end }}
   {{- end }}
+{{- end }}

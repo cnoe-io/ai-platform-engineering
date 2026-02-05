@@ -404,6 +404,7 @@ Use this as the reference point for all date calculations. When users say "today
         - Return proper tuple format for response_format='content_and_artifact'
         - Log warnings for debugging
         - Truncate large outputs to prevent context overflow
+        - Add sync support for async-only tools (needed for subagent middleware)
 
         This prevents tool failures from crashing agents and closing A2A event streams.
         Subclasses can override _parse_tool_error() for service-specific error parsing.
@@ -415,7 +416,9 @@ Use this as the reference point for all date calculations. When users say "today
         Returns:
             List of wrapped tools with error handling
         """
+        import asyncio
         from functools import wraps
+        from langchain_core.tools import StructuredTool
 
         # Get max tool output size from environment (default 10KB for smaller context models)
         max_tool_output = int(os.getenv("MAX_TOOL_OUTPUT_SIZE", "10000"))
@@ -423,47 +426,103 @@ Use this as the reference point for all date calculations. When users say "today
         wrapped_tools = []
 
         for tool in tools:
-            # Store original methods
-            original_run = tool._run if hasattr(tool, '_run') else None
-            original_arun = tool._arun if hasattr(tool, '_arun') else None
+            try:
+                tool_name = tool.name
+                # Check if this is an async-only tool (has coroutine but no func)
+                has_sync = hasattr(tool, 'func') and tool.func is not None
+                has_async = hasattr(tool, 'coroutine') and tool.coroutine is not None
+                
+                logger.debug(f"Wrapping tool {tool_name}: has_sync={has_sync}, has_async={has_async}")
+                
+                if has_async and not has_sync:
+                    # This is an async-only tool - we need to create a new StructuredTool
+                    # with both func (sync) and coroutine (async) to support sync invocation
+                    original_coroutine = tool.coroutine
+                    
+                    # Create wrapped async function with error handling
+                    async def safe_coroutine(*args, _orig=original_coroutine, _tool_name=tool_name, _max_size=max_tool_output, **kwargs):
+                        try:
+                            result = await _orig(*args, **kwargs)
+                            result, was_truncated = self._truncate_tool_output(result, _tool_name, _max_size)
+                            return result
+                        except Exception as e:
+                            user_msg = self._parse_tool_error(e, _tool_name)
+                            logger.warning(f"{self.get_agent_name()} MCP tool error: {user_msg}")
+                            return (user_msg, {"error": str(e), "tool": _tool_name})
+                    
+                    # Create sync wrapper that runs async code
+                    def sync_wrapper(*args, _async_fn=safe_coroutine, _tool_name=tool_name, **kwargs):
+                        try:
+                            # Check if we're already in an async context
+                            try:
+                                loop = asyncio.get_running_loop()
+                            except RuntimeError:
+                                loop = None
 
-            # Create error-handled sync version
-            if original_run:
-                @wraps(original_run)
-                def safe_run(*args, _orig=original_run, _tool_name=tool.name, _max_size=max_tool_output, **kwargs):
-                    try:
-                        result = _orig(*args, **kwargs)
-                        # Truncate large outputs to prevent context overflow
-                        result, was_truncated = self._truncate_tool_output(result, _tool_name, _max_size)
-                        return result
-                    except Exception as e:
-                        user_msg = self._parse_tool_error(e, _tool_name)
-                        logger.warning(f"{self.get_agent_name()} MCP tool error: {user_msg}")
-                        # Return tuple format for response_format='content_and_artifact'
-                        return (user_msg, {"error": str(e), "tool": _tool_name})
+                            if loop and loop.is_running():
+                                # Already in async context - use nest_asyncio to allow nested run
+                                import nest_asyncio
+                                nest_asyncio.apply()
+                                result = loop.run_until_complete(_async_fn(*args, **kwargs))
+                            else:
+                                # Not in async context - create new event loop
+                                result = asyncio.run(_async_fn(*args, **kwargs))
+                            return result
+                        except Exception as e:
+                            user_msg = self._parse_tool_error(e, _tool_name)
+                            logger.warning(f"{self.get_agent_name()} MCP tool sync wrapper error: {user_msg}")
+                            return (user_msg, {"error": str(e), "tool": _tool_name})
+                    
+                    # Create new StructuredTool with both sync and async support
+                    new_tool = StructuredTool(
+                        name=tool.name,
+                        description=tool.description or "",
+                        args_schema=tool.args_schema,
+                        func=sync_wrapper,
+                        coroutine=safe_coroutine,
+                        response_format=getattr(tool, 'response_format', 'content'),
+                        metadata=tool.metadata,
+                    )
+                    wrapped_tools.append(new_tool)
+                    logger.debug(f"Created sync+async wrapper for tool: {tool.name}")
+                else:
+                    # Tool already has sync support or is sync-only - just wrap with error handling
+                    original_run = tool._run if hasattr(tool, '_run') else None
+                    original_arun = tool._arun if hasattr(tool, '_arun') else None
 
-                tool._run = safe_run
+                    if original_run:
+                        @wraps(original_run)
+                        def safe_run(*args, _orig=original_run, _tool_name=tool_name, _max_size=max_tool_output, **kwargs):
+                            try:
+                                result = _orig(*args, **kwargs)
+                                result, was_truncated = self._truncate_tool_output(result, _tool_name, _max_size)
+                                return result
+                            except Exception as e:
+                                user_msg = self._parse_tool_error(e, _tool_name)
+                                logger.warning(f"{self.get_agent_name()} MCP tool error: {user_msg}")
+                                return (user_msg, {"error": str(e), "tool": _tool_name})
+                        tool._run = safe_run
 
-            # Create error-handled async version
-            if original_arun:
-                @wraps(original_arun)
-                async def safe_arun(*args, _orig=original_arun, _tool_name=tool.name, _max_size=max_tool_output, **kwargs):
-                    try:
-                        result = await _orig(*args, **kwargs)
-                        # Truncate large outputs to prevent context overflow
-                        result, was_truncated = self._truncate_tool_output(result, _tool_name, _max_size)
-                        return result
-                    except Exception as e:
-                        user_msg = self._parse_tool_error(e, _tool_name)
-                        logger.warning(f"{self.get_agent_name()} MCP tool error: {user_msg}")
-                        # Return tuple format for response_format='content_and_artifact'
-                        return (user_msg, {"error": str(e), "tool": _tool_name})
+                    if original_arun:
+                        @wraps(original_arun)
+                        async def safe_arun(*args, _orig=original_arun, _tool_name=tool_name, _max_size=max_tool_output, **kwargs):
+                            try:
+                                result = await _orig(*args, **kwargs)
+                                result, was_truncated = self._truncate_tool_output(result, _tool_name, _max_size)
+                                return result
+                            except Exception as e:
+                                user_msg = self._parse_tool_error(e, _tool_name)
+                                logger.warning(f"{self.get_agent_name()} MCP tool error: {user_msg}")
+                                return (user_msg, {"error": str(e), "tool": _tool_name})
+                        tool._arun = safe_arun
 
-                tool._arun = safe_arun
+                    wrapped_tools.append(tool)
+            except Exception as e:
+                logger.error(f"Failed to wrap tool {tool.name}: {e}", exc_info=True)
+                # Add the unwrapped tool rather than failing completely
+                wrapped_tools.append(tool)
 
-            wrapped_tools.append(tool)
-
-        logger.info(f"Wrapped {len(wrapped_tools)} {self.get_agent_name()} MCP tools with error handling")
+        logger.info(f"Wrapped {len(wrapped_tools)} {self.get_agent_name()} MCP tools with error handling and sync support")
         return wrapped_tools
 
     async def _setup_mcp_and_graph(self, config: RunnableConfig) -> None:
