@@ -24,18 +24,18 @@ interface KnowledgeSidebarProps {
 
 const navItems = [
   {
-    id: "ingest",
-    label: "Data Sources",
-    href: "/knowledge-bases/ingest",
-    icon: Database,
-    description: "Ingest and manage sources",
-  },
-  {
     id: "search",
     label: "Search",
     href: "/knowledge-bases/search",
     icon: Search,
     description: "Search your knowledge base",
+  },
+  {
+    id: "ingest",
+    label: "Data Sources",
+    href: "/knowledge-bases/ingest",
+    icon: Database,
+    description: "Ingest and manage sources",
   },
   {
     id: "graph",
@@ -51,10 +51,10 @@ export function KnowledgeSidebar({ collapsed, onCollapse, graphRagEnabled }: Kno
   const pathname = usePathname();
 
   const getActiveTab = () => {
-    if (pathname?.includes("/ingest")) return "ingest";
     if (pathname?.includes("/search")) return "search";
+    if (pathname?.includes("/ingest")) return "ingest";
     if (pathname?.includes("/graph")) return "graph";
-    return "ingest";
+    return "search";
   };
 
   const activeTab = getActiveTab();
