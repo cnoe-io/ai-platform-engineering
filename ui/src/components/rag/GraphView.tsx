@@ -223,7 +223,7 @@ export default function GraphView({ exploreEntityData, onExploreComplete }: Grap
             </div>
 
             {/* Graph Content */}
-            <div className="flex-1 min-h-0 bg-muted/30">
+            <div className="flex-1 min-h-0 bg-muted/30 relative">
                 {activeView === 'ontology' ? (
                     <OntologyGraphSigma />
                 ) : (

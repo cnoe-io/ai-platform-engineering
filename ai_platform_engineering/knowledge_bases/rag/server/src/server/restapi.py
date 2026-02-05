@@ -167,6 +167,19 @@ async def app_lifespan(app: FastAPI):
         enable_dynamic_field=True, # allow for dynamic metadata fields
     )
 
+    # Ensure the collection exists (required for upsert operations)
+    # The Milvus langchain wrapper only auto-creates collections on add_documents, not upsert
+    if not vector_db.client.has_collection(default_collection_name_docs):
+        logger.info(f"Collection {default_collection_name_docs} does not exist, creating it...")
+        # Add a dummy document to trigger collection creation with proper schema
+        dummy_doc = Document(page_content="__init__", metadata={"_init": True})
+        vector_db.add_documents(documents=[dummy_doc], ids=["__init_doc__"])
+        # Delete the dummy document
+        vector_db.delete(ids=["__init_doc__"])
+        logger.info(f"Collection {default_collection_name_docs} created successfully")
+    else:
+        logger.info(f"Collection {default_collection_name_docs} already exists")
+
     vector_db_query_service = VectorDBQueryService(vector_db=vector_db)
 
     if graph_rag_enabled:
