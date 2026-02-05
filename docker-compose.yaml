@@ -650,6 +650,7 @@ services:
       # CAIPE supervisor A2A endpoint URL
       # Can be overridden with CAIPE_URL environment variable
       - NEXT_PUBLIC_CAIPE_URL=${CAIPE_URL:-http://localhost:8000}
+      - NEXT_PUBLIC_A2A_BASE_URL=${CAIPE_URL:-http://localhost:8000}
       - CAIPE_URL=${CAIPE_URL:-http://localhost:8000}
       # RAG Server URL for knowledge base API (internal Docker network)
       - RAG_SERVER_URL=${RAG_SERVER_URL:-http://rag_server:9446}
