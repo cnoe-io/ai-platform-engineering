@@ -7,8 +7,16 @@ FROM node:20-alpine AS deps
 RUN apk add --no-cache libc6-compat
 WORKDIR /app
 
-# Install dependencies with cache
+# Install dependencies with cache and network resilience
 COPY ui/package.json ui/package-lock.json* ui/yarn.lock* ui/pnpm-lock.yaml* ./
+
+# Configure npm for better network resilience
+RUN npm config set fetch-retries 5 && \
+    npm config set fetch-retry-mintimeout 20000 && \
+    npm config set fetch-retry-maxtimeout 120000 && \
+    npm config set fetch-timeout 300000
+
+# Install dependencies with appropriate package manager
 RUN if [ -f package-lock.json ]; then npm ci; \
     elif [ -f yarn.lock ]; then yarn install --frozen-lockfile; \
     elif [ -f pnpm-lock.yaml ]; then npm i -g pnpm && pnpm i --frozen-lockfile; \
@@ -18,11 +26,28 @@ RUN if [ -f package-lock.json ]; then npm ci; \
 FROM node:20-alpine AS build
 WORKDIR /app
 
+# Build args for version info
+ARG IMAGE_TAG=dev
+ARG GIT_COMMIT=unknown
+ARG BUILD_DATE
+
 COPY --from=deps /app/node_modules ./node_modules
 COPY ui .
 
 # Disable telemetry during build
 ENV NEXT_TELEMETRY_DISABLED=1
+
+# Create version info file
+RUN BUILD_DATE_VALUE="${BUILD_DATE}"; \
+    if [ -z "$BUILD_DATE_VALUE" ]; then \
+        BUILD_DATE_VALUE=$(date -u +%Y-%m-%dT%H:%M:%SZ); \
+    fi; \
+    printf '{"version":"%s","gitCommit":"%s","buildDate":"%s"}\n' \
+    "${IMAGE_TAG}" \
+    "${GIT_COMMIT}" \
+    "$BUILD_DATE_VALUE" \
+    > public/version.json && \
+    cat public/version.json
 
 # Build Next.js standalone application without baking in NEXT_PUBLIC_* vars
 # These will be injected at runtime via env-config.js
@@ -43,6 +68,9 @@ RUN addgroup --system --gid 1001 nodejs && \
 COPY --from=build /app/public ./public
 COPY --from=build --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=build --chown=nextjs:nodejs /app/.next/static ./.next/static
+
+# Copy version info
+COPY --from=build /app/public/version.json ./public/version.json
 
 # Copy entrypoint script for runtime env injection
 COPY --chown=nextjs:nodejs build/entrypoint.sh /app/entrypoint.sh

@@ -5,15 +5,13 @@
  * and that role determination works correctly.
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-
 // Mock NextAuth
-vi.mock('next-auth', () => ({
-  getServerSession: vi.fn(),
+jest.mock('next-auth', () => ({
+  getServerSession: jest.fn(),
 }));
 
 // Mock auth config
-vi.mock('@/lib/auth-config', () => ({
+jest.mock('@/lib/auth-config', () => ({
   authOptions: {},
 }));
 
@@ -21,7 +19,7 @@ import { getServerSession } from 'next-auth';
 
 describe('RAG RBAC Integration', () => {
   beforeEach(() => {
-    vi.clearAllMocks();
+    jest.clearAllMocks();
     // Reset env vars
     process.env.RBAC_READONLY_GROUPS = 'readers';
     process.env.RBAC_INGESTONLY_GROUPS = 'ingestors';
@@ -31,7 +29,7 @@ describe('RAG RBAC Integration', () => {
 
   describe('User Info API', () => {
     it('should return unauthenticated for no session', async () => {
-      vi.mocked(getServerSession).mockResolvedValue(null);
+      jest.mocked(getServerSession).mockResolvedValue(null);
 
       // Dynamic import to get fresh module after mocks
       const { GET } = await import('@/app/api/user/info/route');
@@ -44,7 +42,7 @@ describe('RAG RBAC Integration', () => {
     });
 
     it('should determine READONLY role for user with no groups', async () => {
-      vi.mocked(getServerSession).mockResolvedValue({
+      jest.mocked(getServerSession).mockResolvedValue({
         user: { email: 'test@example.com' },
         groups: [],
       } as any);
@@ -61,7 +59,7 @@ describe('RAG RBAC Integration', () => {
     });
 
     it('should determine INGESTONLY role for ingestor group', async () => {
-      vi.mocked(getServerSession).mockResolvedValue({
+      jest.mocked(getServerSession).mockResolvedValue({
         user: { email: 'ingestor@example.com' },
         groups: ['ingestors'],
       } as any);
@@ -75,7 +73,7 @@ describe('RAG RBAC Integration', () => {
     });
 
     it('should determine ADMIN role for admin group', async () => {
-      vi.mocked(getServerSession).mockResolvedValue({
+      jest.mocked(getServerSession).mockResolvedValue({
         user: { email: 'admin@example.com' },
         groups: ['admins'],
       } as any);
@@ -89,7 +87,7 @@ describe('RAG RBAC Integration', () => {
     });
 
     it('should use most permissive role when user has multiple groups', async () => {
-      vi.mocked(getServerSession).mockResolvedValue({
+      jest.mocked(getServerSession).mockResolvedValue({
         user: { email: 'multi@example.com' },
         groups: ['readers', 'ingestors', 'admins'],
       } as any);
@@ -104,7 +102,7 @@ describe('RAG RBAC Integration', () => {
 
   describe('RAG API Proxy Header Injection', () => {
     it('should inject X-Forwarded-Email header', async () => {
-      vi.mocked(getServerSession).mockResolvedValue({
+      jest.mocked(getServerSession).mockResolvedValue({
         user: { email: 'test@example.com' },
         groups: ['readers'],
       } as any);
@@ -117,7 +115,7 @@ describe('RAG RBAC Integration', () => {
     });
 
     it('should inject X-Forwarded-Groups header with comma-separated groups', async () => {
-      vi.mocked(getServerSession).mockResolvedValue({
+      jest.mocked(getServerSession).mockResolvedValue({
         user: { email: 'test@example.com' },
         groups: ['group1', 'group2', 'group3'],
       } as any);
@@ -127,7 +125,7 @@ describe('RAG RBAC Integration', () => {
     });
 
     it('should handle empty groups gracefully', async () => {
-      vi.mocked(getServerSession).mockResolvedValue({
+      jest.mocked(getServerSession).mockResolvedValue({
         user: { email: 'test@example.com' },
         groups: [],
       } as any);
@@ -178,7 +176,7 @@ describe('RAG RBAC Integration', () => {
 
     testCases.forEach(({ groups, expectedRole, canRead, canIngest, canDelete }) => {
       it(`should assign ${expectedRole} role for groups: ${groups.join(', ')}`, async () => {
-        vi.mocked(getServerSession).mockResolvedValue({
+        jest.mocked(getServerSession).mockResolvedValue({
           user: { email: 'test@example.com' },
           groups,
         } as any);
@@ -199,13 +197,13 @@ describe('RAG RBAC Integration', () => {
     it('should use custom default role from env', async () => {
       process.env.RBAC_DEFAULT_ROLE = 'INGESTONLY';
 
-      vi.mocked(getServerSession).mockResolvedValue({
+      jest.mocked(getServerSession).mockResolvedValue({
         user: { email: 'test@example.com' },
         groups: ['unknown-group'],
       } as any);
 
       // Force module reload to pick up new env
-      vi.resetModules();
+      jest.resetModules();
       const { GET } = await import('@/app/api/user/info/route');
       const response = await GET();
       const data = await response.json();
@@ -216,12 +214,12 @@ describe('RAG RBAC Integration', () => {
     it('should handle multiple group names separated by commas', async () => {
       process.env.RBAC_ADMIN_GROUPS = 'admins,platform-admins,super-admins';
 
-      vi.mocked(getServerSession).mockResolvedValue({
+      jest.mocked(getServerSession).mockResolvedValue({
         user: { email: 'test@example.com' },
         groups: ['platform-admins'],
       } as any);
 
-      vi.resetModules();
+      jest.resetModules();
       const { GET } = await import('@/app/api/user/info/route');
       const response = await GET();
       const data = await response.json();
