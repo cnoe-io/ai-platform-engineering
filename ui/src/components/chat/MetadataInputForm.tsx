@@ -9,26 +9,19 @@ import { cn } from "@/lib/utils";
 // Platform Engineer Input Field (from A2A response)
 export interface InputField {
   field_name: string;
-  field_label?: string;
-  field_description?: string;
-  field_type?: "text" | "select" | "boolean" | "number" | "url" | "email";
+  field_description: string;
   field_values?: string[] | null;
-  placeholder?: string;
-  required?: boolean;
-  default_value?: string;
+  required?: boolean;  // Optional fields have required: false
+  default_value?: string | null;  // Pre-populated default value
 }
 
 export interface UserInputMetadata {
   user_input?: boolean;
-  input_title?: string;
-  input_description?: string;
   input_fields?: InputField[];
 }
 
 interface MetadataInputFormProps {
   messageId: string;
-  title?: string;
-  description?: string;
   inputFields: InputField[];
   onSubmit: (data: Record<string, string>) => void;
   onCancel?: () => void;
@@ -37,14 +30,12 @@ interface MetadataInputFormProps {
 
 export function MetadataInputForm({
   messageId,
-  title = "Additional Input Required",
-  description,
   inputFields,
   onSubmit,
   onCancel,
   disabled = false,
 }: MetadataInputFormProps) {
-  // Initialize form data with default values
+  // Initialize form data with default values if provided
   const [formData, setFormData] = useState<Record<string, string>>(() => {
     const initial: Record<string, string> = {};
     inputFields.forEach((field) => {
@@ -73,7 +64,9 @@ export function MetadataInputForm({
     const newErrors: Record<string, string> = {};
 
     inputFields.forEach((field) => {
-      if (field.required !== false && !formData[field.field_name]?.trim()) {
+      // Only validate fields that are required (default to required if not specified)
+      const isRequired = field.required !== false;
+      if (isRequired && !formData[field.field_name]?.trim()) {
         newErrors[field.field_name] = "This field is required";
       }
     });
@@ -106,7 +99,7 @@ export function MetadataInputForm({
         <div className="flex items-center gap-2">
           <AlertCircle className="h-4 w-4 text-amber-400" />
           <span className="text-sm font-medium text-amber-400">
-            {title}
+            Additional Input Required
           </span>
         </div>
         {onCancel && (
@@ -121,119 +114,83 @@ export function MetadataInputForm({
         )}
       </div>
 
-      {/* Description */}
-      {description && (
-        <p className="text-sm text-muted-foreground mb-4">{description}</p>
-      )}
-
       {/* Form */}
       <form onSubmit={handleSubmit} className="space-y-4">
         {inputFields.map((field, idx) => {
-          const fieldType = field.field_type || "text";
-          const fieldLabel = field.field_label || field.field_name.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
-          
+          const isRequired = field.required !== false;
           return (
-            <div key={field.field_name} className="space-y-1.5">
-              <label className="text-sm font-medium text-foreground">
-                {fieldLabel}
-                {field.required !== false && <span className="text-red-400 ml-1">*</span>}
-              </label>
-
-              {field.field_description && (
-                <p className="text-xs text-muted-foreground">
-                  {field.field_description}
-                </p>
-              )}
-
-              {/* Render field based on type */}
-              {fieldType === "select" && field.field_values && field.field_values.length > 0 ? (
-                <div className="relative">
-                  <select
-                    value={formData[field.field_name] || ""}
-                    onChange={(e) => handleFieldChange(field.field_name, e.target.value)}
-                    disabled={disabled || isSubmitting}
-                    className={cn(
-                      "w-full px-3 py-2 pr-8 rounded-lg text-sm appearance-none",
-                      "bg-background border transition-colors",
-                      "focus:outline-none focus:ring-2 focus:ring-primary/50",
-                      errors[field.field_name]
-                        ? "border-red-500"
-                        : "border-border hover:border-primary/50"
-                    )}
-                  >
-                    <option value="">Select an option...</option>
-                    {field.field_values.map((value) => (
-                      <option key={value} value={value}>
-                        {value}
-                      </option>
-                    ))}
-                  </select>
-                  <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
-                </div>
-              ) : fieldType === "boolean" ? (
-                <div className="flex items-center gap-3 pt-1">
-                  <button
-                    type="button"
-                    role="switch"
-                    aria-checked={formData[field.field_name] === "Yes" || formData[field.field_name] === "true"}
-                    onClick={() => {
-                      const currentValue = formData[field.field_name];
-                      const newValue = (currentValue === "Yes" || currentValue === "true") ? "No" : "Yes";
-                      handleFieldChange(field.field_name, newValue);
-                    }}
-                    disabled={disabled || isSubmitting}
-                    className={cn(
-                      "relative inline-flex h-6 w-11 items-center rounded-full transition-colors",
-                      "focus:outline-none focus:ring-2 focus:ring-primary/50",
-                      (formData[field.field_name] === "Yes" || formData[field.field_name] === "true")
-                        ? "bg-primary"
-                        : "bg-muted"
-                    )}
-                  >
-                    <span
-                      className={cn(
-                        "inline-block h-4 w-4 transform rounded-full bg-white transition-transform",
-                        (formData[field.field_name] === "Yes" || formData[field.field_name] === "true")
-                          ? "translate-x-6"
-                          : "translate-x-1"
-                      )}
-                    />
-                  </button>
-                  <span className="text-sm text-muted-foreground">
-                    {(formData[field.field_name] === "Yes" || formData[field.field_name] === "true") ? "Yes" : "No"}
-                  </span>
-                </div>
+          <div key={field.field_name} className="space-y-1.5">
+            <label className="text-sm font-medium text-foreground flex items-center gap-1.5">
+              {field.field_name.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())}
+              {isRequired ? (
+                <span className="text-red-400 text-xs">*</span>
               ) : (
-                <input
-                  type={fieldType === "number" ? "number" : fieldType === "email" ? "email" : fieldType === "url" ? "url" : "text"}
+                <span className="text-muted-foreground text-xs font-normal">(optional)</span>
+              )}
+            </label>
+
+            {field.field_description && (
+              <p className="text-xs text-muted-foreground">
+                {field.field_description}
+              </p>
+            )}
+
+            {/* Render select if field_values provided, otherwise text input */}
+            {field.field_values && field.field_values.length > 0 ? (
+              <div className="relative">
+                <select
                   value={formData[field.field_name] || ""}
                   onChange={(e) => handleFieldChange(field.field_name, e.target.value)}
-                  placeholder={field.placeholder || `Enter ${fieldLabel.toLowerCase()}...`}
                   disabled={disabled || isSubmitting}
-                  autoFocus={idx === 0}
                   className={cn(
-                    "w-full px-3 py-2 rounded-lg text-sm",
+                    "w-full px-3 py-2 pr-8 rounded-lg text-sm appearance-none",
                     "bg-background border transition-colors",
                     "focus:outline-none focus:ring-2 focus:ring-primary/50",
                     errors[field.field_name]
                       ? "border-red-500"
                       : "border-border hover:border-primary/50"
                   )}
-                />
-              )}
-
-              {/* Error message */}
-              {errors[field.field_name] && (
-                <motion.p
-                  initial={{ opacity: 0, y: -5 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  className="text-xs text-red-400"
                 >
-                  {errors[field.field_name]}
-                </motion.p>
-              )}
-            </div>
-          );
+                  <option value="">Select an option...</option>
+                  {field.field_values.map((value) => (
+                    <option key={value} value={value}>
+                      {value}
+                    </option>
+                  ))}
+                </select>
+                <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+              </div>
+            ) : (
+              <input
+                type="text"
+                value={formData[field.field_name] || ""}
+                onChange={(e) => handleFieldChange(field.field_name, e.target.value)}
+                placeholder={`Enter ${field.field_name.replace(/_/g, " ")}...`}
+                disabled={disabled || isSubmitting}
+                autoFocus={idx === 0}
+                className={cn(
+                  "w-full px-3 py-2 rounded-lg text-sm",
+                  "bg-background border transition-colors",
+                  "focus:outline-none focus:ring-2 focus:ring-primary/50",
+                  errors[field.field_name]
+                    ? "border-red-500"
+                    : "border-border hover:border-primary/50"
+                )}
+              />
+            )}
+
+            {/* Error message */}
+            {errors[field.field_name] && (
+              <motion.p
+                initial={{ opacity: 0, y: -5 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="text-xs text-red-400"
+              >
+                {errors[field.field_name]}
+              </motion.p>
+            )}
+          </div>
+        );
         })}
 
         {/* Submit button */}
