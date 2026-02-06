@@ -388,7 +388,12 @@ def generate_platform_system_prompt(config: Dict[str, Any], agents: Dict[str, An
     logger.info(f"System Prompt Template: {yaml_template}")
     
     if yaml_template:
-        return yaml_template.format(tool_instructions=tool_instructions_str)
+        # Provide rag_instructions placeholder - RAG is handled separately in deep_agent_single.py
+        # Use empty string as default since deep agent adds RAG instructions after template formatting
+        return yaml_template.format(
+            tool_instructions=tool_instructions_str,
+            rag_instructions=""  # RAG instructions are appended separately by deep_agent_single.py
+        )
     else:
         return f"""
 You are an AI Platform Engineer, a multi-agent system designed to manage operations across various tools.

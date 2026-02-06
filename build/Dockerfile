@@ -39,8 +39,11 @@ RUN groupadd -r appuser && useradd -r -g appuser -u 1001 -m appuser
 WORKDIR /app
 
 # Set env vars for uv & PATH
+# PYTHONPATH includes all agent directories so that imports like 'from agent_github.tools'
+# work in both single-node (unified container) and multi-node (standalone container) modes
 ENV UV_PROJECT_ENVIRONMENT=/app/.venv \
     PATH="/app/.venv/bin:${PATH}" \
+    PYTHONPATH="/app/ai_platform_engineering/agents/github:/app/ai_platform_engineering/agents/backstage:/app/ai_platform_engineering/agents/jira:/app/ai_platform_engineering/agents/webex:/app/ai_platform_engineering/agents/argocd:/app/ai_platform_engineering/agents/aigateway:/app/ai_platform_engineering/agents/pagerduty:/app/ai_platform_engineering/agents/slack:/app/ai_platform_engineering/agents/splunk:/app/ai_platform_engineering/agents/komodor:/app/ai_platform_engineering/agents/confluence:/app/ai_platform_engineering/agents/aws:${PYTHONPATH}" \
     PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1
 

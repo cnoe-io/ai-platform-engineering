@@ -86,9 +86,7 @@ async def get_entities_by_query(
   flat_body = {}
   data = assemble_nested_body(flat_body)
 
-  # HACK: The API endpoint for entities by query is not standard, so we use a custom path
-  # This is a workaround for the specific query structure expected by the API
-  success, response = await make_api_request("/entities/by-query?filter=kind=user,metadata.namespace=default&filter=kind=group,spec.type", method="GET", params=None, data=data)
+  success, response = await make_api_request("/entities/by-query", method="GET", params=params, data=data)
 
   if not success:
     logger.error(f"Request failed: {response.get('error')}")
