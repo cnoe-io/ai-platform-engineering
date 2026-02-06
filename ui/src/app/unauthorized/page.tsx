@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { REQUIRED_GROUP } from "@/lib/auth-config";
 import { getConfig } from "@/lib/config";
 
-const SUPPORT_EMAIL = process.env.NEXT_PUBLIC_SUPPORT_EMAIL || "support@example.com";
+const SUPPORT_EMAIL = getConfig('supportEmail');
 
 export default function UnauthorizedPage() {
   return (
