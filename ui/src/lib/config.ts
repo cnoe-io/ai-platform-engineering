@@ -121,7 +121,7 @@ function getCaipeUrl(): string {
  *
  * Priority:
  * 1. NEXT_PUBLIC_RAG_URL via getRuntimeEnv (runtime → build-time fallback)
- * 2. RAG_URL (server-side only, available at runtime in Node.js)
+ * 2. RAG_SERVER_URL (server-side only, available at runtime in Node.js)
  * 3. Default: http://localhost:9446 (dev) or http://rag-server:9446 (prod/docker)
  */
 function getRagUrl(): string {
@@ -132,8 +132,8 @@ function getRagUrl(): string {
   }
 
   // Server-side environment variable (not exposed to client)
-  if (typeof process !== 'undefined' && process.env.RAG_URL) {
-    return process.env.RAG_URL;
+  if (typeof process !== 'undefined' && process.env.RAG_SERVER_URL) {
+    return process.env.RAG_SERVER_URL;
   }
 
   // Default based on environment
