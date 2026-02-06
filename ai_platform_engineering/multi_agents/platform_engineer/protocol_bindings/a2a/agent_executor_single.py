@@ -1,11 +1,10 @@
 # Copyright 2025 CNOE
 # SPDX-License-Identifier: Apache-2.0
 
-import json
 import logging
 import uuid
 from dataclasses import dataclass, field
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict
 from typing_extensions import override
 
 from a2a.server.agent_execution import AgentExecutor, RequestContext
@@ -27,7 +26,6 @@ from ai_platform_engineering.multi_agents.platform_engineer.protocol_bindings.a2
     AIPlatformEngineerA2ABinding
 )
 from cnoe_agent_utils.tracing import extract_trace_id_from_context
-from langchain_core.messages import AIMessage
 from langchain_core.messages.base import message_to_dict
 from langgraph.types import Command
 

@@ -32,7 +32,6 @@ export function useRAGHealth(): UseRAGHealthResult {
   const nextCheckTimeRef = useRef<number>(Date.now() + POLL_INTERVAL_MS);
   const hasInitialCheckCompleted = useRef<boolean>(false);
   const url = config.ragUrl;
-  const ragEnabled = config.ragEnabled;
 
   const checkHealth = useCallback(async () => {
     // Skip health check if RAG is disabled

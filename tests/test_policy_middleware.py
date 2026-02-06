@@ -120,7 +120,7 @@ def test_self_service_tools_denied_without_self_service_mode():
         print(f"  {tool}: {'❌ SHOULD BE DENIED but was allowed' if allowed else '✅ correctly denied'}")
         assert not allowed, f"Self-service tool '{tool}' should be DENIED without self-service mode"
     
-    print(f"\n✅ Self-service tools correctly denied without self-service mode")
+    print("\n✅ Self-service tools correctly denied without self-service mode")
 
 
 def test_self_service_tools_allowed_with_self_service_mode():
@@ -149,7 +149,7 @@ def test_self_service_tools_allowed_with_self_service_mode():
         # Reset self-service mode
         self_service_mode_ctx.reset(token)
     
-    print(f"\n✅ Self-service tools correctly allowed with self-service mode")
+    print("\n✅ Self-service tools correctly allowed with self-service mode")
 
 
 def test_non_github_agents_allow_all():
