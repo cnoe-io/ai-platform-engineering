@@ -17,7 +17,7 @@ import { BUILTIN_QUICK_START_TEMPLATES } from "@/types/agent-config";
  * Agent Config API Routes
  *
  * Storage: MongoDB only (Agentic Workflows requires persistent storage)
- * 
+ *
  * Features:
  * - User ownership tracking (owner_id)
  * - System configs (is_system: true) are editable/deletable by admins only
@@ -51,10 +51,10 @@ async function updateAgentConfigInMongoDB(
   console.log(`[MongoDB] ========== updateAgentConfigInMongoDB START ==========`);
   console.log(`[MongoDB] Config ID: ${id}`);
   console.log(`[MongoDB] User: ${user.email}, IsAdmin: ${isUserAdmin(user)}`);
-  
+
   const collection = await getCollection<AgentConfig>("agent_configs");
   console.log(`[MongoDB] Got collection`);
-  
+
   const existing = await collection.findOne({ id });
   console.log(`[MongoDB] Found existing config:`, {
     id: existing?.id,
@@ -63,33 +63,33 @@ async function updateAgentConfigInMongoDB(
     owner_id: existing?.owner_id,
     tasks_count: existing?.tasks?.length
   });
-  
+
   if (!existing) {
     console.log(`[MongoDB] ERROR: Config not found`);
     throw new ApiError("Agent config not found", 404);
   }
-  
+
   // System configs can only be modified by admins
   if (existing.is_system && !isUserAdmin(user)) {
     console.log(`[MongoDB] ERROR: Non-admin trying to modify system config`);
     throw new ApiError("Only admins can modify system configurations", 403);
   }
-  
+
   // Non-system configs can only be modified by owner
   if (!existing.is_system && existing.owner_id !== user.email) {
     console.log(`[MongoDB] ERROR: User trying to modify another user's config`);
     throw new ApiError("You don't have permission to update this configuration", 403);
   }
-  
+
   console.log(`[MongoDB] Permission checks passed`);
-  
+
   const updatePayload = { ...updates, updated_at: new Date() };
   console.log(`[MongoDB] Update payload:`, JSON.stringify(updatePayload, null, 2));
   console.log(`[MongoDB] Update payload tasks count:`, updatePayload.tasks?.length);
   if (updatePayload.tasks && updatePayload.tasks.length > 0) {
     console.log(`[MongoDB] First task llm_prompt:`, updatePayload.tasks[0].llm_prompt);
   }
-  
+
   console.log(`[MongoDB] Executing updateOne...`);
   const updateResult = await collection.updateOne(
     { id },
@@ -100,7 +100,7 @@ async function updateAgentConfigInMongoDB(
     modifiedCount: updateResult.modifiedCount,
     acknowledged: updateResult.acknowledged
   });
-  
+
   // Verify the update
   console.log(`[MongoDB] Fetching updated config for verification...`);
   const updated = await collection.findOne({ id });
@@ -125,28 +125,28 @@ async function deleteAgentConfigFromMongoDB(
   user: { email: string; role?: string }
 ): Promise<void> {
   const collection = await getCollection<AgentConfig>("agent_configs");
-  
+
   const existing = await collection.findOne({ id });
   if (!existing) {
     throw new ApiError("Agent config not found", 404);
   }
-  
+
   // System configs can only be deleted by admins
   if (existing.is_system && !isUserAdmin(user)) {
     throw new ApiError("Only admins can delete system configurations", 403);
   }
-  
+
   // Non-system configs can only be deleted by owner
   if (!existing.is_system && existing.owner_id !== user.email) {
     throw new ApiError("You don't have permission to delete this configuration", 403);
   }
-  
+
   await collection.deleteOne({ id });
 }
 
 async function getAgentConfigsFromMongoDB(ownerEmail: string): Promise<AgentConfig[]> {
   const collection = await getCollection<AgentConfig>("agent_configs");
-  
+
   // Return both system configs and user's own configs
   const configs = await collection
     .find({
@@ -157,7 +157,7 @@ async function getAgentConfigsFromMongoDB(ownerEmail: string): Promise<AgentConf
     })
     .sort({ is_system: -1, created_at: -1 }) // System configs first, then by date
     .toArray();
-  
+
   return configs;
 }
 
@@ -166,7 +166,7 @@ async function getAgentConfigByIdFromMongoDB(
   ownerEmail: string
 ): Promise<AgentConfig | null> {
   const collection = await getCollection<AgentConfig>("agent_configs");
-  
+
   // Can access system configs or own configs
   const config = await collection.findOne({
     id,
@@ -175,7 +175,7 @@ async function getAgentConfigByIdFromMongoDB(
       { owner_id: ownerEmail },
     ],
   });
-  
+
   return config;
 }
 
@@ -283,7 +283,7 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
 
   return await withAuth(request, async (req, user) => {
     console.log(`[API PUT] User: ${user.email}, Role: ${user.role}, IsAdmin: ${isUserAdmin(user)}`);
-    
+
     const body: UpdateAgentConfigInput = await request.json();
     console.log(`[API PUT] Request body:`, JSON.stringify(body, null, 2));
 

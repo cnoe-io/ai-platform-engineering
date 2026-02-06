@@ -108,33 +108,43 @@ persistence:
   # Size of the persistent volume
   size: 10Gi
 
-# MongoDB authentication
+# MongoDB authentication - NO DEFAULT CREDENTIALS
+# Credentials MUST be provided via external secrets. Do not use inline defaults.
 auth:
-  # Root username
-  rootUsername: "admin"
-  # Root password - should be overridden or use external secrets
-  rootPassword: "changeme"
-  # Database name
+  # Database name (non-sensitive; used for reference only; actual value can come from external secret)
   database: "caipe"
 
-# External Secrets configuration for MongoDB credentials
-# These secrets are fetched from your secret store (Vault, AWS Secrets Manager, etc.)
+# External Secrets - REQUIRED for MongoDB
+# You must configure a SecretStore/ClusterSecretStore and provide credentials from your vault.
+# Required keys in the synced Secret: MONGO_INITDB_ROOT_USERNAME, MONGO_INITDB_ROOT_PASSWORD, MONGO_INITDB_DATABASE
 externalSecrets:
-  enabled: false  # Set to true to enable external secrets
+  enabled: false  # MUST set to true and provide secretStoreRef + data when using this chart
   apiVersion: "v1beta1"
   secretStoreRef:
-    name: "vault"  # Your secret store name
-    kind: "ClusterSecretStore"  # or "SecretStore" for namespace-scoped
+    name: ""  # Required: e.g. "vault-eticloud" or your ClusterSecretStore name
+    kind: "ClusterSecretStore"
+  # Required: provide at least these three entries (paths/properties match your secret store)
   data: []
-    # Example configuration:
-    # - secretKey: MONGO_INITDB_ROOT_USERNAME
-    #   remoteRef:
-    #     key: dev/mongodb
-    #     property: username
-    # - secretKey: MONGO_INITDB_ROOT_PASSWORD
-    #   remoteRef:
-    #     key: dev/mongodb
-    #     property: password
+  # Example - replace key/property with your vault path:
+  # data:
+  #   - secretKey: MONGO_INITDB_ROOT_USERNAME
+  #     remoteRef:
+  #       conversionStrategy: Default
+  #       decodingStrategy: None
+  #       key: projects/caipe/preview/mongodb
+  #       property: username
+  #   - secretKey: MONGO_INITDB_ROOT_PASSWORD
+  #     remoteRef:
+  #       conversionStrategy: Default
+  #       decodingStrategy: None
+  #       key: projects/caipe/preview/mongodb
+  #       property: password
+  #   - secretKey: MONGO_INITDB_DATABASE
+  #     remoteRef:
+  #       conversionStrategy: Default
+  #       decodingStrategy: None
+  #       key: projects/caipe/preview/mongodb
+  #       property: database
 
 # Export values for parent chart import-values
 exports:

@@ -1,9 +1,9 @@
 /**
  * RAG API Client for New UI
- * 
+ *
  * This module provides type-safe API functions to interact with the RAG server
  * through the Next.js API proxy at /api/rag/*.
- * 
+ *
  * Key Features:
  * - RBAC headers automatically injected server-side via Next.js API routes
  * - Type-safe request/response handling
@@ -65,31 +65,18 @@ export interface UserInfo {
   role: string;
   is_authenticated: boolean;
   groups: string[];
-  permissions?: PermissionType[];
+  permissions: PermissionType[];
   in_trusted_network: boolean;
 }
 
 /**
  * Helper to check if user has a specific permission.
- * 
+ *
  * @example
  * hasPermission(userInfo, Permission.DELETE)
  */
 export function hasPermission(userInfo: UserInfo | null, permission: PermissionType): boolean {
-  const result = (() => {
-    if (!userInfo) return false;
-    if (!userInfo.permissions) return false;
-    if (!Array.isArray(userInfo.permissions)) return false;
-    return userInfo.permissions.includes(permission);
-  })();
-  
-  console.log(`[hasPermission] Checking '${permission}': ${result}`, {
-    hasUserInfo: !!userInfo,
-    permissions: userInfo?.permissions,
-    isArray: Array.isArray(userInfo?.permissions)
-  });
-  
-  return result;
+  return userInfo?.permissions.includes(permission) ?? false;
 }
 
 // ============================================================================
@@ -126,7 +113,7 @@ async function get<T>(path: string, params?: Record<string, string>): Promise<T>
  */
 async function post<T>(path: string, body?: unknown): Promise<T> {
   const url = `${API_BASE}${path}`;
-  
+
   const response = await fetch(url, {
     method: 'POST',
     credentials: 'include',
@@ -318,34 +305,14 @@ export async function getOntologyVersion() {
 // ============================================================================
 
 export async function getUserInfo(): Promise<UserInfo> {
-  console.log('[getUserInfo] Fetching from /api/user/info...');
   // Use the new Next.js API endpoint instead of RAG server
   const response = await fetch('/api/user/info', {
     credentials: 'include',
   });
 
   if (!response.ok) {
-    console.error('[getUserInfo] Failed with status:', response.status);
     throw new Error(`Failed to fetch user info: ${response.status}`);
   }
 
-  const data = await response.json();
-  console.log('[getUserInfo] Received data:', data);
-  console.log('[getUserInfo] Permissions type:', typeof data.permissions, Array.isArray(data.permissions) ? 'array' : 'not array');
-  console.log('[getUserInfo] Permissions value:', data.permissions);
-  
-  // Normalize permissions to array if it comes as object
-  if (data.permissions && !Array.isArray(data.permissions)) {
-    console.warn('[getUserInfo] ⚠️  Permissions came as object, converting to array:', data.permissions);
-    
-    // Convert object like {can_read: true, can_ingest: true, can_delete: true} to array
-    // Extract keys where value is true, and remove "can_" prefix
-    data.permissions = Object.entries(data.permissions)
-      .filter(([_, value]) => value === true)
-      .map(([key, _]) => key.replace(/^can_/, ''));
-    
-    console.log('[getUserInfo] ✅ Converted permissions to:', data.permissions);
-  }
-  
-  return data;
+  return response.json();
 }

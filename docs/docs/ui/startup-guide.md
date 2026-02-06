@@ -1,10 +1,4 @@
----
-sidebar_position: 2
----
-
-# Startup Guide
-
-Quick solutions for getting the CAIPE UI running when you encounter startup issues.
+# CAIPE UI - Startup Guide
 
 ## Problem: "New Chat Doesn't Work"
 

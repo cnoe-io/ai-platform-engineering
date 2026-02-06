@@ -1,30 +1,24 @@
-{{- if and (include "caipe-ui.ingress.enabled" . | eq "true") .Values.ingress.redirectFrom -}}
+{{- if and (include "caipe-ui.ingress.enabled" . | eq "true") .Values.ingress.redirectFrom }}
 {{- range .Values.ingress.redirectFrom }}
 ---
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: {{ include "caipe-ui.fullname" $ }}-redirect-{{ .host | replace "." "-" }}
+  name: {{ include "caipe-ui.fullname" $ }}-redirect-{{ .host | replace "." "-" | trunc 43 }}
   labels:
     {{- include "caipe-ui.labels" $ | nindent 4 }}
-    app.kubernetes.io/component: redirect
   annotations:
-    # Force HTTPS redirect
-    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/permanent-redirect: "{{ .redirectTo }}$request_uri"
     nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
-    # Permanent redirect to new domain
-    nginx.ingress.kubernetes.io/permanent-redirect: {{ .redirectTo | quote }}
-    # Optional: cert-manager for TLS
-    {{- if .certManager }}
-    cert-manager.io/cluster-issuer: {{ .certManager.issuer | default "letsencrypt-prod" | quote }}
-    {{- end }}
 spec:
-  ingressClassName: {{ $.Values.ingress.className | default "nginx" }}
+  {{- with .className | default $.Values.ingress.className }}
+  ingressClassName: {{ . }}
+  {{- end }}
   {{- if .tls }}
   tls:
     - hosts:
         - {{ .host | quote }}
-      secretName: {{ .tls.secretName | default (printf "%s-tls" (.host | replace "." "-")) }}
+      secretName: {{ .tls.secretName }}
   {{- end }}
   rules:
     - host: {{ .host | quote }}

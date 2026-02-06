@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 
 class InputFieldSchema(BaseModel):
     """Schema for a single input field in the user input form."""
-    
+
     field_name: str = Field(
         description="Unique identifier for the field (snake_case, e.g., 'repository_name')"
     )
@@ -57,7 +57,7 @@ class InputFieldSchema(BaseModel):
 
 class UserInputRequest(BaseModel):
     """Schema for requesting structured user input."""
-    
+
     title: str = Field(
         description="Title for the input form (e.g., 'Create GitHub Repository')"
     )
@@ -77,21 +77,21 @@ def request_user_input(
 ) -> str:
     """
     Request structured input from the user via a dynamic form.
-    
+
     Use this tool when you need specific information from the user to proceed.
     Instead of asking in natural language, call this tool with the fields you need.
     The UI will render an appropriate form for the user to fill out.
-    
+
     WHEN TO USE:
     - When you need specific parameters to execute a task (repo name, visibility, etc.)
     - When you need the user to choose from options (select fields)
     - When you need confirmation with specific details (boolean fields)
-    
+
     WHEN NOT TO USE:
     - For simple yes/no confirmations (just ask in natural language)
     - When you already have all the information you need
     - For clarifying questions that don't need structured input
-    
+
     Args:
         title: Title for the input form (e.g., "Create GitHub Repository")
         description: Brief description of what information is needed
@@ -104,10 +104,10 @@ def request_user_input(
             - placeholder: Placeholder text (optional)
             - required: Whether field is required (default: True)
             - default_value: Default value (optional)
-    
+
     Returns:
         A confirmation message. The actual form rendering is handled by the UI.
-    
+
     Example:
         request_user_input(
             title="Create GitHub Repository",
@@ -153,10 +153,10 @@ def request_user_input(
             logger.warning(f"Invalid field definition: {field}, error: {e}")
             # Still include it but with minimal validation
             validated_fields.append(field if isinstance(field, dict) else {"field_name": str(field)})
-    
+
     logger.info(f"📝 User input requested: {title} with {len(validated_fields)} fields")
     logger.debug(f"Fields: {json.dumps(validated_fields, indent=2)}")
-    
+
     # Return a structured response that will be intercepted by the agent binding
     # The actual form rendering happens in the UI based on the tool call arguments
     return json.dumps({

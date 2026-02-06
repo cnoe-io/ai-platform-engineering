@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import { Sidebar } from "@/components/layout/Sidebar";
@@ -28,18 +28,6 @@ function ChatUUIDPage() {
   const { conversations: localConversations, setActiveConversation } = useChatStore();
   const caipeUrl = getConfig('caipeUrl');
 
-  const handleTabChange = (tab: "chat" | "gallery" | "knowledge" | "admin") => {
-    if (tab === "chat") {
-      router.push("/chat");
-    } else if (tab === "gallery") {
-      router.push("/use-cases");
-    } else if (tab === "admin") {
-      router.push("/admin");
-    } else {
-      router.push("/knowledge-bases");
-    }
-  };
-
   // Check store immediately (synchronous, no loading state!)
   const existingConv = localConversations.find((c) => c.id === uuid);
 
@@ -47,15 +35,6 @@ function ChatUUIDPage() {
   const [loading, setLoading] = useState(!existingConv); // Only show spinner if NOT in store
   const [error, setError] = useState<string | null>(null);
   const storageMode = getStorageMode(); // Synchronous storage mode
-
-  // Memoized callbacks (must be before early returns to maintain hooks order)
-  const handleDebugModeChange = useCallback((enabled: boolean) => {
-    setDebugMode(enabled);
-  }, []);
-
-  const handleContextPanelCollapse = useCallback((collapsed: boolean) => {
-    setContextPanelCollapsed(collapsed);
-  }, []);
 
   // Load conversation from MongoDB or localStorage
   useEffect(() => {
@@ -82,15 +61,6 @@ function ChatUUIDPage() {
         return;
       }
 
-      // If conversation is not in store and we're NOT the active conversation,
-      // this conversation might have been deleted - don't try to load it
-      const currentActiveId = useChatStore.getState().activeConversationId;
-      if (currentActiveId && currentActiveId !== uuid) {
-        console.log("[ChatUUID] Not active conversation, aborting load (might be deleted)");
-        setLoading(false);
-        return;
-      }
-
       console.log("[ChatUUID] Conversation not in store, loading from backend...");
 
       try {
@@ -99,96 +69,49 @@ function ChatUUIDPage() {
           console.log("[ChatUUID] Loading from MongoDB...");
           try {
             const conv = await apiClient.getConversation(uuid);
-            // Convert MongoDB conversation to local format
-            // Note: Messages are stored separately and loaded separately
-            const localConv: LocalConversation = {
-              id: conv._id,
-              title: conv.title,
-              createdAt: new Date(conv.created_at),
-              updatedAt: new Date(conv.updated_at),
-              messages: [], // Messages will be loaded separately via API
-              a2aEvents: [],
-            };
-
-            // Add to Zustand store so ContextPanel can find it
-            useChatStore.setState((state) => ({
-              conversations: [localConv, ...state.conversations.filter(c => c.id !== uuid)],
-            }));
-
-            setConversation(localConv);
+            setConversation(conv);
           } catch (apiErr: any) {
-            // Check store again - it might have been added while we were fetching
-            const storeConv = useChatStore.getState().conversations.find(c => c.id === uuid);
-            if (storeConv) {
-              console.log("[ChatUUID] Conversation appeared in store during fetch");
-              setConversation(storeConv);
-              return;
-            }
-
-            // Conversation doesn't exist in MongoDB (404) - this is expected for new conversations
+            // Conversation doesn't exist in MongoDB (404) - treat as new conversation
             if (apiErr.message?.includes('not found') || apiErr.message?.includes('404')) {
-              console.log("[ChatUUID] Conversation not found in MongoDB (expected for new conversations)");
+              console.log("[ChatUUID] Conversation not found in MongoDB, creating new empty conversation");
             } else {
               console.warn("[ChatUUID] Failed to load from MongoDB:", apiErr.message);
             }
             // Create empty conversation for both cases
-            const newConv: LocalConversation = {
+            setConversation({
               id: uuid,
               title: "New Conversation",
               createdAt: new Date(),
               updatedAt: new Date(),
               messages: [],
               a2aEvents: [],
-            };
-
-            // Add to Zustand store
-            useChatStore.setState((state) => ({
-              conversations: [newConv, ...state.conversations.filter(c => c.id !== uuid)],
-            }));
-
-            setConversation(newConv);
+            });
           }
         } else {
           // MongoDB not available, show empty conversation
           console.log("[ChatUUID] MongoDB unavailable, showing empty conversation");
-          const newConv: LocalConversation = {
+          setConversation({
             id: uuid,
             title: "New Conversation",
             createdAt: new Date(),
             updatedAt: new Date(),
             messages: [],
             a2aEvents: [],
-          };
-
-          // Add to Zustand store
-          useChatStore.setState((state) => ({
-            conversations: [newConv, ...state.conversations.filter(c => c.id !== uuid)],
-          }));
-
-          setConversation(newConv);
+          });
         }
       } catch (err) {
         console.error("[ChatUUID] Unexpected error:", err);
         // Fallback to empty conversation
-        const newConv: LocalConversation = {
+        setConversation({
           id: uuid,
           title: "New Conversation",
           createdAt: new Date(),
           updatedAt: new Date(),
           messages: [],
           a2aEvents: [],
-        };
-
-        // Add to Zustand store
-        useChatStore.setState((state) => ({
-          conversations: [newConv, ...state.conversations.filter(c => c.id !== uuid)],
-        }));
-
-        setConversation(newConv);
+        });
+        setStorageMode('localStorage');
       } finally {
-        // CRITICAL: Always set the active conversation, even when loading from MongoDB
-        // This ensures the ContextPanel can display Tasks and A2A Debug
-        setActiveConversation(uuid);
         setLoading(false);
       }
     }
@@ -196,21 +119,23 @@ function ChatUUIDPage() {
     loadConversation();
   }, [uuid, localConversations, setActiveConversation]);
 
+  const handleTabChange = (tab: "chat" | "gallery" | "knowledge") => {
+    if (tab === "chat") {
+      router.push("/chat");
+    } else if (tab === "gallery") {
+      router.push("/agent-builder");
+    } else {
+      router.push("/knowledge-bases");
+    }
+  };
+
   // Show loading spinner only when actually fetching from MongoDB
   if (loading) {
     return (
-      <div className="flex-1 flex overflow-hidden">
-        <Sidebar
-          activeTab="chat"
-          onTabChange={handleTabChange}
-          collapsed={sidebarCollapsed}
-          onCollapse={setSidebarCollapsed}
-        />
-        <div className="flex-1 flex items-center justify-center">
-          <div className="flex flex-col items-center gap-4">
-            <Loader2 className="h-8 w-8 animate-spin text-primary" />
-            <p className="text-sm text-muted-foreground">Loading conversation...</p>
-          </div>
+      <div className="flex-1 flex items-center justify-center">
+        <div className="flex flex-col items-center gap-4">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+          <p className="text-sm text-muted-foreground">Loading conversation...</p>
         </div>
       </div>
     );
@@ -218,23 +143,15 @@ function ChatUUIDPage() {
 
   if (error) {
     return (
-      <div className="flex-1 flex overflow-hidden">
-        <Sidebar
-          activeTab="chat"
-          onTabChange={handleTabChange}
-          collapsed={sidebarCollapsed}
-          onCollapse={setSidebarCollapsed}
-        />
-        <div className="flex-1 flex items-center justify-center">
-          <div className="flex flex-col items-center gap-4">
-            <p className="text-sm text-destructive">{error}</p>
-            <button
-              onClick={() => router.push("/chat")}
-              className="text-sm text-primary hover:underline"
-            >
-              Go to new conversation
-            </button>
-          </div>
+      <div className="flex-1 flex items-center justify-center">
+        <div className="flex flex-col items-center gap-4">
+          <p className="text-sm text-destructive">{error}</p>
+          <button
+            onClick={() => router.push("/chat")}
+            className="text-sm text-primary hover:underline"
+          >
+            Go to new conversation
+          </button>
         </div>
       </div>
     );
@@ -246,7 +163,7 @@ function ChatUUIDPage() {
 
   return (
     <div className="flex-1 flex overflow-hidden">
-      {/* Sidebar - with conversation history */}
+      {/* Sidebar */}
       <Sidebar
         activeTab="chat"
         onTabChange={handleTabChange}
@@ -255,29 +172,36 @@ function ChatUUIDPage() {
       />
 
       {/* Chat Panel with conversation ID */}
-      <div className="flex-1 min-w-0 flex flex-col">
+      <div className="flex-1 min-w-0">
         <motion.div
           key="chat"
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={{ duration: 0.2 }}
-          className="h-full flex flex-col"
+          className="h-full"
         >
           <ChatPanel
             endpoint={caipeUrl}
             conversationId={uuid}
             conversationTitle={conversationTitle}
           />
+
+          {/* Optional: Storage mode indicator */}
+          {storageMode === 'localStorage' && (
+            <div className="absolute bottom-4 right-4 px-3 py-1 bg-amber-500/10 border border-amber-500/30 rounded-full text-xs text-amber-600 dark:text-amber-400">
+              📦 Local storage mode
+            </div>
+          )}
         </motion.div>
       </div>
 
-      {/* Context/Output Panel - kept in DOM tree, only visibility changes */}
+      {/* Context/Output Panel */}
       {contextPanelVisible && (
         <ContextPanel
           debugMode={debugMode}
-          onDebugModeChange={handleDebugModeChange}
+          onDebugModeChange={setDebugMode}
           collapsed={contextPanelCollapsed}
-          onCollapse={handleContextPanelCollapse}
+          onCollapse={setContextPanelCollapsed}
         />
       )}
     </div>

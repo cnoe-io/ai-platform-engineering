@@ -55,12 +55,10 @@ jobs:
         env:
           UI_CHANGED: ${{ steps.filter.outputs.ui }}
           TAG_VERSION: ${{ steps.version.outputs.tag_version }}
-          IS_TAG_PUSH: ${{ startsWith(github.ref, 'refs/tags/') }}
         run: |
           SHOULD_BUILD="false"
           SHOULD_RETAG="false"
           TAG_VERSION="${{ env.TAG_VERSION }}"
-          IS_TAG_PUSH="${{ env.IS_TAG_PUSH }}"
 
           # Check if this is an RC tag
           if [[ "$TAG_VERSION" =~ -rc\.[0-9]+$ ]]; then
@@ -71,11 +69,7 @@ jobs:
 
           if [ -n "$TAG_VERSION" ]; then
             if [ "$IS_RC" == "true" ]; then
-              # For RC tags: always build if tag pushed directly, otherwise check for changes
-              if [ "$IS_TAG_PUSH" == "true" ]; then
-                SHOULD_BUILD="true"
-                echo "🏷️ RC tag push: building"
-              elif [ "$UI_CHANGED" == "true" ]; then
+              if [ "$UI_CHANGED" == "true" ]; then
                 SHOULD_BUILD="true"
                 echo "🔨 RC tag with UI changes: building"
               else
@@ -96,7 +90,7 @@ jobs:
 
           echo "should_build=$SHOULD_BUILD" >> $GITHUB_OUTPUT
           echo "should_retag=$SHOULD_RETAG" >> $GITHUB_OUTPUT
-          echo "Outputs: build=$SHOULD_BUILD, retag=$SHOULD_RETAG, is_rc=$IS_RC, is_tag_push=$IS_TAG_PUSH"
+          echo "Outputs: build=$SHOULD_BUILD, retag=$SHOULD_RETAG, is_rc=$IS_RC"
 
   build-and-push:
     runs-on: ubuntu-latest

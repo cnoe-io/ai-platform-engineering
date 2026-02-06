@@ -119,7 +119,7 @@ const STATUS_CONFIG = {
 function parseInputFieldsFromText(text: string): DetectedInputField[] | null {
   const fields: DetectedInputField[] = [];
   const seenLabels = new Set<string>();
-  
+
   // Check if this looks like an input request
   const inputIndicators = [
     /I need the following information/i,
@@ -130,10 +130,10 @@ function parseInputFieldsFromText(text: string): DetectedInputField[] | null {
     /Specify the/i,
     /need.*information.*from you/i,
   ];
-  
+
   const hasInputIndicator = inputIndicators.some(pattern => pattern.test(text));
   if (!hasInputIndicator) return null;
-  
+
   // Helper to add a field if not duplicate
   const addField = (field: DetectedInputField) => {
     const normalizedLabel = field.label.toLowerCase().trim();
@@ -143,29 +143,29 @@ function parseInputFieldsFromText(text: string): DetectedInputField[] | null {
     if (field.label.length < 3) return;
     // Skip labels that are just fragments
     if (/^[A-Z][a-z]$/.test(field.label)) return;
-    
+
     seenLabels.add(normalizedLabel);
     fields.push(field);
   };
-  
+
   // Pattern 1: Markdown bold "**Field Name** - Description" or "**Field Name**: Description"
   // This is the most common format from LLMs
   const boldFieldPattern = /\*\*([^*]+)\*\*\s*[-–:]?\s*([^\n*]+)?/g;
   let match;
-  
+
   while ((match = boldFieldPattern.exec(text)) !== null) {
     const [, rawName, description = ""] = match;
     const name = rawName.trim();
-    
+
     // Skip common non-field patterns
     if (/^(Required|Optional|Note|Example|Step|Next|Important|Warning)/i.test(name)) continue;
     if (name.length > 60) continue; // Too long to be a field name
     if (name.length < 2) continue; // Too short
-    
+
     // Detect field type from description
     let type: "text" | "select" | "boolean" = "text";
     let options: string[] | undefined;
-    
+
     // Check for Public/Private options
     if (/\b(Public|Private)\b.*\b(Public|Private)\b/i.test(description) ||
         /should.*be.*(Public|Private)/i.test(description)) {
@@ -178,11 +178,11 @@ function parseInputFieldsFromText(text: string): DetectedInputField[] | null {
       type = "boolean";
       options = ["Yes", "No"];
     }
-    
+
     // Check if optional
     const isOptional = /\(optional\)/i.test(name) || /\(optional\)/i.test(description);
     const cleanName = name.replace(/\s*\(optional\)/i, "").trim();
-    
+
     addField({
       name: cleanName.toLowerCase().replace(/[\s\/]+/g, "_").replace(/[^a-z0-9_]/g, ""),
       label: cleanName,
@@ -192,21 +192,21 @@ function parseInputFieldsFromText(text: string): DetectedInputField[] | null {
       required: !isOptional,
     });
   }
-  
+
   // Pattern 2: Numbered list items "1. Repository Name - description" or "1. **Repository Name**"
   const numberedPattern = /^\s*\d+\.\s*\*?\*?([^*\n-]+?)\*?\*?\s*[-–:]?\s*([^\n]*)$/gm;
   while ((match = numberedPattern.exec(text)) !== null) {
     const [, rawName, description = ""] = match;
     const name = rawName.trim();
-    
+
     // Skip if too short/long or already added
     if (name.length < 3 || name.length > 60) continue;
     if (seenLabels.has(name.toLowerCase())) continue;
-    
+
     // Detect field type
     let type: "text" | "select" | "boolean" = "text";
     let options: string[] | undefined;
-    
+
     if (/\b(Public|Private)\b/i.test(description)) {
       type = "select";
       options = ["Public", "Private"];
@@ -214,10 +214,10 @@ function parseInputFieldsFromText(text: string): DetectedInputField[] | null {
       type = "boolean";
       options = ["Yes", "No"];
     }
-    
+
     const isOptional = /\(optional\)/i.test(name) || /\(optional\)/i.test(description);
     const cleanName = name.replace(/\s*\(optional\)/i, "").trim();
-    
+
     addField({
       name: cleanName.toLowerCase().replace(/[\s\/]+/g, "_").replace(/[^a-z0-9_]/g, ""),
       label: cleanName,
@@ -227,19 +227,19 @@ function parseInputFieldsFromText(text: string): DetectedInputField[] | null {
       required: !isOptional,
     });
   }
-  
+
   // Pattern 3: Bullet points "- Repository Name: description"
   const bulletPattern = /^\s*[-•]\s*\*?\*?([^*\n:]+?)\*?\*?\s*[:]\s*([^\n]*)$/gm;
   while ((match = bulletPattern.exec(text)) !== null) {
     const [, rawName, description = ""] = match;
     const name = rawName.trim();
-    
+
     if (name.length < 3 || name.length > 60) continue;
     if (seenLabels.has(name.toLowerCase())) continue;
-    
+
     let type: "text" | "select" | "boolean" = "text";
     let options: string[] | undefined;
-    
+
     if (/\b(Public|Private)\b/i.test(description)) {
       type = "select";
       options = ["Public", "Private"];
@@ -247,10 +247,10 @@ function parseInputFieldsFromText(text: string): DetectedInputField[] | null {
       type = "boolean";
       options = ["Yes", "No"];
     }
-    
+
     const isOptional = /\(optional\)/i.test(name) || /\(optional\)/i.test(description);
     const cleanName = name.replace(/\s*\(optional\)/i, "").trim();
-    
+
     addField({
       name: cleanName.toLowerCase().replace(/[\s\/]+/g, "_").replace(/[^a-z0-9_]/g, ""),
       label: cleanName,
@@ -260,7 +260,7 @@ function parseInputFieldsFromText(text: string): DetectedInputField[] | null {
       required: !isOptional,
     });
   }
-  
+
   // Only return fields if we found at least 2 valid ones
   return fields.length >= 2 ? fields : null;
 }
@@ -279,10 +279,10 @@ function UserInputForm({
 }) {
   const [formData, setFormData] = useState<Record<string, string>>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
-  
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     // Validate required fields
     const newErrors: Record<string, string> = {};
     fields.forEach(field => {
@@ -290,15 +290,15 @@ function UserInputForm({
         newErrors[field.name] = `${field.label} is required`;
       }
     });
-    
+
     if (Object.keys(newErrors).length > 0) {
       setErrors(newErrors);
       return;
     }
-    
+
     onSubmit(formData);
   };
-  
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 10 }}
@@ -311,7 +311,7 @@ function UserInputForm({
           Please provide the following information to continue
         </span>
       </div>
-      
+
       <form onSubmit={handleSubmit} className="space-y-4">
         {fields.map((field, idx) => (
           <div key={field.name} className="space-y-1.5">
@@ -319,11 +319,11 @@ function UserInputForm({
               {field.label}
               {field.required && <span className="text-red-400">*</span>}
             </label>
-            
+
             {field.description && (
               <p className="text-xs text-muted-foreground">{field.description}</p>
             )}
-            
+
             {field.type === "select" && field.options ? (
               <select
                 value={formData[field.name] || ""}
@@ -376,13 +376,13 @@ function UserInputForm({
                 className={cn(errors[field.name] && "border-red-500")}
               />
             )}
-            
+
             {errors[field.name] && (
               <p className="text-xs text-red-400">{errors[field.name]}</p>
             )}
           </div>
         ))}
-        
+
         <div className="pt-2">
           <Button type="submit" disabled={disabled} className="gap-2 gradient-primary text-white">
             <Send className="h-4 w-4" />
@@ -525,11 +525,11 @@ function ThinkingIndicator({ isThinking }: { isThinking: boolean }) {
 /**
  * StreamingOutputDisplay - Shows streaming content with copy and fullscreen
  */
-function StreamingOutputDisplay({ 
-  content, 
+function StreamingOutputDisplay({
+  content,
   isFullscreen,
-  onExitFullscreen 
-}: { 
+  onExitFullscreen
+}: {
   content: string;
   isFullscreen: boolean;
   onExitFullscreen: () => void;
@@ -550,10 +550,10 @@ function StreamingOutputDisplay({
             <span>Exit Fullscreen</span>
           </Button>
         </div>
-        
+
         {/* Content */}
         <div className="flex-1 overflow-auto p-4">
-          <ReactMarkdown 
+          <ReactMarkdown
             remarkPlugins={[remarkGfm]}
             components={getMarkdownComponents()}
           >
@@ -563,7 +563,7 @@ function StreamingOutputDisplay({
       </div>
     );
   }
-  
+
   return (
     <motion.div
       initial={{ opacity: 0, height: 0 }}
@@ -631,10 +631,10 @@ function ResultOrInputForm({
       </motion.div>
     );
   }
-  
+
   // Fallback: Try to detect input fields from the content using regex
   const detectedFields = useMemo(() => parseInputFieldsFromText(content), [content]);
-  
+
   if (detectedFields && detectedFields.length > 0) {
     return (
       <motion.div
@@ -649,7 +649,7 @@ function ResultOrInputForm({
       </motion.div>
     );
   }
-  
+
   // No input fields detected - render as markdown
   if (isFullscreen) {
     return (
@@ -667,10 +667,10 @@ function ResultOrInputForm({
             <span>Exit Fullscreen</span>
           </Button>
         </div>
-        
+
         {/* Content */}
         <div className="flex-1 overflow-auto p-4">
-          <ReactMarkdown 
+          <ReactMarkdown
             remarkPlugins={[remarkGfm]}
             components={getMarkdownComponents()}
           >
@@ -680,13 +680,13 @@ function ResultOrInputForm({
       </div>
     );
   }
-  
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
     >
-      <ReactMarkdown 
+      <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         components={getMarkdownComponents()}
       >
@@ -723,11 +723,11 @@ export function AgentBuilderRunner({
   const [copied, setCopied] = useState(false);
   const [isOutputExpanded, setIsOutputExpanded] = useState(false);
   const [isSavingWorkflow, setIsSavingWorkflow] = useState(false);
-  
+
   // Structured user input state (from request_user_input tool)
   const [structuredInputFields, setStructuredInputFields] = useState<DetectedInputField[] | null>(null);
   const [structuredInputTitle, setStructuredInputTitle] = useState<string>("");
-  
+
   // Workflow run store
   const { createRun, updateRun, getRunsForWorkflow } = useWorkflowRunStore();
 
@@ -743,7 +743,7 @@ export function AgentBuilderRunner({
   const clientRef = useRef<A2ASDKClient | null>(null);
   const abortedRef = useRef(false);
   const hasAutoStarted = useRef(false);
-  
+
   // Workflow run tracking refs
   const runIdRef = useRef<string | null>(null);
   const startTimeRef = useRef<Date | null>(null);
@@ -795,7 +795,7 @@ export function AgentBuilderRunner({
         setIsFullscreen(false);
       }
     };
-    
+
     window.addEventListener('keydown', handleEscape);
     return () => window.removeEventListener('keydown', handleEscape);
   }, [isFullscreen]);
@@ -906,18 +906,18 @@ export function AgentBuilderRunner({
       if (event.requireUserInput && event.metadata?.input_fields) {
         console.log("[AgentBuilderRunner] 📝 Received structured user input request");
         const fields = event.metadata.input_fields;
-        
+
         // Convert backend field format to DetectedInputField format
         const convertedFields: DetectedInputField[] = fields.map((f) => ({
           name: f.field_name,
           label: f.field_label || f.field_name,
           description: f.field_description,
-          type: (f.field_type === "select" ? "select" : 
+          type: (f.field_type === "select" ? "select" :
                  f.field_type === "boolean" ? "boolean" : "text") as "text" | "select" | "boolean",
           options: f.field_values,
           required: f.required ?? true,
         }));
-        
+
         setStructuredInputFields(convertedFields);
         setStructuredInputTitle(event.metadata.input_title || "User Input Required");
         setFinalResult(content); // Show the description as content
@@ -932,11 +932,11 @@ export function AgentBuilderRunner({
           setFinalResult(content);
           setStatus("completed");
           setIsThinking(false);
-          
+
           // Mark all remaining tool calls as completed when we get final result
           setToolCalls((prev) => {
-            const updated = prev.map(tool => 
-              tool.status === "running" 
+            const updated = prev.map(tool =>
+              tool.status === "running"
                 ? { ...tool, status: "completed" as const }
                 : tool
             );
@@ -946,7 +946,7 @@ export function AgentBuilderRunner({
             }
             return updated;
           });
-          
+
           // Save execution artifacts to MongoDB immediately
           // (Need to use refs to get current state values to avoid closure issues)
           const saveExecutionArtifacts = async () => {
@@ -954,30 +954,30 @@ export function AgentBuilderRunner({
               console.warn("[AgentBuilderRunner] ⚠️ No runId or startTime available to save final result");
               return;
             }
-            
+
             setIsSavingWorkflow(true);
-            
+
             try {
               const endTime = new Date();
-              
+
               // Use refs to get current state (avoid closure issues)
               const currentSteps = stepsRef.current;
               const currentToolCalls = toolCallsRef.current;
               const currentStreamingContent = streamingContentRef.current;
-              
+
               // Get current state values - need to compute completed tools synchronously
-              const finalToolCalls = currentToolCalls.map(tool => 
-                tool.status === "running" 
+              const finalToolCalls = currentToolCalls.map(tool =>
+                tool.status === "running"
                   ? { ...tool, status: "completed" as const }
                   : tool
               );
-              
+
               console.log(`[AgentBuilderRunner] 💾 Saving execution artifacts for run ${runIdRef.current}`, {
                 stepsCount: currentSteps.length,
                 toolCallsCount: finalToolCalls.length,
                 contentLength: content.length
               });
-              
+
               // CRITICAL: Wait for save to complete before proceeding
               await updateRun(runIdRef.current, {
                 status: "completed",
@@ -1006,9 +1006,9 @@ export function AgentBuilderRunner({
                   streaming_content: currentStreamingContent,
                 },
               });
-              
+
               console.log(`[AgentBuilderRunner] ✅ Successfully saved execution artifacts for run ${runIdRef.current}`);
-              
+
               // Mark as saved so we don't duplicate on stream end
               workflowSavedRef.current = true;
             } catch (error) {
@@ -1018,17 +1018,17 @@ export function AgentBuilderRunner({
                 error: error instanceof Error ? error.message : String(error),
                 stack: error instanceof Error ? error.stack : undefined
               });
-              
+
               // Show error to user
               setError(`Failed to save workflow: ${error instanceof Error ? error.message : String(error)}`);
             } finally {
               setIsSavingWorkflow(false);
             }
           };
-          
+
           // IMPORTANT: Await the save to ensure it completes
           await saveExecutionArtifacts();
-          
+
           onComplete?.(content);
         }
         return;
@@ -1074,16 +1074,16 @@ export function AgentBuilderRunner({
         workflow_id: config.id,
         workflow_name: config.name,
         workflow_category: config.category,
-        input_prompt: config.is_quick_start && config.tasks.length > 0 
-          ? config.tasks[0].llm_prompt 
+        input_prompt: config.is_quick_start && config.tasks.length > 0
+          ? config.tasks[0].llm_prompt
           : config.description || config.name,
       });
       setCurrentRunId(runId);
-      
+
       // Store in refs for access in event handlers
       runIdRef.current = runId;
       startTimeRef.current = startTime;
-      
+
       console.log(`[AgentBuilderRunner] Created workflow run: ${runId}`);
     } catch (error) {
       console.error("[AgentBuilderRunner] Failed to create workflow run:", error);
@@ -1132,11 +1132,11 @@ export function AgentBuilderRunner({
             // If no final result yet, mark as completed with streaming content
             setStatus("completed");
             setIsThinking(false);
-            
+
             // Mark all remaining tool calls as completed when we get final status
             setToolCalls((prev) => {
-              const updated = prev.map(tool => 
-                tool.status === "running" 
+              const updated = prev.map(tool =>
+                tool.status === "running"
                   ? { ...tool, status: "completed" as const }
                   : tool
               );
@@ -1159,8 +1159,8 @@ export function AgentBuilderRunner({
         // Mark all remaining tool calls as completed
         // (some tools may not have sent explicit end notifications)
         setToolCalls((prev) => {
-          const updated = prev.map(tool => 
-            tool.status === "running" 
+          const updated = prev.map(tool =>
+            tool.status === "running"
               ? { ...tool, status: "completed" as const }
               : tool
           );
@@ -1174,25 +1174,25 @@ export function AgentBuilderRunner({
         // Update workflow run as completed (only if not already saved by final_result handler)
         if (runId && !workflowSavedRef.current) {
           setIsSavingWorkflow(true);
-          
+
           try {
             const endTime = new Date();
-            
+
             // Use refs to get current state (avoid closure issues)
             const currentSteps = stepsRef.current;
             const currentToolCalls = toolCallsRef.current;
             const currentStreamingContent = streamingContentRef.current;
             const currentFinalResult = finalResultRef.current;
-            
+
             const resultSummary = currentFinalResult || currentStreamingContent || "Workflow completed successfully";
-            
+
             // Get the final tool calls state with all marked as completed
-            const finalToolCalls = currentToolCalls.map(tool => 
-              tool.status === "running" 
+            const finalToolCalls = currentToolCalls.map(tool =>
+              tool.status === "running"
                 ? { ...tool, status: "completed" as const }
                 : tool
             );
-            
+
             console.log(`[AgentBuilderRunner] 💾 Finalizing workflow run ${runId}`, {
               finalResult: currentFinalResult?.substring(0, 100),
               streamingContent: currentStreamingContent?.substring(0, 100),
@@ -1201,7 +1201,7 @@ export function AgentBuilderRunner({
               toolCallsCount: finalToolCalls.length,
               completedToolCalls: finalToolCalls.filter(t => t.status === "completed").length
             });
-            
+
             // Store full execution artifacts for replay - CRITICAL: Wait for completion
             await updateRun(runId, {
               status: "completed",
@@ -1230,7 +1230,7 @@ export function AgentBuilderRunner({
                 streaming_content: currentStreamingContent,
               },
             });
-            
+
             console.log(`[AgentBuilderRunner] ✅ Successfully updated workflow run ${runId} with full execution artifacts`);
             workflowSavedRef.current = true;
           } catch (error) {
@@ -1240,7 +1240,7 @@ export function AgentBuilderRunner({
               error: error instanceof Error ? error.message : String(error),
               stack: error instanceof Error ? error.stack : undefined
             });
-            
+
             // Show error to user
             setError(`Failed to save workflow: ${error instanceof Error ? error.message : String(error)}`);
           } finally {
@@ -1262,8 +1262,8 @@ export function AgentBuilderRunner({
 
         // Mark all remaining tool calls as completed (workflow failed)
         setToolCalls((prev) => {
-          const updated = prev.map(tool => 
-            tool.status === "running" 
+          const updated = prev.map(tool =>
+            tool.status === "running"
               ? { ...tool, status: "completed" as const }
               : tool
           );
@@ -1279,7 +1279,7 @@ export function AgentBuilderRunner({
           try {
             const endTime = new Date();
             const currentSteps = stepsRef.current;
-            
+
             await updateRun(runId, {
               status: "failed",
               completed_at: endTime,
@@ -1313,8 +1313,8 @@ export function AgentBuilderRunner({
 
     // Mark all remaining tool calls as completed (workflow cancelled)
     setToolCalls((prev) => {
-      const updated = prev.map(tool => 
-        tool.status === "running" 
+      const updated = prev.map(tool =>
+        tool.status === "running"
           ? { ...tool, status: "completed" as const }
           : tool
       );
@@ -1351,7 +1351,7 @@ export function AgentBuilderRunner({
     setFinalResult("");
     setError("");
     setStreamingContent("");
-    
+
     // Clear workflow run refs
     runIdRef.current = null;
     startTimeRef.current = null;
@@ -1387,25 +1387,25 @@ export function AgentBuilderRunner({
         const startTime = startTimeRef.current;
         const alreadySaved = workflowSavedRef.current;
         const hasFinalResult = finalResultRef.current || streamingContentRef.current;
-        
+
         if (runId && startTime && !alreadySaved && hasFinalResult) {
           console.log(`[AgentBuilderRunner] 🔄 Component unmounting - finalizing workflow ${runId}`);
-          
+
           try {
             const endTime = new Date();
             const currentSteps = stepsRef.current;
             const currentToolCalls = toolCallsRef.current;
             const currentStreamingContent = streamingContentRef.current;
             const currentFinalResult = finalResultRef.current;
-            
+
             const resultSummary = currentFinalResult || currentStreamingContent || "Workflow completed";
-            
-            const finalToolCalls = currentToolCalls.map(tool => 
-              tool.status === "running" 
+
+            const finalToolCalls = currentToolCalls.map(tool =>
+              tool.status === "running"
                 ? { ...tool, status: "completed" as const }
                 : tool
             );
-            
+
             // CRITICAL: Use navigator.sendBeacon or fetch with keepalive for unmount saves
             // This ensures the request completes even if the page is closing
             const payload = {
@@ -1435,7 +1435,7 @@ export function AgentBuilderRunner({
                 streaming_content: currentStreamingContent,
               },
             };
-            
+
             // Use fetch with keepalive to ensure request completes on unmount
             await fetch(`/api/workflow-runs?id=${runId}`, {
               method: "PUT",
@@ -1443,7 +1443,7 @@ export function AgentBuilderRunner({
               body: JSON.stringify(payload),
               keepalive: true, // CRITICAL: Keeps request alive even after page unload
             });
-            
+
             console.log(`[AgentBuilderRunner] ✅ Finalized workflow ${runId} on unmount (keepalive)`);
           } catch (error) {
             console.error("[AgentBuilderRunner] ❌ Failed to finalize workflow on unmount:", error);
@@ -1454,7 +1454,7 @@ export function AgentBuilderRunner({
           }
         }
       };
-      
+
       finalizeOnUnmount();
     };
   }, []); // Empty deps - only set up once, uses refs for current values
@@ -1465,21 +1465,21 @@ export function AgentBuilderRunner({
    */
   const handleUserInputSubmit = useCallback(async (data: Record<string, string>) => {
     setIsSubmittingInput(true);
-    
+
     // Format the user input as a response message
     const formattedResponse = Object.entries(data)
       .map(([key, value]) => `${key.replace(/_/g, " ")}: ${value}`)
       .join("\n");
-    
+
     console.log("[AgentBuilderRunner] Submitting user input:", formattedResponse);
-    
+
     // Reset state for continuation
     setFinalResult("");
     setStreamingContent("");
     setStatus("running");
     setIsThinking(true);
     abortedRef.current = false;
-    
+
     // Create A2A client
     // Include user email so agents know who is making the request
     const client = new A2ASDKClient({
@@ -1488,7 +1488,7 @@ export function AgentBuilderRunner({
       userEmail: session?.user?.email ?? undefined,
     });
     clientRef.current = client;
-    
+
     try {
       // Send the user's input as a follow-up message
       for await (const event of client.sendMessageStream(formattedResponse)) {
@@ -1496,9 +1496,9 @@ export function AgentBuilderRunner({
           console.log("[AgentBuilderRunner] Workflow aborted");
           break;
         }
-        
+
         await handleEvent(event);
-        
+
         // Check for completion
         if (event.type === "status" && event.isFinal) {
           console.log("[AgentBuilderRunner] Workflow complete (final status)");
@@ -1507,7 +1507,7 @@ export function AgentBuilderRunner({
           break;
         }
       }
-      
+
       // Finalize
       if (!abortedRef.current && status !== "completed") {
         setStatus("completed");
@@ -1535,19 +1535,19 @@ export function AgentBuilderRunner({
       <div className="flex items-center justify-between mb-4 shrink-0">
         <div className="flex items-center gap-2">
           {/* Home button */}
-          <Button 
-            variant="ghost" 
-            size="icon" 
+          <Button
+            variant="ghost"
+            size="icon"
             onClick={() => router.push('/')}
             title="Go to home page"
           >
             <LayoutGrid className="h-5 w-5" />
           </Button>
           {/* Back button - navigates to history page */}
-          <Button 
-            variant="ghost" 
-            size="icon" 
-            onClick={() => router.push('/agent-builder/history')} 
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => router.push('/agent-builder/history')}
             title="View workflow history"
           >
             <ArrowLeft className="h-5 w-5" />
@@ -1781,7 +1781,7 @@ export function AgentBuilderRunner({
                   )}
                 </Button>
               )}
-              
+
               {/* Fullscreen button */}
               {(streamingContent || finalResult) && (
                 <Button
@@ -1804,7 +1804,7 @@ export function AgentBuilderRunner({
                   )}
                 </Button>
               )}
-              
+
               {/* Hide/Show Stream toggle */}
               {streamingContent && !finalResult && (
                 <Button
@@ -1847,8 +1847,8 @@ export function AgentBuilderRunner({
                 {status === "running" && !finalResult && (
                   <div className="space-y-4">
                     {showStreamingOutput && streamingContent && (
-                      <StreamingOutputDisplay 
-                        content={streamingContent} 
+                      <StreamingOutputDisplay
+                        content={streamingContent}
                         isFullscreen={isFullscreen}
                         onExitFullscreen={() => setIsFullscreen(false)}
                       />
@@ -1856,13 +1856,13 @@ export function AgentBuilderRunner({
 
                     {!showStreamingOutput && (
                       <div className="flex flex-col items-center justify-center py-12 text-center">
-                        <CAIPESpinner 
-                          size="md" 
+                        <CAIPESpinner
+                          size="md"
                           message={
-                            steps.length > 0 
+                            steps.length > 0
                               ? `Executing workflow... (Step ${activeStepIndex + 1} of ${steps.length})`
                               : "Executing workflow..."
-                          } 
+                          }
                         />
                       </div>
                     )}
@@ -1931,7 +1931,7 @@ export function AgentBuilderRunner({
           )}
         </div>
       </div>
-      
+
       {/* Fullscreen overlay backdrop */}
       <AnimatePresence>
         {isFullscreen && (
@@ -1944,7 +1944,7 @@ export function AgentBuilderRunner({
           />
         )}
       </AnimatePresence>
-      
+
       {/* Saving workflow overlay */}
       <AnimatePresence>
         {isSavingWorkflow && (

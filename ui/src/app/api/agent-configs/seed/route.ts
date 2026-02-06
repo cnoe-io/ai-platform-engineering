@@ -11,11 +11,11 @@ import { BUILTIN_QUICK_START_TEMPLATES } from "@/types/agent-config";
 
 /**
  * Seed API Route
- * 
+ *
  * POST /api/agent-configs/seed
  * Seeds the database with built-in templates if they don't exist.
  * Can be called on app startup or manually by admin.
- * 
+ *
  * GET /api/agent-configs/seed
  * Checks if seeding is needed (returns { needsSeeding: boolean, count: number })
  */
@@ -27,10 +27,10 @@ async function checkSeedingStatus(): Promise<{ needsSeeding: boolean; existingCo
   }
 
   const collection = await getCollection<AgentConfig>("agent_configs");
-  
+
   // Check how many system templates exist
   const existingSystemConfigs = await collection.countDocuments({ is_system: true });
-  
+
   return {
     needsSeeding: existingSystemConfigs < BUILTIN_QUICK_START_TEMPLATES.length,
     existingCount: existingSystemConfigs,
@@ -45,14 +45,14 @@ async function seedBuiltinTemplates(): Promise<{ seeded: number; skipped: number
   }
 
   const collection = await getCollection<AgentConfig>("agent_configs");
-  
+
   let seeded = 0;
   let skipped = 0;
 
   for (const template of BUILTIN_QUICK_START_TEMPLATES) {
     // Check if this template already exists
     const existing = await collection.findOne({ id: template.id });
-    
+
     if (existing) {
       skipped++;
       continue;
@@ -87,10 +87,10 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
   }
 
   const status = await checkSeedingStatus();
-  
+
   return NextResponse.json({
     ...status,
-    message: status.needsSeeding 
+    message: status.needsSeeding
       ? `${status.templateCount - status.existingCount} templates need to be seeded`
       : "All templates are already seeded",
   });
@@ -118,7 +118,7 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
 
   // Check current status
   const status = await checkSeedingStatus();
-  
+
   if (!status.needsSeeding) {
     return successResponse({
       message: "All templates are already seeded",
@@ -129,7 +129,7 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
 
   // Perform seeding
   const result = await seedBuiltinTemplates();
-  
+
   console.log(`[Seed] Seeding complete: ${result.seeded} seeded, ${result.skipped} skipped`);
 
   return successResponse({
