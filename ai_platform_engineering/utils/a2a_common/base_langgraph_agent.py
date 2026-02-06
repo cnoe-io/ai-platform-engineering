@@ -225,6 +225,134 @@ Use this as the reference point for all date calculations. When users say "today
         """
         return []
 
+    async def _load_mcp_tools(self, args: dict) -> list:
+        """
+        Load MCP tools for this agent.
+        
+        This is extracted from _setup_mcp_and_graph to allow reuse for subagent graph creation.
+        
+        Args:
+            args: Dictionary with optional 'thread_id' for tool wrapping
+            
+        Returns:
+            List of tools loaded from MCP
+        """
+        agent_name = self.get_agent_name()
+        mcp_mode = os.getenv("MCP_MODE", "stdio")
+        
+        # Compute default server path based on agent's module location
+        # This finds the MCP server relative to the agent's protocol_bindings/a2a_server/agent.py
+        agent_module = self.__class__.__module__
+        if agent_module:
+            import importlib
+            try:
+                module = importlib.import_module(agent_module)
+                if hasattr(module, '__file__') and module.__file__:
+                    # Navigate from protocol_bindings/a2a_server/agent.py up to mcp/
+                    agent_file = module.__file__
+                    # Go up: protocol_bindings/a2a_server/ -> protocol_bindings/ -> agent_X/ -> agent/ -> mcp/
+                    agent_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(agent_file))))
+                    server_path = os.path.join(agent_dir, "mcp", f"mcp_{agent_name}", "__main__.py")
+                    if not os.path.exists(server_path):
+                        # Try alternate path
+                        server_path = os.path.join(agent_dir, "mcp", f"mcp_{agent_name}", "server.py")
+                else:
+                    server_path = None
+            except Exception as e:
+                logger.debug(f"{agent_name}: Could not determine MCP server path from module: {e}")
+                server_path = None
+        else:
+            server_path = None
+        
+        # Override with environment variable if set
+        env_server_path = os.getenv(f"{agent_name.upper()}_MCP_SERVER_PATH")
+        if env_server_path:
+            server_path = env_server_path
+        
+        # If MCP not available, just return additional tools
+        if not MCP_AVAILABLE:
+            logger.warning(f"{agent_name}: MCP not available, using only additional tools")
+            return self.get_additional_tools() or []
+        
+        client = None
+        
+        # Check if agent provides custom HTTP config (auto-detect HTTP-only agents like GitHub)
+        custom_http_config = self.get_mcp_http_config()
+        
+        if custom_http_config:
+            # Agent provides HTTP config - use HTTP mode regardless of MCP_MODE env var
+            # This allows HTTP-only agents (like GitHub with Copilot API) to work automatically
+            logger.info(f"{agent_name}: Using HTTP transport for MCP client (agent provides custom HTTP config)")
+            logger.info(f"Using custom HTTP MCP configuration for {agent_name}")
+            client = MultiServerMCPClient({
+                agent_name: {
+                    "transport": "streamable_http",
+                    **custom_http_config
+                }
+            })
+        elif mcp_mode in ("http", "streamable_http"):
+            # HTTP mode requested via environment but no custom config - use localhost
+            logger.info(f"{agent_name}: Using HTTP transport for MCP client (default localhost)")
+            mcp_host = os.getenv("MCP_HOST", "localhost")
+            mcp_port = os.getenv("MCP_PORT", "3000")
+            logger.info(f"Connecting to MCP server at {mcp_host}:{mcp_port}")
+            user_jwt = "TBD_USER_JWT"
+            client = MultiServerMCPClient({
+                agent_name: {
+                    "transport": "streamable_http",
+                    "url": f"http://{mcp_host}:{mcp_port}/mcp/",
+                    "headers": {
+                        "Authorization": f"Bearer {user_jwt}",
+                    },
+                }
+            })
+        else:
+            logger.info(f"{agent_name}: Using STDIO transport for MCP client")
+            
+            if not server_path or not os.path.exists(server_path):
+                logger.warning(f"{agent_name}: MCP server path not found: {server_path}")
+                return self.get_additional_tools() or []
+            
+            try:
+                mcp_config = self.get_mcp_config(server_path)
+                logger.info(f"{agent_name}: MCP config loaded successfully")
+                
+                if mcp_config and "command" not in mcp_config:
+                    logger.info(f"{agent_name}: Multi-server MCP configuration detected with {len(mcp_config)} servers")
+                    client = MultiServerMCPClient(mcp_config)
+                else:
+                    client = MultiServerMCPClient({
+                        agent_name: mcp_config
+                    })
+            except (ValueError, NotImplementedError) as e:
+                logger.error(f"{agent_name}: Cannot load MCP config: {e}")
+                return self.get_additional_tools() or []
+        
+        if not client:
+            logger.warning(f"{agent_name}: No MCP client configured")
+            return self.get_additional_tools() or []
+        
+        # Get tools from MCP client
+        try:
+            tools = await client.get_tools()
+        except Exception as e:
+            logger.warning(f"{agent_name}: Failed to load MCP tools: {e}")
+            return self.get_additional_tools() or []
+        
+        # Allow subclasses to filter tools
+        tools = self._filter_mcp_tools(tools)
+        
+        # Allow subclasses to wrap tools
+        try:
+            tools = self._wrap_mcp_tools(tools, args.get("thread_id", "default"))
+        except Exception as e:
+            logger.error(f"{agent_name}: Failed to wrap MCP tools: {e}", exc_info=True)
+            # Return unwrapped tools rather than failing completely
+            pass
+        
+        logger.info(f"{agent_name}: Loaded {len(tools)} MCP tools")
+        return tools
+
     def _chunk_large_output(self, output: Any, tool_name: str) -> Any:
         """
         Generic post-hook to chunk large tool outputs.

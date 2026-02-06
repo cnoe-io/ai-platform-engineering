@@ -24,6 +24,8 @@ export interface Config {
   ssoEnabled: boolean;
   /** Whether MongoDB persistence is enabled */
   mongodbEnabled: boolean;
+  /** Whether RAG (knowledge base) is enabled */
+  ragEnabled: boolean;
   /** Whether to show sub-agent streaming cards in chat (experimental) */
   enableSubAgentCards: boolean;
   /** Main tagline displayed throughout the UI */
@@ -95,6 +97,10 @@ function getRuntimeEnv(key: string): string | undefined {
         return process.env.NEXT_PUBLIC_SPINNER_COLOR;
       case 'NEXT_PUBLIC_SHOW_POWERED_BY':
         return process.env.NEXT_PUBLIC_SHOW_POWERED_BY;
+      case 'NEXT_PUBLIC_ENABLE_RAG':
+        return process.env.NEXT_PUBLIC_ENABLE_RAG;
+      case 'ENABLE_RAG':
+        return process.env.ENABLE_RAG;
       default:
         return undefined;
     }
@@ -183,6 +189,25 @@ function isMongodbEnabled(): boolean {
   const mongoEnv = getRuntimeEnv('NEXT_PUBLIC_MONGODB_ENABLED');
   if (mongoEnv !== undefined) {
     return mongoEnv === 'true';
+  }
+  return false;
+}
+
+/**
+ * Check if RAG (knowledge base) is enabled
+ * Disabled by default - set ENABLE_RAG=true to enable
+ * Priority: window.__ENV__ (runtime) > process.env (build-time)
+ */
+function isRagEnabled(): boolean {
+  // Check NEXT_PUBLIC_ENABLE_RAG first (client-accessible)
+  const ragEnv = getRuntimeEnv('NEXT_PUBLIC_ENABLE_RAG');
+  if (ragEnv !== undefined) {
+    return ragEnv === 'true';
+  }
+  // Fall back to server-side ENABLE_RAG
+  const serverRagEnv = getRuntimeEnv('ENABLE_RAG');
+  if (serverRagEnv !== undefined) {
+    return serverRagEnv === 'true';
   }
   return false;
 }
@@ -319,6 +344,7 @@ export const config: Config = {
   isProd: typeof process !== 'undefined' && process.env.NODE_ENV === 'production',
   ssoEnabled: isSsoEnabled(),
   mongodbEnabled: isMongodbEnabled(),
+  ragEnabled: isRagEnabled(),
   enableSubAgentCards: isSubAgentCardsEnabled(),
   tagline: getTagline(),
   description: getDescription(),
@@ -346,6 +372,8 @@ export function getConfig<K extends keyof Config>(key: K): Config[K] {
       return isSsoEnabled() as Config[K];
     case 'mongodbEnabled':
       return isMongodbEnabled() as Config[K];
+    case 'ragEnabled':
+      return isRagEnabled() as Config[K];
     case 'enableSubAgentCards':
       return isSubAgentCardsEnabled() as Config[K];
     case 'tagline':
@@ -397,6 +425,7 @@ export function logConfig(): void {
       isProd: config.isProd,
       ssoEnabled: config.ssoEnabled,
       mongodbEnabled: config.mongodbEnabled,
+      ragEnabled: config.ragEnabled,
       enableSubAgentCards: config.enableSubAgentCards,
       tagline: config.tagline,
       description: config.description,

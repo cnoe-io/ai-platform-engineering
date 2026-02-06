@@ -19,6 +19,11 @@ tags:
 
 # Global configuration shared across all subcharts
 global:
+  # Deployment Mode:
+  #   "single-node" (default): Single container with MCP tools loaded in-process via stdio transport
+  #   "multi-agent": Multiple containers with A2A protocol communication between agents
+  deploymentMode: "single-node"
+
   createLlmSecret: false # if true, llm secret will be created by the parent chart. Otherwise, expect existing llm secret
   llmSecrets:
     create: false # do not create llm secret in subcharts (use global or existing llm secret)
@@ -349,6 +354,7 @@ caipe-ui:
     tls: []
   env:
     # CAIPE Supervisor URL - automatically configured to use the supervisor-agent service
+    # For single-node mode, override to use: "http://ai-platform-engineering-caipe:8000"
     NEXT_PUBLIC_A2A_BASE_URL: "http://ai-platform-engineering-supervisor-agent:8000"
   # ConfigMap for non-sensitive configuration
   config:
@@ -415,11 +421,6 @@ caipe-ui:
         #     key: dev/mongodb
         #     property: password
 
-######### RAG Stack configuration #########
-# RAG Stack - Complete stack including web, server, agent, Redis, and Milvus
-# Below values are only a subset of the values that are available in the rag-stack chart.
-# For more values, please refer to the rag-stack chart values.yaml file.
-rag-stack:
 ######### RAG Stack configuration #########
 # RAG Stack - Complete stack including web, server, agent, Redis, and Milvus
 # Below values are only a subset of the values that are available in the rag-stack chart.
