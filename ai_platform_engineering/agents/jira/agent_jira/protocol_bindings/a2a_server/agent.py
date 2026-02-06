@@ -62,7 +62,7 @@ class JiraAgent(BaseLangGraphAgent):
 
         # Project path is the mcp/ directory (parent of mcp_jira/) where pyproject.toml lives
         project_path = os.path.dirname(os.path.dirname(server_path))
-
+        
         return {
             "command": "uv",
             "args": ["run", "--project", project_path, server_path],

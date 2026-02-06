@@ -7,10 +7,11 @@ import { apiClient } from "@/lib/api-client";
 import { getStorageMode, shouldUseLocalStorage } from "@/lib/storage-config";
 
 // Track streaming state per conversation
+// Using a generic client interface that requires abort() method
 interface StreamingState {
   conversationId: string;
   messageId: string;
-  client: A2AClient;
+  client: { abort: () => void };
 }
 
 interface ChatState {

@@ -278,7 +278,7 @@ export function ChatPanel({ endpoint }: ChatPanelProps) {
     setConversationStreaming(convId, {
       conversationId: convId,
       messageId: assistantMsgId,
-      client: { abort: () => client.abort() } as ReturnType<typeof setConversationStreaming> extends void ? never : Parameters<typeof setConversationStreaming>[1] extends { client: infer C } ? C : never,
+      client,
     });
 
     try {
