@@ -31,10 +31,10 @@ try:
     from langgraph.prebuilt.tool_node import ToolCallRequest
 except ImportError:
     try:
-        from langchain.agents.middleware import AgentMiddleware, AgentState
+        from langchain.agents.middleware import AgentMiddleware, AgentState  # noqa: F401
         from langgraph.prebuilt.tool_node import ToolCallRequest
     except ImportError:
-        from deepagents.middleware import AgentMiddleware, AgentState
+        from deepagents.middleware import AgentMiddleware
         ToolCallRequest = Any
 
 try:

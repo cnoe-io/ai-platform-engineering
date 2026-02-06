@@ -4,7 +4,7 @@ These state classes extend the official deepagents state with
 platform-specific functionality.
 """
 
-from typing import Annotated, Any, Literal, NotRequired
+from typing import Annotated, Literal, NotRequired
 from typing_extensions import TypedDict
 
 try:

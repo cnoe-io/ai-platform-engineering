@@ -343,17 +343,14 @@ class AIPlatformEngineerA2ABinding:
               # Without subgraphs, format is (stream_mode, event)
               if isinstance(stream_item, tuple):
                   if len(stream_item) == 3:
-                      path, event_type, event = stream_item
+                      _, event_type, event = stream_item
                   elif len(stream_item) == 2:
-                      path = None
                       event_type, event = stream_item
                   else:
                       # Unexpected format, try to handle gracefully
-                      path = None
                       event_type = stream_item[0] if len(stream_item) > 0 else None
                       event = stream_item[1] if len(stream_item) > 1 else stream_item
               else:
-                  path = None
                   event_type = None
                   event = stream_item
 
@@ -395,7 +392,6 @@ class AIPlatformEngineerA2ABinding:
                           name = action_req.get("name", "CAIPEAgentResponse")
                           # HITL middleware uses 'arguments', but also check 'args' for compatibility
                           args = action_req.get("arguments", {}) or action_req.get("args", {})
-                          description = action_req.get("description", "")
                           
                           # The args should already contain metadata.input_fields from HITL middleware
                           # Just pass them through directly
@@ -972,7 +968,7 @@ class AIPlatformEngineerA2ABinding:
           )
           
           if is_graph_interrupt:
-              logging.info(f"🔄 GraphInterrupt caught in stream exception handler - propagating as HITL form")
+              logging.info("🔄 GraphInterrupt caught in stream exception handler - propagating as HITL form")
               
               # Extract interrupt value from exception
               interrupt_value = None
@@ -1247,7 +1243,7 @@ class AIPlatformEngineerA2ABinding:
               )
               
               if is_graph_interrupt:
-                  logging.info(f"🔄 GraphInterrupt caught in FALLBACK stream - propagating as HITL form")
+                  logging.info("🔄 GraphInterrupt caught in FALLBACK stream - propagating as HITL form")
                   
                   # Extract interrupt value from exception
                   interrupt_value = None

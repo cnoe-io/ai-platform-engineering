@@ -34,8 +34,6 @@ export interface Config {
   ragEnabled: boolean;
   /** Whether MongoDB persistence is enabled */
   mongodbEnabled: boolean;
-  /** Whether RAG (knowledge base) is enabled */
-  ragEnabled: boolean;
   /** Whether to show sub-agent streaming cards in chat (experimental) */
   enableSubAgentCards: boolean;
   /** Main tagline displayed throughout the UI */
@@ -343,7 +341,6 @@ export const config: Config = {
   ssoEnabled: isSsoEnabled(),
   ragEnabled: isRagEnabled(),
   mongodbEnabled: isMongodbEnabled(),
-  ragEnabled: isRagEnabled(),
   enableSubAgentCards: isSubAgentCardsEnabled(),
   tagline: getTagline(),
   description: getDescription(),
@@ -374,8 +371,6 @@ export function getConfig<K extends keyof Config>(key: K): Config[K] {
       return isRagEnabled() as Config[K];
     case 'mongodbEnabled':
       return isMongodbEnabled() as Config[K];
-    case 'ragEnabled':
-      return isRagEnabled() as Config[K];
     case 'enableSubAgentCards':
       return isSubAgentCardsEnabled() as Config[K];
     case 'tagline':
@@ -430,7 +425,6 @@ export function logConfig(): void {
       ssoEnabled: config.ssoEnabled,
       ragEnabled: config.ragEnabled,
       mongodbEnabled: config.mongodbEnabled,
-      ragEnabled: config.ragEnabled,
       enableSubAgentCards: config.enableSubAgentCards,
       tagline: config.tagline,
       description: config.description,

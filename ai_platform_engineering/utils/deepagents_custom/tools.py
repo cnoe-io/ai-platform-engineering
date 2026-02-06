@@ -6,7 +6,7 @@ filesystem used by FilesystemMiddleware.
 
 import asyncio
 import logging
-from typing import Annotated, Any
+from typing import Annotated
 
 from langchain_core.messages import AIMessage, ToolMessage
 from langchain_core.tools import tool, InjectedToolArg

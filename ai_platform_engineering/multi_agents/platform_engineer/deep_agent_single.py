@@ -20,13 +20,12 @@ import time
 import yaml
 import httpx
 from pathlib import Path
-from typing import Optional, Dict, Any, List, NotRequired, Annotated, Literal
+from typing import Optional, Dict, Any, List, Annotated
 import operator
 
 from langchain_core.messages import AIMessage, ToolMessage
 from langchain_core.tools import tool, StructuredTool, InjectedToolCallId
 from langgraph.graph.state import CompiledStateGraph
-from langgraph.graph import MessagesState
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.types import Command
 from cnoe_agent_utils import LLMFactory
@@ -38,7 +37,6 @@ from langchain.tools.tool_node import InjectedState
 # The vendored deepagents/ in repo root is for multi-node mode
 # Single-node uses the pip package which has different API (system_prompt, middleware)
 import sys
-import os
 
 # CRITICAL: Remove vendored deepagents from path BEFORE any imports can occur
 # The vendored version at /app/deepagents (Docker) or ./deepagents (local) shadows the pip package
@@ -118,7 +116,7 @@ from ai_platform_engineering.utils.deepagents_custom.tools import (
     tool_result_to_file,
     wait,
 )
-from ai_platform_engineering.utils.deepagents_custom.state import file_reducer, DeepAgentState
+from ai_platform_engineering.utils.deepagents_custom.state import DeepAgentState
 
 # Import agent classes for subagent definition creation
 # SubAgent dicts are built by SubAgentMiddleware with shared StateBackend for filesystem state sharing
@@ -145,20 +143,8 @@ from ai_platform_engineering.multi_agents.tools import (
     format_markdown,
     fetch_url,
     get_current_date,
-    write_workspace_file,
-    read_workspace_file,
-    list_workspace_files,
-    clear_workspace,
-    git,
-    wget,
-    grep,
-    glob_find,
     jq,
     yq,
-    read_file as read_file_tool,
-    write_file as write_file_tool,
-    append_file,
-    list_files,
 )
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -779,7 +765,6 @@ class PlatformEngineerDeepAgent:
         
         # Load task configuration
         task_config = load_task_config()
-        task_list = yaml.safe_dump(task_config)
         
         # Load prompt configuration from prompt_config.yaml
         prompt_config = load_platform_config()
