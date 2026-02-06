@@ -1,7 +1,6 @@
 "use client";
 
 import React, { useEffect, useState, useMemo } from "react";
-import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Search,
@@ -34,24 +33,18 @@ import {
   ArrowRight,
   X,
   ExternalLink,
-  MessageSquare,
-  Star,
-  History,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { CAIPESpinner } from "@/components/ui/caipe-spinner";
 import { cn } from "@/lib/utils";
 import { useAgentConfigStore } from "@/store/agent-config-store";
-import { useChatStore } from "@/store/chat-store";
-import { useAdminRole } from "@/hooks/use-admin-role";
 import type { AgentConfig, AgentConfigCategory, WorkflowDifficulty } from "@/types/agent-config";
-import { generateInputFormFromPrompt } from "@/types/agent-config";
+import { BUILTIN_QUICK_START_TEMPLATES, generateInputFormFromPrompt } from "@/types/agent-config";
 
 interface AgentBuilderGalleryProps {
-  onSelectConfig?: (config: AgentConfig, fromHistory?: boolean) => void;
-  onRunQuickStart?: (prompt: string, configName?: string) => void;
+  onSelectConfig?: (config: AgentConfig) => void;
+  onRunQuickStart?: (prompt: string) => void;
   onEditConfig?: (config: AgentConfig) => void;
   onCreateNew?: () => void;
   onImportYaml?: () => void;
@@ -129,20 +122,7 @@ export function AgentBuilderGallery({
   onCreateNew,
   onImportYaml,
 }: AgentBuilderGalleryProps) {
-  const {
-    configs,
-    isLoading,
-    error,
-    loadConfigs,
-    deleteConfig,
-    toggleFavorite,
-    isFavorite,
-    getFavoriteConfigs
-  } = useAgentConfigStore();
-  const { isAdmin } = useAdminRole();
-  const router = useRouter();
-  const { createConversation, setPendingMessage } = useChatStore();
-
+  const { configs, isLoading, error, loadConfigs, deleteConfig } = useAgentConfigStore();
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategory, setSelectedCategory] = useState<string>("All");
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -154,57 +134,14 @@ export function AgentBuilderGallery({
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
   const [editablePrompt, setEditablePrompt] = useState<string>("");
 
-  // Keep activeFormConfig in sync with store updates (e.g., after editing)
-  useEffect(() => {
-    if (activeFormConfig) {
-      // Find the latest version of this config in the store
-      const latestConfig = configs.find(c => c.id === activeFormConfig.id);
-      if (latestConfig) {
-        const latestPrompt = latestConfig.tasks[0]?.llm_prompt || "";
-        const currentPrompt = activeFormConfig.tasks[0]?.llm_prompt || "";
-
-        // Only update if the prompt has changed (to avoid infinite loop)
-        if (latestPrompt !== currentPrompt) {
-          console.log(`[AgentBuilderGallery] Config updated in store, refreshing dialog:`, latestConfig.id);
-          console.log(`[AgentBuilderGallery] Old prompt:`, currentPrompt);
-          console.log(`[AgentBuilderGallery] New prompt:`, latestPrompt);
-
-          // Update activeFormConfig with latest data
-          setActiveFormConfig({ ...latestConfig, input_form: activeFormConfig.input_form });
-          // Update editablePrompt with latest llm_prompt
-          setEditablePrompt(latestPrompt);
-        }
-      }
-    }
-  }, [configs, activeFormConfig]); // Re-run when configs change or activeFormConfig changes
-
-  // Check if user can edit/delete a config
-  const canModifyConfig = (config: AgentConfig) => {
-    // Admins can modify system configs
-    if (config.is_system) {
-      console.log(`[canModifyConfig] System config ${config.id}, isAdmin: ${isAdmin}`);
-      return isAdmin;
-    }
-    // Users can modify their own configs
-    return true;
-  };
-
   // Load configs on mount
   useEffect(() => {
     loadConfigs();
   }, [loadConfigs]);
 
-  // Use configs directly from store (MongoDB configs + fallback to built-in)
-  // Deduplicate by id to prevent duplicate key errors
+  // Combine MongoDB configs with built-in quick-start templates
   const allConfigs = useMemo(() => {
-    const seen = new Set<string>();
-    return configs.filter(config => {
-      if (seen.has(config.id)) {
-        return false;
-      }
-      seen.add(config.id);
-      return true;
-    });
+    return [...BUILTIN_QUICK_START_TEMPLATES, ...configs];
   }, [configs]);
 
   // Filter configs based on search, category, and view mode
@@ -232,29 +169,21 @@ export function AgentBuilderGallery({
   const quickStartConfigs = filteredConfigs.filter(c => c.is_quick_start);
   const workflowConfigs = filteredConfigs.filter(c => !c.is_quick_start);
 
-  // Featured quick-starts (shown in a separate section)
-  const featuredIds = ["qs-deploy-status", "qs-incident-analysis", "qs-release-readiness"];
-  const featuredConfigs = quickStartConfigs.filter(c => featuredIds.includes(c.id));
-
-  // Non-featured quick-starts (exclude featured ones to avoid duplicate keys)
-  const nonFeaturedQuickStartConfigs = quickStartConfigs.filter(c => !featuredIds.includes(c.id));
+  // Featured quick-starts
+  const featuredConfigs = quickStartConfigs.filter(c =>
+    ["qs-deploy-status", "qs-incident-analysis", "qs-release-readiness"].includes(c.id)
+  );
 
   const handleDelete = async (config: AgentConfig, e: React.MouseEvent) => {
     e.stopPropagation();
-
-    // Confirm deletion
-    const confirmMessage = config.is_system
-      ? `Are you sure you want to delete the system template "${config.name}"? This action requires admin privileges.`
-      : `Are you sure you want to delete "${config.name}"?`;
-
-    if (!confirm(confirmMessage)) return;
+    if (config.is_system) return;
+    if (!confirm(`Are you sure you want to delete "${config.name}"?`)) return;
 
     setDeletingId(config.id);
     try {
       await deleteConfig(config.id);
-    } catch (error: any) {
+    } catch (error) {
       console.error("Failed to delete config:", error);
-      alert(error.message || "Failed to delete configuration");
     } finally {
       setDeletingId(null);
     }
@@ -266,11 +195,7 @@ export function AgentBuilderGallery({
       const inputForm = config.input_form || generateInputFormFromPrompt(config.tasks[0]?.llm_prompt || "", config.name);
       const basePrompt = config.tasks[0]?.llm_prompt || "";
 
-      console.log(`[AgentBuilderGallery] Opening quick-start: ${config.name}`);
-      console.log(`[AgentBuilderGallery] Prompt from config:`, basePrompt);
-      console.log(`[AgentBuilderGallery] Full config:`, config);
-
-      setActiveFormConfig({ ...config, input_form: inputForm || undefined });
+      setActiveFormConfig({ ...config, input_form: inputForm });
       setEditablePrompt(basePrompt);
 
       if (inputForm && inputForm.fields.length > 0) {
@@ -322,38 +247,7 @@ export function AgentBuilderGallery({
 
     // Use the editable prompt (which may have been modified by the user)
     setActiveFormConfig(null);
-    onRunQuickStart?.(editablePrompt, activeFormConfig.name);
-  };
-
-  const handleRunInChat = () => {
-    if (!activeFormConfig) return;
-
-    // Validate required fields if there are any
-    if (activeFormConfig.input_form && activeFormConfig.input_form.fields.length > 0) {
-      const errors: Record<string, string> = {};
-      activeFormConfig.input_form.fields.forEach(field => {
-        if (field.required && !formValues[field.name]?.trim()) {
-          errors[field.name] = `${field.label} is required`;
-        }
-      });
-
-      if (Object.keys(errors).length > 0) {
-        setFormErrors(errors);
-        return;
-      }
-    }
-
-    // Create a new conversation
-    const conversationId = createConversation();
-
-    // Set the pending message to be auto-submitted when the chat loads
-    setPendingMessage(editablePrompt);
-
-    // Close the modal
-    setActiveFormConfig(null);
-
-    // Navigate to the chat page
-    router.push(`/chat/${conversationId}`);
+    onRunQuickStart?.(editablePrompt);
   };
 
   if (error) {
@@ -378,7 +272,7 @@ export function AgentBuilderGallery({
                 <Zap className="h-6 w-6 text-white" />
               </div>
               <div>
-                <h1 className="text-2xl font-bold gradient-text">Agentic Workflows</h1>
+                <h1 className="text-2xl font-bold gradient-text">Agent Builder</h1>
                 <p className="text-sm text-muted-foreground">
                   Quick-start templates and multi-step agent workflows
                 </p>
@@ -392,7 +286,7 @@ export function AgentBuilderGallery({
               </Button>
               <Button size="sm" onClick={onCreateNew} className="gap-2 gradient-primary text-white">
                 <Plus className="h-4 w-4" />
-                Agentic Workflow Builder
+                Agent Workflow Builder
               </Button>
             </div>
           </div>
@@ -417,23 +311,13 @@ export function AgentBuilderGallery({
                   size="sm"
                   onClick={() => setViewMode(mode)}
                   className={cn(
-                    "rounded-full text-xs gap-1",
+                    "rounded-full text-xs",
                     viewMode === mode && "bg-primary text-primary-foreground"
                   )}
                 >
                   {mode === "all" ? "All" : mode === "quick-start" ? "Quick Start" : "Multi-Step"}
                 </Button>
               ))}
-              {/* History button - navigates to dedicated page */}
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => router.push('/agent-builder/history')}
-                className="rounded-full text-xs gap-1"
-              >
-                <History className="h-3 w-3" />
-                History
-              </Button>
             </div>
 
             <div className="flex gap-2 flex-wrap">
@@ -456,97 +340,13 @@ export function AgentBuilderGallery({
       {/* Loading */}
       {isLoading && (
         <div className="flex items-center justify-center h-64">
-          <CAIPESpinner size="lg" message="Loading workflows..." />
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
         </div>
       )}
 
       {/* Content */}
       {!isLoading && (
         <div className="flex-1 overflow-y-auto">
-          {/* Favorites Section */}
-          {getFavoriteConfigs().length > 0 && searchQuery === "" && selectedCategory === "All" && (
-            <div className="mb-8 p-4 bg-gradient-to-br from-yellow-500/10 to-amber-500/10 rounded-xl border border-yellow-500/30">
-              <div className="flex items-center gap-2 mb-4">
-                <Star className="h-5 w-5 text-yellow-500 fill-current" />
-                <h2 className="text-lg font-medium">Favorites</h2>
-                <Badge variant="secondary" className="bg-yellow-500/20 text-yellow-600">{getFavoriteConfigs().length}</Badge>
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-                {getFavoriteConfigs().map((config, index) => {
-                  const Icon = ICON_MAP[config.thumbnail || (config.is_quick_start ? "Zap" : "Workflow")] || Zap;
-                  const gradientClass = CATEGORY_COLORS[config.category] || CATEGORY_COLORS["Custom"];
-
-                  return (
-                    <motion.div
-                      key={`fav-${config.id}`}
-                      initial={{ opacity: 0, y: 20 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      transition={{ delay: index * 0.03 }}
-                      whileHover={{ scale: 1.02 }}
-                      whileTap={{ scale: 0.98 }}
-                      onClick={() => config.is_quick_start ? handleConfigClick(config) : onSelectConfig?.(config)}
-                      className="relative flex items-center gap-3 p-4 rounded-xl bg-card border border-border/50 hover:border-yellow-500 hover:shadow-lg transition-all text-left group cursor-pointer"
-                    >
-                      <div className={cn("p-2 rounded-lg bg-gradient-to-br shrink-0", gradientClass)}>
-                        <Icon className="h-4 w-4 text-white" />
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <p className="font-medium text-sm truncate pr-8">{config.name}</p>
-                        <div className="flex items-center gap-1 mt-0.5">
-                          {config.is_quick_start ? (
-                            <Badge variant="outline" className="text-[10px] px-1.5 py-0">Quick Start</Badge>
-                          ) : (
-                            <Badge variant="outline" className="text-[10px] px-1.5 py-0">{config.tasks.length} steps</Badge>
-                          )}
-                        </div>
-                      </div>
-
-                      {/* Arrow - hidden on hover when buttons appear */}
-                      <ArrowRight className="h-4 w-4 text-muted-foreground group-hover:opacity-0 transition-all shrink-0" />
-
-                      {/* Action buttons grouped - bottom-right on hover, replaces arrow */}
-                      <div className="absolute bottom-2 right-2 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity bg-card/95 backdrop-blur-sm rounded-lg p-0.5 border border-border/30 shadow-sm">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-7 w-7 text-yellow-500 hover:text-yellow-600"
-                          onClick={(e) => { e.stopPropagation(); toggleFavorite(config.id); }}
-                          title="Remove from favorites"
-                        >
-                          <Star className="h-4 w-4 fill-current" />
-                        </Button>
-                        {canModifyConfig(config) && (
-                          <>
-                            <div className="h-4 w-px bg-border/50" />
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-7 w-7"
-                              onClick={(e) => { e.stopPropagation(); onEditConfig?.(config); }}
-                              title="Edit"
-                            >
-                              <Edit className="h-3.5 w-3.5" />
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-7 w-7 text-red-400 hover:text-red-500"
-                              onClick={(e) => handleDelete(config, e)}
-                              disabled={deletingId === config.id}
-                              title="Delete"
-                            >
-                              {deletingId === config.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
-                            </Button>
-                          </>
-                        )}
-                      </div>
-                    </motion.div>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-
           {/* Featured Section */}
           {viewMode !== "workflows" && searchQuery === "" && selectedCategory === "All" && featuredConfigs.length > 0 && (
             <div className="mb-8 p-4 bg-muted/30 rounded-xl border border-border/50">
@@ -558,68 +358,26 @@ export function AgentBuilderGallery({
                 {featuredConfigs.map(config => {
                   const Icon = ICON_MAP[config.thumbnail || "Zap"] || Zap;
                   return (
-                    <motion.div
+                    <motion.button
                       key={config.id}
                       whileHover={{ scale: 1.02 }}
                       whileTap={{ scale: 0.98 }}
                       onClick={() => handleConfigClick(config)}
-                      className="relative flex items-center gap-3 p-4 rounded-xl bg-card border border-border/50 hover:border-primary hover:shadow-lg transition-all text-left group cursor-pointer"
+                      className="flex items-center gap-3 p-4 rounded-xl bg-card border border-border/50 hover:border-primary hover:shadow-lg transition-all text-left group"
                     >
                       <div className="p-2 rounded-lg gradient-primary-br shrink-0 group-hover:scale-110 transition-transform">
                         <Icon className="h-4 w-4 text-white" />
                       </div>
                       <div className="min-w-0 flex-1">
-                        <p className="font-medium text-sm truncate pr-8">{config.name}</p>
+                        <p className="font-medium text-sm truncate">{config.name}</p>
                         <div className="flex items-center gap-1 mt-0.5">
                           {config.metadata?.expected_agents?.slice(0, 2).map(agent => (
                             <Badge key={agent} variant="secondary" className="text-[10px] px-1.5 py-0">{agent}</Badge>
                           ))}
                         </div>
                       </div>
-
-                      {/* Arrow - hidden on hover */}
-                      <ArrowRight className="h-4 w-4 text-muted-foreground group-hover:opacity-0 transition-all shrink-0" />
-
-                      {/* Action buttons grouped - bottom-right on hover, replaces arrow */}
-                      <div className="absolute bottom-2 right-2 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity bg-card/95 backdrop-blur-sm rounded-lg p-0.5 border border-border/30 shadow-sm">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className={cn(
-                            "h-7 w-7",
-                            isFavorite(config.id) ? "text-yellow-500 hover:text-yellow-600" : "text-muted-foreground hover:text-foreground"
-                          )}
-                          onClick={(e) => { e.stopPropagation(); toggleFavorite(config.id); }}
-                          title={isFavorite(config.id) ? "Remove from favorites" : "Add to favorites"}
-                        >
-                          <Star className={cn("h-4 w-4", isFavorite(config.id) && "fill-current")} />
-                        </Button>
-                        {canModifyConfig(config) && (
-                          <>
-                            <div className="h-4 w-px bg-border/50" />
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-7 w-7"
-                              onClick={(e) => { e.stopPropagation(); onEditConfig?.(config); }}
-                              title="Edit template"
-                            >
-                              <Edit className="h-3.5 w-3.5" />
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-7 w-7 text-red-400 hover:text-red-500"
-                              onClick={(e) => handleDelete(config, e)}
-                              disabled={deletingId === config.id}
-                              title="Delete template"
-                            >
-                              {deletingId === config.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
-                            </Button>
-                          </>
-                        )}
-                      </div>
-                    </motion.div>
+                      <ArrowRight className="h-4 w-4 text-muted-foreground group-hover:text-primary group-hover:translate-x-1 transition-all" />
+                    </motion.button>
                   );
                 })}
               </div>
@@ -627,15 +385,15 @@ export function AgentBuilderGallery({
           )}
 
           {/* Quick Start Templates */}
-          {viewMode !== "workflows" && nonFeaturedQuickStartConfigs.length > 0 && (
+          {viewMode !== "workflows" && quickStartConfigs.length > 0 && (
             <div className="mb-8">
               <div className="flex items-center gap-2 mb-4">
                 <Zap className="h-5 w-5 text-primary" />
                 <h2 className="text-lg font-medium">Quick Start Templates</h2>
-                <Badge variant="secondary">{nonFeaturedQuickStartConfigs.length}</Badge>
+                <Badge variant="secondary">{quickStartConfigs.length}</Badge>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-                {nonFeaturedQuickStartConfigs.map((config, index) => {
+                {quickStartConfigs.map((config, index) => {
                   const Icon = ICON_MAP[config.thumbnail || "Zap"] || Zap;
                   const gradientClass = CATEGORY_COLORS[config.category] || CATEGORY_COLORS["Custom"];
 
@@ -647,7 +405,7 @@ export function AgentBuilderGallery({
                       transition={{ delay: index * 0.03 }}
                       whileHover={{ y: -4 }}
                       onClick={() => handleConfigClick(config)}
-                      className="group relative cursor-pointer p-4 rounded-xl border border-border/50 bg-card/50 hover:border-primary/30 hover:shadow-lg transition-all"
+                      className="group cursor-pointer p-4 rounded-xl border border-border/50 bg-card/50 hover:border-primary/30 hover:shadow-lg transition-all"
                     >
                       <div className="flex items-start justify-between mb-3">
                         <div className={cn("p-2.5 rounded-xl bg-gradient-to-br", gradientClass)}>
@@ -670,46 +428,9 @@ export function AgentBuilderGallery({
                             <Badge key={agent} variant="outline" className="text-xs">{agent}</Badge>
                           ))}
                         </div>
-                      </div>
-
-                      {/* Action buttons grouped together - bottom-right on hover */}
-                      <div className="absolute bottom-3 right-3 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity bg-card/95 backdrop-blur-sm rounded-lg p-0.5 border border-border/30 shadow-sm">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className={cn(
-                            "h-7 w-7",
-                            isFavorite(config.id) ? "text-yellow-500 hover:text-yellow-600" : "text-muted-foreground hover:text-foreground"
-                          )}
-                          onClick={(e) => { e.stopPropagation(); toggleFavorite(config.id); }}
-                          title={isFavorite(config.id) ? "Remove from favorites" : "Add to favorites"}
-                        >
-                          <Star className={cn("h-4 w-4", isFavorite(config.id) && "fill-current")} />
-                        </Button>
-                        {canModifyConfig(config) && (
-                          <>
-                            <div className="h-4 w-px bg-border/50" />
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-7 w-7"
-                              onClick={(e) => { e.stopPropagation(); onEditConfig?.(config); }}
-                              title="Edit template"
-                            >
-                              <Edit className="h-3.5 w-3.5" />
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-7 w-7 text-red-400 hover:text-red-500"
-                              onClick={(e) => handleDelete(config, e)}
-                              disabled={deletingId === config.id}
-                              title="Delete template"
-                            >
-                              {deletingId === config.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
-                            </Button>
-                          </>
-                        )}
+                        <div className="flex items-center gap-1 text-sm font-medium text-primary opacity-0 group-hover:opacity-100 transition-opacity">
+                          Try it <ArrowRight className="h-4 w-4" />
+                        </div>
                       </div>
                     </motion.div>
                   );
@@ -740,6 +461,9 @@ export function AgentBuilderGallery({
                       className="group relative p-4 rounded-xl border border-border/50 bg-card/50 hover:border-primary/30 hover:shadow-lg transition-all cursor-pointer"
                       onClick={() => onSelectConfig?.(config)}
                     >
+                      {config.is_system && (
+                        <Badge variant="secondary" className="absolute top-2 right-2 text-xs">System</Badge>
+                      )}
                       <div className={cn("w-10 h-10 rounded-lg bg-gradient-to-br flex items-center justify-center mb-3", gradientClass)}>
                         <Icon className="h-5 w-5 text-white" />
                       </div>
@@ -749,32 +473,16 @@ export function AgentBuilderGallery({
                         <Workflow className="h-3.5 w-3.5" />
                         <span>{config.tasks.length} steps</span>
                       </div>
-
-                      {/* Action buttons grouped together - bottom-right on hover */}
-                      <div className="absolute bottom-4 right-4 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity bg-card/95 backdrop-blur-sm rounded-lg p-0.5 border border-border/30 shadow-sm">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className={cn(
-                            "h-8 w-8",
-                            isFavorite(config.id) ? "text-yellow-500 hover:text-yellow-600" : "text-muted-foreground hover:text-foreground"
-                          )}
-                          onClick={(e) => { e.stopPropagation(); toggleFavorite(config.id); }}
-                          title={isFavorite(config.id) ? "Remove from favorites" : "Add to favorites"}
-                        >
-                          <Star className={cn("h-4 w-4", isFavorite(config.id) && "fill-current")} />
-                        </Button>
-                        <div className="h-5 w-px bg-border/50" />
+                      <div className="absolute bottom-4 right-4 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                         <Button variant="ghost" size="icon" className="h-8 w-8" onClick={(e) => { e.stopPropagation(); onSelectConfig?.(config); }}>
                           <Play className="h-4 w-4" />
                         </Button>
-                        {canModifyConfig(config) && (
+                        {!config.is_system && (
                           <>
-                            <div className="h-5 w-px bg-border/50" />
                             <Button variant="ghost" size="icon" className="h-8 w-8" onClick={(e) => { e.stopPropagation(); onEditConfig?.(config); }}>
                               <Edit className="h-4 w-4" />
                             </Button>
-                            <Button variant="ghost" size="icon" className="h-8 w-8 text-red-400 hover:text-red-500" onClick={(e) => handleDelete(config, e)} disabled={deletingId === config.id}>
+                            <Button variant="ghost" size="icon" className="h-8 w-8 text-red-400" onClick={(e) => handleDelete(config, e)} disabled={deletingId === config.id}>
                               {deletingId === config.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
                             </Button>
                           </>
@@ -896,15 +604,6 @@ export function AgentBuilderGallery({
               {/* Footer */}
               <div className="flex items-center justify-end gap-3 p-4 border-t bg-muted/30 shrink-0">
                 <Button variant="ghost" onClick={() => setActiveFormConfig(null)}>Cancel</Button>
-                <Button
-                  onClick={handleRunInChat}
-                  variant="outline"
-                  className="gap-2"
-                  disabled={!editablePrompt.trim()}
-                >
-                  <MessageSquare className="h-4 w-4" />
-                  Run in Chat
-                </Button>
                 <Button
                   onClick={handleFormSubmit}
                   className="gradient-primary text-white gap-2"

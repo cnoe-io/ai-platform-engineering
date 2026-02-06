@@ -3,7 +3,7 @@
 import React, { useState, useRef, useEffect } from "react";
 import { useSession, signIn, signOut } from "next-auth/react";
 import { motion, AnimatePresence } from "framer-motion";
-import { User, LogIn, LogOut, ChevronDown, Shield, Users, Hash, Code, ChevronRight, Layers, ExternalLink, Clock, RefreshCw } from "lucide-react";
+import { User, LogIn, LogOut, ChevronDown, Shield, Users, Hash, Code, ChevronRight, Layers, ExternalLink } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { getConfig } from "@/lib/config";
@@ -23,13 +23,8 @@ interface TechItem {
   category: "platform" | "protocol" | "frontend" | "backend" | "community";
 }
 
-// Helper to get CAIPE description dynamically
-function getCaipeDescription(): string {
-  return `${getConfig('tagline')} - ${getConfig('description')}`;
-}
-
 const techStack: TechItem[] = [
-  { name: "CAIPE", get description() { return getCaipeDescription(); }, url: "https://caipe.io", category: "platform" },
+  { name: "CAIPE", description: "Multi-Agent Collaboration & Workflow Automation - AI agents and native apps collaborating across tools and teams to get work done", url: "https://caipe.io", category: "platform" },
   { name: "A2A Protocol", description: "Agent-to-Agent protocol for inter-agent communication (by Google)", url: "https://google.github.io/A2A/", category: "protocol" },
   { name: "A2UI", description: "Agent-to-User Interface specification for declarative UI widgets", url: "https://a2ui.org/", category: "protocol" },
   { name: "MCP", description: "Model Context Protocol for AI tool integration (by Anthropic)", url: "https://modelcontextprotocol.io/", category: "protocol" },
@@ -64,13 +59,11 @@ const categoryColors: Record<TechItem["category"], string> = {
 };
 
 export function UserMenu() {
-  const { data: session, status, update } = useSession();
+  const { data: session, status } = useSession();
   const [open, setOpen] = useState(false);
   const [tokenOpen, setTokenOpen] = useState(false);
   const [aboutOpen, setAboutOpen] = useState(false);
   const [ssoEnabled, setSsoEnabled] = useState<boolean | null>(null);
-  const [isRefreshing, setIsRefreshing] = useState(false);
-  const [refreshResult, setRefreshResult] = useState<'success' | 'error' | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
 
   // Check SSO status after hydration to avoid server/client mismatch
@@ -144,29 +137,6 @@ export function UserMenu() {
   };
 
   const decodedToken = session?.idToken ? decodeJWT(session.idToken) : null;
-
-  // Handle manual token refresh
-  const handleRefreshToken = async () => {
-    setIsRefreshing(true);
-    setRefreshResult(null);
-    try {
-      // Trigger session refresh (calls jwt callback with refresh token)
-      const updatedSession = await update();
-      if (updatedSession) {
-        setRefreshResult('success');
-        setTimeout(() => setRefreshResult(null), 3000);
-      } else {
-        setRefreshResult('error');
-        setTimeout(() => setRefreshResult(null), 3000);
-      }
-    } catch (error) {
-      console.error('[UserMenu] Token refresh failed:', error);
-      setRefreshResult('error');
-      setTimeout(() => setRefreshResult(null), 3000);
-    } finally {
-      setIsRefreshing(false);
-    }
-  };
 
   // Authenticated - show user menu
   const userInitials = session?.user?.name
@@ -313,173 +283,86 @@ export function UserMenu() {
                 <Code className="h-5 w-5 text-white" />
               </div>
               <div>
-                <DialogTitle>OIDC Info</DialogTitle>
+                <DialogTitle>OIDC Token Information</DialogTitle>
                 <DialogDescription>
-                  View authentication tokens and group memberships. Refresh tokens are not displayed for security.
+                  View authentication tokens and group memberships
                 </DialogDescription>
               </div>
             </div>
           </DialogHeader>
 
           <div className="p-6 overflow-y-auto max-h-[60vh] space-y-6">
-            {/* Token Expiry Information */}
-            <div>
-              <div className="flex items-center gap-2 mb-3">
-                <Clock className="h-4 w-4 text-muted-foreground" />
-                <span className="text-sm font-semibold">Token Information</span>
-              </div>
-              <div className="space-y-3">
-                {/* Access Token Expiry */}
-                {session?.expiresAt && (
-                  <div className="bg-muted/30 rounded-lg p-3 border border-border">
-                    <div className="flex items-start gap-2">
-                      <Code className="h-4 w-4 text-muted-foreground mt-0.5 flex-shrink-0" />
-                      <div className="flex-1">
-                        <div className="text-xs font-medium mb-1">Access Token</div>
-                        <div className="text-xs text-muted-foreground">
-                          Expires: {new Date(session.expiresAt * 1000).toLocaleString()}
-                        </div>
-                        <div className="text-xs text-muted-foreground/70 mt-1">
-                          {(() => {
-                            const now = Math.floor(Date.now() / 1000);
-                            const remaining = session.expiresAt - now;
-                            const hours = Math.floor(remaining / 3600);
-                            const minutes = Math.floor((remaining % 3600) / 60);
-                            return remaining > 0
-                              ? `${hours}h ${minutes}m remaining`
-                              : 'Expired';
-                          })()}
-                        </div>
-                      </div>
-                    </div>
+            {/* MemberOf Groups */}
+            {session?.groups && session.groups.length > 0 && (
+              <div>
+                <div className="mb-3">
+                  <div className="flex items-center gap-2 mb-1">
+                    <Users className="h-4 w-4 text-muted-foreground" />
+                    <span className="text-sm font-semibold">Group Memberships</span>
+                    <span className="text-xs text-muted-foreground/70">
+                      ({session.groups.length})
+                    </span>
                   </div>
-                )}
-
-                {/* Refresh Token Info */}
-                <div className="bg-muted/30 rounded-lg p-3 border border-border">
-                  <div className="flex items-start gap-2">
-                    <RefreshCw className="h-4 w-4 text-muted-foreground mt-0.5 flex-shrink-0" />
-                    <div className="flex-1">
-                      <div className="text-xs font-medium mb-1">Refresh Token</div>
-                      {session?.hasRefreshToken ? (
-                        <>
-                          <div className="text-xs text-green-600 dark:text-green-500 font-medium mb-1">
-                            ✓ Available - Auto-renewal enabled
-                          </div>
-                          {session.refreshTokenExpiresAt ? (
-                            <>
-                              <div className="text-xs text-muted-foreground">
-                                Expires: {new Date(session.refreshTokenExpiresAt * 1000).toLocaleString()}
-                              </div>
-                              <div className="text-xs text-muted-foreground/70 mt-1">
-                                {(() => {
-                                  const now = Math.floor(Date.now() / 1000);
-                                  const remaining = session.refreshTokenExpiresAt - now;
-                                  const days = Math.floor(remaining / 86400);
-                                  const hours = Math.floor((remaining % 86400) / 3600);
-                                  return remaining > 0
-                                    ? `${days}d ${hours}h remaining`
-                                    : 'Expired';
-                                })()}
-                              </div>
-                            </>
-                          ) : (
-                            <div className="text-xs text-muted-foreground/70">
-                              Expiry information not provided by OIDC provider
-                            </div>
-                          )}
-                        </>
-                      ) : (
-                        <div className="text-xs text-yellow-600 dark:text-yellow-500">
-                          Not available - Token will expire without renewal
-                        </div>
-                      )}
-                    </div>
+                  <p className="text-xs text-muted-foreground/70 ml-6">
+                    OIDC groups from memberOf claim
+                  </p>
+                </div>
+                <div className="bg-muted/30 rounded-lg p-4 border border-border">
+                  <div className="space-y-2 max-h-48 overflow-y-auto">
+                    {session.groups.map((group, index) => (
+                      <div
+                        key={index}
+                        className="text-sm font-mono text-foreground/80 break-all"
+                        title={group}
+                      >
+                        • {group}
+                      </div>
+                    ))}
                   </div>
                 </div>
-
-                {/* Manual Refresh Button */}
-                {session?.hasRefreshToken && (
-                  <div className="flex flex-col gap-2">
-                    <button
-                      onClick={handleRefreshToken}
-                      disabled={isRefreshing}
-                      className={cn(
-                        "flex items-center justify-center gap-2 px-4 py-2.5 text-sm rounded-lg transition-all",
-                        "bg-primary text-primary-foreground hover:bg-primary/90",
-                        "disabled:opacity-50 disabled:cursor-not-allowed"
-                      )}
-                    >
-                      <RefreshCw className={cn(
-                        "h-4 w-4",
-                        isRefreshing && "animate-spin"
-                      )} />
-                      {isRefreshing ? "Refreshing..." : "Refresh Access Token"}
-                    </button>
-                    {refreshResult === 'success' && (
-                      <div className="text-xs text-green-600 dark:text-green-500 text-center font-medium">
-                        ✓ Token refreshed successfully
-                      </div>
-                    )}
-                    {refreshResult === 'error' && (
-                      <div className="text-xs text-red-600 dark:text-red-500 text-center font-medium">
-                        ✗ Token refresh failed
-                      </div>
-                    )}
-                  </div>
-                )}
               </div>
+            )}
+
+            {/* Decoded JWT Token */}
+            {decodedToken && (
+              <div>
+                <div className="flex items-center gap-2 mb-3">
+                  <Code className="h-4 w-4 text-muted-foreground" />
+                  <span className="text-sm font-semibold">JWT Claims (ID Token)</span>
+                </div>
+                <div className="bg-muted/30 rounded-lg p-4 border border-border">
+                  <pre className="text-xs font-mono text-foreground/80 whitespace-pre-wrap break-all max-h-96 overflow-y-auto">
+                    {JSON.stringify(decodedToken, null, 2)}
+                  </pre>
+                </div>
+              </div>
+            )}
+
+            {/* Copy Tokens */}
+            <div className="flex gap-3">
+              {session?.accessToken && (
+                <button
+                  onClick={() => {
+                    navigator.clipboard.writeText(session.accessToken || '');
+                  }}
+                  className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 text-sm rounded-lg gradient-primary-br text-white hover:opacity-90 transition-opacity"
+                >
+                  <Code className="h-4 w-4" />
+                  Copy Access Token
+                </button>
+              )}
+              {session?.idToken && (
+                <button
+                  onClick={() => {
+                    navigator.clipboard.writeText(session.idToken || '');
+                  }}
+                  className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 text-sm rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
+                >
+                  <Code className="h-4 w-4" />
+                  Copy ID Token
+                </button>
+              )}
             </div>
-
-            {/* Group Memberships from decoded token */}
-            {(() => {
-              // Extract groups from decoded ID token
-              const groups: string[] = [];
-              if (decodedToken) {
-                // Check common group claim names
-                const groupClaims = ['members', 'memberOf', 'groups', 'group', 'roles', 'cognito:groups'];
-                for (const claim of groupClaims) {
-                  const value = decodedToken[claim];
-                  if (Array.isArray(value)) {
-                    groups.push(...value.map(String));
-                  } else if (typeof value === 'string') {
-                    groups.push(...value.split(/[,\s]+/).filter(Boolean));
-                  }
-                }
-              }
-
-              if (groups.length === 0) return null;
-
-              return (
-                <div>
-                  <div className="mb-3">
-                    <div className="flex items-center gap-2 mb-1">
-                      <Users className="h-4 w-4 text-muted-foreground" />
-                      <span className="text-sm font-semibold">Group Memberships</span>
-                      <span className="text-xs text-muted-foreground/70">
-                        ({groups.length})
-                      </span>
-                    </div>
-                    <p className="text-xs text-muted-foreground/70 ml-6">
-                      OIDC groups from ID token claims
-                    </p>
-                  </div>
-                  <div className="bg-muted/30 rounded-lg p-4 border border-border">
-                    <div className="space-y-2 max-h-48 overflow-y-auto">
-                      {groups.map((group, index) => (
-                        <div
-                          key={index}
-                          className="text-sm font-mono text-foreground/80 break-all"
-                          title={group}
-                        >
-                          • {group}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              );
-            })()}
           </div>
         </DialogContent>
       </Dialog>

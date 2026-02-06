@@ -27,10 +27,25 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
   return withAuth(request, async (req, user) => {
     const users = await getCollection<User>('users');
 
-    const userProfile = await users.findOne({ email: user.email });
+    let userProfile = await users.findOne({ email: user.email });
 
+    // Create user if not found (same as /api/users/me) to avoid 404 when favorites is called before user init
     if (!userProfile) {
-      throw new ApiError('User not found', 404);
+      const now = new Date();
+      const newUser = {
+        email: user.email,
+        name: user.name,
+        created_at: now,
+        updated_at: now,
+        last_login: now,
+        metadata: {
+          sso_provider: 'duo',
+          sso_id: user.email,
+          role: user.role as 'user' | 'admin',
+        },
+      };
+      await users.insertOne(newUser as any);
+      userProfile = newUser as any;
     }
 
     // Return favorites array (empty array if not set)
@@ -63,6 +78,24 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
     const uniqueFavorites = [...new Set(body.favorites)];
 
     const users = await getCollection<User>('users');
+
+    // Ensure user exists (create if not) so updateOne has a document to update
+    const existing = await users.findOne({ email: user.email });
+    if (!existing) {
+      const now = new Date();
+      await users.insertOne({
+        email: user.email,
+        name: user.name,
+        created_at: now,
+        updated_at: now,
+        last_login: now,
+        metadata: {
+          sso_provider: 'duo',
+          sso_id: user.email,
+          role: user.role as 'user' | 'admin',
+        },
+      } as any);
+    }
 
     // Update favorites
     await users.updateOne(

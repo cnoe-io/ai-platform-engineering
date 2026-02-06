@@ -69,6 +69,13 @@ ingress:
   #  - secretName: caipe-ui-tls
   #    hosts:
   #      - caipe-ui.local
+  # Optional: redirect old domains to the primary host (e.g. after migration to grid.outshift.io)
+  redirectFrom: []
+  #  - host: caipe-ui.preview.outshift.io
+  #    redirectTo: "https://grid.outshift.io"
+  #    className: "nginx-internal"
+  #    tls:
+  #      secretName: caipe-ui-preview-tls
 
 # This will set the replicaset count more information can be found here: https://kubernetes.io/docs/concepts/workloads/controllers/replicaset/
 replicaCount: 1
@@ -139,20 +146,21 @@ env:
   # CAIPE Supervisor URL - should point to the supervisor-agent service
   NEXT_PUBLIC_A2A_BASE_URL: "http://ai-platform-engineering-supervisor-agent:8000"
 
-# ConfigMap for non-sensitive configuration
+# ConfigMap for non-sensitive configuration (align with ai-platform-engineering/.env NEXT_* for grid)
 # These values are mounted as environment variables to the pod
 config:
-  # Feature flags
+  # NEXT_* from .env - override for grid (e.g. NEXTAUTH_URL=https://grid.outshift.io)
   NEXT_PUBLIC_ENABLE_SUBAGENT_CARDS: "true"
   NEXT_PUBLIC_SSO_ENABLED: "true"
-  # NextAuth URL (non-sensitive)
+  NEXT_PUBLIC_A2A_BASE_URL: "http://ai-platform-engineering-supervisor-agent:8000"
+  NEXT_PUBLIC_CAIPE_URL: "http://ai-platform-engineering-supervisor-agent:8000"
   NEXTAUTH_URL: "http://localhost:3000"
-  # Node environment
   NODE_ENV: "production"
   # MongoDB configuration
   NEXT_PUBLIC_MONGODB_ENABLED: "true"
   MONGODB_DATABASE: "caipe"
   # RAG Server URL (if RAG is enabled)
+  RAG_SERVER_URL: "http://ai-platform-engineering-rag-server:9446"
   # NEXT_PUBLIC_RAG_URL: "http://ai-platform-engineering-rag-server:9446"
   # Branding configuration
   NEXT_PUBLIC_TAGLINE: "Multi-Agent Workflow Automation"
@@ -161,13 +169,10 @@ config:
   NEXT_PUBLIC_LOGO_URL: "/logo.svg"
   NEXT_PUBLIC_SHOW_POWERED_BY: "false"
   NEXT_PUBLIC_PREVIEW_MODE: "false"
-  # OIDC required group (non-sensitive)
+  # OIDC (non-sensitive; from .env - override for grid)
   OIDC_REQUIRED_GROUP: "app-users"
-  # OIDC admin group (non-sensitive)
   OIDC_REQUIRED_ADMIN_GROUP: "app-admins"
-  # OIDC refresh token support
   OIDC_ENABLE_REFRESH_TOKEN: "true"
-  # Support contact email
   NEXT_PUBLIC_SUPPORT_EMAIL: "support@example.com"
 
 # External Secrets configuration for sensitive data (OIDC credentials, NextAuth secret)

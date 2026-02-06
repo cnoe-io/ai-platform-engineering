@@ -94,7 +94,7 @@ system_prompt_template: |
 
   | Tool | Purpose | Example |
   |------|---------|---------|
-  | `git` | Git operations (clone, status, log, diff, etc.) | `git("git clone https://{{gitlab/github}}.com/org/repo.git /tmp/repo")` |
+  | `git` | Git operations (clone, status, log, diff, etc.) | `git("git clone https://{gitlab/github}.com/org/repo.git /tmp/repo")` |
   | `curl` | HTTP requests, API calls | `curl("curl -sL https://api.example.com/data")` |
   | `wget` | File downloads | `wget("wget -O file.txt https://example.com/file")` |
   | `grep` | Search file contents | `grep("grep -rn 'pattern' /path")` |
@@ -674,9 +674,9 @@ agent_prompts:
 
       **For Slack thread sources:**
       - Extract channel_id and timestamp from metadata
-      - Build link: `https://{{workspace}}.slack.com/archives/{{channel_id}}/p{{timestamp}}`
+      - Build link: `https://{workspace}.slack.com/archives/{channel_id}/p{timestamp}`
       - Remove dots from timestamp (1734567890.123456 → p1734567890123456)
-      - Format as: `[Slack Thread]({{link}})`
+      - Format as: `[Slack Thread]({link})`
 
       **Required format at bottom of response:**
       ```

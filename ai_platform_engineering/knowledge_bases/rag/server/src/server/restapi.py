@@ -35,6 +35,7 @@ from common.models.server import (
 from common.models.rag import DataSourceInfo, IngestorInfo, valid_metadata_keys
 from common.models.rbac import Role, UserContext, UserInfoResponse
 from server.rbac import (
+    require_authenticated_user,
     get_user_or_anonymous,
     require_role,
     has_permission,
@@ -128,7 +129,7 @@ async def app_lifespan(app: FastAPI):
     redis_client = redis.from_url(redis_url, decode_responses=True)
     metadata_storage = MetadataStorage(redis_client=redis_client)
     jobmanager = JobManager(redis_client=redis_client)
-    
+
     # Use EmbeddingsFactory to get embeddings based on EMBEDDINGS_PROVIDER env var
     embeddings = EmbeddingsFactory.get_embeddings()
 
@@ -166,19 +167,6 @@ async def app_lifespan(app: FastAPI):
         vector_field=["dense", "sparse"],
         enable_dynamic_field=True, # allow for dynamic metadata fields
     )
-
-    # Ensure the collection exists (required for upsert operations)
-    # The Milvus langchain wrapper only auto-creates collections on add_documents, not upsert
-    if not vector_db.client.has_collection(default_collection_name_docs):
-        logger.info(f"Collection {default_collection_name_docs} does not exist, creating it...")
-        # Add a dummy document to trigger collection creation with proper schema
-        dummy_doc = Document(page_content="__init__", metadata={"_init": True})
-        vector_db.add_documents(documents=[dummy_doc], ids=["__init_doc__"])
-        # Delete the dummy document
-        vector_db.delete(ids=["__init_doc__"])
-        logger.info(f"Collection {default_collection_name_docs} created successfully")
-    else:
-        logger.info(f"Collection {default_collection_name_docs} already exists")
 
     vector_db_query_service = VectorDBQueryService(vector_db=vector_db)
 
@@ -275,17 +263,17 @@ def generate_ingestor_id(ingestor_name: str, ingestor_type: str) -> str:
     summary="Get current user information",
     description="""
     Retrieve the current user's authentication status, role, and permissions.
-    
+
     This endpoint is used by the UI to:
     - Display the logged-in user's email and role
     - Show/hide features based on role-based permissions
     - Enable/disable action buttons based on what the user can do
-    
+
     **No authentication required** - this endpoint is accessible to all users.
     - Authenticated users will see their email, role, and groups
     - Unauthenticated users will see email as "anonymous" with no permissions
     - Trusted network users will see email as "trusted-network"
-    
+
     **Permissions list:**
     - `read`: Can query and view data (READONLY, INGESTONLY, ADMIN)
     - `ingest`: Can ingest new data and manage ingestion jobs (INGESTONLY, ADMIN)
@@ -343,7 +331,7 @@ async def get_user_info(
     """Get current user's authentication and role information."""
     # Determine if request is from trusted network
     trusted = is_trusted_request(request)
-    
+
     return UserInfoResponse(
         email=user.email,
         role=user.role,
@@ -446,7 +434,7 @@ async def delete_datasource(
         raise HTTPException(status_code=500, detail="Server not initialized")
     if graph_rag_enabled and not data_graph_db:
         raise HTTPException(status_code=500, detail="Server not initialized")
-    
+
     # Fetch datasource info
     datasource_info = await metadata_storage.get_datasource_info(datasource_id)
     if not datasource_info:
@@ -459,7 +447,7 @@ async def delete_datasource(
             status_code=400,
             detail="Cannot delete datasource while ingestion job is in progress."
         )
-    
+
     # remove all jobs for this datasource
     jobs = await jobmanager.get_jobs_by_datasource(datasource_id)
     if jobs:
@@ -541,15 +529,15 @@ async def create_job(
     """Create a new job for a datasource."""
     if not jobmanager or not metadata_storage:
         raise HTTPException(status_code=500, detail="Server not initialized")
-    
+
     # Check if datasource exists
     datasource_info = await metadata_storage.get_datasource_info(datasource_id)
     if not datasource_info:
         raise HTTPException(status_code=404, detail="Datasource not found")
-    
+
     # Generate new job ID
     job_id = str(uuid.uuid4())
-    
+
     # Create job with datasource_id
     success = await jobmanager.upsert_job(
         job_id,
@@ -558,10 +546,10 @@ async def create_job(
         total=total,
         datasource_id=datasource_id
     )
-    
+
     if not success:
         raise HTTPException(status_code=400, detail="Failed to create job")
-    
+
     logger.info(f"Created job {job_id} for datasource {datasource_id}")
     return {"job_id": job_id, "datasource_id": datasource_id}
 
@@ -576,12 +564,12 @@ async def update_job(
     """Update an existing job."""
     if not jobmanager:
         raise HTTPException(status_code=500, detail="Server not initialized")
-    
+
     # Check if job exists
     existing_job = await jobmanager.get_job(job_id)
     if not existing_job:
         raise HTTPException(status_code=404, detail="Job not found")
-    
+
     # Update job
     success = await jobmanager.upsert_job(
         job_id,
@@ -590,10 +578,10 @@ async def update_job(
         total=total,
         datasource_id=existing_job.datasource_id
     )
-    
+
     if not success:
         raise HTTPException(status_code=400, detail="Failed to update job (job may be terminated)")
-    
+
     logger.info(f"Updated job {job_id}")
     return {"job_id": job_id, "datasource_id": existing_job.datasource_id}
 
@@ -605,7 +593,7 @@ async def terminate_job_endpoint(
     """Terminate an ingestion job."""
     if not jobmanager:
         raise HTTPException(status_code=500, detail="Server not initialized")
-    
+
     job_info = await jobmanager.get_job(job_id)
     if not job_info:
         raise HTTPException(status_code=404, detail="Job not found")
@@ -613,7 +601,7 @@ async def terminate_job_endpoint(
     success = await jobmanager.terminate_job(job_id)
     if not success:
         raise HTTPException(status_code=500, detail="Failed to terminate job")
-    
+
     logger.info(f"Job {job_id} has been terminated.")
     return {"message": f"Job {job_id} has been terminated."}
 
@@ -626,11 +614,11 @@ async def increment_job_progress(
     """Increment the progress counter for a job."""
     if not jobmanager:
         raise HTTPException(status_code=500, detail="Server not initialized")
-    
+
     new_value = await jobmanager.increment_progress(job_id, increment)
     if new_value == -1:
         raise HTTPException(status_code=400, detail="Cannot increment progress - job is terminated")
-    
+
     logger.debug(f"Incremented progress for job {job_id} by {increment}, new value: {new_value}")
     return {"job_id": job_id, "progress_counter": new_value}
 
@@ -643,11 +631,11 @@ async def increment_job_failure(
     """Increment the failure counter for a job."""
     if not jobmanager:
         raise HTTPException(status_code=500, detail="Server not initialized")
-    
+
     new_value = await jobmanager.increment_failure(job_id, increment)
     if new_value == -1:
         raise HTTPException(status_code=400, detail="Cannot increment failure - job is terminated")
-    
+
     logger.debug(f"Incremented failure for job {job_id} by {increment}, new value: {new_value}")
     return {"job_id": job_id, "failed_counter": new_value}
 
@@ -660,17 +648,17 @@ async def add_job_errors(
     """Add error messages to a job."""
     if not jobmanager:
         raise HTTPException(status_code=500, detail="Server not initialized")
-    
+
     if not error_messages:
         raise HTTPException(status_code=400, detail="Error messages list cannot be empty")
-    
+
     results = []
     for error_msg in error_messages:
         new_length = await jobmanager.add_error_msg(job_id, error_msg)
         if new_length == -1:
             raise HTTPException(status_code=400, detail="Cannot add error messages - job is terminated")
         results.append(new_length)
-    
+
     final_length = results[-1] if results else 0
     logger.debug(f"Added {len(error_messages)} error messages to job {job_id}, total errors: {final_length}")
     return {"job_id": job_id, "errors_added": len(error_messages), "total_errors": final_length}
@@ -805,20 +793,20 @@ async def reload_url(
     """Reloads a previously ingested URL by re-queuing it for ingestion."""
     if not metadata_storage or not jobmanager:
         raise HTTPException(status_code=500, detail="Server not initialized")
-    
+
     # Fetch existing datasource
     datasource_info = await metadata_storage.get_datasource_info(reload_request.datasource_id)
     if not datasource_info:
         raise HTTPException(status_code=404, detail="Datasource not found")
-        
+
     # Queue the request for the ingestor
     ingestor_request = IngestorRequest(
         ingestor_id=datasource_info.ingestor_id,
         command=WebIngestorCommand.RELOAD_DATASOURCE,
         payload=reload_request.model_dump()
     )
-    
-    # Push to Redis queue  
+
+    # Push to Redis queue
     await redis_client.rpush(WEBLOADER_INGESTOR_REDIS_QUEUE, ingestor_request.model_dump_json())  # type: ignore
     logger.info(f"Re-queued URL ingestion request for {reload_request.datasource_id}")
     return {"datasource_id": reload_request.datasource_id, "message": "URL reload ingestion request queued"}
@@ -828,7 +816,7 @@ async def reload_all_urls(user: UserContext = Depends(require_role(Role.ADMIN)))
     """Reloads all previously ingested URLs by re-queuing them for ingestion."""
     if not metadata_storage or not jobmanager:
         raise HTTPException(status_code=500, detail="Server not initialized")
-    
+
      # Queue the request for the ingestor
     ingestor_request = IngestorRequest(
         ingestor_id=generate_ingestor_id(WEBLOADER_INGESTOR_NAME, WEBLOADER_INGESTOR_TYPE),
@@ -839,7 +827,7 @@ async def reload_all_urls(user: UserContext = Depends(require_role(Role.ADMIN)))
     # Push to Redis queue
     await redis_client.rpush(WEBLOADER_INGESTOR_REDIS_QUEUE, ingestor_request.model_dump_json())  # type: ignore
     logger.info("Re-queued URL ingestion request for all datasources")
-    
+
     return {"message": "Reload all URLs request queued"}
 
 @app.post("/v1/ingest/confluence/page", status_code=status.HTTP_202_ACCEPTED)
@@ -1045,25 +1033,25 @@ async def ingest_documents(
     datasource_info = await metadata_storage.get_datasource_info(ingest_request.datasource_id)
     if not datasource_info:
         raise HTTPException(status_code=404, detail="Datasource not found")
-    
+
     # Find the current job for this datasource is IN_PROGRESS
     job_info = await jobmanager.get_job(ingest_request.job_id)
     if not job_info:
         raise HTTPException(status_code=404, detail="Job not found")
-    
+
     if job_info.status != JobStatus.IN_PROGRESS:
         raise HTTPException(status_code=400, detail="Ingestion can only be started for jobs in IN_PROGRESS status")
 
     # Check max documents limit
     if len(ingest_request.documents) > max_documents_per_ingest:
         return JSONResponse(status_code=status.HTTP_400_BAD_REQUEST, content={"message": f"Number of documents exceeds the maximum limit of {max_documents_per_ingest} per ingestion request."})
-    
+
     if ingest_request.fresh_until is None:
         ingest_request.fresh_until = get_default_fresh_until()
 
     if datasource_info.default_chunk_overlap is None:
         datasource_info.default_chunk_overlap = 0
-    
+
     if datasource_info.default_chunk_size is None:
         datasource_info.default_chunk_size = 0 # Don't chunk if chunk size is not set
 
@@ -1113,17 +1101,17 @@ async def fetch_data_entities_batch(
     """
     if not data_graph_db:
         raise HTTPException(status_code=500, detail="Server not initialized, or graph RAG is disabled")
-    
+
     # Enforce max limit of 1000
     if limit > 1000:
         raise HTTPException(status_code=400, detail="Limit cannot exceed 1000 entities per request")
-    
+
     logger.debug(f"Fetching data entities batch: offset={offset}, limit={limit}, entity_type={entity_type}")
-    
+
     entities = await data_graph_db.fetch_entities_batch(offset=offset, limit=limit, entity_type=entity_type)
-    
+
     return JSONResponse(
-        status_code=status.HTTP_200_OK, 
+        status_code=status.HTTP_200_OK,
         content={
             "entities": jsonable_encoder(entities),
             "count": len(entities),
@@ -1146,15 +1134,15 @@ async def fetch_data_relations_batch(
     """
     if not data_graph_db:
         raise HTTPException(status_code=500, detail="Server not initialized, or graph RAG is disabled")
-    
+
     # Enforce max limit of 1000
     if limit > 1000:
         raise HTTPException(status_code=400, detail="Limit cannot exceed 1000 relations per request")
-    
+
     logger.debug(f"Fetching data relations batch: offset={offset}, limit={limit}, relation_name={relation_name}")
-    
+
     relations = await data_graph_db.fetch_relations_batch(offset=offset, limit=limit, relation_name=relation_name)
-    
+
     return JSONResponse(
         status_code=status.HTTP_200_OK,
         content={
@@ -1176,14 +1164,14 @@ async def explore_data_entity_neighborhood(
     """
     if not data_graph_db:
         raise HTTPException(status_code=500, detail="Server not initialized, or graph RAG is disabled")
-    
+
     logger.debug(f"Exploring data neighborhood for entity_type={request.entity_type}, entity_pk={request.entity_pk}, depth={request.depth}")
-    
+
     result = await data_graph_db.explore_neighborhood(entity_type=request.entity_type, entity_pk=request.entity_pk, depth=request.depth, max_results=1000)
-    
+
     if result["entity"] is None:
         return JSONResponse(status_code=status.HTTP_404_NOT_FOUND, content={"message": "Entity not found"})
-    
+
     return JSONResponse(status_code=status.HTTP_200_OK, content=jsonable_encoder(result))
 
 @app.get("/v1/graph/explore/data/entity/start")
@@ -1197,11 +1185,11 @@ async def get_random_start_nodes(
     """
     if not data_graph_db:
         raise HTTPException(status_code=500, detail="Server not initialized, or graph RAG is disabled")
-    
+
     logger.debug(f"Fetching {n} random nodes from data graph")
-    
+
     entities = await data_graph_db.fetch_random_entities(count=n)
-    
+
     return JSONResponse(status_code=status.HTTP_200_OK, content=jsonable_encoder(entities))
 
 @app.get("/v1/graph/explore/data/stats")
@@ -1211,11 +1199,11 @@ async def get_data_graph_stats(user: UserContext = Depends(require_role(Role.REA
     """
     if not data_graph_db:
         raise HTTPException(status_code=500, detail="Server not initialized, or graph RAG is disabled")
-    
+
     logger.debug("Fetching data graph statistics")
-    
+
     stats = await data_graph_db.get_graph_stats()
-    
+
     return JSONResponse(status_code=status.HTTP_200_OK, content=stats)
 
 # ====
@@ -1236,17 +1224,17 @@ async def fetch_ontology_entities_batch(
     """
     if not ontology_graph_db:
         raise HTTPException(status_code=500, detail="Server not initialized, or graph RAG is disabled")
-    
+
     # Enforce max limit of 1000
     if limit > 1000:
         raise HTTPException(status_code=400, detail="Limit cannot exceed 1000 entities per request")
-    
+
     logger.debug(f"Fetching ontology entities batch: offset={offset}, limit={limit}, entity_type={entity_type}")
-    
+
     entities = await ontology_graph_db.fetch_entities_batch(offset=offset, limit=limit, entity_type=entity_type)
-    
+
     return JSONResponse(
-        status_code=status.HTTP_200_OK, 
+        status_code=status.HTTP_200_OK,
         content={
             "entities": jsonable_encoder(entities),
             "count": len(entities),
@@ -1269,15 +1257,15 @@ async def fetch_ontology_relations_batch(
     """
     if not ontology_graph_db:
         raise HTTPException(status_code=500, detail="Server not initialized, or graph RAG is disabled")
-    
+
     # Enforce max limit of 1000
     if limit > 1000:
         raise HTTPException(status_code=400, detail="Limit cannot exceed 1000 relations per request")
-    
+
     logger.debug(f"Fetching ontology relations batch: offset={offset}, limit={limit}, relation_name={relation_name}")
-    
+
     relations = await ontology_graph_db.fetch_relations_batch(offset=offset, limit=limit, relation_name=relation_name)
-    
+
     return JSONResponse(
         status_code=status.HTTP_200_OK,
         content={
@@ -1299,14 +1287,14 @@ async def explore_ontology_entity_neighborhood(
     """
     if not ontology_graph_db:
         raise HTTPException(status_code=500, detail="Server not initialized, or graph RAG is disabled")
-    
+
     logger.debug(f"Exploring ontology neighborhood for entity_type={request.entity_type}, entity_pk={request.entity_pk}, depth={request.depth}")
-    
+
     result = await ontology_graph_db.explore_neighborhood(entity_type=request.entity_type, entity_pk=request.entity_pk, depth=request.depth, max_results=1000)
-    
+
     if result["entity"] is None:
         return JSONResponse(status_code=status.HTTP_404_NOT_FOUND, content={"message": "Entity not found"})
-    
+
     return JSONResponse(status_code=status.HTTP_200_OK, content=jsonable_encoder(result))
 
 @app.get("/v1/graph/explore/ontology/entity/start")
@@ -1320,11 +1308,11 @@ async def get_random_ontology_start_nodes(
     """
     if not ontology_graph_db:
         raise HTTPException(status_code=500, detail="Server not initialized, or graph RAG is disabled")
-    
+
     logger.debug(f"Fetching {n} random nodes from ontology graph")
-    
+
     entities = await ontology_graph_db.fetch_random_entities(count=n)
-    
+
     return JSONResponse(status_code=status.HTTP_200_OK, content=jsonable_encoder(entities))
 
 @app.get("/v1/graph/explore/ontology/stats")
@@ -1334,11 +1322,11 @@ async def get_ontology_graph_stats(user: UserContext = Depends(require_role(Role
     """
     if not ontology_graph_db:
         raise HTTPException(status_code=500, detail="Server not initialized, or graph RAG is disabled")
-    
+
     logger.debug("Fetching ontology graph statistics")
-    
+
     stats = await ontology_graph_db.get_graph_stats()
-    
+
     return JSONResponse(status_code=status.HTTP_200_OK, content=stats)
 
 # ====
@@ -1348,32 +1336,38 @@ async def _reverse_proxy(request: Request):
     """
     Reverse proxy to ontology agent service, which runs a separate FastAPI instance,
     and is responsible for handling ontology related requests.
-    
+
     Read-only operations (GET /status) require READONLY role.
     Write operations (POST/DELETE) require ADMIN role.
-    
+
     This acts as a security gateway - the ontology agent service doesn't need
     its own RBAC implementation since it's only accessible through this proxy.
     """
     # Manually invoke the RBAC check since app.add_route doesn't support Depends()
-    user = await get_user_or_anonymous(request)
-    
+<<<<<<< HEAD
+    from server.auth import get_auth_manager
+    user = await require_authenticated_user(request, get_auth_manager())
+    if not has_permission(user.role, Role.ADMIN):
+=======
+    user = await get_current_user(request)
+
     # Determine required role based on method and path
     # GET /status endpoints are read-only, allow READONLY access
     # All other operations (POST/DELETE) require ADMIN
     is_status_endpoint = request.url.path.endswith('/status')
     is_read_only = request.method == 'GET' and is_status_endpoint
-    
+
     required_role = Role.READONLY if is_read_only else Role.ADMIN
-    
+
     if not has_permission(user.role, required_role):
+>>>>>>> 1636b721 (feat(ui): add admin dashboard, teams management, and various UI improvements)
         raise HTTPException(
             status_code=403,
             detail=f"Insufficient permissions. Required role: {required_role}, your role: {user.role}"
         )
-    
+
     logger.info(f"Ontology agent request by {user.email} to {request.url.path}")
-    
+
     url = httpx.URL(path=request.url.path,
                     query=request.url.query.encode("utf-8"))
     rp_req = ontology_agent_client.build_request(request.method, url,

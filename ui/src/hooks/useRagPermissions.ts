@@ -1,9 +1,9 @@
 /**
  * useRagPermissions Hook
- * 
+ *
  * Provides user's RAG permissions and loading state.
  * Automatically fetches on mount and caches the result.
- * 
+ *
  * @example
  * const { userInfo, permissions, hasPermission } = useRagPermissions();
  * <button disabled={!hasPermission(Permission.DELETE)}>Delete</button>
@@ -23,23 +23,13 @@ export function useRagPermissions() {
     let mounted = true;
 
     async function fetchUserInfo() {
-      console.log('[useRagPermissions] Fetching RAG user info...');
       try {
         const info = await getUserInfo();
-        console.log('[useRagPermissions] RAG user info received:', {
-          email: info.email,
-          role: info.role,
-          is_authenticated: info.is_authenticated,
-          permissions: info.permissions,
-          groups: info.groups?.length ?? 0,
-          in_trusted_network: info.in_trusted_network
-        });
         if (mounted) {
           setUserInfo(info);
           setError(null);
         }
       } catch (err) {
-        console.error('[useRagPermissions] Failed to fetch RAG user info:', err);
         if (mounted) {
           setError(err as Error);
           setUserInfo(null);
