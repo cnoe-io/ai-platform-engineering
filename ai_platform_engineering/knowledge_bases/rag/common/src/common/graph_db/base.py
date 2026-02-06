@@ -246,6 +246,18 @@ class GraphDB(ABC):
         raise NotImplementedError("Subclasses must implement this method.")
 
     @abstractmethod
+    async def remove_stale_by_timestamp(self, datasource_id: str, cutoff_timestamp: int) -> int:
+        """
+        Remove entities from a specific datasource that have last_modified older than cutoff_timestamp.
+        Used for data retention to prune old documents.
+
+        :param datasource_id: The datasource ID to prune entities from
+        :param cutoff_timestamp: Unix timestamp - entities with last_modified < cutoff_timestamp will be deleted
+        :return: Number of entities deleted
+        """
+        raise NotImplementedError("Subclasses must implement this method.")
+
+    @abstractmethod
     async def relate_entities_by_property(self, entity_a_type: str, entity_b_type: str, relation_type: str, 
                                           matching_properties: dict, relation_pk: str, relation_properties: (dict | None) = None):
         """

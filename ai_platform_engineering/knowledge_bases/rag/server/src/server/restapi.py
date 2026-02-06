@@ -475,6 +475,33 @@ async def delete_datasource(
 
     return status.HTTP_200_OK
 
+@app.post("/v1/datasource/{datasource_id}/prune", status_code=status.HTTP_200_OK)
+async def prune_datasource(
+    datasource_id: str,
+    cutoff_timestamp: int = Query(..., description="Unix timestamp - delete docs older than this"),
+    user: UserContext = Depends(require_role(Role.ADMIN))
+):
+    """
+    Prune documents older than cutoff_timestamp from a datasource.
+
+    This endpoint removes documents with last_modified < cutoff_timestamp from both
+    Milvus vector store and Neo4j graph database (if enabled).
+
+    Used for data retention to remove documents older than the lookback period.
+    """
+    if not vector_db or not metadata_storage or not ingestor:
+        raise HTTPException(status_code=500, detail="Server not initialized")
+
+    # Check if datasource exists
+    datasource_info = await metadata_storage.get_datasource_info(datasource_id)
+    if not datasource_info:
+        raise HTTPException(status_code=404, detail="Datasource not found")
+
+    logger.info(f"Pruning datasource {datasource_id} with cutoff_timestamp {cutoff_timestamp} (by {user.email})")
+
+    result = await ingestor.prune_documents_by_timestamp(datasource_id, cutoff_timestamp)
+    return result
+
 @app.get("/v1/datasources")
 async def list_datasources(
     ingestor_id: Optional[str] = None,

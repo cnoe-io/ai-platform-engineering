@@ -3,7 +3,7 @@ import traceback
 from common import utils
 from langchain_core.documents import Document
 from common.models.rag import DocumentChunkMetadata, DocumentMetadata
-from typing import List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 from common.models.graph import Entity
 from langchain_milvus import Milvus
 from common.graph_db.base import GraphDB
@@ -34,6 +34,61 @@ class DocumentProcessor:
         self.max_property_length = max_property_length
         self.batch_size = batch_size
         self.logger = utils.get_logger("DocumentProcessor")
+
+    async def prune_documents_by_timestamp(self, datasource_id: str, cutoff_timestamp: int) -> Dict[str, Any]:
+        """
+        Delete documents with last_modified < cutoff_timestamp from Milvus and Neo4j.
+        This is used for data retention to remove documents older than the lookback period.
+
+        Args:
+            datasource_id: The datasource ID to prune documents from
+            cutoff_timestamp: Unix timestamp - documents with last_modified older than this will be deleted
+
+        Returns:
+            Dict with prune results including status and counts
+        """
+        results: Dict[str, Any] = {
+            "datasource_id": datasource_id,
+            "cutoff_timestamp": cutoff_timestamp,
+            "milvus_status": "not_attempted",
+            "neo4j_status": "not_attempted"
+        }
+
+        # Build expression to find old documents
+        # Use metadata["last_modified"] for JSON field access in Milvus 2.x
+        expr = (
+            f'(datasource_id == "{datasource_id}") and '
+            f'(metadata["last_modified"] < {cutoff_timestamp})'
+        )
+
+        self.logger.info(f"Pruning documents from datasource {datasource_id} older than {cutoff_timestamp}")
+        self.logger.debug(f"Prune expression: {expr}")
+
+        # Prune from Milvus
+        try:
+            await self.vstore.adelete(expr=expr)
+            results["milvus_status"] = "success"
+            self.logger.info(f"Successfully pruned documents from Milvus for datasource {datasource_id}")
+        except Exception as e:
+            self.logger.error(f"Error pruning from Milvus: {e}")
+            self.logger.error(traceback.format_exc())
+            results["milvus_status"] = "error"
+            results["milvus_error"] = str(e)
+
+        # Prune from Neo4j (if graph RAG enabled)
+        if self.graph_rag_enabled and self.data_graph_db:
+            try:
+                deleted_count = await self.data_graph_db.remove_stale_by_timestamp(datasource_id, cutoff_timestamp)
+                results["neo4j_status"] = "success"
+                results["neo4j_deleted_count"] = deleted_count
+                self.logger.info(f"Successfully pruned {deleted_count} entities from Neo4j for datasource {datasource_id}")
+            except Exception as e:
+                self.logger.error(f"Error pruning from Neo4j: {e}")
+                self.logger.error(traceback.format_exc())
+                results["neo4j_status"] = "error"
+                results["neo4j_error"] = str(e)
+
+        return results
 
     @staticmethod
     def sanitize_entity_properties(entity: Entity, max_length: int = 250) -> None:
