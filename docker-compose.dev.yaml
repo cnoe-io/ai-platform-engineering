@@ -904,8 +904,15 @@ services:
       # - NEXT_PUBLIC_TAGLINE=${NEXT_PUBLIC_TAGLINE:-}
       # - NEXT_PUBLIC_DESCRIPTION=${NEXT_PUBLIC_DESCRIPTION:-}
       # - NEXT_PUBLIC_LOGO_URL=${NEXT_PUBLIC_LOGO_URL:-}
+      # MongoDB (when running with profile caipe-ui; mongodb service is in same profile)
+      - MONGODB_URI=${MONGODB_URI:-mongodb://admin:changeme@mongodb:27017/caipe?authSource=admin}
+      - MONGODB_DATABASE=${MONGODB_DATABASE:-caipe}
+      - NEXT_PUBLIC_MONGODB_ENABLED=${NEXT_PUBLIC_MONGODB_ENABLED:-true}
     depends_on:
-      - caipe-supervisor
+      caipe-supervisor:
+        condition: service_started
+      mongodb:
+        condition: service_healthy
     profiles:
       - caipe-ui
 
