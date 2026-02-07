@@ -21,14 +21,14 @@ jobs:
       statuses: write
     steps:
       - name: 🔒 harden runner
-        uses: step-security/harden-runner@e3f713f2d8f53843e71c69a996d56f51aa9adfb9 # v2.14.1
+        uses: step-security/harden-runner@5ef0c079ce82195b2a36a210272d6b661572d83e  # v2.14.2
         with:
           egress-policy: audit
       - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v4.1.7
         with:
           fetch-depth: 0
       - name: 🧹 run superlinter
-        uses: super-linter/super-linter@d5b0a2ab116623730dd094f15ddc1b6b25bf7b99 # v8.3.2
+        uses: super-linter/super-linter@12562e48d7059cf666c43a4ecb0d3b5a2b31bd9e  # v8.4.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           VALIDATE_GITLEAKS: true
