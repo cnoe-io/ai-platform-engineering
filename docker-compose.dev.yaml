@@ -103,6 +103,8 @@ services:
   #                                          MongoDB                                                 #
   ####################################################################################################
   # MongoDB for CAIPE UI chat history and user settings
+  # Note: Default password "changeme" is for local development only. For production, use
+  # the Helm chart and External Secrets to store the MongoDB secret in an external secrets manager.
   caipe-ui-mongodb:
     image: mongo:7.0
     container_name: caipe-mongodb-dev
@@ -900,6 +902,7 @@ services:
       # - NEXT_PUBLIC_DESCRIPTION=${NEXT_PUBLIC_DESCRIPTION:-}
       # - NEXT_PUBLIC_LOGO_URL=${NEXT_PUBLIC_LOGO_URL:-}
       # MongoDB (when running with profile caipe-ui; mongodb service is in same profile)
+      # (changeme default is for local dev only; for production use Helm chart and External Secrets)
       - MONGODB_URI=${MONGODB_URI:-mongodb://admin:changeme@caipe-ui-mongodb:27017/caipe?authSource=admin}
       - MONGODB_DATABASE=${MONGODB_DATABASE:-caipe}
       - NEXT_PUBLIC_MONGODB_ENABLED=${NEXT_PUBLIC_MONGODB_ENABLED:-true}
