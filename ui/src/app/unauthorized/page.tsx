@@ -6,10 +6,9 @@ import { motion } from "framer-motion";
 import { ShieldX, LogOut, Mail } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { REQUIRED_GROUP } from "@/lib/auth-config";
-import { useConfig } from "@/components/config-provider";
+import { config } from "@/lib/config";
 
 export default function UnauthorizedPage() {
-  const config = useConfig();
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-background p-4">

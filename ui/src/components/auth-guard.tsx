@@ -3,7 +3,7 @@
 import { useSession, signOut } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { useConfig } from "@/components/config-provider";
+import { getConfig } from "@/lib/config";
 import { LoadingScreen } from "@/components/loading-screen";
 import { isTokenExpired } from "@/lib/auth-utils";
 
@@ -21,7 +21,6 @@ interface AuthGuardProps {
 export function AuthGuard({ children }: AuthGuardProps) {
   const { data: session, status } = useSession();
   const router = useRouter();
-  const config = useConfig();
   // Initialize authChecked to true if already authenticated to avoid spinner on navigation
   const [authChecked, setAuthChecked] = useState(status === "authenticated");
   const [loadingTimeout, setLoadingTimeout] = useState(false);
@@ -85,7 +84,7 @@ export function AuthGuard({ children }: AuthGuardProps) {
   }, [status, authChecked, autoResetInitiated]);
 
   useEffect(() => {
-    if (!config.ssoEnabled) {
+    if (!getConfig('ssoEnabled')) {
       setAuthChecked(true);
       return;
     }
@@ -152,10 +151,10 @@ export function AuthGuard({ children }: AuthGuardProps) {
       setAuthChecked(true);
       console.log("[AuthGuard] ✅ Authorization complete, rendering app");
     }
-  }, [config.ssoEnabled, status, session, router]);
+  }, [status, session, router]);
 
   // If SSO is not enabled, render children directly
-  if (!config.ssoEnabled) {
+  if (!getConfig('ssoEnabled')) {
     return <>{children}</>;
   }
 

@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Layers, ExternalLink, X, ChevronUp } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { useConfig } from "@/components/config-provider";
+import { getConfig } from "@/lib/config";
 
 interface TechItem {
   name: string;

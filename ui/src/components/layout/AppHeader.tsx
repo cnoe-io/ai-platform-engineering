@@ -18,8 +18,7 @@ import { UserMenu } from "@/components/user-menu";
 import { SettingsPanel } from "@/components/settings-panel";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { useConfig } from "@/components/config-provider";
-import { getLogoFilterClass } from "@/lib/config";
+import { config, getLogoFilterClass } from "@/lib/config";
 import { useChatStore } from "@/store/chat-store";
 import { useCAIPEHealth } from "@/hooks/use-caipe-health";
 import { useRAGHealth } from "@/hooks/use-rag-health";
@@ -41,7 +40,6 @@ export function AppHeader() {
   const { data: session } = useSession();
   const { isAdmin } = useAdminRole();
   const { isStreaming } = useChatStore();
-  const config = useConfig();
 
   // Debug logging for admin tab
   React.useEffect(() => {

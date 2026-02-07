@@ -6,7 +6,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { LogIn, LogOut, ChevronDown, Shield, Users, Hash, Code, ChevronRight, Layers, ExternalLink, Clock, RefreshCw, Bug, Settings } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { useConfig } from "@/components/config-provider";
+import { config } from "@/lib/config";
 import {
   Dialog,
   DialogContent,
@@ -26,7 +26,7 @@ interface TechItem {
 
 // Helper to get CAIPE description dynamically — uses hardcoded defaults
 // since techStack is defined at module level (outside component scope).
-// The actual values shown in the dialog will come from the component's useConfig().
+// The actual values shown in the dialog will come from the config module.
 function getCaipeDescription(): string {
   return "Multi-Agent Workflow Automation - Where Humans and AI agents collaborate to deliver high quality outcomes.";
 }
@@ -95,7 +95,6 @@ function ConfigRow({ label, value }: { label: string; value: string | boolean | 
 
 export function UserMenu() {
   const { data: session, status, update } = useSession();
-  const config = useConfig();
   const [open, setOpen] = useState(false);
   const [systemOpen, setSystemOpen] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);

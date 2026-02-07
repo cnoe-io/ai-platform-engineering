@@ -7,13 +7,11 @@ import { motion } from "framer-motion";
 import { LogOut, Loader2, CheckCircle2, ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { IntegrationOrbit } from "@/components/gallery/IntegrationOrbit";
-import { useConfig } from "@/components/config-provider";
-import { getLogoFilterClass } from "@/lib/config";
+import { config, getLogoFilterClass } from "@/lib/config";
 
 export default function LogoutPage() {
   const { status } = useSession();
   const router = useRouter();
-  const config = useConfig();
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [isLoggedOut, setIsLoggedOut] = useState(false);
 

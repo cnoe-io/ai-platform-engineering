@@ -8,14 +8,12 @@ import { LogIn, Loader2, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { LoadingScreen } from "@/components/loading-screen";
 import { IntegrationOrbit } from "@/components/gallery/IntegrationOrbit";
-import { useConfig } from "@/components/config-provider";
-import { getLogoFilterClass } from "@/lib/config";
+import { config, getLogoFilterClass } from "@/lib/config";
 
 function LoginContent() {
   const { status } = useSession();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const config = useConfig();
   const [isLoading, setIsLoading] = useState(false);
   const error = searchParams.get("error");
   const sessionExpired = searchParams.get("session_expired") === "true";

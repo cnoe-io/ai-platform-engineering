@@ -4,7 +4,7 @@ import { useSession, signOut } from "next-auth/react";
 import { useEffect, useState, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { isTokenExpired, getTimeUntilExpiry, formatTimeUntilExpiry, getWarningTimestamp } from "@/lib/auth-utils";
-import { useConfig } from "@/components/config-provider";
+import { getConfig } from "@/lib/config";
 import { Button } from "@/components/ui/button";
 import { AlertCircle, LogOut, RefreshCw } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
@@ -20,7 +20,6 @@ import { motion, AnimatePresence } from "framer-motion";
  */
 export function TokenExpiryGuard() {
   const { data: session, status } = useSession();
-  const config = useConfig();
   const router = useRouter();
   const [showWarning, setShowWarning] = useState(false);
   const [showExpired, setShowExpired] = useState(false);
@@ -47,7 +46,7 @@ export function TokenExpiryGuard() {
 
   // Check token expiry
   const checkTokenExpiry = useCallback(() => {
-    if (!config.ssoEnabled) {
+    if (!getConfig('ssoEnabled')) {
       return; // SSO not enabled
     }
 
@@ -134,11 +133,11 @@ export function TokenExpiryGuard() {
       // Token was refreshed, hide warning
       setShowWarning(false);
     }
-  }, [config.ssoEnabled, status, session, showWarning, showExpired, handleLogout]);
+  }, [status, session, showWarning, showExpired, handleLogout]);
 
   // Set up periodic token expiry checking
   useEffect(() => {
-    if (!config.ssoEnabled || status !== "authenticated") {
+    if (!getConfig('ssoEnabled') || status !== "authenticated") {
       return;
     }
 
@@ -153,10 +152,10 @@ export function TokenExpiryGuard() {
         clearInterval(checkIntervalRef.current);
       }
     };
-  }, [config.ssoEnabled, status, checkTokenExpiry]);
+  }, [status, checkTokenExpiry]);
 
   // Don't render if SSO is not enabled
-  if (!config.ssoEnabled) {
+  if (!getConfig('ssoEnabled')) {
     return null;
   }
 

@@ -1,8 +1,7 @@
 "use client";
 
 import React from "react";
-import { useConfig } from "@/components/config-provider";
-import { getLogoFilterClass } from "@/lib/config";
+import { config, getLogoFilterClass } from "@/lib/config";
 
 interface LoadingScreenProps {
   message?: string;
@@ -19,7 +18,6 @@ export function LoadingScreen({
   onCancel,
   showCancel = false
 }: LoadingScreenProps) {
-  const config = useConfig();
 
   return (
     <div className="min-h-screen flex flex-col items-center justify-center bg-background relative overflow-hidden">

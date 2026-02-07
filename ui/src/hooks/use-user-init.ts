@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useSession } from "next-auth/react";
 import { apiClient } from "@/lib/api-client";
-import { useConfig } from "@/components/config-provider";
+import { getConfig } from "@/lib/config";
 
 /**
  * Hook to ensure user is initialized in MongoDB on first login
@@ -12,14 +12,13 @@ import { useConfig } from "@/components/config-provider";
  */
 export function useUserInit() {
   const { data: session, status } = useSession();
-  const config = useConfig();
   const [initialized, setInitialized] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     const initializeUser = async () => {
       // Skip if SSO or MongoDB not enabled
-      if (!config.ssoEnabled || config.storageMode !== 'mongodb') {
+      if (!getConfig('ssoEnabled') || getConfig('storageMode') !== 'mongodb') {
         setInitialized(true);
         return;
       }
@@ -53,7 +52,7 @@ export function useUserInit() {
     };
 
     initializeUser();
-  }, [status, session, config.ssoEnabled, config.storageMode]);
+  }, [status, session]);
 
   return { initialized, error };
 }

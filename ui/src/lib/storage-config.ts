@@ -24,15 +24,15 @@ function isMongoDBConfigured(): boolean {
 
 /**
  * Get the storage mode for the application (server-side).
- * Client-side code should use useConfig().storageMode instead.
+ * Client-side code should use getConfig('storageMode') instead.
  */
 export function getStorageMode(): StorageMode {
   if (IS_SERVER) {
     return isMongoDBConfigured() ? 'mongodb' : 'localStorage';
   }
   // Client-side fallback — shouldn't normally be called;
-  // use useConfig().storageMode instead.
-  console.warn('[storage-config] getStorageMode() called on client — use useConfig().storageMode');
+  // use getConfig('storageMode') instead.
+  console.warn('[storage-config] getStorageMode() called on client — use getConfig("storageMode")');
   return 'localStorage';
 }
 

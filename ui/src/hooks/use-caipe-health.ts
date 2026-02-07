@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import { useConfig } from "@/components/config-provider";
+import { config as appConfig } from "@/lib/config";
 
 export type HealthStatus = "checking" | "connected" | "disconnected";
 
@@ -30,7 +30,6 @@ interface UseCAIPEHealthResult {
  * Polls every 30 seconds and considers 401 as reachable (auth required but server is up)
  */
 export function useCAIPEHealth(): UseCAIPEHealthResult {
-  const appConfig = useConfig();
   const [status, setStatus] = useState<HealthStatus>("checking");
   const [lastChecked, setLastChecked] = useState<Date | null>(null);
   const [secondsUntilNextCheck, setSecondsUntilNextCheck] = useState(0);
