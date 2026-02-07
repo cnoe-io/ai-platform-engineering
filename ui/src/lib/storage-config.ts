@@ -1,42 +1,39 @@
 /**
  * Storage Configuration
- * 
+ *
  * Determines storage mode based on MongoDB configuration.
  * This ensures exclusive storage mode - no hybrid confusion.
- * 
+ *
  * - If MongoDB is configured → MongoDB mode (no localStorage)
  * - If MongoDB is not configured → localStorage mode only
- * 
- * Client-side: reads from window.__RUNTIME_ENV__ (injected by PublicEnvScript)
- * Server-side: reads from process.env (Node.js runtime)
+ *
+ * Server-side: reads from process.env (Node.js runtime).
+ * Client-side: uses the storageMode from ConfigContext (fetched from /api/config).
  */
-
-import { getConfig } from './config';
 
 export type StorageMode = 'mongodb' | 'localStorage';
 
 const IS_SERVER = typeof window === 'undefined';
 
 /**
- * Check if MongoDB is configured.
- * 
- * Server-side: Check actual MONGODB_URI env var (available at runtime in Node.js)
- * Client-side: Use getConfig('mongodbEnabled') which reads window.__RUNTIME_ENV__
+ * Check if MongoDB is configured (server-side only).
  */
 function isMongoDBConfigured(): boolean {
-  if (IS_SERVER) {
-    return !!(process.env.MONGODB_URI && process.env.MONGODB_DATABASE);
-  }
-  // Client-side: use the runtime-aware config system
-  return getConfig('mongodbEnabled');
+  return !!(process.env.MONGODB_URI && process.env.MONGODB_DATABASE);
 }
 
 /**
- * Get the storage mode for the application
- * Evaluates dynamically on each call to pick up runtime config changes
+ * Get the storage mode for the application (server-side).
+ * Client-side code should use useConfig().storageMode instead.
  */
 export function getStorageMode(): StorageMode {
-  return isMongoDBConfigured() ? 'mongodb' : 'localStorage';
+  if (IS_SERVER) {
+    return isMongoDBConfigured() ? 'mongodb' : 'localStorage';
+  }
+  // Client-side fallback — shouldn't normally be called;
+  // use useConfig().storageMode instead.
+  console.warn('[storage-config] getStorageMode() called on client — use useConfig().storageMode');
+  return 'localStorage';
 }
 
 /**
@@ -50,9 +47,10 @@ export function shouldUseLocalStorage(): boolean {
 /**
  * Get storage mode display name for UI
  */
-export function getStorageModeDisplay(): string {
-  return isMongoDBConfigured() 
-    ? '🗄️  MongoDB (Persistent)' 
+export function getStorageModeDisplay(mode?: StorageMode): string {
+  const m = mode ?? getStorageMode();
+  return m === 'mongodb'
+    ? '🗄️  MongoDB (Persistent)'
     : '💾 LocalStorage (Browser-only)';
 }
 

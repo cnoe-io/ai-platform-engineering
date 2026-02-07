@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
+import { useSession } from "next-auth/react";
 import { motion } from "framer-motion";
 import { Users, MessageSquare, TrendingUp, Activity, Database, Share2, ShieldCheck, ShieldOff, UserPlus, Trash2, UsersIcon, Loader2 } from "lucide-react";
 import { AuthGuard } from "@/components/auth-guard";
@@ -63,6 +64,7 @@ interface Team {
 }
 
 function AdminPage() {
+  const { status } = useSession();
   const [stats, setStats] = useState<AdminStats | null>(null);
   const [users, setUsers] = useState<UserInfo[]>([]);
   const [teams, setTeams] = useState<Team[]>([]);
@@ -73,8 +75,11 @@ function AdminPage() {
   const [createTeamDialogOpen, setCreateTeamDialogOpen] = useState(false);
 
   useEffect(() => {
-    loadAdminData();
-  }, []);
+    // Only fetch admin data once the user is authenticated
+    if (status === "authenticated") {
+      loadAdminData();
+    }
+  }, [status]);
 
   const loadAdminData = async () => {
     setLoading(true);
@@ -82,10 +87,28 @@ function AdminPage() {
     
     try {
       // Fetch stats, users, and teams in parallel
+      const [statsRes, usersRes, teamsRes] = await Promise.all([
+        fetch('/api/admin/stats'),
+        fetch('/api/admin/users'),
+        fetch('/api/admin/teams').catch(() => null),
+      ]);
+
+      // Check for auth errors first (401/403)
+      if (statsRes.status === 401 || usersRes.status === 401) {
+        setError('Not authenticated. Please sign in via SSO first.');
+        setLoading(false);
+        return;
+      }
+      if (statsRes.status === 403 || usersRes.status === 403) {
+        setError('Admin access required. Your account must be a member of the OIDC admin group.');
+        setLoading(false);
+        return;
+      }
+
       const [statsResponse, usersResponse, teamsResponse] = await Promise.all([
-        fetch('/api/admin/stats').then(r => r.json()),
-        fetch('/api/admin/users').then(r => r.json()),
-        fetch('/api/admin/teams').then(r => r.json()).catch(() => ({ success: true, data: { teams: [] } })),
+        statsRes.json(),
+        usersRes.json(),
+        teamsRes ? teamsRes.json().catch(() => ({ success: true, data: { teams: [] } })) : { success: true, data: { teams: [] } },
       ]);
 
       if (statsResponse.success) {

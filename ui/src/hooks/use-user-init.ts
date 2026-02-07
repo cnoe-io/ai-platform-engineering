@@ -3,31 +3,33 @@
 import { useEffect, useState } from "react";
 import { useSession } from "next-auth/react";
 import { apiClient } from "@/lib/api-client";
-import { getConfig } from "@/lib/config";
+import { useConfig } from "@/components/config-provider";
 
 /**
  * Hook to ensure user is initialized in MongoDB on first login
  * Calls /api/users/me to create user profile if it doesn't exist
- * Only runs when both SSO and MongoDB are enabled
+ * Only runs when both SSO and MongoDB are enabled.
  */
 export function useUserInit() {
   const { data: session, status } = useSession();
+  const config = useConfig();
   const [initialized, setInitialized] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     const initializeUser = async () => {
-      // Check if SSO is enabled - only initialize user if SSO is enabled
-      const ssoEnabled = getConfig('ssoEnabled');
-      const mongodbEnabled = getConfig('mongodbEnabled');
-      
-      if (!ssoEnabled || !mongodbEnabled) {
-        console.log("[useUserInit] SSO or MongoDB disabled, skipping user initialization");
+      // Skip if SSO or MongoDB not enabled
+      if (!config.ssoEnabled || config.storageMode !== 'mongodb') {
         setInitialized(true);
         return;
       }
 
+      // Don't call API until user is fully authenticated
+      if (status === "loading") {
+        return; // Still loading session, wait
+      }
       if (status !== "authenticated" || !session?.user?.email) {
+        setInitialized(true); // Not authenticated — nothing to initialize
         return;
       }
 
@@ -38,9 +40,10 @@ export function useUserInit() {
         setInitialized(true);
         console.log("[useUserInit] User profile initialized in MongoDB");
       } catch (err) {
-        // 401 is expected when SSO is disabled - don't log as error
-        if (err instanceof Error && err.message.includes('401')) {
-          console.log("[useUserInit] Authentication not configured, skipping initialization");
+        // 401/Unauthorized is expected when user isn't fully authenticated yet
+        const msg = err instanceof Error ? err.message.toLowerCase() : '';
+        if (msg.includes('401') || msg.includes('unauthorized')) {
+          console.log("[useUserInit] Not authenticated yet, skipping initialization");
           setInitialized(true);
           return;
         }
@@ -50,7 +53,7 @@ export function useUserInit() {
     };
 
     initializeUser();
-  }, [status, session]);
+  }, [status, session, config.ssoEnabled, config.storageMode]);
 
   return { initialized, error };
 }

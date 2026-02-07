@@ -4,7 +4,7 @@ import { useSession, signOut } from "next-auth/react";
 import { useEffect, useState, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { isTokenExpired, getTimeUntilExpiry, formatTimeUntilExpiry, getWarningTimestamp } from "@/lib/auth-utils";
-import { getConfig } from "@/lib/config";
+import { useConfig } from "@/components/config-provider";
 import { Button } from "@/components/ui/button";
 import { AlertCircle, LogOut, RefreshCw } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
@@ -20,18 +20,12 @@ import { motion, AnimatePresence } from "framer-motion";
  */
 export function TokenExpiryGuard() {
   const { data: session, status } = useSession();
+  const config = useConfig();
   const router = useRouter();
   const [showWarning, setShowWarning] = useState(false);
   const [showExpired, setShowExpired] = useState(false);
   const [timeRemaining, setTimeRemaining] = useState<string>("");
   const checkIntervalRef = useRef<NodeJS.Timeout | null>(null);
-  const [ssoEnabled, setSsoEnabled] = useState<boolean | null>(null);
-
-  // Check SSO status after hydration
-  useEffect(() => {
-    const enabled = getConfig('ssoEnabled');
-    setSsoEnabled(enabled);
-  }, []);
 
   // Handle logout
   const handleLogout = useCallback(async () => {
@@ -53,7 +47,7 @@ export function TokenExpiryGuard() {
 
   // Check token expiry
   const checkTokenExpiry = useCallback(() => {
-    if (ssoEnabled === null || !ssoEnabled) {
+    if (!config.ssoEnabled) {
       return; // SSO not enabled
     }
 
@@ -140,11 +134,11 @@ export function TokenExpiryGuard() {
       // Token was refreshed, hide warning
       setShowWarning(false);
     }
-  }, [ssoEnabled, status, session, showWarning, showExpired, handleLogout]);
+  }, [config.ssoEnabled, status, session, showWarning, showExpired, handleLogout]);
 
   // Set up periodic token expiry checking
   useEffect(() => {
-    if (ssoEnabled === null || !ssoEnabled || status !== "authenticated") {
+    if (!config.ssoEnabled || status !== "authenticated") {
       return;
     }
 
@@ -159,10 +153,10 @@ export function TokenExpiryGuard() {
         clearInterval(checkIntervalRef.current);
       }
     };
-  }, [ssoEnabled, status, checkTokenExpiry]);
+  }, [config.ssoEnabled, status, checkTokenExpiry]);
 
   // Don't render if SSO is not enabled
-  if (!ssoEnabled) {
+  if (!config.ssoEnabled) {
     return null;
   }
 

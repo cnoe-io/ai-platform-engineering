@@ -1,249 +1,232 @@
 /**
- * Enhanced tests for config system including mongodbEnabled and branding
+ * Tests for the server-side config system (getServerConfig)
+ *
+ * Config is now served to the client via GET /api/config.
+ * No window.__RUNTIME_ENV__ — client uses ConfigProvider + useConfig().
  */
 
-import { config, getConfig, logConfig } from '../config';
+import { getServerConfig, getConfig, getLogoFilterClass } from '../config';
+import type { Config } from '../config';
 
-describe('config - Extended', () => {
+describe('config - Server Side', () => {
   const originalEnv = process.env;
-  const originalWindow = global.window;
 
   beforeEach(() => {
     jest.resetModules();
     process.env = { ...originalEnv };
-
-    // Reset window.__RUNTIME_ENV__ (injected by PublicEnvScript)
-    if (typeof window !== 'undefined') {
-      (window as any).__RUNTIME_ENV__ = undefined;
-    }
   });
 
   afterEach(() => {
     process.env = originalEnv;
-    global.window = originalWindow;
   });
 
-  describe('mongodbEnabled configuration', () => {
-    it('should return false when NEXT_PUBLIC_MONGODB_ENABLED is not set', () => {
-      const result = getConfig('mongodbEnabled');
-      expect(result).toBe(false);
+  describe('getServerConfig defaults', () => {
+    it('should return false for mongodbEnabled when env vars not set', () => {
+      delete process.env.MONGODB_URI;
+      delete process.env.MONGODB_DATABASE;
+      delete process.env.MONGODB_ENABLED;
+      const cfg = getServerConfig();
+      expect(cfg.mongodbEnabled).toBe(false);
     });
 
-    it('should return true when NEXT_PUBLIC_MONGODB_ENABLED is "true"', () => {
-      (window as any).__RUNTIME_ENV__ = { NEXT_PUBLIC_MONGODB_ENABLED: 'true' };
-      const { config: newConfig } = require('../config');
-      expect(newConfig.mongodbEnabled).toBe(true);
+    it('should return false for ssoEnabled by default', () => {
+      delete process.env.SSO_ENABLED;
+      delete process.env.NEXT_PUBLIC_SSO_ENABLED;
+      const cfg = getServerConfig();
+      expect(cfg.ssoEnabled).toBe(false);
     });
 
-    it('should return false when NEXT_PUBLIC_MONGODB_ENABLED is "false"', () => {
-      (window as any).__RUNTIME_ENV__ = { NEXT_PUBLIC_MONGODB_ENABLED: 'false' };
-      const { config: newConfig } = require('../config');
-      expect(newConfig.mongodbEnabled).toBe(false);
+    it('should return false for enableSubAgentCards by default', () => {
+      delete process.env.ENABLE_SUBAGENT_CARDS;
+      delete process.env.NEXT_PUBLIC_ENABLE_SUBAGENT_CARDS;
+      const cfg = getServerConfig();
+      expect(cfg.enableSubAgentCards).toBe(false);
     });
 
-    it('should return false when NEXT_PUBLIC_MONGODB_ENABLED is any other value', () => {
-      (window as any).__RUNTIME_ENV__ = { NEXT_PUBLIC_MONGODB_ENABLED: 'maybe' };
-      const { config: newConfig } = require('../config');
-      expect(newConfig.mongodbEnabled).toBe(false);
+    it('should return default tagline', () => {
+      delete process.env.TAGLINE;
+      delete process.env.NEXT_PUBLIC_TAGLINE;
+      const cfg = getServerConfig();
+      expect(cfg.tagline).toBe('Multi-Agent Workflow Automation');
+    });
+
+    it('should return default appName', () => {
+      delete process.env.APP_NAME;
+      delete process.env.NEXT_PUBLIC_APP_NAME;
+      const cfg = getServerConfig();
+      expect(cfg.appName).toBe('CAIPE');
     });
   });
 
-  describe('ssoEnabled configuration', () => {
-    it('should return false by default', () => {
-      expect(config.ssoEnabled).toBe(false);
+  describe('getServerConfig with env vars (new names)', () => {
+    it('should read SSO_ENABLED=true', () => {
+      process.env.SSO_ENABLED = 'true';
+      const cfg = getServerConfig();
+      expect(cfg.ssoEnabled).toBe(true);
     });
 
-    it('should return true when NEXT_PUBLIC_SSO_ENABLED is "true"', () => {
-      (window as any).__RUNTIME_ENV__ = { NEXT_PUBLIC_SSO_ENABLED: 'true' };
-      const { config: newConfig } = require('../config');
-      expect(newConfig.ssoEnabled).toBe(true);
+    it('should read A2A_BASE_URL', () => {
+      process.env.A2A_BASE_URL = 'https://my-supervisor:8000';
+      const cfg = getServerConfig();
+      expect(cfg.caipeUrl).toBe('https://my-supervisor:8000');
+    });
+
+    it('should read APP_NAME', () => {
+      process.env.APP_NAME = 'Grid';
+      const cfg = getServerConfig();
+      expect(cfg.appName).toBe('Grid');
+    });
+
+    it('should read LOGO_URL', () => {
+      process.env.LOGO_URL = '/grid-neon-logo.svg';
+      const cfg = getServerConfig();
+      expect(cfg.logoUrl).toBe('/grid-neon-logo.svg');
+    });
+
+    it('should detect mongodbEnabled from MONGODB_URI + MONGODB_DATABASE', () => {
+      process.env.MONGODB_URI = 'mongodb://localhost:27017';
+      process.env.MONGODB_DATABASE = 'caipe';
+      const cfg = getServerConfig();
+      expect(cfg.mongodbEnabled).toBe(true);
+      expect(cfg.storageMode).toBe('mongodb');
+    });
+
+    it('should read ENABLE_SUBAGENT_CARDS', () => {
+      process.env.ENABLE_SUBAGENT_CARDS = 'true';
+      const cfg = getServerConfig();
+      expect(cfg.enableSubAgentCards).toBe(true);
+    });
+
+    it('should read TAGLINE', () => {
+      process.env.TAGLINE = 'Custom Tagline';
+      const cfg = getServerConfig();
+      expect(cfg.tagline).toBe('Custom Tagline');
     });
   });
 
-  describe('enableSubAgentCards configuration', () => {
-    it('should return false by default', () => {
-      expect(config.enableSubAgentCards).toBe(false);
+  describe('backward compatibility (NEXT_PUBLIC_ prefix)', () => {
+    it('should read NEXT_PUBLIC_SSO_ENABLED as fallback', () => {
+      delete process.env.SSO_ENABLED;
+      process.env.NEXT_PUBLIC_SSO_ENABLED = 'true';
+      const cfg = getServerConfig();
+      expect(cfg.ssoEnabled).toBe(true);
     });
 
-    it('should return true when NEXT_PUBLIC_ENABLE_SUBAGENT_CARDS is "true"', () => {
-      (window as any).__RUNTIME_ENV__ = { NEXT_PUBLIC_ENABLE_SUBAGENT_CARDS: 'true' };
-      const { config: newConfig } = require('../config');
-      expect(newConfig.enableSubAgentCards).toBe(true);
+    it('should read NEXT_PUBLIC_APP_NAME as fallback', () => {
+      delete process.env.APP_NAME;
+      process.env.NEXT_PUBLIC_APP_NAME = 'LegacyApp';
+      const cfg = getServerConfig();
+      expect(cfg.appName).toBe('LegacyApp');
+    });
+
+    it('should prefer non-prefixed over NEXT_PUBLIC_', () => {
+      process.env.APP_NAME = 'NewName';
+      process.env.NEXT_PUBLIC_APP_NAME = 'OldName';
+      const cfg = getServerConfig();
+      expect(cfg.appName).toBe('NewName');
     });
   });
 
   describe('branding configuration', () => {
-    it('should use default values when no env vars set', () => {
-      // Check that config has string values (actual defaults may vary)
-      expect(typeof config.tagline).toBe('string');
-      expect(typeof config.description).toBe('string');
-      expect(typeof config.appName).toBe('string');
-      expect(typeof config.logoUrl).toBe('string');
-      expect(typeof config.previewMode).toBe('boolean');
-    });
-
-    it('should use custom tagline when NEXT_PUBLIC_TAGLINE is set', () => {
-      (window as any).__RUNTIME_ENV__ = { NEXT_PUBLIC_TAGLINE: 'Custom Tagline' };
-      const { config: newConfig } = require('../config');
-      expect(newConfig.tagline).toBe('Custom Tagline');
-    });
-
-    it('should use custom description when NEXT_PUBLIC_DESCRIPTION is set', () => {
-      (window as any).__RUNTIME_ENV__ = { NEXT_PUBLIC_DESCRIPTION: 'Custom Description' };
-      const { config: newConfig } = require('../config');
-      expect(newConfig.description).toBe('Custom Description');
-    });
-
-    it('should use custom app name when NEXT_PUBLIC_APP_NAME is set', () => {
-      (window as any).__RUNTIME_ENV__ = { NEXT_PUBLIC_APP_NAME: 'MyApp' };
-      const { config: newConfig } = require('../config');
-      expect(newConfig.appName).toBe('MyApp');
-    });
-
-    it('should use custom logo URL when NEXT_PUBLIC_LOGO_URL is set', () => {
-      (window as any).__RUNTIME_ENV__ = { NEXT_PUBLIC_LOGO_URL: '/custom-logo.png' };
-      const { config: newConfig } = require('../config');
-      expect(newConfig.logoUrl).toBe('/custom-logo.png');
-    });
-
-    it('should disable preview mode when NEXT_PUBLIC_PREVIEW_MODE is "false"', () => {
-      (window as any).__RUNTIME_ENV__ = { NEXT_PUBLIC_PREVIEW_MODE: 'false' };
-      const { config: newConfig } = require('../config');
-      expect(newConfig.previewMode).toBe(false);
-    });
-  });
-
-  describe('gradient configuration', () => {
     it('should use default gradient colors', () => {
-      // Check that gradients are strings
-      expect(typeof config.gradientFrom).toBe('string');
-      expect(typeof config.gradientTo).toBe('string');
-      expect(config.gradientFrom.length).toBeGreaterThan(0);
-      expect(config.gradientTo.length).toBeGreaterThan(0);
+      const cfg = getServerConfig();
+      expect(typeof cfg.gradientFrom).toBe('string');
+      expect(typeof cfg.gradientTo).toBe('string');
+      expect(cfg.gradientFrom.length).toBeGreaterThan(0);
     });
 
-    it('should use custom gradient colors when env vars set', () => {
-      (window as any).__RUNTIME_ENV__ = {
-        NEXT_PUBLIC_GRADIENT_FROM: 'from-red-500',
-        NEXT_PUBLIC_GRADIENT_TO: 'to-blue-500',
-      };
-      const { config: newConfig } = require('../config');
-      expect(newConfig.gradientFrom).toBe('from-red-500');
-      expect(newConfig.gradientTo).toBe('to-blue-500');
+    it('should use custom gradient colors', () => {
+      process.env.GRADIENT_FROM = '#ff0000';
+      process.env.GRADIENT_TO = '#0000ff';
+      const cfg = getServerConfig();
+      expect(cfg.gradientFrom).toBe('#ff0000');
+      expect(cfg.gradientTo).toBe('#0000ff');
     });
   });
 
-  describe('logo style configuration', () => {
-    it('should use "default" logo style by default', () => {
-      expect(config.logoStyle).toBe('default');
+  describe('logo style', () => {
+    it('should default to "default"', () => {
+      const cfg = getServerConfig();
+      expect(cfg.logoStyle).toBe('default');
     });
 
-    it('should use "white" logo style when specified', () => {
-      (window as any).__RUNTIME_ENV__ = { NEXT_PUBLIC_LOGO_STYLE: 'white' };
-      const { config: newConfig } = require('../config');
-      expect(newConfig.logoStyle).toBe('white');
+    it('should accept "white"', () => {
+      process.env.LOGO_STYLE = 'white';
+      const cfg = getServerConfig();
+      expect(cfg.logoStyle).toBe('white');
     });
 
-    it('should fall back to "default" for invalid logo style', () => {
-      (window as any).__RUNTIME_ENV__ = { NEXT_PUBLIC_LOGO_STYLE: 'invalid' };
-      const { config: newConfig } = require('../config');
-      expect(newConfig.logoStyle).toBe('default');
-    });
-  });
-
-  describe('spinner color configuration', () => {
-    it('should return null by default', () => {
-      expect(config.spinnerColor).toBeNull();
-    });
-
-    it('should use custom spinner color when set', () => {
-      (window as any).__RUNTIME_ENV__ = { NEXT_PUBLIC_SPINNER_COLOR: '#FF5733' };
-      const { config: newConfig } = require('../config');
-      expect(newConfig.spinnerColor).toBe('#FF5733');
+    it('should fall back to "default" for invalid values', () => {
+      process.env.LOGO_STYLE = 'invalid';
+      const cfg = getServerConfig();
+      expect(cfg.logoStyle).toBe('default');
     });
   });
 
-  describe('showPoweredBy configuration', () => {
-    it('should return true by default', () => {
-      expect(config.showPoweredBy).toBe(true);
+  describe('showPoweredBy', () => {
+    it('should default to true', () => {
+      const cfg = getServerConfig();
+      expect(cfg.showPoweredBy).toBe(true);
     });
 
-    it('should return false when NEXT_PUBLIC_SHOW_POWERED_BY is "false"', () => {
-      (window as any).__RUNTIME_ENV__ = { NEXT_PUBLIC_SHOW_POWERED_BY: 'false' };
-      const { config: newConfig } = require('../config');
-      expect(newConfig.showPoweredBy).toBe(false);
+    it('should return false when SHOW_POWERED_BY=false', () => {
+      process.env.SHOW_POWERED_BY = 'false';
+      const cfg = getServerConfig();
+      expect(cfg.showPoweredBy).toBe(false);
     });
   });
 
-  describe('getConfig', () => {
-    it('should return correct value for mongodbEnabled', () => {
-      expect(getConfig('mongodbEnabled')).toBe(false);
+  describe('getLogoFilterClass', () => {
+    it('should return empty string for default style', () => {
+      expect(getLogoFilterClass('default')).toBe('');
     });
 
-    it('should return correct value for ssoEnabled', () => {
-      expect(getConfig('ssoEnabled')).toBe(false);
+    it('should return brightness-0 invert for white style', () => {
+      expect(getLogoFilterClass('white')).toBe('brightness-0 invert');
     });
+  });
 
-    it('should return correct value for enableSubAgentCards', () => {
-      expect(getConfig('enableSubAgentCards')).toBe(false);
-    });
-
-    it('should return correct value for tagline', () => {
-      const tagline = getConfig('tagline');
-      expect(typeof tagline).toBe('string');
-      expect(tagline.length).toBeGreaterThan(0);
-    });
-
-    it('should return correct value for appName', () => {
+  describe('getConfig (deprecated shim)', () => {
+    it('should still work for backward compatibility', () => {
       expect(getConfig('appName')).toBe('CAIPE');
-    });
-  });
-
-  describe('logConfig', () => {
-    it('should call logConfig without throwing errors', () => {
-      const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation();
-
-      expect(() => logConfig()).not.toThrow();
-
-      // logConfig may or may not log in test environment
-      consoleLogSpy.mockRestore();
-    });
-  });
-
-  describe('environment detection', () => {
-    it('should detect development environment', () => {
-      process.env.NODE_ENV = 'development';
-      const { config: newConfig } = require('../config');
-      expect(newConfig.isDev).toBe(true);
-      expect(newConfig.isProd).toBe(false);
-    });
-
-    it('should detect production environment', () => {
-      process.env.NODE_ENV = 'production';
-      const { config: newConfig } = require('../config');
-      expect(newConfig.isDev).toBe(false);
-      expect(newConfig.isProd).toBe(true);
+      expect(typeof getConfig('tagline')).toBe('string');
     });
   });
 
   describe('CAIPE URL configuration', () => {
-    it('should use default CAIPE URL', () => {
-      expect(config.caipeUrl).toBe('http://localhost:8000');
+    it('should use default CAIPE URL in dev', () => {
+      const cfg = getServerConfig();
+      expect(cfg.caipeUrl).toBe('http://localhost:8000');
     });
 
-    it('should use NEXT_PUBLIC_CAIPE_URL when set', () => {
-      (window as any).__RUNTIME_ENV__ = { NEXT_PUBLIC_A2A_BASE_URL: 'https://api.example.com' };
-      const { config: newConfig } = require('../config');
-      expect(newConfig.caipeUrl).toBe('https://api.example.com');
+    it('should use A2A_BASE_URL when set', () => {
+      process.env.A2A_BASE_URL = 'https://api.example.com';
+      const cfg = getServerConfig();
+      expect(cfg.caipeUrl).toBe('https://api.example.com');
     });
   });
 
   describe('RAG URL configuration', () => {
     it('should have a valid RAG URL', () => {
-      expect(typeof config.ragUrl).toBe('string');
-      expect(config.ragUrl.length).toBeGreaterThan(0);
-      // RAG URL should be a valid URL or path
-      expect(config.ragUrl).toMatch(/^https?:\/\//);
+      const cfg = getServerConfig();
+      expect(typeof cfg.ragUrl).toBe('string');
+      expect(cfg.ragUrl).toMatch(/^https?:\/\//);
+    });
+  });
+
+  describe('storageMode', () => {
+    it('should return localStorage when MongoDB not configured', () => {
+      delete process.env.MONGODB_URI;
+      delete process.env.MONGODB_DATABASE;
+      const cfg = getServerConfig();
+      expect(cfg.storageMode).toBe('localStorage');
+    });
+
+    it('should return mongodb when both URI and DATABASE set', () => {
+      process.env.MONGODB_URI = 'mongodb://localhost:27017';
+      process.env.MONGODB_DATABASE = 'test';
+      const cfg = getServerConfig();
+      expect(cfg.storageMode).toBe('mongodb');
     });
   });
 });

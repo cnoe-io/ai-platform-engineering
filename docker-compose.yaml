@@ -646,25 +646,24 @@ services:
     environment:
       - NODE_ENV=production
       # CAIPE supervisor A2A endpoint URL
-      # Override with NEXT_PUBLIC_A2A_BASE_URL environment variable
-      - NEXT_PUBLIC_A2A_BASE_URL=${NEXT_PUBLIC_A2A_BASE_URL:-http://localhost:8000}
+      # Override with A2A_BASE_URL environment variable
+      - A2A_BASE_URL=${A2A_BASE_URL:-http://localhost:8000}
       # Enable/Disable RAG Knowledge Bases (default: true)
-      - NEXT_PUBLIC_RAG_ENABLED=${NEXT_PUBLIC_RAG_ENABLED:-true}
+      - RAG_ENABLED=${RAG_ENABLED:-true}
       # RAG Server URL for knowledge base API (internal Docker network)
       - RAG_SERVER_URL=${RAG_SERVER_URL:-http://rag_server:9446}
-      - NEXT_PUBLIC_RAG_URL=${RAG_URL:-http://localhost:9446}
+      - RAG_URL=${RAG_URL:-http://localhost:9446}
       # RAG WebUI URL for iframe embedding (browser-accessible)
-      - NEXT_PUBLIC_RAG_WEBUI_URL=${RAG_WEBUI_URL:-http://localhost:9447}
+      - RAG_WEBUI_URL=${RAG_WEBUI_URL:-http://localhost:9447}
       # MongoDB configuration - Enable/disable MongoDB persistence
       # (changeme default is for local dev only; for production use Helm chart and External Secrets)
-      - NEXT_PUBLIC_MONGODB_ENABLED=${NEXT_PUBLIC_MONGODB_ENABLED:-false}
       - MONGODB_URI=${MONGODB_URI:-mongodb://${MONGODB_ROOT_USERNAME:-admin}:${MONGODB_ROOT_PASSWORD:-changeme}@caipe-ui-mongodb:27017/${MONGODB_DATABASE:-caipe}?authSource=admin}
       # NextAuth configuration (required for production)
       # Generate a secret with: openssl rand -base64 32
       - NEXTAUTH_SECRET=${NEXTAUTH_SECRET:-caipe-dev-secret-change-in-production}
       - NEXTAUTH_URL=${NEXTAUTH_URL:-http://localhost:3000}
-      # SSO Configuration - set NEXT_PUBLIC_SSO_ENABLED=true to enable
-      - NEXT_PUBLIC_SSO_ENABLED=${NEXT_PUBLIC_SSO_ENABLED:-false}
+      # SSO Configuration - set SSO_ENABLED=true to enable
+      - SSO_ENABLED=${SSO_ENABLED:-false}
       - OIDC_ISSUER=${OIDC_ISSUER:-}
       - OIDC_CLIENT_ID=${OIDC_CLIENT_ID:-}
       - OIDC_CLIENT_SECRET=${OIDC_CLIENT_SECRET:-}

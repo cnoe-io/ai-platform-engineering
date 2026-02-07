@@ -18,7 +18,8 @@ import { UserMenu } from "@/components/user-menu";
 import { SettingsPanel } from "@/components/settings-panel";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { getConfig } from "@/lib/config";
+import { useConfig } from "@/components/config-provider";
+import { getLogoFilterClass } from "@/lib/config";
 import { useChatStore } from "@/store/chat-store";
 import { useCAIPEHealth } from "@/hooks/use-caipe-health";
 import { useRAGHealth } from "@/hooks/use-rag-health";
@@ -40,6 +41,7 @@ export function AppHeader() {
   const { data: session } = useSession();
   const { isAdmin } = useAdminRole();
   const { isStreaming } = useChatStore();
+  const config = useConfig();
 
   // Debug logging for admin tab
   React.useEffect(() => {
@@ -70,7 +72,7 @@ export function AppHeader() {
   } = useRAGHealth();
 
   // Check if RAG is enabled in config
-  const ragEnabled = getConfig('ragEnabled');
+  const ragEnabled = config.ragEnabled;
 
   // Fetch version info
   const { versionInfo } = useVersion();
@@ -104,15 +106,15 @@ export function AppHeader() {
         <Link
           href="/"
           className="flex items-center gap-2.5 cursor-pointer hover:opacity-80 transition-opacity"
-          title={getConfig('tagline')}
+          title={config.tagline}
         >
           <img
-            src={getConfig('logoUrl')}
-            alt={`${getConfig('appName')} Logo`}
-            className="h-8 w-auto"
+            src={config.logoUrl}
+            alt={`${config.appName} Logo`}
+            className={`h-8 w-auto ${getLogoFilterClass(config.logoStyle)}`}
           />
-          <span className="font-bold text-base gradient-text">{getConfig('appName')}</span>
-          {getConfig('previewMode') && (
+          <span className="font-bold text-base gradient-text">{config.appName}</span>
+          {config.previewMode && (
             <span className="px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider bg-amber-500/20 text-amber-500 border border-amber-500/30 rounded">
               Preview
             </span>

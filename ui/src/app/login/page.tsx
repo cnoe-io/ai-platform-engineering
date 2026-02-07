@@ -8,12 +8,14 @@ import { LogIn, Loader2, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { LoadingScreen } from "@/components/loading-screen";
 import { IntegrationOrbit } from "@/components/gallery/IntegrationOrbit";
-import { getConfig, getLogoFilterClass } from "@/lib/config";
+import { useConfig } from "@/components/config-provider";
+import { getLogoFilterClass } from "@/lib/config";
 
 function LoginContent() {
   const { status } = useSession();
   const router = useRouter();
   const searchParams = useSearchParams();
+  const config = useConfig();
   const [isLoading, setIsLoading] = useState(false);
   const error = searchParams.get("error");
   const sessionExpired = searchParams.get("session_expired") === "true";
@@ -74,10 +76,10 @@ function LoginContent() {
             className="text-center mt-8 max-w-sm px-4"
           >
             <h2 className="text-2xl font-bold gradient-text mb-3">
-              {getConfig('tagline')}
+              {config.tagline}
             </h2>
             <p className="text-muted-foreground">
-              {getConfig('description')}
+              {config.description}
             </p>
           </motion.div>
         </div>
@@ -95,18 +97,18 @@ function LoginContent() {
             {/* Header */}
             <div className="p-8 text-center border-b border-border bg-muted/30">
               <div className="w-16 h-16 mx-auto mb-4 rounded-2xl gradient-primary-br flex items-center justify-center animate-pulse-glow">
-                <img src={getConfig('logoUrl')} alt={getConfig('appName')} className={`h-10 w-10 ${getConfig('logoStyle') === 'white' ? 'brightness-0 invert' : ''}`} />
+                <img src={config.logoUrl} alt={config.appName} className={`h-10 w-10 ${getLogoFilterClass(config.logoStyle)}`} />
               </div>
               <div className="flex items-center justify-center gap-2">
-                <h1 className="text-2xl font-bold gradient-text">{getConfig('appName')}</h1>
-                {getConfig('previewMode') && (
+                <h1 className="text-2xl font-bold gradient-text">{config.appName}</h1>
+                {config.previewMode && (
                   <span className="px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider bg-amber-500/20 text-amber-500 border border-amber-500/30 rounded">
                     Preview
                   </span>
                 )}
               </div>
               <p className="text-sm text-muted-foreground mt-1">
-                {getConfig('tagline')}
+                {config.tagline}
               </p>
             </div>
 
@@ -173,7 +175,7 @@ function LoginContent() {
           </div>
 
           {/* Additional Info */}
-          {getConfig('showPoweredBy') && (
+          {config.showPoweredBy && (
             <p className="text-center text-xs text-muted-foreground mt-6">
               Powered by OSS{" "}
               <a

@@ -9,7 +9,10 @@ import type { NextAuthOptions } from "next-auth";
  * - OIDC_ISSUER: OIDC provider issuer URL
  * - OIDC_CLIENT_ID: OIDC client ID
  * - OIDC_CLIENT_SECRET: OIDC client secret
- * - NEXT_PUBLIC_SSO_ENABLED: "true" to enable SSO, otherwise disabled
+ * - SSO_ENABLED: "true" to enable SSO, otherwise disabled.
+ *   (Also accepts NEXT_PUBLIC_SSO_ENABLED for backward compatibility.)
+ *   If SSO does not appear enabled: check GET /api/config (ssoEnabled field)
+ *   or GET /api/debug/auth-status.
  * - OIDC_GROUP_CLAIM: The OIDC claim name for groups (default: auto-detect from memberOf, groups, etc.)
  * - OIDC_REQUIRED_GROUP: Group name required for access (default: "backstage-access")
  * - OIDC_REQUIRED_ADMIN_GROUP: Group name for admin access (default: none)

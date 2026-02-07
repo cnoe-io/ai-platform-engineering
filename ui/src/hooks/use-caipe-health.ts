@@ -1,8 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import { config } from "@/lib/config";
-import { getStorageMode } from "@/lib/storage-config";
+import { useConfig } from "@/components/config-provider";
 
 export type HealthStatus = "checking" | "connected" | "disconnected";
 
@@ -31,6 +30,7 @@ interface UseCAIPEHealthResult {
  * Polls every 30 seconds and considers 401 as reachable (auth required but server is up)
  */
 export function useCAIPEHealth(): UseCAIPEHealthResult {
+  const appConfig = useConfig();
   const [status, setStatus] = useState<HealthStatus>("checking");
   const [lastChecked, setLastChecked] = useState<Date | null>(null);
   const [secondsUntilNextCheck, setSecondsUntilNextCheck] = useState(0);
@@ -39,15 +39,30 @@ export function useCAIPEHealth(): UseCAIPEHealthResult {
   const [mongoDBStatus, setMongoDBStatus] = useState<'connected' | 'disconnected' | 'checking'>('checking');
   const [storageMode, setStorageMode] = useState<'mongodb' | 'localStorage' | null>(null);
   const nextCheckTimeRef = useRef<number>(Date.now() + POLL_INTERVAL_MS);
-  const url = config.caipeUrl;
+  const url = appConfig.caipeUrl;
 
   const checkHealth = useCallback(async () => {
     setStatus("checking");
-    
-    // Get storage mode from runtime env (client: window.__RUNTIME_ENV__; server: process.env)
-    const mode = getStorageMode();
-    setStorageMode(mode);
-    setMongoDBStatus(mode === 'mongodb' ? 'connected' : 'disconnected');
+
+    // Storage mode: use server as source of truth (GET /api/storage-mode)
+    // so the UI label matches what the backend actually uses (process.env.MONGODB_URI)
+    try {
+      const storageRes = await fetch("/api/storage-mode", {
+        cache: "no-store",
+        headers: { "Cache-Control": "no-cache" },
+      });
+      if (storageRes.ok) {
+        const { mode } = await storageRes.json();
+        setStorageMode(mode);
+        setMongoDBStatus(mode === "mongodb" ? "connected" : "disconnected");
+      } else {
+        setStorageMode(appConfig.storageMode);
+        setMongoDBStatus(appConfig.storageMode === "mongodb" ? "connected" : "disconnected");
+      }
+    } catch {
+      setStorageMode(appConfig.storageMode);
+      setMongoDBStatus(appConfig.storageMode === "mongodb" ? "connected" : "disconnected");
+    }
 
     try {
       // Use the A2A agent card endpoint which supports GET
@@ -154,24 +169,13 @@ export function useCAIPEHealth(): UseCAIPEHealthResult {
   }, []);
 
   useEffect(() => {
-    // Check immediately on mount
+    // Check immediately on mount (includes fetching storage mode from server)
     checkHealth();
-
-    // Re-check storage mode after a short delay so we pick up window.__RUNTIME_ENV__
-    // if the inline script ran after our first getStorageMode() call (script order race)
-    const retryStorage = setTimeout(() => {
-      const mode = getStorageMode();
-      setStorageMode(mode);
-      setMongoDBStatus(mode === 'mongodb' ? 'connected' : 'disconnected');
-    }, 150);
 
     // Set up 30-second polling interval
     const interval = setInterval(checkHealth, POLL_INTERVAL_MS);
 
-    return () => {
-      clearTimeout(retryStorage);
-      clearInterval(interval);
-    };
+    return () => clearInterval(interval);
   }, [checkHealth]);
 
   return {

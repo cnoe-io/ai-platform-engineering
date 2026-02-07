@@ -1,10 +1,11 @@
 import type { Metadata } from "next";
 import { Inter, JetBrains_Mono, Source_Sans_3, IBM_Plex_Sans } from "next/font/google";
+import { headers } from "next/headers";
 import { ThemeProvider } from "@/components/theme-provider";
 import { AuthProvider } from "@/components/auth-provider";
 import { TokenExpiryGuard } from "@/components/token-expiry-guard";
 import { ThemeInjector } from "@/components/theme-injector";
-import { PublicEnvScript } from "@/components/public-env-script";
+import { ConfigProvider } from "@/components/config-provider";
 import { ToastProvider } from "@/components/ui/toast";
 import "./globals.css";
 
@@ -46,10 +47,11 @@ const DEFAULT_TAGLINE = "Multi-Agent Collaboration & Workflow Automation";
 const DEFAULT_DESCRIPTION = "AI agents and native apps collaborating across tools and teams to get work done.";
 const DEFAULT_APP_NAME = "CAIPE";
 
-// Get branding from environment variables
-const tagline = process.env.NEXT_PUBLIC_TAGLINE || DEFAULT_TAGLINE;
-const description = process.env.NEXT_PUBLIC_DESCRIPTION || DEFAULT_DESCRIPTION;
-const appName = process.env.NEXT_PUBLIC_APP_NAME || DEFAULT_APP_NAME;
+// Get branding from environment variables (server-side, no NEXT_PUBLIC_ prefix needed)
+// Checks both new names and NEXT_PUBLIC_ for backward compatibility
+const tagline = process.env.TAGLINE || process.env.NEXT_PUBLIC_TAGLINE || DEFAULT_TAGLINE;
+const description = process.env.DESCRIPTION || process.env.NEXT_PUBLIC_DESCRIPTION || DEFAULT_DESCRIPTION;
+const appName = process.env.APP_NAME || process.env.NEXT_PUBLIC_APP_NAME || DEFAULT_APP_NAME;
 const fullDescription = `${tagline} - ${description}`;
 
 export const metadata: Metadata = {
@@ -70,34 +72,36 @@ export const metadata: Metadata = {
   },
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  // Force dynamic rendering so metadata reads process.env at request time
+  await headers();
+
   return (
     <html lang="en" suppressHydrationWarning>
-      <head>
-        {/* Runtime env is injected at start of body so it runs before any other script */}
-      </head>
+      <head />
       <body
         className={`${inter.variable} ${sourceSans.variable} ${ibmPlex.variable} ${jetbrainsMono.variable} font-sans antialiased`}
       >
-        <PublicEnvScript />
         <AuthProvider>
-          <ThemeProvider
-            attribute="data-theme"
-            defaultTheme="dark"
-            enableSystem
-            disableTransitionOnChange={false}
-            themes={["light", "dark", "midnight", "nord", "tokyo"]}
-          >
-            <ToastProvider>
-              <ThemeInjector />
-              <TokenExpiryGuard />
-              {children}
-            </ToastProvider>
-          </ThemeProvider>
+          <ConfigProvider>
+            <ThemeProvider
+              attribute="data-theme"
+              defaultTheme="dark"
+              enableSystem
+              disableTransitionOnChange={false}
+              themes={["light", "dark", "midnight", "nord", "tokyo"]}
+            >
+              <ToastProvider>
+                <ThemeInjector />
+                <TokenExpiryGuard />
+                {children}
+              </ToastProvider>
+            </ThemeProvider>
+          </ConfigProvider>
         </AuthProvider>
       </body>
     </html>

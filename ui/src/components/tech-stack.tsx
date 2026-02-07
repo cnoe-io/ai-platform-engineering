@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Layers, ExternalLink, X, ChevronUp } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { getConfig } from "@/lib/config";
+import { useConfig } from "@/components/config-provider";
 
 interface TechItem {
   name: string;
@@ -15,9 +15,10 @@ interface TechItem {
   category: "platform" | "protocol" | "frontend" | "backend" | "community";
 }
 
-// Helper to get CAIPE description dynamically
+// Helper to get CAIPE description dynamically — uses hardcoded defaults
+// since techStack is defined at module level (outside component scope).
 function getCaipeDescription(): string {
-  return `${getConfig('tagline')} - ${getConfig('description')}`;
+  return "Multi-Agent Workflow Automation - Where Humans and AI agents collaborate to deliver high quality outcomes.";
 }
 
 const techStack: TechItem[] = [
