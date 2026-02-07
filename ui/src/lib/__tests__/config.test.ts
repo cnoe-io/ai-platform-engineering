@@ -30,19 +30,19 @@ describe('config - Extended', () => {
     });
 
     it('should return true when NEXT_PUBLIC_MONGODB_ENABLED is "true"', () => {
-      process.env.NEXT_PUBLIC_MONGODB_ENABLED = 'true';
+      (window as any).__RUNTIME_ENV__ = { NEXT_PUBLIC_MONGODB_ENABLED: 'true' };
       const { config: newConfig } = require('../config');
       expect(newConfig.mongodbEnabled).toBe(true);
     });
 
     it('should return false when NEXT_PUBLIC_MONGODB_ENABLED is "false"', () => {
-      process.env.NEXT_PUBLIC_MONGODB_ENABLED = 'false';
+      (window as any).__RUNTIME_ENV__ = { NEXT_PUBLIC_MONGODB_ENABLED: 'false' };
       const { config: newConfig } = require('../config');
       expect(newConfig.mongodbEnabled).toBe(false);
     });
 
     it('should return false when NEXT_PUBLIC_MONGODB_ENABLED is any other value', () => {
-      process.env.NEXT_PUBLIC_MONGODB_ENABLED = 'maybe';
+      (window as any).__RUNTIME_ENV__ = { NEXT_PUBLIC_MONGODB_ENABLED: 'maybe' };
       const { config: newConfig } = require('../config');
       expect(newConfig.mongodbEnabled).toBe(false);
     });
@@ -54,7 +54,7 @@ describe('config - Extended', () => {
     });
 
     it('should return true when NEXT_PUBLIC_SSO_ENABLED is "true"', () => {
-      process.env.NEXT_PUBLIC_SSO_ENABLED = 'true';
+      (window as any).__RUNTIME_ENV__ = { NEXT_PUBLIC_SSO_ENABLED: 'true' };
       const { config: newConfig } = require('../config');
       expect(newConfig.ssoEnabled).toBe(true);
     });
@@ -66,7 +66,7 @@ describe('config - Extended', () => {
     });
 
     it('should return true when NEXT_PUBLIC_ENABLE_SUBAGENT_CARDS is "true"', () => {
-      process.env.NEXT_PUBLIC_ENABLE_SUBAGENT_CARDS = 'true';
+      (window as any).__RUNTIME_ENV__ = { NEXT_PUBLIC_ENABLE_SUBAGENT_CARDS: 'true' };
       const { config: newConfig } = require('../config');
       expect(newConfig.enableSubAgentCards).toBe(true);
     });
@@ -83,31 +83,31 @@ describe('config - Extended', () => {
     });
 
     it('should use custom tagline when NEXT_PUBLIC_TAGLINE is set', () => {
-      process.env.NEXT_PUBLIC_TAGLINE = 'Custom Tagline';
+      (window as any).__RUNTIME_ENV__ = { NEXT_PUBLIC_TAGLINE: 'Custom Tagline' };
       const { config: newConfig } = require('../config');
       expect(newConfig.tagline).toBe('Custom Tagline');
     });
 
     it('should use custom description when NEXT_PUBLIC_DESCRIPTION is set', () => {
-      process.env.NEXT_PUBLIC_DESCRIPTION = 'Custom Description';
+      (window as any).__RUNTIME_ENV__ = { NEXT_PUBLIC_DESCRIPTION: 'Custom Description' };
       const { config: newConfig } = require('../config');
       expect(newConfig.description).toBe('Custom Description');
     });
 
     it('should use custom app name when NEXT_PUBLIC_APP_NAME is set', () => {
-      process.env.NEXT_PUBLIC_APP_NAME = 'MyApp';
+      (window as any).__RUNTIME_ENV__ = { NEXT_PUBLIC_APP_NAME: 'MyApp' };
       const { config: newConfig } = require('../config');
       expect(newConfig.appName).toBe('MyApp');
     });
 
     it('should use custom logo URL when NEXT_PUBLIC_LOGO_URL is set', () => {
-      process.env.NEXT_PUBLIC_LOGO_URL = '/custom-logo.png';
+      (window as any).__RUNTIME_ENV__ = { NEXT_PUBLIC_LOGO_URL: '/custom-logo.png' };
       const { config: newConfig } = require('../config');
       expect(newConfig.logoUrl).toBe('/custom-logo.png');
     });
 
     it('should disable preview mode when NEXT_PUBLIC_PREVIEW_MODE is "false"', () => {
-      process.env.NEXT_PUBLIC_PREVIEW_MODE = 'false';
+      (window as any).__RUNTIME_ENV__ = { NEXT_PUBLIC_PREVIEW_MODE: 'false' };
       const { config: newConfig } = require('../config');
       expect(newConfig.previewMode).toBe(false);
     });
@@ -123,8 +123,10 @@ describe('config - Extended', () => {
     });
 
     it('should use custom gradient colors when env vars set', () => {
-      process.env.NEXT_PUBLIC_GRADIENT_FROM = 'from-red-500';
-      process.env.NEXT_PUBLIC_GRADIENT_TO = 'to-blue-500';
+      (window as any).__RUNTIME_ENV__ = {
+        NEXT_PUBLIC_GRADIENT_FROM: 'from-red-500',
+        NEXT_PUBLIC_GRADIENT_TO: 'to-blue-500',
+      };
       const { config: newConfig } = require('../config');
       expect(newConfig.gradientFrom).toBe('from-red-500');
       expect(newConfig.gradientTo).toBe('to-blue-500');
@@ -137,13 +139,13 @@ describe('config - Extended', () => {
     });
 
     it('should use "white" logo style when specified', () => {
-      process.env.NEXT_PUBLIC_LOGO_STYLE = 'white';
+      (window as any).__RUNTIME_ENV__ = { NEXT_PUBLIC_LOGO_STYLE: 'white' };
       const { config: newConfig } = require('../config');
       expect(newConfig.logoStyle).toBe('white');
     });
 
     it('should fall back to "default" for invalid logo style', () => {
-      process.env.NEXT_PUBLIC_LOGO_STYLE = 'invalid';
+      (window as any).__RUNTIME_ENV__ = { NEXT_PUBLIC_LOGO_STYLE: 'invalid' };
       const { config: newConfig } = require('../config');
       expect(newConfig.logoStyle).toBe('default');
     });
@@ -155,7 +157,7 @@ describe('config - Extended', () => {
     });
 
     it('should use custom spinner color when set', () => {
-      process.env.NEXT_PUBLIC_SPINNER_COLOR = '#FF5733';
+      (window as any).__RUNTIME_ENV__ = { NEXT_PUBLIC_SPINNER_COLOR: '#FF5733' };
       const { config: newConfig } = require('../config');
       expect(newConfig.spinnerColor).toBe('#FF5733');
     });
@@ -167,7 +169,7 @@ describe('config - Extended', () => {
     });
 
     it('should return false when NEXT_PUBLIC_SHOW_POWERED_BY is "false"', () => {
-      process.env.NEXT_PUBLIC_SHOW_POWERED_BY = 'false';
+      (window as any).__RUNTIME_ENV__ = { NEXT_PUBLIC_SHOW_POWERED_BY: 'false' };
       const { config: newConfig } = require('../config');
       expect(newConfig.showPoweredBy).toBe(false);
     });
@@ -230,7 +232,7 @@ describe('config - Extended', () => {
     });
 
     it('should use NEXT_PUBLIC_CAIPE_URL when set', () => {
-      process.env.NEXT_PUBLIC_CAIPE_URL = 'https://api.example.com';
+      (window as any).__RUNTIME_ENV__ = { NEXT_PUBLIC_A2A_BASE_URL: 'https://api.example.com' };
       const { config: newConfig } = require('../config');
       expect(newConfig.caipeUrl).toBe('https://api.example.com');
     });
