@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { headers } from "next/headers";
 import { Inter, JetBrains_Mono, Source_Sans_3, IBM_Plex_Sans } from "next/font/google";
 import { ThemeProvider } from "@/components/theme-provider";
 import { AuthProvider } from "@/components/auth-provider";
@@ -46,35 +47,44 @@ const DEFAULT_TAGLINE = "Multi-Agent Collaboration & Workflow Automation";
 const DEFAULT_DESCRIPTION = "AI agents and native apps collaborating across tools and teams to get work done.";
 const DEFAULT_APP_NAME = "CAIPE";
 
-// Get branding from environment variables
-const tagline = process.env.NEXT_PUBLIC_TAGLINE || DEFAULT_TAGLINE;
-const description = process.env.NEXT_PUBLIC_DESCRIPTION || DEFAULT_DESCRIPTION;
-const appName = process.env.NEXT_PUBLIC_APP_NAME || DEFAULT_APP_NAME;
-const fullDescription = `${tagline} - ${description}`;
+/**
+ * Dynamic metadata — reads process.env at request time so branding
+ * reflects runtime env vars, not build-time values.
+ */
+export async function generateMetadata(): Promise<Metadata> {
+  const tagline = process.env.NEXT_PUBLIC_TAGLINE || DEFAULT_TAGLINE;
+  const description = process.env.NEXT_PUBLIC_DESCRIPTION || DEFAULT_DESCRIPTION;
+  const appName = process.env.NEXT_PUBLIC_APP_NAME || DEFAULT_APP_NAME;
+  const fullDescription = `${tagline} - ${description}`;
 
-export const metadata: Metadata = {
-  title: `${appName} UI`,
-  description: fullDescription,
-  icons: {
-    icon: [
-      { url: "/favicon.ico", sizes: "any" },
-      { url: "/icon.ico", sizes: "any" },
-    ],
-    shortcut: "/favicon.ico",
-    apple: "/favicon.ico",
-  },
-  openGraph: {
+  return {
     title: `${appName} UI`,
     description: fullDescription,
-    url: "https://caipe.example.com",
-  },
-};
+    icons: {
+      icon: [
+        { url: "/favicon.ico", sizes: "any" },
+        { url: "/icon.ico", sizes: "any" },
+      ],
+      shortcut: "/favicon.ico",
+      apple: "/favicon.ico",
+    },
+    openGraph: {
+      title: `${appName} UI`,
+      description: fullDescription,
+      url: "https://caipe.example.com",
+    },
+  };
+}
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  // Force dynamic rendering so PublicEnvScript reads process.env at request
+  // time instead of capturing empty values at build time.
+  await headers();
+
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
