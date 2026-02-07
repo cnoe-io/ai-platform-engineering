@@ -78,11 +78,12 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
-        <PublicEnvScript />
+        {/* Runtime env is injected at start of body so it runs before any other script */}
       </head>
       <body
         className={`${inter.variable} ${sourceSans.variable} ${ibmPlex.variable} ${jetbrainsMono.variable} font-sans antialiased`}
       >
+        <PublicEnvScript />
         <AuthProvider>
           <ThemeProvider
             attribute="data-theme"

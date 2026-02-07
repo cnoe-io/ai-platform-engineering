@@ -44,7 +44,7 @@ export function useCAIPEHealth(): UseCAIPEHealthResult {
   const checkHealth = useCallback(async () => {
     setStatus("checking");
     
-    // Get storage mode (synchronous, build-time determined)
+    // Get storage mode from runtime env (client: window.__RUNTIME_ENV__; server: process.env)
     const mode = getStorageMode();
     setStorageMode(mode);
     setMongoDBStatus(mode === 'mongodb' ? 'connected' : 'disconnected');
@@ -157,10 +157,21 @@ export function useCAIPEHealth(): UseCAIPEHealthResult {
     // Check immediately on mount
     checkHealth();
 
+    // Re-check storage mode after a short delay so we pick up window.__RUNTIME_ENV__
+    // if the inline script ran after our first getStorageMode() call (script order race)
+    const retryStorage = setTimeout(() => {
+      const mode = getStorageMode();
+      setStorageMode(mode);
+      setMongoDBStatus(mode === 'mongodb' ? 'connected' : 'disconnected');
+    }, 150);
+
     // Set up 30-second polling interval
     const interval = setInterval(checkHealth, POLL_INTERVAL_MS);
 
-    return () => clearInterval(interval);
+    return () => {
+      clearTimeout(retryStorage);
+      clearInterval(interval);
+    };
   }, [checkHealth]);
 
   return {
