@@ -69,7 +69,7 @@ const savedMessageIds = new Set<string>();
 const loadedConversationIds = new Set<string>();
 
 // Serialize A2A event for MongoDB storage (strip circular refs and large raw data)
-function serializeA2AEvent(event: A2AEvent): any {
+function serializeA2AEvent(event: A2AEvent): Record<string, unknown> {
   return {
     id: event.id,
     timestamp: event.timestamp,
@@ -77,6 +77,12 @@ function serializeA2AEvent(event: A2AEvent): any {
     taskId: event.taskId,
     contextId: event.contextId,
     status: event.status,
+    isFinal: event.isFinal,
+    sourceAgent: event.sourceAgent,
+    displayName: event.displayName,
+    displayContent: event.displayContent,
+    color: event.color,
+    icon: event.icon,
     artifact: event.artifact ? {
       artifactId: event.artifact.artifactId,
       name: event.artifact.name,
@@ -84,15 +90,11 @@ function serializeA2AEvent(event: A2AEvent): any {
       parts: event.artifact.parts?.map(p => ({
         kind: p.kind,
         text: p.text,
-        // Skip large binary data
         ...(p.data ? { data: p.data } : {}),
       })),
+      metadata: event.artifact.metadata,
     } : undefined,
-    artifactName: event.artifactName,
-    toolName: event.toolName,
-    agentName: event.agentName,
-    message: event.message,
-    error: event.error,
+    // Omit event.raw to avoid circular refs and large payloads
   };
 }
 
@@ -631,13 +633,29 @@ const storeImplementation = (set: any, get: any) => ({
             };
           });
 
-          // Merge: Add any local conversations that aren't on the server (might be newly created)
+          // Merge: Only keep local-only conversations if they're actively streaming
+          // (meaning they were just created in this session and the server hasn't caught up).
+          // Conversations deleted on another browser/device should NOT be preserved.
           const serverIds = new Set(serverConversations.map(c => c.id));
           const localOnlyConversations = currentState.conversations.filter(
-            conv => !serverIds.has(conv.id)
+            conv => !serverIds.has(conv.id) && currentState.streamingConversations.has(conv.id)
           );
 
-          // Combine server conversations with local-only conversations
+          if (localOnlyConversations.length > 0) {
+            console.log(`[ChatStore] Keeping ${localOnlyConversations.length} local-only conversations (actively streaming)`);
+          }
+
+          // Log removed conversations (deleted on another device)
+          const removedConversations = currentState.conversations.filter(
+            conv => !serverIds.has(conv.id) && !currentState.streamingConversations.has(conv.id)
+          );
+          if (removedConversations.length > 0) {
+            console.log(`[ChatStore] Removing ${removedConversations.length} conversations deleted on server:`,
+              removedConversations.map(c => ({ id: c.id.substring(0, 8), title: c.title }))
+            );
+          }
+
+          // Combine server conversations with local-only conversations (only streaming ones)
           const mergedConversations = [...serverConversations, ...localOnlyConversations];
 
           // Always update with merged conversations to sync with server
@@ -679,9 +697,23 @@ const storeImplementation = (set: any, get: any) => ({
             sortedConversations.map(c => ({ id: c.id.substring(0, 8), title: c.title, hasTitle: !!c.title }))
           );
 
+          // Check if active conversation was deleted on another device
+          const activeId = currentState.activeConversationId;
+          const activeStillExists = activeId ? sortedConversations.some(c => c.id === activeId) : true;
+
           set({
             conversations: sortedConversations,
+            // Clear active conversation if it was deleted on another device
+            ...(activeId && !activeStillExists ? {
+              activeConversationId: sortedConversations.length > 0 ? sortedConversations[0].id : null,
+              a2aEvents: [],
+            } : {}),
           });
+
+          if (activeId && !activeStillExists) {
+            console.log(`[ChatStore] Active conversation ${activeId.substring(0, 8)} was deleted on another device, switching to first conversation`);
+          }
+
           console.log(`[ChatStore] Loaded ${serverConversations.length} conversations from MongoDB, merged with ${localOnlyConversations.length} local conversations, preserved messages for ${finalConversations.filter(c => c.messages.length > 0).length} conversations`);
         } catch (error) {
           console.error('[ChatStore] Failed to load conversations from MongoDB:', error);

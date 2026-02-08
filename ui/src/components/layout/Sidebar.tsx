@@ -54,7 +54,7 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
   const [isResizing, setIsResizing] = useState(false);
 
   // Load conversations from server when sidebar mounts (MongoDB mode only)
-  // Always load from server to sync with database, but preserve local messages
+  // Also re-sync when tab becomes visible (user switches back from another browser/tab)
   useEffect(() => {
     if (activeTab === "chat" && storageMode === 'mongodb') {
       // Always load from server - the loadConversationsFromServer function
@@ -63,6 +63,19 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
         console.error('[Sidebar] Failed to load conversations:', error);
       });
     }
+
+    // Re-sync when user returns to this tab (catches cross-browser deletes)
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible' && activeTab === "chat" && storageMode === 'mongodb') {
+        console.log('[Sidebar] Tab became visible, re-syncing conversations');
+        loadConversationsFromServer().catch((error) => {
+          console.error('[Sidebar] Failed to re-sync conversations:', error);
+        });
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab, storageMode]); // Intentionally exclude loadConversationsFromServer to prevent re-runs
 
