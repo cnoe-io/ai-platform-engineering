@@ -72,6 +72,7 @@ export const POST = withErrorHandler(async (
 
     const now = new Date();
     const newMessage: Omit<Message, '_id'> = {
+      message_id: body.message_id,
       conversation_id: conversationId,
       role: body.role,
       content: body.content,
@@ -82,8 +83,10 @@ export const POST = withErrorHandler(async (
         tokens_used: body.metadata?.tokens_used,
         latency_ms: body.metadata?.latency_ms,
         agent_name: body.metadata?.agent_name,
+        is_final: body.metadata?.is_final,
       },
       artifacts: body.artifacts,
+      a2a_events: body.a2a_events,
     };
 
     const result = await messages.insertOne(newMessage as Message);

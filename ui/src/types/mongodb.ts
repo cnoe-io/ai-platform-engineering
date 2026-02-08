@@ -62,6 +62,7 @@ export interface Conversation {
 
 export interface Message {
   _id?: ObjectId;
+  message_id?: string; // Client-generated ID for cross-reference
   conversation_id: string;
   role: 'user' | 'assistant' | 'system';
   content: string;
@@ -72,8 +73,10 @@ export interface Message {
     tokens_used?: number;
     latency_ms?: number;
     agent_name?: string;
+    is_final?: boolean;
   };
   artifacts?: Artifact[];
+  a2a_events?: any[]; // A2A events (tasks, tool calls, debug) serialized for persistence
   feedback?: MessageFeedback;
 }
 
@@ -201,6 +204,7 @@ export interface ShareConversationRequest {
 
 // Message API
 export interface AddMessageRequest {
+  message_id?: string; // Client-generated ID for cross-reference
   role: 'user' | 'assistant' | 'system';
   content: string;
   metadata?: {
@@ -209,8 +213,10 @@ export interface AddMessageRequest {
     tokens_used?: number;
     latency_ms?: number;
     agent_name?: string;
+    is_final?: boolean;
   };
   artifacts?: Artifact[];
+  a2a_events?: any[]; // A2A events (tasks, tool calls, debug)
 }
 
 export interface UpdateMessageRequest {

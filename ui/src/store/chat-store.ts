@@ -47,6 +47,8 @@ interface ChatState {
   setPendingMessage: (message: string | null) => void;
   consumePendingMessage: () => string | null;
   loadConversationsFromServer: () => Promise<void>; // Load conversations from server (MongoDB mode only)
+  saveMessagesToServer: (conversationId: string) => Promise<void>; // Save messages to MongoDB after streaming
+  loadMessagesFromServer: (conversationId: string) => Promise<void>; // Load messages from MongoDB when opening conversation
 
   // Turn selection actions for per-message event tracking
   setSelectedTurn: (conversationId: string, turnId: string | null) => void;
@@ -59,6 +61,40 @@ interface ChatState {
 
 // Track loading state to prevent multiple simultaneous loads
 let isLoadingConversations = false;
+
+// Track which messages have been saved to MongoDB to avoid duplicates
+const savedMessageIds = new Set<string>();
+
+// Track which conversations have had messages loaded from MongoDB
+const loadedConversationIds = new Set<string>();
+
+// Serialize A2A event for MongoDB storage (strip circular refs and large raw data)
+function serializeA2AEvent(event: A2AEvent): any {
+  return {
+    id: event.id,
+    timestamp: event.timestamp,
+    type: event.type,
+    taskId: event.taskId,
+    contextId: event.contextId,
+    status: event.status,
+    artifact: event.artifact ? {
+      artifactId: event.artifact.artifactId,
+      name: event.artifact.name,
+      description: event.artifact.description,
+      parts: event.artifact.parts?.map(p => ({
+        kind: p.kind,
+        text: p.text,
+        // Skip large binary data
+        ...(p.data ? { data: p.data } : {}),
+      })),
+    } : undefined,
+    artifactName: event.artifactName,
+    toolName: event.toolName,
+    agentName: event.agentName,
+    message: event.message,
+    error: event.error,
+  };
+}
 
 // Create store with conditional persistence
 const storeImplementation = (set: any, get: any) => ({
@@ -246,6 +282,16 @@ const storeImplementation = (set: any, get: any) => ({
             isStreaming: newIsStreaming,
           };
         });
+
+        // When streaming completes, save messages to MongoDB
+        if (!state) {
+          // Use setTimeout to let the final message update settle before saving
+          setTimeout(() => {
+            get().saveMessagesToServer(conversationId).catch((error) => {
+              console.error('[ChatStore] Background save failed:', error);
+            });
+          }, 500);
+        }
       },
 
       isConversationStreaming: (conversationId: string) => {
@@ -650,6 +696,139 @@ const storeImplementation = (set: any, get: any) => ({
         }
       },
 
+      // Save messages to MongoDB after streaming completes
+      saveMessagesToServer: async (conversationId: string) => {
+        const storageMode = getStorageMode();
+        if (storageMode !== 'mongodb') return;
+
+        const state = get();
+        const conv = state.conversations.find((c: Conversation) => c.id === conversationId);
+        if (!conv || conv.messages.length === 0) return;
+
+        // Find messages that haven't been saved yet
+        const unsavedMessages = conv.messages.filter(
+          (msg: ChatMessage) => !savedMessageIds.has(`${conversationId}:${msg.id}`)
+        );
+
+        if (unsavedMessages.length === 0) {
+          console.log('[ChatStore] No new messages to save for:', conversationId);
+          return;
+        }
+
+        console.log(`[ChatStore] Saving ${unsavedMessages.length} messages to MongoDB for: ${conversationId}`);
+
+        for (const msg of unsavedMessages) {
+          try {
+            // Serialize A2A events for storage
+            const serializedEvents = msg.events?.length > 0
+              ? msg.events.map(serializeA2AEvent)
+              : undefined;
+
+            await apiClient.addMessage(conversationId, {
+              message_id: msg.id,
+              role: msg.role,
+              content: msg.content,
+              metadata: {
+                turn_id: msg.turnId || `turn-${Date.now()}`,
+                is_final: msg.isFinal,
+              },
+              a2a_events: serializedEvents,
+            });
+
+            savedMessageIds.add(`${conversationId}:${msg.id}`);
+          } catch (error: any) {
+            // Don't fail the whole save if one message fails
+            console.error(`[ChatStore] Failed to save message ${msg.id}:`, error?.message);
+          }
+        }
+
+        console.log(`[ChatStore] Saved ${unsavedMessages.length} messages to MongoDB`);
+      },
+
+      // Load messages from MongoDB when opening a conversation
+      loadMessagesFromServer: async (conversationId: string) => {
+        const storageMode = getStorageMode();
+        if (storageMode !== 'mongodb') return;
+
+        // Don't reload if already loaded
+        if (loadedConversationIds.has(conversationId)) {
+          console.log('[ChatStore] Messages already loaded for:', conversationId);
+          return;
+        }
+
+        // Check if conversation already has messages locally
+        const state = get();
+        const conv = state.conversations.find((c: Conversation) => c.id === conversationId);
+        if (conv && conv.messages.length > 0) {
+          console.log('[ChatStore] Conversation already has local messages:', conversationId);
+          loadedConversationIds.add(conversationId);
+          return;
+        }
+
+        try {
+          console.log('[ChatStore] Loading messages from MongoDB for:', conversationId);
+          const response = await apiClient.getMessages(conversationId, { page_size: 100 });
+
+          if (!response?.items || response.items.length === 0) {
+            console.log('[ChatStore] No messages found in MongoDB for:', conversationId);
+            loadedConversationIds.add(conversationId);
+            return;
+          }
+
+          // Convert MongoDB messages to ChatMessage format
+          const messages: ChatMessage[] = response.items.map((msg: any) => {
+            // Deserialize A2A events
+            const events: A2AEvent[] = (msg.a2a_events || []).map((e: any) => ({
+              ...e,
+              timestamp: new Date(e.timestamp),
+            }));
+
+            const chatMsg: ChatMessage = {
+              id: msg.message_id || msg._id?.toString() || generateId(),
+              role: msg.role as "user" | "assistant",
+              content: msg.content,
+              timestamp: new Date(msg.created_at),
+              events,
+              isFinal: msg.metadata?.is_final ?? true,
+              turnId: msg.metadata?.turn_id,
+              feedback: msg.feedback ? {
+                type: msg.feedback.rating === 'positive' ? 'like' : msg.feedback.rating === 'negative' ? 'dislike' : null,
+                submitted: true,
+              } : undefined,
+            };
+
+            // Mark as already saved so we don't re-save
+            savedMessageIds.add(`${conversationId}:${chatMsg.id}`);
+
+            return chatMsg;
+          });
+
+          // Reconstruct a2aEvents from messages for the ContextPanel
+          const allEvents: A2AEvent[] = messages.flatMap(m => m.events || []);
+
+          // Update Zustand store with loaded messages
+          set((state: ChatState) => ({
+            conversations: state.conversations.map((c: Conversation) =>
+              c.id === conversationId
+                ? { ...c, messages, a2aEvents: allEvents }
+                : c
+            ),
+          }));
+
+          loadedConversationIds.add(conversationId);
+          console.log(`[ChatStore] Loaded ${messages.length} messages from MongoDB for: ${conversationId}`);
+        } catch (error: any) {
+          if (error?.message?.includes('401') || error?.message?.includes('Unauthorized')) {
+            console.log('[ChatStore] Not authenticated, skipping message load');
+          } else if (error?.message?.includes('404')) {
+            console.log('[ChatStore] Conversation not found in MongoDB (normal for new conversations)');
+          } else {
+            console.error('[ChatStore] Failed to load messages from MongoDB:', error);
+          }
+          loadedConversationIds.add(conversationId); // Don't retry on error
+        }
+      },
+
       // Turn selection actions for per-message event tracking
       setSelectedTurn: (conversationId, turnId) => {
         set((state) => {
@@ -774,6 +953,8 @@ export const useChatStore = shouldUseLocalStorage()
       })
     )
   : // MongoDB mode: Still use localStorage as cache, but sync with server
+    // Keep messages in cache (they're the source of truth until saved to MongoDB)
+    // but strip A2A events (too large for localStorage, will reload from MongoDB)
     create<ChatState>()(
       persist(storeImplementation, {
         name: "caipe-chat-history-mongodb-cache",
@@ -781,10 +962,10 @@ export const useChatStore = shouldUseLocalStorage()
         partialize: (state) => ({
           conversations: state.conversations.map((conv) => ({
             ...conv,
-            a2aEvents: [], // Don't persist events (too large)
+            a2aEvents: [], // Don't persist events in localStorage (too large, stored in MongoDB)
             messages: conv.messages.map((msg) => ({
               ...msg,
-              events: [], // Don't persist events
+              events: [], // Don't persist per-message events in localStorage (stored in MongoDB)
             })),
           })),
           activeConversationId: state.activeConversationId,
