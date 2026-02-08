@@ -179,6 +179,7 @@ export interface SharingAccess {
 
 // Conversation API
 export interface CreateConversationRequest {
+  id?: string; // Client-generated UUID — ensures client and server share the same ID
   title: string;
   tags?: string[];
 }

@@ -90,7 +90,7 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
 
     const now = new Date();
     const newConversation: Conversation = {
-      _id: uuidv4(),
+      _id: body.id || uuidv4(), // Use client-provided ID if given, otherwise generate
       title: body.title,
       owner_id: user.email,
       created_at: now,
