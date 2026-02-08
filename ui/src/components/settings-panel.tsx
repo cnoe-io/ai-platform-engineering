@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { Paintbrush, X, Type, Palette, Monitor, Check } from "lucide-react";
+import { X, Type, Palette, Monitor, Check } from "lucide-react";
 import { useTheme } from "next-themes";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -385,7 +385,7 @@ export function SettingsPanel() {
         onClick={() => setOpen(true)}
         title="UI Personalization"
       >
-        <Paintbrush className="h-4 w-4" />
+        <Palette className="h-4 w-4" />
       </Button>
 
       {/* Render modal in portal to ensure it's above everything */}
