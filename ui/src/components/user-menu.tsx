@@ -560,7 +560,7 @@ export function UserMenu() {
                   <div className="flex items-center gap-2 mb-3">
                     <Settings className="h-4 w-4 text-muted-foreground" />
                     <span className="text-sm font-semibold">Runtime Config</span>
-                    <span className="text-[10px] text-muted-foreground/60 font-mono">GET /api/config</span>
+                    <span className="text-[10px] text-muted-foreground/60 font-mono">window.__APP_CONFIG__</span>
                   </div>
                   <div className="bg-muted/30 rounded-lg p-4 border border-border space-y-0">
                     <ConfigRow label="App Name" value={config.appName} />

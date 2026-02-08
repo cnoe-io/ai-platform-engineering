@@ -43,25 +43,10 @@ export function useCAIPEHealth(): UseCAIPEHealthResult {
   const checkHealth = useCallback(async () => {
     setStatus("checking");
 
-    // Storage mode: use server as source of truth (GET /api/storage-mode)
-    // so the UI label matches what the backend actually uses (process.env.MONGODB_URI)
-    try {
-      const storageRes = await fetch("/api/storage-mode", {
-        cache: "no-store",
-        headers: { "Cache-Control": "no-cache" },
-      });
-      if (storageRes.ok) {
-        const { mode } = await storageRes.json();
-        setStorageMode(mode);
-        setMongoDBStatus(mode === "mongodb" ? "connected" : "disconnected");
-      } else {
-        setStorageMode(appConfig.storageMode);
-        setMongoDBStatus(appConfig.storageMode === "mongodb" ? "connected" : "disconnected");
-      }
-    } catch {
-      setStorageMode(appConfig.storageMode);
-      setMongoDBStatus(appConfig.storageMode === "mongodb" ? "connected" : "disconnected");
-    }
+    // Storage mode: read from config (injected by server into window.__APP_CONFIG__)
+    const mode = appConfig.storageMode;
+    setStorageMode(mode);
+    setMongoDBStatus(mode === "mongodb" ? "connected" : "disconnected");
 
     try {
       // Use the A2A agent card endpoint which supports GET
