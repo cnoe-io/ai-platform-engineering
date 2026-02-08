@@ -23,15 +23,8 @@ export function AuthGuard({ children }: AuthGuardProps) {
   const router = useRouter();
   // Initialize authChecked to true if already authenticated to avoid spinner on navigation
   const [authChecked, setAuthChecked] = useState(status === "authenticated");
-  const [ssoEnabled, setSsoEnabled] = useState<boolean | null>(null);
   const [loadingTimeout, setLoadingTimeout] = useState(false);
   const [autoResetInitiated, setAutoResetInitiated] = useState(false);
-
-  // Check SSO status after hydration to avoid server/client mismatch
-  useEffect(() => {
-    const enabled = getConfig('ssoEnabled');
-    setSsoEnabled(enabled);
-  }, []);
 
   // Check for corrupted session cookies on mount
   useEffect(() => {
@@ -91,12 +84,7 @@ export function AuthGuard({ children }: AuthGuardProps) {
   }, [status, authChecked, autoResetInitiated]);
 
   useEffect(() => {
-    // Only redirect if SSO is enabled
-    if (ssoEnabled === null) {
-      return; // Still checking SSO config
-    }
-
-    if (!ssoEnabled) {
+    if (!getConfig('ssoEnabled')) {
       setAuthChecked(true);
       return;
     }
@@ -163,15 +151,10 @@ export function AuthGuard({ children }: AuthGuardProps) {
       setAuthChecked(true);
       console.log("[AuthGuard] ✅ Authorization complete, rendering app");
     }
-  }, [ssoEnabled, status, session, router]);
-
-  // If SSO config is still loading, show nothing to prevent hydration mismatch
-  if (ssoEnabled === null) {
-    return null;
-  }
+  }, [status, session, router]);
 
   // If SSO is not enabled, render children directly
-  if (!ssoEnabled) {
+  if (!getConfig('ssoEnabled')) {
     return <>{children}</>;
   }
 

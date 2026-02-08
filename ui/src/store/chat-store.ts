@@ -86,8 +86,9 @@ const storeImplementation = (set: any, get: any) => ({
         // In MongoDB mode: create on server first
         // In localStorage mode: create locally
         if (storageMode === 'mongodb') {
-          // MongoDB mode: Create on server
+          // MongoDB mode: Create on server with the same ID used locally
           apiClient.createConversation({
+            id,
             title: newConversation.title,
           }).then(() => {
             console.log('[ChatStore] Created conversation in MongoDB:', id);

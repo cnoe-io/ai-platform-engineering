@@ -25,13 +25,6 @@ export function TokenExpiryGuard() {
   const [showExpired, setShowExpired] = useState(false);
   const [timeRemaining, setTimeRemaining] = useState<string>("");
   const checkIntervalRef = useRef<NodeJS.Timeout | null>(null);
-  const [ssoEnabled, setSsoEnabled] = useState<boolean | null>(null);
-
-  // Check SSO status after hydration
-  useEffect(() => {
-    const enabled = getConfig('ssoEnabled');
-    setSsoEnabled(enabled);
-  }, []);
 
   // Handle logout
   const handleLogout = useCallback(async () => {
@@ -53,7 +46,7 @@ export function TokenExpiryGuard() {
 
   // Check token expiry
   const checkTokenExpiry = useCallback(() => {
-    if (ssoEnabled === null || !ssoEnabled) {
+    if (!getConfig('ssoEnabled')) {
       return; // SSO not enabled
     }
 
@@ -140,11 +133,11 @@ export function TokenExpiryGuard() {
       // Token was refreshed, hide warning
       setShowWarning(false);
     }
-  }, [ssoEnabled, status, session, showWarning, showExpired, handleLogout]);
+  }, [status, session, showWarning, showExpired, handleLogout]);
 
   // Set up periodic token expiry checking
   useEffect(() => {
-    if (ssoEnabled === null || !ssoEnabled || status !== "authenticated") {
+    if (!getConfig('ssoEnabled') || status !== "authenticated") {
       return;
     }
 
@@ -159,10 +152,10 @@ export function TokenExpiryGuard() {
         clearInterval(checkIntervalRef.current);
       }
     };
-  }, [ssoEnabled, status, checkTokenExpiry]);
+  }, [status, checkTokenExpiry]);
 
   // Don't render if SSO is not enabled
-  if (!ssoEnabled) {
+  if (!getConfig('ssoEnabled')) {
     return null;
   }
 

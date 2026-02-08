@@ -3,15 +3,20 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions, REQUIRED_GROUP, REQUIRED_ADMIN_GROUP } from '@/lib/auth-config';
 import { getCollection } from '@/lib/mongodb';
+import { getServerConfig } from '@/lib/config';
 import type { User } from '@/types/mongodb';
 
 export async function GET(request: NextRequest) {
   const session = await getServerSession(authOptions);
+  const { ssoEnabled } = getServerConfig();
 
   if (!session) {
     return NextResponse.json({
       authenticated: false,
-      message: 'No session found'
+      message: 'No session found',
+      config: {
+        ssoEnabled,
+      },
     });
   }
 
@@ -33,16 +38,14 @@ export async function GET(request: NextRequest) {
       email: session.user?.email,
       name: session.user?.name,
       role: session.role,
-      // Note: groups removed from session to prevent oversized cookies
       isAuthorized: session.isAuthorized,
     },
     config: {
       requiredGroup: REQUIRED_GROUP,
       requiredAdminGroup: REQUIRED_ADMIN_GROUP,
+      ssoEnabled,
     },
     checks: {
-      // Note: groups removed from session to prevent oversized cookies
-      // Check authorization via session.isAuthorized instead
       hasRequiredGroup: session.isAuthorized,
       hasAdminGroup: session.role === 'admin',
       sessionRole: session.role,

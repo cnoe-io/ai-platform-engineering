@@ -83,14 +83,15 @@ EXPOSE 3000
 ENV PORT=3000
 ENV HOSTNAME="0.0.0.0"
 
-# Runtime environment variables (auto-discovered by PublicEnvScript component):
-# Any NEXT_PUBLIC_* env var set on the container is automatically available
-# to client-side code via window.__RUNTIME_ENV__. No manual listing needed.
+# Runtime environment variables (served to client via GET /api/config):
+# No NEXT_PUBLIC_ prefix needed. Set plain env vars on the container.
+# The server reads process.env at request time and serves config via API.
 # Common variables:
-#   NEXT_PUBLIC_A2A_BASE_URL - CAIPE supervisor endpoint
-#   NEXT_PUBLIC_SSO_ENABLED - Enable SSO authentication ("true"/"false")
-#   NEXT_PUBLIC_RAG_ENABLED - Enable RAG knowledge bases ("true"/"false")
-#   NEXT_PUBLIC_MONGODB_ENABLED - Enable MongoDB persistence ("true"/"false")
-#   NEXT_PUBLIC_APP_NAME - Application name (e.g. "Grid")
-#   NEXT_PUBLIC_LOGO_URL - Logo path (e.g. "/grid-neon-logo.svg")
+#   A2A_BASE_URL - CAIPE supervisor endpoint
+#   SSO_ENABLED - Enable SSO authentication ("true"/"false")
+#   RAG_ENABLED - Enable RAG knowledge bases ("true"/"false")
+#   MONGODB_URI + MONGODB_DATABASE - Enable MongoDB persistence
+#   APP_NAME - Application name (e.g. "Grid")
+#   LOGO_URL - Logo path (e.g. "/grid-neon-logo.svg")
+# NEXT_PUBLIC_* names are still accepted for backward compatibility.
 CMD ["/app/entrypoint.sh"]

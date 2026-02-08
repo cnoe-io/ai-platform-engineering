@@ -307,7 +307,42 @@ curl -I https://your-domain.example.com
 
 ## Troubleshooting
 
-See individual documentation files:
+### caipe-preview (or any env) still not using MongoDB
+
+If the UI shows **LocalStorage (Browser-only)** or chat/conversations are not persisted, check the following.
+
+1. **ConfigMap has `NEXT_PUBLIC_MONGODB_ENABLED`**
+   - The client reads `window.__RUNTIME_ENV__.NEXT_PUBLIC_MONGODB_ENABLED` (injected by PublicEnvScript from server `process.env`).
+   - If the ConfigMap is empty or missing this key, the UI will treat MongoDB as disabled.
+   ```bash
+   kubectl get configmap -n caipe-preview -l app.kubernetes.io/name=caipe-ui -o yaml
+   # Look for data.NEXT_PUBLIC_MONGODB_ENABLED: "true"
+   ```
+
+2. **Secret has `MONGODB_URI`**
+   - The server needs `MONGODB_URI` and `MONGODB_DATABASE` to connect. These come from the External Secret.
+   - If `MONGODB_URI` is missing in Vault at the path used by the ExternalSecret (e.g. `projects/caipe/preview/caipe-ui` property `MONGODB_URI`), the synced Secret will not have it and the app will not use MongoDB.
+   ```bash
+   kubectl get secret -n caipe-preview <caipe-ui-secret-name> -o jsonpath='{.data}' | jq 'keys'
+   # Should include MONGODB_URI (and NEXTAUTH_SECRET, OIDC_*, etc.)
+   kubectl get externalsecret -n caipe-preview
+   # Check status.conditions for Synced=True and no errors
+   ```
+
+3. **MongoDB service hostname in `MONGODB_URI`**
+   - The connection string must use the in-cluster MongoDB service name. For the chart with `fullnameOverride: ai-platform-engineering-mongodb`, the host should be `ai-platform-engineering-mongodb` (same namespace as caipe-ui).
+   - Example: `mongodb://<user>:<password>@ai-platform-engineering-mongodb:27017/caipe?authSource=admin`
+
+4. **Image includes runtime env injection**
+   - The UI must inject `NEXT_PUBLIC_*` at runtime via PublicEnvScript (in layout, at start of `<body>`). If the deployed image was built before that change, the client never gets `window.__RUNTIME_ENV__` and will show localStorage. Use an image that includes the runtime-env-vars work (e.g. 0.2.15-rc.2 or later with that merge).
+
+5. **Pod env**
+   - Confirm the caipe-ui pod actually has the vars:
+   ```bash
+   kubectl exec -n caipe-preview deploy/<caipe-ui-deployment-name> -- env | grep -E 'NEXT_PUBLIC_MONGODB|MONGODB_URI|MONGODB_DATABASE'
+   ```
+
+See also:
 - `charts/caipe-ui-mongodb/README.md` - MongoDB troubleshooting
 - `charts/caipe-ui/INGRESS.md` - Ingress troubleshooting
 

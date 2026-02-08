@@ -103,7 +103,9 @@ services:
   #                                          MongoDB                                                 #
   ####################################################################################################
   # MongoDB for CAIPE UI chat history and user settings
-  mongodb:
+  # Note: Default password "changeme" is for local development only. For production, use
+  # the Helm chart and External Secrets to store the MongoDB secret in an external secrets manager.
+  caipe-ui-mongodb:
     image: mongo:7.0
     container_name: caipe-mongodb-dev
     ports:
@@ -123,11 +125,10 @@ services:
       retries: 5
       start_period: 40s
     profiles:
-      - caipe-ui
       - caipe-ui-mongodb
 
   # MongoDB Admin UI
-  mongo-express:
+  caipe-ui-mongo-express:
     image: mongo-express:latest
     container_name: caipe-mongo-express-dev
     ports:
@@ -137,11 +138,7 @@ services:
       - ME_CONFIG_MONGODB_ADMINPASSWORD=${MONGODB_ROOT_PASSWORD:-changeme}
       - ME_CONFIG_MONGODB_URL=mongodb://${MONGODB_ROOT_USERNAME:-admin}:${MONGODB_ROOT_PASSWORD:-changeme}@mongodb:27017/
       - ME_CONFIG_BASICAUTH=false
-    depends_on:
-      mongodb:
-        condition: service_healthy
     profiles:
-      - caipe-ui
       - caipe-ui-mongo-express
 
   ####################################################################################################
@@ -879,15 +876,15 @@ services:
     environment:
       - NODE_ENV=production
       # CAIPE supervisor A2A endpoint URL
-      # Override with NEXT_PUBLIC_A2A_BASE_URL environment variable
-      - NEXT_PUBLIC_A2A_BASE_URL=${NEXT_PUBLIC_A2A_BASE_URL:-http://localhost:8000}
+      # Override with A2A_BASE_URL environment variable
+      - A2A_BASE_URL=${A2A_BASE_URL:-http://localhost:8000}
       # Enable/Disable RAG Knowledge Bases (default: true)
-      - NEXT_PUBLIC_RAG_ENABLED=${NEXT_PUBLIC_RAG_ENABLED:-true}
+      - RAG_ENABLED=${RAG_ENABLED:-true}
       # RAG Server URL for knowledge base API (internal Docker network)
       - RAG_SERVER_URL=${RAG_SERVER_URL:-http://rag_server:9446}
-      - NEXT_PUBLIC_RAG_URL=${RAG_URL:-http://localhost:9446}
+      - RAG_URL=${RAG_URL:-http://localhost:9446}
       # RAG WebUI URL for iframe embedding (browser-accessible)
-      - NEXT_PUBLIC_RAG_WEBUI_URL=${RAG_WEBUI_URL:-http://localhost:9447}
+      - RAG_WEBUI_URL=${RAG_WEBUI_URL:-http://localhost:9447}
       # NextAuth configuration (required for production)
       # Generate a secret with: openssl rand -base64 32
       - NEXTAUTH_SECRET=${NEXTAUTH_SECRET:-caipe-dev-secret-change-in-production}
@@ -898,12 +895,21 @@ services:
       - CAIPE_UI_OIDC_CLIENT_ID=${OIDC_CLIENT_ID:-}
       - CAIPE_UI_OIDC_CLIENT_SECRET=${OIDC_CLIENT_SECRET:-}
       - CAIPE_UI_OIDC_ISSUER=${OIDC_ISSUER:-}
-      # UI Branding - explicitly unset to use defaults (no Grid branding)
-      # To enable custom branding, uncomment and set in .env file
-      # - NEXT_PUBLIC_APP_NAME=${NEXT_PUBLIC_APP_NAME:-}
-      # - NEXT_PUBLIC_TAGLINE=${NEXT_PUBLIC_TAGLINE:-}
-      # - NEXT_PUBLIC_DESCRIPTION=${NEXT_PUBLIC_DESCRIPTION:-}
-      # - NEXT_PUBLIC_LOGO_URL=${NEXT_PUBLIC_LOGO_URL:-}
+      # UI Branding (optional — set in .env or leave blank for CAIPE defaults)
+      # No NEXT_PUBLIC_ prefix needed; the server reads process.env at request time
+      - APP_NAME=${APP_NAME:-}
+      - TAGLINE=${TAGLINE:-}
+      - DESCRIPTION=${DESCRIPTION:-}
+      - LOGO_URL=${LOGO_URL:-}
+      - LOGO_STYLE=${LOGO_STYLE:-}
+      - SPINNER_COLOR=${SPINNER_COLOR:-}
+      - SHOW_POWERED_BY=${SHOW_POWERED_BY:-}
+      - SUPPORT_EMAIL=${SUPPORT_EMAIL:-}
+      - PREVIEW_MODE=${PREVIEW_MODE:-}
+      # MongoDB (when running with profile caipe-ui; mongodb service is in same profile)
+      # (changeme default is for local dev only; for production use Helm chart and External Secrets)
+      - MONGODB_URI=${MONGODB_URI:-mongodb://admin:changeme@caipe-ui-mongodb:27017/caipe?authSource=admin}
+      - MONGODB_DATABASE=${MONGODB_DATABASE:-caipe}
     depends_on:
       - caipe-supervisor
     profiles:
