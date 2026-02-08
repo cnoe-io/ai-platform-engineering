@@ -97,10 +97,10 @@ export interface UserSettings {
   _id?: ObjectId;
   user_id: string; // User email
   preferences: {
-    theme: 'light' | 'dark' | 'system';
-    gradient_theme: 'minimal' | 'vibrant' | 'professional';
-    font_family: 'inter' | 'system' | 'monospace';
-    font_size: 'small' | 'medium' | 'large';
+    theme: 'light' | 'dark' | 'system' | 'midnight' | 'nord' | 'tokyo';
+    gradient_theme: 'default' | 'minimal' | 'professional' | 'ocean' | 'sunset';
+    font_family: 'inter' | 'source-sans' | 'ibm-plex' | 'system';
+    font_size: 'small' | 'medium' | 'large' | 'x-large';
     sidebar_collapsed: boolean;
     context_panel_visible: boolean;
     debug_mode: boolean;
@@ -123,8 +123,8 @@ export interface UserSettings {
 // Default settings for new users
 export const DEFAULT_USER_SETTINGS: Omit<UserSettings, '_id' | 'user_id' | 'updated_at'> = {
   preferences: {
-    theme: 'system',
-    gradient_theme: 'minimal',
+    theme: 'dark',
+    gradient_theme: 'default',
     font_family: 'inter',
     font_size: 'medium',
     sidebar_collapsed: false,
