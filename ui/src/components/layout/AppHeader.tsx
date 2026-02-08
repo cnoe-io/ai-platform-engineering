@@ -452,7 +452,7 @@ export function AppHeader() {
           </Popover>
         </div>
 
-        {/* Settings, Theme, Links & User */}
+        {/* UI Personalization, Theme, Links & User */}
         <div className="flex items-center gap-1 border-l border-border pl-3">
           <SettingsPanel />
           <ThemeToggle />

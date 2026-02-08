@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { Settings, X, Type, Palette, Monitor, Check } from "lucide-react";
+import { Paintbrush, X, Type, Palette, Monitor, Check } from "lucide-react";
 import { useTheme } from "next-themes";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -168,7 +168,7 @@ export function SettingsPanel() {
           >
               {/* Header */}
               <div className="sticky top-0 bg-card/95 backdrop-blur-sm border-b border-border p-4 flex items-center justify-between">
-                <h2 className="text-lg font-semibold">Settings</h2>
+                <h2 className="text-lg font-semibold">UI Personalization</h2>
                 <Button
                   variant="ghost"
                   size="icon"
@@ -377,15 +377,15 @@ export function SettingsPanel() {
 
   return (
     <>
-      {/* Settings Button */}
+      {/* UI Personalization Button */}
       <Button
         variant="ghost"
         size="icon"
         className="h-8 w-8"
         onClick={() => setOpen(true)}
-        title="Settings"
+        title="UI Personalization"
       >
-        <Settings className="h-4 w-4" />
+        <Paintbrush className="h-4 w-4" />
       </Button>
 
       {/* Render modal in portal to ensure it's above everything */}
