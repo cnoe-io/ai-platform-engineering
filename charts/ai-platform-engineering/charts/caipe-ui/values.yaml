@@ -158,6 +158,8 @@ config:
   DESCRIPTION: "Where Humans and AI agents collaborate to deliver high quality outcomes."
   APP_NAME: "CAIPE"
   LOGO_URL: "/logo.svg"
+  LOGO_STYLE: "default"
+  # SPINNER_COLOR: ""
   SHOW_POWERED_BY: "false"
   PREVIEW_MODE: "false"
   # OIDC required group (non-sensitive)

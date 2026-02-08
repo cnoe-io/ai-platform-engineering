@@ -671,6 +671,27 @@ services:
       - OIDC_REQUIRED_GROUP=${OIDC_REQUIRED_GROUP:-backstage-access}
       - OIDC_REQUIRED_ADMIN_GROUP=${OIDC_REQUIRED_ADMIN_GROUP:-}
       - OIDC_ENABLE_REFRESH_TOKEN=${OIDC_ENABLE_REFRESH_TOKEN:-true}
+      # UI Branding (optional — set in .env or leave blank for CAIPE defaults)
+      # Clean names (preferred):
+      - APP_NAME=${APP_NAME:-}
+      - TAGLINE=${TAGLINE:-}
+      - DESCRIPTION=${DESCRIPTION:-}
+      - LOGO_URL=${LOGO_URL:-}
+      - LOGO_STYLE=${LOGO_STYLE:-}
+      - SPINNER_COLOR=${SPINNER_COLOR:-}
+      - SHOW_POWERED_BY=${SHOW_POWERED_BY:-}
+      - SUPPORT_EMAIL=${SUPPORT_EMAIL:-}
+      - PREVIEW_MODE=${PREVIEW_MODE:-}
+      # NEXT_PUBLIC_ prefixed (backward compatibility):
+      - NEXT_PUBLIC_APP_NAME=${NEXT_PUBLIC_APP_NAME:-${APP_NAME:-}}
+      - NEXT_PUBLIC_TAGLINE=${NEXT_PUBLIC_TAGLINE:-${TAGLINE:-}}
+      - NEXT_PUBLIC_DESCRIPTION=${NEXT_PUBLIC_DESCRIPTION:-${DESCRIPTION:-}}
+      - NEXT_PUBLIC_LOGO_URL=${NEXT_PUBLIC_LOGO_URL:-${LOGO_URL:-}}
+      - NEXT_PUBLIC_LOGO_STYLE=${NEXT_PUBLIC_LOGO_STYLE:-${LOGO_STYLE:-}}
+      - NEXT_PUBLIC_SPINNER_COLOR=${NEXT_PUBLIC_SPINNER_COLOR:-${SPINNER_COLOR:-}}
+      - NEXT_PUBLIC_SHOW_POWERED_BY=${NEXT_PUBLIC_SHOW_POWERED_BY:-${SHOW_POWERED_BY:-}}
+      - NEXT_PUBLIC_PREVIEW_MODE=${NEXT_PUBLIC_PREVIEW_MODE:-${PREVIEW_MODE:-}}
+      - NEXT_PUBLIC_SSO_ENABLED=${NEXT_PUBLIC_SSO_ENABLED:-${SSO_ENABLED:-false}}
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/api/health"]
       interval: 30s
