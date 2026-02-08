@@ -585,8 +585,6 @@ services:
   #                                      CAIPE UI & MongoDB                                          #
   ####################################################################################################
   # MongoDB for CAIPE UI chat history and user settings
-  # Note: Default password "changeme" is for local development only. For production, use
-  # the Helm chart and External Secrets to store the MongoDB secret in an external secrets manager.
   caipe-ui-mongodb:
     image: mongo:7.0
     container_name: caipe-ui-mongodb
@@ -618,6 +616,10 @@ services:
       - ME_CONFIG_MONGODB_ADMINUSERNAME=${MONGODB_ROOT_USERNAME:-admin}
       - ME_CONFIG_MONGODB_ADMINPASSWORD=${MONGODB_ROOT_PASSWORD:-changeme}
       - ME_CONFIG_MONGODB_URL=mongodb://${MONGODB_ROOT_USERNAME:-admin}:${MONGODB_ROOT_PASSWORD:-changeme}@caipe-ui-mongodb:27017/
+      - ME_CONFIG_BASICAUTH=false
+    depends_on:
+      caipe-ui-mongodb:
+        condition: service_healthy
     profiles:
       - caipe-ui-mongo-express
 
@@ -646,24 +648,24 @@ services:
     environment:
       - NODE_ENV=production
       # CAIPE supervisor A2A endpoint URL
-      # Override with A2A_BASE_URL environment variable
-      - A2A_BASE_URL=${A2A_BASE_URL:-http://localhost:8000}
+      # Override with NEXT_PUBLIC_A2A_BASE_URL environment variable
+      - NEXT_PUBLIC_A2A_BASE_URL=${NEXT_PUBLIC_A2A_BASE_URL:-http://localhost:8000}
       # Enable/Disable RAG Knowledge Bases (default: true)
-      - RAG_ENABLED=${RAG_ENABLED:-true}
+      - NEXT_PUBLIC_RAG_ENABLED=${NEXT_PUBLIC_RAG_ENABLED:-true}
       # RAG Server URL for knowledge base API (internal Docker network)
       - RAG_SERVER_URL=${RAG_SERVER_URL:-http://rag_server:9446}
-      - RAG_URL=${RAG_URL:-http://localhost:9446}
+      - NEXT_PUBLIC_RAG_URL=${RAG_URL:-http://localhost:9446}
       # RAG WebUI URL for iframe embedding (browser-accessible)
-      - RAG_WEBUI_URL=${RAG_WEBUI_URL:-http://localhost:9447}
+      - NEXT_PUBLIC_RAG_WEBUI_URL=${RAG_WEBUI_URL:-http://localhost:9447}
       # MongoDB configuration - Enable/disable MongoDB persistence
-      # (changeme default is for local dev only; for production use Helm chart and External Secrets)
+      - NEXT_PUBLIC_MONGODB_ENABLED=${NEXT_PUBLIC_MONGODB_ENABLED:-false}
       - MONGODB_URI=${MONGODB_URI:-mongodb://${MONGODB_ROOT_USERNAME:-admin}:${MONGODB_ROOT_PASSWORD:-changeme}@caipe-ui-mongodb:27017/${MONGODB_DATABASE:-caipe}?authSource=admin}
       # NextAuth configuration (required for production)
       # Generate a secret with: openssl rand -base64 32
       - NEXTAUTH_SECRET=${NEXTAUTH_SECRET:-caipe-dev-secret-change-in-production}
       - NEXTAUTH_URL=${NEXTAUTH_URL:-http://localhost:3000}
-      # SSO Configuration - set SSO_ENABLED=true to enable
-      - SSO_ENABLED=${SSO_ENABLED:-false}
+      # SSO Configuration - set NEXT_PUBLIC_SSO_ENABLED=true to enable
+      - NEXT_PUBLIC_SSO_ENABLED=${NEXT_PUBLIC_SSO_ENABLED:-false}
       - OIDC_ISSUER=${OIDC_ISSUER:-}
       - OIDC_CLIENT_ID=${OIDC_CLIENT_ID:-}
       - OIDC_CLIENT_SECRET=${OIDC_CLIENT_SECRET:-}
@@ -671,27 +673,6 @@ services:
       - OIDC_REQUIRED_GROUP=${OIDC_REQUIRED_GROUP:-backstage-access}
       - OIDC_REQUIRED_ADMIN_GROUP=${OIDC_REQUIRED_ADMIN_GROUP:-}
       - OIDC_ENABLE_REFRESH_TOKEN=${OIDC_ENABLE_REFRESH_TOKEN:-true}
-      # UI Branding (optional — set in .env or leave blank for CAIPE defaults)
-      # Clean names (preferred):
-      - APP_NAME=${APP_NAME:-}
-      - TAGLINE=${TAGLINE:-}
-      - DESCRIPTION=${DESCRIPTION:-}
-      - LOGO_URL=${LOGO_URL:-}
-      - LOGO_STYLE=${LOGO_STYLE:-}
-      - SPINNER_COLOR=${SPINNER_COLOR:-}
-      - SHOW_POWERED_BY=${SHOW_POWERED_BY:-}
-      - SUPPORT_EMAIL=${SUPPORT_EMAIL:-}
-      - PREVIEW_MODE=${PREVIEW_MODE:-}
-      # NEXT_PUBLIC_ prefixed (backward compatibility):
-      - NEXT_PUBLIC_APP_NAME=${NEXT_PUBLIC_APP_NAME:-${APP_NAME:-}}
-      - NEXT_PUBLIC_TAGLINE=${NEXT_PUBLIC_TAGLINE:-${TAGLINE:-}}
-      - NEXT_PUBLIC_DESCRIPTION=${NEXT_PUBLIC_DESCRIPTION:-${DESCRIPTION:-}}
-      - NEXT_PUBLIC_LOGO_URL=${NEXT_PUBLIC_LOGO_URL:-${LOGO_URL:-}}
-      - NEXT_PUBLIC_LOGO_STYLE=${NEXT_PUBLIC_LOGO_STYLE:-${LOGO_STYLE:-}}
-      - NEXT_PUBLIC_SPINNER_COLOR=${NEXT_PUBLIC_SPINNER_COLOR:-${SPINNER_COLOR:-}}
-      - NEXT_PUBLIC_SHOW_POWERED_BY=${NEXT_PUBLIC_SHOW_POWERED_BY:-${SHOW_POWERED_BY:-}}
-      - NEXT_PUBLIC_PREVIEW_MODE=${NEXT_PUBLIC_PREVIEW_MODE:-${PREVIEW_MODE:-}}
-      - NEXT_PUBLIC_SSO_ENABLED=${NEXT_PUBLIC_SSO_ENABLED:-${SSO_ENABLED:-false}}
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/api/health"]
       interval: 30s
