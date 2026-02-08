@@ -71,66 +71,163 @@ export async function getCollection<T extends Document = Document>(collectionNam
 }
 
 /**
- * Create indexes for all collections
- * This runs once on first connection
+ * Safely create a single index, logging and continuing on failure.
+ * Returns true if the index was created (or already existed), false on error.
+ */
+async function safeCreateIndex(
+  db: Db,
+  collectionName: string,
+  keys: Record<string, 1 | -1>,
+  options?: { unique?: boolean },
+): Promise<boolean> {
+  try {
+    await db.collection(collectionName).createIndex(keys, options ?? {});
+    return true;
+  } catch (error: unknown) {
+    const code = (error as { code?: number }).code;
+
+    if (code === 11000 && options?.unique) {
+      // Duplicate key — deduplicate then retry
+      const keyFields = Object.keys(keys);
+      console.warn(
+        `⚠️  Duplicate values found in ${collectionName} for unique index ${JSON.stringify(keys)} — deduplicating...`,
+      );
+      await deduplicateCollection(db, collectionName, keyFields);
+      try {
+        await db.collection(collectionName).createIndex(keys, options);
+        console.log(`  ✅ Index on ${collectionName} ${JSON.stringify(keys)} created after dedup`);
+        return true;
+      } catch (retryError) {
+        console.error(
+          `  ❌ Index on ${collectionName} ${JSON.stringify(keys)} still failed after dedup:`,
+          retryError,
+        );
+        return false;
+      }
+    }
+
+    // 85 = IndexOptionsConflict, 86 = IndexKeySpecsConflict — index already exists with different options
+    if (code === 85 || code === 86) {
+      console.warn(
+        `⚠️  Index conflict on ${collectionName} ${JSON.stringify(keys)} (code ${code}) — skipping`,
+      );
+      return true; // Existing index is close enough
+    }
+
+    console.error(`❌ Failed to create index on ${collectionName} ${JSON.stringify(keys)}:`, error);
+    return false;
+  }
+}
+
+/**
+ * Remove duplicate documents for the given key fields, keeping the newest
+ * (by _id, which embeds a timestamp in MongoDB ObjectIds).
+ */
+async function deduplicateCollection(
+  db: Db,
+  collectionName: string,
+  keyFields: string[],
+): Promise<void> {
+  const collection = db.collection(collectionName);
+
+  // Build a $group stage that groups by the key fields
+  const groupId: Record<string, string> = {};
+  for (const field of keyFields) {
+    groupId[field.replace(/\./g, '_')] = `$${field}`;
+  }
+
+  const pipeline = [
+    { $sort: { _id: -1 as const } }, // newest first
+    { $group: { _id: groupId, keepId: { $first: '$_id' }, count: { $sum: 1 } } },
+    { $match: { count: { $gt: 1 } } },
+  ];
+
+  const duplicates = await collection.aggregate(pipeline).toArray();
+  let totalRemoved = 0;
+
+  for (const dup of duplicates) {
+    // Build a filter that matches the duplicate key values
+    const filter: Record<string, unknown> = {};
+    for (const field of keyFields) {
+      const safeKey = field.replace(/\./g, '_');
+      filter[field] = dup._id[safeKey];
+    }
+    // Delete all except the one we're keeping
+    filter._id = { $ne: dup.keepId };
+
+    const result = await collection.deleteMany(filter);
+    totalRemoved += result.deletedCount;
+  }
+
+  if (totalRemoved > 0) {
+    console.log(`  🗑️  Removed ${totalRemoved} duplicate(s) from ${collectionName}`);
+  }
+}
+
+/**
+ * Create indexes for all collections.
+ * This runs once on first connection.
+ *
+ * Each index is created independently so a single failure (e.g. duplicate
+ * key conflict) doesn't prevent other indexes from being created.
+ * Unique index conflicts trigger automatic deduplication and retry.
  */
 async function createIndexes(db: Db) {
-  try {
-    // Users collection indexes
-    await db.collection('users').createIndex({ email: 1 }, { unique: true });
-    await db.collection('users').createIndex({ 'metadata.sso_id': 1 });
-    await db.collection('users').createIndex({ last_login: -1 });
+  // Each index is created independently via Promise.all so a single failure
+  // doesn't prevent other indexes from being created.
 
-    // Conversations collection indexes
-    await db.collection('conversations').createIndex({ _id: 1 });
-    await db.collection('conversations').createIndex({ owner_id: 1 });
-    await db.collection('conversations').createIndex({ created_at: -1 });
-    await db.collection('conversations').createIndex({ updated_at: -1 });
-    await db.collection('conversations').createIndex({ 'sharing.shared_with': 1 });
-    await db.collection('conversations').createIndex({ tags: 1 });
-    await db.collection('conversations').createIndex({ is_archived: 1, owner_id: 1 });
+  await Promise.all([
+    // Users collection
+    safeCreateIndex(db, 'users', { email: 1 }, { unique: true }),
+    safeCreateIndex(db, 'users', { 'metadata.sso_id': 1 }),
+    safeCreateIndex(db, 'users', { last_login: -1 }),
 
-    // Messages collection indexes
-    await db.collection('messages').createIndex({ conversation_id: 1, created_at: 1 });
-    await db.collection('messages').createIndex({ 'metadata.turn_id': 1 });
-    await db.collection('messages').createIndex({ role: 1 });
+    // Conversations collection
+    safeCreateIndex(db, 'conversations', { owner_id: 1 }),
+    safeCreateIndex(db, 'conversations', { created_at: -1 }),
+    safeCreateIndex(db, 'conversations', { updated_at: -1 }),
+    safeCreateIndex(db, 'conversations', { 'sharing.shared_with': 1 }),
+    safeCreateIndex(db, 'conversations', { tags: 1 }),
+    safeCreateIndex(db, 'conversations', { is_archived: 1, owner_id: 1 }),
 
-    // User settings collection indexes
-    await db.collection('user_settings').createIndex({ user_id: 1 }, { unique: true });
+    // Messages collection
+    safeCreateIndex(db, 'messages', { conversation_id: 1, created_at: 1 }),
+    safeCreateIndex(db, 'messages', { 'metadata.turn_id': 1 }),
+    safeCreateIndex(db, 'messages', { role: 1 }),
 
-    // Conversation bookmarks collection indexes
-    await db.collection('conversation_bookmarks').createIndex({ user_id: 1 });
-    await db.collection('conversation_bookmarks').createIndex({ conversation_id: 1 });
-    await db.collection('conversation_bookmarks').createIndex({ user_id: 1, conversation_id: 1 });
+    // User settings collection
+    safeCreateIndex(db, 'user_settings', { user_id: 1 }, { unique: true }),
 
-    // Sharing access collection indexes
-    await db.collection('sharing_access').createIndex({ conversation_id: 1 });
-    await db.collection('sharing_access').createIndex({ granted_to: 1 });
-    await db.collection('sharing_access').createIndex({ conversation_id: 1, granted_to: 1 });
+    // Conversation bookmarks collection
+    safeCreateIndex(db, 'conversation_bookmarks', { user_id: 1 }),
+    safeCreateIndex(db, 'conversation_bookmarks', { conversation_id: 1 }),
+    safeCreateIndex(db, 'conversation_bookmarks', { user_id: 1, conversation_id: 1 }),
 
-    // Agent configs collection indexes (Agentic Workflows)
-    await db.collection('agent_configs').createIndex({ id: 1 }, { unique: true }); // Prevent duplicate IDs
-    await db.collection('agent_configs').createIndex({ owner_id: 1 });
-    await db.collection('agent_configs').createIndex({ category: 1 });
-    await db.collection('agent_configs').createIndex({ is_system: 1 });
-    await db.collection('agent_configs').createIndex({ name: 1 });
-    await db.collection('agent_configs').createIndex({ created_at: -1 });
-    await db.collection('agent_configs').createIndex({ 'metadata.tags': 1 });
+    // Sharing access collection
+    safeCreateIndex(db, 'sharing_access', { conversation_id: 1 }),
+    safeCreateIndex(db, 'sharing_access', { granted_to: 1 }),
+    safeCreateIndex(db, 'sharing_access', { conversation_id: 1, granted_to: 1 }),
 
-    // Workflow runs collection indexes (Agentic Workflows History)
-    await db.collection('workflow_runs').createIndex({ id: 1 }, { unique: true });
-    await db.collection('workflow_runs').createIndex({ workflow_id: 1 });
-    await db.collection('workflow_runs').createIndex({ owner_id: 1 });
-    await db.collection('workflow_runs').createIndex({ status: 1 });
-    await db.collection('workflow_runs').createIndex({ started_at: -1 });
-    await db.collection('workflow_runs').createIndex({ owner_id: 1, workflow_id: 1 });
-    await db.collection('workflow_runs').createIndex({ owner_id: 1, started_at: -1 });
+    // Agent configs collection (Agentic Workflows)
+    safeCreateIndex(db, 'agent_configs', { id: 1 }, { unique: true }),
+    safeCreateIndex(db, 'agent_configs', { owner_id: 1 }),
+    safeCreateIndex(db, 'agent_configs', { category: 1 }),
+    safeCreateIndex(db, 'agent_configs', { is_system: 1 }),
+    safeCreateIndex(db, 'agent_configs', { name: 1 }),
+    safeCreateIndex(db, 'agent_configs', { created_at: -1 }),
+    safeCreateIndex(db, 'agent_configs', { 'metadata.tags': 1 }),
 
-    console.log('✅ MongoDB indexes created successfully');
-  } catch (error) {
-    console.error('❌ Error creating MongoDB indexes:', error);
-    // Don't throw - indexes might already exist
-  }
+    // Workflow runs collection (Agentic Workflows History)
+    safeCreateIndex(db, 'workflow_runs', { id: 1 }, { unique: true }),
+    safeCreateIndex(db, 'workflow_runs', { workflow_id: 1 }),
+    safeCreateIndex(db, 'workflow_runs', { owner_id: 1 }),
+    safeCreateIndex(db, 'workflow_runs', { status: 1 }),
+    safeCreateIndex(db, 'workflow_runs', { started_at: -1 }),
+    safeCreateIndex(db, 'workflow_runs', { owner_id: 1, workflow_id: 1 }),
+    safeCreateIndex(db, 'workflow_runs', { owner_id: 1, started_at: -1 }),
+  ]);
+
+  console.log('✅ MongoDB indexes ensured');
 }
 
 /**
