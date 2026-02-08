@@ -12,7 +12,9 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { CAIPESpinner } from "@/components/ui/caipe-spinner";
 import { SimpleLineChart } from "@/components/admin/SimpleLineChart";
 import { CreateTeamDialog } from "@/components/admin/CreateTeamDialog";
+import { TeamDetailsDialog } from "@/components/admin/TeamDetailsDialog";
 import { apiClient } from "@/lib/api-client";
+import type { Team as TeamType } from "@/types/teams";
 
 interface AdminStats {
   overview: {
@@ -73,6 +75,10 @@ function AdminPage() {
   const [updatingRole, setUpdatingRole] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState("users");
   const [createTeamDialogOpen, setCreateTeamDialogOpen] = useState(false);
+  const [teamDetailsOpen, setTeamDetailsOpen] = useState(false);
+  const [selectedTeam, setSelectedTeam] = useState<TeamType | null>(null);
+  const [teamDialogMode, setTeamDialogMode] = useState<"details" | "members">("details");
+  const [deletingTeam, setDeletingTeam] = useState<string | null>(null);
 
   useEffect(() => {
     // Only fetch admin data once the user is authenticated
@@ -166,6 +172,39 @@ function AdminPage() {
     } finally {
       setUpdatingRole(null);
     }
+  };
+
+  const handleDeleteTeam = async (team: Team) => {
+    if (!confirm(`Are you sure you want to delete the team "${team.name}"? This cannot be undone.`)) {
+      return;
+    }
+
+    setDeletingTeam(team._id);
+    try {
+      const response = await fetch(`/api/admin/teams/${team._id}`, {
+        method: 'DELETE',
+      });
+
+      const result = await response.json();
+      if (!result.success) {
+        throw new Error(result.error || 'Failed to delete team');
+      }
+
+      // Remove from local state
+      setTeams(teams.filter(t => t._id !== team._id));
+      console.log(`[Admin] Team deleted: ${team.name}`);
+    } catch (err: any) {
+      console.error('[Admin] Failed to delete team:', err);
+      alert(`Failed to delete team: ${err.message}`);
+    } finally {
+      setDeletingTeam(null);
+    }
+  };
+
+  const openTeamDialog = (team: Team, mode: "details" | "members") => {
+    setSelectedTeam(team as TeamType);
+    setTeamDialogMode(mode);
+    setTeamDetailsOpen(true);
   };
 
   if (loading) {
@@ -388,8 +427,18 @@ function AdminPage() {
                                     <CardDescription>{team.description}</CardDescription>
                                   )}
                                 </div>
-                                <Button variant="ghost" size="sm" className="text-destructive">
-                                  <Trash2 className="h-4 w-4" />
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="text-destructive hover:text-destructive"
+                                  onClick={() => handleDeleteTeam(team)}
+                                  disabled={deletingTeam === team._id}
+                                >
+                                  {deletingTeam === team._id ? (
+                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                  ) : (
+                                    <Trash2 className="h-4 w-4" />
+                                  )}
                                 </Button>
                               </div>
                             </CardHeader>
@@ -404,10 +453,20 @@ function AdminPage() {
                                   <span>{team.owner_id}</span>
                                 </div>
                                 <div className="flex gap-2 mt-4">
-                                  <Button size="sm" variant="outline" className="flex-1">
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="flex-1"
+                                    onClick={() => openTeamDialog(team, "members")}
+                                  >
                                     Manage Members
                                   </Button>
-                                  <Button size="sm" variant="outline" className="flex-1">
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="flex-1"
+                                    onClick={() => openTeamDialog(team, "details")}
+                                  >
                                     View Details
                                   </Button>
                                 </div>
@@ -633,6 +692,15 @@ function AdminPage() {
         open={createTeamDialogOpen}
         onOpenChange={setCreateTeamDialogOpen}
         onSuccess={loadAdminData}
+      />
+
+      {/* Team Details / Member Management Dialog */}
+      <TeamDetailsDialog
+        team={selectedTeam}
+        mode={teamDialogMode}
+        open={teamDetailsOpen}
+        onOpenChange={setTeamDetailsOpen}
+        onTeamUpdated={loadAdminData}
       />
     </div>
   );
