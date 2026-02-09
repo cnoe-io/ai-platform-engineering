@@ -10,8 +10,8 @@ import { BUILTIN_QUICK_START_TEMPLATES } from "@/types/agent-config";
 /**
  * Agent Config Store
  * 
- * Manages agent configurations for the Agentic Workflows feature.
- * MongoDB-only storage (no localStorage fallback) since Agentic Workflows
+ * Manages agent configurations for the Agent Skills feature.
+ * MongoDB-only storage (no localStorage fallback) since Agent Skills
  * requires persistent, shareable configurations.
  * 
  * On first load, automatically seeds MongoDB with built-in templates.

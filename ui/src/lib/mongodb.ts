@@ -209,7 +209,7 @@ async function createIndexes(db: Db) {
     safeCreateIndex(db, 'sharing_access', { granted_to: 1 }),
     safeCreateIndex(db, 'sharing_access', { conversation_id: 1, granted_to: 1 }),
 
-    // Agent configs collection (Agentic Workflows)
+    // Agent configs collection (Agent Skills)
     safeCreateIndex(db, 'agent_configs', { id: 1 }, { unique: true }),
     safeCreateIndex(db, 'agent_configs', { owner_id: 1 }),
     safeCreateIndex(db, 'agent_configs', { category: 1 }),
@@ -218,7 +218,7 @@ async function createIndexes(db: Db) {
     safeCreateIndex(db, 'agent_configs', { created_at: -1 }),
     safeCreateIndex(db, 'agent_configs', { 'metadata.tags': 1 }),
 
-    // Workflow runs collection (Agentic Workflows History)
+    // Workflow runs collection (Agent Skills History)
     safeCreateIndex(db, 'workflow_runs', { id: 1 }, { unique: true }),
     safeCreateIndex(db, 'workflow_runs', { workflow_id: 1 }),
     safeCreateIndex(db, 'workflow_runs', { owner_id: 1 }),

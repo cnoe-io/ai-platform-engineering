@@ -92,7 +92,7 @@ export function AppHeader() {
     if (pathname?.startsWith("/knowledge-bases")) return "knowledge";
     if (pathname?.startsWith("/agent-builder") || pathname?.startsWith("/use-cases")) return "agent-builder";
     if (pathname?.startsWith("/admin")) return "admin";
-    return "agent-builder"; // Default to Agentic Workflows (formerly use-cases)
+    return "agent-builder"; // Default to Agent Skills (formerly use-cases)
   };
 
   const activeTab = getActiveTab();
@@ -119,7 +119,7 @@ export function AppHeader() {
           )}
         </Link>
 
-        {/* Navigation Pills - Agentic Workflows first for prominence */}
+        {/* Navigation Pills - Agent Skills first for prominence */}
         <div className="flex items-center bg-muted/50 rounded-full p-1">
           <Link
             href="/agent-builder"
@@ -132,7 +132,7 @@ export function AppHeader() {
             )}
           >
             <Zap className="h-3.5 w-3.5" />
-            Agentic Workflows
+            Agent Skills
           </Link>
           <Link
             href="/chat"
