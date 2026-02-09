@@ -48,7 +48,7 @@ interface ChatState {
   consumePendingMessage: () => string | null;
   loadConversationsFromServer: () => Promise<void>; // Load conversations from server (MongoDB mode only)
   saveMessagesToServer: (conversationId: string) => Promise<void>; // Save messages to MongoDB after streaming
-  loadMessagesFromServer: (conversationId: string) => Promise<void>; // Load messages from MongoDB when opening conversation
+  loadMessagesFromServer: (conversationId: string, options?: { force?: boolean }) => Promise<void>; // Load messages from MongoDB when opening conversation
 
   // Turn selection actions for per-message event tracking
   setSelectedTurn: (conversationId: string, turnId: string | null) => void;
@@ -65,8 +65,13 @@ let isLoadingConversations = false;
 // Track which messages have been saved to MongoDB to avoid duplicates
 const savedMessageIds = new Set<string>();
 
-// Track which conversations have had messages loaded from MongoDB
-const loadedConversationIds = new Set<string>();
+// Track in-flight and recently completed message loads to prevent:
+// 1. Concurrent requests for the same conversation
+// 2. Rapid re-fetches caused by React re-render loops (useEffect → store update → re-render)
+// Maps conversationId → timestamp of last completed load. Calls within the cooldown
+// window are skipped unless force=true (manual reload).
+const messageLoadState = new Map<string, { inFlight: boolean; lastLoadedAt: number }>();
+const MESSAGE_LOAD_COOLDOWN_MS = 5000; // 5 second cooldown between automatic syncs
 
 // Serialize A2A event for MongoDB storage (strip circular refs and large raw data)
 function serializeA2AEvent(event: A2AEvent): Record<string, unknown> {
@@ -749,12 +754,33 @@ const storeImplementation = (set: any, get: any) => ({
 
         console.log(`[ChatStore] Saving ${unsavedMessages.length} messages to MongoDB for: ${conversationId}`);
 
-        for (const msg of unsavedMessages) {
+        // A2A events during streaming are stored at the conversation level (conv.a2aEvents)
+        // via addA2AEvent(), NOT on individual msg.events (addEventToMessage is not called).
+        // To persist events to MongoDB, we attach the conversation-level events to the
+        // last assistant message being saved (the one that was just streamed).
+        const convEvents = conv.a2aEvents || [];
+        const lastAssistantIdx = (() => {
+          for (let i = unsavedMessages.length - 1; i >= 0; i--) {
+            if (unsavedMessages[i].role === 'assistant') return i;
+          }
+          return -1;
+        })();
+
+        for (let i = 0; i < unsavedMessages.length; i++) {
+          const msg = unsavedMessages[i];
           try {
-            // Serialize A2A events for storage
-            const serializedEvents = msg.events?.length > 0
-              ? msg.events.map(serializeA2AEvent)
-              : undefined;
+            // Determine A2A events for this message:
+            // 1. If the message already has per-message events, use those
+            // 2. If this is the last assistant message and conversation has events, use conv events
+            // 3. Otherwise, no events
+            let serializedEvents: Record<string, unknown>[] | undefined;
+
+            if (msg.events?.length > 0) {
+              serializedEvents = msg.events.map(serializeA2AEvent);
+            } else if (i === lastAssistantIdx && convEvents.length > 0) {
+              serializedEvents = convEvents.map(serializeA2AEvent);
+              console.log(`[ChatStore] Attaching ${convEvents.length} conversation-level A2A events to assistant message ${msg.id}`);
+            }
 
             await apiClient.addMessage(conversationId, {
               message_id: msg.id,
@@ -777,33 +803,48 @@ const storeImplementation = (set: any, get: any) => ({
         console.log(`[ChatStore] Saved ${unsavedMessages.length} messages to MongoDB`);
       },
 
-      // Load messages from MongoDB when opening a conversation
-      loadMessagesFromServer: async (conversationId: string) => {
+      // Load messages from MongoDB when opening a conversation.
+      // This is called every time a conversation page is navigated to in MongoDB mode.
+      // It merges server data (new messages, events) with local state, so it's safe
+      // to call multiple times — it won't lose local-only state like feedback.
+      loadMessagesFromServer: async (conversationId: string, options?: { force?: boolean }) => {
         const storageMode = getStorageMode();
         if (storageMode !== 'mongodb') return;
 
-        // Don't reload if already loaded
-        if (loadedConversationIds.has(conversationId)) {
-          console.log('[ChatStore] Messages already loaded for:', conversationId);
+        const loadState = messageLoadState.get(conversationId);
+        const force = options?.force ?? false;
+
+        // Prevent concurrent loads for the same conversation
+        if (loadState?.inFlight) {
+          console.log('[ChatStore] Already loading messages for:', conversationId);
           return;
         }
 
-        // Check if conversation already has messages locally
+        // Skip if recently loaded (within cooldown) unless force=true (manual reload)
+        if (!force && loadState?.lastLoadedAt) {
+          const elapsed = Date.now() - loadState.lastLoadedAt;
+          if (elapsed < MESSAGE_LOAD_COOLDOWN_MS) {
+            console.log(`[ChatStore] Skipping reload for ${conversationId} (loaded ${elapsed}ms ago, cooldown ${MESSAGE_LOAD_COOLDOWN_MS}ms)`);
+            return;
+          }
+        }
+
         const state = get();
         const conv = state.conversations.find((c: Conversation) => c.id === conversationId);
-        if (conv && conv.messages.length > 0) {
-          console.log('[ChatStore] Conversation already has local messages:', conversationId);
-          loadedConversationIds.add(conversationId);
-          return;
-        }
+        const hasLocalMessages = conv && conv.messages.length > 0;
+        const hasLocalEvents = hasLocalMessages && (
+          conv.a2aEvents.length > 0 ||
+          conv.messages.some((m: ChatMessage) => m.events && m.events.length > 0)
+        );
+
+        messageLoadState.set(conversationId, { inFlight: true, lastLoadedAt: loadState?.lastLoadedAt ?? 0 });
 
         try {
-          console.log('[ChatStore] Loading messages from MongoDB for:', conversationId);
+          console.log(`[ChatStore] Loading messages from MongoDB for: ${conversationId} (hasLocalMessages=${hasLocalMessages}, hasLocalEvents=${hasLocalEvents})`);
           const response = await apiClient.getMessages(conversationId, { page_size: 100 });
 
           if (!response?.items || response.items.length === 0) {
             console.log('[ChatStore] No messages found in MongoDB for:', conversationId);
-            loadedConversationIds.add(conversationId);
             return;
           }
 
@@ -835,20 +876,69 @@ const storeImplementation = (set: any, get: any) => ({
             return chatMsg;
           });
 
-          // Reconstruct a2aEvents from messages for the ContextPanel
-          const allEvents: A2AEvent[] = messages.flatMap(m => m.events || []);
+          // Reconstruct a2aEvents for the ContextPanel / Tasks / Debug.
+          // Only use events from the LAST assistant message (current/latest turn),
+          // matching the live-streaming behavior where clearA2AEvents() is called
+          // at the start of each new turn. This prevents completed tools from
+          // old turns from accumulating in the Tasks panel.
+          const lastAssistantMsg = [...messages].reverse().find(m => m.role === 'assistant');
+          const lastTurnEvents: A2AEvent[] = lastAssistantMsg?.events || [];
 
-          // Update Zustand store with loaded messages
-          set((state: ChatState) => ({
-            conversations: state.conversations.map((c: Conversation) =>
-              c.id === conversationId
-                ? { ...c, messages, a2aEvents: allEvents }
-                : c
-            ),
-          }));
+          if (hasLocalMessages) {
+            // We have local message stubs — merge events AND any new messages
+            // from MongoDB that don't exist locally (e.g., follow-up messages
+            // from another device).
+            const serverEventsByMsgId = new Map<string, A2AEvent[]>();
+            for (const msg of messages) {
+              if (msg.events.length > 0) {
+                serverEventsByMsgId.set(msg.id, msg.events);
+              }
+            }
 
-          loadedConversationIds.add(conversationId);
-          console.log(`[ChatStore] Loaded ${messages.length} messages from MongoDB for: ${conversationId}`);
+            // Build a set of local message IDs to detect new server messages
+            const localMsgIds = new Set(conv!.messages.map((m: ChatMessage) => m.id));
+
+            // Find messages on server that don't exist locally (follow-up from other device)
+            const newServerMessages = messages.filter(m => !localMsgIds.has(m.id));
+
+            set((state: ChatState) => ({
+              conversations: state.conversations.map((c: Conversation) =>
+                c.id === conversationId
+                  ? {
+                      ...c,
+                      a2aEvents: lastTurnEvents,
+                      messages: [
+                        // Existing local messages with events merged in
+                        ...c.messages.map((localMsg: ChatMessage) => {
+                          const serverEvents = serverEventsByMsgId.get(localMsg.id);
+                          if (serverEvents && localMsg.events.length === 0) {
+                            return { ...localMsg, events: serverEvents };
+                          }
+                          return localMsg;
+                        }),
+                        // Append new messages from server that don't exist locally
+                        ...newServerMessages,
+                      ],
+                    }
+                  : c
+              ),
+            }));
+
+            const mergedEventCount = lastTurnEvents.length;
+            console.log(`[ChatStore] Merged ${mergedEventCount} A2A events (last turn) and ${newServerMessages.length} new messages from MongoDB into ${conv!.messages.length} local messages for: ${conversationId}`);
+          } else {
+            // No local messages — replace entirely with MongoDB data
+            set((state: ChatState) => ({
+              conversations: state.conversations.map((c: Conversation) =>
+                c.id === conversationId
+                  ? { ...c, messages, a2aEvents: lastTurnEvents }
+                  : c
+              ),
+            }));
+
+            console.log(`[ChatStore] Loaded ${messages.length} messages with ${lastTurnEvents.length} events (last turn) from MongoDB for: ${conversationId}`);
+          }
+
         } catch (error: any) {
           if (error?.message?.includes('401') || error?.message?.includes('Unauthorized')) {
             console.log('[ChatStore] Not authenticated, skipping message load');
@@ -857,7 +947,8 @@ const storeImplementation = (set: any, get: any) => ({
           } else {
             console.error('[ChatStore] Failed to load messages from MongoDB:', error);
           }
-          loadedConversationIds.add(conversationId); // Don't retry on error
+        } finally {
+          messageLoadState.set(conversationId, { inFlight: false, lastLoadedAt: Date.now() });
         }
       },
 

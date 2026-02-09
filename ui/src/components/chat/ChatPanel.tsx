@@ -14,7 +14,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useChatStore } from "@/store/chat-store";
 import { A2ASDKClient, type ParsedA2AEvent, toStoreEvent } from "@/lib/a2a-sdk-client";
-import { cn } from "@/lib/utils";
+import { cn, deduplicateByKey } from "@/lib/utils";
 import { ChatMessage as ChatMessageType } from "@/types/a2a";
 import { getConfig } from "@/lib/config";
 import { FeedbackButton, Feedback } from "./FeedbackButton";
@@ -556,8 +556,8 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle }: ChatP
             )}
 
             <AnimatePresence mode="popLayout">
-              {conversation?.messages.map((msg, index) => {
-                const isLastMessage = index === conversation.messages.length - 1;
+              {deduplicateByKey(conversation?.messages ?? [], (msg) => msg.id).map((msg, index, arr) => {
+                const isLastMessage = index === arr.length - 1;
                 const isAssistantStreaming = isThisConversationStreaming && msg.role === "assistant" && isLastMessage;
 
                 // For retry: if user message, use its content; if assistant, find preceding user message
@@ -565,8 +565,8 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle }: ChatP
                   if (msg.role === "user") return msg.content;
                   // Find the user message right before this assistant message
                   for (let i = index - 1; i >= 0; i--) {
-                    if (conversation.messages[i].role === "user") {
-                      return conversation.messages[i].content;
+                    if (arr[i].role === "user") {
+                      return arr[i].content;
                     }
                   }
                   return null;
@@ -574,7 +574,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle }: ChatP
 
                 // Check if this is the last assistant message (latest answer)
                 const isLastAssistantMessage = msg.role === "assistant" && 
-                  index === conversation.messages.length - 1;
+                  index === arr.length - 1;
 
                 return (
                   <ChatMessage

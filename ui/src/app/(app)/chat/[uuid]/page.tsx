@@ -80,8 +80,13 @@ function ChatUUIDPage() {
         setActiveConversation(uuid);
         setLoading(false);
 
-        // If in MongoDB mode and conversation has no messages, try loading from server
-        if (storageMode === 'mongodb' && localConv.messages.length === 0) {
+        // In MongoDB mode, sync messages from server in the background.
+        // The local cache provides instant display, but we still need to:
+        // 1. Restore A2A events stripped by localStorage partialize
+        // 2. Pick up follow-up messages sent from other devices
+        // 3. Keep Tasks and A2A Debug panels in sync
+        // The store uses a cooldown to prevent rapid re-fetches from re-renders.
+        if (storageMode === 'mongodb') {
           loadMessagesFromServer(uuid).catch((err) => {
             console.warn('[ChatUUID] Failed to load messages from server:', err);
           });
