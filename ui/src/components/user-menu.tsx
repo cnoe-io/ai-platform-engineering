@@ -3,7 +3,7 @@
 import React, { useState, useRef, useEffect } from "react";
 import { useSession, signIn, signOut } from "next-auth/react";
 import { motion, AnimatePresence } from "framer-motion";
-import { LogIn, LogOut, ChevronDown, Shield, Users, Hash, Code, ChevronRight, Layers, ExternalLink, Clock, RefreshCw, Bug, Settings } from "lucide-react";
+import { LogIn, LogOut, ChevronDown, Shield, Users, Hash, Code, ChevronRight, Layers, ExternalLink, Clock, RefreshCw, Bug, Settings, Copy, Check, KeyRound } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { config } from "@/lib/config";
@@ -99,6 +99,8 @@ export function UserMenu() {
   const [systemOpen, setSystemOpen] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [refreshResult, setRefreshResult] = useState<'success' | 'error' | null>(null);
+  const [tokenCopied, setTokenCopied] = useState(false);
+  const [idTokenCopied, setIdTokenCopied] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
   // Close on outside click - MUST be called before any returns (Rules of Hooks)
@@ -180,6 +182,30 @@ export function UserMenu() {
       setTimeout(() => setRefreshResult(null), 3000);
     } finally {
       setIsRefreshing(false);
+    }
+  };
+
+  // Handle copy access token to clipboard
+  const handleCopyAccessToken = async () => {
+    if (!session?.accessToken) return;
+    try {
+      await navigator.clipboard.writeText(session.accessToken);
+      setTokenCopied(true);
+      setTimeout(() => setTokenCopied(false), 2000);
+    } catch (err) {
+      console.error('[UserMenu] Failed to copy access token:', err);
+    }
+  };
+
+  // Handle copy ID token to clipboard
+  const handleCopyIdToken = async () => {
+    if (!session?.idToken) return;
+    try {
+      await navigator.clipboard.writeText(session.idToken);
+      setIdTokenCopied(true);
+      setTimeout(() => setIdTokenCopied(false), 2000);
+    } catch (err) {
+      console.error('[UserMenu] Failed to copy ID token:', err);
     }
   };
 
@@ -384,7 +410,33 @@ export function UserMenu() {
                         <div className="flex items-start gap-2">
                           <Code className="h-4 w-4 text-muted-foreground mt-0.5 flex-shrink-0" />
                           <div className="flex-1">
-                            <div className="text-xs font-medium mb-1">Access Token</div>
+                            <div className="flex items-center justify-between mb-1">
+                              <div className="text-xs font-medium">Access Token</div>
+                              {session?.accessToken && (
+                                <button
+                                  onClick={handleCopyAccessToken}
+                                  className={cn(
+                                    "flex items-center gap-1 px-2 py-0.5 text-[10px] font-medium rounded-md transition-all",
+                                    tokenCopied
+                                      ? "bg-green-500/10 text-green-600 dark:text-green-500 border border-green-500/30"
+                                      : "bg-muted hover:bg-muted/80 text-muted-foreground hover:text-foreground border border-border"
+                                  )}
+                                  title="Copy access token to clipboard"
+                                >
+                                  {tokenCopied ? (
+                                    <>
+                                      <Check className="h-3 w-3" />
+                                      Copied
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Copy className="h-3 w-3" />
+                                      Copy Token
+                                    </>
+                                  )}
+                                </button>
+                              )}
+                            </div>
                             <div className="text-xs text-muted-foreground">
                               Expires: {new Date(session.expiresAt * 1000).toLocaleString()}
                             </div>
@@ -399,6 +451,50 @@ export function UserMenu() {
                                   : 'Expired';
                               })()}
                             </div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* ID Token */}
+                    {session?.idToken && (
+                      <div className="bg-muted/30 rounded-lg p-3 border border-border">
+                        <div className="flex items-start gap-2">
+                          <KeyRound className="h-4 w-4 text-muted-foreground mt-0.5 flex-shrink-0" />
+                          <div className="flex-1">
+                            <div className="flex items-center justify-between mb-1">
+                              <div className="text-xs font-medium">ID Token</div>
+                              <button
+                                onClick={handleCopyIdToken}
+                                className={cn(
+                                  "flex items-center gap-1 px-2 py-0.5 text-[10px] font-medium rounded-md transition-all",
+                                  idTokenCopied
+                                    ? "bg-green-500/10 text-green-600 dark:text-green-500 border border-green-500/30"
+                                    : "bg-muted hover:bg-muted/80 text-muted-foreground hover:text-foreground border border-border"
+                                )}
+                                title="Copy ID token to clipboard (contains group claims)"
+                              >
+                                {idTokenCopied ? (
+                                  <>
+                                    <Check className="h-3 w-3" />
+                                    Copied
+                                  </>
+                                ) : (
+                                  <>
+                                    <Copy className="h-3 w-3" />
+                                    Copy Token
+                                  </>
+                                )}
+                              </button>
+                            </div>
+                            <div className="text-xs text-muted-foreground">
+                              Contains user identity, group memberships, and OIDC claims
+                            </div>
+                            {decodedToken?.exp && (
+                              <div className="text-xs text-muted-foreground/70 mt-1">
+                                Expires: {new Date(decodedToken.exp * 1000).toLocaleString()}
+                              </div>
+                            )}
                           </div>
                         </div>
                       </div>
