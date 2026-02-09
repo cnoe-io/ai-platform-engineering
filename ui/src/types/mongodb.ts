@@ -54,6 +54,7 @@ export interface Conversation {
   tags: string[];
   is_archived: boolean;
   is_pinned: boolean;
+  deleted_at?: Date | null; // Soft-delete timestamp; null = not deleted; auto-purged after 7 days
 }
 
 // ============================================================================

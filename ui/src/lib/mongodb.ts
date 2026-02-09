@@ -189,6 +189,7 @@ async function createIndexes(db: Db) {
     safeCreateIndex(db, 'conversations', { 'sharing.shared_with': 1 }),
     safeCreateIndex(db, 'conversations', { tags: 1 }),
     safeCreateIndex(db, 'conversations', { is_archived: 1, owner_id: 1 }),
+    safeCreateIndex(db, 'conversations', { deleted_at: 1, owner_id: 1 }),
 
     // Messages collection
     safeCreateIndex(db, 'messages', { conversation_id: 1, created_at: 1 }),
