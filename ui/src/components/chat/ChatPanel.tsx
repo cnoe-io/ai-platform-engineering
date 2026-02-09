@@ -112,19 +112,10 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle }: ChatP
     // Ignore scroll events caused by auto-scrolling
     if (isAutoScrollingRef.current) return;
 
-    // COMPLETELY DISABLE scroll button during streaming to prevent false positives
-    // from content updating faster than scroll can complete
-    if (isThisConversationStreaming) {
-      // Don't show scroll button at all during streaming
-      setShowScrollButton(false);
-      return;
-    }
-
-    // Normal behavior when not streaming
     const nearBottom = isNearBottom();
     setIsUserScrolledUp(!nearBottom);
     setShowScrollButton(!nearBottom);
-  }, [isNearBottom, isThisConversationStreaming]);
+  }, [isNearBottom]);
 
   // Set up scroll listener
   useEffect(() => {
@@ -142,17 +133,12 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle }: ChatP
     }
   }, [conversation?.messages?.length, isUserScrolledUp, scrollToBottom]);
 
-  // Hide scroll button and auto-scroll during streaming
+  // Auto-scroll during streaming only if user is near the bottom
   useEffect(() => {
-    if (isThisConversationStreaming) {
-      // Hide scroll button immediately when streaming starts
-      setShowScrollButton(false);
-      setIsUserScrolledUp(false);
-      // Always auto-scroll during streaming (no user control to prevent button flashing)
-      // Use instant scroll for smoother experience
+    if (isThisConversationStreaming && !isUserScrolledUp) {
       scrollToBottom("instant");
     }
-  }, [conversation?.messages?.at(-1)?.content, isThisConversationStreaming, scrollToBottom]);
+  }, [conversation?.messages?.at(-1)?.content, isThisConversationStreaming, isUserScrolledUp, scrollToBottom]);
 
   // Reset scroll state when conversation changes
   useEffect(() => {
