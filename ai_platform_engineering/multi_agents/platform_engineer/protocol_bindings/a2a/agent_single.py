@@ -460,6 +460,67 @@ class AIPlatformEngineerA2ABinding:
                       yield event
                       continue
 
+              # ── Track todo state changes from updates stream ──
+              # Middleware-injected write_todos (via Command returns from wrap_tool_call)
+              # appear in the 'updates' stream, NOT the 'messages' stream.
+              # We must detect todo transitions here to emit task lifecycle notifications
+              # for steps AFTER the first one (the first is seen in messages stream).
+              if event_type == 'updates' and isinstance(event, dict):
+                  # Collect all todos lists from the update event.
+                  # Format varies: {"node_name": {"todos": [...]}} or {"todos": [...]}
+                  todos_lists = []
+                  for key, value in event.items():
+                      if key == 'todos' and isinstance(value, list):
+                          # Top-level todos (direct state update)
+                          todos_lists.append(value)
+                      elif isinstance(value, dict):
+                          node_todos = value.get('todos')
+                          if node_todos and isinstance(node_todos, list):
+                              todos_lists.append(node_todos)
+
+                  for todos in todos_lists:
+                      for todo in todos:
+                          if not isinstance(todo, dict):
+                              continue
+                          todo_id = todo.get("id")
+                          new_status = todo.get("status", "pending")
+                          old_status = self._previous_todos.get(todo_id, {}).get("status", "pending")
+                          todo_content = todo.get("content", f"Step {todo_id}")
+
+                          if old_status != new_status:
+                              if new_status == "in_progress":
+                                  logging.info(f"📋 Task started (from updates): {todo_content}")
+                                  yield {
+                                      "is_task_complete": False,
+                                      "require_user_input": False,
+                                      "content": f"🔧 Workflow: Calling {todo_content}...\n",
+                                      "tool_call": {
+                                          "name": todo_content,
+                                          "status": "started",
+                                          "type": "notification"
+                                      }
+                                  }
+                              elif new_status == "completed":
+                                  logging.info(f"✅ Task completed (from updates): {todo_content}")
+                                  yield {
+                                      "is_task_complete": False,
+                                      "require_user_input": False,
+                                      "content": f"✅ Workflow: {todo_content} completed\n",
+                                      "tool_result": {
+                                          "name": todo_content,
+                                          "status": "completed",
+                                          "type": "notification"
+                                      }
+                                  }
+
+                              # Update tracked state (shared with messages handler —
+                              # prevents duplicate notifications)
+                              self._previous_todos[todo_id] = {
+                                  "status": new_status,
+                                  "content": todo_content,
+                              }
+                  continue
+
               # Process message stream
               if event_type != 'messages':
                   continue
@@ -636,7 +697,7 @@ class AIPlatformEngineerA2ABinding:
 
               # Handle ToolMessage (tool completion indicators + content)
               elif isinstance(message, ToolMessage):
-                  tool_name = message.name if hasattr(message, 'name') else "unknown"
+                  tool_name = message.name if hasattr(message, 'name') else None
                   tool_content = message.content if hasattr(message, 'content') else ""
 
                   # Normalize tool_content to string (Bedrock returns list, OpenAI returns string)
@@ -655,10 +716,18 @@ class AIPlatformEngineerA2ABinding:
                       tool_content = str(tool_content) if tool_content else ""
 
                   # Mark tool call as completed (remove from pending)
+                  # Also resolve tool_name from pending_tool_calls if message.name is None
+                  # (middleware-injected ToolMessages may have name=None)
                   tool_call_id = message.tool_call_id if hasattr(message, 'tool_call_id') else None
                   if tool_call_id and tool_call_id in pending_tool_calls:
-                      pending_tool_calls.pop(tool_call_id)
+                      resolved_name = pending_tool_calls.pop(tool_call_id)
+                      if not tool_name:
+                          tool_name = resolved_name
                       logging.debug(f"Resolved tool call: {tool_call_id} -> {tool_name}")
+                  
+                  # Ensure tool_name is never None
+                  if not tool_name:
+                      tool_name = "unknown"
 
                   logging.debug(f"Tool call completed: {tool_name} (content: {len(tool_content)} chars)")
 
@@ -725,7 +794,7 @@ class AIPlatformEngineerA2ABinding:
                   # Stream completion notification (skip for write_todos and task —
                   # their lifecycle is handled via per-task notifications above)
                   if tool_name not in ("write_todos", "task"):
-                      tool_name_formatted = tool_name.title()
+                      tool_name_formatted = (tool_name or "unknown").title()
                       yield {
                           "is_task_complete": False,
                           "require_user_input": False,
@@ -1197,8 +1266,60 @@ class AIPlatformEngineerA2ABinding:
                       logging.warning("[Fallback Interrupt] No tool_calls extracted from interrupt")
                   continue
 
+              # ── Track todo state changes from updates stream (fallback) ──
+              if item_type == 'updates' and isinstance(item, dict):
+                  todos_lists = []
+                  for key, value in item.items():
+                      if key == 'todos' and isinstance(value, list):
+                          todos_lists.append(value)
+                      elif isinstance(value, dict):
+                          node_todos = value.get('todos')
+                          if node_todos and isinstance(node_todos, list):
+                              todos_lists.append(node_todos)
+
+                  for todos_list in todos_lists:
+                      for todo in todos_list:
+                          if not isinstance(todo, dict):
+                              continue
+                          todo_id = todo.get("id")
+                          new_status = todo.get("status", "pending")
+                          old_status = self._previous_todos.get(todo_id, {}).get("status", "pending")
+                          todo_content = todo.get("content", f"Step {todo_id}")
+
+                          if old_status != new_status:
+                              if new_status == "in_progress":
+                                  logging.info(f"📋 Task started (fallback updates): {todo_content}")
+                                  yield {
+                                      "is_task_complete": False,
+                                      "require_user_input": False,
+                                      "content": f"🔧 Workflow: Calling {todo_content}...\n",
+                                      "tool_call": {
+                                          "name": todo_content,
+                                          "status": "started",
+                                          "type": "notification"
+                                      }
+                                  }
+                              elif new_status == "completed":
+                                  logging.info(f"✅ Task completed (fallback updates): {todo_content}")
+                                  yield {
+                                      "is_task_complete": False,
+                                      "require_user_input": False,
+                                      "content": f"✅ Workflow: {todo_content} completed\n",
+                                      "tool_result": {
+                                          "name": todo_content,
+                                          "status": "completed",
+                                          "type": "notification"
+                                      }
+                                  }
+
+                              self._previous_todos[todo_id] = {
+                                  "status": new_status,
+                                  "content": todo_content,
+                              }
+                  continue
+
               # Handle custom A2A event payloads emitted via get_stream_writer()
-              if isinstance(item, dict):
+              if item_type == 'custom' and isinstance(item, dict):
                   if item.get("type") == "a2a_event":
                       event_obj = self._deserialize_a2a_event(item.get("data"))
                       if event_obj is not None:
@@ -1216,16 +1337,67 @@ class AIPlatformEngineerA2ABinding:
                           "metadata": {"options": options} if options else {},
                       }
                       continue
-              elif item_type == 'messages':
+                  elif item.get("type") == "artifact-update":
+                      logging.debug("Received artifact-update custom event from sub-agent (fallback), forwarding")
+                      yield item
+                      continue
+
+              # Extract message from messages stream
+              if item_type == 'messages':
                 message = item[0]
-              elif 'generate_structured_response' in item:
+              elif isinstance(item, dict) and 'generate_structured_response' in item:
                 yield self.handle_structured_response(item['generate_structured_response']['structured_response'])
+                continue
+              else:
+                continue  # Skip unrecognized event types
 
               if (
                   isinstance(message, AIMessage)
                   and getattr(message, "tool_calls", None)
                   and len(message.tool_calls) > 0
               ):
+                  # Check for write_todos calls — emit task lifecycle notifications
+                  for tool_call in message.tool_calls:
+                      tc_name = tool_call.get("name", "")
+                      if tc_name == "write_todos":
+                          fb_todos = tool_call.get("args", {}).get("todos", [])
+                          for todo in fb_todos:
+                              todo_id = todo.get("id")
+                              new_status = todo.get("status", "pending")
+                              old_status = self._previous_todos.get(todo_id, {}).get("status", "pending")
+                              todo_content = todo.get("content", f"Step {todo_id}")
+
+                              if old_status != new_status:
+                                  if new_status == "in_progress":
+                                      logging.info(f"📋 Task started (fallback messages): {todo_content}")
+                                      yield {
+                                          "is_task_complete": False,
+                                          "require_user_input": False,
+                                          "content": f"🔧 Workflow: Calling {todo_content}...\n",
+                                          "tool_call": {
+                                              "name": todo_content,
+                                              "status": "started",
+                                              "type": "notification"
+                                          }
+                                      }
+                                  elif new_status == "completed":
+                                      logging.info(f"✅ Task completed (fallback messages): {todo_content}")
+                                      yield {
+                                          "is_task_complete": False,
+                                          "require_user_input": False,
+                                          "content": f"✅ Workflow: {todo_content} completed\n",
+                                          "tool_result": {
+                                              "name": todo_content,
+                                              "status": "completed",
+                                              "type": "notification"
+                                          }
+                                      }
+
+                              self._previous_todos[todo_id] = {
+                                  "status": new_status,
+                                  "content": todo_content,
+                              }
+
                   logging.debug("Detected AIMessage with tool calls, yielding")
                   yield {
                       "is_task_complete": False,

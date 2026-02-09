@@ -168,6 +168,7 @@ class DeterministicTaskMiddleware(AgentMiddleware):
             }]),
             ToolMessage(
                 content=f"Starting: {display_text}",
+                name="write_todos",
                 tool_call_id=write_todos_id,
             ),
             AIMessage(content="", tool_calls=[{
@@ -260,13 +261,13 @@ class DeterministicTaskMiddleware(AgentMiddleware):
             # Build COMPLETE messages only (no dangling AIMessage with task call)
             # The next task call will be injected by abefore_model
             completion_messages = [
-                ToolMessage(content=tool_msg_content, tool_call_id=tool_call_id),
+                ToolMessage(content=tool_msg_content, name="task", tool_call_id=tool_call_id),
                 AIMessage(content="", tool_calls=[{
                     "name": "write_todos",
                     "args": {"todos": todos},
                     "id": write_todos_id,
                 }]),
-                ToolMessage(content=f"Task {current_task_id} completed. Continuing to next step.", tool_call_id=write_todos_id),
+                ToolMessage(content=f"Task {current_task_id} completed. Continuing to next step.", name="write_todos", tool_call_id=write_todos_id),
             ]
             
             # Build update dict - CRITICAL: Include files state for filesystem sharing!
@@ -291,13 +292,13 @@ class DeterministicTaskMiddleware(AgentMiddleware):
             logger.info("[DeterministicTaskMiddleware] All tasks completed, returning to model")
             
             completion_messages = [
-                ToolMessage(content=tool_msg_content, tool_call_id=tool_call_id),
+                ToolMessage(content=tool_msg_content, name="task", tool_call_id=tool_call_id),
                 AIMessage(content="", tool_calls=[{
                     "name": "write_todos",
                     "args": {"todos": todos},
                     "id": write_todos_id,
                 }]),
-                ToolMessage(content="All workflow tasks completed successfully.", tool_call_id=write_todos_id),
+                ToolMessage(content="All workflow tasks completed successfully.", name="write_todos", tool_call_id=write_todos_id),
             ]
             
             # Build update dict - include files for final state
