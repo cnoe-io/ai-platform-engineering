@@ -54,6 +54,7 @@ class AIPlatformEngineerA2ABinding:
       self.graph = None  # Set after ensure_initialized()
       self.tracing = TracingManager()
       self._execution_plan_sent = False
+      self._previous_todos: dict[int, dict] = {}  # Track todo states for notifications
       self._initialized = False
   
   async def ensure_initialized(self) -> None:
@@ -222,6 +223,7 @@ class AIPlatformEngineerA2ABinding:
       
       # Reset execution plan state for each new stream
       self._execution_plan_sent = False
+      self._previous_todos = {}  # Reset todo tracking for task notifications
 
       # Track tool calls to ensure every AIMessage.tool_call gets a ToolMessage
       pending_tool_calls = {}  # {tool_call_id: tool_name}
@@ -483,6 +485,11 @@ class AIPlatformEngineerA2ABinding:
                               logging.debug("Skipping tool call with empty name (streaming chunk)")
                               continue
 
+                          # Skip write_todos and task — handled by per-task notifications
+                          if tool_name in ("write_todos", "task"):
+                              logging.debug(f"Skipping chunk notification for '{tool_name}' (handled by task lifecycle)")
+                              continue
+
                           logging.debug(f"Tool call started (from AIMessageChunk): {tool_name}")
 
                           # Stream tool start notification to client with metadata
@@ -567,7 +574,54 @@ class AIPlatformEngineerA2ABinding:
 
                       logging.info(f"Tool call started: {tool_name}")
 
-                      # Stream tool start notification to client with metadata
+                      # ── write_todos: emit per-task notifications ──
+                      if tool_name == "write_todos":
+                          todos = tool_call.get("args", {}).get("todos", [])
+                          for todo in todos:
+                              todo_id = todo.get("id")
+                              new_status = todo.get("status", "pending")
+                              old_status = self._previous_todos.get(todo_id, {}).get("status", "pending")
+                              todo_content = todo.get("content", f"Step {todo_id}")
+
+                              if old_status != new_status:
+                                  if new_status == "in_progress":
+                                      logging.info(f"📋 Task started: {todo_content}")
+                                      yield {
+                                          "is_task_complete": False,
+                                          "require_user_input": False,
+                                          "content": f"🔧 Workflow: Calling {todo_content}...\n",
+                                          "tool_call": {
+                                              "name": todo_content,
+                                              "status": "started",
+                                              "type": "notification"
+                                          }
+                                      }
+                                  elif new_status == "completed":
+                                      logging.info(f"✅ Task completed: {todo_content}")
+                                      yield {
+                                          "is_task_complete": False,
+                                          "require_user_input": False,
+                                          "content": f"✅ Workflow: {todo_content} completed\n",
+                                          "tool_result": {
+                                              "name": todo_content,
+                                              "status": "completed",
+                                              "type": "notification"
+                                          }
+                                      }
+
+                              # Update tracked state
+                              self._previous_todos[todo_id] = {
+                                  "status": new_status,
+                                  "content": todo_content,
+                              }
+                          continue  # Skip generic notification for write_todos
+
+                      # ── task: skip generic notification (write_todos already announced it) ──
+                      if tool_name == "task":
+                          logging.debug("Skipping generic notification for 'task' (already announced via write_todos)")
+                          continue
+
+                      # ── All other tools: emit standard tool notification ──
                       tool_name_formatted = tool_name.title()
                       yield {
                           "is_task_complete": False,
@@ -668,18 +722,20 @@ class AIPlatformEngineerA2ABinding:
                           "content": tool_content + "\n",
                       }
 
-                  # Then stream completion notification
-                  tool_name_formatted = tool_name.title()
-                  yield {
-                      "is_task_complete": False,
-                      "require_user_input": False,
-                      "content": f"✅ Supervisor: Agent task {tool_name_formatted} completed\n",
-                      "tool_result": {
-                          "name": tool_name,
-                          "status": "completed",
-                          "type": "notification"
+                  # Stream completion notification (skip for write_todos and task —
+                  # their lifecycle is handled via per-task notifications above)
+                  if tool_name not in ("write_todos", "task"):
+                      tool_name_formatted = tool_name.title()
+                      yield {
+                          "is_task_complete": False,
+                          "require_user_input": False,
+                          "content": f"✅ Supervisor: Agent task {tool_name_formatted} completed\n",
+                          "tool_result": {
+                              "name": tool_name,
+                              "status": "completed",
+                              "type": "notification"
+                          }
                       }
-                  }
 
               # Handle final AIMessage (without tool calls) from primary stream
               elif isinstance(message, AIMessage):
