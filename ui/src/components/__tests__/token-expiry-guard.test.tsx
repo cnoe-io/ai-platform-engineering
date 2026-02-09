@@ -1,15 +1,24 @@
 /**
  * Unit tests for TokenExpiryGuard component
- * Tests token expiry monitoring, warnings, and user notifications
+ *
+ * Tests cover:
+ * - Token expiry monitoring and warning display
+ * - Dismiss button persistence (stays dismissed for the same expiry cycle)
+ * - Silent token auto-refresh via updateSession
+ * - Expired token handling and auto-redirect
+ * - Warning message changes based on refresh token availability
+ * - Cleanup on unmount
  */
 
 import React from 'react'
-import { render, screen, waitFor, act } from '@testing-library/react'
+import { render, screen, waitFor, act, fireEvent } from '@testing-library/react'
 import { useSession, signOut } from 'next-auth/react'
 import { useRouter } from 'next/navigation'
 import { TokenExpiryGuard } from '../token-expiry-guard'
 
 // Mock Next Auth
+const mockUpdateSession = jest.fn().mockResolvedValue(undefined)
+
 jest.mock('next-auth/react', () => ({
   useSession: jest.fn(),
   signOut: jest.fn(),
@@ -43,8 +52,16 @@ describe('TokenExpiryGuard', () => {
   const mockUseRouter = useRouter as jest.MockedFunction<typeof useRouter>
 
   beforeEach(() => {
-    jest.clearAllMocks()
+    jest.restoreAllMocks()
     jest.useFakeTimers()
+    mockUpdateSession.mockClear().mockResolvedValue(undefined)
+
+    // Reset getConfig mock to default (ssoEnabled = true)
+    const { getConfig } = require('@/lib/config')
+    getConfig.mockImplementation((key: string) => {
+      if (key === 'ssoEnabled') return true
+      return undefined
+    })
 
     mockUseRouter.mockReturnValue({
       push: mockPush,
@@ -54,7 +71,8 @@ describe('TokenExpiryGuard', () => {
   })
 
   afterEach(() => {
-    jest.runOnlyPendingTimers()
+    // Only run pending timers if fake timers are active
+    try { jest.runOnlyPendingTimers() } catch { /* real timers active */ }
     jest.useRealTimers()
   })
 
@@ -100,6 +118,7 @@ describe('TokenExpiryGuard', () => {
         expiresAt: futureExpiry,
       } as any,
       status: 'authenticated',
+      update: mockUpdateSession,
     })
 
     render(<TokenExpiryGuard />)
@@ -123,6 +142,7 @@ describe('TokenExpiryGuard', () => {
         expiresAt: soonExpiry,
       } as any,
       status: 'authenticated',
+      update: mockUpdateSession,
     })
 
     render(<TokenExpiryGuard />)
@@ -151,6 +171,7 @@ describe('TokenExpiryGuard', () => {
         expiresAt: expiredTime,
       } as any,
       status: 'authenticated',
+      update: mockUpdateSession,
     })
 
     render(<TokenExpiryGuard />)
@@ -174,6 +195,7 @@ describe('TokenExpiryGuard', () => {
         expiresAt: expiredTime,
       } as any,
       status: 'authenticated',
+      update: mockUpdateSession,
     })
 
     render(<TokenExpiryGuard />)
@@ -195,6 +217,7 @@ describe('TokenExpiryGuard', () => {
         error: 'RefreshTokenExpired',
       } as any,
       status: 'authenticated',
+      update: mockUpdateSession,
     })
 
     render(<TokenExpiryGuard />)
@@ -216,6 +239,7 @@ describe('TokenExpiryGuard', () => {
         error: 'RefreshTokenError',
       } as any,
       status: 'authenticated',
+      update: mockUpdateSession,
     })
 
     render(<TokenExpiryGuard />)
@@ -242,6 +266,7 @@ describe('TokenExpiryGuard', () => {
         accessToken: 'test-token',
       } as any,
       status: 'authenticated',
+      update: mockUpdateSession,
     })
 
     render(<TokenExpiryGuard />)
@@ -271,6 +296,7 @@ describe('TokenExpiryGuard', () => {
         expiresAt: expiredTime,
       } as any,
       status: 'authenticated',
+      update: mockUpdateSession,
     })
 
     render(<TokenExpiryGuard />)
@@ -300,6 +326,7 @@ describe('TokenExpiryGuard', () => {
           expiresAt: expiry,
         } as any,
         status: 'authenticated',
+        update: mockUpdateSession,
       })
 
       const { unmount } = render(<TokenExpiryGuard />)
@@ -325,6 +352,7 @@ describe('TokenExpiryGuard', () => {
         expiresAt: futureExpiry,
       } as any,
       status: 'authenticated',
+      update: mockUpdateSession,
     })
 
     const { unmount } = render(<TokenExpiryGuard />)
@@ -337,5 +365,212 @@ describe('TokenExpiryGuard', () => {
     })
 
     // No assertions needed - just ensuring no errors
+  })
+
+  // --------------------------------------------------------------------------
+  // Dismiss persistence tests
+  // --------------------------------------------------------------------------
+
+  describe('dismiss persistence', () => {
+    it('should keep warning dismissed after clicking Dismiss (same expiry cycle)', async () => {
+      jest.useRealTimers() // Use real timers so async flows resolve naturally
+      const soonExpiry = Math.floor(Date.now() / 1000) + 240 // 4 minutes from now
+
+      mockUseSession.mockReturnValue({
+        data: {
+          user: { name: 'Test User', email: 'test@example.com' },
+          expiresAt: soonExpiry,
+        } as any,
+        status: 'authenticated',
+        update: mockUpdateSession,
+      })
+
+      render(<TokenExpiryGuard />)
+
+      // Wait for warning to appear (checkTokenExpiry runs on mount via useEffect)
+      await waitFor(() => {
+        expect(screen.getByText(/session expiring soon/i)).toBeInTheDocument()
+      })
+
+      // Click Dismiss
+      fireEvent.click(screen.getByText('Dismiss'))
+
+      // Warning should disappear
+      expect(screen.queryByText(/session expiring soon/i)).not.toBeInTheDocument()
+    })
+
+    it('should show warning again after token is refreshed (new expiry cycle)', async () => {
+      jest.useRealTimers()
+      const soonExpiry = Math.floor(Date.now() / 1000) + 240 // 4 minutes from now
+
+      mockUseSession.mockReturnValue({
+        data: {
+          user: { name: 'Test User', email: 'test@example.com' },
+          expiresAt: soonExpiry,
+        } as any,
+        status: 'authenticated',
+        update: mockUpdateSession,
+      })
+
+      const { rerender } = render(<TokenExpiryGuard />)
+
+      // Wait for warning to appear
+      await waitFor(() => {
+        expect(screen.getByText(/session expiring soon/i)).toBeInTheDocument()
+      })
+
+      // Dismiss
+      fireEvent.click(screen.getByText('Dismiss'))
+      expect(screen.queryByText(/session expiring soon/i)).not.toBeInTheDocument()
+
+      // Simulate token refresh — new expiresAt (different value = new expiry cycle)
+      const newExpiry = Math.floor(Date.now() / 1000) + 200
+
+      mockUseSession.mockReturnValue({
+        data: {
+          user: { name: 'Test User', email: 'test@example.com' },
+          expiresAt: newExpiry,
+        } as any,
+        status: 'authenticated',
+        update: mockUpdateSession,
+      })
+
+      rerender(<TokenExpiryGuard />)
+
+      // Warning should reappear for the new expiry cycle
+      await waitFor(() => {
+        expect(screen.getByText(/session expiring soon/i)).toBeInTheDocument()
+      })
+    })
+  })
+
+  // --------------------------------------------------------------------------
+  // Silent auto-refresh tests
+  // --------------------------------------------------------------------------
+
+  describe('silent auto-refresh', () => {
+    it('should call updateSession when token is within warning window and refresh token exists', async () => {
+      jest.useRealTimers()
+      const soonExpiry = Math.floor(Date.now() / 1000) + 240 // 4 minutes from now
+
+      mockUseSession.mockReturnValue({
+        data: {
+          user: { name: 'Test User', email: 'test@example.com' },
+          expiresAt: soonExpiry,
+          hasRefreshToken: true,
+        } as any,
+        status: 'authenticated',
+        update: mockUpdateSession,
+      })
+
+      render(<TokenExpiryGuard />)
+
+      // Wait for the warning to appear (which means checkTokenExpiry ran)
+      await waitFor(() => {
+        expect(screen.getByText(/session expiring soon/i)).toBeInTheDocument()
+      })
+
+      // updateSession should have been called (silent refresh triggered on mount)
+      expect(mockUpdateSession).toHaveBeenCalled()
+    })
+
+    it('should NOT call updateSession when token has plenty of time remaining', async () => {
+      jest.useRealTimers()
+      const futureExpiry = Math.floor(Date.now() / 1000) + 600 // 10 min from now
+
+      mockUseSession.mockReturnValue({
+        data: {
+          user: { name: 'Test User', email: 'test@example.com' },
+          expiresAt: futureExpiry,
+          hasRefreshToken: true,
+        } as any,
+        status: 'authenticated',
+        update: mockUpdateSession,
+      })
+
+      render(<TokenExpiryGuard />)
+
+      // Wait a tick for effects to settle
+      await waitFor(() => {
+        // No warning should appear (token not near expiry)
+        expect(screen.queryByText(/session expiring soon/i)).not.toBeInTheDocument()
+      })
+
+      // Should NOT have called updateSession (token not near expiry)
+      expect(mockUpdateSession).not.toHaveBeenCalled()
+    })
+
+    it('should show auto-refresh message when hasRefreshToken is true', async () => {
+      jest.useRealTimers()
+      const soonExpiry = Math.floor(Date.now() / 1000) + 240
+
+      mockUseSession.mockReturnValue({
+        data: {
+          user: { name: 'Test User', email: 'test@example.com' },
+          expiresAt: soonExpiry,
+          hasRefreshToken: true,
+        } as any,
+        status: 'authenticated',
+        update: mockUpdateSession,
+      })
+
+      render(<TokenExpiryGuard />)
+
+      // Wait for warning to appear
+      await waitFor(() => {
+        expect(screen.getByText(/attempting to refresh automatically/i)).toBeInTheDocument()
+      })
+    })
+
+    it('should show manual re-login message when hasRefreshToken is false', async () => {
+      jest.useRealTimers()
+      const soonExpiry = Math.floor(Date.now() / 1000) + 240
+
+      mockUseSession.mockReturnValue({
+        data: {
+          user: { name: 'Test User', email: 'test@example.com' },
+          expiresAt: soonExpiry,
+          hasRefreshToken: false,
+        } as any,
+        status: 'authenticated',
+        update: mockUpdateSession,
+      })
+
+      render(<TokenExpiryGuard />)
+
+      // Wait for warning to appear
+      await waitFor(() => {
+        expect(screen.getByText(/save your work and re-login/i)).toBeInTheDocument()
+      })
+
+      expect(screen.queryByText(/attempting to refresh automatically/i)).not.toBeInTheDocument()
+    })
+
+    it('should not crash if updateSession rejects', async () => {
+      jest.useRealTimers()
+      const soonExpiry = Math.floor(Date.now() / 1000) + 240
+      mockUpdateSession.mockRejectedValueOnce(new Error('Network error'))
+
+      const consoleSpy = jest.spyOn(console, 'error').mockImplementation()
+
+      mockUseSession.mockReturnValue({
+        data: {
+          user: { name: 'Test User', email: 'test@example.com' },
+          expiresAt: soonExpiry,
+          hasRefreshToken: true,
+        } as any,
+        status: 'authenticated',
+        update: mockUpdateSession,
+      })
+
+      render(<TokenExpiryGuard />)
+
+      // Should not crash — warning is still displayed
+      await waitFor(() => {
+        expect(screen.getByText(/session expiring soon/i)).toBeInTheDocument()
+      })
+
+      consoleSpy.mockRestore()
+    })
   })
 })
