@@ -1227,7 +1227,11 @@ function ChatMessage({
 
                         // Fenced code block
                         const language = match ? match[1] : "";
-                        const shouldHighlight = match && language !== "text";
+                        // Shell/CLI commands look better without syntax highlighting —
+                        // the colorization of flags, env vars, pipes etc. is distracting
+                        const shellLanguages = ["bash", "sh", "shell", "zsh", "fish", "console", "terminal"];
+                        const isShell = shellLanguages.includes(language.toLowerCase());
+                        const shouldHighlight = match && language !== "text" && !isShell;
 
                         return (
                           <div className="my-4 rounded-lg overflow-hidden border border-border/30 bg-[#1e1e2e] max-w-full">
@@ -1252,21 +1256,37 @@ function ChatMessage({
                                 style={oneDark}
                                 language={language}
                                 PreTag="div"
+                                wrapLongLines
                                 customStyle={{
                                   margin: 0,
                                   borderRadius: 0,
                                   padding: "1rem 1.25rem",
                                   fontSize: "13px",
                                   lineHeight: "1.6",
-                                  background: "transparent"
+                                  background: "transparent",
+                                  wordBreak: "break-word",
+                                  whiteSpace: "pre-wrap",
                                 }}
                               >
                                 {codeContent}
                               </SyntaxHighlighter>
                             ) : (
                               <pre className="p-4 overflow-x-auto max-w-full">
-                                <code className="text-[13px] leading-relaxed text-zinc-300 font-mono whitespace-pre-wrap break-words">
-                                  {codeContent}
+                                <code className="text-[13px] leading-relaxed font-mono whitespace-pre-wrap break-words">
+                                  {codeContent.split("\n").map((line, i) => {
+                                    const trimmed = line.trimStart();
+                                    const isComment = trimmed.startsWith("#") || trimmed.startsWith("//");
+                                    return (
+                                      <span key={i}>
+                                        {isComment ? (
+                                          <span className="text-zinc-500 italic">{line}</span>
+                                        ) : (
+                                          <span className="text-zinc-300">{line}</span>
+                                        )}
+                                        {i < codeContent.split("\n").length - 1 ? "\n" : ""}
+                                      </span>
+                                    );
+                                  })}
                                 </code>
                               </pre>
                             )}
