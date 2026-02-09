@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import { config } from "@/lib/config";
+import { getConfig } from "@/lib/config";
 import { getStorageMode } from "@/lib/storage-config";
 
 export type HealthStatus = "checking" | "connected" | "disconnected";
@@ -39,7 +39,10 @@ export function useCAIPEHealth(): UseCAIPEHealthResult {
   const [mongoDBStatus, setMongoDBStatus] = useState<'connected' | 'disconnected' | 'checking'>('checking');
   const [storageMode, setStorageMode] = useState<'mongodb' | 'localStorage' | null>(null);
   const nextCheckTimeRef = useRef<number>(Date.now() + POLL_INTERVAL_MS);
-  const url = config.caipeUrl;
+  // Use getConfig() for dynamic resolution — re-evaluates on each render
+  // to pick up window.__RUNTIME_ENV__ values that may not be available at
+  // module load time (e.g. PublicEnvScript hasn't executed yet).
+  const url = getConfig('caipeUrl');
 
   const checkHealth = useCallback(async () => {
     setStatus("checking");
