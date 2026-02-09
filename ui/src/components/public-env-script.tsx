@@ -1,24 +1,29 @@
 /**
  * PublicEnvScript - Server Component that injects runtime environment variables
  *
- * This replaces the entrypoint.sh → env-config.js approach with a cleaner pattern:
- * - Runs as a React Server Component inside the root layout
- * - Reads process.env at REQUEST TIME (Node.js runtime, not build time)
- * - Auto-discovers ALL NEXT_PUBLIC_* variables (no manual listing needed)
- * - Injects them into window.__RUNTIME_ENV__ via an inline <script> tag
+ * TWO-LAYER env injection strategy for Docker/K8s deployments:
  *
- * Why this works:
- * Server Components execute in Node.js where process.env is read at runtime.
- * The rendered <script> tag is part of the SSR HTML, so it's available before
- * any client-side JavaScript runs -- equivalent to "beforeInteractive".
+ * Layer 1 (PRIMARY): entrypoint.sh generates /app/public/env-config.js at
+ *   container start, loaded via <script src="/env-config.js"> in layout.tsx.
+ *   This is synchronous, guaranteed, and works regardless of SSR mode.
+ *
+ * Layer 2 (SECONDARY): This Server Component reads process.env at REQUEST TIME
+ *   and merges any additional NEXT_PUBLIC_* values into window.__RUNTIME_ENV__.
+ *   Uses headers() to force dynamic rendering (prevents build-time caching).
+ *
+ * The merge approach ensures both layers cooperate:
+ * - env-config.js sets the base values (always correct, from container env)
+ * - PublicEnvScript adds/overwrites if process.env has fresher values
  *
  * Adding a new NEXT_PUBLIC_* variable? Just set it in your environment.
- * This component will automatically pick it up. No code changes needed.
+ * Both layers auto-discover all NEXT_PUBLIC_* variables.
  */
+
+import { headers } from 'next/headers';
 
 /**
  * Collect all NEXT_PUBLIC_* environment variables from process.env.
- * Runs server-side at request time -- values are always fresh.
+ * Runs server-side at request time (forced by headers() call).
  */
 function getPublicEnv(): Record<string, string> {
   const publicEnv: Record<string, string> = {};
@@ -35,30 +40,28 @@ function getPublicEnv(): Record<string, string> {
 /**
  * Server Component that renders an inline script injecting runtime env vars.
  *
- * Usage in app/layout.tsx:
- *   import { PublicEnvScript } from '@/components/public-env-script';
+ * Uses headers() to OPT INTO DYNAMIC RENDERING -- this ensures process.env
+ * is read at request time, not build time (critical for Docker/K8s where
+ * env vars are set at container runtime, not during `npm run build`).
  *
- *   export default function RootLayout({ children }) {
- *     return (
- *       <html>
- *         <head>
- *           <PublicEnvScript />
- *         </head>
- *         <body>{children}</body>
- *       </html>
- *     );
- *   }
- *
- * Client-side access:
- *   const value = window.__RUNTIME_ENV__?.NEXT_PUBLIC_MONGODB_ENABLED;
+ * The script merges with any existing window.__RUNTIME_ENV__ (set by
+ * env-config.js from entrypoint.sh) using Object.assign.
  */
-export function PublicEnvScript() {
+export async function PublicEnvScript() {
+  // Force dynamic rendering: headers() is a dynamic API that opts out of
+  // static pre-rendering. Without this, the component executes at BUILD TIME
+  // when NEXT_PUBLIC_* vars are not yet available.
+  await headers();
+
   const publicEnv = getPublicEnv();
 
+  // Merge with existing __RUNTIME_ENV__ (from env-config.js) rather than
+  // overwriting. Object.assign(target, source) -- source values win on conflict,
+  // which is correct since process.env at request time is the freshest source.
   return (
     <script
       dangerouslySetInnerHTML={{
-        __html: `window.__RUNTIME_ENV__=${JSON.stringify(publicEnv)};`,
+        __html: `window.__RUNTIME_ENV__=Object.assign(window.__RUNTIME_ENV__||{},${JSON.stringify(publicEnv)});`,
       }}
     />
   );
