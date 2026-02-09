@@ -1151,9 +1151,9 @@ function ChatMessage({
           <>
             <div
               className={cn(
-                "rounded-xl relative",
+                "rounded-xl relative overflow-hidden",
                 isUser
-                  ? "inline-block bg-primary text-primary-foreground px-4 py-3 rounded-tr-sm"
+                  ? "inline-block bg-primary text-primary-foreground px-4 py-3 rounded-tr-sm max-w-full"
                   : "bg-card/50 border border-border/50 px-4 py-3",
                 // Improved text selection styles
                 "selection:bg-primary/30 selection:text-foreground"
@@ -1161,10 +1161,10 @@ function ChatMessage({
             >
               {isUser ? (
                 <div>
-                  <p className="whitespace-pre-wrap text-sm selection:bg-white/30 selection:text-white">{message.content}</p>
+                  <p className="whitespace-pre-wrap break-words text-sm selection:bg-white/30 selection:text-white" style={{ overflowWrap: 'anywhere' }}>{message.content}</p>
                 </div>
               ) : (
-                <div className="prose-container">
+                <div className="prose-container overflow-hidden break-words overflow-wrap-anywhere">
                   {isCollapsed ? (
                     <div className="space-y-2">
                       <div className="text-sm text-foreground/90 whitespace-pre-wrap break-words">
@@ -1231,7 +1231,7 @@ function ChatMessage({
                           // Inline code
                           return (
                             <code
-                              className="bg-muted/80 text-primary px-1.5 py-0.5 rounded text-[13px] font-mono"
+                              className="bg-muted/80 text-primary px-1.5 py-0.5 rounded text-[13px] font-mono break-all"
                               {...props}
                             >
                               {children}
@@ -1244,7 +1244,7 @@ function ChatMessage({
                         const shouldHighlight = match && language !== "text";
 
                         return (
-                          <div className="my-4 rounded-lg overflow-hidden border border-border/30 bg-[#1e1e2e]">
+                          <div className="my-4 rounded-lg overflow-hidden border border-border/30 bg-[#1e1e2e] max-w-full">
                             <div className="flex items-center justify-between px-4 py-2 border-b border-border/20 bg-[#181825]">
                               <span className="text-xs text-zinc-500 font-mono uppercase tracking-wide">
                                 {language || "plain text"}
@@ -1278,8 +1278,8 @@ function ChatMessage({
                                 {codeContent}
                               </SyntaxHighlighter>
                             ) : (
-                              <pre className="p-4 overflow-x-auto">
-                                <code className="text-[13px] leading-relaxed text-zinc-300 font-mono whitespace-pre-wrap">
+                              <pre className="p-4 overflow-x-auto max-w-full">
+                                <code className="text-[13px] leading-relaxed text-zinc-300 font-mono whitespace-pre-wrap break-words">
                                   {codeContent}
                                 </code>
                               </pre>

@@ -260,7 +260,7 @@ export function AgentStreamBox({
               >
                 <div className="h-full">
                 <div className="p-4">
-                  <div className="prose prose-sm dark:prose-invert max-w-none">
+                  <div className="prose prose-sm dark:prose-invert max-w-none break-words overflow-hidden" style={{ overflowWrap: 'anywhere' }}>
                     <ReactMarkdown remarkPlugins={[remarkGfm]}>
                       {streamContent}
                     </ReactMarkdown>
