@@ -268,13 +268,13 @@ export function SettingsPanel() {
                 <div className="flex items-center gap-2">
                   <h2 className="text-lg font-semibold">UI Personalization</h2>
                   {syncStatus === 'syncing' && (
-                    <Cloud className="h-4 w-4 text-muted-foreground animate-pulse" title="Syncing to server..." />
+                    <span title="Syncing to server..."><Cloud className="h-4 w-4 text-muted-foreground animate-pulse" /></span>
                   )}
                   {syncStatus === 'synced' && (
-                    <Cloud className="h-4 w-4 text-green-500" title="Synced to server" />
+                    <span title="Synced to server"><Cloud className="h-4 w-4 text-green-500" /></span>
                   )}
                   {syncStatus === 'error' && (
-                    <CloudOff className="h-4 w-4 text-muted-foreground" title="Local only (server unavailable)" />
+                    <span title="Local only (server unavailable)"><CloudOff className="h-4 w-4 text-muted-foreground" /></span>
                   )}
                 </div>
                 <Button
