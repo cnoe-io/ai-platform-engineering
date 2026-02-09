@@ -50,7 +50,7 @@ RUN BUILD_DATE_VALUE="${BUILD_DATE}"; \
     cat public/version.json
 
 # Build Next.js standalone application without baking in NEXT_PUBLIC_* vars
-# These will be injected at runtime via env-config.js
+# These will be injected at runtime by PublicEnvScript server component
 RUN npm run build
 
 # ---------- Stage 3: Production runtime ----------
@@ -72,23 +72,25 @@ COPY --from=build --chown=nextjs:nodejs /app/.next/static ./.next/static
 # Copy version info
 COPY --from=build /app/public/version.json ./public/version.json
 
-# Copy entrypoint script for runtime env injection
+# Copy entrypoint script
 COPY --chown=nextjs:nodejs build/entrypoint.sh /app/entrypoint.sh
 RUN chmod +x /app/entrypoint.sh
 
 USER nextjs
-
-# Health check
-HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
-    CMD wget --no-verbose --tries=1 --spider http://localhost:3000/api/health || exit 1
 
 EXPOSE 3000
 
 ENV PORT=3000
 ENV HOSTNAME="0.0.0.0"
 
-# Runtime environment variables:
+# Runtime environment variables (auto-discovered by PublicEnvScript component):
+# Any NEXT_PUBLIC_* env var set on the container is automatically available
+# to client-side code via window.__RUNTIME_ENV__. No manual listing needed.
+# Common variables:
 #   NEXT_PUBLIC_A2A_BASE_URL - CAIPE supervisor endpoint
-#   NEXT_PUBLIC_SSO_ENABLED - Enable SSO authentication
-#   NEXT_PUBLIC_ENABLE_SUBAGENT_CARDS - Enable subagent cards UI
+#   NEXT_PUBLIC_SSO_ENABLED - Enable SSO authentication ("true"/"false")
+#   NEXT_PUBLIC_RAG_ENABLED - Enable RAG knowledge bases ("true"/"false")
+#   NEXT_PUBLIC_MONGODB_ENABLED - Enable MongoDB persistence ("true"/"false")
+#   NEXT_PUBLIC_APP_NAME - Application name (e.g. "Grid")
+#   NEXT_PUBLIC_LOGO_URL - Logo path (e.g. "/grid-neon-logo.svg")
 CMD ["/app/entrypoint.sh"]

@@ -12,9 +12,9 @@ describe('config - Extended', () => {
     jest.resetModules();
     process.env = { ...originalEnv };
 
-    // Reset window.__ENV__
+    // Reset window.__RUNTIME_ENV__ (injected by PublicEnvScript)
     if (typeof window !== 'undefined') {
-      (window as any).__ENV__ = undefined;
+      (window as any).__RUNTIME_ENV__ = undefined;
     }
   });
 

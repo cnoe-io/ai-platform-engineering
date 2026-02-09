@@ -1,10 +1,18 @@
 /**
  * CAIPE UI Configuration
  *
- * Configuration is resolved in the following order (highest priority first):
- * 1. Runtime environment variables (NEXT_PUBLIC_CAIPE_URL)
- * 2. Build-time environment variables (CAIPE_URL)
- * 3. Default values based on environment
+ * Runtime environment variable resolution:
+ *
+ * Client-side (browser):
+ *   window.__RUNTIME_ENV__[key] — injected by PublicEnvScript server component
+ *   in layout.tsx. The server component reads process.env at request time and
+ *   renders an inline <script> tag, so values are always fresh.
+ *
+ * Server-side (Node.js):
+ *   process.env[key] — read at runtime by Node.js, always fresh.
+ *
+ * No build-time inlining is used. No manual variable listing required.
+ * Adding a new NEXT_PUBLIC_* variable? Just set it in your environment.
  *
  * SSO Configuration:
  * - NEXT_PUBLIC_SSO_ENABLED: "true" to enable SSO, otherwise disabled
@@ -48,58 +56,42 @@ export interface Config {
   spinnerColor: string | null;
   /** Whether to show "Powered by OSS caipe.io" footer */
   showPoweredBy: boolean;
+  /** Support email address for contact links */
+  supportEmail: string;
 }
 
 /**
- * Get runtime environment variable from window.__ENV__ (injected at container startup)
- * Falls back to process.env for build-time values
+ * Get a NEXT_PUBLIC_* environment variable at runtime.
  *
- * Note: In Next.js, process.env.NEXT_PUBLIC_* cannot be accessed dynamically.
- * We must map each variable explicitly.
+ * Resolution order:
+ * 1. Client: window.__RUNTIME_ENV__[key] (injected by PublicEnvScript)
+ * 2. Server: process.env[key] (Node.js reads env vars at runtime)
+ *
+ * Unlike the old approach, there is no switch statement or manual variable list.
+ * Both paths use dynamic key access which works because:
+ * - window.__RUNTIME_ENV__ is a plain object (dynamic access always works)
+ * - Server-side process.env[key] works at runtime in Node.js
+ *   (only NEXT_PUBLIC_* in client bundles gets static-replaced by Next.js)
  */
 function getRuntimeEnv(key: string): string | undefined {
-  // Client-side: check window.__ENV__ first (runtime injection)
-  if (typeof window !== 'undefined' && (window as any).__ENV__) {
-    return (window as any).__ENV__[key];
+  // Client-side: read from window.__RUNTIME_ENV__ (injected by PublicEnvScript)
+  if (typeof window !== 'undefined') {
+    const runtimeEnv = (window as any).__RUNTIME_ENV__ as Record<string, string> | undefined;
+    if (runtimeEnv) {
+      const value = runtimeEnv[key];
+      if (value !== undefined && value !== null && value !== '') {
+        return value;
+      }
+    }
+    // On client, if not in __RUNTIME_ENV__, the value is not available
+    // (process.env.NEXT_PUBLIC_* would be build-time stale, so we skip it)
+    return undefined;
   }
 
-  // Fallback to process.env (build-time replacements by Next.js)
-  // Next.js replaces these at build time, so we must access them directly
+  // Server-side: read process.env directly (Node.js runtime -- always fresh)
   if (typeof process !== 'undefined') {
-    switch (key) {
-      case 'NEXT_PUBLIC_A2A_BASE_URL':
-        return process.env.NEXT_PUBLIC_A2A_BASE_URL;
-      case 'NEXT_PUBLIC_SSO_ENABLED':
-        return process.env.NEXT_PUBLIC_SSO_ENABLED;
-      case 'NEXT_PUBLIC_RAG_ENABLED':
-        return process.env.NEXT_PUBLIC_RAG_ENABLED;
-      case 'NEXT_PUBLIC_MONGODB_ENABLED':
-        return process.env.NEXT_PUBLIC_MONGODB_ENABLED;
-      case 'NEXT_PUBLIC_ENABLE_SUBAGENT_CARDS':
-        return process.env.NEXT_PUBLIC_ENABLE_SUBAGENT_CARDS;
-      case 'NEXT_PUBLIC_TAGLINE':
-        return process.env.NEXT_PUBLIC_TAGLINE;
-      case 'NEXT_PUBLIC_DESCRIPTION':
-        return process.env.NEXT_PUBLIC_DESCRIPTION;
-      case 'NEXT_PUBLIC_APP_NAME':
-        return process.env.NEXT_PUBLIC_APP_NAME;
-      case 'NEXT_PUBLIC_LOGO_URL':
-        return process.env.NEXT_PUBLIC_LOGO_URL;
-      case 'NEXT_PUBLIC_PREVIEW_MODE':
-        return process.env.NEXT_PUBLIC_PREVIEW_MODE;
-      case 'NEXT_PUBLIC_GRADIENT_FROM':
-        return process.env.NEXT_PUBLIC_GRADIENT_FROM;
-      case 'NEXT_PUBLIC_GRADIENT_TO':
-        return process.env.NEXT_PUBLIC_GRADIENT_TO;
-      case 'NEXT_PUBLIC_LOGO_STYLE':
-        return process.env.NEXT_PUBLIC_LOGO_STYLE;
-      case 'NEXT_PUBLIC_SPINNER_COLOR':
-        return process.env.NEXT_PUBLIC_SPINNER_COLOR;
-      case 'NEXT_PUBLIC_SHOW_POWERED_BY':
-        return process.env.NEXT_PUBLIC_SHOW_POWERED_BY;
-      default:
-        return undefined;
-    }
+    const value = process.env[key];
+    return value || undefined;
   }
 
   return undefined;
@@ -128,19 +120,20 @@ function getCaipeUrl(): string {
  * Get the RAG Server URL
  *
  * Priority:
- * 1. NEXT_PUBLIC_RAG_URL (client-side accessible)
- * 2. RAG_URL (server-side only)
+ * 1. NEXT_PUBLIC_RAG_URL via getRuntimeEnv (runtime → build-time fallback)
+ * 2. RAG_SERVER_URL (server-side only, available at runtime in Node.js)
  * 3. Default: http://localhost:9446 (dev) or http://rag-server:9446 (prod/docker)
  */
 function getRagUrl(): string {
-  // Client-side environment variable (must be prefixed with NEXT_PUBLIC_)
-  if (typeof process !== 'undefined' && process.env.NEXT_PUBLIC_RAG_URL) {
-    return process.env.NEXT_PUBLIC_RAG_URL;
+  // Client-side: use runtime env (window.__RUNTIME_ENV__)
+  const runtimeUrl = getRuntimeEnv('NEXT_PUBLIC_RAG_URL');
+  if (runtimeUrl) {
+    return runtimeUrl;
   }
 
-  // Server-side environment variable
-  if (typeof process !== 'undefined' && process.env.RAG_URL) {
-    return process.env.RAG_URL;
+  // Server-side environment variable (not exposed to client)
+  if (typeof process !== 'undefined' && process.env.RAG_SERVER_URL) {
+    return process.env.RAG_SERVER_URL;
   }
 
   // Default based on environment
@@ -154,7 +147,7 @@ function getRagUrl(): string {
 /**
  * Check if SSO is enabled
  * SSO is enabled when NEXT_PUBLIC_SSO_ENABLED is set to "true"
- * Priority: window.__ENV__ (runtime) > process.env (build-time)
+ * Priority: window.__RUNTIME_ENV__ (client) > process.env (server)
  */
 function isSsoEnabled(): boolean {
   const ssoEnv = getRuntimeEnv('NEXT_PUBLIC_SSO_ENABLED');
@@ -167,7 +160,7 @@ function isSsoEnabled(): boolean {
 /**
  * Check if RAG is enabled
  * RAG is enabled by default - set NEXT_PUBLIC_RAG_ENABLED=false to disable
- * Priority: window.__ENV__ (runtime) > process.env (build-time)
+ * Priority: window.__RUNTIME_ENV__ (client) > process.env (server)
  */
 function isRagEnabled(): boolean {
   const ragEnv = getRuntimeEnv('NEXT_PUBLIC_RAG_ENABLED');
@@ -181,7 +174,7 @@ function isRagEnabled(): boolean {
 /**
  * Check if MongoDB persistence is enabled
  * Disabled by default - set NEXT_PUBLIC_MONGODB_ENABLED=true to enable
- * Priority: window.__ENV__ (runtime) > process.env (build-time)
+ * Priority: window.__RUNTIME_ENV__ (client) > process.env (server)
  */
 function isMongodbEnabled(): boolean {
   const mongoEnv = getRuntimeEnv('NEXT_PUBLIC_MONGODB_ENABLED');
@@ -194,7 +187,7 @@ function isMongodbEnabled(): boolean {
 /**
  * Check if sub-agent cards are enabled (experimental feature)
  * Disabled by default - set NEXT_PUBLIC_ENABLE_SUBAGENT_CARDS=true to enable
- * Priority: window.__ENV__ (runtime) > process.env (build-time)
+ * Priority: window.__RUNTIME_ENV__ (client) > process.env (server)
  */
 function isSubAgentCardsEnabled(): boolean {
   const cardsEnv = getRuntimeEnv('NEXT_PUBLIC_ENABLE_SUBAGENT_CARDS');
@@ -214,7 +207,7 @@ const DEFAULT_GRADIENT_TO = 'hsl(270,75%,60%)';
 
 /**
  * Get the main tagline displayed throughout the UI
- * Priority: window.__ENV__ (runtime) > process.env (build-time) > default
+ * Priority: window.__RUNTIME_ENV__ (client) > process.env (server) > default
  */
 function getTagline(): string {
   const tagline = getRuntimeEnv('NEXT_PUBLIC_TAGLINE');
@@ -223,7 +216,7 @@ function getTagline(): string {
 
 /**
  * Get the description text displayed throughout the UI
- * Priority: window.__ENV__ (runtime) > process.env (build-time) > default
+ * Priority: window.__RUNTIME_ENV__ (client) > process.env (server) > default
  */
 function getDescription(): string {
   const description = getRuntimeEnv('NEXT_PUBLIC_DESCRIPTION');
@@ -232,7 +225,7 @@ function getDescription(): string {
 
 /**
  * Get the application name displayed throughout the UI
- * Priority: window.__ENV__ (runtime) > process.env (build-time) > default
+ * Priority: window.__RUNTIME_ENV__ (client) > process.env (server) > default
  */
 function getAppName(): string {
   const appName = getRuntimeEnv('NEXT_PUBLIC_APP_NAME');
@@ -241,7 +234,7 @@ function getAppName(): string {
 
 /**
  * Get the logo URL
- * Priority: window.__ENV__ (runtime) > process.env (build-time) > default
+ * Priority: window.__RUNTIME_ENV__ (client) > process.env (server) > default
  */
 function getLogoUrl(): string {
   const logoUrl = getRuntimeEnv('NEXT_PUBLIC_LOGO_URL');
@@ -250,7 +243,7 @@ function getLogoUrl(): string {
 
 /**
  * Check if preview mode is enabled
- * Priority: window.__ENV__ (runtime) > process.env (build-time)
+ * Priority: window.__RUNTIME_ENV__ (client) > process.env (server)
  */
 function isPreviewMode(): boolean {
   const previewEnv = getRuntimeEnv('NEXT_PUBLIC_PREVIEW_MODE');
@@ -262,7 +255,7 @@ function isPreviewMode(): boolean {
 
 /**
  * Get the gradient start color
- * Priority: window.__ENV__ (runtime) > process.env (build-time) > default
+ * Priority: window.__RUNTIME_ENV__ (client) > process.env (server) > default
  */
 function getGradientFrom(): string {
   const gradientFrom = getRuntimeEnv('NEXT_PUBLIC_GRADIENT_FROM');
@@ -271,7 +264,7 @@ function getGradientFrom(): string {
 
 /**
  * Get the gradient end color
- * Priority: window.__ENV__ (runtime) > process.env (build-time) > default
+ * Priority: window.__RUNTIME_ENV__ (client) > process.env (server) > default
  */
 function getGradientTo(): string {
   const gradientTo = getRuntimeEnv('NEXT_PUBLIC_GRADIENT_TO');
@@ -280,7 +273,7 @@ function getGradientTo(): string {
 
 /**
  * Get the logo style
- * Priority: window.__ENV__ (runtime) > process.env (build-time) > default
+ * Priority: window.__RUNTIME_ENV__ (client) > process.env (server) > default
  * Returns "default" (original colors) or "white" (inverted)
  */
 function getLogoStyle(): 'default' | 'white' {
@@ -293,7 +286,7 @@ function getLogoStyle(): 'default' | 'white' {
 
 /**
  * Get the spinner color
- * Priority: window.__ENV__ (runtime) > process.env (build-time) > null (uses theme primary)
+ * Priority: window.__RUNTIME_ENV__ (client) > process.env (server) > null (uses theme primary)
  */
 function getSpinnerColor(): string | null {
   const spinnerColor = getRuntimeEnv('NEXT_PUBLIC_SPINNER_COLOR');
@@ -302,7 +295,7 @@ function getSpinnerColor(): string | null {
 
 /**
  * Check if "Powered by" footer should be shown
- * Priority: window.__ENV__ (runtime) > process.env (build-time) > true (default)
+ * Priority: window.__RUNTIME_ENV__ (client) > process.env (server) > true (default)
  */
 function showPoweredBy(): boolean {
   const showPoweredByEnv = getRuntimeEnv('NEXT_PUBLIC_SHOW_POWERED_BY');
@@ -310,6 +303,17 @@ function showPoweredBy(): boolean {
     return showPoweredByEnv !== 'false';
   }
   return true;
+}
+
+const DEFAULT_SUPPORT_EMAIL = 'support@example.com';
+
+/**
+ * Get the support email address
+ * Priority: window.__RUNTIME_ENV__ (client) > process.env (server) > default
+ */
+function getSupportEmail(): string {
+  const email = getRuntimeEnv('NEXT_PUBLIC_SUPPORT_EMAIL');
+  return email || DEFAULT_SUPPORT_EMAIL;
 }
 
 /**
@@ -335,6 +339,7 @@ export const config: Config = {
   logoStyle: getLogoStyle(),
   spinnerColor: getSpinnerColor(),
   showPoweredBy: showPoweredBy(),
+  supportEmail: getSupportEmail(),
 };
 
 /**
@@ -375,6 +380,8 @@ export function getConfig<K extends keyof Config>(key: K): Config[K] {
       return getSpinnerColor() as Config[K];
     case 'showPoweredBy':
       return showPoweredBy() as Config[K];
+    case 'supportEmail':
+      return getSupportEmail() as Config[K];
     case 'isDev':
       return (typeof process !== 'undefined' && process.env.NODE_ENV === 'development') as Config[K];
     case 'isProd':
@@ -416,6 +423,7 @@ export function logConfig(): void {
       logoStyle: config.logoStyle,
       spinnerColor: config.spinnerColor,
       showPoweredBy: config.showPoweredBy,
+      supportEmail: config.supportEmail,
     });
   }
 }
