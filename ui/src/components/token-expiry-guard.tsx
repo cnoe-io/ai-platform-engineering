@@ -43,12 +43,18 @@ export function TokenExpiryGuard() {
     await signOut({ callbackUrl: "/login" });
   }, []);
 
-  // Handle relogin
-  const handleRelogin = useCallback(() => {
+  // Handle relogin — must sign out first to clear the session cookie,
+  // otherwise the login page sees "authenticated" status and bounces back,
+  // creating an infinite redirect loop.
+  const handleRelogin = useCallback(async () => {
     setShowWarning(false);
     setShowExpired(false);
-    router.push("/login");
-  }, [router]);
+    // Set flag to prevent AuthGuard from also redirecting (prevents flickering)
+    if (typeof window !== 'undefined') {
+      sessionStorage.setItem('token-expiry-handling', 'true');
+    }
+    await signOut({ callbackUrl: "/login?session_expired=true" });
+  }, []);
 
   // Handle dismiss — persist until this expiry cycle ends
   const handleDismiss = useCallback((currentExpiresAt: number | null) => {
