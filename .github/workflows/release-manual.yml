@@ -35,7 +35,7 @@ jobs:
           egress-policy: audit
 
       - name: 📥 Checkout repository (with synced Chart.yaml files)
-        uses: actions/checkout@v6.0.1
+        uses: actions/checkout@v6
         with:
           ref: main
           fetch-depth: 0
