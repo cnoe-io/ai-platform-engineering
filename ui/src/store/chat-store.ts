@@ -48,6 +48,7 @@ interface ChatState {
   consumePendingMessage: () => string | null;
   loadConversationsFromServer: () => Promise<void>; // Load conversations from server (MongoDB mode only)
   saveMessagesToServer: (conversationId: string) => Promise<void>; // Save messages to MongoDB after streaming
+  recoverInterruptedTask: (conversationId: string, messageId: string, endpoint: string, accessToken?: string) => Promise<boolean>; // Level 2: Poll tasks/get for interrupted messages
   loadMessagesFromServer: (conversationId: string, options?: { force?: boolean }) => Promise<void>; // Load messages from MongoDB when opening conversation
 
   // Turn selection actions for per-message event tracking
@@ -77,7 +78,7 @@ const MESSAGE_LOAD_COOLDOWN_MS = 5000; // 5 second cooldown between automatic sy
 // When event count hits the threshold, a background save is triggered to avoid data loss
 // if the user closes the tab or the browser crashes mid-stream.
 const eventCountSinceLastSave = new Map<string, number>();
-const PERIODIC_SAVE_EVENT_THRESHOLD = 50; // Save every 50 events during streaming
+const PERIODIC_SAVE_EVENT_THRESHOLD = 20; // Save every 20 events during streaming (reduced from 50 for better crash recovery)
 
 // Serialize A2A event for MongoDB storage (strip circular refs and large raw data)
 function serializeA2AEvent(event: A2AEvent): Record<string, unknown> {
@@ -820,6 +821,8 @@ const storeImplementation = (set: any, get: any) => ({
               metadata: {
                 turn_id: msg.turnId || `turn-${Date.now()}`,
                 is_final: msg.isFinal,
+                ...(msg.taskId && { task_id: msg.taskId }),
+                ...(msg.isInterrupted && { is_interrupted: msg.isInterrupted }),
               },
               a2a_events: serializedEvents,
             });
@@ -832,6 +835,118 @@ const storeImplementation = (set: any, get: any) => ({
         }
 
         console.log(`[ChatStore] Saved ${unsavedMessages.length} messages to MongoDB`);
+      },
+
+      // ═══════════════════════════════════════════════════════════════
+      // LEVEL 2: Task recovery — poll tasks/get for interrupted messages
+      // When a tab crashes or reloads mid-stream, the backend task may still
+      // be running (or may have completed). This action checks the task status
+      // and recovers the final result if available.
+      // ═══════════════════════════════════════════════════════════════
+      recoverInterruptedTask: async (conversationId: string, messageId: string, endpoint: string, accessToken?: string): Promise<boolean> => {
+        const state = get();
+        const conv = state.conversations.find((c: Conversation) => c.id === conversationId);
+        if (!conv) return false;
+
+        const msg = conv.messages.find((m: ChatMessage) => m.id === messageId);
+        if (!msg || !msg.taskId || !msg.isInterrupted) return false;
+
+        const taskId = msg.taskId;
+        console.log(`[ChatStore] Attempting to recover interrupted task: ${taskId} for message ${messageId}`);
+
+        // Use the legacy A2A client for tasks/get (it has the method built-in)
+        const { A2AClient } = await import("@/lib/a2a-client");
+        const client = new A2AClient(endpoint, accessToken);
+
+        const MAX_POLLS = 30; // Max 30 polls (5 minutes at 10s intervals)
+        const POLL_INTERVAL = 10000; // 10 seconds between polls
+
+        for (let attempt = 0; attempt < MAX_POLLS; attempt++) {
+          try {
+            const result = await client.getTaskStatus(taskId) as any;
+
+            if (result?.error) {
+              // Task not found — backend may have restarted (InMemoryTaskStore lost)
+              console.log(`[ChatStore] Task ${taskId} not found on server — marking as unrecoverable`);
+              get().updateMessage(conversationId, messageId, {
+                isInterrupted: false, // Clear the interrupted flag, nothing to recover
+              });
+              return false;
+            }
+
+            const task = result?.result;
+            if (!task) {
+              console.log(`[ChatStore] Task ${taskId} returned empty result`);
+              get().updateMessage(conversationId, messageId, { isInterrupted: false });
+              return false;
+            }
+
+            const taskState = task.status?.state;
+            console.log(`[ChatStore] Task ${taskId} state: ${taskState} (poll ${attempt + 1}/${MAX_POLLS})`);
+
+            if (taskState === "completed") {
+              // Extract final content from task artifacts
+              const artifacts = task.artifacts || [];
+              let finalContent = "";
+              for (const artifact of artifacts) {
+                for (const part of artifact.parts || []) {
+                  if (part.text) {
+                    finalContent += part.text;
+                  }
+                }
+              }
+
+              if (finalContent) {
+                console.log(`[ChatStore] Recovered ${finalContent.length} chars from completed task ${taskId}`);
+                get().updateMessage(conversationId, messageId, {
+                  content: finalContent,
+                  isFinal: true,
+                  isInterrupted: false,
+                });
+                // Save recovered content to MongoDB
+                get().saveMessagesToServer(conversationId).catch((err) => {
+                  console.error('[ChatStore] Failed to save recovered message:', err);
+                });
+                return true;
+              } else {
+                console.log(`[ChatStore] Task ${taskId} completed but no content in artifacts`);
+                get().updateMessage(conversationId, messageId, { isInterrupted: false });
+                return false;
+              }
+            }
+
+            if (taskState === "failed" || taskState === "canceled" || taskState === "cancelled") {
+              console.log(`[ChatStore] Task ${taskId} ended with state: ${taskState}`);
+              get().updateMessage(conversationId, messageId, {
+                isInterrupted: false,
+                content: msg.content + `\n\n*Task ${taskState}. Use Retry to re-send the prompt.*`,
+                isFinal: true,
+              });
+              return false;
+            }
+
+            // Task is still running — wait and poll again
+            if (taskState === "working" || taskState === "submitted" || taskState === "input-required") {
+              await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL));
+              continue;
+            }
+
+            // Unknown state — stop polling
+            console.log(`[ChatStore] Unknown task state: ${taskState} — stopping recovery`);
+            get().updateMessage(conversationId, messageId, { isInterrupted: false });
+            return false;
+          } catch (error) {
+            console.error(`[ChatStore] Error polling task ${taskId}:`, error);
+            // On network error, stop trying — the user can manually retry
+            get().updateMessage(conversationId, messageId, { isInterrupted: false });
+            return false;
+          }
+        }
+
+        // Exceeded max polls
+        console.log(`[ChatStore] Task ${taskId} recovery timed out after ${MAX_POLLS} polls`);
+        get().updateMessage(conversationId, messageId, { isInterrupted: false });
+        return false;
       },
 
       // Load messages from MongoDB when opening a conversation.
@@ -895,6 +1010,8 @@ const storeImplementation = (set: any, get: any) => ({
               events,
               isFinal: msg.metadata?.is_final ?? true,
               turnId: msg.metadata?.turn_id,
+              taskId: msg.metadata?.task_id,
+              isInterrupted: msg.metadata?.is_interrupted,
               feedback: msg.feedback ? {
                 type: msg.feedback.rating === 'positive' ? 'like' : msg.feedback.rating === 'negative' ? 'dislike' : null,
                 submitted: true,
@@ -1097,6 +1214,10 @@ export const useChatStore = shouldUseLocalStorage()
                 ...msg,
                 timestamp: new Date(msg.timestamp),
                 events: [],
+                // CRASH RECOVERY: Mark non-final assistant messages as interrupted.
+                // After a page crash/reload, streamingConversations is empty (not persisted),
+                // so any assistant message without isFinal=true was mid-stream when the tab died.
+                isInterrupted: msg.role === 'assistant' && !msg.isFinal ? true : msg.isInterrupted,
               })),
             }));
             state.a2aEvents = [];
@@ -1136,6 +1257,8 @@ export const useChatStore = shouldUseLocalStorage()
                 ...msg,
                 timestamp: new Date(msg.timestamp),
                 events: [],
+                // CRASH RECOVERY: Mark non-final assistant messages as interrupted.
+                isInterrupted: msg.role === 'assistant' && !msg.isFinal ? true : msg.isInterrupted,
               })),
             }));
             state.a2aEvents = [];

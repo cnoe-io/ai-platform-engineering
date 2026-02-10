@@ -68,6 +68,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle }: ChatP
     cancelConversationRequest,
     updateMessageFeedback,
     consumePendingMessage,
+    recoverInterruptedTask,
   } = useChatStore();
 
   // Get access token from session (if SSO is enabled and user is authenticated)
@@ -148,6 +149,46 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle }: ChatP
     setTimeout(() => scrollToBottom("instant"), 50);
   }, [activeConversationId, scrollToBottom]);
 
+  // ═══════════════════════════════════════════════════════════════
+  // LEVEL 2 CRASH RECOVERY: On mount / conversation change, check for
+  // interrupted messages and attempt to recover the result via tasks/get.
+  // ═══════════════════════════════════════════════════════════════
+  const [recoveringMessageId, setRecoveringMessageId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!activeConversationId || !conversation) return;
+    if (isThisConversationStreaming) return; // Don't recover while streaming
+
+    // Find the last interrupted assistant message with a taskId
+    const interruptedMsg = [...(conversation.messages || [])].reverse().find(
+      (m) => m.role === "assistant" && m.isInterrupted && m.taskId
+    );
+
+    if (!interruptedMsg) return;
+
+    // Don't re-attempt if already recovering this message
+    if (recoveringMessageId === interruptedMsg.id) return;
+
+    console.log(`[ChatPanel] Found interrupted message ${interruptedMsg.id} with taskId=${interruptedMsg.taskId} — attempting recovery`);
+    setRecoveringMessageId(interruptedMsg.id);
+
+    recoverInterruptedTask(activeConversationId, interruptedMsg.id, endpoint, accessToken as string | undefined)
+      .then((recovered) => {
+        if (recovered) {
+          console.log(`[ChatPanel] Successfully recovered task result for message ${interruptedMsg.id}`);
+        } else {
+          console.log(`[ChatPanel] Could not recover task for message ${interruptedMsg.id} — user can retry`);
+        }
+      })
+      .catch((error) => {
+        console.error(`[ChatPanel] Recovery failed:`, error);
+      })
+      .finally(() => {
+        setRecoveringMessageId(null);
+      });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeConversationId, conversation?.messages?.length]);
+
   const handleCopy = async (content: string, id: string) => {
     await navigator.clipboard.writeText(content);
     setCopiedId(id);
@@ -191,6 +232,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle }: ChatP
     let eventCounter = 0;
     let hasReceivedCompleteResult = false;
     let lastUIUpdate = 0;
+    let capturedTaskId: string | undefined; // Capture taskId from first event for crash recovery
     const UI_UPDATE_INTERVAL = 100; // Throttle UI updates to max 10/sec
     // Buffer A2A events locally and flush on the same throttle as UI updates.
     // Previously, addA2AEvent was called on EVERY token, causing a Zustand set()
@@ -214,6 +256,14 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle }: ChatP
 
         const artifactName = event.artifactName || "";
         const newContent = event.displayContent;
+
+        // LEVEL 2 CRASH RECOVERY: Capture taskId from the first event that has one.
+        // This is persisted on the assistant message so that if the tab crashes,
+        // we can poll tasks/get on reload to recover the final result.
+        if (!capturedTaskId && event.taskId) {
+          capturedTaskId = event.taskId;
+          updateMessage(convId!, assistantMsgId, { taskId: capturedTaskId });
+        }
 
         // Buffer event for batched store update (flushed on UI_UPDATE_INTERVAL)
         const storeEvent = toStoreEvent(event, `event-${eventNum}-${Date.now()}`);
@@ -622,6 +672,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle }: ChatP
                     feedback={msg.feedback}
                     onFeedbackChange={(feedback) => handleFeedbackChange(msg.id, feedback)}
                     onFeedbackSubmit={(feedback) => handleFeedbackSubmit(msg.id, feedback)}
+                    isRecovering={recoveringMessageId === msg.id}
                     conversationId={conversationId}
                   />
                 );
@@ -1018,6 +1069,8 @@ interface ChatMessageProps {
   onFeedbackSubmit?: (feedback: Feedback) => void;
   // Conversation ID for Langfuse feedback tracking
   conversationId?: string;
+  // Crash recovery: true when polling tasks/get for this message's interrupted task
+  isRecovering?: boolean;
 }
 
 /**
@@ -1036,6 +1089,7 @@ const ChatMessage = React.memo(function ChatMessage({
   onFeedbackChange,
   onFeedbackSubmit,
   conversationId,
+  isRecovering = false,
 }: ChatMessageProps) {
   const isUser = message.role === "user";
   // Show Thinking expanded by default — content is truncated to 2000 chars during
@@ -1148,6 +1202,59 @@ const ChatMessage = React.memo(function ChatMessage({
         ) : (
           /* Final output - rendered as Markdown */
           <>
+            {/* ═══════════════════════════════════════════════════════════
+                CRASH RECOVERY INDICATORS
+                Show when a message was interrupted or is being recovered.
+                ═══════════════════════════════════════════════════════════ */}
+            {!isUser && (isRecovering || message.isInterrupted) && (
+              <motion.div
+                initial={{ opacity: 0, y: -5 }}
+                animate={{ opacity: 1, y: 0 }}
+                className={cn(
+                  "flex items-center gap-3 px-4 py-3 rounded-lg border mb-3",
+                  isRecovering
+                    ? "bg-sky-500/10 border-sky-500/30 text-sky-400"
+                    : "bg-amber-500/10 border-amber-500/30 text-amber-400"
+                )}
+              >
+                {isRecovering ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium">Recovering interrupted task...</p>
+                      <p className="text-xs opacity-70 mt-0.5">
+                        Checking if the backend task completed. This may take a moment.
+                      </p>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <Activity className="h-4 w-4 shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium">Response was interrupted</p>
+                      <p className="text-xs opacity-70 mt-0.5">
+                        The page crashed or was reloaded while this response was streaming.
+                        {message.taskId
+                          ? " The backend task could not be recovered."
+                          : " No task ID was captured before the crash."}
+                      </p>
+                    </div>
+                    {onRetry && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={onRetry}
+                        className="shrink-0 gap-1.5 border-amber-500/30 text-amber-400 hover:bg-amber-500/20 hover:text-amber-300"
+                      >
+                        <RotateCcw className="h-3.5 w-3.5" />
+                        Retry
+                      </Button>
+                    )}
+                  </>
+                )}
+              </motion.div>
+            )}
+
             <div
               className={cn(
                 "rounded-xl relative overflow-hidden",

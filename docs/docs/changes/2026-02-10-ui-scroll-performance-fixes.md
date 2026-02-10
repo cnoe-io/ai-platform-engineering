@@ -209,7 +209,7 @@ Three fixes to prevent data loss when the user closes the tab, cancels a request
 
 **Problem**: During long streaming sessions, all events and messages accumulate only in memory. If the browser crashes or the tab is killed, everything is lost.
 
-**Fix**: Added a module-level `eventCountSinceLastSave` Map that tracks event counts per conversation. Every 50 events (`PERIODIC_SAVE_EVENT_THRESHOLD`), a background `saveMessagesToServer` call is triggered. The counter resets when streaming completes or is cancelled.
+**Fix**: Added a module-level `eventCountSinceLastSave` Map that tracks event counts per conversation. Every 20 events (`PERIODIC_SAVE_EVENT_THRESHOLD`, reduced from 50 for better crash recovery), a background `saveMessagesToServer` call is triggered. The counter resets when streaming completes or is cancelled.
 
 ### Fix 10: Save on Tab Close / Navigation
 
@@ -221,10 +221,38 @@ Three fixes to prevent data loss when the user closes the tab, cancels a request
 - `visibilitychange` (primary): When `document.visibilityState === 'hidden'`, saves all in-flight conversations. This is the recommended pattern per the Page Lifecycle API — browsers give ~5 seconds of execution time.
 - `beforeunload` (fallback): Same handler for older browsers.
 
-Combined with periodic saves (Fix 9), even if the final save on unload is cut short, at most 50 events of data would be lost.
+Combined with periodic saves (Fix 9), even if the final save on unload is cut short, at most 20 events of data would be lost.
+
+### Fix 11: Crash Recovery — Interrupted Message Detection (Level 1)
+
+**Files**: `ui/src/types/a2a.ts`, `ui/src/store/chat-store.ts` (`onRehydrateStorage`)
+
+**Problem**: After a tab crash ("Aw, Snap!") or manual reload during streaming, the user sees a truncated assistant message with no indication that it was interrupted, and no obvious way to retry.
+
+**Fix**:
+- Added `taskId` and `isInterrupted` fields to `ChatMessage` type
+- In `onRehydrateStorage` (both localStorage and MongoDB modes), any assistant message with `isFinal !== true` is automatically marked `isInterrupted: true`
+- The UI shows a prominent amber banner on interrupted messages: "Response was interrupted" with a one-click **Retry** button
+- Reduced `PERIODIC_SAVE_EVENT_THRESHOLD` from 50 to 20 events for more frequent saves
+
+### Fix 12: Task Recovery via tasks/get Polling (Level 2)
+
+**Files**: `ui/src/store/chat-store.ts` (`recoverInterruptedTask`), `ui/src/components/chat/ChatPanel.tsx`
+
+**Problem**: When the browser crashes, the backend A2A task often continues running and may complete. The result is lost because no reconnection exists.
+
+**Fix**:
+- During streaming, the first `taskId` from A2A events is captured and persisted on the assistant message (saved to MongoDB metadata)
+- On reload, `ChatPanel` detects interrupted messages with a `taskId` and calls `recoverInterruptedTask`
+- This action polls `tasks/get(taskId)` up to 30 times (10s intervals, ~5 min max) to check if the backend task completed
+- If completed: extracts the final content from task artifacts and updates the message
+- If failed/cancelled/not found: clears the interrupted flag so the user can use Retry
+- While polling, a blue "Recovering interrupted task..." indicator shows on the message
 
 ### Updated Files Summary
 
 | File | Additional Changes |
 |------|---------|
-| `ui/src/store/chat-store.ts` | Fix 8 (cancel save), Fix 9 (periodic save), Fix 10 (unload save) |
+| `ui/src/types/a2a.ts` | Added `taskId`, `isInterrupted` fields to `ChatMessage` |
+| `ui/src/store/chat-store.ts` | Fix 8 (cancel save), Fix 9 (periodic save @ 20 events), Fix 10 (unload save), Fix 11 (interrupt detection), Fix 12 (task recovery) |
+| `ui/src/components/chat/ChatPanel.tsx` | taskId capture during streaming, recovery effect on mount, interrupted/recovering UI indicators |

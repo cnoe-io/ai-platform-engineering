@@ -1555,7 +1555,7 @@ describe('chat-store', () => {
       expect(updated2!.a2aEvents).toHaveLength(1);
     });
 
-    it('triggers periodic save after PERIODIC_SAVE_EVENT_THRESHOLD (50) events', async () => {
+    it('triggers periodic save after PERIODIC_SAVE_EVENT_THRESHOLD (20) events', async () => {
       const conv = makeConversation({ id: 'periodic-save-test' });
       const msg = makeMessage({ id: 'msg-ps', role: 'assistant', content: 'streaming...' });
       conv.messages = [msg];
@@ -1565,8 +1565,8 @@ describe('chat-store', () => {
         activeConversationId: 'periodic-save-test',
       });
 
-      // Add 49 events — should NOT trigger save yet
-      for (let i = 0; i < 49; i++) {
+      // Add 19 events — should NOT trigger save yet
+      for (let i = 0; i < 19; i++) {
         useChatStore.getState().addA2AEvent(
           makeA2AEvent({ id: `evt-${i}` }),
           'periodic-save-test'
@@ -1577,9 +1577,9 @@ describe('chat-store', () => {
       await jest.runAllTimersAsync();
       mockApiClient.addMessage.mockClear();
 
-      // Add the 50th event — should trigger periodic save
+      // Add the 20th event — should trigger periodic save
       useChatStore.getState().addA2AEvent(
-        makeA2AEvent({ id: 'evt-49-trigger' }),
+        makeA2AEvent({ id: 'evt-19-trigger' }),
         'periodic-save-test'
       );
 
@@ -1600,8 +1600,8 @@ describe('chat-store', () => {
         activeConversationId: 'counter-reset-test',
       });
 
-      // Add 50 events (triggers first periodic save)
-      for (let i = 0; i < 50; i++) {
+      // Add 20 events (triggers first periodic save)
+      for (let i = 0; i < 20; i++) {
         useChatStore.getState().addA2AEvent(
           makeA2AEvent({ id: `evt-a-${i}` }),
           'counter-reset-test'
@@ -1610,8 +1610,8 @@ describe('chat-store', () => {
       await jest.runAllTimersAsync();
       mockApiClient.addMessage.mockClear();
 
-      // Add 49 more events (should NOT trigger second save — counter was reset)
-      for (let i = 0; i < 49; i++) {
+      // Add 19 more events (should NOT trigger second save — counter was reset)
+      for (let i = 0; i < 19; i++) {
         useChatStore.getState().addA2AEvent(
           makeA2AEvent({ id: `evt-b-${i}` }),
           'counter-reset-test'
@@ -1619,7 +1619,7 @@ describe('chat-store', () => {
       }
       await jest.runAllTimersAsync();
 
-      // Should NOT have saved again (only 49 since last reset)
+      // Should NOT have saved again (only 19 since last reset)
       expect(mockApiClient.addMessage).not.toHaveBeenCalled();
     });
   });
