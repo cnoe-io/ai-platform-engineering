@@ -276,6 +276,7 @@ services:
       # GitHub App authentication (recommended - auto-refreshing tokens)
       - GITHUB_APP_ID=${GITHUB_APP_ID:-}
       - GITHUB_APP_PRIVATE_KEY=${GITHUB_APP_PRIVATE_KEY:-}
+      - GITHUB_APP_PRIVATE_KEY_PATH=${GITHUB_APP_PRIVATE_KEY_PATH:-}
       - GITHUB_APP_INSTALLATION_ID=${GITHUB_APP_INSTALLATION_ID:-}
     # Docker socket mount is only needed when MCP_MODE=stdio
     # For local Github Offical MCP server execution.
