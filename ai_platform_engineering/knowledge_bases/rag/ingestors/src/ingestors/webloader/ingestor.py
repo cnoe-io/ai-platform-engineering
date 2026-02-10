@@ -18,7 +18,7 @@ from redis.asyncio import Redis
 
 from common.ingestor import IngestorBuilder, Client
 from common.models.rag import DataSourceInfo
-from common.models.server import IngestorRequest, UrlIngestRequest, WebIngestorCommand, UrlReloadRequest
+from common.models.server import IngestorRequest, UrlIngestRequest, WebIngestorCommand, UrlReloadRequest, ScrapySettings, CrawlMode
 from common.job_manager import JobStatus, JobManager
 from common.constants import WEBLOADER_INGESTOR_REDIS_QUEUE, WEBLOADER_INGESTOR_NAME, WEBLOADER_INGESTOR_TYPE
 from common.utils import get_logger, generate_datasource_id_from_url
@@ -36,6 +36,45 @@ RELOAD_INTERVAL = int(os.getenv("WEBLOADER_RELOAD_INTERVAL", "86400"))  # 24 hou
 MAX_INGESTION_TASKS = int(os.getenv("WEBLOADER_MAX_INGESTION_TASKS", "5"))  # Max concurrent ingestion tasks
 
 redis_client = Redis.from_url(REDIS_URL, decode_responses=True)
+
+
+def _get_effective_settings(request: UrlIngestRequest, datasource_id: str) -> tuple[ScrapySettings, list[str]]:
+  """
+  Get effective settings, mapping deprecated fields if present.
+
+  Args:
+      request: The URL ingest request
+      datasource_id: ID of the datasource (for logging)
+
+  Returns:
+      Tuple of (effective_settings, list_of_deprecated_field_names)
+  """
+  # Start with provided settings or defaults
+  settings = request.settings or ScrapySettings()
+  deprecated_fields = []
+
+  # Map deprecated check_for_sitemaps -> crawl_mode
+  if request.check_for_sitemaps is not None:
+    deprecated_fields.append("check_for_sitemaps")
+    logger.warning(f"Deprecated field 'check_for_sitemaps' detected for datasource '{datasource_id}'. Use 'settings.crawl_mode' instead. Delete and re-ingest datasource to update.")
+    # Only apply if crawl_mode is still default (single)
+    if settings.crawl_mode == CrawlMode.SINGLE_URL:
+      settings.crawl_mode = CrawlMode.SITEMAP if request.check_for_sitemaps else CrawlMode.SINGLE_URL
+
+  # Map deprecated sitemap_max_urls -> max_pages
+  if request.sitemap_max_urls is not None:
+    deprecated_fields.append("sitemap_max_urls")
+    logger.warning(f"Deprecated field 'sitemap_max_urls' detected for datasource '{datasource_id}'. Use 'settings.max_pages' instead. Delete and re-ingest datasource to update.")
+    # Only apply if max_pages is still default (2000)
+    if settings.max_pages == 2000:
+      settings.max_pages = request.sitemap_max_urls
+
+  # Log warning for deprecated ingest_type (no mapping needed)
+  if request.ingest_type is not None:
+    deprecated_fields.append("ingest_type")
+    logger.warning(f"Deprecated field 'ingest_type' detected for datasource '{datasource_id}'. This field is no longer used. Delete and re-ingest datasource to update.")
+
+  return settings, deprecated_fields
 
 
 async def process_url_ingestion(client: Client, job_manager: JobManager, url_request: UrlIngestRequest):
@@ -72,6 +111,14 @@ async def process_url_ingestion(client: Client, job_manager: JobManager, url_req
     await job_manager.upsert_job(job_id=job_id, status=JobStatus.IN_PROGRESS, message=f"Starting URL ingestion for {url_request.url}")
     logger.info(f"Processing job: {job_id} for datasource: {datasource_id}")
 
+    # Get effective settings, mapping deprecated fields if present
+    settings, deprecated_fields = _get_effective_settings(url_request, datasource_id)
+
+    # Add warning to job status if deprecated fields detected
+    if deprecated_fields:
+      fields_str = ", ".join(deprecated_fields)
+      await job_manager.upsert_job(job_id=job_id, status=JobStatus.IN_PROGRESS, message=f"Warning: Deprecated settings detected ({fields_str}). Delete and re-ingest to update.")
+
     # Process the URL using ScrapyLoader (which uses worker pool)
     loader = ScrapyLoader(
       rag_client=client,
@@ -80,7 +127,7 @@ async def process_url_ingestion(client: Client, job_manager: JobManager, url_req
     )
     await loader.load(
       url=url_request.url,
-      settings=url_request.settings,
+      settings=settings,
       job_id=job_id,
     )
 
@@ -128,6 +175,14 @@ async def reload_datasource(client: Client, job_manager: JobManager, datasource_
     datasource_info.last_updated = int(time.time())
     await client.upsert_datasource(datasource_info)
 
+    # Get effective settings, mapping deprecated fields if present
+    settings, deprecated_fields = _get_effective_settings(url_request, datasource_info.datasource_id)
+
+    # Add warning to job status if deprecated fields detected
+    if deprecated_fields:
+      fields_str = ", ".join(deprecated_fields)
+      await job_manager.upsert_job(job_id=job_id, status=JobStatus.IN_PROGRESS, message=f"Warning: Deprecated settings detected ({fields_str}). Delete and re-ingest to update.")
+
     # Process the URL using ScrapyLoader (which uses worker pool)
     loader = ScrapyLoader(
       rag_client=client,
@@ -136,7 +191,7 @@ async def reload_datasource(client: Client, job_manager: JobManager, datasource_
     )
     await loader.load(
       url=url_request.url,
-      settings=url_request.settings,
+      settings=settings,
       job_id=job_id,
     )
 

@@ -95,6 +95,12 @@ class UrlIngestRequest(BaseModel):
   description: str = Field("", description="Description for this data source")
   settings: ScrapySettings = Field(default_factory=lambda: ScrapySettings(), description="Scraping configuration (crawl mode, JS rendering, rate limiting, etc.)")
 
+  # DEPRECATED fields - will be removed in a future version.
+  # Use 'settings' object instead.
+  check_for_sitemaps: Optional[bool] = Field(None, description="DEPRECATED: Use settings.crawl_mode instead")
+  sitemap_max_urls: Optional[int] = Field(None, description="DEPRECATED: Use settings.max_pages instead")
+  ingest_type: Optional[str] = Field(None, description="DEPRECATED: No longer used")
+
 
 class UrlReloadRequest(BaseModel):
   datasource_id: str = Field(..., description="ID of the URL datasource to reload")
