@@ -33,7 +33,7 @@ GIT_TIMEOUT = int(os.getenv("GIT_MAX_EXECUTION_TIME", "300"))
 
 
 def _get_all_tokens() -> List[str]:
-    """Collect all configured tokens for sanitization."""
+    """Collect all configured tokens for sanitization, including GitHub App tokens."""
     tokens = []
     for env_var in [
         "GITHUB_PERSONAL_ACCESS_TOKEN",
@@ -46,6 +46,16 @@ def _get_all_tokens() -> List[str]:
         token = os.getenv(env_var)
         if token and len(token) > 4:
             tokens.append(token)
+
+    # Include the dynamically generated GitHub App installation token
+    try:
+        from ai_platform_engineering.utils.github_app_token_provider import _get_provider
+        provider = _get_provider()
+        if provider and provider._token and len(provider._token) > 4:
+            tokens.append(provider._token)
+    except (ImportError, Exception):
+        pass
+
     return tokens
 
 
@@ -54,22 +64,14 @@ def _sanitize_output(text: str, tokens: Optional[List[str]] = None) -> str:
     Remove authentication tokens from text to prevent credential leakage.
 
     CRITICAL: Called on ALL output before returning to LLM/agent.
+    Uses the centralized token_sanitizer for comprehensive pattern-based
+    redaction, plus exact-value redaction for known tokens.
     """
     if not text:
         return text
 
-    if tokens is None:
-        tokens = _get_all_tokens()
-
-    sanitized = text
-    for token in tokens:
-        if token and token in sanitized:
-            sanitized = sanitized.replace(token, "[REDACTED]")
-
-    # Redact x-access-token patterns in URLs
-    sanitized = re.sub(r'x-access-token:[^@]+@', 'x-access-token:[REDACTED]@', sanitized)
-
-    return sanitized
+    from ai_platform_engineering.utils.token_sanitizer import sanitize_output as _sanitize
+    return _sanitize(text, extra_tokens=tokens)
 
 
 def _detect_git_provider(url: str) -> str:

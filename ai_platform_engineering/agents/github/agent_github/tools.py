@@ -16,6 +16,7 @@ from pydantic import BaseModel, Field
 # Import git tool from utils (shared with GitLab agent)
 from ai_platform_engineering.utils.agent_tools import git
 from ai_platform_engineering.utils.github_app_token_provider import get_github_token
+from ai_platform_engineering.utils.token_sanitizer import sanitize_output
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +31,9 @@ BLOCKED_COMMAND_PATTERNS = [
     r"pr\s+close",
     r"release\s+delete",
     r"workflow\s+disable",
+    # SECURITY: block commands that expose credentials
+    r"auth\s+token",       # gh auth token prints raw token to stdout
+    r"auth\s+setup-git",   # gh auth setup-git modifies git credential config
 ]
 
 # Maximum execution time for gh CLI commands
@@ -172,7 +176,7 @@ class GHCLITool(BaseTool):
                 except asyncio.TimeoutError:
                     process.kill()
                     await process.wait()
-                    return f"❌ Command timed out after {GH_CLI_TIMEOUT}s: {full_command}"
+                    return sanitize_output(f"❌ Command timed out after {GH_CLI_TIMEOUT}s: {full_command}")
 
                 # Decode output
                 stdout_text = stdout.decode('utf-8', errors='replace') if stdout else ""
@@ -182,7 +186,7 @@ class GHCLITool(BaseTool):
                 if process.returncode != 0:
                     error_msg = stderr_text or stdout_text or "Unknown error"
                     logger.warning(f"gh CLI command failed (exit {process.returncode}): {full_command}")
-                    return f"❌ Command failed (exit {process.returncode}): {error_msg}"
+                    return sanitize_output(f"❌ Command failed (exit {process.returncode}): {error_msg}")
 
                 # Combine output
                 output = stdout_text
@@ -196,13 +200,14 @@ class GHCLITool(BaseTool):
                     output = f"{truncated}\n\n... (truncated {remaining} characters)"
                     logger.warning(f"gh CLI output truncated to {MAX_OUTPUT_SIZE} chars")
 
-                return output.strip()
+                # Sanitize output to prevent token leakage
+                return sanitize_output(output.strip())
 
             except FileNotFoundError:
                 return "❌ Error: gh CLI not found. Please ensure it's installed in the container."
             except Exception as e:
                 logger.error(f"gh CLI execution error: {str(e)}", exc_info=True)
-                return f"❌ Error executing command: {str(e)}"
+                return sanitize_output(f"❌ Error executing command: {str(e)}")
 
     def _run(self, command: str) -> str:
         """Synchronous wrapper - not recommended, use _arun instead."""

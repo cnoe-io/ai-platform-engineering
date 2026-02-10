@@ -18,6 +18,7 @@ from pydantic import BaseModel
 from ai_platform_engineering.utils.a2a_common.base_langgraph_agent import BaseLangGraphAgent
 from ai_platform_engineering.utils.github_app_token_provider import get_github_token, is_github_app_mode
 from ai_platform_engineering.utils.subagent_prompts import load_subagent_prompt_config
+from ai_platform_engineering.utils.token_sanitizer import sanitize_output
 from agent_github.tools import get_gh_cli_tool
 
 logger = logging.getLogger(__name__)
@@ -146,6 +147,48 @@ class GitHubAgent(BaseLangGraphAgent):
 
         return tools
 
+    def _wrap_mcp_tools(self, tools: list, context_id: str) -> list:
+        """
+        Wrap MCP tools with token sanitization on top of base class error handling.
+
+        SECURITY: GitHub MCP (Copilot API) responses may contain tokens or
+        auth info in error messages. This override ensures all MCP tool output
+        is passed through sanitize_output() before reaching the LLM or user.
+        """
+        from functools import wraps
+
+        # First apply base class wrapping (error handling + truncation)
+        wrapped = super()._wrap_mcp_tools(tools, context_id)
+
+        # Then add token sanitization on top
+        for tool in wrapped:
+            if hasattr(tool, '_run'):
+                original_run = tool._run
+
+                @wraps(original_run)
+                def sanitized_run(*args, _orig=original_run, **kwargs):
+                    result = _orig(*args, **kwargs)
+                    if isinstance(result, str):
+                        return sanitize_output(result)
+                    return result
+
+                tool._run = sanitized_run
+
+            if hasattr(tool, '_arun'):
+                original_arun = tool._arun
+
+                @wraps(original_arun)
+                async def sanitized_arun(*args, _orig=original_arun, **kwargs):
+                    result = await _orig(*args, **kwargs)
+                    if isinstance(result, str):
+                        return sanitize_output(result)
+                    return result
+
+                tool._arun = sanitized_arun
+
+        logger.info(f"GitHub agent: Applied token sanitization to {len(wrapped)} MCP tools")
+        return wrapped
+
     def _parse_tool_error(self, error: Exception, tool_name: str) -> str:
         """
         Parse GitHub API errors for user-friendly messages.
@@ -186,7 +229,8 @@ class GitHubAgent(BaseLangGraphAgent):
             # Generic TaskGroup error without specific cause
             return f"GitHub API request failed for {tool_name}. The API may be temporarily unavailable. Please try again."
         else:
-            return f"Error executing {tool_name}: {error_str}"
+            # SECURITY: sanitize error_str as it may contain tokens (e.g., in URLs)
+            return f"Error executing {tool_name}: {sanitize_output(error_str)}"
 
     async def stream(
         self, query: str, sessionId: str, trace_id: str = None
@@ -218,6 +262,6 @@ class GitHubAgent(BaseLangGraphAgent):
                 'is_task_complete': True,
                 'require_user_input': False,
                 'kind': 'error',
-                'content': f"❌ An unexpected error occurred: {str(e)}\n\nPlease try again or contact support if the issue persists.",
+                'content': f"❌ An unexpected error occurred: {sanitize_output(str(e))}\n\nPlease try again or contact support if the issue persists.",
             }
 
