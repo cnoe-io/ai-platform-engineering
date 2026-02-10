@@ -227,9 +227,12 @@ class WorkerSpider(Spider):
             "document_ingested_at": now,
             "fresh_until": fresh_until,
             "ingestor_id": self.crawl_request.ingestor_id,
-            "source": response.url,
-            "language": result.language or "",
-            "generator": result.generator or "",
+            "is_graph_entity": False,
+            "metadata": {
+              "source": response.url,
+              "language": result.language or "",
+              "generator": result.generator or "",
+            },
           },
         }
         self.documents.append(doc)
