@@ -64,12 +64,32 @@ The server will be available at `http://localhost:9446`
 # OIDC configuration for UI token validation
 OIDC_ISSUER=https://your-keycloak.com/realms/production
 OIDC_CLIENT_ID=rag-ui
-OIDC_GROUP_CLAIM=groups  # Optional: auto-detects (memberOf, groups, roles, cognito:groups)
+
+# Optional: specify which claims to check for groups (comma-separated)
+# If not set, auto-detects from: members, memberOf, groups, group, roles, cognito:groups
+# All specified claims are checked and groups are combined (deduplicated)
+OIDC_GROUP_CLAIM=groups,members,roles
 
 # OIDC configuration for ingestor token validation
 INGESTOR_OIDC_ISSUER=https://your-keycloak.com/realms/production
 INGESTOR_OIDC_CLIENT_ID=rag-ingestor
 ```
+
+**ID Token for Claims Extraction (Optional):**
+
+Some OIDC providers (Azure AD, Okta, Auth0, etc.) include user claims like `email` and `groups` only in the ID token, not the access token. The UI can pass the ID token in a separate header:
+
+```
+Authorization: Bearer <access_token>
+X-Identity-Token: <id_token>
+```
+
+The server will:
+1. Validate the **access token** for authentication (signature, expiry, audience, issuer)
+2. Validate the **ID token** signature only (skip audience/issuer checks)
+3. Extract email and groups from the **ID token** claims
+
+If the ID token is provided but invalid (bad signature, expired), the request is rejected with 401 Unauthorized. If no ID token is provided, claims are extracted from the access token (backwards compatible).
 
 **Trusted Network (Development):**
 ```bash
