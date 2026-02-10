@@ -22,7 +22,11 @@ import { useChatStore } from "@/store/chat-store";
 import { cn } from "@/lib/utils";
 import { A2AStreamPanel } from "./A2AStreamPanel";
 import { A2AEvent } from "@/types/a2a";
+import { useShallow } from "zustand/react/shallow";
 import { AgentLogo, getAgentLogo } from "@/components/shared/AgentLogos";
+
+// Stable empty array to avoid infinite re-render loops in selectors
+const EMPTY_EVENTS: A2AEvent[] = [];
 
 // Task status from execution plan
 interface ExecutionTask {
@@ -46,22 +50,38 @@ export function ContextPanel({
   collapsed = false,
   onCollapse
 }: ContextPanelProps) {
-  const { isStreaming, activeConversationId, getActiveConversation, conversations } = useChatStore();
+  // ═══════════════════════════════════════════════════════════════
+  // OPTIMIZED: Targeted Zustand selectors to prevent unnecessary re-renders
+  // ═══════════════════════════════════════════════════════════════
+  const { isStreaming, activeConversationId } = useChatStore(
+    useShallow((s) => ({
+      isStreaming: s.isStreaming,
+      activeConversationId: s.activeConversationId,
+    }))
+  );
+
+  // Subscribe to conversations directly so memos update when events arrive.
+  // Previously used getActiveConversation() which is a stable function ref —
+  // its deps never changed when new A2A events were added, making memos stale.
+  const conversations = useChatStore((s) => s.conversations);
+
+  // Derive conversation events from conversations (updates when addA2AEvent runs)
+  const conversationEvents = useMemo(() => {
+    if (!activeConversationId) return EMPTY_EVENTS;
+    const conv = conversations.find((c) => c.id === activeConversationId);
+    return conv?.a2aEvents || EMPTY_EVENTS;
+  }, [activeConversationId, conversations]);
+
   // Default to tasks tab, switch to debug if debug mode is enabled
   const [activeTab, setActiveTab] = useState<"tasks" | "debug">(debugMode ? "debug" : "tasks");
   // Collapse tool history after streaming ends
   const [toolsCollapsed, setToolsCollapsed] = useState(false);
 
-  // Get the active conversation
+  // Get the active conversation (for non-events data like messages)
   const conversation = useMemo(() => {
     if (!activeConversationId) return null;
-    return conversations.find(c => c.id === activeConversationId) || null;
+    return conversations.find((c) => c.id === activeConversationId) || null;
   }, [activeConversationId, conversations]);
-
-  // Get events for the active conversation
-  const conversationEvents = useMemo(() => {
-    return conversation?.a2aEvents || [];
-  }, [conversation]);
 
   // Check if streaming is truly active:
   // 1. Global isStreaming must be true
@@ -70,7 +90,6 @@ export function ContextPanel({
   // NOTE: complete_result is INTERNAL (sub-agent → supervisor), not final for UI
   const isActuallyStreaming = useMemo(() => {
     if (!isStreaming) return false;
-    const conversation = getActiveConversation();
     if (!conversation) return false;
     const lastMessage = conversation.messages[conversation.messages.length - 1];
     // If the last message is marked as final, streaming is done
@@ -89,7 +108,7 @@ export function ContextPanel({
     }
 
     return true;
-  }, [isStreaming, getActiveConversation, activeConversationId, conversationEvents]);
+  }, [isStreaming, conversation, conversationEvents]);
 
   // Parse execution plan tasks from A2A events (per-conversation)
   // When streaming ends, mark all tasks as completed

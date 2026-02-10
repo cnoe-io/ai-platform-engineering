@@ -20,8 +20,9 @@ interface AgentStreamBoxProps {
 /**
  * AgentStreamBox - Individual streaming box for each agent
  * Shows real-time streaming output per agent with intuitive UI
+ * Wrapped in React.memo to prevent re-renders when sibling components update.
  */
-export function AgentStreamBox({
+export const AgentStreamBox = React.memo(function AgentStreamBox({
   agentName,
   events,
   isStreaming = false,
@@ -261,9 +262,18 @@ export function AgentStreamBox({
                 <div className="h-full">
                 <div className="p-4">
                   <div className="prose prose-sm dark:prose-invert max-w-none break-words overflow-hidden" style={{ overflowWrap: 'anywhere' }}>
-                    <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                      {streamContent}
-                    </ReactMarkdown>
+                    {/* OPTIMIZED: Defer ReactMarkdown during streaming.
+                        Markdown parsing on every token chunk is expensive.
+                        Use plain <pre> while streaming, switch to ReactMarkdown when complete. */}
+                    {agentStatus === "completed" || agentStatus === "idle" ? (
+                      <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                        {streamContent}
+                      </ReactMarkdown>
+                    ) : (
+                      <pre className="text-sm whitespace-pre-wrap break-words font-sans leading-relaxed m-0">
+                        {streamContent}
+                      </pre>
+                    )}
                   </div>
 
                   {/* Resume auto-scroll button */}
@@ -309,4 +319,4 @@ export function AgentStreamBox({
       </AnimatePresence>
     </motion.div>
   );
-}
+});

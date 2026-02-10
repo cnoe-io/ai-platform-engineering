@@ -418,12 +418,25 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle }: ChatP
     }
   }, [activeConversationId, consumePendingMessage, submitMessage]);
 
-  const handleStop = () => {
+  const handleStop = useCallback(() => {
     if (activeConversationId) {
       cancelConversationRequest(activeConversationId);
     }
-  };
-  
+  }, [activeConversationId, cancelConversationRequest]);
+
+  // Stable callback for feedback changes (avoids creating new function refs on each render)
+  const handleFeedbackChange = useCallback((messageId: string, feedback: Feedback) => {
+    if (activeConversationId) {
+      updateMessageFeedback(activeConversationId, messageId, feedback);
+    }
+  }, [activeConversationId, updateMessageFeedback]);
+
+  // Stable callback for feedback submission
+  const handleFeedbackSubmit = useCallback(async (messageId: string, feedback: Feedback) => {
+    console.log("Feedback submitted:", { messageId, feedback });
+    // Future: Send to /api/feedback endpoint
+  }, []);
+
   // Handle user input form submission
   const handleUserInputSubmit = useCallback(async (formData: Record<string, string>) => {
     if (!pendingUserInput) return;
@@ -573,16 +586,8 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle }: ChatP
                     onStop={isAssistantStreaming ? handleStop : undefined}
                     onRetry={getRetryContent() ? () => handleRetry(getRetryContent()!) : undefined}
                     feedback={msg.feedback}
-                    onFeedbackChange={(feedback) => {
-                      if (activeConversationId) {
-                        updateMessageFeedback(activeConversationId, msg.id, feedback);
-                      }
-                    }}
-                    onFeedbackSubmit={async (feedback) => {
-                      // TODO: Send feedback to backend
-                      console.log("Feedback submitted:", { messageId: msg.id, feedback });
-                      // Future: Send to /api/feedback endpoint
-                    }}
+                    onFeedbackChange={(feedback) => handleFeedbackChange(msg.id, feedback)}
+                    onFeedbackSubmit={(feedback) => handleFeedbackSubmit(msg.id, feedback)}
                     conversationId={conversationId}
                   />
                 );
@@ -784,44 +789,10 @@ function StreamingView({ message, showRawStream, setShowRawStream, isStreaming =
   const enableSubAgentCards = getConfig('enableSubAgentCards');
 
   // ═══════════════════════════════════════════════════════════════
-  // AUTO-SCROLL with user override
+  // THINKING SECTION: No auto-scroll — users can scroll manually
+  // Auto-scroll was removed to prevent layout thrashing and allow
+  // users to read thinking content without being forced to the bottom.
   // ═══════════════════════════════════════════════════════════════
-  const streamingOutputRef = useRef<HTMLDivElement>(null);
-  const [isUserScrolled, setIsUserScrolled] = useState(false);
-  const isAutoScrollingRef = useRef(false);
-
-  // Detect when user scrolls up (takes control)
-  const handleScroll = useCallback(() => {
-    const container = streamingOutputRef.current;
-    if (!container || isAutoScrollingRef.current) return;
-
-    const { scrollTop, scrollHeight, clientHeight } = container;
-    const isAtBottom = scrollHeight - scrollTop - clientHeight < 50;
-
-    // If not at bottom, assume user is reviewing history -> disable auto-scroll
-    // If at bottom, resume auto-scroll
-    setIsUserScrolled(!isAtBottom);
-  }, []);
-
-  // Auto-scroll when content updates (if user hasn't taken control)
-  useEffect(() => {
-    const container = streamingOutputRef.current;
-    if (!container || isUserScrolled) return;
-
-    // Mark as auto-scrolling to prevent handleScroll from triggering
-    isAutoScrollingRef.current = true;
-    container.scrollTop = container.scrollHeight;
-
-    // Reset flag after scroll completes
-    requestAnimationFrame(() => {
-      isAutoScrollingRef.current = false;
-    });
-  }, [message.content, message.rawStreamContent, isUserScrolled]);
-
-  // Reset user scroll state when message changes (new response)
-  useEffect(() => {
-    setIsUserScrolled(false);
-  }, [message.id]);
 
   // Group events by source agent (including supervisor)
   const eventGroups = useMemo(() => {
@@ -956,33 +927,15 @@ function StreamingView({ message, showRawStream, setShowRawStream, isStreaming =
           <AnimatePresence>
             {showRawStream && (
               <motion.div
-                ref={streamingOutputRef}
-                onScroll={handleScroll}
                 initial={{ opacity: 0, height: 0 }}
                 animate={{ opacity: 1, height: "auto" }}
                 exit={{ opacity: 0, height: 0 }}
-                className="p-4 rounded-lg bg-card/80 border border-border/50 max-h-64 overflow-y-auto scroll-smooth"
+                className="p-4 rounded-lg bg-card/80 border border-border/50 max-h-64 overflow-y-auto"
               >
                 <pre className="text-sm text-foreground/80 font-mono whitespace-pre-wrap break-words leading-relaxed">
                   {/* Show rawStreamContent if available, otherwise fall back to content */}
                   {message.rawStreamContent || message.content}
                 </pre>
-                {/* Scroll indicator when user has scrolled up */}
-                {isUserScrolled && (
-                  <button
-                    onClick={() => {
-                      setIsUserScrolled(false);
-                      const container = streamingOutputRef.current;
-                      if (container) {
-                        container.scrollTop = container.scrollHeight;
-                      }
-                    }}
-                    className="sticky bottom-2 left-1/2 -translate-x-1/2 flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-primary text-primary-foreground text-xs font-medium shadow-lg hover:bg-primary/90 transition-colors"
-                  >
-                    <ArrowDown className="h-3 w-3" />
-                    <span>Resume auto-scroll</span>
-                  </button>
-                )}
               </motion.div>
             )}
           </AnimatePresence>
@@ -1015,7 +968,11 @@ interface ChatMessageProps {
   conversationId?: string;
 }
 
-function ChatMessage({
+/**
+ * ChatMessage — wrapped in React.memo to prevent re-renders of older messages
+ * when only the latest streaming message is updating (every 100ms).
+ */
+const ChatMessage = React.memo(function ChatMessage({
   message,
   onCopy,
   isCopied,
@@ -1503,4 +1460,4 @@ function ChatMessage({
       </div>
     </motion.div>
   );
-}
+});
