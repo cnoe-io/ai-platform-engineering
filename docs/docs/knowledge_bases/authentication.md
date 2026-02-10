@@ -338,9 +338,9 @@ OIDC_EMAIL_CLAIM=username  # If your provider uses username claim
 
 ## References
 
-- [RAG Server Source Code](../../../ai_platform_engineering/knowledge_bases/rag/)
-- [UI Authentication Config](../../../ui/src/lib/auth-config.ts)
-- [Helm Chart Values](../../../charts/rag-stack/charts/rag-server/values.yaml)
+- [RAG Server Source Code](https://github.com/cnoe-io/ai-platform-engineering/tree/main/ai_platform_engineering/knowledge_bases/rag/)
+- [UI Authentication Config](https://github.com/cnoe-io/ai-platform-engineering/blob/main/ui/src/lib/auth-config.ts)
+- [Helm Chart Values](https://github.com/cnoe-io/ai-platform-engineering/blob/main/charts/rag-stack/charts/rag-server/values.yaml)
 - [NextAuth Documentation](https://next-auth.js.org/)
 
 ## Version Compatibility

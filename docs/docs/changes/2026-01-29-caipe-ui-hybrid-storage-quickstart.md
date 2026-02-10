@@ -330,4 +330,4 @@ export const isMongoDBConfigured = false;
 - 🎭 **Demos**: localStorage mode (no infrastructure)
 - 🚀 **Production**: MongoDB mode (persistent, scalable)
 
-For more details, see [HYBRID-STORAGE.md](./HYBRID-STORAGE.md)
+For more details, see the hybrid storage documentation in the UI source code.
