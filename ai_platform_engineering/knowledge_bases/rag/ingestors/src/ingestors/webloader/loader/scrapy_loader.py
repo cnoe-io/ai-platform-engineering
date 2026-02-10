@@ -66,12 +66,20 @@ class ScrapyLoader:
     self.logger.info(f"Starting Scrapy crawl for {url} with mode {settings.crawl_mode}")
 
     try:
-      # Update job status
-      await self.job_manager.upsert_job(
-        job_id=job_id,
-        status=JobStatus.IN_PROGRESS,
-        message=f"Starting {settings.crawl_mode.value} crawl of {url}",
-      )
+      # Update job status with mode info
+      if settings.render_javascript:
+        await self.job_manager.upsert_job(
+          job_id=job_id,
+          status=JobStatus.IN_PROGRESS,
+          message=f"Starting {settings.crawl_mode.value} crawl with JavaScript rendering (Chromium)",
+        )
+        self.logger.info("JavaScript rendering enabled - using Playwright/Chromium")
+      else:
+        await self.job_manager.upsert_job(
+          job_id=job_id,
+          status=JobStatus.IN_PROGRESS,
+          message=f"Starting {settings.crawl_mode.value} crawl of {url}",
+        )
 
       # Get worker pool
       pool = await get_worker_pool()

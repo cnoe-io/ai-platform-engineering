@@ -109,6 +109,17 @@ class WorkerSpider(Spider):
 
   def start_requests(self):
     """Generate initial request(s) based on crawl mode."""
+    # Send initial progress message for JS rendering
+    if self.crawl_request.render_javascript:
+      self.logger.info("JavaScript rendering enabled - starting Chromium browser")
+      progress = CrawlProgress(
+        job_id=self.crawl_request.job_id,
+        pages_crawled=0,
+        pages_failed=0,
+        message="Starting Chromium browser for JavaScript rendering...",
+      )
+      self.result_queue.put(WorkerMessage.crawl_progress(progress).to_dict())
+
     if self.crawl_mode == "sitemap":
       # For sitemap mode, first try to fetch the sitemap
       parsed = urlparse(self.start_url)
