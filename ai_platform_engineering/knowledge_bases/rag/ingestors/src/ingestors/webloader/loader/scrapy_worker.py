@@ -24,15 +24,11 @@ from multiprocessing import Queue
 from typing import List
 from urllib.parse import urlparse, urljoin
 
-from twisted.internet import reactor, defer
+from twisted.internet import reactor
 from scrapy import Spider, Request
 from scrapy.crawler import CrawlerRunner
 from scrapy.http import Response
-from scrapy.exceptions import DropItem
-from scrapy.signalmanager import dispatcher
-from scrapy import signals
 from scrapy.utils.log import configure_logging
-from langchain_core.documents import Document
 
 from common import utils as common_utils
 from common.models.server import ScrapySettings, CrawlMode
@@ -45,7 +41,7 @@ from .worker_types import (
   CrawlResult,
   CrawlStatus,
 )
-from .settings import build_scrapy_settings, DEFAULT_USER_AGENT
+from .settings import build_scrapy_settings
 from .parsers import ParserRegistry
 
 # Import all parsers to register them

@@ -5,7 +5,6 @@ Uses Scrapy's CrawlSpider with LinkExtractor for discovering pages
 by following links from the start URL.
 """
 
-import re
 from typing import Iterator, Set
 from urllib.parse import urlparse
 

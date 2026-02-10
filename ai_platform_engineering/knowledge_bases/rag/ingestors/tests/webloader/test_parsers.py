@@ -5,7 +5,6 @@ These tests use mock Scrapy Response objects to verify that parsers
 correctly detect and extract content from different documentation sites.
 """
 
-import pytest
 from scrapy.http import HtmlResponse
 
 

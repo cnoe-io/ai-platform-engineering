@@ -6,17 +6,16 @@ using a subprocess worker pool to avoid Twisted/asyncio event loop conflicts.
 """
 
 import gc
-import time
 
 from langchain_core.documents import Document
 
 from common.models.server import ScrapySettings
-from common.models.rag import DataSourceInfo, DocumentMetadata
+from common.models.rag import DataSourceInfo
 from common.job_manager import JobManager, JobStatus
 from common.ingestor import Client
 from common.utils import get_logger
 
-from .worker_pool import get_worker_pool, shutdown_worker_pool
+from .worker_pool import get_worker_pool
 from .worker_types import CrawlRequest, CrawlProgress, CrawlResult, CrawlStatus
 
 logger = get_logger(__name__)

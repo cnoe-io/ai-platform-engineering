@@ -5,8 +5,7 @@ These tests verify spider initialization, URL filtering logic,
 and basic request generation without running actual crawls.
 """
 
-import pytest
-from unittest.mock import Mock, MagicMock
+from unittest.mock import Mock
 
 
 # ============================================================================

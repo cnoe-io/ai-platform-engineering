@@ -187,8 +187,8 @@ class ScrapyWorkerPool:
             )
             try:
               await pending.on_progress(progress)
-            except Exception as e:
-              logger.warning(f"Progress callback error: {e}")
+            except Exception:
+              logger.warning(f"Progress callback error")
 
         elif msg.type == MessageType.CRAWL_RESULT:
           job_id = msg.payload.get("job_id")
@@ -313,7 +313,7 @@ class ScrapyWorkerPool:
         fatal_error=f"Crawl timed out after {timeout}s",
       )
 
-    except Exception as e:
+    except Exception:
       # Remove from pending
       self.pending_jobs.pop(request.job_id, None)
 
