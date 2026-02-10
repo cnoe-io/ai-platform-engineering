@@ -7,6 +7,7 @@ generating datasource and document IDs, and enhancing metadata with Confluence-s
 import time
 import hashlib
 import traceback
+from datetime import datetime
 from typing import Dict, List, Any, Tuple, Optional
 from urllib.parse import urlparse
 import aiohttp
@@ -20,6 +21,15 @@ from common.models.rag import DataSourceInfo, DocumentMetadata
 from common.utils import get_logger
 
 logger = get_logger(__name__)
+
+
+def iso_to_timestamp(iso_string: str) -> int:
+    """Convert ISO 8601 timestamp to Unix timestamp."""
+    try:
+        dt = datetime.fromisoformat(iso_string.replace('Z', '+00:00'))
+        return int(dt.timestamp())
+    except (ValueError, TypeError):
+        return 0
 
 # Configuration constants
 CONFLUENCE_BATCH_SIZE = 100  # Documents per batch
@@ -342,9 +352,11 @@ class ConfluenceLoader:
                     "webui", ""
                 )
                 created_date = page.get("history", {}).get("createdDate", "")
-                last_modified = (
+                last_modified_iso = (
                     page.get("history", {}).get("lastUpdated", {}).get("when", "")
                 )
+                # Convert to Unix timestamp for pruning support
+                last_modified = iso_to_timestamp(last_modified_iso)
                 version = page.get("version", {}).get("number", 1)
                 author = (
                     page.get("history", {})
@@ -367,7 +379,8 @@ class ConfluenceLoader:
                         "space_name": space_name,
                         "url": page_url,
                         "created_date": created_date,
-                        "last_modified": last_modified,
+                        "last_modified": last_modified,  # Unix timestamp for pruning
+                        "last_modified_iso": last_modified_iso,  # Keep ISO string for display
                         "version": version,
                         "author": author,
                         "chunk_index": i,
