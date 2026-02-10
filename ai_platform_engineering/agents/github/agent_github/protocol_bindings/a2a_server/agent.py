@@ -16,6 +16,7 @@ from dotenv import load_dotenv
 from pydantic import BaseModel
 
 from ai_platform_engineering.utils.a2a_common.base_langgraph_agent import BaseLangGraphAgent
+from ai_platform_engineering.utils.github_app_token_provider import get_github_token, is_github_app_mode
 from ai_platform_engineering.utils.subagent_prompts import load_subagent_prompt_config
 from agent_github.tools import get_gh_cli_tool
 
@@ -43,10 +44,21 @@ class GitHubAgent(BaseLangGraphAgent):
     RESPONSE_FORMAT_INSTRUCTION = _prompt_config.response_format_instruction
 
     def __init__(self):
-        """Initialize GitHub agent with token validation."""
-        self.github_token = os.getenv("GITHUB_PERSONAL_ACCESS_TOKEN")
-        if not self.github_token:
-            logger.warning("GITHUB_PERSONAL_ACCESS_TOKEN not set, GitHub integration will be limited")
+        """Initialize GitHub agent with token validation.
+
+        Supports two authentication modes:
+        1. GitHub App (recommended): Set GITHUB_APP_ID, GITHUB_APP_PRIVATE_KEY,
+           and GITHUB_APP_INSTALLATION_ID for auto-refreshing tokens.
+        2. PAT (fallback): Set GITHUB_PERSONAL_ACCESS_TOKEN for static token auth.
+        """
+        self._use_app_auth = is_github_app_mode()
+        if self._use_app_auth:
+            logger.info("GitHub agent using GitHub App authentication (auto-refreshing tokens)")
+        else:
+            token = os.getenv("GITHUB_PERSONAL_ACCESS_TOKEN")
+            if not token:
+                logger.warning("No GitHub auth configured. Set GITHUB_APP_ID + GITHUB_APP_PRIVATE_KEY + "
+                               "GITHUB_APP_INSTALLATION_ID for App auth, or GITHUB_PERSONAL_ACCESS_TOKEN for PAT auth.")
 
         # Call parent constructor (no parameters needed)
         super().__init__()
@@ -59,17 +71,26 @@ class GitHubAgent(BaseLangGraphAgent):
         """
         Provide custom HTTP MCP configuration for GitHub Copilot API.
 
+        Uses get_github_token() which automatically handles:
+        - GitHub App tokens (auto-refreshed before each MCP session)
+        - PAT tokens (static, from environment)
+
         Returns:
             Dictionary with GitHub Copilot API configuration
         """
-        if not self.github_token:
-            logger.error("Cannot configure GitHub MCP: GITHUB_PERSONAL_ACCESS_TOKEN not set")
+        token = get_github_token()
+        if not token:
+            logger.error(
+                "Cannot configure GitHub MCP: no GitHub auth configured. "
+                "Set GITHUB_APP_ID + GITHUB_APP_PRIVATE_KEY + GITHUB_APP_INSTALLATION_ID "
+                "for App auth, or GITHUB_PERSONAL_ACCESS_TOKEN for PAT auth."
+            )
             return None
 
         return {
                     "url": "https://api.githubcopilot.com/mcp",
                     "headers": {
-                      "Authorization": f"Bearer {self.github_token}",
+                      "Authorization": f"Bearer {token}",
                     },
                   }
 

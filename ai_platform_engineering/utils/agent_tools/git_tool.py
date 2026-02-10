@@ -8,7 +8,7 @@ Provides a single `git` tool that can run any git command with automatic
 GitHub/GitLab authentication for private repositories.
 
 Supports:
-- GitHub: Uses GITHUB_PERSONAL_ACCESS_TOKEN or GITHUB_TOKEN
+- GitHub: Uses GitHub App tokens (auto-refreshing) or GITHUB_PERSONAL_ACCESS_TOKEN
 - GitLab: Uses GITLAB_PERSONAL_ACCESS_TOKEN or GITLAB_TOKEN
 
 Security:
@@ -103,8 +103,19 @@ def _detect_git_provider(url: str) -> str:
 
 
 def _get_auth_token(provider: str) -> Optional[str]:
-    """Get authentication token for a git provider."""
+    """Get authentication token for a git provider.
+
+    For GitHub, uses the centralized token provider which supports
+    auto-refreshing GitHub App tokens with PAT fallback.
+    """
     if provider == 'github':
+        try:
+            from ai_platform_engineering.utils.github_app_token_provider import get_github_token
+            token = get_github_token()
+            if token:
+                return token
+        except ImportError:
+            pass
         return os.getenv("GITHUB_PERSONAL_ACCESS_TOKEN") or os.getenv("GITHUB_TOKEN")
     elif provider == 'gitlab':
         return os.getenv("GITLAB_PERSONAL_ACCESS_TOKEN") or os.getenv("GITLAB_TOKEN")

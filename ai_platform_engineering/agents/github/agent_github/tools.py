@@ -15,6 +15,7 @@ from pydantic import BaseModel, Field
 
 # Import git tool from utils (shared with GitLab agent)
 from ai_platform_engineering.utils.agent_tools import git
+from ai_platform_engineering.utils.github_app_token_provider import get_github_token
 
 logger = logging.getLogger(__name__)
 
@@ -137,10 +138,10 @@ class GHCLITool(BaseTool):
             logger.warning(f"gh CLI command blocked: {command} - {error_msg}")
             return f"❌ {error_msg}"
 
-        # Check if GITHUB_TOKEN is set
-        github_token = os.getenv("GITHUB_PERSONAL_ACCESS_TOKEN") or os.getenv("GITHUB_TOKEN")
+        # Get token (auto-refreshed if using GitHub App mode)
+        github_token = get_github_token()
         if not github_token:
-            return "❌ Error: GITHUB_PERSONAL_ACCESS_TOKEN not set. gh CLI requires authentication."
+            return "❌ Error: No GitHub auth configured. Set GITHUB_APP_ID + GITHUB_APP_PRIVATE_KEY + GITHUB_APP_INSTALLATION_ID for App auth, or GITHUB_PERSONAL_ACCESS_TOKEN for PAT auth."
 
         # Build full command
         command_parts = ["gh"] + shlex.split(command)
