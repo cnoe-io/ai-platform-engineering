@@ -29,13 +29,28 @@ FROM python:3.13-slim-bookworm
 # Python executable must be the same, e.g., using `python:3.13-slim-bookworm`
 # will fail.
 
-# Install AWS CLI v2 for EKS authentication (This is for k8s ingestor)
+# Install system dependencies:
+# - AWS CLI v2 for EKS authentication (k8s ingestor)
+# - Playwright/Chromium dependencies for JavaScript rendering (webloader ingestor)
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends curl unzip && \
-    curl "https://awscli.amazonaws.com/awscli-exe-linux-aarch64.zip" -o "awscliv2.zip" && \
+    apt-get install -y --no-install-recommends \
+    # For AWS CLI installation
+    curl unzip \
+    # Playwright/Chromium dependencies
+    libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 \
+    libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 \
+    libgbm1 libasound2 libpango-1.0-0 libcairo2 libatspi2.0-0 && \
+    # Install AWS CLI v2 (detect architecture)
+    ARCH=$(uname -m) && \
+    if [ "$ARCH" = "aarch64" ]; then \
+        curl "https://awscli.amazonaws.com/awscli-exe-linux-aarch64.zip" -o "awscliv2.zip"; \
+    else \
+        curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"; \
+    fi && \
     unzip awscliv2.zip && \
     ./aws/install && \
     rm -rf awscliv2.zip aws && \
+    # Cleanup
     apt-get remove -y curl unzip && \
     apt-get autoremove -y && \
     apt-get clean && \
@@ -52,6 +67,13 @@ WORKDIR /app/ingestors
 
 # Place executables in the environment at the front of the path
 ENV PATH="/app/ingestors/.venv/bin:$PATH"
+
+# Install Playwright browsers (Chromium only to minimize image size)
+# This needs to run before switching to non-root user since it downloads to system cache
+ENV PLAYWRIGHT_BROWSERS_PATH=/opt/playwright
+RUN mkdir -p /opt/playwright && \
+    playwright install chromium && \
+    chmod -R 755 /opt/playwright
 
 # Use a non-root user to run the application
 USER app
