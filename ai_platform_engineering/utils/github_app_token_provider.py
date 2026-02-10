@@ -146,7 +146,7 @@ class GitHubAppTokenProvider:
         # e.g., "2024-01-01T01:00:00Z"
         expires_at_str = data.get("expires_at", "")
         if expires_at_str:
-            from datetime import datetime, timezone
+            from datetime import datetime
             expires_at = datetime.fromisoformat(
                 expires_at_str.replace("Z", "+00:00")
             ).timestamp()
