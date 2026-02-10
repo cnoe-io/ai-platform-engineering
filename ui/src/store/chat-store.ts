@@ -73,6 +73,12 @@ const savedMessageIds = new Set<string>();
 const messageLoadState = new Map<string, { inFlight: boolean; lastLoadedAt: number }>();
 const MESSAGE_LOAD_COOLDOWN_MS = 5000; // 5 second cooldown between automatic syncs
 
+// Track event counts per conversation for periodic saves during long streaming sessions.
+// When event count hits the threshold, a background save is triggered to avoid data loss
+// if the user closes the tab or the browser crashes mid-stream.
+const eventCountSinceLastSave = new Map<string, number>();
+const PERIODIC_SAVE_EVENT_THRESHOLD = 50; // Save every 50 events during streaming
+
 // Serialize A2A event for MongoDB storage (strip circular refs and large raw data)
 function serializeA2AEvent(event: A2AEvent): Record<string, unknown> {
   return {
@@ -292,6 +298,8 @@ const storeImplementation = (set: any, get: any) => ({
 
         // When streaming completes, save messages to MongoDB
         if (!state) {
+          // Reset periodic save counter for this conversation
+          eventCountSinceLastSave.delete(conversationId);
           // Use setTimeout to let the final message update settle before saving
           setTimeout(() => {
             get().saveMessagesToServer(conversationId).catch((error) => {
@@ -325,6 +333,15 @@ const storeImplementation = (set: any, get: any) => ({
             state.appendToMessage(conversationId, streamingState.messageId, "\n\n*Request cancelled*");
             state.updateMessage(conversationId, streamingState.messageId, { isFinal: true });
           }
+
+          // Reset periodic save counter and save to MongoDB after cancel —
+          // previously skipped because cancel bypassed setConversationStreaming(null).
+          eventCountSinceLastSave.delete(conversationId);
+          setTimeout(() => {
+            get().saveMessagesToServer(conversationId).catch((error) => {
+              console.error('[ChatStore] Save after cancel failed:', error);
+            });
+          }, 500);
         }
       },
 
@@ -348,6 +365,20 @@ const storeImplementation = (set: any, get: any) => ({
 
           return { a2aEvents: newGlobalEvents };
         });
+
+        // Periodic save: trigger a background save every PERIODIC_SAVE_EVENT_THRESHOLD
+        // events to avoid data loss during long streaming sessions.
+        if (convId) {
+          const count = (eventCountSinceLastSave.get(convId) || 0) + 1;
+          eventCountSinceLastSave.set(convId, count);
+          if (count >= PERIODIC_SAVE_EVENT_THRESHOLD) {
+            eventCountSinceLastSave.set(convId, 0);
+            console.log(`[ChatStore] Periodic save triggered after ${PERIODIC_SAVE_EVENT_THRESHOLD} events for: ${convId}`);
+            get().saveMessagesToServer(convId).catch((error) => {
+              console.error('[ChatStore] Periodic save failed:', error);
+            });
+          }
+        }
       },
 
       clearA2AEvents: (conversationId?: string) => {
@@ -1114,3 +1145,38 @@ export const useChatStore = shouldUseLocalStorage()
         },
       })
     );
+
+// ═══════════════════════════════════════════════════════════════
+// PERSISTENCE HARDENING: Save in-flight conversations on tab close / navigation
+// ═══════════════════════════════════════════════════════════════
+// Uses visibilitychange (recommended by Page Lifecycle API) as the primary handler,
+// with beforeunload as a fallback. When the tab is hidden or the user navigates away,
+// we save any conversations that were streaming to avoid data loss.
+if (typeof window !== 'undefined') {
+  const saveInflightConversations = () => {
+    const state = useChatStore.getState();
+    if (state.streamingConversations.size === 0) return;
+
+    console.log(`[ChatStore] Tab hidden/closing — saving ${state.streamingConversations.size} in-flight conversation(s)`);
+    for (const [conversationId] of state.streamingConversations) {
+      // Reset periodic save counter
+      eventCountSinceLastSave.delete(conversationId);
+      // Fire-and-forget save (browser may kill the page before completion,
+      // but periodic saves during streaming provide a safety net)
+      state.saveMessagesToServer(conversationId).catch((error) => {
+        console.error(`[ChatStore] Save on unload failed for ${conversationId}:`, error);
+      });
+    }
+  };
+
+  // Primary: visibilitychange fires reliably on tab close, navigation, app switch.
+  // Browsers give ~5s of execution time for this handler.
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') {
+      saveInflightConversations();
+    }
+  });
+
+  // Fallback: beforeunload for older browsers and explicit tab close.
+  window.addEventListener('beforeunload', saveInflightConversations);
+}

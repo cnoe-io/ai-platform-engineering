@@ -4,10 +4,12 @@
  * Tests:
  * - Renders agent name and content
  * - Markdown content container has overflow protection (break-words, overflow-hidden)
- * - Respects user scroll position (does not auto-scroll when user scrolled up)
  * - Copy button works
  * - Expand/collapse toggle works
  * - Does not render when no content and not streaming
+ * - Content truncation during streaming (perf: only shows last 2000 chars)
+ * - Full content shown after streaming completes
+ * - Status badges (streaming, processing, completed, error)
  */
 
 import React from 'react'
@@ -46,25 +48,6 @@ jest.mock('remark-gfm', () => () => {})
 jest.mock('@/components/shared/AgentLogos', () => ({
   AgentLogo: ({ agent }: any) => <div data-testid={`agent-logo-${agent}`}>{agent}</div>,
   getAgentLogo: (name: string) => ({ displayName: name, emoji: '🤖', color: '#fff' }),
-}))
-
-// Mock ScrollArea — simple scrollable div for testing
-jest.mock('@/components/ui/scroll-area', () => ({
-  ScrollArea: React.forwardRef(({ children, className, ...props }: any, ref: any) => {
-    const innerRef = React.useRef<HTMLDivElement>(null)
-    React.useImperativeHandle(ref, () => innerRef.current)
-    return (
-      <div ref={innerRef} className={className} data-testid="agent-scroll-area" {...props}>
-        <div
-          data-radix-scroll-area-viewport="true"
-          data-testid="agent-scroll-viewport"
-          style={{ overflow: 'auto', height: '300px' }}
-        >
-          {children}
-        </div>
-      </div>
-    )
-  }),
 }))
 
 // ============================================================================
@@ -161,10 +144,9 @@ describe('AgentStreamBox', () => {
     it('should render content when streaming with events', () => {
       const events = [createStreamEvent('Hello from ArgoCD')]
       render(
-        <AgentStreamBox agentName="argocd" events={events} isStreaming={true} />
+        <AgentStreamBox agentName="argocd" events={events} isStreaming={false} />
       )
 
-      expect(screen.getByTestId('react-markdown-output')).toBeInTheDocument()
       expect(screen.getByText('Hello from ArgoCD')).toBeInTheDocument()
     })
 
@@ -185,11 +167,77 @@ describe('AgentStreamBox', () => {
       ]
 
       render(
-        <AgentStreamBox agentName="argocd" events={events} isStreaming={true} />
+        <AgentStreamBox agentName="argocd" events={events} isStreaming={false} />
       )
 
       // Tool events should be filtered out, streaming content aggregated
       expect(screen.getByText('First chunk Second chunk')).toBeInTheDocument()
+    })
+
+    it('should exclude execution_plan_update artifacts from streamContent', () => {
+      const planEvent: A2AEvent = {
+        type: 'artifact',
+        timestamp: Date.now(),
+        sourceAgent: 'argocd',
+        displayContent: '⏳ [ArgoCD] List apps',
+        artifact: { name: 'execution_plan_update', description: 'Plan', text: '' },
+      } as unknown as A2AEvent
+
+      const events = [
+        createStreamEvent('Before plan '),
+        planEvent,
+        createStreamEvent('After plan'),
+      ]
+
+      render(
+        <AgentStreamBox agentName="argocd" events={events} isStreaming={false} />
+      )
+
+      expect(screen.getByText('Before plan After plan')).toBeInTheDocument()
+    })
+  })
+
+  describe('Content truncation during streaming', () => {
+    it('should truncate content to last 2000 chars during streaming', () => {
+      // Create content larger than 2000 chars
+      const largeContent = 'A'.repeat(3000)
+      const events = [createStreamEvent(largeContent)]
+
+      render(
+        <AgentStreamBox agentName="argocd" events={events} isStreaming={true} />
+      )
+
+      // Should show truncation indicator + last 2000 chars
+      const pre = document.querySelector('pre')
+      expect(pre).not.toBeNull()
+      expect(pre!.textContent![0]).toBe('…')
+      expect(pre!.textContent!.length).toBe(2001) // '…' + 2000 chars
+    })
+
+    it('should show full content when not streaming', () => {
+      const largeContent = 'B'.repeat(3000)
+      const events = [createStreamEvent(largeContent)]
+
+      render(
+        <AgentStreamBox agentName="argocd" events={events} isStreaming={false} />
+      )
+
+      // Should render full content via ReactMarkdown (completed state)
+      const markdown = screen.getByTestId('react-markdown-output')
+      expect(markdown.textContent).toBe(largeContent)
+    })
+
+    it('should not truncate content under 2000 chars during streaming', () => {
+      const smallContent = 'C'.repeat(500)
+      const events = [createStreamEvent(smallContent)]
+
+      render(
+        <AgentStreamBox agentName="argocd" events={events} isStreaming={true} />
+      )
+
+      const pre = document.querySelector('pre')
+      expect(pre).not.toBeNull()
+      expect(pre!.textContent).toBe(smallContent) // No truncation
     })
   })
 
@@ -200,7 +248,7 @@ describe('AgentStreamBox', () => {
         <AgentStreamBox agentName="argocd" events={events} isStreaming={true} />
       )
 
-      // Find the prose container div that wraps ReactMarkdown
+      // Find the prose container div that wraps content
       const proseContainer = document.querySelector('.prose')
       expect(proseContainer).not.toBeNull()
       expect(proseContainer!.className).toContain('break-words')
@@ -253,7 +301,7 @@ describe('AgentStreamBox', () => {
     it('should toggle collapse on header click', () => {
       const events = [createStreamEvent('Toggle me')]
       render(
-        <AgentStreamBox agentName="argocd" events={events} isStreaming={true} />
+        <AgentStreamBox agentName="argocd" events={events} isStreaming={false} />
       )
 
       // Click header to collapse
@@ -289,89 +337,37 @@ describe('AgentStreamBox', () => {
     })
   })
 
-  describe('Scroll behavior', () => {
-    it('should auto-scroll when content updates and user has not scrolled up', () => {
-      const events = [createStreamEvent('Initial')]
-      const { rerender } = render(
+  describe('Streaming content container', () => {
+    it('should use a plain div with overflow-y-auto (not ScrollArea)', () => {
+      const events = [createStreamEvent('Test')]
+      render(
         <AgentStreamBox agentName="argocd" events={events} isStreaming={true} />
       )
 
-      const viewport = screen.getByTestId('agent-scroll-viewport')
+      // Verify no ScrollArea (no radix scroll viewport)
+      expect(screen.queryByTestId('agent-scroll-area')).not.toBeInTheDocument()
+      expect(screen.queryByTestId('agent-scroll-viewport')).not.toBeInTheDocument()
 
-      // Mock scroll dimensions
-      Object.defineProperty(viewport, 'scrollHeight', { value: 1000, configurable: true })
-      Object.defineProperty(viewport, 'clientHeight', { value: 300, configurable: true })
-      Object.defineProperty(viewport, 'scrollTop', { value: 700, writable: true, configurable: true })
-
-      // Update with more content
-      const updatedEvents = [
-        createStreamEvent('Initial'),
-        createStreamEvent(' More content'),
-      ]
-      rerender(
-        <AgentStreamBox agentName="argocd" events={updatedEvents} isStreaming={true} />
-      )
-
-      // The auto-scroll effect sets scrollTop = scrollHeight
-      // Since user hasn't scrolled up (no scroll event fired), it should auto-scroll
+      // Find the scrollable container (plain div with h-[300px] and overflow-y-auto)
+      const scrollDiv = document.querySelector('.overflow-y-auto')
+      expect(scrollDiv).not.toBeNull()
     })
 
-    it('should NOT auto-scroll when user has scrolled up in the stream box', () => {
-      // Use jest fake timers to control requestAnimationFrame
-      jest.useFakeTimers()
-      const scrollTopSetter = jest.fn()
+    it('should use <pre> during streaming and ReactMarkdown when completed', () => {
+      const events = [createStreamEvent('Some content')]
 
-      const events = [createStreamEvent('Initial content')]
+      // During streaming: should use <pre>
       const { rerender } = render(
         <AgentStreamBox agentName="argocd" events={events} isStreaming={true} />
       )
+      expect(document.querySelector('pre')).not.toBeNull()
+      expect(screen.queryByTestId('react-markdown-output')).not.toBeInTheDocument()
 
-      const viewport = screen.getByTestId('agent-scroll-viewport')
-
-      // Mock scroll dimensions: user is scrolled far up
-      Object.defineProperty(viewport, 'scrollHeight', { value: 1000, configurable: true })
-      Object.defineProperty(viewport, 'clientHeight', { value: 300, configurable: true })
-
-      // Set scrollTop with a getter/setter to track writes
-      let currentScrollTop = 100
-      Object.defineProperty(viewport, 'scrollTop', {
-        get: () => currentScrollTop,
-        set: (v: number) => {
-          scrollTopSetter(v)
-          currentScrollTop = v
-        },
-        configurable: true,
-      })
-
-      // Flush any pending requestAnimationFrame from initial render's auto-scroll
-      // so isAutoScrollingRef is reset to false
-      act(() => { jest.runAllTimers() })
-
-      // Clear setter calls from initial auto-scroll
-      scrollTopSetter.mockClear()
-
-      // Simulate user scrolling up — triggers handleScroll → isUserScrolled=true
-      // distance to bottom = 1000 - 300 - 100 = 600 > 50 threshold
-      act(() => { fireEvent.scroll(viewport) })
-
-      // Clear setter from the scroll event
-      scrollTopSetter.mockClear()
-
-      // Update content — should NOT trigger auto-scroll since user scrolled up
-      const updatedEvents = [
-        createStreamEvent('Initial content'),
-        createStreamEvent(' Added chunk'),
-      ]
-      act(() => {
-        rerender(
-          <AgentStreamBox agentName="argocd" events={updatedEvents} isStreaming={true} />
-        )
-      })
-
-      // The auto-scroll effect should not have written to scrollTop
-      expect(scrollTopSetter).not.toHaveBeenCalled()
-
-      jest.useRealTimers()
+      // After streaming: should use ReactMarkdown
+      rerender(
+        <AgentStreamBox agentName="argocd" events={events} isStreaming={false} />
+      )
+      expect(screen.getByTestId('react-markdown-output')).toBeInTheDocument()
     })
   })
 

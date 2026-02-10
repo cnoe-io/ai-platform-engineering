@@ -188,3 +188,43 @@ flowchart TD
 ## Dependencies
 
 - `@tanstack/react-virtual` — already present in the project, used for virtualizing the A2A Debug event list
+
+---
+
+## Persistence Hardening (Added Same Day)
+
+Three fixes to prevent data loss when the user closes the tab, cancels a request, or has a long streaming session.
+
+### Fix 8: Save on Cancel
+
+**File**: `ui/src/store/chat-store.ts` (`cancelConversationRequest`)
+
+**Problem**: `cancelConversationRequest` removed the conversation from `streamingConversations` directly, bypassing `setConversationStreaming(null)` which is the only trigger for `saveMessagesToServer`. Events and messages from cancelled requests were never persisted.
+
+**Fix**: Added a `setTimeout(() => saveMessagesToServer(...), 500)` call at the end of `cancelConversationRequest`, matching the pattern used in `setConversationStreaming`.
+
+### Fix 9: Periodic Save During Long Streaming
+
+**File**: `ui/src/store/chat-store.ts` (`addA2AEvent`)
+
+**Problem**: During long streaming sessions, all events and messages accumulate only in memory. If the browser crashes or the tab is killed, everything is lost.
+
+**Fix**: Added a module-level `eventCountSinceLastSave` Map that tracks event counts per conversation. Every 50 events (`PERIODIC_SAVE_EVENT_THRESHOLD`), a background `saveMessagesToServer` call is triggered. The counter resets when streaming completes or is cancelled.
+
+### Fix 10: Save on Tab Close / Navigation
+
+**File**: `ui/src/store/chat-store.ts` (module-level handler after store creation)
+
+**Problem**: No `beforeunload` or `visibilitychange` handler existed. Closing the tab during streaming lost all unsaved data.
+
+**Fix**: Added two event listeners:
+- `visibilitychange` (primary): When `document.visibilityState === 'hidden'`, saves all in-flight conversations. This is the recommended pattern per the Page Lifecycle API — browsers give ~5 seconds of execution time.
+- `beforeunload` (fallback): Same handler for older browsers.
+
+Combined with periodic saves (Fix 9), even if the final save on unload is cut short, at most 50 events of data would be lost.
+
+### Updated Files Summary
+
+| File | Additional Changes |
+|------|---------|
+| `ui/src/store/chat-store.ts` | Fix 8 (cancel save), Fix 9 (periodic save), Fix 10 (unload save) |

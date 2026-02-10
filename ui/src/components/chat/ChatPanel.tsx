@@ -191,8 +191,11 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle }: ChatP
     let eventCounter = 0;
     let hasReceivedCompleteResult = false;
     let lastUIUpdate = 0;
-    const UI_UPDATE_INTERVAL = 100; // Throttle UI updates
-    const EVENT_BATCH_SIZE = 20; // Batch events for storage
+    const UI_UPDATE_INTERVAL = 100; // Throttle UI updates to max 10/sec
+    // Buffer A2A events locally and flush on the same throttle as UI updates.
+    // Previously, addA2AEvent was called on EVERY token, causing a Zustand set()
+    // per token — hundreds of store updates/sec that saturated React's render pipeline.
+    const eventBuffer: Parameters<typeof addA2AEvent>[0][] = [];
 
     // Mark this conversation as streaming
     setConversationStreaming(convId, {
@@ -212,10 +215,28 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle }: ChatP
         const artifactName = event.artifactName || "";
         const newContent = event.displayContent;
 
-        // Store ALL events in A2A Debug (no batching)
+        // Buffer event for batched store update (flushed on UI_UPDATE_INTERVAL)
         const storeEvent = toStoreEvent(event, `event-${eventNum}-${Date.now()}`);
-        addA2AEvent(storeEvent as Parameters<typeof addA2AEvent>[0], convId!);
+        eventBuffer.push(storeEvent as Parameters<typeof addA2AEvent>[0]);
         
+        // Flush buffer immediately for important events that update the Tasks panel
+        // (execution plans, tool notifications, final results, user input forms)
+        const isImportantArtifact =
+          artifactName === "execution_plan_update" ||
+          artifactName === "execution_plan_status_update" ||
+          artifactName === "tool_notification_start" ||
+          artifactName === "tool_notification_end" ||
+          artifactName === "partial_result" ||
+          artifactName === "final_result" ||
+          artifactName === "UserInputMetaData";
+
+        if (isImportantArtifact && eventBuffer.length > 0) {
+          for (const bufferedEvent of eventBuffer) {
+            addA2AEvent(bufferedEvent, convId!);
+          }
+          eventBuffer.length = 0;
+        }
+
         // ═══════════════════════════════════════════════════════════════
         // DETECT USER INPUT FORM REQUEST
         // ═══════════════════════════════════════════════════════════════
@@ -317,9 +338,15 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle }: ChatP
             accumulatedText += newContent;
           }
 
-          // Throttle UI updates
+          // Throttle UI updates — flush event buffer + update message together
+          // so the store only gets ONE batched update per interval, not per token.
           const now = Date.now();
           if (now - lastUIUpdate >= UI_UPDATE_INTERVAL) {
+            // Flush buffered A2A events first
+            for (const bufferedEvent of eventBuffer) {
+              addA2AEvent(bufferedEvent, convId!);
+            }
+            eventBuffer.length = 0;
             updateMessage(convId!, assistantMsgId, { content: accumulatedText, rawStreamContent });
             lastUIUpdate = now;
           }
@@ -329,6 +356,13 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle }: ChatP
       // ═══════════════════════════════════════════════════════════════
       // FINALIZE (Agent-forge's finishStreamingMessage pattern)
       // ═══════════════════════════════════════════════════════════════
+
+      // Flush any remaining buffered events
+      for (const bufferedEvent of eventBuffer) {
+        addA2AEvent(bufferedEvent, convId!);
+      }
+      eventBuffer.length = 0;
+
       console.log(`[A2A SDK] 🏁 STREAM COMPLETE - ${eventCounter} events, hasResult=${hasReceivedCompleteResult}`);
       console.log(`[A2A SDK] 📊 Final content: ${accumulatedText.length} chars, Raw stream: ${rawStreamContent.length} chars`);
 
@@ -788,11 +822,19 @@ function StreamingView({ message, showRawStream, setShowRawStream, isStreaming =
   // Feature flag for sub-agent cards (experimental)
   const enableSubAgentCards = getConfig('enableSubAgentCards');
 
+  // Ref for auto-scrolling the Thinking container to the bottom on new content.
+  // Safe because content is truncated to 2000 chars during streaming.
+  const thinkingRef = useRef<HTMLDivElement>(null);
+
   // ═══════════════════════════════════════════════════════════════
-  // THINKING SECTION: No auto-scroll — users can scroll manually
-  // Auto-scroll was removed to prevent layout thrashing and allow
-  // users to read thinking content without being forced to the bottom.
+  // THINKING SECTION: Light auto-scroll to bottom on new content.
+  // Safe because content is truncated to 2000 chars during streaming.
   // ═══════════════════════════════════════════════════════════════
+  useEffect(() => {
+    if (isStreaming && thinkingRef.current) {
+      thinkingRef.current.scrollTop = thinkingRef.current.scrollHeight;
+    }
+  }, [message.rawStreamContent, isStreaming]);
 
   // Group events by source agent (including supervisor)
   const eventGroups = useMemo(() => {
@@ -805,31 +847,32 @@ function StreamingView({ message, showRawStream, setShowRawStream, isStreaming =
     return groups;
   }, [message.events]);
 
-  // Get display order - include all agents (supervisor + sub-agents)
+  // Get display order - sub-agents first, supervisor only if sub-agents exist.
+  // When the supervisor is the only agent, its content flows through the
+  // "Thinking" section below — showing it as a sub-agent card is misleading.
   const agentOrder = useMemo(() => {
     const order: string[] = [];
     const seen = new Set<string>();
 
-    // Add supervisor first if present
-    if (eventGroups.has("supervisor")) {
-      order.push("supervisor");
-      seen.add("supervisor");
-    }
-
-    // Add other agents
+    // First pass: collect sub-agents (not supervisor) in event order
     for (const event of message.events) {
       const agent = (event.sourceAgent || "supervisor").toLowerCase();
       if (!seen.has(agent) && agent !== "supervisor") {
-        // Include all agents, not just "real sub-agents"
         seen.add(agent);
         order.push(agent);
       }
     }
 
+    // Only include supervisor card when there are real sub-agents,
+    // so the orchestration context is visible alongside the sub-agents.
+    if (order.length > 0 && eventGroups.has("supervisor")) {
+      order.unshift("supervisor");
+    }
+
     return order;
   }, [message.events, eventGroups]);
 
-  // Always show agent stream boxes if we have agents
+  // Show agent stream boxes only when there are actual sub-agents
   const hasAgents = agentOrder.length > 0;
 
   return (
@@ -890,7 +933,9 @@ function StreamingView({ message, showRawStream, setShowRawStream, isStreaming =
         </motion.div>
       )}
 
-      {/* Raw streaming output - collapsible - shows accumulated stream content */}
+      {/* Raw streaming output - collapsible - shows accumulated stream content.
+          PERFORMANCE: During streaming, only display the tail of rawStreamContent
+          to prevent the browser from re-rendering 80K+ chars on every token. */}
       {(message.rawStreamContent || message.content) && (
         <motion.div
           initial={{ opacity: 0, height: 0 }}
@@ -927,14 +972,21 @@ function StreamingView({ message, showRawStream, setShowRawStream, isStreaming =
           <AnimatePresence>
             {showRawStream && (
               <motion.div
+                ref={thinkingRef}
                 initial={{ opacity: 0, height: 0 }}
                 animate={{ opacity: 1, height: "auto" }}
                 exit={{ opacity: 0, height: 0 }}
                 className="p-4 rounded-lg bg-card/80 border border-border/50 max-h-64 overflow-y-auto"
               >
                 <pre className="text-sm text-foreground/80 font-mono whitespace-pre-wrap break-words leading-relaxed">
-                  {/* Show rawStreamContent if available, otherwise fall back to content */}
-                  {message.rawStreamContent || message.content}
+                  {(() => {
+                    const raw = message.rawStreamContent || message.content || "";
+                    // During streaming, only show the last 2000 chars to prevent freezes
+                    if (isStreaming && raw.length > 2000) {
+                      return "…" + raw.slice(-2000);
+                    }
+                    return raw;
+                  })()}
                 </pre>
               </motion.div>
             )}
@@ -986,7 +1038,8 @@ const ChatMessage = React.memo(function ChatMessage({
   conversationId,
 }: ChatMessageProps) {
   const isUser = message.role === "user";
-  // Show raw stream expanded by default during streaming, hide after final output
+  // Show Thinking expanded by default — content is truncated to 2000 chars during
+  // streaming to prevent freezes, so it's safe to keep expanded.
   const [showRawStream, setShowRawStream] = useState(true);
   const [isHovered, setIsHovered] = useState(false);
   // Collapse final answer for assistant messages - auto-collapse older answers, keep latest expanded
@@ -1080,9 +1133,12 @@ const ChatMessage = React.memo(function ChatMessage({
         </div>
 
         {/* Streaming state - Cursor/OpenAI style */}
-        {/* Show streaming view only if: streaming is active AND message is not final */}
-        {/* Once isFinal is true, ALWAYS show markdown regardless of streaming state */}
-        {isStreaming && !message.isFinal && message.role === "assistant" ? (
+        {/* Keep StreamingView visible for the entire duration of isStreaming.
+            Previously, isFinal=true (set when final_result artifact arrives) caused
+            an immediate jump to the markdown renderer even though the stream hadn't
+            closed yet — producing the jarring "cut over" layout shift.
+            Now we only switch to final markdown once isStreaming is false. */}
+        {isStreaming && message.role === "assistant" ? (
           <StreamingView
             message={message}
             showRawStream={showRawStream}
