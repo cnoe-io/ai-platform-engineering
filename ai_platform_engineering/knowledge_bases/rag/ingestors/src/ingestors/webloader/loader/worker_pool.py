@@ -188,7 +188,7 @@ class ScrapyWorkerPool:
             try:
               await pending.on_progress(progress)
             except Exception:
-              logger.warning(f"Progress callback error")
+              logger.warning("Progress callback error")
 
         elif msg.type == MessageType.CRAWL_RESULT:
           job_id = msg.payload.get("job_id")
