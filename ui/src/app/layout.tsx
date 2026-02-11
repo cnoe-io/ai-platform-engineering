@@ -50,16 +50,17 @@ export async function generateMetadata(): Promise<Metadata> {
   const cfg = getServerConfig();
   const fullDescription = `${cfg.tagline} - ${cfg.description}`;
 
+  const faviconUrl = cfg.faviconUrl || "/favicon.ico";
+
   return {
     title: `${cfg.appName} UI`,
     description: fullDescription,
     icons: {
       icon: [
-        { url: "/favicon.ico", sizes: "any" },
-        { url: "/icon.ico", sizes: "any" },
+        { url: faviconUrl, sizes: "any" },
       ],
-      shortcut: "/favicon.ico",
-      apple: "/favicon.ico",
+      shortcut: faviconUrl,
+      apple: faviconUrl,
     },
     openGraph: {
       title: `${cfg.appName} UI`,

@@ -79,6 +79,8 @@ export interface Config {
   storageMode: 'mongodb' | 'localStorage';
   /** Enabled integration icons on login page (comma-separated list, null = show all) */
   enabledIntegrationIcons: string[] | null;
+  /** Favicon URL (relative or absolute) */
+  faviconUrl: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -117,6 +119,7 @@ const DEFAULT_CONFIG: Config = {
   allowDevAdminWhenSsoDisabled: false,
   storageMode: 'localStorage',
   enabledIntegrationIcons: null,
+  faviconUrl: '/favicon.ico',
 };
 
 // ---------------------------------------------------------------------------
@@ -190,6 +193,7 @@ export function getServerConfig(): Config {
       }
       return null;
     })(),
+    faviconUrl: env('FAVICON_URL') || '/favicon.ico',
   };
 }
 
