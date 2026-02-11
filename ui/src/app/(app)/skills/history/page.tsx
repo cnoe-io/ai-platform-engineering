@@ -42,16 +42,16 @@ export default function WorkflowHistoryPage() {
             variant="ghost" 
             size="icon" 
             onClick={() => router.push('/skills')}
-            title="Back to workflows"
+            title="Back to Skills"
           >
             <ArrowLeft className="h-5 w-5" />
           </Button>
 
           {/* Title */}
           <div>
-            <h1 className="text-2xl font-bold">Workflow Run History</h1>
+            <h1 className="text-2xl font-bold">Skills Run History</h1>
             <p className="text-sm text-muted-foreground">
-              View and manage all your workflow executions
+              View and manage all your skill executions
             </p>
           </div>
         </div>
