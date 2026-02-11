@@ -1,0 +1,20 @@
+{{- if and .Values.milvus.enabled .Values.milvus.minio.podDisruptionBudget.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ .Release.Name }}-minio
+  labels:
+    {{- include "rag-stack.labels" . | nindent 4 }}
+    app: minio
+    component: minio
+spec:
+  {{- if .Values.milvus.minio.podDisruptionBudget.minAvailable }}
+  minAvailable: {{ .Values.milvus.minio.podDisruptionBudget.minAvailable }}
+  {{- else if .Values.milvus.minio.podDisruptionBudget.maxUnavailable }}
+  maxUnavailable: {{ .Values.milvus.minio.podDisruptionBudget.maxUnavailable }}
+  {{- end }}
+  selector:
+    matchLabels:
+      app: minio
+      release: {{ .Release.Name }}
+{{- end }}

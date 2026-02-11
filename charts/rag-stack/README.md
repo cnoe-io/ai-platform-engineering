@@ -39,6 +39,61 @@ All components are fully configurable via `values.yaml`. See the file for:
 
 Refer to `values.yaml` for detailed configuration options and commented examples for each component.
 
+## High Availability & Production Readiness
+
+### PodDisruptionBudgets (PDBs)
+
+PodDisruptionBudgets protect stateful components during voluntary disruptions (node drains, cluster autoscaling, rolling updates). The chart supports optional PDBs for:
+
+| Component | Default Replicas | Recommended PDB Setting |
+|-----------|------------------|------------------------|
+| MinIO | 4 | maxUnavailable: 1 |
+| etcd | 3 | maxUnavailable: 1 |
+| queryNode | 1 | maxUnavailable: 1 |
+| dataNode | 1 | maxUnavailable: 1 |
+
+**Enable PDBs for production deployments:**
+
+```yaml
+milvus:
+  minio:
+    podDisruptionBudget:
+      enabled: true
+      maxUnavailable: 1  # Only allow 1 pod down during voluntary disruptions
+
+  etcd:
+    podDisruptionBudget:
+      enabled: true
+      maxUnavailable: 1  # Maintains quorum (2/3 pods available)
+
+  queryNode:
+    podDisruptionBudget:
+      enabled: true
+      maxUnavailable: 1  # Protect search capacity
+
+  dataNode:
+    podDisruptionBudget:
+      enabled: true
+      maxUnavailable: 1  # Protect data persistence
+```
+
+**Alternative: Use `minAvailable` instead:**
+
+```yaml
+milvus:
+  minio:
+    podDisruptionBudget:
+      enabled: true
+      minAvailable: 3  # Ensure 3/4 pods available (maintains quorum)
+
+  etcd:
+    podDisruptionBudget:
+      enabled: true
+      minAvailable: 2  # Ensure 2/3 pods available (maintains quorum)
+```
+
+**Note:** PDBs only protect against voluntary disruptions. They do not prevent involuntary disruptions like node failures, OOM kills, or application crashes.
+
 ## Environment Variables
 
 Each component's environment variables are documented in `values.yaml` with:
