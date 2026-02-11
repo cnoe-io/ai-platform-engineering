@@ -84,13 +84,17 @@ class Loader:
         )
         self.logger.debug(f"Updated chunking config: size={chunk_size}, overlap={chunk_overlap}")
 
-    async def get_sitemaps(self, url: str) -> List[str]:
+    async def get_sitemaps(self, url: str, job_id: str | None = None) -> List[str]:
         """Return a list of sitemap URLs for the given site.
 
         Order of checks:
         1) robots.txt for one or more Sitemap: entries
         2) <given_url>/sitemap.xml (or the URL itself if it already ends with sitemap.xml)
         3) <scheme>://<netloc>/sitemap.xml
+
+        Args:
+            url: The URL to check for sitemaps
+            job_id: Optional job ID to report errors to (for UI visibility)
         """
         if self.session is None:
             raise Exception("Session is not initialized")
@@ -114,10 +118,15 @@ class Loader:
                             if sitemap_url and sitemap_url not in sitemaps:
                                 sitemaps.append(sitemap_url)
                 else:
-                    self.logger.debug(f"robots.txt not found or not accessible: {robots_url} (status {resp.status})")
+                    msg = f"robots.txt at {robots_url} returned HTTP {resp.status}"
+                    self.logger.warning(msg)
+                    if job_id:
+                        await self.jobmanager.add_error_msg(job_id, msg)
         except Exception as e:
-            self.logger.error(traceback.format_exc())
-            self.logger.debug(f"Error fetching robots.txt {robots_url}: {e}")
+            self.logger.warning(traceback.format_exc())
+            self.logger.warning(f"Error fetching robots.txt {robots_url}: {e}")
+            if job_id:
+                await self.jobmanager.add_error_msg(job_id, f"Error fetching robots.txt {robots_url}: {e}")
 
         if sitemaps:
             self.logger.debug(f"Found sitemaps: {sitemaps}")
@@ -136,9 +145,16 @@ class Loader:
             async with self.session.get(candidate, allow_redirects=True) as resp:
                 if resp.status == 200:
                     sitemaps.append(str(resp.url))
+                else:
+                    msg = f"Sitemap at {candidate} returned HTTP {resp.status}"
+                    self.logger.warning(msg)
+                    if job_id:
+                        await self.jobmanager.add_error_msg(job_id, msg)
         except Exception as e:
             self.logger.warning(traceback.format_exc())
-            self.logger.debug(f"Error checking sitemap at {candidate}: {e}")
+            self.logger.warning(f"Error checking sitemap at {candidate}: {e}")
+            if job_id:
+                await self.jobmanager.add_error_msg(job_id, f"Error checking sitemap at {candidate}: {e}")
 
         if sitemaps:
             self.logger.debug(f"Found sitemaps: {sitemaps}")
@@ -151,9 +167,16 @@ class Loader:
             async with self.session.get(base_sitemap, allow_redirects=True) as resp:
                 if resp.status == 200:
                     sitemaps.append(str(resp.url))
+                else:
+                    msg = f"Base sitemap at {base_sitemap} returned HTTP {resp.status}"
+                    self.logger.warning(msg)
+                    if job_id:
+                        await self.jobmanager.add_error_msg(job_id, msg)
         except Exception as e:
             self.logger.warning(traceback.format_exc())
-            self.logger.debug(f"Error checking base sitemap at {base_sitemap}: {e}")
+            self.logger.warning(f"Error checking base sitemap at {base_sitemap}: {e}")
+            if job_id:
+                await self.jobmanager.add_error_msg(job_id, f"Error checking base sitemap at {base_sitemap}: {e}")
 
         if sitemaps:
             self.logger.debug(f"Found sitemaps: {sitemaps}")
@@ -370,7 +393,7 @@ class Loader:
                     message="Checking for sitemaps..."
                 )
                 self.logger.info(f"Checking for sitemaps at: {url}")
-                sitemaps = await self.get_sitemaps(url)
+                sitemaps = await self.get_sitemaps(url, job_id=job_id)
                 self.logger.debug(f"Found {len(sitemaps)} sitemaps")
                 
             else:
@@ -378,7 +401,11 @@ class Loader:
                 sitemaps = []
 
             if not sitemaps: # If no sitemaps found, process the URL directly
-                self.logger.info(f"No sitemaps, processing the URL directly: {url}")
+                self.logger.info(f"No sitemaps found, processing the URL directly: {url}")
+                await self.jobmanager.upsert_job(
+                    job_id=job_id,
+                    message=f"No accessible sitemaps found (check error messages for details). Processing URL directly: {url}"
+                )
                 urls = [url]
             else: # If sitemaps found, get URLs from sitemaps
                 # Load documents from URLs with streaming processing
