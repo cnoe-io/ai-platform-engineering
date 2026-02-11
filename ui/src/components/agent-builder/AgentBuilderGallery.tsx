@@ -428,7 +428,7 @@ export function AgentBuilderGallery({
               <Button
                 variant="ghost"
                 size="sm"
-                onClick={() => router.push('/agent-builder/history')}
+                onClick={() => router.push('/skills/history')}
                 className="rounded-full text-xs gap-1"
               >
                 <History className="h-3 w-3" />

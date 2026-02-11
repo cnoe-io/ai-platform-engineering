@@ -77,6 +77,8 @@ export interface Config {
   allowDevAdminWhenSsoDisabled: boolean;
   /** Storage mode: 'mongodb' or 'localStorage' */
   storageMode: 'mongodb' | 'localStorage';
+  /** Enabled integration icons on login page (comma-separated list, null = show all) */
+  enabledIntegrationIcons: string[] | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -114,6 +116,7 @@ const DEFAULT_CONFIG: Config = {
   supportEmail: DEFAULT_SUPPORT_EMAIL,
   allowDevAdminWhenSsoDisabled: false,
   storageMode: 'localStorage',
+  enabledIntegrationIcons: null,
 };
 
 // ---------------------------------------------------------------------------
@@ -180,6 +183,13 @@ export function getServerConfig(): Config {
     supportEmail: env('SUPPORT_EMAIL') || DEFAULT_SUPPORT_EMAIL,
     allowDevAdminWhenSsoDisabled,
     storageMode: mongodbEnabled ? 'mongodb' : 'localStorage',
+    enabledIntegrationIcons: (() => {
+      const icons = env('ENABLED_INTEGRATION_ICONS');
+      if (icons) {
+        return icons.split(',').map((icon) => icon.trim().toLowerCase());
+      }
+      return null;
+    })(),
   };
 }
 

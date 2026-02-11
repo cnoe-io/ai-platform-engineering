@@ -90,9 +90,9 @@ export function AppHeader() {
   const getActiveTab = () => {
     if (pathname?.startsWith("/chat")) return "chat";
     if (pathname?.startsWith("/knowledge-bases")) return "knowledge";
-    if (pathname?.startsWith("/agent-builder") || pathname?.startsWith("/use-cases")) return "agent-builder";
+    if (pathname?.startsWith("/skills") || pathname?.startsWith("/use-cases")) return "skills";
     if (pathname?.startsWith("/admin")) return "admin";
-    return "agent-builder"; // Default to Agent Skills (formerly use-cases)
+    return "skills"; // Default to Skills
   };
 
   const activeTab = getActiveTab();
@@ -119,20 +119,20 @@ export function AppHeader() {
           )}
         </Link>
 
-        {/* Navigation Pills - Agent Skills first for prominence */}
+        {/* Navigation Pills - Skills first for prominence */}
         <div className="flex items-center bg-muted/50 rounded-full p-1">
           <Link
-            href="/agent-builder"
+            href="/skills"
             prefetch={true}
             className={cn(
               "flex items-center gap-1.5 px-4 py-1.5 rounded-full text-sm font-medium transition-all",
-              activeTab === "agent-builder"
+              activeTab === "skills"
                 ? "gradient-primary text-white shadow-sm"
                 : "text-muted-foreground hover:text-foreground"
             )}
           >
             <Zap className="h-3.5 w-3.5" />
-            Agent Skills
+            Skills
           </Link>
           <Link
             href="/chat"
