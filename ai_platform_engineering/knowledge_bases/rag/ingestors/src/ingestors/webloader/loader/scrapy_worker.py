@@ -163,7 +163,10 @@ class WorkerSpider(Spider):
   def handle_sitemap_error(self, failure):
     """Handle sitemap fetch failure - fall back to robots.txt."""
     base_url = failure.request.meta.get("base_url", self.start_url)
-    self.logger.warning(f"Sitemap not found, trying robots.txt: {failure.value}")
+    error_msg = f"Sitemap not found, trying robots.txt: {failure.value}"
+    self.logger.warning(error_msg)
+    if len(self.errors) < self.max_errors:
+      self.errors.append(error_msg)
 
     yield Request(
       f"{base_url}/robots.txt",
@@ -186,7 +189,10 @@ class WorkerSpider(Spider):
 
   def handle_robots_error(self, failure):
     """Handle robots.txt fetch failure."""
-    self.logger.warning(f"robots.txt not found, crawling start URL: {failure.value}")
+    error_msg = f"robots.txt not found, crawling start URL: {failure.value}"
+    self.logger.warning(error_msg)
+    if len(self.errors) < self.max_errors:
+      self.errors.append(error_msg)
     yield Request(self.start_url, callback=self.parse_page, errback=self.handle_error)
 
   def parse_page(self, response: Response):

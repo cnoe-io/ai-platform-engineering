@@ -251,7 +251,9 @@ class ScrapyLoader:
         await self.job_manager.increment_document_count(job_id, len(batch))
 
       except Exception as e:
-        self.logger.error(f"Failed to ingest batch: {e}")
+        error_msg = f"Failed to ingest batch {batch_num}/{total_batches}: {e}"
+        self.logger.error(error_msg)
+        await self.job_manager.add_error_msg(job_id, error_msg)
         # Continue with next batch
 
     # Update final status
