@@ -399,54 +399,124 @@ class TestBaseLangGraphAgentExecutor(unittest.IsolatedAsyncioTestCase):
         ]
         self.assertGreater(len(completed_statuses), 0, "Expected final completed status to be sent")
 
-    async def test_execute_handles_cancelled_error(self):
-        """Test that execute handles asyncio.CancelledError gracefully."""
+    async def test_execute_handles_agent_stream_exception_gracefully(self):
+        """Test that execute catches exceptions from agent.stream and sends error completion."""
         context = Mock()
         context.message = Mock()
         context.current_task = Mock(spec=Task)
-        context.current_task.id = "task-cancel-1"
-        context.current_task.context_id = "ctx-cancel-1"
+        context.current_task.id = "task-123"
+        context.current_task.context_id = "context-123"
         context.get_user_input = Mock(return_value="Test query")
         context.parent_task = None
 
         event_queue = AsyncMock()
 
-        async def cancelled_stream(query, context_id, trace_id=None):
-            raise asyncio.CancelledError()
-            yield  # noqa: make it a generator
+        # Make agent.stream raise an exception
+        async def failing_stream(*args, **kwargs):
+            raise RuntimeError("LLM provider failed")
+            yield  # Make it a generator
+        self.agent.stream = failing_stream
 
+        await self.executor.execute(context, event_queue)
+
+        # Should have sent initial working status + error artifact + error completion
+        calls = event_queue.enqueue_event.call_args_list
+        self.assertGreaterEqual(len(calls), 2)
+
+        # Last status event should be completed
+        status_events = [c[0][0] for c in calls if isinstance(c[0][0], TaskStatusUpdateEvent)]
+        completed = [e for e in status_events if e.status.state == TaskState.completed]
+        self.assertGreater(len(completed), 0)
+
+    async def test_execute_handles_cancelled_error(self):
+        """Test that asyncio.CancelledError is handled gracefully."""
+        context = Mock()
+        context.message = Mock()
+        context.current_task = Mock(spec=Task)
+        context.current_task.id = "task-123"
+        context.current_task.context_id = "context-123"
+        context.get_user_input = Mock(return_value="Test query")
+        context.parent_task = None
+
+        event_queue = AsyncMock()
+
+        # Make agent.stream raise CancelledError
+        async def cancelled_stream(*args, **kwargs):
+            raise asyncio.CancelledError()
+            yield  # Make it a generator
         self.agent.stream = cancelled_stream
 
         await self.executor.execute(context, event_queue)
 
-        # Should send cancellation message, not crash
+        # Should have sent cancellation message
         calls = event_queue.enqueue_event.call_args_list
-        # Should have at least initial working status + error completion
-        self.assertGreater(len(calls), 0, "Expected events to be enqueued")
+        artifact_events = [c[0][0] for c in calls if isinstance(c[0][0], TaskArtifactUpdateEvent)]
+        # Error artifact should contain "cancelled" (Part has root.text for TextPart)
+        artifact_text = ''.join(
+            getattr(p.root, 'text', '') for a in artifact_events for p in getattr(a.artifact, 'parts', [])
+            if hasattr(p, 'root')
+        )
+        self.assertIn("cancelled", artifact_text.lower())
+        # At minimum, we should have initial working + some error handling
+        self.assertGreaterEqual(len(calls), 2)
 
     async def test_execute_handles_exception_group(self):
-        """Test that execute handles BaseExceptionGroup gracefully."""
+        """Test that BaseExceptionGroup is handled gracefully."""
         context = Mock()
         context.message = Mock()
         context.current_task = Mock(spec=Task)
-        context.current_task.id = "task-eg-1"
-        context.current_task.context_id = "ctx-eg-1"
+        context.current_task.id = "task-123"
+        context.current_task.context_id = "context-123"
         context.get_user_input = Mock(return_value="Test query")
         context.parent_task = None
 
         event_queue = AsyncMock()
 
-        async def eg_stream(query, context_id, trace_id=None):
-            raise BaseExceptionGroup("stream errors", [ValueError("expected toolResult")])
-            yield  # noqa: make it a generator
-
-        self.agent.stream = eg_stream
+        # Make agent.stream raise BaseExceptionGroup
+        async def group_error_stream(*args, **kwargs):
+            raise BaseExceptionGroup("errors", [RuntimeError("inner error")])
+            yield  # Make it a generator
+        self.agent.stream = group_error_stream
 
         await self.executor.execute(context, event_queue)
 
-        # Should send error completion instead of crashing
+        # Should have handled gracefully
         calls = event_queue.enqueue_event.call_args_list
-        self.assertGreater(len(calls), 0, "Expected events to be enqueued after ExceptionGroup")
+        self.assertGreaterEqual(len(calls), 2)
+
+    async def test_execute_individual_event_failure_continues_stream(self):
+        """Test that a single event processing failure doesn't kill the stream."""
+        context = Mock()
+        context.message = Mock()
+        context.current_task = Mock(spec=Task)
+        context.current_task.id = "task-123"
+        context.current_task.context_id = "context-123"
+        context.get_user_input = Mock(return_value="Test query")
+        context.parent_task = None
+
+        event_queue = AsyncMock()
+
+        # First event will fail, second should still process
+        self.agent.stream_responses = [
+            {'is_task_complete': False, 'content': 'chunk1', 'require_user_input': False,
+             'kind': 'text_chunk'},
+            {'is_task_complete': True, 'content': 'final', 'require_user_input': False},
+        ]
+
+        # Make enqueue_event fail on 2nd call (first streaming artifact) but succeed on others
+        call_count = [0]
+        original_enqueue = event_queue.enqueue_event
+
+        async def selective_fail(*args, **kwargs):
+            call_count[0] += 1
+            if call_count[0] == 2:  # Fail on 2nd enqueue (streaming artifact)
+                raise RuntimeError("Queue temporarily unavailable")
+            return await original_enqueue(*args, **kwargs)
+
+        event_queue.enqueue_event = AsyncMock(side_effect=selective_fail)
+
+        # Should not raise — individual event failure is caught
+        await self.executor.execute(context, event_queue)
 
     async def test_single_event_failure_does_not_kill_stream(self):
         """Test that a failure processing one event does not kill the entire stream."""
@@ -547,6 +617,376 @@ class TestBaseLangGraphAgentExecutor(unittest.IsolatedAsyncioTestCase):
         artifact_event = calls[0][0][0]
         self.assertIsInstance(artifact_event, TaskArtifactUpdateEvent)
         self.assertEqual(artifact_event.artifact.name, 'status_update')
+
+
+class TestSendErrorCompletion(unittest.IsolatedAsyncioTestCase):
+    """Test _send_error_completion method."""
+
+    def setUp(self):
+        self.agent = MockLangGraphAgent()
+        self.executor = BaseLangGraphAgentExecutor(self.agent)
+
+    async def test_sends_error_artifact_and_completed_status(self):
+        """_send_error_completion sends both error artifact and completed status."""
+        event_queue = AsyncMock()
+        task = Mock()
+        task.id = "task-456"
+        task.context_id = "ctx-456"
+
+        await self.executor._send_error_completion(
+            event_queue, task, "test_agent", "Something went wrong"
+        )
+
+        calls = event_queue.enqueue_event.call_args_list
+        self.assertEqual(len(calls), 2)
+
+        # First call: error artifact
+        first_event = calls[0][0][0]
+        self.assertIsInstance(first_event, TaskArtifactUpdateEvent)
+        self.assertTrue(first_event.last_chunk)
+
+        # Second call: completed status
+        second_event = calls[1][0][0]
+        self.assertIsInstance(second_event, TaskStatusUpdateEvent)
+        self.assertEqual(second_event.status.state, TaskState.completed)
+        self.assertTrue(second_event.final)
+
+    async def test_survives_artifact_enqueue_failure(self):
+        """_send_error_completion continues even if artifact enqueue fails."""
+        event_queue = AsyncMock()
+        task = Mock()
+        task.id = "task-789"
+        task.context_id = "ctx-789"
+
+        # First enqueue (artifact) fails, second (status) should still be attempted
+        event_queue.enqueue_event = AsyncMock(
+            side_effect=[RuntimeError("queue dead"), None]
+        )
+
+        # Should not raise
+        await self.executor._send_error_completion(
+            event_queue, task, "test_agent", "Error msg"
+        )
+
+        # Both calls attempted
+        self.assertEqual(event_queue.enqueue_event.call_count, 2)
+
+    async def test_survives_both_enqueue_failures(self):
+        """_send_error_completion handles both enqueue calls failing."""
+        event_queue = AsyncMock()
+        task = Mock()
+        task.id = "task-999"
+        task.context_id = "ctx-999"
+
+        event_queue.enqueue_event = AsyncMock(
+            side_effect=RuntimeError("everything is broken")
+        )
+
+        # Should not raise
+        await self.executor._send_error_completion(
+            event_queue, task, "test_agent", "Error msg"
+        )
+
+    async def test_error_message_in_artifact_text(self):
+        """The error message appears in the artifact text."""
+        event_queue = AsyncMock()
+        task = Mock()
+        task.id = "task-111"
+        task.context_id = "ctx-111"
+
+        error_msg = "Custom error: service is down"
+        await self.executor._send_error_completion(
+            event_queue, task, "test_agent", error_msg
+        )
+
+        first_event = event_queue.enqueue_event.call_args_list[0][0][0]
+        # Check that the artifact contains the error message (Part has root.text for TextPart)
+        artifact_parts = first_event.artifact.parts
+        artifact_text = ''.join(
+            getattr(p.root, 'text', '') for p in artifact_parts if hasattr(p, 'root')
+        )
+        self.assertIn(error_msg, artifact_text)
+
+
+class TestProcessStreamEvent(unittest.IsolatedAsyncioTestCase):
+    """Test _process_stream_event method."""
+
+    def setUp(self):
+        self.agent = MockLangGraphAgent()
+        self.executor = BaseLangGraphAgentExecutor(self.agent)
+        self.executor._streaming_artifact_id = None
+
+    async def test_tool_call_event(self):
+        """tool_call events send tool_notification_start artifact."""
+        event_queue = AsyncMock()
+        task = Mock()
+        task.id = "task-1"
+        task.context_id = "ctx-1"
+
+        event = {
+            'is_task_complete': False,
+            'require_user_input': False,
+            'kind': 'tool_call',
+            'tool_call': {'name': 'search', 'id': 'call_1'},
+            'content': 'Calling search...',
+        }
+
+        await self.executor._process_stream_event(
+            event, task, "test_agent", [], event_queue
+        )
+
+        call = event_queue.enqueue_event.call_args_list[0][0][0]
+        self.assertIsInstance(call, TaskArtifactUpdateEvent)
+        self.assertEqual(call.artifact.name, 'tool_notification_start')
+
+    async def test_tool_result_event(self):
+        """tool_result events send tool_notification_end artifact."""
+        event_queue = AsyncMock()
+        task = Mock()
+        task.id = "task-1"
+        task.context_id = "ctx-1"
+
+        event = {
+            'is_task_complete': False,
+            'require_user_input': False,
+            'kind': 'tool_result',
+            'tool_result': {'name': 'search', 'status': 'completed', 'is_error': False},
+            'content': 'Search completed.',
+        }
+
+        await self.executor._process_stream_event(
+            event, task, "test_agent", [], event_queue
+        )
+
+        call = event_queue.enqueue_event.call_args_list[0][0][0]
+        self.assertIsInstance(call, TaskArtifactUpdateEvent)
+        self.assertEqual(call.artifact.name, 'tool_notification_end')
+
+    async def test_status_event(self):
+        """status events send status_update artifact."""
+        event_queue = AsyncMock()
+        task = Mock()
+        task.id = "task-1"
+        task.context_id = "ctx-1"
+
+        event = {
+            'is_task_complete': False,
+            'require_user_input': False,
+            'kind': 'status',
+            'content': '⚠️ Attempting recovery...',
+        }
+
+        await self.executor._process_stream_event(
+            event, task, "test_agent", [], event_queue
+        )
+
+        call = event_queue.enqueue_event.call_args_list[0][0][0]
+        self.assertIsInstance(call, TaskArtifactUpdateEvent)
+        self.assertEqual(call.artifact.name, 'status_update')
+
+    async def test_text_chunk_accumulates_content(self):
+        """Default text chunks accumulate in accumulated_content."""
+        event_queue = AsyncMock()
+        task = Mock()
+        task.id = "task-1"
+        task.context_id = "ctx-1"
+        accumulated = []
+
+        event = {
+            'is_task_complete': False,
+            'require_user_input': False,
+            'kind': 'text_chunk',
+            'content': 'Hello world',
+        }
+
+        await self.executor._process_stream_event(
+            event, task, "test_agent", accumulated, event_queue
+        )
+
+        self.assertEqual(accumulated, ['Hello world'])
+        call = event_queue.enqueue_event.call_args_list[0][0][0]
+        self.assertIsInstance(call, TaskArtifactUpdateEvent)
+        self.assertEqual(call.artifact.name, 'streaming_result')
+
+    async def test_text_chunk_sets_streaming_artifact_id(self):
+        """First text chunk sets the streaming artifact ID."""
+        event_queue = AsyncMock()
+        task = Mock()
+        task.id = "task-1"
+        task.context_id = "ctx-1"
+
+        event = {
+            'is_task_complete': False,
+            'require_user_input': False,
+            'content': 'First chunk',
+        }
+
+        self.assertIsNone(self.executor._streaming_artifact_id)
+        await self.executor._process_stream_event(
+            event, task, "test_agent", [], event_queue
+        )
+        self.assertIsNotNone(self.executor._streaming_artifact_id)
+
+    async def test_text_chunk_appends_after_first(self):
+        """Subsequent text chunks use append=True."""
+        event_queue = AsyncMock()
+        task = Mock()
+        task.id = "task-1"
+        task.context_id = "ctx-1"
+        accumulated = []
+
+        # First chunk
+        await self.executor._process_stream_event(
+            {'is_task_complete': False, 'require_user_input': False, 'content': 'chunk1'},
+            task, "test_agent", accumulated, event_queue
+        )
+        first_call = event_queue.enqueue_event.call_args_list[0][0][0]
+        self.assertFalse(first_call.append)
+
+        # Second chunk
+        await self.executor._process_stream_event(
+            {'is_task_complete': False, 'require_user_input': False, 'content': 'chunk2'},
+            task, "test_agent", accumulated, event_queue
+        )
+        second_call = event_queue.enqueue_event.call_args_list[1][0][0]
+        self.assertTrue(second_call.append)
+
+    async def test_tool_output_event(self):
+        """tool_output events send tool_output artifact."""
+        event_queue = AsyncMock()
+        task = Mock()
+        task.id = "task-1"
+        task.context_id = "ctx-1"
+
+        event = {
+            'is_task_complete': False,
+            'require_user_input': False,
+            'kind': 'tool_output',
+            'content': 'Tool produced output',
+        }
+
+        await self.executor._process_stream_event(
+            event, task, "test_agent", [], event_queue
+        )
+
+        call = event_queue.enqueue_event.call_args_list[0][0][0]
+        self.assertIsInstance(call, TaskArtifactUpdateEvent)
+        self.assertEqual(call.artifact.name, 'tool_output')
+
+    async def test_empty_content_text_chunk_not_accumulated(self):
+        """Empty content text chunks are not accumulated."""
+        event_queue = AsyncMock()
+        task = Mock()
+        task.id = "task-1"
+        task.context_id = "ctx-1"
+        accumulated = []
+
+        event = {
+            'is_task_complete': False,
+            'require_user_input': False,
+            'content': '',
+        }
+
+        await self.executor._process_stream_event(
+            event, task, "test_agent", accumulated, event_queue
+        )
+
+        self.assertEqual(accumulated, [])
+        # No enqueue for empty content
+        event_queue.enqueue_event.assert_not_called()
+
+    async def test_kind_inferred_from_tool_call_key(self):
+        """When kind is missing but 'tool_call' key exists, infer kind='tool_call'."""
+        event_queue = AsyncMock()
+        task = Mock()
+        task.id = "task-1"
+        task.context_id = "ctx-1"
+
+        event = {
+            'is_task_complete': False,
+            'require_user_input': False,
+            'tool_call': {'name': 'deploy', 'id': 'call_2'},
+            'content': 'Deploying...',
+        }
+
+        await self.executor._process_stream_event(
+            event, task, "test_agent", [], event_queue
+        )
+
+        call = event_queue.enqueue_event.call_args_list[0][0][0]
+        self.assertEqual(call.artifact.name, 'tool_notification_start')
+
+    async def test_kind_inferred_from_tool_result_key(self):
+        """When kind is missing but 'tool_result' key exists, infer kind='tool_result'."""
+        event_queue = AsyncMock()
+        task = Mock()
+        task.id = "task-1"
+        task.context_id = "ctx-1"
+
+        event = {
+            'is_task_complete': False,
+            'require_user_input': False,
+            'tool_result': {'name': 'deploy', 'status': 'completed'},
+            'content': 'Deployed.',
+        }
+
+        await self.executor._process_stream_event(
+            event, task, "test_agent", [], event_queue
+        )
+
+        call = event_queue.enqueue_event.call_args_list[0][0][0]
+        self.assertEqual(call.artifact.name, 'tool_notification_end')
+
+    async def test_complete_event_closes_streaming_artifact(self):
+        """is_task_complete closes the streaming artifact with last_chunk=True."""
+        event_queue = AsyncMock()
+        task = Mock()
+        task.id = "task-1"
+        task.context_id = "ctx-1"
+        accumulated = ['some content']
+
+        # Simulate having an open streaming artifact
+        self.executor._streaming_artifact_id = "art-123"
+
+        event = {
+            'is_task_complete': True,
+            'require_user_input': False,
+            'content': '',
+        }
+
+        await self.executor._process_stream_event(
+            event, task, "test_agent", accumulated, event_queue
+        )
+
+        calls = event_queue.enqueue_event.call_args_list
+        # Should have: closing artifact (last_chunk=True) + complete_result + completed status
+        self.assertGreaterEqual(len(calls), 3)
+
+        # First should be the closing artifact
+        close_event = calls[0][0][0]
+        self.assertIsInstance(close_event, TaskArtifactUpdateEvent)
+        self.assertTrue(close_event.last_chunk)
+
+    async def test_require_user_input_sends_input_required(self):
+        """require_user_input events send input_required status."""
+        event_queue = AsyncMock()
+        task = Mock()
+        task.id = "task-1"
+        task.context_id = "ctx-1"
+
+        event = {
+            'is_task_complete': False,
+            'require_user_input': True,
+            'content': 'Please provide more info',
+        }
+
+        await self.executor._process_stream_event(
+            event, task, "test_agent", [], event_queue
+        )
+
+        call = event_queue.enqueue_event.call_args_list[0][0][0]
+        self.assertIsInstance(call, TaskStatusUpdateEvent)
+        self.assertEqual(call.status.state, TaskState.input_required)
 
 
 if __name__ == '__main__':
