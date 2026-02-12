@@ -1465,9 +1465,12 @@ export default function IngestView() {
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.3, delay: 0.2 }}
           >
-            <button
+            <div
+              role="button"
+              tabIndex={0}
               onClick={() => setShowIngestors(!showIngestors)}
-              className="w-full px-5 py-4 flex items-center justify-between hover:bg-muted/30 transition-colors"
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setShowIngestors(!showIngestors); } }}
+              className="w-full px-5 py-4 flex items-center justify-between hover:bg-muted/30 transition-colors cursor-pointer"
             >
               <div className="flex items-center gap-3">
                 <Server className="h-5 w-5 text-muted-foreground" />
@@ -1493,7 +1496,7 @@ export default function IngestView() {
                   <ChevronDown className="h-4 w-4 text-muted-foreground" />
                 </motion.div>
               </div>
-            </button>
+            </div>
 
             <AnimatePresence>
               {showIngestors && (
