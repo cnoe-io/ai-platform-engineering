@@ -629,8 +629,6 @@ class AIPlatformEngineerA2ABinding:
                       pending_tool_calls.pop(tool_call_id)
                       logging.debug(f"Resolved tool call: {tool_call_id} -> {tool_name}")
 
-                  logging.info(f"SUNNY BUG: ToolMessage received! tool_name={tool_name}, content_len={len(tool_content)}")
-
                   # Track sub-agent responses for fallback if synthesis fails
                   # Only track significant responses (sub-agent tools like 'task', agent names)
                   if tool_content and len(tool_content) > 100:
@@ -651,21 +649,16 @@ class AIPlatformEngineerA2ABinding:
                   # CRITICAL: Handle ResponseFormat tool in structured response mode
                   # The tool returns JSON with the structured response fields
                   if USE_STRUCTURED_RESPONSE and tool_name.lower() in ('responseformat', 'platformengineerresponse'):
-                      logging.info(f"SUNNY BUG: ToolMessage for ResponseFormat detected! tool_name={tool_name}, tool_content_len={len(tool_content)}")
-                      logging.info(f"SUNNY BUG: tool_content preview: {tool_content[:500] if tool_content else 'EMPTY'}")
                       try:
                           # Parse the JSON result from the tool
                           tool_result = json.loads(tool_content) if tool_content else {}
-                          logging.info(f"SUNNY BUG: Parsed tool_result keys: {list(tool_result.keys())}")
                           structured_content = tool_result.get("content", "") or tool_result.get("message", "") or tool_result.get("response", "")
-                          logging.info(f"SUNNY BUG: structured_content len={len(structured_content) if structured_content else 0}")
                           if structured_content:
                               # Save for final yield fallback
                               response_format_args = tool_result
                               response_format_content = structured_content
                               is_task_complete_val = tool_result.get("is_task_complete", True)
                               require_user_input_val = tool_result.get("require_user_input", False)
-                              logging.info(f"SUNNY BUG: Yielding completion! is_task_complete={is_task_complete_val}, require_user_input={require_user_input_val}")
                               yield {
                                   "is_task_complete": is_task_complete_val,
                                   "require_user_input": require_user_input_val,
@@ -675,9 +668,9 @@ class AIPlatformEngineerA2ABinding:
                               }
                               continue  # Skip normal tool completion handling
                           else:
-                              logging.warning(f"SUNNY BUG: ResponseFormat tool result has no content: {tool_result}")
+                              logging.warning(f"ResponseFormat tool result has no content: {tool_result}")
                       except json.JSONDecodeError as e:
-                          logging.warning(f"SUNNY BUG: Failed to parse ResponseFormat result as JSON: {e}, content was: {tool_content[:200] if tool_content else 'EMPTY'}")
+                          logging.warning(f"Failed to parse ResponseFormat result as JSON: {e}, content was: {tool_content[:200] if tool_content else 'EMPTY'}")
                           # Fall through to normal handling
 
                   # Special handling for write_todos: execution plan vs status updates
@@ -717,7 +710,7 @@ class AIPlatformEngineerA2ABinding:
                           fields = tool_result.get("fields", [])
                           title = tool_result.get("title", "User Input Required")
                           description = tool_result.get("description", "Please provide the following information")
-                          
+
                           # Convert to the metadata.input_fields format expected by frontend
                           input_fields = []
                           for field in fields:
@@ -731,9 +724,9 @@ class AIPlatformEngineerA2ABinding:
                                   "required": field.get("required", True),
                                   "default_value": field.get("default_value"),
                               })
-                          
+
                           logging.info(f"📝 Emitting user input form: {title} with {len(input_fields)} fields")
-                          
+
                           # Yield structured user input request
                           yield {
                               "is_task_complete": False,
