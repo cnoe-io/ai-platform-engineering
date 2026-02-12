@@ -25,7 +25,7 @@ function ChatUUIDPage() {
   const [contextPanelCollapsed, setContextPanelCollapsed] = useState(false);
   const [debugMode, setDebugMode] = useState(false);
 
-  const { conversations: localConversations, setActiveConversation } = useChatStore();
+  const { conversations: localConversations, setActiveConversation, loadMessagesFromServer } = useChatStore();
   const caipeUrl = getConfig('caipeUrl');
 
   const handleTabChange = (tab: "chat" | "gallery" | "knowledge" | "admin") => {
@@ -79,6 +79,18 @@ function ChatUUIDPage() {
         setConversation(localConv);
         setActiveConversation(uuid);
         setLoading(false);
+
+        // In MongoDB mode, sync messages from server in the background.
+        // The local cache provides instant display, but we still need to:
+        // 1. Restore A2A events stripped by localStorage partialize
+        // 2. Pick up follow-up messages sent from other devices
+        // 3. Keep Tasks and A2A Debug panels in sync
+        // The store uses a cooldown to prevent rapid re-fetches from re-renders.
+        if (storageMode === 'mongodb') {
+          loadMessagesFromServer(uuid).catch((err) => {
+            console.warn('[ChatUUID] Failed to load messages from server:', err);
+          });
+        }
         return;
       }
 
@@ -100,13 +112,12 @@ function ChatUUIDPage() {
           try {
             const conv = await apiClient.getConversation(uuid);
             // Convert MongoDB conversation to local format
-            // Note: Messages are stored separately and loaded separately
             const localConv: LocalConversation = {
               id: conv._id,
               title: conv.title,
               createdAt: new Date(conv.created_at),
               updatedAt: new Date(conv.updated_at),
-              messages: [], // Messages will be loaded separately via API
+              messages: [], // Will be loaded below via loadMessagesFromServer
               a2aEvents: [],
             };
 
@@ -116,6 +127,11 @@ function ChatUUIDPage() {
             }));
 
             setConversation(localConv);
+
+            // Load messages from MongoDB (includes A2A events for tasks/debug)
+            loadMessagesFromServer(uuid).catch((err) => {
+              console.warn('[ChatUUID] Failed to load messages from server:', err);
+            });
           } catch (apiErr: any) {
             // Check store again - it might have been added while we were fetching
             const storeConv = useChatStore.getState().conversations.find(c => c.id === uuid);

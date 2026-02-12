@@ -378,7 +378,7 @@ export function AgentBuilderGallery({
                 <Zap className="h-6 w-6 text-white" />
               </div>
               <div>
-                <h1 className="text-2xl font-bold gradient-text">Agentic Workflows</h1>
+                <h1 className="text-2xl font-bold gradient-text">Agent Skills</h1>
                 <p className="text-sm text-muted-foreground">
                   Quick-start templates and multi-step agent workflows
                 </p>
@@ -392,7 +392,7 @@ export function AgentBuilderGallery({
               </Button>
               <Button size="sm" onClick={onCreateNew} className="gap-2 gradient-primary text-white">
                 <Plus className="h-4 w-4" />
-                Agentic Workflow Builder
+                Agent Skill Builder
               </Button>
             </div>
           </div>

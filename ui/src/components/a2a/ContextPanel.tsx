@@ -22,7 +22,11 @@ import { useChatStore } from "@/store/chat-store";
 import { cn } from "@/lib/utils";
 import { A2AStreamPanel } from "./A2AStreamPanel";
 import { A2AEvent } from "@/types/a2a";
+import { useShallow } from "zustand/react/shallow";
 import { AgentLogo, getAgentLogo } from "@/components/shared/AgentLogos";
+
+// Stable empty array to avoid infinite re-render loops in selectors
+const EMPTY_EVENTS: A2AEvent[] = [];
 
 // Task status from execution plan
 interface ExecutionTask {
@@ -40,61 +44,77 @@ interface ContextPanelProps {
   onCollapse?: (collapsed: boolean) => void;
 }
 
-export function ContextPanel({ 
-  debugMode, 
+export function ContextPanel({
+  debugMode,
   onDebugModeChange,
   collapsed = false,
   onCollapse
 }: ContextPanelProps) {
-  const { isStreaming, activeConversationId, getActiveConversation, conversations } = useChatStore();
+  // ═══════════════════════════════════════════════════════════════
+  // OPTIMIZED: Targeted Zustand selectors to prevent unnecessary re-renders
+  // ═══════════════════════════════════════════════════════════════
+  const { isStreaming, activeConversationId } = useChatStore(
+    useShallow((s) => ({
+      isStreaming: s.isStreaming,
+      activeConversationId: s.activeConversationId,
+    }))
+  );
+
+  // Subscribe to conversations directly so memos update when events arrive.
+  // Previously used getActiveConversation() which is a stable function ref —
+  // its deps never changed when new A2A events were added, making memos stale.
+  const conversations = useChatStore((s) => s.conversations);
+
+  // Derive conversation events from conversations (updates when addA2AEvent runs)
+  const conversationEvents = useMemo(() => {
+    if (!activeConversationId) return EMPTY_EVENTS;
+    const conv = conversations.find((c) => c.id === activeConversationId);
+    const events = conv?.a2aEvents || EMPTY_EVENTS;
+    const execPlans = events.filter(e => e.artifact?.name === 'execution_plan_update' || e.artifact?.name === 'execution_plan_status_update');
+    const toolStarts = events.filter(e => e.artifact?.name === 'tool_notification_start');
+    const toolEnds = events.filter(e => e.artifact?.name === 'tool_notification_end');
+    console.log(`[A2A-DEBUG] 🎯 ContextPanel.conversationEvents: conv=${activeConversationId.substring(0, 8)}, total=${events.length}, exec_plans=${execPlans.length}, tool_starts=${toolStarts.length}, tool_ends=${toolEnds.length}`);
+    if (execPlans.length > 0) {
+      console.log(`[A2A-DEBUG] 🎯 Execution plan contents:`, execPlans.map(e => ({
+        id: e.id,
+        text: e.artifact?.parts?.[0]?.text?.substring(0, 200),
+      })));
+    }
+    return events;
+  }, [activeConversationId, conversations]);
+
   // Default to tasks tab, switch to debug if debug mode is enabled
   const [activeTab, setActiveTab] = useState<"tasks" | "debug">(debugMode ? "debug" : "tasks");
   // Collapse tool history after streaming ends
   const [toolsCollapsed, setToolsCollapsed] = useState(false);
 
-  // Get the active conversation
+  // Get the active conversation (for non-events data like messages)
   const conversation = useMemo(() => {
     if (!activeConversationId) return null;
-    return conversations.find(c => c.id === activeConversationId) || null;
+    return conversations.find((c) => c.id === activeConversationId) || null;
   }, [activeConversationId, conversations]);
 
-  // Get events for the active conversation
-  const conversationEvents = useMemo(() => {
-    return conversation?.a2aEvents || [];
-  }, [conversation]);
-
-  // Check if streaming is truly active:
-  // 1. Global isStreaming must be true
-  // 2. AND the active conversation's last message must not be final
-  // 3. ALSO check if we have a partial_result or final_result in events (fallback detection)
-  // NOTE: complete_result is INTERNAL (sub-agent → supervisor), not final for UI
+  // Check if streaming is truly active.
+  // Use the store's isStreaming as the single source of truth. Previously this
+  // also checked isFinal and scanned for final_result artifacts, which caused
+  // tasks to be force-marked "completed" mid-stream when final_result arrived
+  // before the stream actually closed — making tasks disappear during streaming.
   const isActuallyStreaming = useMemo(() => {
     if (!isStreaming) return false;
-    const conversation = getActiveConversation();
     if (!conversation) return false;
-    const lastMessage = conversation.messages[conversation.messages.length - 1];
-    // If the last message is marked as final, streaming is done
-    if (lastMessage?.isFinal) return false;
-
-    // FALLBACK: Check if we received a partial_result or final_result artifact
-    // This catches cases where isFinal wasn't properly set
-    // NOTE: complete_result is internal (from sub-agents to supervisor) and should NOT trigger this
-    const hasCompleteResult = conversationEvents.some(e =>
-      e.artifact?.name === "partial_result" ||
-      e.artifact?.name === "final_result"
-    );
-    if (hasCompleteResult) {
-      console.log("[ContextPanel] Detected partial_result/final_result - treating as not streaming");
-      return false;
-    }
-
     return true;
-  }, [isStreaming, getActiveConversation, activeConversationId, conversationEvents]);
+  }, [isStreaming, conversation]);
 
   // Parse execution plan tasks from A2A events (per-conversation)
   // When streaming ends, mark all tasks as completed
   const executionTasks = useMemo(() => {
     const tasks = parseExecutionTasks(conversationEvents);
+    console.log(`[A2A-DEBUG] 📋 ContextPanel.executionTasks: parsed ${tasks.length} tasks from ${conversationEvents.length} events, isStreaming=${isActuallyStreaming}`, tasks.map(t => ({
+      id: t.id,
+      agent: t.agent,
+      description: t.description?.substring(0, 50),
+      status: t.status,
+    })));
     // If streaming has ended and we have tasks, mark remaining as completed
     if (!isActuallyStreaming && tasks.length > 0) {
       return tasks.map(task => ({
@@ -108,6 +128,11 @@ export function ContextPanel({
   // Parse tool calls - show running during streaming, completed after
   const { activeToolCalls, completedToolCalls } = useMemo(() => {
     const allTools = parseToolCalls(conversationEvents);
+    console.log(`[A2A-DEBUG] 🔧 ContextPanel.toolCalls: parsed ${allTools.length} tools, isStreaming=${isActuallyStreaming}`, allTools.map(t => ({
+      tool: t.tool,
+      status: t.status,
+      agent: t.agent,
+    })));
     if (isActuallyStreaming) {
       // During streaming: show only running tools
       return {
@@ -251,7 +276,15 @@ export function ContextPanel({
           /* Tasks Tab - Execution Plan (Default) */
           <ScrollArea className="h-full">
             <div className="p-4 space-y-4">
-              {executionTasks.length > 0 ? (
+              {/* ═══════════════════════════════════════════════════════
+                  EXECUTION PLAN — Always visible during streaming.
+                  Previously nested tool calls inside the execution plan
+                  branch, so tools disappeared when no plan existed yet.
+                  Now: plan and tools are independent, always-visible sections.
+                  ═══════════════════════════════════════════════════════ */}
+
+              {/* Execution Plan Section */}
+              {executionTasks.length > 0 && (
                 <>
                   {/* Progress Header */}
                   <div className="space-y-2 mb-4">
@@ -297,7 +330,6 @@ export function ContextPanel({
                           {/* Status Indicator */}
                           <div className="mt-0.5 w-4 h-4 flex items-center justify-center">
                             {task.status === "completed" ? (
-                              /* Completed - Vibrant green checkbox with checkmark and glow */
                               <div className="relative w-4 h-4">
                                 <div
                                   className="w-4 h-4 rounded bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.6)]"
@@ -318,13 +350,11 @@ export function ContextPanel({
                                 </svg>
                               </div>
                             ) : task.status === "in_progress" ? (
-                              /* In Progress - Vibrant blue spinner with glow */
                               <Loader2
                                 className="w-4 h-4 animate-spin"
                                 style={{ color: '#0EA5E9', filter: 'drop-shadow(0 0 4px rgba(14,165,233,0.5))' }}
                               />
                             ) : task.status === "failed" ? (
-                              /* Failed - Vibrant red X with glow */
                               <div
                                 className="w-4 h-4 rounded border-2 flex items-center justify-center shadow-[0_0_6px_rgba(239,68,68,0.5)]"
                                 style={{ borderColor: '#EF4444' }}
@@ -332,7 +362,6 @@ export function ContextPanel({
                                 <span className="text-xs font-bold" style={{ color: '#EF4444' }}>✕</span>
                               </div>
                             ) : (
-                              /* Pending - Subtle empty checkbox */
                               <div className="w-4 h-4 rounded border-2 border-muted-foreground/40" />
                             )}
                           </div>
@@ -340,15 +369,12 @@ export function ContextPanel({
                           {/* Task Content */}
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2 mb-1.5">
-                              {/* Agent Logo */}
                               <div className={cn(
                                 "transition-opacity",
                                 task.status === "completed" && "opacity-50"
                               )}>
                                 <AgentLogo agent={task.agent} size="sm" />
                               </div>
-
-                              {/* Agent Name Badge with theme-aware color */}
                               {(() => {
                                 const agentLogo = getAgentLogo(task.agent);
                                 return (
@@ -379,118 +405,61 @@ export function ContextPanel({
                       ))}
                     </AnimatePresence>
                   </div>
-
-                  {/* Tool Calls Section - Shows both active and completed during streaming */}
-                  {(activeToolCalls.length > 0 || completedToolCalls.length > 0) && (
-                    <motion.div
-                      initial={{ opacity: 0, y: 10 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0, y: 10 }}
-                      className="space-y-3 mt-4 pt-4 border-t border-border/30"
-                    >
-                      {/* Active Tool Calls */}
-                      {activeToolCalls.length > 0 && (
-                        <div className="space-y-2">
-                          <div className="flex items-center gap-2 text-xs" style={{ color: '#F59E0B' }}>
-                            <Loader2 className="h-3.5 w-3.5 animate-spin" style={{ filter: 'drop-shadow(0 0 3px rgba(245,158,11,0.4))' }} />
-                            <span className="font-semibold">Active Tool Calls</span>
-                          </div>
-                          <div className="space-y-1.5">
-                            {activeToolCalls.map((tool) => (
-                              <div
-                                key={tool.id}
-                                className="flex items-center gap-2 px-3 py-2 rounded-md bg-amber-500/15 border border-amber-500/30 text-sm"
-                              >
-                                <Loader2 className="h-3.5 w-3.5 animate-spin shrink-0" style={{ color: '#F59E0B' }} />
-                                <span className="text-foreground/90 truncate">
-                                  <span className="font-medium" style={{ color: '#F59E0B' }}>{tool.agent}</span>
-                                  <span className="text-foreground/60"> → </span>
-                                  <span>{tool.tool}</span>
-                                </span>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-
-                      {/* Completed Tool Calls - Always visible, collapsible after streaming */}
-                      {completedToolCalls.length > 0 && (
-                        <div className="space-y-1.5">
-                          <div className="flex items-center gap-2 text-xs" style={{ color: '#10B981' }}>
-                            <CheckCircle className="h-3.5 w-3.5" style={{ filter: 'drop-shadow(0 0 3px rgba(16,185,129,0.4))' }} />
-                            <span className="font-semibold">Completed ({completedToolCalls.length})</span>
-                          </div>
-                          <div className="space-y-1">
-                            {completedToolCalls.map((tool) => (
-                              <div
-                                key={tool.id}
-                                className="flex items-center gap-2 px-3 py-1.5 rounded-md bg-emerald-500/10 border border-emerald-500/30 text-sm"
-                              >
-                                <CheckCircle className="h-3 w-3 shrink-0" style={{ color: '#10B981' }} />
-                                <span className="text-foreground/70 truncate text-xs">
-                                  <span className="font-medium text-foreground/80">{tool.agent}</span>
-                                  <span className="text-foreground/40"> → </span>
-                                  <span>{tool.tool}</span>
-                                </span>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                    </motion.div>
-                  )}
-
                 </>
-              ) : activeToolCalls.length > 0 || completedToolCalls.length > 0 ? (
-                /* Tool calls without execution plan - shows both active and completed */
-                <div className="space-y-4">
-                  {/* Active tool calls */}
+              )}
+
+              {/* Tool Calls Section — ALWAYS visible, independent of execution plan.
+                  Previously tool calls were nested inside the executionTasks branch,
+                  so they disappeared when no plan tasks existed yet. */}
+              {(activeToolCalls.length > 0 || completedToolCalls.length > 0) && (
+                <motion.div
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: 10 }}
+                  className={cn(
+                    "space-y-3",
+                    executionTasks.length > 0 && "mt-4 pt-4 border-t border-border/30"
+                  )}
+                >
+                  {/* Active Tool Calls */}
                   {activeToolCalls.length > 0 && (
-                    <motion.div
-                      initial={{ opacity: 0, y: 10 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      className="space-y-2"
-                    >
-                      <div className="flex items-center gap-2 text-xs text-amber-400">
-                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                        <span className="font-medium">Active Tool Calls</span>
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2 text-xs" style={{ color: '#F59E0B' }}>
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" style={{ filter: 'drop-shadow(0 0 3px rgba(245,158,11,0.4))' }} />
+                        <span className="font-semibold">Active Tool Calls</span>
                       </div>
                       <div className="space-y-1.5">
                         {activeToolCalls.map((tool) => (
                           <div
                             key={tool.id}
-                            className="flex items-center gap-2 px-3 py-2 rounded-md bg-amber-500/10 border border-amber-500/20 text-sm"
+                            className="flex items-center gap-2 px-3 py-2 rounded-md bg-amber-500/15 border border-amber-500/30 text-sm"
                           >
-                            <Loader2 className="h-3.5 w-3.5 text-amber-400 animate-spin shrink-0" />
+                            <Loader2 className="h-3.5 w-3.5 animate-spin shrink-0" style={{ color: '#F59E0B' }} />
                             <span className="text-foreground/90 truncate">
-                              <span className="font-medium text-amber-400">{tool.agent}</span>
+                              <span className="font-medium" style={{ color: '#F59E0B' }}>{tool.agent}</span>
                               <span className="text-foreground/60"> → </span>
                               <span>{tool.tool}</span>
                             </span>
                           </div>
                         ))}
                       </div>
-                    </motion.div>
+                    </div>
                   )}
 
-                  {/* Completed tool calls - always visible */}
+                  {/* Completed Tool Calls */}
                   {completedToolCalls.length > 0 && (
-                    <motion.div
-                      initial={{ opacity: 0, y: 10 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      className="space-y-2"
-                    >
-                      <div className="flex items-center gap-2 text-xs text-green-400">
-                        <CheckCircle className="h-3.5 w-3.5" />
-                        <span className="font-medium">Completed ({completedToolCalls.length})</span>
+                    <div className="space-y-1.5">
+                      <div className="flex items-center gap-2 text-xs" style={{ color: '#10B981' }}>
+                        <CheckCircle className="h-3.5 w-3.5" style={{ filter: 'drop-shadow(0 0 3px rgba(16,185,129,0.4))' }} />
+                        <span className="font-semibold">Completed ({completedToolCalls.length})</span>
                       </div>
                       <div className="space-y-1">
                         {completedToolCalls.map((tool) => (
                           <div
                             key={tool.id}
-                            className="flex items-center gap-2 px-3 py-1.5 rounded-md bg-green-500/5 border border-green-500/20 text-sm"
+                            className="flex items-center gap-2 px-3 py-1.5 rounded-md bg-emerald-500/10 border border-emerald-500/30 text-sm"
                           >
-                            <CheckCircle className="h-3 w-3 text-green-400 shrink-0" />
+                            <CheckCircle className="h-3 w-3 shrink-0" style={{ color: '#10B981' }} />
                             <span className="text-foreground/70 truncate text-xs">
                               <span className="font-medium text-foreground/80">{tool.agent}</span>
                               <span className="text-foreground/40"> → </span>
@@ -499,20 +468,22 @@ export function ContextPanel({
                           </div>
                         ))}
                       </div>
-                    </motion.div>
+                    </div>
                   )}
-                </div>
-              ) : (
-                /* Empty state - no tasks and no active tools */
+                </motion.div>
+              )}
+
+              {/* Empty state — only when nothing at all is happening */}
+              {executionTasks.length === 0 && activeToolCalls.length === 0 && completedToolCalls.length === 0 && (
                 <div className="text-center py-12">
                   <div className="w-14 h-14 mx-auto mb-4 rounded-2xl bg-gradient-to-br from-sky-500/20 to-purple-500/20 flex items-center justify-center">
                     <ListTodo className="h-6 w-6 text-sky-400" />
                   </div>
                   <p className="text-sm font-medium text-foreground/80">
-                    No active tasks
+                    {isActuallyStreaming ? "Waiting for tasks..." : "No active tasks"}
                   </p>
                   <p className="text-xs text-foreground/60 mt-1">
-                    Task plans will appear here during execution
+                    {isActuallyStreaming ? "The agent is working — tasks will appear shortly" : "Task plans will appear here during execution"}
                   </p>
                 </div>
               )}
@@ -531,13 +502,20 @@ export function ContextPanel({
 // Parse execution plan tasks from A2A events (ONLY from execution_plan artifacts, not tool notifications)
 function parseExecutionTasks(events: A2AEvent[]): ExecutionTask[] {
   const tasksMap = new Map<string, ExecutionTask>();
+  let execPlanEventCount = 0;
 
-  events.forEach((event) => {
+  events.forEach((event, eventIdx) => {
     // ONLY check for execution plan artifacts - NOT tool notifications
     if (event.artifact?.name === "execution_plan_update" ||
         event.artifact?.name === "execution_plan_status_update") {
+      execPlanEventCount++;
 
       const text = event.displayContent || event.artifact?.parts?.[0]?.text || "";
+      console.log(`[A2A-DEBUG] 📋 parseExecutionTasks: processing exec_plan event #${execPlanEventCount} (eventIdx=${eventIdx}, eventId=${event.id})`, {
+        artifactName: event.artifact?.name,
+        textPreview: text.substring(0, 200),
+        existingTaskKeys: Array.from(tasksMap.keys()),
+      });
 
       // Parse TODO list format from agent-forge style output
       // Matches patterns like:
