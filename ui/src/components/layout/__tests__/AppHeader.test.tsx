@@ -3,7 +3,7 @@
  *
  * Tests:
  * - Personal Insights tab is NOT in the nav pills (moved to user menu)
- * - Agent Skills and Chat tabs are always visible
+ * - Skills and Chat tabs are always visible
  * - Knowledge Bases tab is visible when RAG is enabled
  * - Admin tab is visible for admin users, disabled without MongoDB
  * - Active tab styling based on pathname
@@ -193,16 +193,16 @@ describe('AppHeader — nav tabs', () => {
   })
 
   describe('core tabs', () => {
-    it('always shows Agent Skills and Chat tabs', () => {
+    it('always shows Skills and Chat tabs', () => {
       render(<AppHeader />)
-      expect(screen.getByText('Agent Skills')).toBeInTheDocument()
+      expect(screen.getByText('Skills')).toBeInTheDocument()
       expect(screen.getByText(/Chat/)).toBeInTheDocument()
     })
 
-    it('shows Agent Skills as active on /agent-builder', () => {
-      mockPathname = '/agent-builder'
+    it('shows Skills as active on /skills', () => {
+      mockPathname = '/skills'
       render(<AppHeader />)
-      const link = screen.getByTestId('link-/agent-builder')
+      const link = screen.getByTestId('link-/skills')
       expect(link.className).toContain('text-white')
     })
 
