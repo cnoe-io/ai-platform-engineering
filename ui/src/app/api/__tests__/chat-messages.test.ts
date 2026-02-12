@@ -465,6 +465,191 @@ describe('POST /api/chat/conversations/[id]/messages', () => {
     const res = await POST(req, { params: Promise.resolve({ id: testConversationId }) });
     expect(res.status).toBe(403);
   });
+
+  it('returns 200 when updating an existing message (upsert matched)', async () => {
+    mockGetServerSession.mockResolvedValue(authenticatedSession());
+
+    const usersCol = createMockCollection();
+    usersCol.findOne.mockResolvedValue(null);
+    mockCollections['users'] = usersCol;
+
+    const convCol = createMockCollection();
+    convCol.findOne.mockResolvedValue({
+      _id: testConversationId,
+      owner_id: 'user@example.com',
+    });
+    mockCollections['conversations'] = convCol;
+
+    const msgCol = createMockCollection();
+    const existingMsgId = new ObjectId();
+    msgCol.updateOne.mockResolvedValue({
+      upsertedId: null,
+      upsertedCount: 0,
+      matchedCount: 1,
+      modifiedCount: 1,
+      acknowledged: true,
+    });
+    msgCol.findOne.mockResolvedValue({
+      _id: existingMsgId,
+      message_id: 'client-msg-existing',
+      conversation_id: testConversationId,
+      role: 'user',
+      content: 'Updated content',
+      created_at: new Date(),
+      metadata: { turn_id: 'turn-xyz' },
+    });
+    mockCollections['messages'] = msgCol;
+
+    const sharingCol = createMockCollection();
+    mockCollections['sharing_access'] = sharingCol;
+
+    const req = makeRequest(`/api/chat/conversations/${testConversationId}/messages`, {
+      method: 'POST',
+      body: JSON.stringify({
+        message_id: 'client-msg-existing',
+        role: 'user',
+        content: 'Updated content',
+        metadata: { turn_id: 'turn-xyz' },
+      }),
+    });
+
+    const res = await POST(req, { params: Promise.resolve({ id: testConversationId }) });
+    expect(res.status).toBe(200);
+
+    // Verify conversation was updated with timestamp only (no $inc on update path)
+    expect(convCol.updateOne).toHaveBeenCalledWith(
+      { _id: testConversationId },
+      expect.objectContaining({
+        $set: expect.objectContaining({ updated_at: expect.any(Date) }),
+      })
+    );
+    const convUpdateCall = convCol.updateOne.mock.calls[0][1];
+    expect(convUpdateCall.$inc).toBeUndefined();
+  });
+
+  it('upsert updates content and metadata for existing message', async () => {
+    mockGetServerSession.mockResolvedValue(authenticatedSession());
+
+    const usersCol = createMockCollection();
+    usersCol.findOne.mockResolvedValue(null);
+    mockCollections['users'] = usersCol;
+
+    const convCol = createMockCollection();
+    convCol.findOne.mockResolvedValue({
+      _id: testConversationId,
+      owner_id: 'user@example.com',
+    });
+    mockCollections['conversations'] = convCol;
+
+    const msgCol = createMockCollection();
+    msgCol.updateOne.mockResolvedValue({
+      upsertedId: null,
+      upsertedCount: 0,
+      matchedCount: 1,
+      modifiedCount: 1,
+      acknowledged: true,
+    });
+    msgCol.findOne.mockResolvedValue({
+      _id: new ObjectId(),
+      message_id: 'assistant-msg-update',
+      conversation_id: testConversationId,
+      role: 'assistant',
+      content: 'Final answer after streaming',
+      created_at: new Date(),
+      metadata: { turn_id: 'turn-abc', is_final: true, tokens_used: 150 },
+    });
+    mockCollections['messages'] = msgCol;
+
+    const sharingCol = createMockCollection();
+    mockCollections['sharing_access'] = sharingCol;
+
+    const req = makeRequest(`/api/chat/conversations/${testConversationId}/messages`, {
+      method: 'POST',
+      body: JSON.stringify({
+        message_id: 'assistant-msg-update',
+        role: 'assistant',
+        content: 'Final answer after streaming',
+        metadata: {
+          turn_id: 'turn-abc',
+          is_final: true,
+          tokens_used: 150,
+          model: 'gpt-4o',
+        },
+      }),
+    });
+
+    const res = await POST(req, { params: Promise.resolve({ id: testConversationId }) });
+    expect(res.status).toBe(200);
+
+    const updateDoc = msgCol.updateOne.mock.calls[0][1];
+    expect(updateDoc.$set.content).toBe('Final answer after streaming');
+    expect(updateDoc.$set.metadata.turn_id).toBe('turn-abc');
+    expect(updateDoc.$set.metadata.is_final).toBe(true);
+    expect(updateDoc.$set.metadata.model).toBe('gpt-4o');
+    expect(updateDoc.$set.metadata.tokens_used).toBe(150);
+  });
+
+  it('upsert updates a2a_events on existing message', async () => {
+    mockGetServerSession.mockResolvedValue(authenticatedSession());
+
+    const usersCol = createMockCollection();
+    usersCol.findOne.mockResolvedValue(null);
+    mockCollections['users'] = usersCol;
+
+    const convCol = createMockCollection();
+    convCol.findOne.mockResolvedValue({
+      _id: testConversationId,
+      owner_id: 'user@example.com',
+    });
+    mockCollections['conversations'] = convCol;
+
+    const msgCol = createMockCollection();
+    msgCol.updateOne.mockResolvedValue({
+      upsertedId: null,
+      upsertedCount: 0,
+      matchedCount: 1,
+      modifiedCount: 1,
+      acknowledged: true,
+    });
+    const a2aEvents = [
+      { id: 'evt-1', type: 'tool_start', toolName: 'search' },
+      { id: 'evt-2', type: 'tool_end', toolName: 'search' },
+    ];
+    msgCol.findOne.mockResolvedValue({
+      _id: new ObjectId(),
+      message_id: 'assistant-msg-events',
+      conversation_id: testConversationId,
+      role: 'assistant',
+      content: 'Result with events',
+      created_at: new Date(),
+      metadata: { turn_id: 'turn-1', is_final: true },
+      a2a_events: a2aEvents,
+    });
+    mockCollections['messages'] = msgCol;
+
+    const sharingCol = createMockCollection();
+    mockCollections['sharing_access'] = sharingCol;
+
+    const req = makeRequest(`/api/chat/conversations/${testConversationId}/messages`, {
+      method: 'POST',
+      body: JSON.stringify({
+        message_id: 'assistant-msg-events',
+        role: 'assistant',
+        content: 'Result with events',
+        metadata: { turn_id: 'turn-1', is_final: true },
+        a2a_events: a2aEvents,
+      }),
+    });
+
+    const res = await POST(req, { params: Promise.resolve({ id: testConversationId }) });
+    expect(res.status).toBe(200);
+
+    const updateDoc = msgCol.updateOne.mock.calls[0][1];
+    expect(updateDoc.$set.a2a_events).toHaveLength(2);
+    expect(updateDoc.$set.a2a_events[0].type).toBe('tool_start');
+    expect(updateDoc.$set.a2a_events[0].toolName).toBe('search');
+    expect(updateDoc.$set.a2a_events[1].type).toBe('tool_end');
+  });
 });
 
 // ============================================================================
