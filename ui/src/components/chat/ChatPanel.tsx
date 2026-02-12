@@ -310,10 +310,12 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle }: ChatP
 
         // Log important artifacts in detail
         if (isImportantArtifact) {
-          const artifactText = event.artifact?.parts?.[0]?.text?.substring(0, 200) || '';
+          // Access artifact from the raw A2A event (ParsedA2AEvent wraps it)
+          const rawArtifact = (event.raw as any)?.artifact;
+          const artifactText = rawArtifact?.parts?.[0]?.text?.substring(0, 200) || event.displayContent?.substring(0, 200) || '';
           console.log(`[A2A-DEBUG] ⚡ IMPORTANT ARTIFACT #${eventNum}: ${artifactName}`, {
             convId,
-            artifactId: event.artifact?.artifactId,
+            artifactId: rawArtifact?.artifactId,
             text: artifactText,
             bufferSize: eventBuffer.length,
             taskId: event.taskId,
