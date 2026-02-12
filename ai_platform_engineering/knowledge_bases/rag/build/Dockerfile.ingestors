@@ -9,18 +9,40 @@ ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy
 # for an example.
 ENV UV_PYTHON_DOWNLOADS=0
 
-# Copy over the local dependencies
+# Build variant: "default" (with Playwright/Chromium for JS rendering) or "slim" (no Playwright, smaller image)
+ARG VARIANT=default
+
+# Copy over the local dependencies (excluding .venv directories)
 COPY common /app/common
+# Remove any .venv from common that shouldn't be in the image
+RUN rm -rf /app/common/.venv
 
 WORKDIR /app/ingestors
+# Install dependencies based on variant
+# Default includes Playwright for JS rendering; slim variant excludes it for smaller image
 RUN --mount=type=cache,target=/root/.cache/uv \
     --mount=type=bind,source=ingestors/uv.lock,target=uv.lock \
     --mount=type=bind,source=ingestors/pyproject.toml,target=pyproject.toml \
-    UV_HTTP_TIMEOUT=300 uv sync --locked --no-install-project --no-dev
+    if [ "$VARIANT" = "slim" ]; then \
+        UV_HTTP_TIMEOUT=300 uv sync --locked --no-install-project --no-dev; \
+    else \
+        UV_HTTP_TIMEOUT=300 uv sync --locked --no-install-project --no-dev --extra playwright; \
+    fi
 
 COPY ingestors .
 RUN --mount=type=cache,target=/root/.cache/uv \
-    UV_HTTP_TIMEOUT=300 uv sync --locked --no-dev
+    if [ "$VARIANT" = "slim" ]; then \
+        UV_HTTP_TIMEOUT=300 uv sync --locked --no-dev; \
+    else \
+        UV_HTTP_TIMEOUT=300 uv sync --locked --no-dev --extra playwright; \
+    fi
+
+# Clean up .venv to reduce image size (remove ~100MB of unnecessary files)
+RUN find /app/ingestors/.venv -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true && \
+    find /app/ingestors/.venv -type d -name "tests" -exec rm -rf {} + 2>/dev/null || true && \
+    find /app/ingestors/.venv -type d -name "test" -exec rm -rf {} + 2>/dev/null || true && \
+    find /app/ingestors/.venv -type f -name "*.pyi" -delete 2>/dev/null || true && \
+    rm -rf /app/ingestors/.venv/include 2>/dev/null || true
 
 
 # Then, use a final image without uv
@@ -29,17 +51,23 @@ FROM python:3.13-slim-bookworm
 # Python executable must be the same, e.g., using `python:3.13-slim-bookworm`
 # will fail.
 
+# Re-declare ARG after FROM to make it available in this stage
+ARG VARIANT=default
+
 # Install system dependencies:
 # - AWS CLI v2 for EKS authentication (k8s ingestor)
-# - Playwright/Chromium dependencies for JavaScript rendering (webloader ingestor)
+# - Playwright/Chromium dependencies (default variant only, not slim)
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
     # For AWS CLI installation
-    curl unzip \
-    # Playwright/Chromium dependencies
-    libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 \
-    libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 \
-    libgbm1 libasound2 libpango-1.0-0 libcairo2 libatspi2.0-0 && \
+    curl unzip && \
+    # Conditionally install Playwright dependencies (default variant)
+    if [ "$VARIANT" != "slim" ]; then \
+        apt-get install -y --no-install-recommends \
+        libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 \
+        libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 \
+        libgbm1 libasound2 libpango-1.0-0 libcairo2 libatspi2.0-0; \
+    fi && \
     # Install AWS CLI v2 (detect architecture)
     ARCH=$(uname -m) && \
     if [ "$ARCH" = "aarch64" ]; then \
@@ -68,12 +96,14 @@ WORKDIR /app/ingestors
 # Place executables in the environment at the front of the path
 ENV PATH="/app/ingestors/.venv/bin:$PATH"
 
-# Install Playwright browsers (Chromium only to minimize image size)
+# Install Playwright browsers (Chromium only) - default variant only
 # This needs to run before switching to non-root user since it downloads to system cache
 ENV PLAYWRIGHT_BROWSERS_PATH=/opt/playwright
-RUN mkdir -p /opt/playwright && \
-    playwright install chromium && \
-    chmod -R 755 /opt/playwright
+RUN if [ "$VARIANT" != "slim" ]; then \
+        mkdir -p /opt/playwright && \
+        playwright install chromium && \
+        chmod -R 755 /opt/playwright; \
+    fi
 
 # Use a non-root user to run the application
 USER app
