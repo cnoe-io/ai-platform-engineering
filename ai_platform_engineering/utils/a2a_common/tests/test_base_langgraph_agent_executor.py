@@ -5,9 +5,9 @@
 
 import asyncio
 import unittest
-from unittest.mock import AsyncMock, Mock
+from unittest.mock import AsyncMock, Mock, patch
 
-from a2a.types import Task, TaskState
+from a2a.types import Task, TaskState, TaskArtifactUpdateEvent, TaskStatusUpdateEvent
 
 from ai_platform_engineering.utils.a2a_common.base_langgraph_agent import BaseLangGraphAgent
 from ai_platform_engineering.utils.a2a_common.base_langgraph_agent_executor import BaseLangGraphAgentExecutor
@@ -356,6 +356,197 @@ class TestBaseLangGraphAgentExecutor(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(executor.agent, agent)
         self.assertEqual(executor.agent.get_agent_name(), "my_agent")
+
+    async def test_execute_handles_agent_stream_exception(self):
+        """Test that execute sends graceful error when agent.stream raises an exception."""
+        context = Mock()
+        context.message = Mock()
+        context.current_task = Mock(spec=Task)
+        context.current_task.id = "task-err-1"
+        context.current_task.context_id = "ctx-err-1"
+        context.get_user_input = Mock(return_value="Test query")
+        context.parent_task = None
+
+        event_queue = AsyncMock()
+
+        # Make the agent stream raise an exception
+        async def failing_stream(query, context_id, trace_id=None):
+            raise Exception("expected toolResult blocks in conversation turn")
+            yield  # noqa: make it a generator
+
+        self.agent.stream = failing_stream
+
+        await self.executor.execute(context, event_queue)
+
+        # Should NOT crash — should send error artifact + completed status
+        calls = event_queue.enqueue_event.call_args_list
+        # Find error artifact
+        error_artifacts = [
+            c[0][0] for c in calls
+            if isinstance(c[0][0], TaskArtifactUpdateEvent)
+            and hasattr(c[0][0], 'artifact')
+            and c[0][0].artifact
+            and getattr(c[0][0].artifact, 'name', '') == 'error_result'
+        ]
+        self.assertGreater(len(error_artifacts), 0, "Expected error_result artifact to be sent")
+
+        # Find completed status
+        completed_statuses = [
+            c[0][0] for c in calls
+            if isinstance(c[0][0], TaskStatusUpdateEvent)
+            and c[0][0].status.state == TaskState.completed
+            and c[0][0].final
+        ]
+        self.assertGreater(len(completed_statuses), 0, "Expected final completed status to be sent")
+
+    async def test_execute_handles_cancelled_error(self):
+        """Test that execute handles asyncio.CancelledError gracefully."""
+        context = Mock()
+        context.message = Mock()
+        context.current_task = Mock(spec=Task)
+        context.current_task.id = "task-cancel-1"
+        context.current_task.context_id = "ctx-cancel-1"
+        context.get_user_input = Mock(return_value="Test query")
+        context.parent_task = None
+
+        event_queue = AsyncMock()
+
+        async def cancelled_stream(query, context_id, trace_id=None):
+            raise asyncio.CancelledError()
+            yield  # noqa: make it a generator
+
+        self.agent.stream = cancelled_stream
+
+        await self.executor.execute(context, event_queue)
+
+        # Should send cancellation message, not crash
+        calls = event_queue.enqueue_event.call_args_list
+        # Should have at least initial working status + error completion
+        self.assertGreater(len(calls), 0, "Expected events to be enqueued")
+
+    async def test_execute_handles_exception_group(self):
+        """Test that execute handles BaseExceptionGroup gracefully."""
+        context = Mock()
+        context.message = Mock()
+        context.current_task = Mock(spec=Task)
+        context.current_task.id = "task-eg-1"
+        context.current_task.context_id = "ctx-eg-1"
+        context.get_user_input = Mock(return_value="Test query")
+        context.parent_task = None
+
+        event_queue = AsyncMock()
+
+        async def eg_stream(query, context_id, trace_id=None):
+            raise BaseExceptionGroup("stream errors", [ValueError("expected toolResult")])
+            yield  # noqa: make it a generator
+
+        self.agent.stream = eg_stream
+
+        await self.executor.execute(context, event_queue)
+
+        # Should send error completion instead of crashing
+        calls = event_queue.enqueue_event.call_args_list
+        self.assertGreater(len(calls), 0, "Expected events to be enqueued after ExceptionGroup")
+
+    async def test_single_event_failure_does_not_kill_stream(self):
+        """Test that a failure processing one event does not kill the entire stream."""
+        context = Mock()
+        context.message = Mock()
+        context.current_task = Mock(spec=Task)
+        context.current_task.id = "task-partial-1"
+        context.current_task.context_id = "ctx-partial-1"
+        context.get_user_input = Mock(return_value="Test query")
+        context.parent_task = None
+
+        event_queue = AsyncMock()
+
+        # Three events: the second one has content that should work,
+        # but we'll make event processing fail for the first event by
+        # injecting a bad event, then good events follow.
+        self.agent.stream_responses = [
+            # First event: good content that streams normally
+            {'is_task_complete': False, 'content': 'Part 1', 'require_user_input': False},
+            # Second event: also good
+            {'is_task_complete': False, 'content': 'Part 2', 'require_user_input': False},
+            # Completion
+            {'is_task_complete': True, 'content': 'Done', 'require_user_input': False},
+        ]
+
+        # Make enqueue_event fail on the 2nd call (the first streaming artifact),
+        # then succeed on subsequent calls
+        call_count = 0
+        original_enqueue = event_queue.enqueue_event
+
+        async def flaky_enqueue(event):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 2:  # Fail on second call (first content artifact)
+                raise RuntimeError("Simulated queue failure")
+            return await original_enqueue(event)
+
+        event_queue.enqueue_event = AsyncMock(side_effect=flaky_enqueue)
+
+        await self.executor.execute(context, event_queue)
+
+        # The stream should have continued despite the failure
+        # We should have more than 2 calls (working status + at least some artifacts)
+        total_calls = event_queue.enqueue_event.call_count
+        self.assertGreater(total_calls, 2, "Stream should have continued despite single event failure")
+
+    async def test_send_error_completion_sends_artifact_and_status(self):
+        """Test _send_error_completion sends error artifact and completed status."""
+        event_queue = AsyncMock()
+        task = Mock(spec=Task)
+        task.id = "task-err-comp-1"
+        task.context_id = "ctx-err-comp-1"
+
+        await self.executor._send_error_completion(
+            event_queue, task, "test_agent", "Something went wrong"
+        )
+
+        calls = event_queue.enqueue_event.call_args_list
+        self.assertEqual(len(calls), 2, "Expected exactly 2 enqueue_event calls")
+
+        # First call: error artifact
+        first_event = calls[0][0][0]
+        self.assertIsInstance(first_event, TaskArtifactUpdateEvent)
+        self.assertEqual(first_event.artifact.name, 'error_result')
+        self.assertTrue(first_event.last_chunk)
+
+        # Second call: completed status
+        second_event = calls[1][0][0]
+        self.assertIsInstance(second_event, TaskStatusUpdateEvent)
+        self.assertEqual(second_event.status.state, TaskState.completed)
+        self.assertTrue(second_event.final)
+
+    async def test_process_stream_event_status_kind(self):
+        """Test that _process_stream_event handles 'status' kind events."""
+        event_queue = AsyncMock()
+        task = Mock(spec=Task)
+        task.id = "task-status-1"
+        task.context_id = "ctx-status-1"
+        accumulated_content = []
+
+        # Initialize the streaming_artifact_id
+        self.executor._streaming_artifact_id = None
+
+        event = {
+            'is_task_complete': False,
+            'require_user_input': False,
+            'kind': 'status',
+            'content': 'Recovery in progress...',
+        }
+
+        await self.executor._process_stream_event(
+            event, task, "test_agent", accumulated_content, event_queue
+        )
+
+        # Should have sent a status_update artifact
+        calls = event_queue.enqueue_event.call_args_list
+        self.assertEqual(len(calls), 1)
+        artifact_event = calls[0][0][0]
+        self.assertIsInstance(artifact_event, TaskArtifactUpdateEvent)
+        self.assertEqual(artifact_event.artifact.name, 'status_update')
 
 
 if __name__ == '__main__':

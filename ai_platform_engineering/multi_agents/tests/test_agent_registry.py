@@ -377,6 +377,151 @@ class TestGetEnabledAgentsFromEnv(unittest.TestCase):
         print("✓ get_enabled_agents_from_env works correctly")
 
 
+class TestRegistryExclusions(unittest.TestCase):
+    """Test that feature flags and pseudo-agents are excluded from the registry."""
+
+    def setUp(self):
+        """Save original environment variables."""
+        self.original_env = os.environ.copy()
+
+    def tearDown(self):
+        """Restore original environment variables."""
+        os.environ.clear()
+        os.environ.update(self.original_env)
+
+    @patch('ai_platform_engineering.multi_agents.agent_registry.AgentRegistry._load_agents')
+    def test_feature_flags_excluded_from_enabled_agents(self, mock_load):
+        """Test that TRACING, RAG, STREAMING are filtered out of AGENT_NAMES."""
+        mock_load.return_value = None
+
+        for key in list(os.environ.keys()):
+            if key.startswith('ENABLE_'):
+                del os.environ[key]
+
+        os.environ['ENABLE_GITHUB'] = 'true'
+        os.environ['ENABLE_TRACING'] = 'true'
+        os.environ['ENABLE_RAG'] = 'true'
+        os.environ['ENABLE_STREAMING'] = 'true'
+
+        registry = AgentRegistry()
+
+        self.assertIn('GITHUB', registry.AGENT_NAMES)
+        self.assertNotIn('TRACING', registry.AGENT_NAMES)
+        self.assertNotIn('RAG', registry.AGENT_NAMES)
+        self.assertNotIn('STREAMING', registry.AGENT_NAMES)
+        self.assertEqual(len(registry.AGENT_NAMES), 1)
+
+    @patch('ai_platform_engineering.multi_agents.agent_registry.AgentRegistry._load_agents')
+    def test_all_default_exclusions_filtered(self, mock_load):
+        """Test that every name in DEFAULT_REGISTRY_EXCLUSIONS is filtered out."""
+        from ai_platform_engineering.multi_agents.agent_registry import DEFAULT_REGISTRY_EXCLUSIONS
+        mock_load.return_value = None
+
+        for key in list(os.environ.keys()):
+            if key.startswith('ENABLE_'):
+                del os.environ[key]
+
+        # Enable every exclusion plus one real agent
+        for name in DEFAULT_REGISTRY_EXCLUSIONS:
+            os.environ[f'ENABLE_{name}'] = 'true'
+        os.environ['ENABLE_JIRA'] = 'true'
+
+        registry = AgentRegistry()
+
+        self.assertEqual(registry.AGENT_NAMES, ['JIRA'])
+        for name in DEFAULT_REGISTRY_EXCLUSIONS:
+            self.assertNotIn(name, registry.AGENT_NAMES)
+
+    @patch('ai_platform_engineering.multi_agents.agent_registry.AgentRegistry._load_agents')
+    def test_custom_exclusions_via_env_var(self, mock_load):
+        """Test that EXCLUDE_FROM_AGENT_REGISTRY adds custom exclusions."""
+        mock_load.return_value = None
+
+        for key in list(os.environ.keys()):
+            if key.startswith('ENABLE_') or key == 'EXCLUDE_FROM_AGENT_REGISTRY':
+                del os.environ[key]
+
+        os.environ['EXCLUDE_FROM_AGENT_REGISTRY'] = 'CUSTOM_FLAG,ANOTHER'
+        os.environ['ENABLE_CUSTOM_FLAG'] = 'true'
+        os.environ['ENABLE_ANOTHER'] = 'true'
+        os.environ['ENABLE_GITHUB'] = 'true'
+
+        registry = AgentRegistry()
+
+        self.assertIn('GITHUB', registry.AGENT_NAMES)
+        self.assertNotIn('CUSTOM_FLAG', registry.AGENT_NAMES)
+        self.assertNotIn('ANOTHER', registry.AGENT_NAMES)
+        self.assertEqual(len(registry.AGENT_NAMES), 1)
+
+    @patch('ai_platform_engineering.multi_agents.agent_registry.AgentRegistry._load_agents')
+    def test_exclusions_case_insensitive(self, mock_load):
+        """Test that custom exclusions are case-insensitive."""
+        mock_load.return_value = None
+
+        for key in list(os.environ.keys()):
+            if key.startswith('ENABLE_') or key == 'EXCLUDE_FROM_AGENT_REGISTRY':
+                del os.environ[key]
+
+        # Lowercase in env var, uppercase ENABLE_ key
+        os.environ['EXCLUDE_FROM_AGENT_REGISTRY'] = 'custom_flag'
+        os.environ['ENABLE_CUSTOM_FLAG'] = 'true'
+        os.environ['ENABLE_GITHUB'] = 'true'
+
+        registry = AgentRegistry()
+
+        self.assertNotIn('CUSTOM_FLAG', registry.AGENT_NAMES)
+        self.assertIn('GITHUB', registry.AGENT_NAMES)
+
+    @patch('ai_platform_engineering.multi_agents.agent_registry.AgentRegistry._load_agents')
+    def test_address_mapping_skips_excluded(self, mock_load):
+        """Test that excluded names don't appear in AGENT_ADDRESS_MAPPING."""
+        mock_load.return_value = None
+
+        for key in list(os.environ.keys()):
+            if key.startswith('ENABLE_'):
+                del os.environ[key]
+
+        os.environ['ENABLE_GITHUB'] = 'true'
+        os.environ['ENABLE_TRACING'] = 'true'
+        os.environ['GITHUB_AGENT_HOST'] = 'github-host'
+        os.environ['GITHUB_AGENT_PORT'] = '9000'
+
+        registry = AgentRegistry()
+
+        self.assertIn('GITHUB', registry.AGENT_ADDRESS_MAPPING)
+        self.assertNotIn('TRACING', registry.AGENT_ADDRESS_MAPPING)
+
+    def test_get_registry_exclusions_returns_frozenset(self):
+        """Test that _get_registry_exclusions returns frozenset with all defaults."""
+        from ai_platform_engineering.multi_agents.agent_registry import DEFAULT_REGISTRY_EXCLUSIONS
+
+        result = AgentRegistry._get_registry_exclusions()
+
+        self.assertIsInstance(result, frozenset)
+        for name in DEFAULT_REGISTRY_EXCLUSIONS:
+            self.assertIn(name, result)
+
+    @patch('ai_platform_engineering.multi_agents.agent_registry.AgentRegistry._load_agents')
+    def test_real_agents_not_excluded(self, mock_load):
+        """Test that real agents (GITHUB, JIRA, ARGOCD) are not excluded."""
+        mock_load.return_value = None
+
+        for key in list(os.environ.keys()):
+            if key.startswith('ENABLE_'):
+                del os.environ[key]
+
+        os.environ['ENABLE_GITHUB'] = 'true'
+        os.environ['ENABLE_JIRA'] = 'true'
+        os.environ['ENABLE_ARGOCD'] = 'true'
+
+        registry = AgentRegistry()
+
+        self.assertIn('GITHUB', registry.AGENT_NAMES)
+        self.assertIn('JIRA', registry.AGENT_NAMES)
+        self.assertIn('ARGOCD', registry.AGENT_NAMES)
+        self.assertEqual(len(registry.AGENT_NAMES), 3)
+
+
 def run_tests():
     """Run all tests and provide summary."""
     # Create test suite
@@ -391,6 +536,7 @@ def run_tests():
         TestUtilityMethods,
         TestAddressMapping,
         TestGetEnabledAgentsFromEnv,
+        TestRegistryExclusions,
     ]
 
     for test_class in test_classes:
