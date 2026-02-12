@@ -14,10 +14,9 @@
  * - Favorite agents: shows empty state when no agent data
  * - Feedback: renders positive/negative counts with satisfaction bar
  * - Feedback: shows empty state when no feedback given
- * - Recent prompts: renders prompt cards with conversation titles
- * - Recent prompts: truncates long content to 300 chars
- * - Recent prompts: shows empty state when no prompts
- * - Navigation: clicking a prompt navigates to /chat/{conversation_id}
+ * - Skill usage: renders skill categories with run counts and success rates
+ * - Skill usage: shows empty state with Browse Agent Skills button
+ * - Navigation: Browse Agent Skills navigates to /agent-builder
  * - AuthGuard: wraps page in AuthGuard component
  */
 
@@ -112,20 +111,27 @@ function makeInsightsData(overrides: Record<string, any> = {}) {
       avg_messages_per_conversation: 6.1,
       ...overrides.overview,
     },
-    recent_prompts: overrides.recent_prompts ?? [
+    skill_usage: overrides.skill_usage ?? [
       {
-        content: 'Why is my pod in CrashLoopBackOff?',
-        content_length: 37,
-        conversation_id: 'conv-1',
-        conversation_title: 'K8s Debugging',
-        timestamp: '2026-02-10T12:00:00Z',
+        category: 'AWS Operations',
+        total_runs: 12,
+        completed: 10,
+        failed: 2,
+        last_run: '2026-02-10T12:00:00Z',
       },
       {
-        content: 'Show me the ArgoCD applications',
-        content_length: 31,
-        conversation_id: 'conv-2',
-        conversation_title: 'ArgoCD Overview',
-        timestamp: '2026-02-09T15:00:00Z',
+        category: 'GitHub Operations',
+        total_runs: 8,
+        completed: 8,
+        failed: 0,
+        last_run: '2026-02-09T15:00:00Z',
+      },
+      {
+        category: 'ArgoCD Operations',
+        total_runs: 5,
+        completed: 3,
+        failed: 2,
+        last_run: '2026-02-08T10:00:00Z',
       },
     ],
     daily_usage: overrides.daily_usage ?? Array.from({ length: 30 }, (_, i) => ({
@@ -451,57 +457,86 @@ describe('Insights Page', () => {
     })
   })
 
-  describe('Recent prompts', () => {
-    it('renders prompt cards with conversation titles', async () => {
+  describe('Skill usage', () => {
+    it('renders skill usage cards with categories', async () => {
       mockFetchSuccess()
 
       render(<Insights />)
 
       await waitFor(() => {
-        expect(screen.getByText('Recent Prompts')).toBeInTheDocument()
-        expect(screen.getByText('Why is my pod in CrashLoopBackOff?')).toBeInTheDocument()
-        expect(screen.getByText('K8s Debugging')).toBeInTheDocument()
-        expect(screen.getByText('Show me the ArgoCD applications')).toBeInTheDocument()
-        expect(screen.getByText('ArgoCD Overview')).toBeInTheDocument()
+        expect(screen.getByText('Skill Usage')).toBeInTheDocument()
+        expect(screen.getByText('AWS Operations')).toBeInTheDocument()
+        expect(screen.getByText('GitHub Operations')).toBeInTheDocument()
+        expect(screen.getByText('ArgoCD Operations')).toBeInTheDocument()
       })
     })
 
-    it('shows content length for each prompt', async () => {
+    it('shows run counts for each skill category', async () => {
       mockFetchSuccess()
 
       render(<Insights />)
 
       await waitFor(() => {
-        expect(screen.getByText('37 chars')).toBeInTheDocument()
-        expect(screen.getByText('31 chars')).toBeInTheDocument()
+        expect(screen.getByText('12 runs')).toBeInTheDocument()
+        expect(screen.getByText('8 runs')).toBeInTheDocument()
+        expect(screen.getByText('5 runs')).toBeInTheDocument()
       })
     })
 
-    it('shows empty state when no prompts', async () => {
-      mockFetchSuccess(makeInsightsData({ recent_prompts: [] }))
+    it('shows success rates for each skill category', async () => {
+      // Use skill data with unique success rates that won't collide
+      const customSkills = [
+        { category: 'AWS Operations', total_runs: 10, completed: 9, failed: 1, last_run: '2026-02-10T12:00:00Z' }, // 90%
+        { category: 'GitHub Operations', total_runs: 4, completed: 3, failed: 1, last_run: '2026-02-09T15:00:00Z' }, // 75%
+      ];
+      // Use zero feedback to avoid any collision
+      mockFetchSuccess(makeInsightsData({
+        skill_usage: customSkills,
+        feedback_given: { positive: 0, negative: 0, total: 0 },
+      }))
 
       render(<Insights />)
 
       await waitFor(() => {
-        expect(screen.getByText('No prompts yet. Start a conversation to see your history here.')).toBeInTheDocument()
+        expect(screen.getByText('90%')).toBeInTheDocument()
+        expect(screen.getByText('75%')).toBeInTheDocument()
       })
     })
 
-    it('navigates to conversation on prompt click', async () => {
-      mockFetchSuccess()
+    it('shows empty state when no skill runs', async () => {
+      mockFetchSuccess(makeInsightsData({ skill_usage: [] }))
 
       render(<Insights />)
 
       await waitFor(() => {
-        expect(screen.getByText('Why is my pod in CrashLoopBackOff?')).toBeInTheDocument()
+        expect(screen.getByText('No skill runs yet. Run an Agent Skill to see your usage here.')).toBeInTheDocument()
+        expect(screen.getByText('Browse Agent Skills')).toBeInTheDocument()
+      })
+    })
+
+    it('navigates to agent-builder when Browse Agent Skills is clicked', async () => {
+      mockFetchSuccess(makeInsightsData({ skill_usage: [] }))
+
+      render(<Insights />)
+
+      await waitFor(() => {
+        expect(screen.getByText('Browse Agent Skills')).toBeInTheDocument()
       })
 
-      // Find the prompt card and click it
-      const promptCard = screen.getByText('Why is my pod in CrashLoopBackOff?').closest('[class]')
-      if (promptCard) {
-        fireEvent.click(promptCard)
-        expect(mockPush).toHaveBeenCalledWith('/chat/conv-1')
-      }
+      fireEvent.click(screen.getByText('Browse Agent Skills'))
+      expect(mockPush).toHaveBeenCalledWith('/agent-builder')
+    })
+
+    it('uses singular "run" when count is 1', async () => {
+      mockFetchSuccess(makeInsightsData({
+        skill_usage: [{ category: 'Custom', total_runs: 1, completed: 1, failed: 0, last_run: null }],
+      }))
+
+      render(<Insights />)
+
+      await waitFor(() => {
+        expect(screen.getByText('1 run')).toBeInTheDocument()
+      })
     })
   })
 

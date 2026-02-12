@@ -73,7 +73,46 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     const totalTokens = tokenAgg[0]?.total_tokens || 0;
 
     // ═══════════════════════════════════════════════════════════════
-    // RECENT PROMPTS (last 20 user messages with conversation titles)
+    // SKILL USAGE (aggregate workflow_runs by category)
+    // ═══════════════════════════════════════════════════════════════
+    let skillUsage: Array<{ category: string; total_runs: number; completed: number; failed: number; last_run: Date | null }> = [];
+    try {
+      const workflowRuns = await getCollection('workflow_runs');
+      const skillAgg = await workflowRuns
+        .aggregate([
+          { $match: { owner_id: user.email } },
+          {
+            $group: {
+              _id: { $ifNull: ['$workflow_category', 'Custom'] },
+              total_runs: { $sum: 1 },
+              completed: {
+                $sum: { $cond: [{ $eq: ['$status', 'completed'] }, 1, 0] },
+              },
+              failed: {
+                $sum: { $cond: [{ $eq: ['$status', 'failed'] }, 1, 0] },
+              },
+              last_run: { $max: '$started_at' },
+            },
+          },
+          { $sort: { total_runs: -1 } },
+          { $limit: 15 },
+        ])
+        .toArray();
+
+      skillUsage = skillAgg.map((s) => ({
+        category: s._id,
+        total_runs: s.total_runs,
+        completed: s.completed,
+        failed: s.failed,
+        last_run: s.last_run,
+      }));
+    } catch (err) {
+      // workflow_runs collection may not exist yet — that's fine
+      console.warn('[Insights] Could not aggregate skill usage:', err);
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // RECENT PROMPTS (deprecated — kept for backward compatibility)
     // ═══════════════════════════════════════════════════════════════
     const recentPrompts = await messages
       .find({
@@ -302,6 +341,8 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
         messages_this_week: messagesThisWeek,
         avg_messages_per_conversation: avgMessagesPerConversation,
       },
+      skill_usage: skillUsage,
+      // @deprecated — recent_prompts kept for backward compatibility; use skill_usage instead
       recent_prompts: promptHistory,
       daily_usage: dailyUsage,
       prompt_patterns: promptPatterns,

@@ -13,13 +13,14 @@ import {
   Bot,
   ThumbsUp,
   ThumbsDown,
-  Loader2,
-  ExternalLink,
   Lightbulb,
   BarChart3,
   FileText,
   Zap,
   Database,
+  Layers,
+  CheckCircle,
+  XCircle,
 } from "lucide-react";
 import { AuthGuard } from "@/components/auth-guard";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -30,6 +31,14 @@ import { cn } from "@/lib/utils";
 import { getStorageMode } from "@/lib/storage-config";
 
 // ─── Types ───────────────────────────────────────────────────────
+interface SkillUsageEntry {
+  category: string;
+  total_runs: number;
+  completed: number;
+  failed: number;
+  last_run: string | null;
+}
+
 interface InsightsData {
   overview: {
     total_conversations: number;
@@ -39,7 +48,9 @@ interface InsightsData {
     messages_this_week: number;
     avg_messages_per_conversation: number;
   };
-  recent_prompts: Array<{
+  skill_usage: SkillUsageEntry[];
+  /** @deprecated Use skill_usage instead — kept for backward compatibility */
+  recent_prompts?: Array<{
     content: string;
     content_length: number;
     conversation_id: string;
@@ -437,58 +448,96 @@ function InsightsPage() {
           </Card>
         </div>
 
-        {/* Recent Prompts */}
+        {/* Skill Usage */}
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              <MessageSquare className="h-5 w-5" />
-              Recent Prompts
+              <Layers className="h-5 w-5" />
+              Skill Usage
             </CardTitle>
-            <CardDescription>Your last 20 prompts with conversation links</CardDescription>
+            <CardDescription>
+              Agent Skills you have invoked, grouped by category
+            </CardDescription>
           </CardHeader>
           <CardContent>
-            {data.recent_prompts.length === 0 ? (
-              <p className="text-sm text-muted-foreground text-center py-8">
-                No prompts yet. Start a conversation to see your history here.
-              </p>
+            {data.skill_usage.length === 0 ? (
+              <div className="text-center py-8 space-y-2">
+                <Zap className="h-8 w-8 text-muted-foreground mx-auto" />
+                <p className="text-sm text-muted-foreground">
+                  No skill runs yet. Run an Agent Skill to see your usage here.
+                </p>
+                <button
+                  onClick={() => router.push("/agent-builder")}
+                  className="mt-2 px-4 py-1.5 text-xs rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
+                >
+                  Browse Agent Skills
+                </button>
+              </div>
             ) : (
               <div className="space-y-3">
-                {data.recent_prompts.map((prompt, i) => (
-                  <motion.div
-                    key={i}
-                    initial={{ opacity: 0, y: 5 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: i * 0.02 }}
-                    className="group flex items-start gap-3 p-3 rounded-lg border border-border hover:border-primary/30 hover:bg-muted/30 transition-all cursor-pointer"
-                    onClick={() => router.push(`/chat/${prompt.conversation_id}`)}
-                  >
-                    <div className="text-xs text-muted-foreground font-mono shrink-0 pt-0.5 w-6 text-right">
-                      {i + 1}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm line-clamp-2">{prompt.content}</p>
-                      <div className="flex items-center gap-3 mt-1.5">
-                        <span className="text-xs text-muted-foreground truncate max-w-[200px]">
-                          {prompt.conversation_title}
-                        </span>
-                        <span className="text-xs text-muted-foreground/50">|</span>
-                        <span className="text-xs text-muted-foreground">
-                          {new Date(prompt.timestamp).toLocaleDateString("en-US", {
-                            month: "short",
-                            day: "numeric",
-                            hour: "2-digit",
-                            minute: "2-digit",
-                          })}
-                        </span>
-                        <span className="text-xs text-muted-foreground/50">|</span>
-                        <span className="text-xs text-muted-foreground">
-                          {prompt.content_length} chars
-                        </span>
+                {data.skill_usage.map((skill, i) => {
+                  const successRate =
+                    skill.total_runs > 0
+                      ? Math.round((skill.completed / skill.total_runs) * 100)
+                      : 0;
+                  return (
+                    <motion.div
+                      key={skill.category}
+                      initial={{ opacity: 0, y: 5 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: i * 0.03 }}
+                      className="flex items-center gap-4 p-3 rounded-lg border border-border hover:border-primary/30 hover:bg-muted/30 transition-all"
+                    >
+                      {/* Category badge */}
+                      <div className="shrink-0 w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center">
+                        <Zap className="h-5 w-5 text-primary" />
                       </div>
-                    </div>
-                    <ExternalLink className="h-3.5 w-3.5 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity shrink-0 mt-1" />
-                  </motion.div>
-                ))}
+
+                      {/* Info */}
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium truncate">{skill.category}</p>
+                        <div className="flex items-center gap-3 mt-1">
+                          <span className="text-xs text-muted-foreground">
+                            {skill.total_runs} run{skill.total_runs !== 1 ? "s" : ""}
+                          </span>
+                          <span className="flex items-center gap-1 text-xs text-green-500">
+                            <CheckCircle className="h-3 w-3" />
+                            {skill.completed}
+                          </span>
+                          {skill.failed > 0 && (
+                            <span className="flex items-center gap-1 text-xs text-red-500">
+                              <XCircle className="h-3 w-3" />
+                              {skill.failed}
+                            </span>
+                          )}
+                          {skill.last_run && (
+                            <>
+                              <span className="text-xs text-muted-foreground/50">|</span>
+                              <span className="text-xs text-muted-foreground">
+                                Last: {new Date(skill.last_run).toLocaleDateString("en-US", {
+                                  month: "short",
+                                  day: "numeric",
+                                })}
+                              </span>
+                            </>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Success rate */}
+                      <div className="shrink-0 text-right">
+                        <p className={cn(
+                          "text-sm font-bold",
+                          successRate >= 80 ? "text-green-500" :
+                          successRate >= 50 ? "text-amber-500" : "text-red-500"
+                        )}>
+                          {successRate}%
+                        </p>
+                        <p className="text-[10px] text-muted-foreground">success</p>
+                      </div>
+                    </motion.div>
+                  );
+                })}
               </div>
             )}
           </CardContent>

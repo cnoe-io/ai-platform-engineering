@@ -1,13 +1,12 @@
 /**
- * Unit tests for AppHeader component — Insights tab visibility
+ * Unit tests for AppHeader component — nav tab visibility
  *
  * Tests:
- * - Insights tab is visible when MongoDB is configured and user is authenticated
- * - Insights tab is NOT visible when storageMode !== 'mongodb'
- * - Insights tab is NOT visible when user is not authenticated (no session)
- * - Insights tab shows active state when pathname starts with /insights
- * - Insights tab link points to /insights
- * - Admin tab visibility is independent of Insights tab
+ * - Personal Insights tab is NOT in the nav pills (moved to user menu)
+ * - Agent Skills and Chat tabs are always visible
+ * - Knowledge Bases tab is visible when RAG is enabled
+ * - Admin tab is visible for admin users, disabled without MongoDB
+ * - Active tab styling based on pathname
  */
 
 import React from 'react'
@@ -59,11 +58,12 @@ jest.mock('@/hooks/use-caipe-health', () => ({
 }))
 
 // Mock RAG health hook
+let mockRagEnabled = false
 jest.mock('@/hooks/use-rag-health', () => ({
   useRAGHealth: () => ({
     status: 'connected',
     url: 'http://localhost:9090',
-    enabled: false,
+    enabled: mockRagEnabled,
     secondsUntilNextCheck: 30,
     graphRagEnabled: false,
   }),
@@ -76,7 +76,7 @@ jest.mock('@/hooks/use-version', () => ({
   }),
 }))
 
-// Mock config - this is a direct import, not getConfig
+// Mock config
 jest.mock('@/lib/config', () => ({
   config: {
     appName: 'Test App',
@@ -87,19 +87,14 @@ jest.mock('@/lib/config', () => ({
     githubUrl: 'https://github.com/example',
     ssoEnabled: true,
     previewMode: false,
-    ragEnabled: false,
+    get ragEnabled() { return mockRagEnabled },
   },
   getConfig: jest.fn((key: string) => {
     const configs: Record<string, any> = {
       appName: 'Test App',
-      tagline: 'Test tagline',
-      logoUrl: '/logo.svg',
-      logoStyle: 'auto',
-      docsUrl: 'https://docs.example.com',
-      githubUrl: 'https://github.com/example',
       ssoEnabled: true,
       previewMode: false,
-      ragEnabled: false,
+      get ragEnabled() { return mockRagEnabled },
     }
     return configs[key]
   }),
@@ -169,74 +164,113 @@ import { AppHeader } from '../AppHeader'
 // Tests
 // ============================================================================
 
-describe('AppHeader — Insights tab', () => {
+describe('AppHeader — nav tabs', () => {
   beforeEach(() => {
     jest.clearAllMocks()
     mockStorageMode = 'mongodb'
     mockPathname = '/chat'
     mockIsAdmin = false
+    mockRagEnabled = false
     mockSession.status = 'authenticated' as const
     mockSession.data = { user: { name: 'Test User', email: 'test@test.com' } } as any
   })
 
-  it('shows Insights tab when MongoDB is configured and user is authenticated', () => {
-    render(<AppHeader />)
+  describe('Insights tab removed from nav', () => {
+    it('does NOT show Personal Insights in the nav pills even with MongoDB', () => {
+      render(<AppHeader />)
+      // Insights was moved to user menu — it should NOT be a tab
+      const navLinks = screen.queryAllByTestId(/^link-/)
+      const insightsLink = navLinks.find(el => el.getAttribute('href') === '/insights')
+      expect(insightsLink).toBeUndefined()
+    })
 
-    expect(screen.getByText('Personal Insights')).toBeInTheDocument()
-    expect(screen.getByTestId('link-/insights')).toBeInTheDocument()
+    it('does NOT show Personal Insights text in nav with authenticated user + mongodb', () => {
+      render(<AppHeader />)
+      // The text "Personal Insights" should NOT appear as a navigation tab
+      // (UserMenu is mocked out, so it won't appear from there either)
+      expect(screen.queryByTestId('link-/insights')).not.toBeInTheDocument()
+    })
   })
 
-  it('does NOT show Insights tab when storageMode is not mongodb', () => {
-    mockStorageMode = 'localStorage'
+  describe('core tabs', () => {
+    it('always shows Agent Skills and Chat tabs', () => {
+      render(<AppHeader />)
+      expect(screen.getByText('Agent Skills')).toBeInTheDocument()
+      expect(screen.getByText(/Chat/)).toBeInTheDocument()
+    })
 
-    render(<AppHeader />)
+    it('shows Agent Skills as active on /agent-builder', () => {
+      mockPathname = '/agent-builder'
+      render(<AppHeader />)
+      const link = screen.getByTestId('link-/agent-builder')
+      expect(link.className).toContain('text-white')
+    })
 
-    expect(screen.queryByText('Personal Insights')).not.toBeInTheDocument()
+    it('shows Chat as active on /chat', () => {
+      mockPathname = '/chat'
+      render(<AppHeader />)
+      const link = screen.getByTestId('link-/chat')
+      expect(link.className).toContain('bg-primary')
+    })
+
+    it('shows Knowledge Bases tab when RAG is enabled', () => {
+      mockRagEnabled = true
+      render(<AppHeader />)
+      expect(screen.getByText('Knowledge Bases')).toBeInTheDocument()
+      expect(screen.getByTestId('link-/knowledge-bases')).toBeInTheDocument()
+    })
+
+    it('does NOT show Knowledge Bases when RAG is disabled', () => {
+      mockRagEnabled = false
+      render(<AppHeader />)
+      expect(screen.queryByText('Knowledge Bases')).not.toBeInTheDocument()
+    })
   })
 
-  it('does NOT show Insights tab when user is not authenticated', () => {
-    mockSession.status = 'unauthenticated' as any
-    mockSession.data = null as any
+  describe('admin tab', () => {
+    it('shows Admin tab for admin users', () => {
+      mockIsAdmin = true
+      render(<AppHeader />)
+      expect(screen.getByText('Admin')).toBeInTheDocument()
+    })
 
-    render(<AppHeader />)
+    it('does NOT show Admin tab for non-admin users', () => {
+      mockIsAdmin = false
+      render(<AppHeader />)
+      expect(screen.queryByTestId('link-/admin')).not.toBeInTheDocument()
+    })
 
-    expect(screen.queryByText('Personal Insights')).not.toBeInTheDocument()
+    it('Admin tab is clickable when MongoDB is configured', () => {
+      mockIsAdmin = true
+      mockStorageMode = 'mongodb'
+      render(<AppHeader />)
+      expect(screen.getByTestId('link-/admin')).toBeInTheDocument()
+    })
+
+    it('Admin tab is disabled when MongoDB is not configured', () => {
+      mockIsAdmin = true
+      mockStorageMode = 'localStorage'
+      render(<AppHeader />)
+      // Should show Admin text but NOT as a link
+      expect(screen.getByText('Admin')).toBeInTheDocument()
+      expect(screen.queryByTestId('link-/admin')).not.toBeInTheDocument()
+    })
   })
 
-  it('applies active style when pathname starts with /insights', () => {
-    mockPathname = '/insights'
+  describe('right-side elements', () => {
+    it('renders UserMenu', () => {
+      render(<AppHeader />)
+      expect(screen.getByTestId('user-menu')).toBeInTheDocument()
+    })
 
-    render(<AppHeader />)
+    it('renders ThemeToggle', () => {
+      render(<AppHeader />)
+      expect(screen.getByTestId('theme-toggle')).toBeInTheDocument()
+    })
 
-    const insightsLink = screen.getByTestId('link-/insights')
-    expect(insightsLink.className).toContain('bg-primary')
-    expect(insightsLink.className).toContain('text-primary-foreground')
-  })
-
-  it('applies inactive style when on a different page', () => {
-    mockPathname = '/chat'
-
-    render(<AppHeader />)
-
-    const insightsLink = screen.getByTestId('link-/insights')
-    expect(insightsLink.className).toContain('text-muted-foreground')
-  })
-
-  it('always shows Agent Skills and Chat tabs', () => {
-    render(<AppHeader />)
-
-    expect(screen.getByText('Agent Skills')).toBeInTheDocument()
-    // Chat tab uses emoji: 💬 Chat
-    expect(screen.getByText(/Chat/)).toBeInTheDocument()
-  })
-
-  it('Admin tab visibility is independent of Insights tab', () => {
-    mockIsAdmin = true
-
-    render(<AppHeader />)
-
-    // Both Insights and Admin should be visible
-    expect(screen.getByText('Personal Insights')).toBeInTheDocument()
-    expect(screen.getByText('Admin')).toBeInTheDocument()
+    it('renders SettingsPanel', () => {
+      render(<AppHeader />)
+      expect(screen.getByTestId('settings-panel')).toBeInTheDocument()
+    })
   })
 })

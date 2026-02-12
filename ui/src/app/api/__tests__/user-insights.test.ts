@@ -11,7 +11,8 @@
  * - Authentication: 401 when unauthenticated
  * - Overview stats: total conversations, messages, tokens, weekly activity,
  *   avg messages per conversation
- * - Recent prompts: last 20 user prompts with conversation titles, truncation
+ * - Skill usage: aggregated workflow_runs by category
+ * - Recent prompts (backward compat): still returned alongside skill_usage
  * - Daily usage: 30-day breakdown with prompts vs responses
  * - Prompt patterns: avg/max length, peak hour, peak day of week
  * - Favorite agents: top 10 by agent_name
@@ -322,13 +323,140 @@ describe('GET /api/users/me/insights — Overview', () => {
 });
 
 // ============================================================================
-// Tests: Recent prompts
+// Tests: Skill usage
 // ============================================================================
 
-describe('GET /api/users/me/insights — Recent Prompts', () => {
+describe('GET /api/users/me/insights — Skill Usage', () => {
   beforeEach(resetMocks);
 
-  it('returns recent prompts with conversation titles', async () => {
+  function setupMinimalWithWorkflowRuns(
+    workflowRunsAgg: any[] = [],
+  ) {
+    mockGetServerSession.mockResolvedValue(authenticatedSession());
+
+    const usersCol = createMockCollection();
+    usersCol.findOne.mockResolvedValue(null);
+    mockCollections['users'] = usersCol;
+
+    const convCol = createMockCollection();
+    convCol.find.mockReturnValue({
+      project: jest.fn().mockReturnValue({
+        toArray: jest.fn().mockResolvedValue([]),
+      }),
+    });
+    convCol.countDocuments.mockResolvedValue(0);
+    mockCollections['conversations'] = convCol;
+
+    const msgCol = createMockCollection();
+    msgCol.countDocuments.mockResolvedValue(0);
+    msgCol.find.mockReturnValue({
+      sort: jest.fn().mockReturnValue({
+        limit: jest.fn().mockReturnValue({
+          project: jest.fn().mockReturnValue({
+            toArray: jest.fn().mockResolvedValue([]),
+          }),
+        }),
+      }),
+    });
+    mockCollections['messages'] = msgCol;
+
+    // workflow_runs collection
+    const wfCol = createMockCollection();
+    wfCol.aggregate.mockReturnValue({
+      toArray: jest.fn().mockResolvedValue(workflowRunsAgg),
+    });
+    mockCollections['workflow_runs'] = wfCol;
+
+    return { convCol, msgCol, wfCol };
+  }
+
+  it('returns skill_usage with category breakdown', async () => {
+    setupMinimalWithWorkflowRuns([
+      { _id: 'AWS Operations', total_runs: 10, completed: 8, failed: 2, last_run: new Date() },
+      { _id: 'GitHub Operations', total_runs: 5, completed: 5, failed: 0, last_run: new Date() },
+    ]);
+
+    const req = makeRequest('/api/users/me/insights');
+    const res = await GET(req);
+    const body = await res.json();
+
+    expect(body.data.skill_usage).toHaveLength(2);
+    expect(body.data.skill_usage[0].category).toBe('AWS Operations');
+    expect(body.data.skill_usage[0].total_runs).toBe(10);
+    expect(body.data.skill_usage[0].completed).toBe(8);
+    expect(body.data.skill_usage[0].failed).toBe(2);
+    expect(body.data.skill_usage[1].category).toBe('GitHub Operations');
+    expect(body.data.skill_usage[1].total_runs).toBe(5);
+  });
+
+  it('returns empty array when no workflow runs exist', async () => {
+    setupMinimalWithWorkflowRuns([]);
+
+    const req = makeRequest('/api/users/me/insights');
+    const res = await GET(req);
+    const body = await res.json();
+
+    expect(body.data.skill_usage).toEqual([]);
+  });
+
+  it('returns empty skill_usage gracefully if workflow_runs collection errors', async () => {
+    mockGetServerSession.mockResolvedValue(authenticatedSession());
+
+    const usersCol = createMockCollection();
+    usersCol.findOne.mockResolvedValue(null);
+    mockCollections['users'] = usersCol;
+
+    const convCol = createMockCollection();
+    convCol.find.mockReturnValue({
+      project: jest.fn().mockReturnValue({
+        toArray: jest.fn().mockResolvedValue([]),
+      }),
+    });
+    convCol.countDocuments.mockResolvedValue(0);
+    mockCollections['conversations'] = convCol;
+
+    const msgCol = createMockCollection();
+    msgCol.countDocuments.mockResolvedValue(0);
+    msgCol.find.mockReturnValue({
+      sort: jest.fn().mockReturnValue({
+        limit: jest.fn().mockReturnValue({
+          project: jest.fn().mockReturnValue({
+            toArray: jest.fn().mockResolvedValue([]),
+          }),
+        }),
+      }),
+    });
+    mockCollections['messages'] = msgCol;
+
+    // Simulate getCollection throwing for workflow_runs
+    mockGetCollection.mockImplementation((name: string) => {
+      if (name === 'workflow_runs') {
+        throw new Error('Collection does not exist');
+      }
+      if (!mockCollections[name]) {
+        mockCollections[name] = createMockCollection();
+      }
+      return Promise.resolve(mockCollections[name]);
+    });
+
+    const req = makeRequest('/api/users/me/insights');
+    const res = await GET(req);
+    const body = await res.json();
+
+    // Should succeed with empty skill_usage
+    expect(res.status).toBe(200);
+    expect(body.data.skill_usage).toEqual([]);
+  });
+});
+
+// ============================================================================
+// Tests: Recent prompts (backward compatibility — deprecated field)
+// ============================================================================
+
+describe('GET /api/users/me/insights — Recent Prompts (backward compat)', () => {
+  beforeEach(resetMocks);
+
+  it('still returns recent_prompts alongside skill_usage for backward compatibility', async () => {
     mockGetServerSession.mockResolvedValue(authenticatedSession());
 
     const usersCol = createMockCollection();
@@ -359,11 +487,6 @@ describe('GET /api/users/me/insights — Recent Prompts', () => {
                 conversation_id: 'conv-1',
                 created_at: now,
               },
-              {
-                content: 'Show me the pod logs',
-                conversation_id: 'conv-1',
-                created_at: now,
-              },
             ]),
           }),
         }),
@@ -375,7 +498,12 @@ describe('GET /api/users/me/insights — Recent Prompts', () => {
     const res = await GET(req);
     const body = await res.json();
 
-    expect(body.data.recent_prompts).toHaveLength(2);
+    // Both fields present
+    expect(body.data).toHaveProperty('skill_usage');
+    expect(body.data).toHaveProperty('recent_prompts');
+
+    // recent_prompts has correct shape
+    expect(body.data.recent_prompts).toHaveLength(1);
     expect(body.data.recent_prompts[0].content).toBe('Why is my pod in CrashLoopBackOff?');
     expect(body.data.recent_prompts[0].conversation_title).toBe('K8s Debugging');
     expect(body.data.recent_prompts[0]).toHaveProperty('timestamp');
@@ -421,12 +549,11 @@ describe('GET /api/users/me/insights — Recent Prompts', () => {
     const res = await GET(req);
     const body = await res.json();
 
-    // content should be truncated but content_length should be full length
     expect(body.data.recent_prompts[0].content).toHaveLength(300);
     expect(body.data.recent_prompts[0].content_length).toBe(500);
   });
 
-  it('returns empty array when user has no prompts', async () => {
+  it('returns empty recent_prompts array when user has no prompts', async () => {
     mockGetServerSession.mockResolvedValue(authenticatedSession());
 
     const usersCol = createMockCollection();
@@ -747,6 +874,8 @@ describe('GET /api/users/me/insights — Response Shape', () => {
 
     expect(body.success).toBe(true);
     expect(body.data).toHaveProperty('overview');
+    expect(body.data).toHaveProperty('skill_usage');
+    // Backward compat: recent_prompts still present
     expect(body.data).toHaveProperty('recent_prompts');
     expect(body.data).toHaveProperty('daily_usage');
     expect(body.data).toHaveProperty('prompt_patterns');

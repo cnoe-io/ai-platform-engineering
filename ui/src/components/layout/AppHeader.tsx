@@ -12,7 +12,6 @@ import {
   Loader2,
   Database,
   Shield,
-  Lightbulb,
 } from "lucide-react";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { UserMenu } from "@/components/user-menu";
@@ -91,7 +90,6 @@ export function AppHeader() {
   const getActiveTab = () => {
     if (pathname?.startsWith("/chat")) return "chat";
     if (pathname?.startsWith("/knowledge-bases")) return "knowledge";
-    if (pathname?.startsWith("/insights")) return "insights";
     if (pathname?.startsWith("/agent-builder") || pathname?.startsWith("/use-cases")) return "agent-builder";
     if (pathname?.startsWith("/admin")) return "admin";
     return "agent-builder"; // Default to Agent Skills (formerly use-cases)
@@ -162,22 +160,6 @@ export function AppHeader() {
             >
               <Database className="h-3.5 w-3.5" />
               Knowledge Bases
-            </Link>
-          )}
-          {/* Insights tab - visible to all authenticated users when MongoDB is configured */}
-          {storageMode === 'mongodb' && session && (
-            <Link
-              href="/insights"
-              prefetch={true}
-              className={cn(
-                "flex items-center gap-1.5 px-4 py-1.5 rounded-full text-sm font-medium transition-all",
-                activeTab === "insights"
-                  ? "bg-primary text-primary-foreground shadow-sm"
-                  : "text-muted-foreground hover:text-foreground"
-              )}
-            >
-              <Lightbulb className="h-3.5 w-3.5" />
-              Personal Insights
             </Link>
           )}
           {/* Admin tab - only visible to admin users, disabled if MongoDB not configured */}
