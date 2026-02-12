@@ -2,7 +2,7 @@
 
 **Date**: 2026-02-10
 **Status**: Implemented
-**Author**: Sri Aradhyula <sraradhy@cisco.com>
+**Author**: Sri Aradhyula `<sraradhy@cisco.com>`
 
 ## Context
 
