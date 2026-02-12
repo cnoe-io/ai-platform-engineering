@@ -26,6 +26,7 @@ class PlatformEngineerResponse(BaseModel):
     """Structured response format for AI Platform Engineer"""
     is_task_complete: bool = Field(description="Whether the task is complete. Set to false if tools ask for more information.")
     require_user_input: bool = Field(description="Whether user input is required. Set to true if tools request specific information from user.")
+    was_task_successful: bool = Field(default=True, description="Whether the task was completed successfully. Set to false when the task failed (e.g., a sub-agent was unavailable, an operation errored out) but there is nothing more you can do.")
     content: str = Field(description="The main response content in markdown format. When tools ask for information, preserve their exact message without rewriting.")
     metadata: Optional[Metadata] = Field(default=None, description="Additional metadata about the response")
 
@@ -34,6 +35,7 @@ class PlatformEngineerResponse(BaseModel):
             "example": {
                 "is_task_complete": False,
                 "require_user_input": True,
+                "was_task_successful": True,
                 "content": "Please specify the required parameter and provide the necessary configuration details.",
                 "metadata": {
                     "user_input": True,

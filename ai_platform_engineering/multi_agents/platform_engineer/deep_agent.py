@@ -277,7 +277,7 @@ class AIPlatformEngineerMAS:
         format_markdown,
         fetch_url,
         get_current_date,
-        request_user_input,  # Structured user input tool for dynamic forms
+        *([request_user_input] if not USE_STRUCTURED_RESPONSE else []),  # Only in unstructured mode; structured mode uses PlatformEngineerResponse.metadata instead
         write_workspace_file,
         read_workspace_file,
         list_workspace_files,
@@ -337,8 +337,8 @@ class AIPlatformEngineerMAS:
         "Do NOT output the answer as text before calling the tool - put it ONLY in the tool's 'content' field. "
         "Normal streaming (tool calls, planning, intermediate outputs) is fine, but the FINAL answer must go through ResponseFormat. "
         "Place the final user-facing answer (clean markdown, no thinking/preamble) in the 'content' field. "
-        "Set 'is_task_complete' to true when done, false otherwise. "
-        "Set 'require_user_input' to true only when you need more information from the user."
+        "Set 'is_task_complete' to true when done (including when the task failed and there is nothing more you can do). "
+        "When you need information from the user, set metadata.user_input to true and populate metadata.input_fields with the fields you need."
       )
     else:
       # Unstructured mode: rely on [FINAL ANSWER] marker in prompt config
