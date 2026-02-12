@@ -37,8 +37,12 @@ from a2a.server.tasks import (
     InMemoryTaskStore,
 )
 
+import time
 from starlette.middleware.cors import CORSMiddleware
+from starlette.responses import JSONResponse
+from starlette.routing import Route
 from ai_platform_engineering.utils.metrics import PrometheusMetricsMiddleware
+from ai_platform_engineering.utils.github_app_token_provider import is_github_app_mode, get_github_token, get_token_health
 
 load_dotenv()
 
@@ -54,6 +58,18 @@ def main(host: str, port: int):
     asyncio.run(async_main(host, port))
 
 async def async_main(host: str, port: int):
+    # --- GitHub Auth Health Check ---
+    if is_github_app_mode():
+        try:
+            token = get_github_token()
+            print(f"✅ GitHub App auth: token obtained (length={len(token)})")
+        except Exception as e:
+            print(f"❌ GitHub App auth: failed to obtain token - {e}")
+    elif os.getenv("GITHUB_PERSONAL_ACCESS_TOKEN"):
+        print("⚠️  GitHub auth: using static PAT (consider switching to GitHub App for auto-refresh)")
+    else:
+        print("❌ GitHub auth: no credentials configured")
+
     client = httpx.AsyncClient()
     push_config_store = InMemoryPushNotificationConfigStore()
     push_sender = BasePushNotificationSender(httpx_client=client,
@@ -90,6 +106,33 @@ async def async_main(host: str, port: int):
         print("Running A2A server in p2p mode.")
         app = server.build()
 
+        # --- Health endpoints ---
+        async def healthz_endpoint(request):
+            """Health check endpoint with GitHub token expiry details."""
+            token_health = get_token_health()
+            overall_status = "healthy" if token_health.get("has_token") else "unhealthy"
+            return JSONResponse({
+                "status": overall_status,
+                "agent": "github",
+                "timestamp": int(time.time()),
+                "github_auth": token_health,
+            }, status_code=200 if overall_status == "healthy" else 503)
+
+        async def health_endpoint(request):
+            """Basic liveness check."""
+            return JSONResponse({"status": "ok"})
+
+        async def ready_endpoint(request):
+            """Readiness check - verifies GitHub token is available."""
+            token_health = get_token_health()
+            if token_health.get("has_token"):
+                return JSONResponse({"status": "ready"})
+            return JSONResponse({"status": "not_ready", "reason": "no GitHub token"}, status_code=503)
+
+        app.routes.append(Route("/healthz", healthz_endpoint, methods=["GET"]))
+        app.routes.append(Route("/health", health_endpoint, methods=["GET"]))
+        app.routes.append(Route("/ready", ready_endpoint, methods=["GET"]))
+
         # Add CORSMiddleware to allow requests from any origin (disables CORS restrictions)
         app.add_middleware(
             CORSMiddleware,
@@ -102,7 +145,7 @@ async def async_main(host: str, port: int):
         if METRICS_ENABLED:
             app.add_middleware(
                 PrometheusMetricsMiddleware,
-                excluded_paths=["/.well-known/agent.json", "/.well-known/agent-card.json", "/health", "/ready"],
+                excluded_paths=["/.well-known/agent.json", "/.well-known/agent-card.json", "/health", "/healthz", "/ready"],
                 metrics_path="/metrics",
                 agent_name="github",
             )

@@ -1,0 +1,5 @@
+env-config.js
+
+# Test coverage reports
+coverage/
+*.lcov

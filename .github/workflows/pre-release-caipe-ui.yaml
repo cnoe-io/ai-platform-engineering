@@ -1,0 +1,192 @@
+name: "[Pre-Release] CAIPE UI Docker Build and Push"
+description: "Build and push CAIPE UI Docker image for prebuild branches"
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, closed]
+    paths:
+      - 'ui/**'
+      - 'build/Dockerfile.caipe-ui'
+env:
+  IMAGE_NAME: ${{ github.repository_owner }}/prebuild/caipe-ui
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    if: |
+      github.event_name == 'pull_request' &&
+      startsWith(github.head_ref, 'prebuild/') &&
+      github.event.action != 'closed'
+    permissions:
+      contents: read
+      packages: write
+      pull-requests: write
+
+    steps:
+      - name: 🔒 Harden runner
+        uses: step-security/harden-runner@5ef0c079ce82195b2a36a210272d6b661572d83e  # v2.14.2
+        with:
+          egress-policy: audit
+
+      - name: Free disk space
+        run: |
+          echo "Disk usage before cleanup:"
+          df -h
+          sudo apt-get remove -y '^ghc-*' || true
+          sudo apt-get remove -y '^dotnet-*' || true
+          sudo apt-get remove -y '^llvm-*' || true
+          sudo apt-get remove -y 'php*' || true
+          sudo apt-get remove -y azure-cli google-cloud-cli hhvm google-chrome-stable firefox powershell mono-devel || true
+          sudo apt-get autoremove -y
+          sudo apt-get clean
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /opt/hostedtoolcache/CodeQL
+          sudo rm -rf /usr/local/share/boost
+          sudo rm -rf "$AGENT_TOOLSDIRECTORY"
+          docker system prune -af --volumes || true
+          echo "Disk usage after cleanup:"
+          df -h
+
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Compute prebuild tag
+        id: compute_tag
+        shell: bash
+        run: |
+          BRANCH="${{ github.head_ref || github.ref_name }}"
+          BRANCH_NO_PREFIX="${BRANCH#prebuild/}"
+          BRANCH_SANITIZED="${BRANCH_NO_PREFIX//\//-}"
+          git fetch origin ${{ github.event.pull_request.base.ref }}
+          COMMIT_COUNT=$(git rev-list --count origin/${{ github.event.pull_request.base.ref }}..HEAD)
+          echo "BRANCH_BARE=${BRANCH_SANITIZED}" >> $GITHUB_ENV
+          echo "PREBUILD_TAG=${BRANCH_SANITIZED}-${COMMIT_COUNT}" >> $GITHUB_ENV
+
+      - name: Extract metadata for Docker
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=${{ env.PREBUILD_TAG }}
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Build and Push CAIPE UI Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./build/Dockerfile.caipe-ui
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          platforms: linux/amd64,linux/arm64
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            CAIPE_URL=http://caipe-supervisor:8000
+            BUILDKIT_INLINE_CACHE=1
+            IMAGE_TAG=${{ env.PREBUILD_TAG }}
+            GIT_COMMIT=${{ github.sha }}
+            BUILD_DATE=${{ github.event.head_commit.timestamp }}
+          provenance: false
+          sbom: false
+
+      - name: 💬 Comment on PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v8
+        env:
+          IMAGE_REPO: ghcr.io/${{ env.IMAGE_NAME }}
+          IMAGE_REF: ghcr.io/${{ env.IMAGE_NAME }}:${{ env.PREBUILD_TAG }}
+          PREBUILD_TAG: ${{ env.PREBUILD_TAG }}
+        with:
+          script: |
+            const body = `## 🐳 Prebuild CAIPE UI Docker Image Published
+
+            **Repository:** \`${process.env.IMAGE_REPO}\`
+            **Tag:** \`${process.env.PREBUILD_TAG}\`
+
+            ### Usage
+            \`\`\`bash
+            docker pull ${process.env.IMAGE_REF}
+            \`\`\`
+
+            ### Test in docker-compose
+            \`\`\`bash
+            # Update docker-compose.dev.yaml
+            caipe-ui:
+              image: ${process.env.IMAGE_REF}
+              # ... rest of config
+            \`\`\`
+
+            > **Note:** This prebuild image will be automatically cleaned up when the PR is closed or merged.`;
+
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body
+            });
+
+  cleanup-images:
+    runs-on: ubuntu-latest
+    if: github.event.action == 'closed' && startsWith(github.event.pull_request.head.ref, 'prebuild/')
+    permissions:
+      contents: read
+      packages: write
+    env:
+      OWNER: ${{ github.repository_owner }}
+      PACKAGE_NAME: prebuild/caipe-ui
+    steps:
+      - name: Delete prebuild images for branch
+        uses: actions/github-script@v8
+        env:
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+        with:
+          script: |
+            const owner = process.env.OWNER;
+            const rawBranch = process.env.HEAD_REF || '';
+            const branchNoPrefix = rawBranch.startsWith('prebuild/') ? rawBranch.substring('prebuild/'.length) : rawBranch;
+            const sanitized = branchNoPrefix.replace(/\//g, '-');
+            const prefix = `${sanitized}-`;
+            const packageName = process.env.PACKAGE_NAME;
+            const packageType = 'container';
+            try {
+              const versions = await github.paginate(github.rest.packages.getAllPackageVersionsForPackageOwnedByOrg, {
+                org: owner,
+                package_type: packageType,
+                package_name: packageName,
+                per_page: 100,
+              });
+              const toDelete = versions.filter(v => (v.metadata?.container?.tags || []).some(t => t.startsWith(prefix)));
+              for (const v of toDelete) {
+                await github.rest.packages.deletePackageVersionForOrg({
+                  org: owner,
+                  package_type: packageType,
+                  package_name: packageName,
+                  package_version_id: v.id,
+                });
+              }
+              core.info(`Deleted ${toDelete.length} versions for ${packageName} with tag prefix ${prefix}`);
+            } catch (e) {
+              if (e.status === 404) {
+                core.info(`Package ${packageName} not found in org ${owner}, skipping.`);
+              } else {
+                throw e;
+              }
+            }

@@ -58,6 +58,8 @@ services:
       - SPLUNK_AGENT_HOST=agent-splunk
       - WEATHER_AGENT_HOST=agent-weather
       - WEBEX_AGENT_HOST=agent-webex
+      - JARVIS_AGENT_HOST=agent-jarvis
+      - JARVIS_AGENT_PORT=58000
 
       # RAG Service Configuration
       - RAG_SERVER_URL=${RAG_SERVER_URL:-http://rag_server:9446}
@@ -88,6 +90,7 @@ services:
       - ENABLE_WEBEX=${ENABLE_WEBEX:-false}
       - ENABLE_WEBEX=${ENABLE_WEBEX:-false}
       - ENABLE_WEATHER=${ENABLE_WEATHER:-false}
+      - ENABLE_JARVIS=${ENABLE_JARVIS:-false}
 
       # Tracing configuration (will be read from .env if ENABLE_TRACING=true)
       - ENABLE_TRACING=${ENABLE_TRACING:-false}
@@ -98,6 +101,48 @@ services:
       - LANGFUSE_USER_ID=${LANGFUSE_USER_ID:-platform-engineer}
       - OTEL_EXPORTER_OTLP_TIMEOUT=${OTEL_EXPORTER_OTLP_TIMEOUT:-30000}
     command: platform-engineer
+
+  ####################################################################################################
+  #                                          MongoDB                                                 #
+  ####################################################################################################
+  # MongoDB for CAIPE UI chat history and user settings
+  # Note: Default password "changeme" is for local development only. For production, use
+  # the Helm chart and External Secrets to store the MongoDB secret in an external secrets manager.
+  caipe-ui-mongodb:
+    image: mongo:7.0
+    container_name: caipe-mongodb-dev
+    ports:
+      - "27017:27017"
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=${MONGODB_ROOT_USERNAME:-admin}
+      - MONGO_INITDB_ROOT_PASSWORD=${MONGODB_ROOT_PASSWORD:-changeme}
+      - MONGO_INITDB_DATABASE=${MONGODB_DATABASE:-caipe}
+    volumes:
+      - mongodb_data:/data/db
+      - mongodb_config:/data/configdb
+    command: ["mongod", "--quiet", "--logpath", "/dev/null"]
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+    profiles:
+      - caipe-ui-mongodb
+
+  # MongoDB Admin UI
+  caipe-ui-mongo-express:
+    image: mongo-express:latest
+    container_name: caipe-mongo-express-dev
+    ports:
+      - "8081:8081"
+    environment:
+      - ME_CONFIG_MONGODB_ADMINUSERNAME=${MONGODB_ROOT_USERNAME:-admin}
+      - ME_CONFIG_MONGODB_ADMINPASSWORD=${MONGODB_ROOT_PASSWORD:-changeme}
+      - ME_CONFIG_MONGODB_URL=mongodb://${MONGODB_ROOT_USERNAME:-admin}:${MONGODB_ROOT_PASSWORD:-changeme}@mongodb:27017/
+      - ME_CONFIG_BASICAUTH=false
+    profiles:
+      - caipe-ui-mongo-express
 
   ####################################################################################################
   #                                      SLIM Transport                                              #
@@ -163,7 +208,7 @@ services:
       - IAM_MCP_READONLY=${IAM_MCP_READONLY:-true}
       - USE_AWS_CLI_AS_TOOL=${USE_AWS_CLI_AS_TOOL:-true}
       # Multi-account support - format: "name1:id1,name2:id2" or just "id1,id2"
-      - DEFAULT_AWS_ACCOUNT_ID=${DEFAULT_AWS_ACCOUNT_ID:-outshift-common-dev:123456789012}
+      - DEFAULT_AWS_ACCOUNT_ID=${DEFAULT_AWS_ACCOUNT_ID:-common-dev:123456789012}
       - AWS_ACCOUNT_LIST=${AWS_ACCOUNT_LIST:-account1:123456789012,account2:123456789013}
       - CROSS_ACCOUNT_ROLE_NAME=${CROSS_ACCOUNT_ROLE_NAME:-caipe-read-only}
       - STRANDS_LOG_LEVEL=${STRANDS_LOG_LEVEL:-INFO}
@@ -227,7 +272,12 @@ services:
       - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
       - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
       - OTEL_EXPORTER_OTLP_TIMEOUT=${OTEL_EXPORTER_OTLP_TIMEOUT:-30000}
-      - GH_TOKEN=${GITHUB_PERSONAL_ACCESS_TOKEN}  # gh CLI authentication
+      - GH_TOKEN=${GITHUB_PERSONAL_ACCESS_TOKEN}  # gh CLI authentication (PAT fallback)
+      # GitHub App authentication (recommended - auto-refreshing tokens)
+      - GITHUB_APP_ID=${GITHUB_APP_ID:-}
+      - GITHUB_APP_PRIVATE_KEY=${GITHUB_APP_PRIVATE_KEY:-}
+      - GITHUB_APP_PRIVATE_KEY_PATH=${GITHUB_APP_PRIVATE_KEY_PATH:-}
+      - GITHUB_APP_INSTALLATION_ID=${GITHUB_APP_INSTALLATION_ID:-}
     # Docker socket mount is only needed when MCP_MODE=stdio
     # For local Github Offical MCP server execution.
     # Uncomment this when MCP_MODE=stdio is supported
@@ -253,12 +303,64 @@ services:
     environment:
       - A2A_TRANSPORT=${A2A_TRANSPORT:-p2p}
       - MCP_MODE=stdio
+      - MCP_HOST=mcp-gitlab
+      - MCP_PORT=8000
       - SLIM_ENDPOINT=${SLIM_ENDPOINT:-http://slim-dataplane:46357}
       - ENABLE_TRACING=${ENABLE_TRACING:-false}
       - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
       - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
       - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
       - OTEL_EXPORTER_OTLP_TIMEOUT=${OTEL_EXPORTER_OTLP_TIMEOUT:-30000}
+      - GIT_AUTHOR_NAME=${GIT_AUTHOR_NAME:-AI Agent}
+      - GIT_AUTHOR_EMAIL=${GIT_AUTHOR_EMAIL:-ai-agent@cnoe.io}
+      - GIT_COMMITTER_NAME=${GIT_COMMITTER_NAME:-AI Agent}
+      - GIT_COMMITTER_EMAIL=${GIT_COMMITTER_EMAIL:-ai-agent@cnoe.io}
+    depends_on:
+      mcp-gitlab:
+        condition: service_started
+    profiles:
+      - gitlab
+      - all-agents
+
+  # GitLab MCP Server (@zereight/mcp-gitlab)
+  # Tool filtering is controlled via GITLAB_DENIED_TOOLS_REGEX using prefix matching (^prefix_)
+  #
+  # Example regex patterns for different permission levels:
+  #
+  # READ-ONLY (default) - blocks all write operations:
+  #   ^(delete_|remove_|create_|fork_|new_|update_|edit_|merge_|push_|publish_|retry_|cancel_|play_|promote_|upload_|resolve_|bulk_)|^(execute_graphql)$
+  #
+  # ALLOW CREATE (can create MRs, issues, etc.) - blocks delete/update:
+  #   ^(delete_|remove_|update_|edit_|merge_|push_|publish_|retry_|cancel_|play_|promote_|upload_|resolve_|bulk_)|^(execute_graphql)$
+  #
+  # ALLOW UPDATE (can update MRs, issues, etc.) - blocks delete/create:
+  #   ^(delete_|remove_|create_|fork_|new_)|^(execute_graphql)$
+  #
+  # ALLOW CREATE + UPDATE (full write access except delete):
+  #   ^(delete_|remove_)|^(execute_graphql)$
+  #
+  # To block specific tools, add them as exact matches: |^(tool1|tool2)$
+  # Example blocking approve/unapprove: ...|^(execute_graphql|approve_merge_request|unapprove_merge_request)$
+  #
+  # Note: execute_graphql is always blocked in the above examples as it bypasses prefix-based permission controls
+  mcp-gitlab:
+    image: zereight050/gitlab-mcp:latest
+    container_name: mcp-gitlab
+    env_file: [.env]
+    ports: ["18010:8000"]
+    environment:
+      - STREAMABLE_HTTP=true
+      - HOST=0.0.0.0
+      - PORT=8000
+      - MAX_SESSIONS=${GITLAB_MCP_MAX_SESSIONS:-1000}
+      - MAX_REQUESTS_PER_MINUTE=${GITLAB_MCP_MAX_REQUESTS_PER_MINUTE:-60}
+      - USE_PIPELINE=true
+      - GITLAB_API_URL=https://${GITLAB_HOST:-gitlab.com}/api/v4
+      - GITLAB_PERSONAL_ACCESS_TOKEN=${GITLAB_TOKEN}
+      # Option 1: Simple read-only mode (blocks all write operations)
+      - GITLAB_READ_ONLY_MODE=${GITLAB_READ_ONLY_MODE:-true}
+      # Option 2: Fine-grained control via regex (see examples in comments above)
+      # - GITLAB_DENIED_TOOLS_REGEX=${GITLAB_DENIED_TOOLS_REGEX:-^(delete_|remove_|create_|fork_|new_|update_|edit_|merge_|push_|publish_|retry_|cancel_|play_|promote_|upload_|resolve_|bulk_)|^(execute_graphql)$}
     profiles:
       - gitlab
       - all-agents
@@ -531,7 +633,6 @@ services:
       start_period: 15s
     profiles:
       - komodor
-      - all-agents
 
   # PagerDuty Agent
   agent-pagerduty:
@@ -754,6 +855,109 @@ services:
       - all-agents
 
   ####################################################################################################
+  #                                      AGENT JARVIS A2A P2P                                        #
+  ####################################################################################################
+  # Jarvis is an external A2A agent (pre-built image). It exposes two ports:
+  #   - 8000: FastAPI health/agent-card endpoint
+  #   - 58000: A2A protocol endpoint (used by the supervisor via JARVIS_AGENT_PORT)
+  #
+  # Configuration lives in .env.jarvis (NOT committed to git — contains credentials).
+  # See docker-compose.jarvis.yaml for the canonical reference.
+  agent-jarvis:
+    image: jarvis-agent:dev
+    container_name: agent-jarvis
+    restart: unless-stopped
+    env_file:
+      - .env.jarvis
+    ports:
+      - "48000:8000"   # FastAPI port (health, agent-card)
+      - "58000:58000"  # A2A protocol port
+    environment:
+      - A2A_TRANSPORT=p2p
+      - ALLOWED_ORIGINS=*
+      - LANGGRAPH_CHECKPOINT_MEMORY_SAVER=memory
+      - ENABLE_KNOWLEDGE_GRAPH=false
+      - ENABLE_K8S_AGENT=false
+      - AIGATEWAY_SERVER_URL=${AIGATEWAY_SERVER_URL:-NOT_SET}
+      # Tracing (inherits from .env if ENABLE_TRACING=true)
+      - ENABLE_TRACING=${ENABLE_TRACING:-false}
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-NOT_SET}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY:-NOT_SET}
+      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
+    command: python3 -m jarvis_agent.combined_server --fastapi-port 8000 --a2a-port 58000
+    profiles:
+      - jarvis
+      - all-agents
+
+  ####################################################################################################
+  #                                      CAIPE UI                                                    #
+  ####################################################################################################
+  # CAIPE UI - A2A Message Visualizer with 3-panel layout
+  # Features: Chat history, Chat UI with final output, A2A message stream visualization
+  # Includes Use Cases gallery inspired by ag-ui composer
+  #
+  # Build: Uses build/Dockerfile.caipe-ui (Next.js standalone with Node.js server)
+  #
+  # Configuration:
+  #   CAIPE_URL: URL of the CAIPE supervisor A2A endpoint
+  #   - Default (dev): http://localhost:8000
+  #   - Default (docker): http://caipe-supervisor:8000
+  #   - Override with: CAIPE_URL=http://your-host:port
+  caipe-ui:
+    build:
+      context: .
+      dockerfile: build/Dockerfile.caipe-ui
+      args:
+        - IMAGE_TAG=${IMAGE_TAG:-dev}
+        - GIT_COMMIT=${GIT_COMMIT:-unknown}
+        - BUILD_DATE=${BUILD_DATE:-}
+    container_name: caipe-ui
+    ports: ["3000:3000"]
+    env_file:
+      - .env
+    environment:
+      - NODE_ENV=production
+      # CAIPE supervisor A2A endpoint URL
+      # Override with A2A_BASE_URL environment variable
+      - A2A_BASE_URL=${A2A_BASE_URL:-http://localhost:8000}
+      # Enable/Disable RAG Knowledge Bases (default: true)
+      - RAG_ENABLED=${RAG_ENABLED:-true}
+      # RAG Server URL for knowledge base API (internal Docker network)
+      - RAG_SERVER_URL=${RAG_SERVER_URL:-http://rag_server:9446}
+      - RAG_URL=${RAG_URL:-http://localhost:9446}
+      # RAG WebUI URL for iframe embedding (browser-accessible)
+      - RAG_WEBUI_URL=${RAG_WEBUI_URL:-http://localhost:9447}
+      # NextAuth configuration (required for production)
+      # Generate a secret with: openssl rand -base64 32
+      - NEXTAUTH_SECRET=${NEXTAUTH_SECRET:-caipe-dev-secret-change-in-production}
+      - NEXTAUTH_URL=${NEXTAUTH_URL:-http://localhost:3000}
+      # SSO Configuration - reads from .env file
+      # Map OIDC_* variables from .env to CAIPE_UI_OIDC_* expected by the app
+      - CAIPE_UI_OIDC_ENABLED=${OIDC_ENABLED:-false}
+      - CAIPE_UI_OIDC_CLIENT_ID=${OIDC_CLIENT_ID:-}
+      - CAIPE_UI_OIDC_CLIENT_SECRET=${OIDC_CLIENT_SECRET:-}
+      - CAIPE_UI_OIDC_ISSUER=${OIDC_ISSUER:-}
+      # UI Branding (optional — set in .env or leave blank for CAIPE defaults)
+      # No NEXT_PUBLIC_ prefix needed; the server reads process.env at request time
+      - APP_NAME=${APP_NAME:-}
+      - TAGLINE=${TAGLINE:-}
+      - DESCRIPTION=${DESCRIPTION:-}
+      - LOGO_URL=${LOGO_URL:-}
+      - LOGO_STYLE=${LOGO_STYLE:-}
+      - SPINNER_COLOR=${SPINNER_COLOR:-}
+      - SHOW_POWERED_BY=${SHOW_POWERED_BY:-}
+      - SUPPORT_EMAIL=${SUPPORT_EMAIL:-}
+      - PREVIEW_MODE=${PREVIEW_MODE:-}
+      # MongoDB (when running with profile caipe-ui; mongodb service is in same profile)
+      # (changeme default is for local dev only; for production use Helm chart and External Secrets)
+      - MONGODB_URI=${MONGODB_URI:-mongodb://admin:changeme@caipe-ui-mongodb:27017/caipe?authSource=admin}
+      - MONGODB_DATABASE=${MONGODB_DATABASE:-caipe}
+    depends_on:
+      - caipe-supervisor
+    profiles:
+      - caipe-ui
+
+  ####################################################################################################
   #                                      RAG Services                                                #
   ####################################################################################################
   rag_server:
@@ -761,7 +965,12 @@ services:
     container_name: rag_server
     ports: ["9446:9446"]
     environment:
-      - LOG_LEVEL=DEBUG
+      - LOG_LEVEL=${RAG_SERVER_LOG_LEVEL:-INFO}
+      - ALLOW_UNAUTHENTICATED=true
+      # Trusted Network Configuration
+      - ALLOW_TRUSTED_NETWORK=${ALLOW_TRUSTED_NETWORK:-true}
+      - TRUSTED_NETWORK_CIDRS=${TRUSTED_NETWORK_CIDRS:-127.0.0.0/8,192.168.0.0/16,172.16.0.0/12}
+      - TRUSTED_NETWORK_DEFAULT_ROLE=${TRUSTED_NETWORK_DEFAULT_ROLE:-admin}
       - REDIS_URL=redis://rag-redis:6379/0
       - NEO4J_ADDR=neo4j://neo4j:7687
       - NEO4J_ONTOLOGY_ADDR=neo4j://neo4j-ontology:7688
@@ -784,7 +993,7 @@ services:
     container_name: agent_ontology
     ports: ["8098:8098"]
     environment:
-      - LOG_LEVEL=DEBUG
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - REDIS_URL=redis://rag-redis:6379/0
       - NEO4J_ADDR=neo4j://neo4j:7687
       - NEO4J_ONTOLOGY_ADDR=neo4j://neo4j-ontology:7688
@@ -797,17 +1006,6 @@ services:
     profiles:
       - graph_rag
 
-  rag_webui:
-    image: ghcr.io/cnoe-io/caipe-rag-webui:${IMAGE_TAG:-stable}
-    container_name: rag-webui
-    environment:
-      - RAG_SERVER_URL=http://rag_server:9446
-      - NGINX_ENVSUBST_TEMPLATE_SUFFIX=.conf
-    depends_on: [rag_server]
-    ports: ["9447:80"]
-    profiles:
-      - rag
-      - graph_rag
 
   web_ingestor:
     image: ghcr.io/cnoe-io/caipe-rag-ingestors:${IMAGE_TAG:-stable}
@@ -822,8 +1020,53 @@ services:
     restart: unless-stopped
     depends_on: [rag_server]
     profiles:
-      - rag
-      - graph_rag
+      - web_ingestor
+
+  # Dummy Graph Ingestor - for testing graph RAG with sample data
+  # Requires RAG services to be running first: docker compose -f docker-compose.dev.yaml --profile graph_rag up -d
+  # Then run: docker compose -f docker-compose.dev.yaml --profile dummy-ingestor up --build dummy-graph-ingestor
+  dummy-graph-ingestor:
+    build:
+      context: ./ai_platform_engineering/knowledge_bases/rag
+      dockerfile: ./build/Dockerfile.ingestors
+    image: dummy-graph-ingestor:local
+    container_name: dummy-ingestor
+    environment:
+      - RAG_SERVER_URL=http://rag_server:9446
+      - INGESTOR_TYPE=test_dummy_graph
+      - DUMMY_ENTITIES_FILE=/app/data/dummy_entities.json
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    volumes:
+      - ./ai_platform_engineering/knowledge_bases/rag/tests/rag_graph_test:/app/data:ro
+    profiles:
+      - dummy-ingestor
+
+  backstage_ingestor:
+    build:
+      context: ./ai_platform_engineering/knowledge_bases/rag
+      dockerfile: ./build/Dockerfile.ingestors
+    container_name: backstage-ingestor
+    volumes:
+      - ./ai_platform_engineering/knowledge_bases/rag/ingestors/src/ingestors:/app/ingestors/src/ingestors
+      - ./ai_platform_engineering/knowledge_bases/rag/common/src/common:/app/common/src/common
+    environment:
+      - INGESTOR_TYPE=backstage
+      - BACKSTAGE_URL=${BACKSTAGE_URL}
+      - BACKSTAGE_API_TOKEN=${BACKSTAGE_API_TOKEN}
+      - RAG_SERVER_URL=http://rag_server:9446
+      - SYNC_INTERVAL=${BACKSTAGE_SYNC_INTERVAL:-86400}
+      - INIT_DELAY_SECONDS=${BACKSTAGE_INIT_DELAY_SECONDS:-0}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - EXIT_AFTER_FIRST_SYNC=${BACKSTAGE_EXIT_AFTER_FIRST_SYNC:-false}
+      - MAX_DOCUMENTS_PER_INGEST=${BACKSTAGE_MAX_DOCUMENTS_PER_INGEST:-25}
+      - MAX_INGESTION_CONCURRENCY=${BACKSTAGE_MAX_INGESTION_CONCURRENCY:-10}
+      - IGNORE_TYPES=${BACKSTAGE_IGNORE_TYPES:-api,component,domain,group,location,system,template,user}
+    env_file: [.env]
+    restart: unless-stopped
+    depends_on: [rag_server]
+    profiles:
+      - backstage-ingestor
+
 
   # RAG Dependencies
   neo4j:
@@ -1137,6 +1380,10 @@ services:
       - evaluation
 
 volumes:
+  mongodb_data:
+    driver: local
+  mongodb_config:
+    driver: local
   langfuse_postgres_data:
     driver: local
   langfuse_clickhouse_data:

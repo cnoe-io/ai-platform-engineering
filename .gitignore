@@ -13,8 +13,9 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
-lib64/
+# Python lib directories (but not ui/src/lib/)
+/lib/
+/lib64/
 parts/
 sdist/
 var/
@@ -231,6 +232,21 @@ node_modules/
 # package-lock.json
 # package.json
 
+# Next.js
+.next/
+out/
+ui/.next/
+ui/out/
+next-env.d.ts
+ui/next-env.d.ts
+
+# Use case data storage (file-based)
+ui/data/
+data/
+
+# TypeScript build cache
+*.tsbuildinfo
+
 # Claude Code configuration
 .claude/
 
@@ -242,3 +258,7 @@ coverage.json
 
 # Helm lock files - regenerated during build
 **/Chart.lock
+
+# Temporary commit message files
+.git_commit_msg.txt
+*.git_commit_msg.txt

@@ -2,7 +2,7 @@
 
 **Date**: 2026-01-22
 **Status**: 🟢 In-use
-**Author**: Sri Aradhyula <sraradhy@cisco.com>
+**Author**: Sri Aradhyula &lt;sraradhy@cisco.com&gt;
 
 ## Summary
 
@@ -86,7 +86,7 @@ def _get_final_content(self, state: StreamState) -> tuple:
     if state.sub_agent_content:
         raw_content = ''.join(state.sub_agent_content)
         return self._extract_final_answer(raw_content), False
-    
+
     # Fallback to supervisor content
     if state.supervisor_content:
         raw_content = ''.join(state.supervisor_content)

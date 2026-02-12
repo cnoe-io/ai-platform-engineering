@@ -179,27 +179,32 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
         intermediate thinking/planning messages.
         """
         if state.sub_agent_datapart:
+            logger.info("_get_final_content: using sub_agent_datapart")
             return state.sub_agent_datapart, True
 
         # Multi-agent scenario: prefer supervisor synthesis
         # The supervisor summarizes results from all sub-agents
         if state.sub_agents_completed > 1 and state.supervisor_content:
             raw_content = ''.join(state.supervisor_content)
-            logger.debug(f"Multi-agent scenario ({state.sub_agents_completed} agents): using supervisor synthesis ({len(raw_content)} chars)")
-            return self._extract_final_answer(raw_content), False
+            extracted = self._extract_final_answer(raw_content)
+            logger.info(f"_get_final_content: multi-agent synthesis ({state.sub_agents_completed} agents), raw={len(raw_content)} chars, extracted={len(extracted)} chars")
+            return extracted, False
 
         # Single agent or no supervisor content: use sub-agent content
         if state.sub_agent_content:
             raw_content = ''.join(state.sub_agent_content)
-            logger.debug(f"Using sub-agent content ({len(raw_content)} chars)")
-            return self._extract_final_answer(raw_content), False
+            extracted = self._extract_final_answer(raw_content)
+            logger.info(f"_get_final_content: sub-agent content, raw={len(raw_content)} chars, extracted={len(extracted)} chars")
+            return extracted, False
 
         # Fallback to supervisor content even for single agent
         if state.supervisor_content:
             raw_content = ''.join(state.supervisor_content)
-            logger.debug(f"Fallback to supervisor content ({len(raw_content)} chars)")
-            return self._extract_final_answer(raw_content), False
+            extracted = self._extract_final_answer(raw_content)
+            logger.info(f"_get_final_content: fallback supervisor content, raw={len(raw_content)} chars, extracted={len(extracted)} chars, has_FINAL_ANSWER={'[FINAL ANSWER]' in raw_content}")
+            return extracted, False
 
+        logger.warning("_get_final_content: NO content available (all sources empty)")
         return '', False
 
     def _is_tool_notification(self, content: str, event: dict) -> bool:
@@ -353,11 +358,24 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
     async def _handle_task_complete(self, event: dict, state: StreamState,
                                     content: str, task: A2ATask, event_queue: EventQueue):
         """Handle task completion event."""
+        logger.info(
+            f"Task {task.id} _handle_task_complete: "
+            f"supervisor_content_len={len(state.supervisor_content)}, "
+            f"sub_agent_content_len={len(state.sub_agent_content)}, "
+            f"sub_agents_completed={state.sub_agents_completed}, "
+            f"event_content_len={len(content)}"
+        )
         final_content, is_datapart = self._get_final_content(state)
 
         # Fall back to event content if nothing accumulated
         if not final_content and not is_datapart:
             final_content = content
+
+        logger.info(
+            f"Task {task.id} final_result: is_datapart={is_datapart}, "
+            f"content_len={len(final_content) if isinstance(final_content, str) else 'N/A'}, "
+            f"preview={str(final_content)[:200] if final_content else '(empty)'}"
+        )
 
         # Create appropriate artifact
         if is_datapart:
@@ -378,8 +396,56 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
         logger.info(f"Task {task.id} completed.")
 
     async def _handle_user_input_required(self, content: str, task: A2ATask,
-                                          event_queue: EventQueue):
-        """Handle user input required event."""
+                                          event_queue: EventQueue, metadata: Optional[Dict] = None):
+        """
+        Handle user input required event.
+
+        Args:
+            content: The text content describing the input request
+            task: The current A2A task
+            event_queue: Event queue for sending events
+            metadata: Optional metadata containing form field definitions (backward compatible)
+                     Expected structure: {
+                         "user_input": True,
+                         "input_title": "Form Title",
+                         "input_description": "Description",
+                         "input_fields": [
+                             {
+                                 "field_name": "repo_name",
+                                 "field_label": "Repository Name",
+                                 "field_description": "...",
+                                 "field_type": "text",
+                                 "required": True,
+                                 ...
+                             }
+                         ]
+                     }
+        """
+        # If metadata with form fields is provided, send it as a separate artifact
+        # This allows the UI to render a structured form instead of just text
+        if metadata and metadata.get("input_fields"):
+            logger.info(f"📝 Sending user input form metadata with {len(metadata.get('input_fields', []))} fields")
+
+            # Create a DataPart artifact with the form metadata
+            form_artifact = new_data_artifact(
+                name="UserInputMetaData",
+                description="Structured user input form definition",
+                data=metadata
+            )
+
+            # Send the form metadata artifact
+            await self._safe_enqueue_event(
+                event_queue,
+                TaskArtifactUpdateEvent(
+                    artifact=form_artifact,
+                    append=False,
+                    last_chunk=False,
+                    context_id=task.context_id,
+                    task_id=task.id,
+                )
+            )
+
+        # Send the status update with the text content (backward compatible)
         await self._safe_enqueue_event(
             event_queue,
             TaskStatusUpdateEvent(
@@ -617,7 +683,9 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                 # 3. User input required
                 if event.get('require_user_input'):
                     state.user_input_required = True
-                    await self._handle_user_input_required(content, task, event_queue)
+                    # Pass metadata from event (contains form field definitions)
+                    metadata = event.get('metadata')
+                    await self._handle_user_input_required(content, task, event_queue, metadata)
                     return
 
                 # 4. Streaming chunk

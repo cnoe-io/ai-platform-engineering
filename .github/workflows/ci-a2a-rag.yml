@@ -135,16 +135,25 @@ jobs:
     strategy:
       matrix:
         component: ${{ fromJson(needs.load-config.outputs.rag_components) }}
+        variant: [default]
+        include:
+          # Add slim variant for ingestors (no Playwright, ~1.5GB smaller)
+          - component: ingestors
+            variant: slim
+          # Add HuggingFace variant for server (with PyTorch, ~900MB larger)
+          - component: server
+            variant: huggingface
       fail-fast: false
 
     env:
       REGISTRY: ghcr.io
+      # For slim variant, append -slim to image name suffix in tags (not the image name itself)
       IMAGE_NAME: ${{ github.repository_owner }}/caipe-rag-${{ matrix.component }}
       DOCKERFILE: ai_platform_engineering/knowledge_bases/rag/build/Dockerfile.${{ matrix.component }}
 
     steps:
       - name: 🔒 harden runner
-        uses: step-security/harden-runner@20cf305ff2072d973412fa9b1e3a4f227bda3c76 # v2.14.0
+        uses: step-security/harden-runner@5ef0c079ce82195b2a36a210272d6b661572d83e  # v2.14.2
         with:
           egress-policy: audit
 
@@ -194,6 +203,9 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          # For non-default variants, append variant name as suffix to all tags
+          flavor: |
+            suffix=${{ matrix.variant != 'default' && format('-{0}', matrix.variant) || '' }}
           tags: |
             type=raw,value=latest,enable=${{ github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' }}
             type=raw,value=${{ needs.determine-changes.outputs.tag_version }},enable=${{ needs.determine-changes.outputs.tag_version != '' }}
@@ -223,6 +235,7 @@ jobs:
           cache-from: type=gha
           cache-to: ${{ matrix.component != 'server' && 'type=gha,mode=min' || '' }}
           build-args: |
+            VARIANT=${{ matrix.variant }}
             BUILDKIT_INLINE_CACHE=1
           provenance: false
           sbom: false
@@ -240,6 +253,14 @@ jobs:
     strategy:
       matrix:
         component: ${{ fromJson(needs.load-config.outputs.rag_components) }}
+        variant: [default]
+        include:
+          # Add slim variant for ingestors
+          - component: ingestors
+            variant: slim
+          # Add HuggingFace variant for server
+          - component: server
+            variant: huggingface
       fail-fast: false
 
     env:
@@ -249,7 +270,7 @@ jobs:
 
     steps:
       - name: 🔒 Harden runner
-        uses: step-security/harden-runner@20cf305ff2072d973412fa9b1e3a4f227bda3c76 # v2.14.0
+        uses: step-security/harden-runner@5ef0c079ce82195b2a36a210272d6b661572d83e  # v2.14.2
         with:
           egress-policy: audit
 
@@ -269,9 +290,18 @@ jobs:
         id: retag-or-build
         env:
           TAG_VERSION: ${{ needs.determine-changes.outputs.tag_version }}
+          VARIANT: ${{ matrix.variant }}
         run: |
           FULL_IMAGE="${REGISTRY}/${IMAGE_NAME}"
-          echo "🏷️ Processing rag-${{ matrix.component }}..."
+          
+          # Determine variant suffix for tags
+          if [[ "$VARIANT" != "default" ]]; then
+            VARIANT_SUFFIX="-${VARIANT}"
+          else
+            VARIANT_SUFFIX=""
+          fi
+          
+          echo "🏷️ Processing rag-${{ matrix.component }}${VARIANT_SUFFIX}..."
 
           # Determine source tag (previous version)
           if [[ "$TAG_VERSION" =~ ^(.+)-rc\.([0-9]+)$ ]]; then
@@ -280,21 +310,23 @@ jobs:
 
             if [[ "$RC_NUM" -gt 1 ]]; then
               PREV_RC=$((RC_NUM - 1))
-              SOURCE_TAG="${BASE_VERSION}-rc.${PREV_RC}"
+              SOURCE_TAG="${BASE_VERSION}-rc.${PREV_RC}${VARIANT_SUFFIX}"
             else
-              SOURCE_TAG="${BASE_VERSION}"
+              SOURCE_TAG="${BASE_VERSION}${VARIANT_SUFFIX}"
             fi
           else
-            SOURCE_TAG="latest"
+            SOURCE_TAG="latest${VARIANT_SUFFIX}"
           fi
+          
+          TARGET_TAG="${TAG_VERSION}${VARIANT_SUFFIX}"
 
           echo "  Source: ${SOURCE_TAG}"
-          echo "  Target: ${TAG_VERSION}"
+          echo "  Target: ${TARGET_TAG}"
 
           # Check if source image exists
           if crane manifest "${FULL_IMAGE}:${SOURCE_TAG}" >/dev/null 2>&1; then
             echo "  ✅ Source image exists, retagging..."
-            if crane tag "${FULL_IMAGE}:${SOURCE_TAG}" "${TAG_VERSION}"; then
+            if crane tag "${FULL_IMAGE}:${SOURCE_TAG}" "${TARGET_TAG}"; then
               echo "  ✅ Successfully retagged from ${SOURCE_TAG}"
               echo "needs_build=false" >> $GITHUB_OUTPUT
             else
@@ -373,11 +405,12 @@ jobs:
           file: ${{ env.DOCKERFILE }}
           push: true
           tags: |
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.determine-changes.outputs.tag_version }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.determine-changes.outputs.tag_version }}${{ matrix.variant != 'default' && format('-{0}', matrix.variant) || '' }}
           platforms: linux/amd64,linux/arm64
           cache-from: type=gha
           cache-to: ${{ matrix.component != 'server' && 'type=gha,mode=min' || '' }}
           build-args: |
+            VARIANT=${{ matrix.variant }}
             BUILDKIT_INLINE_CACHE=1
           provenance: false
           sbom: false

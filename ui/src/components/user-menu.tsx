@@ -1,0 +1,800 @@
+"use client";
+
+import React, { useState, useRef, useEffect } from "react";
+import { useSession, signIn, signOut } from "next-auth/react";
+import { motion, AnimatePresence } from "framer-motion";
+import { LogIn, LogOut, ChevronDown, Shield, Users, Hash, Code, ChevronRight, Layers, ExternalLink, Clock, RefreshCw, Bug, Settings, Copy, Check, KeyRound, Lightbulb } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
+import { config } from "@/lib/config";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+
+// Tech Stack Data
+interface TechItem {
+  name: string;
+  description: string;
+  url: string;
+  category: "platform" | "protocol" | "frontend" | "backend" | "community";
+}
+
+// Helper to get CAIPE description dynamically — uses hardcoded defaults
+// since techStack is defined at module level (outside component scope).
+// The actual values shown in the dialog will come from the config module.
+function getCaipeDescription(): string {
+  return "Multi-Agent Workflow Automation - Where Humans and AI agents collaborate to deliver high quality outcomes.";
+}
+
+const techStack: TechItem[] = [
+  { name: "CAIPE", get description() { return getCaipeDescription(); }, url: "https://caipe.io", category: "platform" },
+  { name: "A2A Protocol", description: "Agent-to-Agent protocol for inter-agent communication (by Google)", url: "https://google.github.io/A2A/", category: "protocol" },
+  { name: "A2UI", description: "Agent-to-User Interface specification for declarative UI widgets", url: "https://a2ui.org/", category: "protocol" },
+  { name: "MCP", description: "Model Context Protocol for AI tool integration (by Anthropic)", url: "https://modelcontextprotocol.io/", category: "protocol" },
+  { name: "Next.js 15", description: "React framework with App Router and Server Components", url: "https://nextjs.org/", category: "frontend" },
+  { name: "React 19", description: "JavaScript library for building user interfaces", url: "https://react.dev/", category: "frontend" },
+  { name: "TypeScript", description: "Typed superset of JavaScript for better developer experience", url: "https://www.typescriptlang.org/", category: "frontend" },
+  { name: "Tailwind CSS", description: "Utility-first CSS framework for rapid UI development", url: "https://tailwindcss.com/", category: "frontend" },
+  { name: "Radix UI", description: "Unstyled, accessible UI components for React", url: "https://www.radix-ui.com/", category: "frontend" },
+  { name: "Zustand", description: "Lightweight state management for React applications", url: "https://zustand-demo.pmnd.rs/", category: "frontend" },
+  { name: "Framer Motion", description: "Production-ready animation library for React", url: "https://www.framer.com/motion/", category: "frontend" },
+  { name: "Sigma.js", description: "JavaScript library for graph visualization and analysis", url: "https://www.sigmajs.org/", category: "frontend" },
+  { name: "NextAuth.js", description: "Authentication for Next.js applications with OAuth 2.0 support", url: "https://next-auth.js.org/", category: "frontend" },
+  { name: "LangGraph", description: "Framework for building stateful, multi-actor applications with LLMs", url: "https://langchain-ai.github.io/langgraph/", category: "backend" },
+  { name: "Python 3.11+", description: "Backend agent implementation with asyncio support", url: "https://www.python.org/", category: "backend" },
+  { name: "CNOE", description: "Cloud Native Operational Excellence - Open source IDP reference implementations", url: "https://cnoe.io/", category: "community" },
+];
+
+const categoryLabels: Record<TechItem["category"], string> = {
+  platform: "Platform",
+  protocol: "Protocols",
+  frontend: "Frontend",
+  backend: "Backend",
+  community: "Community",
+};
+
+const categoryColors: Record<TechItem["category"], string> = {
+  platform: "gradient-primary-br",
+  protocol: "bg-gradient-to-br from-purple-500 to-purple-600",
+  frontend: "bg-gradient-to-br from-blue-500 to-blue-600",
+  backend: "bg-gradient-to-br from-orange-500 to-orange-600",
+  community: "bg-gradient-to-br from-green-500 to-green-600",
+};
+
+/**
+ * Config debug display: render a key-value row for the debug tab.
+ */
+function ConfigRow({ label, value }: { label: string; value: string | boolean | null | undefined }) {
+  const display = value === null || value === undefined
+    ? "—"
+    : typeof value === "boolean"
+      ? value ? "true" : "false"
+      : String(value);
+
+  const isBool = typeof value === "boolean";
+
+  return (
+    <div className="flex items-start justify-between gap-4 py-1.5 border-b border-border/30 last:border-0">
+      <span className="text-xs text-muted-foreground shrink-0">{label}</span>
+      <span className={cn(
+        "text-xs font-mono text-right break-all",
+        isBool && value && "text-green-600 dark:text-green-500",
+        isBool && !value && "text-muted-foreground",
+        !isBool && "text-foreground",
+      )}>
+        {display}
+      </span>
+    </div>
+  );
+}
+
+export function UserMenu() {
+  const { data: session, status, update } = useSession();
+  const [open, setOpen] = useState(false);
+  const [systemOpen, setSystemOpen] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [refreshResult, setRefreshResult] = useState<'success' | 'error' | null>(null);
+  const [tokenCopied, setTokenCopied] = useState(false);
+  const [idTokenCopied, setIdTokenCopied] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  // Close on outside click - MUST be called before any returns (Rules of Hooks)
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
+        setOpen(false);
+      }
+    }
+    if (open) {
+      document.addEventListener("mousedown", handleClickOutside);
+    }
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [open]);
+
+  // Don't render if SSO is not enabled
+  if (!config.ssoEnabled) {
+    return null;
+  }
+
+  // Loading state
+  if (status === "loading") {
+    return (
+      <div className="h-8 w-8 rounded-full bg-muted animate-pulse" />
+    );
+  }
+
+  // Not authenticated
+  if (status === "unauthenticated") {
+    return (
+      <Button
+        variant="ghost"
+        size="sm"
+        onClick={() => signIn("oidc")}
+        className="gap-1.5 text-xs"
+      >
+        <LogIn className="h-3.5 w-3.5" />
+        Sign In
+      </Button>
+    );
+  }
+
+  // Decode JWT token for advanced view
+  const decodeJWT = (token: string | undefined) => {
+    if (!token) return null;
+    try {
+      const base64Url = token.split('.')[1];
+      const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+      const jsonPayload = decodeURIComponent(
+        atob(base64)
+          .split('')
+          .map((c) => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2))
+          .join('')
+      );
+      return JSON.parse(jsonPayload);
+    } catch (e) {
+      return null;
+    }
+  };
+
+  const decodedToken = session?.idToken ? decodeJWT(session.idToken) : null;
+
+  // Handle manual token refresh
+  const handleRefreshToken = async () => {
+    setIsRefreshing(true);
+    setRefreshResult(null);
+    try {
+      const updatedSession = await update();
+      if (updatedSession) {
+        setRefreshResult('success');
+        setTimeout(() => setRefreshResult(null), 3000);
+      } else {
+        setRefreshResult('error');
+        setTimeout(() => setRefreshResult(null), 3000);
+      }
+    } catch (error) {
+      console.error('[UserMenu] Token refresh failed:', error);
+      setRefreshResult('error');
+      setTimeout(() => setRefreshResult(null), 3000);
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
+
+  // Handle copy access token to clipboard
+  const handleCopyAccessToken = async () => {
+    if (!session?.accessToken) return;
+    try {
+      await navigator.clipboard.writeText(session.accessToken);
+      setTokenCopied(true);
+      setTimeout(() => setTokenCopied(false), 2000);
+    } catch (err) {
+      console.error('[UserMenu] Failed to copy access token:', err);
+    }
+  };
+
+  // Handle copy ID token to clipboard
+  const handleCopyIdToken = async () => {
+    if (!session?.idToken) return;
+    try {
+      await navigator.clipboard.writeText(session.idToken);
+      setIdTokenCopied(true);
+      setTimeout(() => setIdTokenCopied(false), 2000);
+    } catch (err) {
+      console.error('[UserMenu] Failed to copy ID token:', err);
+    }
+  };
+
+  // Authenticated - show user menu
+  const userInitials = session?.user?.name
+    ? session.user.name
+        .split(" ")
+        .map((n) => n[0])
+        .join("")
+        .toUpperCase()
+        .slice(0, 2)
+    : "U";
+
+  // Get display name (first name or full name)
+  const displayName = session?.user?.name || "User";
+  const firstName = displayName.split(" ")[0];
+
+  // Role display
+  const userRole = session?.role || 'user';
+  const isAdmin = userRole === 'admin';
+
+  return (
+    <div className="relative" ref={menuRef}>
+      <button
+        onClick={() => setOpen(!open)}
+        className={cn(
+          "flex items-center gap-2 px-2 py-1 rounded-full transition-colors",
+          open
+            ? "bg-primary/10"
+            : "hover:bg-muted"
+        )}
+      >
+        {session?.user?.image ? (
+          <img
+            src={session.user.image}
+            alt={displayName}
+            className="h-6 w-6 rounded-full"
+          />
+        ) : (
+          <div className="h-6 w-6 rounded-full gradient-primary-br flex items-center justify-center">
+            <span className="text-[10px] font-medium text-white">{userInitials}</span>
+          </div>
+        )}
+        <span className="text-xs font-medium max-w-[100px] truncate">{firstName}</span>
+        <ChevronDown className={cn(
+          "h-3 w-3 text-muted-foreground transition-transform",
+          open && "rotate-180"
+        )} />
+      </button>
+
+      <AnimatePresence>
+        {open && (
+          <motion.div
+            initial={{ opacity: 0, y: -10, scale: 0.95 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -10, scale: 0.95 }}
+            transition={{ duration: 0.15 }}
+            className="absolute right-0 top-full mt-2 w-80 max-w-[calc(100vw-2rem)] rounded-xl bg-card border border-border shadow-xl z-50 overflow-hidden"
+          >
+            {/* User Info */}
+            <div className="p-3 border-b border-border">
+              <div className="flex items-center gap-3">
+                {session?.user?.image ? (
+                  <img
+                    src={session.user.image}
+                    alt={session.user.name || "User"}
+                    className="h-10 w-10 rounded-full"
+                  />
+                ) : (
+                  <div className="h-10 w-10 rounded-full gradient-primary-br flex items-center justify-center">
+                    <span className="text-sm font-medium text-white">{userInitials}</span>
+                  </div>
+                )}
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <p className="text-sm font-medium truncate">
+                      {session?.user?.name || "User"}
+                    </p>
+                    {/* Role Badge */}
+                    <span className={cn(
+                      "px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider rounded shrink-0",
+                      isAdmin
+                        ? "bg-primary/20 text-primary border border-primary/30"
+                        : "bg-muted text-muted-foreground border border-border"
+                    )}>
+                      {isAdmin ? "Admin" : "User"}
+                    </span>
+                  </div>
+                  <p className="text-xs text-muted-foreground truncate">
+                    {session?.user?.email || ""}
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Session Info */}
+            <div className="p-2 border-b border-border bg-muted/30">
+              <div className="flex items-center gap-2 px-2 py-1 text-xs text-muted-foreground">
+                <Shield className="h-3 w-3 flex-shrink-0" />
+                <span>Authenticated via SSO</span>
+                <span className="text-muted-foreground/50 mx-1">|</span>
+                <span className={cn(
+                  "font-medium",
+                  isAdmin ? "text-primary" : "text-muted-foreground"
+                )}>
+                  Role: {isAdmin ? "Admin" : "User"}
+                </span>
+              </div>
+            </div>
+
+            {/* System Section — single menu item for all system info */}
+            <div className="border-b border-border">
+              <button
+                onClick={() => {
+                  setSystemOpen(true);
+                  setOpen(false);
+                }}
+                className="w-full flex items-center justify-between px-4 py-2 text-xs font-medium hover:bg-muted/50 transition-colors"
+              >
+                <div className="flex items-center gap-2">
+                  <Settings className="h-3.5 w-3.5" />
+                  <span>System</span>
+                </div>
+                <ChevronRight className="h-3.5 w-3.5" />
+              </button>
+            </div>
+
+            {/* Insights */}
+            {config.mongodbEnabled && (
+              <div className="border-b border-border">
+                <a
+                  href="/insights"
+                  onClick={() => setOpen(false)}
+                  className="w-full flex items-center justify-between px-4 py-2 text-xs font-medium hover:bg-muted/50 transition-colors"
+                >
+                  <div className="flex items-center gap-2">
+                    <Lightbulb className="h-3.5 w-3.5" />
+                    <span>Personal Insights</span>
+                  </div>
+                  <ChevronRight className="h-3.5 w-3.5" />
+                </a>
+              </div>
+            )}
+
+            {/* Actions */}
+            <div className="p-1.5">
+              <button
+                onClick={() => {
+                  setOpen(false);
+                  signOut({ callbackUrl: '/login' });
+                }}
+                className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-destructive hover:bg-destructive/10 transition-colors"
+              >
+                <LogOut className="h-4 w-4" />
+                Sign Out
+              </button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* System Dialog — tabbed: OIDC Token, Debug, Built With */}
+      <Dialog open={systemOpen} onOpenChange={setSystemOpen}>
+        <DialogContent className="max-w-2xl max-h-[80vh] p-0">
+          <DialogHeader className="p-6 pb-4 border-b border-border">
+            <div className="flex items-center gap-3">
+              <div className="p-2 rounded-xl gradient-primary-br">
+                <Settings className="h-5 w-5 text-white" />
+              </div>
+              <div>
+                <DialogTitle>System — {config.appName}</DialogTitle>
+                <DialogDescription>
+                  {config.tagline}
+                </DialogDescription>
+              </div>
+            </div>
+          </DialogHeader>
+
+          <Tabs defaultValue="oidc" className="w-full">
+            <div className="px-6 pt-2 border-b border-border">
+              <TabsList className="bg-transparent h-auto p-0 gap-4">
+                <TabsTrigger
+                  value="oidc"
+                  className="px-1 pb-2 pt-1 rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none text-xs font-medium"
+                >
+                  <Code className="h-3.5 w-3.5 mr-1.5" />
+                  OIDC Token
+                </TabsTrigger>
+                <TabsTrigger
+                  value="debug"
+                  className="px-1 pb-2 pt-1 rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none text-xs font-medium"
+                >
+                  <Bug className="h-3.5 w-3.5 mr-1.5" />
+                  Debug
+                </TabsTrigger>
+                <TabsTrigger
+                  value="built-with"
+                  className="px-1 pb-2 pt-1 rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none text-xs font-medium"
+                >
+                  <Layers className="h-3.5 w-3.5 mr-1.5" />
+                  Built With
+                </TabsTrigger>
+              </TabsList>
+            </div>
+
+            {/* OIDC Token Tab */}
+            <TabsContent value="oidc" className="mt-0">
+              <div className="p-6 overflow-y-auto max-h-[50vh] space-y-6">
+                {/* Token Expiry Information */}
+                <div>
+                  <div className="flex items-center gap-2 mb-3">
+                    <Clock className="h-4 w-4 text-muted-foreground" />
+                    <span className="text-sm font-semibold">Token Information</span>
+                  </div>
+                  <div className="space-y-3">
+                    {/* Access Token Expiry */}
+                    {session?.expiresAt && (
+                      <div className="bg-muted/30 rounded-lg p-3 border border-border">
+                        <div className="flex items-start gap-2">
+                          <Code className="h-4 w-4 text-muted-foreground mt-0.5 flex-shrink-0" />
+                          <div className="flex-1">
+                            <div className="flex items-center justify-between mb-1">
+                              <div className="text-xs font-medium">Access Token</div>
+                              {session?.accessToken && (
+                                <button
+                                  onClick={handleCopyAccessToken}
+                                  className={cn(
+                                    "flex items-center gap-1 px-2 py-0.5 text-[10px] font-medium rounded-md transition-all",
+                                    tokenCopied
+                                      ? "bg-green-500/10 text-green-600 dark:text-green-500 border border-green-500/30"
+                                      : "bg-muted hover:bg-muted/80 text-muted-foreground hover:text-foreground border border-border"
+                                  )}
+                                  title="Copy access token to clipboard"
+                                >
+                                  {tokenCopied ? (
+                                    <>
+                                      <Check className="h-3 w-3" />
+                                      Copied
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Copy className="h-3 w-3" />
+                                      Copy Token
+                                    </>
+                                  )}
+                                </button>
+                              )}
+                            </div>
+                            <div className="text-xs text-muted-foreground">
+                              Expires: {new Date(session.expiresAt * 1000).toLocaleString()}
+                            </div>
+                            <div className="text-xs text-muted-foreground/70 mt-1">
+                              {(() => {
+                                const now = Math.floor(Date.now() / 1000);
+                                const remaining = session.expiresAt - now;
+                                const hours = Math.floor(remaining / 3600);
+                                const minutes = Math.floor((remaining % 3600) / 60);
+                                return remaining > 0
+                                  ? `${hours}h ${minutes}m remaining`
+                                  : 'Expired';
+                              })()}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* ID Token */}
+                    {session?.idToken && (
+                      <div className="bg-muted/30 rounded-lg p-3 border border-border">
+                        <div className="flex items-start gap-2">
+                          <KeyRound className="h-4 w-4 text-muted-foreground mt-0.5 flex-shrink-0" />
+                          <div className="flex-1">
+                            <div className="flex items-center justify-between mb-1">
+                              <div className="text-xs font-medium">ID Token</div>
+                              <button
+                                onClick={handleCopyIdToken}
+                                className={cn(
+                                  "flex items-center gap-1 px-2 py-0.5 text-[10px] font-medium rounded-md transition-all",
+                                  idTokenCopied
+                                    ? "bg-green-500/10 text-green-600 dark:text-green-500 border border-green-500/30"
+                                    : "bg-muted hover:bg-muted/80 text-muted-foreground hover:text-foreground border border-border"
+                                )}
+                                title="Copy ID token to clipboard (contains group claims)"
+                              >
+                                {idTokenCopied ? (
+                                  <>
+                                    <Check className="h-3 w-3" />
+                                    Copied
+                                  </>
+                                ) : (
+                                  <>
+                                    <Copy className="h-3 w-3" />
+                                    Copy Token
+                                  </>
+                                )}
+                              </button>
+                            </div>
+                            <div className="text-xs text-muted-foreground">
+                              Contains user identity, group memberships, and OIDC claims
+                            </div>
+                            {decodedToken?.exp && (
+                              <div className="text-xs text-muted-foreground/70 mt-1">
+                                Expires: {new Date(decodedToken.exp * 1000).toLocaleString()}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Refresh Token Info */}
+                    <div className="bg-muted/30 rounded-lg p-3 border border-border">
+                      <div className="flex items-start gap-2">
+                        <RefreshCw className="h-4 w-4 text-muted-foreground mt-0.5 flex-shrink-0" />
+                        <div className="flex-1">
+                          <div className="text-xs font-medium mb-1">Refresh Token</div>
+                          {session?.hasRefreshToken ? (
+                            <>
+                              <div className="text-xs text-green-600 dark:text-green-500 font-medium mb-1">
+                                ✓ Available - Auto-renewal enabled
+                              </div>
+                              {session.refreshTokenExpiresAt ? (
+                                <>
+                                  <div className="text-xs text-muted-foreground">
+                                    Expires: {new Date(session.refreshTokenExpiresAt * 1000).toLocaleString()}
+                                  </div>
+                                  <div className="text-xs text-muted-foreground/70 mt-1">
+                                    {(() => {
+                                      const now = Math.floor(Date.now() / 1000);
+                                      const remaining = session.refreshTokenExpiresAt - now;
+                                      const days = Math.floor(remaining / 86400);
+                                      const hours = Math.floor((remaining % 86400) / 3600);
+                                      return remaining > 0
+                                        ? `${days}d ${hours}h remaining`
+                                        : 'Expired';
+                                    })()}
+                                  </div>
+                                </>
+                              ) : (
+                                <div className="text-xs text-muted-foreground/70">
+                                  Expiry information not provided by OIDC provider
+                                </div>
+                              )}
+                            </>
+                          ) : (
+                            <div className="text-xs text-yellow-600 dark:text-yellow-500">
+                              Not available - Token will expire without renewal
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Manual Refresh Button */}
+                    {session?.hasRefreshToken && (
+                      <div className="flex flex-col gap-2">
+                        <button
+                          onClick={handleRefreshToken}
+                          disabled={isRefreshing}
+                          className={cn(
+                            "flex items-center justify-center gap-2 px-4 py-2.5 text-sm rounded-lg transition-all",
+                            "bg-primary text-primary-foreground hover:bg-primary/90",
+                            "disabled:opacity-50 disabled:cursor-not-allowed"
+                          )}
+                        >
+                          <RefreshCw className={cn(
+                            "h-4 w-4",
+                            isRefreshing && "animate-spin"
+                          )} />
+                          {isRefreshing ? "Refreshing..." : "Refresh Access Token"}
+                        </button>
+                        {refreshResult === 'success' && (
+                          <div className="text-xs text-green-600 dark:text-green-500 text-center font-medium">
+                            ✓ Token refreshed successfully
+                          </div>
+                        )}
+                        {refreshResult === 'error' && (
+                          <div className="text-xs text-red-600 dark:text-red-500 text-center font-medium">
+                            ✗ Token refresh failed
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Group Memberships from decoded token */}
+                {(() => {
+                  const groups: string[] = [];
+                  if (decodedToken) {
+                    const groupClaims = ['members', 'memberOf', 'groups', 'group', 'roles', 'cognito:groups'];
+                    for (const claim of groupClaims) {
+                      const value = decodedToken[claim];
+                      if (Array.isArray(value)) {
+                        groups.push(...value.map(String));
+                      } else if (typeof value === 'string') {
+                        groups.push(...value.split(/[,\s]+/).filter(Boolean));
+                      }
+                    }
+                  }
+
+                  if (groups.length === 0) return null;
+
+                  return (
+                    <div>
+                      <div className="mb-3">
+                        <div className="flex items-center gap-2 mb-1">
+                          <Users className="h-4 w-4 text-muted-foreground" />
+                          <span className="text-sm font-semibold">Group Memberships</span>
+                          <span className="text-xs text-muted-foreground/70">
+                            ({groups.length})
+                          </span>
+                        </div>
+                        <p className="text-xs text-muted-foreground/70 ml-6">
+                          OIDC groups from ID token claims
+                        </p>
+                      </div>
+                      <div className="bg-muted/30 rounded-lg p-4 border border-border">
+                        <div className="space-y-2 max-h-48 overflow-y-auto">
+                          {groups.map((group, index) => (
+                            <div
+                              key={index}
+                              className="text-sm font-mono text-foreground/80 break-all"
+                              title={group}
+                            >
+                              • {group}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
+              </div>
+            </TabsContent>
+
+            {/* Debug Tab */}
+            <TabsContent value="debug" className="mt-0">
+              <div className="p-6 overflow-y-auto max-h-[50vh] space-y-6">
+                {/* Auth Status */}
+                <div>
+                  <div className="flex items-center gap-2 mb-3">
+                    <Shield className="h-4 w-4 text-muted-foreground" />
+                    <span className="text-sm font-semibold">Auth Status</span>
+                  </div>
+                  <div className="bg-muted/30 rounded-lg p-4 border border-border space-y-0">
+                    <ConfigRow label="Email" value={session?.user?.email} />
+                    <ConfigRow label="Name" value={session?.user?.name} />
+                    <ConfigRow label="Role" value={userRole} />
+                    <ConfigRow label="Authorized" value={session?.isAuthorized} />
+                    <ConfigRow label="Has Refresh Token" value={session?.hasRefreshToken} />
+                    <ConfigRow label="Session Error" value={session?.error || "none"} />
+                    {session?.expiresAt && (
+                      <ConfigRow
+                        label="Token Expires"
+                        value={new Date(session.expiresAt * 1000).toLocaleString()}
+                      />
+                    )}
+                  </div>
+                </div>
+
+                {/* Runtime Config */}
+                <div>
+                  <div className="flex items-center gap-2 mb-3">
+                    <Settings className="h-4 w-4 text-muted-foreground" />
+                    <span className="text-sm font-semibold">Runtime Config</span>
+                    <span className="text-[10px] text-muted-foreground/60 font-mono">window.__APP_CONFIG__</span>
+                  </div>
+                  <div className="bg-muted/30 rounded-lg p-4 border border-border space-y-0">
+                    <ConfigRow label="App Name" value={config.appName} />
+                    <ConfigRow label="Tagline" value={config.tagline} />
+                    <ConfigRow label="Description" value={config.description} />
+                    <ConfigRow label="Logo URL" value={config.logoUrl} />
+                    <ConfigRow label="Logo Style" value={config.logoStyle} />
+                    <ConfigRow label="Preview Mode" value={config.previewMode} />
+                    <ConfigRow label="Show Powered By" value={config.showPoweredBy} />
+                    <ConfigRow label="Support Email" value={config.supportEmail} />
+                  </div>
+                </div>
+
+                {/* Feature Flags */}
+                <div>
+                  <div className="flex items-center gap-2 mb-3">
+                    <Hash className="h-4 w-4 text-muted-foreground" />
+                    <span className="text-sm font-semibold">Feature Flags</span>
+                  </div>
+                  <div className="bg-muted/30 rounded-lg p-4 border border-border space-y-0">
+                    <ConfigRow label="SSO Enabled" value={config.ssoEnabled} />
+                    <ConfigRow label="RAG Enabled" value={config.ragEnabled} />
+                    <ConfigRow label="MongoDB Enabled" value={config.mongodbEnabled} />
+                    <ConfigRow label="Sub-Agent Cards" value={config.enableSubAgentCards} />
+                    <ConfigRow label="Allow Dev Admin (no SSO)" value={config.allowDevAdminWhenSsoDisabled} />
+                    <ConfigRow label="Storage Mode" value={config.storageMode} />
+                  </div>
+                </div>
+
+                {/* URLs / Services */}
+                <div>
+                  <div className="flex items-center gap-2 mb-3">
+                    <ExternalLink className="h-4 w-4 text-muted-foreground" />
+                    <span className="text-sm font-semibold">Services</span>
+                  </div>
+                  <div className="bg-muted/30 rounded-lg p-4 border border-border space-y-0">
+                    <ConfigRow label="CAIPE URL" value={config.caipeUrl} />
+                    <ConfigRow label="RAG URL" value={config.ragUrl} />
+                    <ConfigRow label="Environment" value={config.isDev ? "development" : config.isProd ? "production" : "unknown"} />
+                  </div>
+                </div>
+
+                {/* Theme / Branding */}
+                <div>
+                  <div className="flex items-center gap-2 mb-3">
+                    <Layers className="h-4 w-4 text-muted-foreground" />
+                    <span className="text-sm font-semibold">Theme</span>
+                  </div>
+                  <div className="bg-muted/30 rounded-lg p-4 border border-border space-y-0">
+                    <ConfigRow label="Gradient From" value={config.gradientFrom} />
+                    <ConfigRow label="Gradient To" value={config.gradientTo} />
+                    <ConfigRow label="Spinner Color" value={config.spinnerColor} />
+                  </div>
+                </div>
+              </div>
+            </TabsContent>
+
+            {/* Built With Tab */}
+            <TabsContent value="built-with" className="mt-0">
+              <div className="p-6 overflow-y-auto max-h-[50vh]">
+                {(["platform", "protocol", "frontend", "backend", "community"] as const).map((category) => {
+                  const items = techStack.filter(item => item.category === category);
+                  if (items.length === 0) return null;
+
+                  return (
+                    <div key={category} className="mb-6 last:mb-0">
+                      <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">
+                        {categoryLabels[category]}
+                      </h3>
+                      <div className="space-y-2">
+                        {items.map((tech) => (
+                          <a
+                            key={tech.name}
+                            href={tech.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex items-start gap-3 p-3 rounded-lg hover:bg-muted/50 transition-colors group border border-transparent hover:border-border"
+                          >
+                            <div className={cn(
+                              "w-10 h-10 rounded-lg flex items-center justify-center shrink-0 text-white text-xs font-bold",
+                              categoryColors[tech.category]
+                            )}>
+                              {tech.name.slice(0, 2).toUpperCase()}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2 mb-1">
+                                <span className="font-medium text-sm group-hover:text-primary transition-colors">
+                                  {tech.name}
+                                </span>
+                                <ExternalLink className="h-3 w-3 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
+                              </div>
+                              <p className="text-xs text-muted-foreground leading-relaxed">
+                                {tech.description}
+                              </p>
+                            </div>
+                          </a>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </TabsContent>
+          </Tabs>
+
+          <div className="p-4 border-t border-border bg-muted/20">
+            <p className="text-xs text-center text-muted-foreground">
+              Built with ❤️ by the{" "}
+              <a
+                href="https://cnoe.io/"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-primary hover:underline"
+              >
+                CNOE
+              </a>{" "}
+              community
+            </p>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}

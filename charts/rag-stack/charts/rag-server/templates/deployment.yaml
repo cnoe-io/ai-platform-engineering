@@ -44,7 +44,7 @@ spec:
                 name: {{ $llmSecretName }}
             {{- end }}
           env:
-            # Core Connection Settings
+            # Computed connection settings (from global values)
             - name: REDIS_URL
               value: {{ include "rag-server.redisUrl" . | quote }}
             - name: NEO4J_ADDR
@@ -57,50 +57,13 @@ spec:
               value: {{ include "rag-server.milvusUri" . | quote }}
             - name: ONTOLOGY_AGENT_RESTAPI_ADDR
               value: {{ include "rag-server.ontologyAgentRestapiAddr" . | quote }}
-            
-            # Feature Flags
+            # Feature flag with global fallback
             - name: ENABLE_GRAPH_RAG
-              value: {{ .Values.enableGraphRag | quote }}
-            - name: ENABLE_MCP
-              value: {{ .Values.enableMcp | quote }}
-            - name: SKIP_INIT_TESTS
-              value: {{ .Values.skipInitTests | quote }}
-            
-            # Embeddings Configuration
-            - name: EMBEDDINGS_PROVIDER
-              value: {{ .Values.embeddingsProvider | quote }}
-            - name: EMBEDDINGS_MODEL
-              value: {{ .Values.embeddingsModel | quote }}
-            
-            # Performance & Limits
-            - name: MAX_DOCUMENTS_PER_INGEST
-              value: {{ .Values.maxDocumentsPerIngest | quote }}
-            - name: MAX_RESULTS_PER_QUERY
-              value: {{ .Values.maxResultsPerQuery | quote }}
-            - name: MAX_INGESTION_CONCURRENCY
-              value: {{ .Values.maxIngestionConcurrency | quote }}
-            - name: MAX_GRAPH_RAW_QUERY_RESULTS
-              value: {{ .Values.maxGraphRawQueryResults | quote }}
-            - name: MAX_GRAPH_RAW_QUERY_TOKENS
-              value: {{ .Values.maxGraphRawQueryTokens | quote }}
-            - name: SEARCH_RESULT_TRUNCATE_LENGTH
-              value: {{ .Values.searchResultTruncateLength | quote }}
-            
-            # Other Settings
-            - name: LOG_LEVEL
-              value: {{ .Values.logLevel | quote }}
-            - name: UI_URL
-              value: {{ .Values.uiUrl | quote }}
-            - name: SLEEP_ON_INIT_FAILURE_SECONDS
-              value: {{ .Values.sleepOnInitFailureSeconds | quote }}
-            - name: CLEANUP_INTERVAL
-              value: {{ .Values.cleanupInterval | quote }}
-
-            {{- if .Values.env }}
+              value: {{ include "rag-server.enableGraphRag" . | quote }}
+            # All other configuration via env map
             {{- range $key, $value := .Values.env }}
             - name: {{ $key }}
               value: {{ $value | quote }}
-            {{- end }}
             {{- end }}
           {{- with .Values.livenessProbe }}
           livenessProbe:
@@ -119,21 +82,23 @@ spec:
         - name: web-ingestor
           image: "{{ .Values.webIngestor.image.repository }}:{{ .Values.webIngestor.image.tag | default .Chart.AppVersion }}"
           imagePullPolicy: {{ .Values.webIngestor.image.pullPolicy }}
+          {{- with .Values.webIngestor.envFrom }}
+          envFrom:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           env:
+            # Fixed/computed values
             - name: INGESTOR_TYPE
               value: "webloader"
-            - name: LOG_LEVEL
-              value: {{ .Values.webIngestor.logLevel | quote }}
             - name: REDIS_URL
               value: {{ include "rag-server.redisUrl" . | quote }}
             - name: RAG_SERVER_URL
-              value: {{ printf "http://localhost:9446" | quote }}
-            - name: WEBLOADER_MAX_CONCURRENCY
-              value: {{ .Values.webIngestor.maxConcurrency | quote }}
-            - name: WEBLOADER_MAX_INGESTION_TASKS
-              value: {{ .Values.webIngestor.maxIngestionTasks | quote }}
-            - name: WEBLOADER_RELOAD_INTERVAL
-              value: {{ .Values.webIngestor.reloadInterval | quote }}
+              value: "http://localhost:9446"
+            # All other configuration via env map
+            {{- range $key, $value := .Values.webIngestor.env }}
+            - name: {{ $key }}
+              value: {{ $value | quote }}
+            {{- end }}
           {{- with .Values.webIngestor.resources }}
           resources:
             {{- toYaml . | nindent 12 }}

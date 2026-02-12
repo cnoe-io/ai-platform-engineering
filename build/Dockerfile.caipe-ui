@@ -1,0 +1,97 @@
+# CAIPE UI Dockerfile
+# Multi-stage build for Next.js application with nginx reverse proxy
+# Pattern based on RAG webui Dockerfile
+
+# ---------- Stage 1: Install dependencies ----------
+FROM node:20-alpine AS deps
+RUN apk add --no-cache libc6-compat
+WORKDIR /app
+
+# Install dependencies with cache and network resilience
+COPY ui/package.json ui/package-lock.json* ui/yarn.lock* ui/pnpm-lock.yaml* ./
+
+# Configure npm for better network resilience
+RUN npm config set fetch-retries 5 && \
+    npm config set fetch-retry-mintimeout 20000 && \
+    npm config set fetch-retry-maxtimeout 120000 && \
+    npm config set fetch-timeout 300000
+
+# Install dependencies with appropriate package manager
+RUN if [ -f package-lock.json ]; then npm ci; \
+    elif [ -f yarn.lock ]; then yarn install --frozen-lockfile; \
+    elif [ -f pnpm-lock.yaml ]; then npm i -g pnpm && pnpm i --frozen-lockfile; \
+    else npm i; fi
+
+# ---------- Stage 2: Build application ----------
+FROM node:20-alpine AS build
+WORKDIR /app
+
+# Build args for version info
+ARG IMAGE_TAG=dev
+ARG GIT_COMMIT=unknown
+ARG BUILD_DATE
+
+COPY --from=deps /app/node_modules ./node_modules
+COPY ui .
+
+# Disable telemetry during build
+ENV NEXT_TELEMETRY_DISABLED=1
+
+# Create version info file
+RUN BUILD_DATE_VALUE="${BUILD_DATE}"; \
+    if [ -z "$BUILD_DATE_VALUE" ]; then \
+        BUILD_DATE_VALUE=$(date -u +%Y-%m-%dT%H:%M:%SZ); \
+    fi; \
+    printf '{"version":"%s","gitCommit":"%s","buildDate":"%s"}\n' \
+    "${IMAGE_TAG}" \
+    "${GIT_COMMIT}" \
+    "$BUILD_DATE_VALUE" \
+    > public/version.json && \
+    cat public/version.json
+
+# Build Next.js standalone application without baking in NEXT_PUBLIC_* vars
+# These will be injected at runtime by PublicEnvScript server component
+RUN npm run build
+
+# ---------- Stage 3: Production runtime ----------
+FROM node:20-alpine AS runner
+WORKDIR /app
+
+ENV NODE_ENV=production
+ENV NEXT_TELEMETRY_DISABLED=1
+
+# Create non-root user
+RUN addgroup --system --gid 1001 nodejs && \
+    adduser --system --uid 1001 nextjs
+
+# Copy built standalone application
+COPY --from=build /app/public ./public
+COPY --from=build --chown=nextjs:nodejs /app/.next/standalone ./
+COPY --from=build --chown=nextjs:nodejs /app/.next/static ./.next/static
+
+# Copy version info
+COPY --from=build /app/public/version.json ./public/version.json
+
+# Copy entrypoint script
+COPY --chown=nextjs:nodejs build/entrypoint.sh /app/entrypoint.sh
+RUN chmod +x /app/entrypoint.sh
+
+USER nextjs
+
+EXPOSE 3000
+
+ENV PORT=3000
+ENV HOSTNAME="0.0.0.0"
+
+# Runtime environment variables (served to client via GET /api/config):
+# No NEXT_PUBLIC_ prefix needed. Set plain env vars on the container.
+# The server reads process.env at request time and serves config via API.
+# Common variables:
+#   A2A_BASE_URL - CAIPE supervisor endpoint
+#   SSO_ENABLED - Enable SSO authentication ("true"/"false")
+#   RAG_ENABLED - Enable RAG knowledge bases ("true"/"false")
+#   MONGODB_URI + MONGODB_DATABASE - Enable MongoDB persistence
+#   APP_NAME - Application name (e.g. "Grid")
+#   LOGO_URL - Logo path (e.g. "/grid-neon-logo.svg")
+# NEXT_PUBLIC_* names are still accepted for backward compatibility.
+CMD ["/app/entrypoint.sh"]

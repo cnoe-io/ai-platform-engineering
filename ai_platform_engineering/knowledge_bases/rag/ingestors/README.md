@@ -56,14 +56,27 @@ Ingests pages from Confluence spaces as documents into the RAG system. Supports 
 
 ## Running Ingestors
 
-Set environment and run:
-
+**Development (Trusted Network):**
 ```bash
 uv sync
 source ./.venv/bin/activate 
 export RAG_SERVER_URL="http://localhost:9446" 
 python3 src/ingestors/simple_ingestor/ingestor.py
 ```
+
+**Production (OAuth2 Client Credentials):**
+```bash
+export RAG_SERVER_URL="http://rag-server:9446"
+export INGESTOR_OIDC_ISSUER="https://your-keycloak.com/realms/production"
+export INGESTOR_OIDC_CLIENT_ID="rag-ingestor"
+export INGESTOR_OIDC_CLIENT_SECRET="xxx"
+python3 src/ingestors/simple_ingestor/ingestor.py
+```
+
+The ingestor automatically:
+- Fetches OAuth2 access tokens via client credentials grant
+- Caches tokens and refreshes before expiry
+- Includes Bearer token in all RAG server API calls
 
 ## Creating a Simple Ingestor
 

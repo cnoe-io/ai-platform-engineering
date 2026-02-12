@@ -513,6 +513,49 @@ class AIPlatformEngineerA2ABinding:
                                   "text": tool_content
                               }
                           }
+                  # Special handling for request_user_input: emit structured form metadata
+                  elif tool_name == "request_user_input" and tool_content:
+                      logging.info("📝 Intercepting request_user_input tool - emitting structured form")
+                      try:
+                          # Parse the tool output which contains structured field data
+                          tool_result = json.loads(tool_content)
+                          fields = tool_result.get("fields", [])
+                          title = tool_result.get("title", "User Input Required")
+                          description = tool_result.get("description", "Please provide the following information")
+                          
+                          # Convert to the metadata.input_fields format expected by frontend
+                          input_fields = []
+                          for field in fields:
+                              input_fields.append({
+                                  "field_name": field.get("field_name", ""),
+                                  "field_label": field.get("field_label", field.get("field_name", "")),
+                                  "field_description": field.get("field_description", ""),
+                                  "field_type": field.get("field_type", "text"),
+                                  "field_values": field.get("field_values"),
+                                  "placeholder": field.get("placeholder"),
+                                  "required": field.get("required", True),
+                                  "default_value": field.get("default_value"),
+                              })
+                          
+                          logging.info(f"📝 Emitting user input form: {title} with {len(input_fields)} fields")
+                          
+                          # Yield structured user input request
+                          yield {
+                              "is_task_complete": False,
+                              "require_user_input": True,
+                              "content": f"**{title}**\n\n{description}",
+                              "metadata": {
+                                  "user_input": True,
+                                  "input_title": title,
+                                  "input_description": description,
+                                  "input_fields": input_fields
+                              }
+                          }
+                          # Don't emit completion notification for this tool
+                          continue
+                      except json.JSONDecodeError as e:
+                          logging.warning(f"Failed to parse request_user_input content: {e}")
+                          # Fall through to normal handling if parsing fails
                   elif tool_name in rag_tool_names:
                     # For RAG tools, we don't want to stream the content, as its a LOT of text
                       yield {
@@ -1099,9 +1142,14 @@ class AIPlatformEngineerA2ABinding:
 
       # If content doesn't look like JSON, treat it as a working text update
       if not (content.startswith('{') or content.startswith('[')):
-        logging.info("Content appears to be plain text; returning working structured response.")
+        # Check if content contains [FINAL ANSWER] marker indicating task completion
+        is_final = '[FINAL ANSWER]' in content or '[FINAL_ANSWER]' in content
+        if is_final:
+          logging.info("Content contains [FINAL ANSWER] marker; returning completed structured response.")
+        else:
+          logging.info("Content appears to be plain text; returning working structured response.")
         return {
-          'is_task_complete': False,
+          'is_task_complete': is_final,
           'require_user_input': False,
           'content': content,
         }
@@ -1121,8 +1169,10 @@ class AIPlatformEngineerA2ABinding:
     except json.JSONDecodeError as e:
       logging.warning(f"Failed to decode content as JSON, returning working structured response: {e}")
       logging.warning(f"Content that failed to parse: {repr(content)}")
+      # Check if content contains [FINAL ANSWER] marker indicating task completion
+      is_final = '[FINAL ANSWER]' in content or '[FINAL_ANSWER]' in content
       return {
-        'is_task_complete': False,
+        'is_task_complete': is_final,
         'require_user_input': False,
         'content': content,
       }

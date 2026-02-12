@@ -8,7 +8,7 @@ Provides a single `git` tool that can run any git command with automatic
 GitHub/GitLab authentication for private repositories.
 
 Supports:
-- GitHub: Uses GITHUB_PERSONAL_ACCESS_TOKEN or GITHUB_TOKEN
+- GitHub: Uses GitHub App tokens (auto-refreshing) or GITHUB_PERSONAL_ACCESS_TOKEN
 - GitLab: Uses GITLAB_PERSONAL_ACCESS_TOKEN or GITLAB_TOKEN
 
 Security:
@@ -33,7 +33,7 @@ GIT_TIMEOUT = int(os.getenv("GIT_MAX_EXECUTION_TIME", "300"))
 
 
 def _get_all_tokens() -> List[str]:
-    """Collect all configured tokens for sanitization."""
+    """Collect all configured tokens for sanitization, including GitHub App tokens."""
     tokens = []
     for env_var in [
         "GITHUB_PERSONAL_ACCESS_TOKEN",
@@ -46,6 +46,16 @@ def _get_all_tokens() -> List[str]:
         token = os.getenv(env_var)
         if token and len(token) > 4:
             tokens.append(token)
+
+    # Include the dynamically generated GitHub App installation token
+    try:
+        from ai_platform_engineering.utils.github_app_token_provider import _get_provider
+        provider = _get_provider()
+        if provider and provider._token and len(provider._token) > 4:
+            tokens.append(provider._token)
+    except (ImportError, Exception):
+        pass
+
     return tokens
 
 
@@ -54,27 +64,37 @@ def _sanitize_output(text: str, tokens: Optional[List[str]] = None) -> str:
     Remove authentication tokens from text to prevent credential leakage.
 
     CRITICAL: Called on ALL output before returning to LLM/agent.
+    Uses the centralized token_sanitizer for comprehensive pattern-based
+    redaction, plus exact-value redaction for known tokens.
     """
     if not text:
         return text
 
-    if tokens is None:
-        tokens = _get_all_tokens()
-
-    sanitized = text
-    for token in tokens:
-        if token and token in sanitized:
-            sanitized = sanitized.replace(token, "[REDACTED]")
-
-    # Redact x-access-token patterns in URLs
-    sanitized = re.sub(r'x-access-token:[^@]+@', 'x-access-token:[REDACTED]@', sanitized)
-
-    return sanitized
+    from ai_platform_engineering.utils.token_sanitizer import sanitize_output as _sanitize
+    return _sanitize(text, extra_tokens=tokens)
 
 
 def _detect_git_provider(url: str) -> str:
-    """Detect git provider from URL: 'github', 'gitlab', or 'unknown'."""
+    """Detect git provider from URL: 'github', 'gitlab', or 'unknown'.
+
+    Also checks GITLAB_HOST and GITHUB_HOST environment variables for
+    custom/enterprise instances (e.g., gitlab.customhost.com for GitLab).
+    """
     url_lower = url.lower()
+    parsed = urlparse(url_lower)
+    host = parsed.netloc or url_lower
+
+    # Check for custom GitLab host from environment
+    gitlab_host = os.getenv("GITLAB_HOST", "").lower()
+    if gitlab_host and gitlab_host in host:
+        return 'gitlab'
+
+    # Check for custom GitHub host from environment
+    github_host = os.getenv("GITHUB_HOST", "").lower()
+    if github_host and github_host in host:
+        return 'github'
+
+    # Standard detection
     if 'github.com' in url_lower or 'github' in url_lower:
         return 'github'
     elif 'gitlab.com' in url_lower or 'gitlab' in url_lower:
@@ -85,8 +105,19 @@ def _detect_git_provider(url: str) -> str:
 
 
 def _get_auth_token(provider: str) -> Optional[str]:
-    """Get authentication token for a git provider."""
+    """Get authentication token for a git provider.
+
+    For GitHub, uses the centralized token provider which supports
+    auto-refreshing GitHub App tokens with PAT fallback.
+    """
     if provider == 'github':
+        try:
+            from ai_platform_engineering.utils.github_app_token_provider import get_github_token
+            token = get_github_token()
+            if token:
+                return token
+        except ImportError:
+            pass
         return os.getenv("GITHUB_PERSONAL_ACCESS_TOKEN") or os.getenv("GITHUB_TOKEN")
     elif provider == 'gitlab':
         return os.getenv("GITLAB_PERSONAL_ACCESS_TOKEN") or os.getenv("GITLAB_TOKEN")
@@ -97,16 +128,21 @@ def _get_auth_token(provider: str) -> Optional[str]:
     )
 
 
-def _inject_token_into_url(url: str, token: str) -> str:
+def _inject_token_into_url(url: str, token: str, provider: str = 'unknown') -> str:
     """
     Inject auth token into git HTTPS URL.
 
-    Transforms: https://github.com/owner/repo.git
-    Into: https://x-access-token:TOKEN@github.com/owner/repo.git
+    For GitHub: https://x-access-token:TOKEN@github.com/owner/repo.git
+    For GitLab: https://gitlab-ci-token:TOKEN@gitlab.com/owner/repo.git
     """
     parsed = urlparse(url)
     if parsed.scheme in ('http', 'https') and not parsed.username:
-        netloc_with_auth = f"x-access-token:{token}@{parsed.netloc}"
+        # GitLab uses gitlab-ci-token, GitHub uses x-access-token
+        if provider == 'gitlab':
+            username = 'gitlab-ci-token'
+        else:
+            username = 'x-access-token'
+        netloc_with_auth = f"{username}:{token}@{parsed.netloc}"
         return parsed._replace(netloc=netloc_with_auth).geturl()
     return url
 
@@ -137,6 +173,7 @@ def _run_git_command(
 
     Detects URLs in the command and injects auth tokens automatically.
     All output is sanitized to prevent credential leakage.
+
     """
     tokens_to_redact = _get_all_tokens()
 
@@ -149,7 +186,7 @@ def _run_git_command(
             provider = _detect_git_provider(url)
             token = _get_auth_token(provider)
             if token:
-                authenticated_url = _inject_token_into_url(url, token)
+                authenticated_url = _inject_token_into_url(url, token, provider)
                 # Replace URL with authenticated version
                 for i, arg in enumerate(cmd_args):
                     if arg == url:
@@ -157,12 +194,15 @@ def _run_git_command(
                         break
                 logger.debug(f"Using {provider} token for authentication")
 
+        # Pass current environment to ensure GIT_AUTHOR_NAME, GIT_AUTHOR_EMAIL,
+        # GIT_COMMITTER_NAME, GIT_COMMITTER_EMAIL are available for commits
         result = subprocess.run(
             cmd_args,
             cwd=cwd,
             capture_output=True,
             text=True,
-            timeout=GIT_TIMEOUT
+            timeout=GIT_TIMEOUT,
+            env=os.environ.copy()
         )
 
         return {

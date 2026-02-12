@@ -541,7 +541,7 @@ When user asks about sprints, the agent should:
 
 ## Related Documents
 
-- [Jira MCP README](../../../ai_platform_engineering/agents/jira/mcp/README.md)
+- Jira MCP README - See `ai_platform_engineering/agents/jira/mcp/README.md` in repository
 - [Jira Agile REST API](https://developer.atlassian.com/cloud/jira/software/rest/intro/)
 - [Board API Reference](https://developer.atlassian.com/cloud/jira/software/rest/api-group-board/)
 - [Sprint API Reference](https://developer.atlassian.com/cloud/jira/software/rest/api-group-sprint/)

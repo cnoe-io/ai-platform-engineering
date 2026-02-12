@@ -1,0 +1,21 @@
+{{- if and .Values.milvus.enabled .Values.milvus.queryNode.podDisruptionBudget.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ .Release.Name }}-querynode
+  labels:
+    {{- include "rag-stack.labels" . | nindent 4 }}
+    app.kubernetes.io/name: milvus
+    component: querynode
+spec:
+  {{- if .Values.milvus.queryNode.podDisruptionBudget.minAvailable }}
+  minAvailable: {{ .Values.milvus.queryNode.podDisruptionBudget.minAvailable }}
+  {{- else if .Values.milvus.queryNode.podDisruptionBudget.maxUnavailable }}
+  maxUnavailable: {{ .Values.milvus.queryNode.podDisruptionBudget.maxUnavailable }}
+  {{- end }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: milvus
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      component: querynode
+{{- end }}

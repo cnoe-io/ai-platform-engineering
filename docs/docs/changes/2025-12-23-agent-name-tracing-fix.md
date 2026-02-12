@@ -3,7 +3,7 @@
 **Status**: 🟢 In-use
 **Category**: Bug Fixes & Performance
 **Date**: December 23, 2025
-**Signed-off-by**: Sri Aradhyula <sraradhy@cisco.com>
+**Signed-off-by**: Sri Aradhyula &lt;sraradhy@cisco.com&gt;
 
 ## Overview / Summary
 
@@ -287,8 +287,8 @@ Code analysis confirms this fix is **actively in use**:
 - [Tracing Implementation Guide](../evaluations/tracing-implementation-guide.md) - Langfuse integration
 
 ### cnoe-agent-utils
-- [TracingManager Documentation](../../../../../cnoe-agent-utils/TRACING.md) - Tracing utility
-- [`@trace_agent_stream` Decorator](../../../../../cnoe-agent-utils/cnoe_agent_utils/tracing/decorators.py) - Span creation
+- TracingManager Documentation - See `cnoe-agent-utils/TRACING.md` in repository
+- `@trace_agent_stream` Decorator - See `cnoe-agent-utils/cnoe_agent_utils/tracing/decorators.py` in repository
 
 ### External Resources
 - [LangGraph Tracing](https://python.langchain.com/docs/langgraph/how-tos/trace) - LangGraph observability

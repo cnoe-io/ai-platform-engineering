@@ -5,23 +5,27 @@
 GitLab Agent using BaseLangGraphAgent.
 
 This agent supports both HTTP and stdio MCP modes:
-- HTTP mode: Uses GitLab's official MCP server at https://{gitlab_host}/-/mcp
-- stdio mode: Uses @zereight/mcp-gitlab OSS MCP server
+- HTTP mode: Uses @zereight/mcp-gitlab as a local MCP server (via mcp-gitlab container)
+- stdio mode: Uses @zereight/mcp-gitlab as a subprocess
 
-Both modes are supplemented with bash_command tool for git operations (clone, push, etc.)
-and file operations that require shell command execution.
+Both modes are supplemented with shared agent tools (git, grep, glob_find, file I/O)
+for repository operations that require shell command execution.
+
+Native permission filtering is handled via GITLAB_DENIED_TOOLS_REGEX environment variable
+on the MCP server
 """
 
 import logging
 import os
-import re
-from typing import Dict, Any, Literal, AsyncIterable
+from typing import Dict, Any, List, Literal, AsyncIterable
 from dotenv import load_dotenv
 from pydantic import BaseModel
 
 from ai_platform_engineering.utils.a2a_common.base_langgraph_agent import BaseLangGraphAgent
 from ai_platform_engineering.utils.subagent_prompts import load_subagent_prompt_config
-from agent_gitlab.tools import get_bash_command_tool
+from ai_platform_engineering.utils.agent_tools import (
+    git, grep, glob_find, read_file, write_file, edit_file, append_file, list_files
+)
 
 logger = logging.getLogger(__name__)
 
@@ -61,36 +65,70 @@ class GitLabAgent(BaseLangGraphAgent):
 
     def get_mcp_http_config(self) -> Dict[str, Any] | None:
         """
-        Provide custom HTTP MCP configuration for GitLab's official MCP server.
+        Provide HTTP MCP configuration for local @zereight/mcp-gitlab server.
 
-        Uses GitLab's official MCP server endpoint at /-/mcp
-        https://docs.gitlab.com/user/gitlab_duo/model_context_protocol/mcp_server/
+        Uses the mcp-gitlab container running in HTTP mode (STREAMABLE_HTTP=true).
+        The MCP server is pre-configured with GitLab credentials and permission
+        filtering via GITLAB_DENIED_TOOLS_REGEX.
 
         Returns:
-            Dictionary with GitLab MCP API configuration
+            Dictionary with MCP server URL configuration
         """
-        if not self.gitlab_token:
-            logger.error("Cannot configure GitLab MCP: GITLAB_TOKEN not set")
-            return None
-
-        gitlab_host = os.getenv("GITLAB_HOST", "gitlab.com")
+        mcp_host = os.getenv("MCP_HOST", "localhost")
+        mcp_port = os.getenv("MCP_PORT", "8000")
 
         return {
-            "url": f"https://{gitlab_host}/-/mcp",
-            "headers": {
-                "Authorization": f"Bearer {self.gitlab_token}",
-            },
+            "url": f"http://{mcp_host}:{mcp_port}/mcp",
         }
+
+    def _get_denied_tools_regex(self) -> str:
+        """
+        Get GITLAB_DENIED_TOOLS_REGEX for MCP server tool filtering.
+
+        Returns the regex pattern from environment variable. Users should set this
+        directly based on their desired permission level.
+
+        Example patterns (uses ^ for prefix matching):
+
+        READ-ONLY (default) - blocks all write operations:
+          ^(delete_|remove_|create_|fork_|new_|update_|edit_|merge_|push_|publish_|retry_|cancel_|play_|promote_|upload_|resolve_|bulk_)|^(execute_graphql)$
+
+        ALLOW CREATE - blocks delete/update:
+          ^(delete_|remove_|update_|edit_|merge_|push_|publish_|retry_|cancel_|play_|promote_|upload_|resolve_|bulk_)|^(execute_graphql)$
+
+        ALLOW UPDATE - blocks delete/create:
+          ^(delete_|remove_|create_|fork_|new_)|^(execute_graphql)$
+
+        ALLOW CREATE + UPDATE - blocks only delete:
+          ^(delete_|remove_)|^(execute_graphql)$
+
+        To block specific tools, add them as exact matches: |^(tool1|tool2)$
+        Example: ...|^(execute_graphql|approve_merge_request|unapprove_merge_request)$
+
+        Note: execute_graphql is always blocked as it bypasses prefix-based permission controls
+
+        Returns:
+            Regex pattern string for denied tools
+        """
+        # Default: READ-ONLY mode (blocks all create/update/delete operations)
+        default_regex = (
+            "^(delete_|remove_|create_|fork_|new_|update_|edit_|merge_|push_|publish_|"
+            "retry_|cancel_|play_|promote_|upload_|resolve_|bulk_)|"
+            "^(execute_graphql)$"
+        )
+        regex = os.getenv("GITLAB_DENIED_TOOLS_REGEX", default_regex)
+        logger.info(f"GitLab agent: Using denied tools regex: {regex}")
+        return regex
 
     def get_mcp_config(self, server_path: str | None = None) -> Dict[str, Any]:
         """
-        Provide stdio MCP configuration for GitLab using OSS MCP server.
+        Provide stdio MCP configuration for GitLab using @zereight/mcp-gitlab.
 
         Uses @zereight/mcp-gitlab which connects directly to GitLab API
         with PAT authentication. This is used when MCP_MODE=stdio.
 
-        When MCP_MODE=http, the official GitLab MCP server is used instead
-        (see get_mcp_http_config).
+        Includes GITLAB_DENIED_TOOLS_REGEX for native permission filtering
+        at the MCP server level.
 
         Returns:
             Dictionary with command and environment for stdio MCP
@@ -100,6 +138,7 @@ class GitLabAgent(BaseLangGraphAgent):
             return {}
 
         gitlab_host = os.getenv("GITLAB_HOST", "gitlab.com")
+        denied_tools_regex = self._get_denied_tools_regex()
 
         return {
             "transport": "stdio",
@@ -109,6 +148,7 @@ class GitLabAgent(BaseLangGraphAgent):
                 "GITLAB_API_URL": f"https://{gitlab_host}/api/v4",
                 "GITLAB_PERSONAL_ACCESS_TOKEN": self.gitlab_token,
                 "USE_PIPELINE": "true",
+                "GITLAB_DENIED_TOOLS_REGEX": denied_tools_regex,
             }
         }
 
@@ -132,101 +172,51 @@ class GitLabAgent(BaseLangGraphAgent):
         """Return the message shown when processing tool results."""
         return _prompt_config.tool_processing_message
 
-    def get_additional_tools(self) -> list:
+    def get_additional_tools(self) -> List:
         """
-        Provide additional custom tools for GitLab agent.
+        Provide shared tools for GitLab agent.
 
-        Returns bash_command tool for git and file operations.
+        Returns shared agent tools for git operations, file search, and file I/O.
+        These tools auto-authenticate with GitLab using GITLAB_TOKEN.
 
         Returns:
-            List containing bash_command tool
+            List of shared agent tools
         """
-        tools = []
-
-        bash_tool = get_bash_command_tool()
-        if bash_tool:
-            tools.append(bash_tool)
-            logger.info("GitLab agent: Added bash command tool (bash_command)")
-
+        tools = [
+            git,           # git clone, checkout, commit, push (auto-authenticates)
+            grep,          # grep -rn pattern .
+            glob_find,     # find files by pattern
+            read_file,     # read file contents
+            write_file,    # write file contents (full rewrite)
+            edit_file,     # edit file contents (search-and-replace, more efficient)
+            append_file,   # append to file
+            list_files,    # list directory contents
+        ]
+        logger.info(
+            "GitLab agent: Added shared agent tools "
+            "(git, grep, glob_find, read_file, write_file, edit_file, append_file, list_files)"
+        )
         return tools
 
     def _filter_mcp_tools(self, tools: list) -> list:
         """
-        Filter MCP tools based on GitLab permission settings.
+        Log available MCP tools after MCP server-side filtering.
 
-        Uses environment variables to control tool access:
-        - GITLAB_READ_ONLY_MODE: If true, filters out all create/update/delete tools
-        - GITLAB_ALLOW_CREATE: If false, filters out create tools
-        - GITLAB_ALLOW_UPDATE: If false, filters out update/edit tools
+        Tool filtering is handled entirely by the MCP server via GITLAB_DENIED_TOOLS_REGEX
 
-        Delete operations are always filtered out for safety.
-
-        Uses keyword matching to be resilient to tool name transformations by LangChain.
+        This method just logs the tools for visibility.
 
         Args:
-            tools: List of MCP tools
+            tools: List of MCP tools (already filtered by MCP server)
 
         Returns:
-            Filtered list of tools
+            The same list of tools (no additional filtering)
         """
-        read_only_mode = os.getenv("GITLAB_READ_ONLY_MODE", "false").lower() == "true"
-        allow_create = os.getenv("GITLAB_ALLOW_CREATE", "false").lower() == "true"
-        allow_update = os.getenv("GITLAB_ALLOW_UPDATE", "false").lower() == "true"
+        available_tool_names = sorted([t.name for t in tools])
+        logger.info(f"GitLab agent: Received {len(tools)} MCP tools (filtered by MCP server)")
+        logger.info(f"GitLab agent: Available MCP tools: {available_tool_names}")
 
-        # Keywords for DELETE operations (always blocked)
-        delete_keywords = ["delete", "remove"]
-
-        # Keywords for CREATE operations (require GITLAB_ALLOW_CREATE=true)
-        # Note: "create" also matches "create_or_update" which is correct (it's a write operation)
-        create_keywords = ["create", "fork", "new"]
-
-        # Keywords for UPDATE operations (require GITLAB_ALLOW_UPDATE=true)
-        update_keywords = [
-            "update", "edit", "merge", "push", "publish", "retry", "cancel",
-            "play", "promote", "upload"
-        ]
-
-        filtered_tools = []
-        for tool in tools:
-            tool_name_lower = tool.name.lower()
-
-            # FIRST: Always block delete operations
-            if any(keyword in tool_name_lower for keyword in delete_keywords):
-                logger.info(f"GitLab agent: Filtered out delete tool: {tool.name}")
-                continue
-
-            # SECOND: If in read-only mode, block all write operations
-            if read_only_mode:
-                is_create = any(keyword in tool_name_lower for keyword in create_keywords)
-                is_update = any(keyword in tool_name_lower for keyword in update_keywords)
-                if is_create or is_update:
-                    logger.info(f"GitLab agent: Filtered out write tool (read-only mode): {tool.name}")
-                    continue
-
-            # THIRD: Check create operations
-            if not allow_create:
-                if any(keyword in tool_name_lower for keyword in create_keywords):
-                    logger.info(f"GitLab agent: Filtered out create tool (GITLAB_ALLOW_CREATE=false): {tool.name}")
-                    continue
-
-            # FOURTH: Check update operations
-            if not allow_update:
-                if any(keyword in tool_name_lower for keyword in update_keywords):
-                    logger.info(f"GitLab agent: Filtered out update tool (GITLAB_ALLOW_UPDATE=false): {tool.name}")
-                    continue
-
-            # Tool passed all filters
-            filtered_tools.append(tool)
-
-        num_filtered = len(tools) - len(filtered_tools)
-        if num_filtered > 0:
-            logger.info(
-                f"GitLab agent: Filtered {num_filtered} tools. "
-                f"Remaining: {len(filtered_tools)} tools. "
-                f"(read_only={read_only_mode}, allow_create={allow_create}, allow_update={allow_update})"
-            )
-
-        return filtered_tools
+        return tools
 
     def _parse_tool_error(self, error: Exception, tool_name: str) -> str:
         """
@@ -250,25 +240,7 @@ class GitLabAgent(BaseLangGraphAgent):
 
         error_str = str(underlying_error)
 
-        # Parse common GitLab API errors for better user messages
-        if "404 Not Found" in error_str or "404" in error_str:
-            # Extract project name from URL if possible
-            project_match = re.search(r'/projects/([^/]+/[^/]+)/', error_str)
-            project_name = project_match.group(1) if project_match else "project"
-            return f"Project '{project_name}' not found. Please check the group and project names are correct."
-        elif "401" in error_str or "403" in error_str:
-            return "GitLab authentication failed or insufficient permissions. Please check your GITLAB_TOKEN."
-        elif "rate limit" in error_str.lower() or "429" in error_str:
-            return "GitLab API rate limit exceeded. Please wait a few minutes before trying again."
-        elif "timeout" in error_str.lower() or "timed out" in error_str.lower():
-            return f"GitLab API request timed out for {tool_name}. The server may be slow or overloaded. Please try again."
-        elif "connection" in error_str.lower() or "connect" in error_str.lower():
-            return f"Failed to connect to GitLab API for {tool_name}. Please check your network connection."
-        elif "unhandled errors in a TaskGroup" in error_str:
-            # Generic TaskGroup error without specific cause
-            return f"GitLab API request failed for {tool_name}. The API may be temporarily unavailable. Please try again."
-        else:
-            return f"Error executing {tool_name}: {error_str}"
+        return f"Error executing {tool_name}: {error_str}"
 
     async def stream(
         self, query: str, sessionId: str, trace_id: str = None

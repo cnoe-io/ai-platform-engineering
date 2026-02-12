@@ -58,28 +58,38 @@ rag-server:
     type: ClusterIP
     port: 9446
 
-  # Feature Flags
-  enableGraphRag: true              # ENABLE_GRAPH_RAG - enable/disable graph RAG features
-  enableMcp: true                   # ENABLE_MCP - enable/disable MCP tools for AI agents
-  skipInitTests: false              # SKIP_INIT_TESTS - skip connection tests on startup
+  # Feature flag with global fallback (global.rag.enableGraphRag)
+  enableGraphRag: true
 
-  # Embeddings Configuration
-  embeddingsProvider: "azure-openai"  # EMBEDDINGS_PROVIDER - azure-openai or openai
-  embeddingsModel: "text-embedding-3-small"  # EMBEDDINGS_MODEL - model name
+  # All application configuration via environment variables
+  env:
+    # Feature Flags
+    ENABLE_MCP: "true"
+    SKIP_INIT_TESTS: "false"
+    # Embeddings Configuration
+    EMBEDDINGS_PROVIDER: "azure-openai"
+    EMBEDDINGS_MODEL: "text-embedding-3-small"
+    # Performance & Limits
+    MAX_DOCUMENTS_PER_INGEST: "1000"
+    MAX_RESULTS_PER_QUERY: "100"
+    MAX_INGESTION_CONCURRENCY: "30"
+    MAX_GRAPH_RAW_QUERY_RESULTS: "100"
+    MAX_GRAPH_RAW_QUERY_TOKENS: "80000"
+    SEARCH_RESULT_TRUNCATE_LENGTH: "500"
+    # General Settings
+    LOG_LEVEL: "DEBUG"
+    UI_URL: "http://localhost:9447"
+    SLEEP_ON_INIT_FAILURE_SECONDS: "180"
+    CLEANUP_INTERVAL: "86400"
+    # RBAC/Authentication (when using OAuth2 Proxy)
+    ALLOW_UNAUTHENTICATED: "true"
+    RBAC_READONLY_GROUPS: ""
+    RBAC_INGESTONLY_GROUPS: ""
+    RBAC_ADMIN_GROUPS: ""
+    RBAC_DEFAULT_ROLE: "readonly"
 
-  # Performance & Limits
-  maxDocumentsPerIngest: 1000       # MAX_DOCUMENTS_PER_INGEST
-  maxResultsPerQuery: 100           # MAX_RESULTS_PER_QUERY
-  maxIngestionConcurrency: 30       # MAX_INGESTION_CONCURRENCY
-  maxGraphRawQueryResults: 100      # MAX_GRAPH_RAW_QUERY_RESULTS
-  maxGraphRawQueryTokens: 80000     # MAX_GRAPH_RAW_QUERY_TOKENS
-  searchResultTruncateLength: 500   # SEARCH_RESULT_TRUNCATE_LENGTH
-
-  # Other Settings
-  logLevel: DEBUG                   # LOG_LEVEL
-  uiUrl: "http://localhost:9447"    # UI_URL - WebUI URL for health check
-  sleepOnInitFailureSeconds: 180    # SLEEP_ON_INIT_FAILURE_SECONDS - how long to wait if init fails
-  cleanupInterval: 86400            # CLEANUP_INTERVAL (24 hours) - cleans up stale data in databases
+  # Additional envFrom references (secrets, configmaps)
+  envFrom: []
 
   # Web Ingestor sidecar configuration
   webIngestor:
@@ -90,10 +100,20 @@ rag-server:
       tag: ""
       pullPolicy: Always
 
-    logLevel: INFO
-    maxConcurrency: 10            # WEBLOADER_MAX_CONCURRENCY - max concurrent HTTP requests per ingestion
-    maxIngestionTasks: 5          # WEBLOADER_MAX_INGESTION_TASKS - max concurrent ingestion tasks
-    reloadInterval: 86400         # WEBLOADER_RELOAD_INTERVAL - auto-reload interval in seconds (24 hours)
+    # Environment variables for web-ingestor container
+    env:
+      LOG_LEVEL: "INFO"
+      WEBLOADER_MAX_CONCURRENCY: "10"
+      WEBLOADER_MAX_INGESTION_TASKS: "5"
+      WEBLOADER_RELOAD_INTERVAL: "86400"
+      # Scrapy settings (optional):
+      # SCRAPY_CONCURRENT_REQUESTS: "16"
+      # SCRAPY_DOWNLOAD_DELAY: "0"
+      # SCRAPY_DEPTH_LIMIT: "0"
+      # SCRAPY_JAVASCRIPT_ENABLED: "false"
+
+    # Additional envFrom references (secrets, configmaps)
+    envFrom: []
 
     resources:
       requests:
@@ -193,7 +213,7 @@ rag-webui:
   podAnnotations: {}
 
   ingress:
-    enabled: true
+    enabled: true  # IMPORTANT: Set to false when oauth2-proxy.enabled is true
     className: ""
     annotations: {}
     hosts:
@@ -210,6 +230,63 @@ rag-webui:
     limits:
       cpu: 500m
       memory: 512Mi
+
+# OAuth2 Proxy configuration for authentication
+# When enabled, provides OIDC/OAuth2 authentication for RAG WebUI
+# IMPORTANT: When enabling oauth2-proxy, set rag-webui.ingress.enabled to false
+oauth2-proxy:
+  enabled: false
+  
+  config:
+    # OAuth credentials - MUST be configured when enabled
+    # Can use existingSecret instead of storing values here
+    clientID: ""
+    clientSecret: ""
+    cookieSecret: ""  # Generate with: openssl rand -base64 32 | head -c 32 | base64
+    
+    # Email domains allowed to authenticate
+    configFile: |-
+      email_domains = [ "*" ]
+      reverse_proxy = true
+      upstreams = [ "http://rag-webui:80" ]
+      whitelist_domains = [".local", "localhost"]
+      pass_user_headers = true
+      scope = "openid email profile groups"
+    
+  # Additional OAuth2 Proxy arguments
+  extraArgs:
+    provider: "oidc"
+    oidc-issuer-url: ""  # REQUIRED: Your OIDC provider URL (e.g., https://sso.example.com/oidc/CLIENT_ID)
+    oidc-groups-claim: "groups"  # Header claim for group membership
+    cookie-domain: ""  # Optional: Set to your domain (e.g., .example.com)
+    cookie-secure: "false"  # Set to "true" in production with HTTPS
+    
+  # Service configuration
+  service:
+    type: ClusterIP
+    port: 80
+    
+  # Ingress for OAuth2 Proxy (this becomes the main entry point when enabled)
+  # Note: Disable rag-webui.ingress.enabled when using OAuth2 Proxy
+  ingress:
+    enabled: false
+    className: ""
+    annotations: {}
+    hosts:
+      - host: rag-webui.local
+        paths:
+          - path: /
+            pathType: Prefix
+    tls: []
+    
+  # Resource limits
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
 
 neo4j:
   enabled: true
@@ -297,6 +374,12 @@ milvus:
       limits:
         cpu: 200m
         memory: 256Mi
+    # PodDisruptionBudget configuration for dataNode
+    # Protects data persistence during voluntary disruptions
+    podDisruptionBudget:
+      enabled: false
+      # maxUnavailable: 1  # Only allow 1 pod to be unavailable during voluntary disruptions
+      # minAvailable: 1    # OR ensure at least 1 pod is always available
 
   queryNode:
     annotations: {}
@@ -304,12 +387,32 @@ milvus:
       limits:
         cpu: 200m
         memory: 256Mi
+    # PodDisruptionBudget configuration for queryNode
+    # Protects search query capacity during voluntary disruptions
+    podDisruptionBudget:
+      enabled: false
+      # maxUnavailable: 1  # Only allow 1 pod to be unavailable during voluntary disruptions
+      # minAvailable: 1    # OR ensure at least 1 pod is always available
 
   etcd:
     podAnnotations: {}
+    # PodDisruptionBudget configuration for etcd
+    # Recommended for production to maintain etcd quorum during voluntary disruptions
+    podDisruptionBudget:
+      enabled: false
+      # maxUnavailable: 1  # Only allow 1 pod to be unavailable during voluntary disruptions
+      # OR use minAvailable to ensure quorum is maintained
+      # minAvailable: 2  # Ensure at least 2 out of 3 pods are available (maintains quorum)
 
   minio:
     podAnnotations: {}
+    # PodDisruptionBudget configuration for MinIO
+    # Recommended for production to prevent multiple MinIO pods from being disrupted simultaneously
+    podDisruptionBudget:
+      enabled: false
+      # maxUnavailable: 1  # Only allow 1 pod to be unavailable during voluntary disruptions
+      # OR use minAvailable to ensure a minimum number of pods are available
+      # minAvailable: 3  # Ensure at least 3 out of 4 pods are available (maintains quorum)
 
 # RAG Ingestors configuration
 # Disabled by default - configure ingestors as needed

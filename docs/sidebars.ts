@@ -260,6 +260,47 @@ const sidebars: SidebarsConfig = {
     },
     {
       type: 'category',
+      label: '🎨 CAIPE UI',
+      items: [
+        {
+          type: 'doc',
+          id: 'ui/index',
+          label: 'Overview',
+        },
+        {
+          type: 'doc',
+          id: 'ui/features',
+          label: 'Features',
+        },
+        {
+          type: 'doc',
+          id: 'ui/auth-flow',
+          label: 'Authentication Flow',
+        },
+        {
+          type: 'doc',
+          id: 'ui/configuration',
+          label: 'Configuration',
+        },
+        {
+          type: 'doc',
+          id: 'ui/development',
+          label: 'Development Guide',
+        },
+        {
+          type: 'doc',
+          id: 'ui/api-reference',
+          label: 'API Reference',
+        },
+        {
+          type: 'doc',
+          id: 'ui/troubleshooting',
+          label: 'Troubleshooting',
+        },
+      ],
+    },
+    {
+      type: 'category',
       label: 'Use Cases',
       items: [
         {

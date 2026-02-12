@@ -15,7 +15,10 @@ APP_NAME ?= ai-platform-engineering
 	generate-docker-compose generate-docker-compose-dev generate-docker-compose-all clean-docker-compose \
 	lint lint-fix test test-compose-generator test-compose-generator-coverage \
 	test-rag-unit test-rag-coverage test-rag-memory test-rag-scale validate lock-all help \
-	beads-gh-issues-sync beads-gh-issues-sync-run beads-list beads-ready beads-sync
+	beads-gh-issues-sync beads-gh-issues-sync-run beads-list beads-ready beads-sync \
+	caipe-ui caipe-ui-install caipe-ui-build caipe-ui-dev caipe-ui-tests \
+	build-caipe-ui run-caipe-ui-docker caipe-ui-docker-compose \
+	docs docs-install docs-build docs-dev docs-start docs-serve
 
 .DEFAULT_GOAL := run
 
@@ -114,6 +117,75 @@ langgraph-dev: setup-venv ## Run langgraph in development mode
 	@echo "Running langgraph dev..."
 	@. .venv/bin/activate && uv add langgraph-cli[inmem] --dev && uv sync --dev && cd ai_platform_engineering/multi_agents/platform_engineer && LANGGRAPH_DEV=true langgraph dev
 
+## ========== CAIPE UI ==========
+
+caipe-ui: caipe-ui-install caipe-ui-dev ## Build and run the CAIPE UI (install + dev server)
+
+caipe-ui-install: ## Install CAIPE UI dependencies
+	@echo "Installing CAIPE UI dependencies..."
+	@cd ui && npm install
+
+caipe-ui-build: caipe-ui-install ## Build CAIPE UI for production
+	@echo "Building CAIPE UI for production..."
+	@cd ui && npm run build
+
+caipe-ui-dev: ## Run CAIPE UI in development mode
+	@echo "Starting CAIPE UI development server..."
+	@cd ui && npm run dev
+
+caipe-ui-tests: ## Run CAIPE UI Jest tests
+	@echo "Running CAIPE UI tests..."
+	@cd ui && npm test
+
+# Docker targets for CAIPE UI
+CAIPE_UI_IMAGE ?= caipe-ui
+CAIPE_UI_TAG ?= local
+
+build-caipe-ui: ## Build CAIPE UI Docker image locally
+	@echo "Building CAIPE UI Docker image..."
+	docker build -t $(CAIPE_UI_IMAGE):$(CAIPE_UI_TAG) \
+		-f build/Dockerfile.caipe-ui \
+		--build-arg CAIPE_URL=http://caipe-supervisor:8000 \
+		.
+
+run-caipe-ui-docker: build-caipe-ui ## Run CAIPE UI container locally (requires caipe-supervisor)
+	@echo "Running CAIPE UI container..."
+	docker run --rm -it \
+		-p 3000:3000 \
+		-e NEXT_PUBLIC_CAIPE_URL=http://localhost:8000 \
+		-e CAIPE_URL=http://localhost:8000 \
+		-e NEXTAUTH_SECRET=caipe-dev-secret \
+		-e NEXTAUTH_URL=http://localhost:3000 \
+		--name caipe-ui-local \
+		$(CAIPE_UI_IMAGE):$(CAIPE_UI_TAG)
+
+caipe-ui-docker-compose: ## Run CAIPE UI with docker-compose (includes supervisor)
+	@echo "Starting CAIPE UI with docker-compose..."
+	docker compose -f docker-compose.dev.yaml --profile caipe-ui up --build
+
+## ========== Documentation (Docusaurus) ==========
+
+docs: docs-install docs-start ## Install dependencies and start documentation development server
+
+docs-install: ## Install documentation site dependencies
+	@echo "Installing documentation dependencies..."
+	@cd docs && npm install
+
+docs-build: docs-install ## Build documentation static site
+	@echo "Building documentation site..."
+	@cd docs && npm run build
+
+docs-dev: ## Start documentation development server with auto-reload
+	@echo "Starting documentation development server..."
+	@echo "Site will be available at http://localhost:3001"
+	@cd docs && npm run start -- --port 3001
+
+docs-start: docs-dev ## Alias for docs-dev (start documentation development server)
+
+docs-serve: docs-build ## Serve documentation static site
+	@echo "Serving documentation static site..."
+	@cd docs && npm run serve
+
 ## ========== Lint ==========
 
 lint: setup-venv ## Lint the code using Ruff
@@ -193,7 +265,7 @@ test-agents: test-mcp-argocd test-mcp-jira ## Run tests for all agents (in their
 	@echo "Skipping RAG module tests (temporarily disabled)..."
 	@echo "✓ RAG tests skipped"
 
-test: test-supervisor test-agents ## Run all tests (supervisor + agents)
+test: test-supervisor test-multi-agents test-agents ## Run all tests (supervisor + multi-agents + agents)
 
 ## ========== Multi-Agent Tests ==========
 

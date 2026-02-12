@@ -12,7 +12,7 @@ Knowledge base systems are designed to store, manage, and retrieve information e
 
 ### Unified RAG Architecture (CAIPE RAG)
 
-Both Vector based system and Graph based system are combined under a unified RAG (Retrieval-Augmented Generation) architecture combining the strengths of both systems. 
+Both Vector based system and Graph based system are combined under a unified RAG (Retrieval-Augmented Generation) architecture combining the strengths of both systems.
 
 CAIPE RAG uses vector search to retrieve relevant unstructured documents such as platform runbooks and documentation. It also uses vector search to locate relevant nodes within the knowledge graph generated from structured data sources. By integrating these two approaches, CAIPE RAG can provide comprehensive and contextually relevant information to enhance its reasoning and decision-making capabilities.
 
@@ -67,6 +67,12 @@ Interfaces:
 - Search functionality across all data
 - Entity exploration and relationship browsing
 
+
+## Configuration & Security
+
+### Authentication & RBAC
+Learn how to configure authentication and role-based access control for the RAG server:
+- [RAG Server Authentication & RBAC Configuration](authentication.md)
 
 ### Further Reading
 - [Unified RAG Github discussion](https://github.com/cnoe-io/ai-platform-engineering/discussions/196)
