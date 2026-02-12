@@ -237,7 +237,6 @@ dependencies = [
     { name = "cymple" },
     { name = "langchain-aws" },
     { name = "langchain-cohere" },
-    { name = "langchain-huggingface" },
     { name = "langchain-ollama" },
     { name = "langchain-openai" },
     { name = "neo4j" },
@@ -245,18 +244,24 @@ dependencies = [
     { name = "redis" },
 ]
 
+[package.optional-dependencies]
+huggingface = [
+    { name = "langchain-huggingface" },
+]
+
 [package.metadata]
 requires-dist = [
     { name = "cymple", specifier = ">=0.12.0" },
     { name = "langchain-aws", specifier = ">=0.2.24" },
     { name = "langchain-cohere", specifier = ">=0.3.0" },
-    { name = "langchain-huggingface", specifier = ">=0.3.0" },
+    { name = "langchain-huggingface", marker = "extra == 'huggingface'", specifier = ">=0.3.0" },
     { name = "langchain-ollama", specifier = ">=0.3.0" },
     { name = "langchain-openai", specifier = ">=0.3.18" },
     { name = "neo4j", specifier = ">=5.28.1" },
     { name = "pydantic", specifier = ">=2.11.7" },
     { name = "redis", specifier = ">=6.2.0" },
 ]
+provides-extras = ["huggingface"]
 
 [[package]]
 name = "cymple"

@@ -1,41 +1,10 @@
 nameOverride: ""
 fullnameOverride: "rag-server"
 
-# Feature Flags
-enableGraphRag: true              # ENABLE_GRAPH_RAG - enable/disable graph RAG features
-enableMcp: true                   # ENABLE_MCP - enable/disable MCP tools for AI agents
-skipInitTests: false              # SKIP_INIT_TESTS - skip connection tests on startup
-
-# Embeddings Configuration
-embeddingsProvider: "azure-openai"  # EMBEDDINGS_PROVIDER - azure-openai or openai
-embeddingsModel: "text-embedding-3-small"  # EMBEDDINGS_MODEL - model name
-
-# Performance & Limits
-maxDocumentsPerIngest: 1000       # MAX_DOCUMENTS_PER_INGEST - max documents per ingestion request
-maxResultsPerQuery: 100           # MAX_RESULTS_PER_QUERY - max results per query
-maxIngestionConcurrency: 30       # MAX_INGESTION_CONCURRENCY - max concurrent tasks during ingestion
-maxGraphRawQueryResults: 100      # MAX_GRAPH_RAW_QUERY_RESULTS - max results for raw graph queries
-maxGraphRawQueryTokens: 80000     # MAX_GRAPH_RAW_QUERY_TOKENS - max tokens in raw query results before truncation
-searchResultTruncateLength: 500   # SEARCH_RESULT_TRUNCATE_LENGTH - truncate search results to N characters (for MCP tools)
-
-# Other Settings
-logLevel: INFO                    # LOG_LEVEL - logging level (DEBUG, INFO, WARNING, ERROR)
-uiUrl: "http://localhost:9447"    # UI_URL - WebUI URL for health check response
-sleepOnInitFailureSeconds: 180    # SLEEP_ON_INIT_FAILURE_SECONDS - sleep duration on init failure before shutdown
-cleanupInterval: 86400            # CLEANUP_INTERVAL - cleanup interval for stale data (24 hours)
-
-# RBAC/Authentication Configuration
-# Configure when using OAuth2 Proxy for authentication
-# Server enforces RBAC based on headers passed from OAuth2 Proxy (X-Forwarded-Groups)
-rbac:
-  allowUnauthenticated: true        # ALLOW_UNAUTHENTICATED - allow access without authentication
-  readonlyGroups: ""                # RBAC_READONLY_GROUPS - comma-separated group names with read-only access
-  ingestonlyGroups: ""              # RBAC_INGESTONLY_GROUPS - comma-separated group names with ingest-only access
-  adminGroups: ""                   # RBAC_ADMIN_GROUPS - comma-separated group names with admin access
-  defaultRole: "readonly"           # RBAC_DEFAULT_ROLE - default role when user doesn't match any group
+# Feature flag with global fallback (global.rag.enableGraphRag)
+enableGraphRag: true
 
 image:
-  # Prefer the prebuilt image; if building in-cluster is needed, adjust CI
   repository: "ghcr.io/cnoe-io/caipe-rag-server"
   # tag defaults to .Chart.AppVersion when not specified
   tag: ""
@@ -47,6 +16,42 @@ replicaCount: 1
 # Kubernetes will automatically clean up ReplicaSets beyond this limit
 revisionHistoryLimit: 3
 
+# Environment variables for rag-server container
+# All application configuration goes here
+env: {}
+  # Feature Flags
+  # ENABLE_MCP: "true"
+  # SKIP_INIT_TESTS: "false"
+  #
+  # Embeddings Configuration
+  # EMBEDDINGS_PROVIDER: "azure-openai"  # Options: azure-openai, openai, litellm
+  # EMBEDDINGS_MODEL: "text-embedding-3-small"
+  # LITELLM_API_BASE: "http://litellm-proxy:4000"  # Required when using litellm provider
+  #
+  # Performance & Limits
+  # MAX_DOCUMENTS_PER_INGEST: "1000"
+  # MAX_RESULTS_PER_QUERY: "100"
+  # MAX_INGESTION_CONCURRENCY: "30"
+  # MAX_GRAPH_RAW_QUERY_RESULTS: "100"
+  # MAX_GRAPH_RAW_QUERY_TOKENS: "80000"
+  # SEARCH_RESULT_TRUNCATE_LENGTH: "500"
+  #
+  # General Settings
+  # LOG_LEVEL: "INFO"  # Options: DEBUG, INFO, WARNING, ERROR
+  # UI_URL: "http://localhost:9447"
+  # SLEEP_ON_INIT_FAILURE_SECONDS: "180"
+  # CLEANUP_INTERVAL: "86400"
+  #
+  # RBAC/Authentication (when using OAuth2 Proxy)
+  # ALLOW_UNAUTHENTICATED: "true"
+  # RBAC_READONLY_GROUPS: ""
+  # RBAC_INGESTONLY_GROUPS: ""
+  # RBAC_ADMIN_GROUPS: ""
+  # RBAC_DEFAULT_ROLE: "readonly"
+
+# Additional envFrom references (secrets, configmaps)
+envFrom: []
+
 # Web Ingestor configuration (runs as sidecar container)
 webIngestor:
   enabled: true
@@ -56,11 +61,21 @@ webIngestor:
     tag: ""
     pullPolicy: IfNotPresent
 
-  # Ingestor settings
-  logLevel: INFO
-  maxConcurrency: 10              # WEBLOADER_MAX_CONCURRENCY - max concurrent HTTP requests per ingestion
-  maxIngestionTasks: 5            # WEBLOADER_MAX_INGESTION_TASKS - max concurrent ingestion tasks
-  reloadInterval: 86400           # WEBLOADER_RELOAD_INTERVAL - auto-reload interval in seconds (24 hours)
+  # Environment variables for web-ingestor container
+  env: {}
+    # LOG_LEVEL: "INFO"
+    # WEBLOADER_MAX_CONCURRENCY: "10"
+    # WEBLOADER_MAX_INGESTION_TASKS: "5"
+    # WEBLOADER_RELOAD_INTERVAL: "86400"
+    #
+    # Scrapy settings (optional)
+    # SCRAPY_CONCURRENT_REQUESTS: "16"
+    # SCRAPY_DOWNLOAD_DELAY: "0"
+    # SCRAPY_DEPTH_LIMIT: "0"
+    # SCRAPY_JAVASCRIPT_ENABLED: "false"
+
+  # Additional envFrom references (secrets, configmaps)
+  envFrom: []
 
   # Resource limits for the web ingestor sidecar
   resources:
@@ -95,8 +110,6 @@ podAnnotations: {}
 podLabels: {}
 
 imagePullSecrets: []
-
-env: {}
 
 llmSecrets:
   secretName: "llm-secret"

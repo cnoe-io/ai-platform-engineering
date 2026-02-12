@@ -185,11 +185,24 @@ export default function IngestView() {
   // Ingestion state
   const [url, setUrl] = useState('')
   const [ingestType, setIngestType] = useState<string>('web')
-  const [checkForSiteMap, setCheckForSiteMap] = useState(true)
-  const [sitemapMaxUrls, setSitemapMaxUrls] = useState(2000)
   const [description, setDescription] = useState('')
   const [includeSubPages, setIncludeSubPages] = useState(false)
   const [showAdvancedOptions, setShowAdvancedOptions] = useState(false)
+  
+  // Scrapy settings state (for web ingest type)
+  const [crawlMode, setCrawlMode] = useState<'single' | 'sitemap' | 'recursive'>('sitemap')
+  const [maxDepth, setMaxDepth] = useState(2)
+  const [maxPages, setMaxPages] = useState(2000)
+  const [renderJavascript, setRenderJavascript] = useState(false)
+  const [waitForSelector, setWaitForSelector] = useState('')
+  const [downloadDelay, setDownloadDelay] = useState(0.05)
+  const [concurrentRequests, setConcurrentRequests] = useState(30)
+  const [respectRobotsTxt, setRespectRobotsTxt] = useState(true)
+  const [followExternalLinks, setFollowExternalLinks] = useState(false)
+  const [allowedUrlPatterns, setAllowedUrlPatterns] = useState('')
+  const [deniedUrlPatterns, setDeniedUrlPatterns] = useState('')
+  const [chunkSize, setChunkSize] = useState(10000)
+  const [chunkOverlap, setChunkOverlap] = useState(2000)
 
   // DataSources state
   const [dataSources, setDataSources] = useState<DataSourceInfo[]>([])
@@ -447,11 +460,25 @@ export default function IngestView() {
     try {
       const response = await ingestUrl({
         url,
-        check_for_sitemaps: checkForSiteMap,
-        sitemap_max_urls: sitemapMaxUrls,
         description: description,
         ingest_type: ingestType,
         get_child_pages: ingestType === 'confluence' ? includeSubPages : undefined,
+        // ScrapySettings for web ingest type
+        settings: ingestType === 'web' ? {
+          crawl_mode: crawlMode,
+          max_depth: maxDepth,
+          max_pages: maxPages,
+          render_javascript: renderJavascript,
+          wait_for_selector: waitForSelector || null,
+          download_delay: downloadDelay,
+          concurrent_requests: concurrentRequests,
+          respect_robots_txt: respectRobotsTxt,
+          follow_external_links: followExternalLinks,
+          allowed_url_patterns: allowedUrlPatterns ? allowedUrlPatterns.split('\n').filter(p => p.trim()) : null,
+          denied_url_patterns: deniedUrlPatterns ? deniedUrlPatterns.split('\n').filter(p => p.trim()) : null,
+          chunk_size: chunkSize,
+          chunk_overlap: chunkOverlap,
+        } : undefined,
       })
       const { datasource_id, job_id, message } = response
       await fetchDataSources()
@@ -648,17 +675,30 @@ export default function IngestView() {
                 </Button>
               </div>
               
-              {/* Quick options */}
+              {/* Quick options - Crawl Mode for web */}
               {ingestType === 'web' && (
-                <label className="flex items-center gap-2 mt-2 ml-1 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={checkForSiteMap}
-                    onChange={(e) => setCheckForSiteMap(e.target.checked)}
-                    className="rounded border-border text-primary focus:ring-primary h-4 w-4"
-                  />
-                  <span className="text-sm text-muted-foreground">Check for sitemap</span>
-                </label>
+                <div className="flex items-center gap-4 mt-2 ml-1">
+                  <span className="text-sm text-muted-foreground">Crawl mode:</span>
+                  <div className="flex gap-2">
+                    {[
+                      { value: 'single', label: 'Single Page' },
+                      { value: 'sitemap', label: 'Sitemap' },
+                      { value: 'recursive', label: 'Follow Links' },
+                    ].map((mode) => (
+                      <button
+                        key={mode.value}
+                        onClick={() => setCrawlMode(mode.value as 'single' | 'sitemap' | 'recursive')}
+                        className={`px-3 py-1 text-xs rounded-full transition-colors ${
+                          crawlMode === mode.value
+                            ? 'bg-primary text-primary-foreground'
+                            : 'bg-muted text-muted-foreground hover:bg-muted/80'
+                        }`}
+                      >
+                        {mode.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
               )}
               {ingestType === 'confluence' && (
                 <label className="flex items-center gap-2 mt-2 ml-1 cursor-pointer">
@@ -671,6 +711,16 @@ export default function IngestView() {
                   <span className="text-sm text-muted-foreground">Include child pages</span>
                 </label>
               )}
+
+              {/* Description - outside advanced options */}
+              <div className="mt-3">
+                <Input
+                  placeholder="Description (optional) - helps agents understand this source"
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  className="w-full"
+                />
+              </div>
             </div>
 
             {/* Advanced Options - Animated Collapsible */}
@@ -699,35 +749,221 @@ export default function IngestView() {
                     className="overflow-hidden"
                   >
                     <div className="mt-4 p-4 rounded-lg bg-muted/50 border border-border/50 space-y-4">
-                      <div>
-                        <label className="block text-sm font-medium text-muted-foreground mb-1">
-                          Description
-                        </label>
-                        <textarea
-                          placeholder="A short description to help agents understand this source"
-                          value={description}
-                          onChange={(e) => setDescription(e.target.value)}
-                          className="w-full px-3 py-2 border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent bg-background text-foreground text-sm resize-none"
-                          rows={2}
-                        />
-                      </div>
-                      {ingestType === 'web' && checkForSiteMap && (
-                        <div>
-                          <label className="block text-sm font-medium text-muted-foreground mb-1">
-                            Sitemap Max URLs
-                          </label>
-                          <Input
-                            type="number"
-                            min={0}
-                            placeholder="2000"
-                            value={sitemapMaxUrls}
-                            onChange={(e) => setSitemapMaxUrls(Number(e.target.value))}
-                            className="w-48"
-                          />
-                          <p className="mt-1 text-xs text-muted-foreground">
-                            Maximum URLs to fetch from sitemap (0 = no limit)
-                          </p>
-                        </div>
+                      {/* Web-specific Scrapy settings */}
+                      {ingestType === 'web' && (
+                        <>
+                          {/* Crawl Limits */}
+                          <div className="grid grid-cols-2 gap-4">
+                            <div>
+                              <label className="block text-sm font-medium text-muted-foreground mb-1">
+                                Max Pages
+                              </label>
+                              <Input
+                                type="number"
+                                min={1}
+                                max={10000}
+                                value={maxPages}
+                                onChange={(e) => setMaxPages(Number(e.target.value))}
+                                className="w-full"
+                              />
+                              <p className="mt-1 text-xs text-muted-foreground">
+                                Maximum pages to crawl
+                              </p>
+                            </div>
+                            {crawlMode === 'recursive' && (
+                              <div>
+                                <label className="block text-sm font-medium text-muted-foreground mb-1">
+                                  Max Depth
+                                </label>
+                                <Input
+                                  type="number"
+                                  min={1}
+                                  max={10}
+                                  value={maxDepth}
+                                  onChange={(e) => setMaxDepth(Number(e.target.value))}
+                                  className="w-full"
+                                />
+                                <p className="mt-1 text-xs text-muted-foreground">
+                                  How deep to follow links (1-10)
+                                </p>
+                              </div>
+                            )}
+                          </div>
+
+                          {/* JavaScript Rendering */}
+                          <div className="space-y-2">
+                            <label className="flex items-center gap-2 cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={renderJavascript}
+                                onChange={(e) => setRenderJavascript(e.target.checked)}
+                                className="rounded border-border text-primary focus:ring-primary h-4 w-4"
+                              />
+                              <span className="text-sm font-medium text-muted-foreground">
+                                Render JavaScript (slower, for SPAs)
+                              </span>
+                            </label>
+                            {renderJavascript && (
+                              <div className="ml-6">
+                                <label className="block text-sm font-medium text-muted-foreground mb-1">
+                                  Wait for selector (optional)
+                                </label>
+                                <Input
+                                  type="text"
+                                  placeholder="e.g. .content-loaded, #main-content"
+                                  value={waitForSelector}
+                                  onChange={(e) => setWaitForSelector(e.target.value)}
+                                  className="w-full"
+                                />
+                                <p className="mt-1 text-xs text-muted-foreground">
+                                  CSS selector to wait for before extracting content
+                                </p>
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Rate Limiting */}
+                          <div className="grid grid-cols-2 gap-4">
+                            <div>
+                              <label className="block text-sm font-medium text-muted-foreground mb-1">
+                                Download Delay (seconds)
+                              </label>
+                              <Input
+                                type="number"
+                                min={0}
+                                max={10}
+                                step={0.1}
+                                value={downloadDelay}
+                                onChange={(e) => setDownloadDelay(Number(e.target.value))}
+                                className="w-full"
+                              />
+                              <p className="mt-1 text-xs text-muted-foreground">
+                                Delay between requests to avoid rate limiting
+                              </p>
+                            </div>
+                            <div>
+                              <label className="block text-sm font-medium text-muted-foreground mb-1">
+                                Concurrent Requests
+                              </label>
+                              <Input
+                                type="number"
+                                min={1}
+                                max={50}
+                                value={concurrentRequests}
+                                onChange={(e) => setConcurrentRequests(Number(e.target.value))}
+                                className="w-full"
+                              />
+                              <p className="mt-1 text-xs text-muted-foreground">
+                                Number of parallel requests (1-50)
+                              </p>
+                            </div>
+                          </div>
+
+                          {/* Crawl Behavior */}
+                          <div className="space-y-2">
+                            <label className="flex items-center gap-2 cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={respectRobotsTxt}
+                                onChange={(e) => setRespectRobotsTxt(e.target.checked)}
+                                className="rounded border-border text-primary focus:ring-primary h-4 w-4"
+                              />
+                              <span className="text-sm text-muted-foreground">
+                                Respect robots.txt
+                              </span>
+                            </label>
+                            {crawlMode === 'recursive' && (
+                              <label className="flex items-center gap-2 cursor-pointer">
+                                <input
+                                  type="checkbox"
+                                  checked={followExternalLinks}
+                                  onChange={(e) => setFollowExternalLinks(e.target.checked)}
+                                  className="rounded border-border text-primary focus:ring-primary h-4 w-4"
+                                />
+                                <span className="text-sm text-muted-foreground">
+                                  Follow external links
+                                </span>
+                              </label>
+                            )}
+                          </div>
+
+                          {/* URL Patterns */}
+                          {crawlMode === 'recursive' && (
+                            <div className="grid grid-cols-2 gap-4">
+                              <div>
+                                <label className="block text-sm font-medium text-muted-foreground mb-1">
+                                  Allowed URL Patterns
+                                </label>
+                                <textarea
+                                  placeholder="Regex patterns (one per line)&#10;e.g. /docs/.*&#10;/api/.*"
+                                  value={allowedUrlPatterns}
+                                  onChange={(e) => setAllowedUrlPatterns(e.target.value)}
+                                  className="w-full px-3 py-2 border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent bg-background text-foreground text-xs font-mono resize-none"
+                                  rows={3}
+                                />
+                                <p className="mt-1 text-xs text-muted-foreground">
+                                  Only crawl URLs matching these patterns
+                                </p>
+                              </div>
+                              <div>
+                                <label className="block text-sm font-medium text-muted-foreground mb-1">
+                                  Denied URL Patterns
+                                </label>
+                                <textarea
+                                  placeholder="Regex patterns (one per line)&#10;e.g. /blog/.*&#10;\.pdf$"
+                                  value={deniedUrlPatterns}
+                                  onChange={(e) => setDeniedUrlPatterns(e.target.value)}
+                                  className="w-full px-3 py-2 border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent bg-background text-foreground text-xs font-mono resize-none"
+                                  rows={3}
+                                />
+                                <p className="mt-1 text-xs text-muted-foreground">
+                                  Skip URLs matching these patterns
+                                </p>
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Separator before Chunk Settings */}
+                          <hr className="border-border/50" />
+
+                          {/* Chunk Settings */}
+                          <div className="grid grid-cols-2 gap-4">
+                            <div>
+                              <label className="block text-sm font-medium text-muted-foreground mb-1">
+                                Chunk Size
+                              </label>
+                              <Input
+                                type="number"
+                                min={100}
+                                max={100000}
+                                step={500}
+                                value={chunkSize}
+                                onChange={(e) => setChunkSize(Number(e.target.value))}
+                                className="w-full"
+                              />
+                              <p className="mt-1 text-xs text-muted-foreground">
+                                Max characters per chunk (default: 10000)
+                              </p>
+                            </div>
+                            <div>
+                              <label className="block text-sm font-medium text-muted-foreground mb-1">
+                                Chunk Overlap
+                              </label>
+                              <Input
+                                type="number"
+                                min={0}
+                                max={10000}
+                                step={100}
+                                value={chunkOverlap}
+                                onChange={(e) => setChunkOverlap(Number(e.target.value))}
+                                className="w-full"
+                              />
+                              <p className="mt-1 text-xs text-muted-foreground">
+                                Overlap between chunks (default: 2000)
+                              </p>
+                            </div>
+                          </div>
+                        </>
                       )}
                     </div>
                   </motion.div>
@@ -853,6 +1089,10 @@ export default function IngestView() {
                       const isConfluenceDatasource = ds.ingestor_id === CONFLUENCE_INGESTOR_ID
                       const supportsReload = isWebloaderDatasource || isConfluenceDatasource
                       const icon = getIconForType(ds.source_type)
+                      
+                      // Find latest completed job for metrics display
+                      const completedJob = jobs.find(j => j.status === 'completed' || j.status === 'completed_with_errors')
+                      const hasMetrics = completedJob && ((completedJob.document_count ?? 0) > 0 || (completedJob.chunk_count ?? 0) > 0)
 
                       return (
                         <motion.div
@@ -894,6 +1134,13 @@ export default function IngestView() {
                             </div>
 
                             <div className="flex items-center gap-3 shrink-0">
+                              {/* Metrics from latest completed job */}
+                              {hasMetrics && (
+                                <span className="text-xs text-muted-foreground">
+                                  {completedJob.document_count} documents, {completedJob.chunk_count} chunks
+                                </span>
+                              )}
+                              
                               {latestJob ? (
                                 <StatusBadge status={latestJob.status} />
                               ) : (
@@ -1008,8 +1255,9 @@ export default function IngestView() {
                                         {jobs.map((job) => {
                                           const isJobExpanded = expandedJobs.has(job.job_id)
                                           const isJobActive = job.status === 'in_progress' || job.status === 'pending'
-                                          const progress = (job.total > 0 && job.progress_counter >= 0)
-                                            ? Math.min(100, (job.progress_counter / job.total) * 100)
+                                          const jobTotal = job.total ?? 0
+                                          const progress = (jobTotal > 0 && job.progress_counter >= 0)
+                                            ? Math.min(100, (job.progress_counter / jobTotal) * 100)
                                             : 0
 
                                           return (
@@ -1036,10 +1284,10 @@ export default function IngestView() {
                                                       <StatusBadge status={job.status} />
                                                     </div>
 
-                                                    {isJobActive && job.total > 0 && (
+                                                    {isJobActive && jobTotal > 0 && (
                                                       <ProgressBar 
                                                         progress={progress} 
-                                                        total={job.total} 
+                                                        total={jobTotal} 
                                                         current={job.progress_counter} 
                                                       />
                                                     )}
@@ -1097,22 +1345,46 @@ export default function IngestView() {
                                                             {job.failed_counter}
                                                           </p>
                                                         </div>
+                                                        <div>
+                                                          <span className="font-medium text-muted-foreground">Documents:</span>
+                                                          <p className="text-foreground">{job.document_count ?? 0}</p>
+                                                        </div>
+                                                        <div>
+                                                          <span className="font-medium text-muted-foreground">Chunks:</span>
+                                                          <p className="text-foreground">{job.chunk_count ?? 0}</p>
+                                                        </div>
                                                       </div>
                                                       
                                                       <div className="text-xs">
-                                                        <span className="font-medium text-muted-foreground">Message:</span>
-                                                        <p className="text-foreground mt-0.5">{job.message}</p>
+                                                        <span className="font-medium text-muted-foreground">Status:</span>
+                                                        <div className={cn(
+                                                          "mt-1 px-3 py-2 rounded-md font-mono text-xs",
+                                                          isJobActive 
+                                                            ? "bg-zinc-900 text-green-400 border border-zinc-700" 
+                                                            : "bg-muted/50 text-foreground"
+                                                        )}>
+                                                          {job.message}
+                                                          {isJobActive && (
+                                                            <span className="inline-flex ml-1">
+                                                              <span className="animate-[pulse_1s_ease-in-out_infinite]">.</span>
+                                                              <span className="animate-[pulse_1s_ease-in-out_0.2s_infinite]">.</span>
+                                                              <span className="animate-[pulse_1s_ease-in-out_0.4s_infinite]">.</span>
+                                                            </span>
+                                                          )}
+                                                        </div>
                                                       </div>
 
                                                       {job.error_msgs && job.error_msgs.length > 0 && (
-                                                        <details className="rounded-lg bg-destructive/10 border border-destructive/20">
-                                                          <summary className="cursor-pointer text-xs font-medium text-destructive px-2 py-1.5 hover:bg-destructive/20">
-                                                            Errors ({job.error_msgs.length})
+                                                        <details className="rounded-md bg-zinc-900 border border-zinc-700 overflow-hidden">
+                                                          <summary className="cursor-pointer text-xs font-mono px-3 py-1.5 hover:bg-zinc-800 flex items-center gap-2 text-zinc-400">
+                                                            <span className="text-red-400">✗</span>
+                                                            <span className="text-red-400">{job.error_msgs.length}</span> error{job.error_msgs.length !== 1 ? 's' : ''}
                                                           </summary>
-                                                          <div className="px-2 pb-2 space-y-1 max-h-32 overflow-y-auto">
+                                                          <div className="px-3 pb-2 pt-1 max-h-48 overflow-y-auto font-mono text-xs space-y-0.5 border-t border-zinc-800">
                                                             {job.error_msgs.map((error: string, index: number) => (
-                                                              <div key={index} className="text-xs text-destructive bg-destructive/20 p-2 rounded border-l-2 border-destructive">
-                                                                {error}
+                                                              <div key={index} className="text-red-400/90 py-0.5 flex">
+                                                                <span className="text-zinc-600 mr-2 select-none">›</span>
+                                                                <span className="break-all">{error}</span>
                                                               </div>
                                                             ))}
                                                           </div>

@@ -9,19 +9,44 @@ ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy
 # for an example.
 ENV UV_PYTHON_DOWNLOADS=0
 
+# Build argument for variant: "default" or "huggingface"
+# - default: Slim image (~1.4GB) with API-based embedding providers
+# - huggingface: Full image (~2.3GB) with PyTorch for local HuggingFace models
+ARG VARIANT=default
+
 # Copy over the local dependencies
 COPY common /app/common
 
 WORKDIR /app/server
 # Increase timeout for large packages (e.g., pyarrow 39MB)
+# Install dependencies - conditionally include huggingface extra
 RUN --mount=type=cache,target=/root/.cache/uv \
     --mount=type=bind,source=server/uv.lock,target=uv.lock \
     --mount=type=bind,source=server/pyproject.toml,target=pyproject.toml \
-    UV_HTTP_TIMEOUT=300 uv sync --locked --no-install-project --no-dev
+    if [ "$VARIANT" = "huggingface" ]; then \
+      echo "Installing with huggingface extra (includes PyTorch)..." && \
+      UV_HTTP_TIMEOUT=300 uv sync --locked --no-install-project --no-dev --extra huggingface; \
+    else \
+      echo "Installing default (slim) variant..." && \
+      UV_HTTP_TIMEOUT=300 uv sync --locked --no-install-project --no-dev; \
+    fi
 
 COPY server .
 RUN --mount=type=cache,target=/root/.cache/uv \
-    UV_HTTP_TIMEOUT=300 uv sync --locked --no-dev
+    if [ "$VARIANT" = "huggingface" ]; then \
+      UV_HTTP_TIMEOUT=300 uv sync --locked --no-dev --extra huggingface; \
+    else \
+      UV_HTTP_TIMEOUT=300 uv sync --locked --no-dev; \
+    fi
+
+# Cleanup step - remove unnecessary files from .venv to reduce image size
+# Saves ~325MB by removing test files, caches, type stubs, and C headers
+RUN find /app/server/.venv -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true && \
+    find /app/server/.venv -type d -name "tests" -exec rm -rf {} + 2>/dev/null || true && \
+    find /app/server/.venv -type d -name "test" -exec rm -rf {} + 2>/dev/null || true && \
+    find /app/server/.venv -name "*.pyc" -delete 2>/dev/null || true && \
+    find /app/server/.venv -name "*.pyi" -delete 2>/dev/null || true && \
+    find /app/server/.venv -type d -name "include" -path "*/site-packages/*" -exec rm -rf {} + 2>/dev/null || true
 
 
 # Then, use a final image without uv
