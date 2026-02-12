@@ -60,8 +60,13 @@ function createMockCollection() {
       }),
     }),
     findOne: jest.fn().mockResolvedValue(null),
-    insertOne: jest.fn().mockResolvedValue({ insertedId: new ObjectId() }),
-    updateOne: jest.fn().mockResolvedValue({ modifiedCount: 1 }),
+    updateOne: jest.fn().mockResolvedValue({
+      upsertedId: new ObjectId(),
+      upsertedCount: 1,
+      matchedCount: 0,
+      modifiedCount: 0,
+      acknowledged: true,
+    }),
     countDocuments: jest.fn().mockResolvedValue(0),
     deleteMany: jest.fn().mockResolvedValue({ deletedCount: 0 }),
   };
@@ -114,10 +119,16 @@ describe('POST /api/chat/conversations/[id]/messages — owner_id', () => {
     mockCollections['conversations'] = convCol;
 
     const msgCol = createMockCollection();
-    const insertedId = new ObjectId();
-    msgCol.insertOne.mockResolvedValue({ insertedId });
+    const upsertedId = new ObjectId();
+    msgCol.updateOne.mockResolvedValue({
+      upsertedId,
+      upsertedCount: 1,
+      matchedCount: 0,
+      modifiedCount: 0,
+      acknowledged: true,
+    });
     msgCol.findOne.mockResolvedValue({
-      _id: insertedId,
+      _id: upsertedId,
       message_id: 'msg-1',
       conversation_id: testConversationId,
       owner_id: 'user@example.com',
@@ -143,9 +154,9 @@ describe('POST /api/chat/conversations/[id]/messages — owner_id', () => {
     const res = await POST(req, { params: Promise.resolve({ id: testConversationId }) });
     expect(res.status).toBe(201);
 
-    // Verify the inserted document includes owner_id
-    const insertedDoc = msgCol.insertOne.mock.calls[0][0];
-    expect(insertedDoc.owner_id).toBe('user@example.com');
+    // Verify $setOnInsert includes owner_id (upsert-based API)
+    const updateDoc = msgCol.updateOne.mock.calls[0][1];
+    expect(updateDoc.$setOnInsert.owner_id).toBe('user@example.com');
   });
 
   it('denormalizes conversation owner even when different from requester', async () => {
@@ -174,10 +185,16 @@ describe('POST /api/chat/conversations/[id]/messages — owner_id', () => {
     mockCollections['sharing_access'] = sharingCol;
 
     const msgCol = createMockCollection();
-    const insertedId = new ObjectId();
-    msgCol.insertOne.mockResolvedValue({ insertedId });
+    const upsertedId = new ObjectId();
+    msgCol.updateOne.mockResolvedValue({
+      upsertedId,
+      upsertedCount: 1,
+      matchedCount: 0,
+      modifiedCount: 0,
+      acknowledged: true,
+    });
     msgCol.findOne.mockResolvedValue({
-      _id: insertedId,
+      _id: upsertedId,
       owner_id: 'alice@example.com',
       role: 'user',
       content: 'Message from shared user',
@@ -197,8 +214,8 @@ describe('POST /api/chat/conversations/[id]/messages — owner_id', () => {
     expect(res.status).toBe(201);
 
     // owner_id should be alice (conversation owner), not bob (requester)
-    const insertedDoc = msgCol.insertOne.mock.calls[0][0];
-    expect(insertedDoc.owner_id).toBe('alice@example.com');
+    const updateDoc = msgCol.updateOne.mock.calls[0][1];
+    expect(updateDoc.$setOnInsert.owner_id).toBe('alice@example.com');
   });
 
   it('falls back to current user email when conversation has no owner_id', async () => {
@@ -229,10 +246,16 @@ describe('POST /api/chat/conversations/[id]/messages — owner_id', () => {
     mockCollections['sharing_access'] = sharingCol;
 
     const msgCol = createMockCollection();
-    const insertedId = new ObjectId();
-    msgCol.insertOne.mockResolvedValue({ insertedId });
+    const upsertedId = new ObjectId();
+    msgCol.updateOne.mockResolvedValue({
+      upsertedId,
+      upsertedCount: 1,
+      matchedCount: 0,
+      modifiedCount: 0,
+      acknowledged: true,
+    });
     msgCol.findOne.mockResolvedValue({
-      _id: insertedId,
+      _id: upsertedId,
       owner_id: 'carol@example.com',
       role: 'user',
       content: 'Legacy conversation message',
@@ -252,8 +275,8 @@ describe('POST /api/chat/conversations/[id]/messages — owner_id', () => {
     expect(res.status).toBe(201);
 
     // Fallback: owner_id = current user (conversation.owner_id is undefined)
-    const insertedDoc = msgCol.insertOne.mock.calls[0][0];
-    expect(insertedDoc.owner_id).toBe('carol@example.com');
+    const updateDoc = msgCol.updateOne.mock.calls[0][1];
+    expect(updateDoc.$setOnInsert.owner_id).toBe('carol@example.com');
   });
 
   it('persists owner_id on assistant messages too', async () => {
@@ -274,10 +297,16 @@ describe('POST /api/chat/conversations/[id]/messages — owner_id', () => {
     mockCollections['sharing_access'] = sharingCol;
 
     const msgCol = createMockCollection();
-    const insertedId = new ObjectId();
-    msgCol.insertOne.mockResolvedValue({ insertedId });
+    const upsertedId = new ObjectId();
+    msgCol.updateOne.mockResolvedValue({
+      upsertedId,
+      upsertedCount: 1,
+      matchedCount: 0,
+      modifiedCount: 0,
+      acknowledged: true,
+    });
     msgCol.findOne.mockResolvedValue({
-      _id: insertedId,
+      _id: upsertedId,
       owner_id: 'user@example.com',
       role: 'assistant',
       content: 'Here is your answer.',
@@ -302,11 +331,11 @@ describe('POST /api/chat/conversations/[id]/messages — owner_id', () => {
     const res = await POST(req, { params: Promise.resolve({ id: testConversationId }) });
     expect(res.status).toBe(201);
 
-    const insertedDoc = msgCol.insertOne.mock.calls[0][0];
-    expect(insertedDoc.owner_id).toBe('user@example.com');
-    expect(insertedDoc.role).toBe('assistant');
-    expect(insertedDoc.metadata.agent_name).toBe('argocd');
-    expect(insertedDoc.metadata.latency_ms).toBe(1200);
+    const updateDoc = msgCol.updateOne.mock.calls[0][1];
+    expect(updateDoc.$setOnInsert.owner_id).toBe('user@example.com');
+    expect(updateDoc.$setOnInsert.role).toBe('assistant');
+    expect(updateDoc.$set.metadata.agent_name).toBe('argocd');
+    expect(updateDoc.$set.metadata.latency_ms).toBe(1200);
   });
 
   it('persists metadata fields alongside owner_id correctly', async () => {
@@ -327,10 +356,16 @@ describe('POST /api/chat/conversations/[id]/messages — owner_id', () => {
     mockCollections['sharing_access'] = sharingCol;
 
     const msgCol = createMockCollection();
-    const insertedId = new ObjectId();
-    msgCol.insertOne.mockResolvedValue({ insertedId });
+    const upsertedId = new ObjectId();
+    msgCol.updateOne.mockResolvedValue({
+      upsertedId,
+      upsertedCount: 1,
+      matchedCount: 0,
+      modifiedCount: 0,
+      acknowledged: true,
+    });
     msgCol.findOne.mockResolvedValue({
-      _id: insertedId,
+      _id: upsertedId,
       owner_id: 'user@example.com',
       role: 'assistant',
       content: 'Result',
@@ -360,13 +395,13 @@ describe('POST /api/chat/conversations/[id]/messages — owner_id', () => {
     const res = await POST(req, { params: Promise.resolve({ id: testConversationId }) });
     expect(res.status).toBe(201);
 
-    const doc = msgCol.insertOne.mock.calls[0][0];
-    expect(doc.owner_id).toBe('user@example.com');
-    expect(doc.metadata.model).toBe('gpt-4o');
-    expect(doc.metadata.tokens_used).toBe(350);
-    expect(doc.metadata.latency_ms).toBe(800);
-    expect(doc.metadata.agent_name).toBe('aws');
-    expect(doc.metadata.is_final).toBe(true);
-    expect(doc.a2a_events).toHaveLength(1);
+    const updateDoc = msgCol.updateOne.mock.calls[0][1];
+    expect(updateDoc.$setOnInsert.owner_id).toBe('user@example.com');
+    expect(updateDoc.$set.metadata.model).toBe('gpt-4o');
+    expect(updateDoc.$set.metadata.tokens_used).toBe(350);
+    expect(updateDoc.$set.metadata.latency_ms).toBe(800);
+    expect(updateDoc.$set.metadata.agent_name).toBe('aws');
+    expect(updateDoc.$set.metadata.is_final).toBe(true);
+    expect(updateDoc.$set.a2a_events).toHaveLength(1);
   });
 });

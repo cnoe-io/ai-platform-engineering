@@ -62,8 +62,13 @@ function createMockCollection() {
       }),
     }),
     findOne: jest.fn().mockResolvedValue(null),
-    insertOne: jest.fn().mockResolvedValue({ insertedId: new ObjectId() }),
-    updateOne: jest.fn().mockResolvedValue({ modifiedCount: 1 }),
+    updateOne: jest.fn().mockResolvedValue({
+      upsertedId: new ObjectId(),
+      upsertedCount: 1,
+      matchedCount: 0,
+      modifiedCount: 0,
+      acknowledged: true,
+    }),
     countDocuments: jest.fn().mockResolvedValue(0),
     deleteMany: jest.fn().mockResolvedValue({ deletedCount: 0 }),
   };
@@ -220,10 +225,16 @@ describe('POST /api/chat/conversations/[id]/messages', () => {
     mockCollections['conversations'] = convCol;
 
     const msgCol = createMockCollection();
-    const insertedId = new ObjectId();
-    msgCol.insertOne.mockResolvedValue({ insertedId });
+    const upsertedId = new ObjectId();
+    msgCol.updateOne.mockResolvedValue({
+      upsertedId,
+      upsertedCount: 1,
+      matchedCount: 0,
+      modifiedCount: 0,
+      acknowledged: true,
+    });
     msgCol.findOne.mockResolvedValue({
-      _id: insertedId,
+      _id: upsertedId,
       message_id: 'client-msg-123',
       conversation_id: testConversationId,
       role: 'user',
@@ -249,14 +260,14 @@ describe('POST /api/chat/conversations/[id]/messages', () => {
     const res = await POST(req, { params: Promise.resolve({ id: testConversationId }) });
     expect(res.status).toBe(201);
 
-    // Verify insertOne was called with correct data
-    const insertedDoc = msgCol.insertOne.mock.calls[0][0];
-    expect(insertedDoc.message_id).toBe('client-msg-123');
-    expect(insertedDoc.role).toBe('user');
-    expect(insertedDoc.content).toBe('What is the weather?');
-    expect(insertedDoc.metadata.turn_id).toBe('turn-abc');
+    // Verify updateOne was called with correct data ($set and $setOnInsert)
+    const updateDoc = msgCol.updateOne.mock.calls[0][1];
+    expect(updateDoc.$setOnInsert.message_id).toBe('client-msg-123');
+    expect(updateDoc.$setOnInsert.role).toBe('user');
+    expect(updateDoc.$set.content).toBe('What is the weather?');
+    expect(updateDoc.$set.metadata.turn_id).toBe('turn-abc');
 
-    // Verify conversation was updated
+    // Verify conversation was updated (only on new inserts)
     expect(convCol.updateOne).toHaveBeenCalledWith(
       { _id: testConversationId },
       expect.objectContaining({
@@ -281,10 +292,16 @@ describe('POST /api/chat/conversations/[id]/messages', () => {
     mockCollections['conversations'] = convCol;
 
     const msgCol = createMockCollection();
-    const insertedId = new ObjectId();
-    msgCol.insertOne.mockResolvedValue({ insertedId });
+    const upsertedId = new ObjectId();
+    msgCol.updateOne.mockResolvedValue({
+      upsertedId,
+      upsertedCount: 1,
+      matchedCount: 0,
+      modifiedCount: 0,
+      acknowledged: true,
+    });
     msgCol.findOne.mockResolvedValue({
-      _id: insertedId,
+      _id: upsertedId,
       message_id: 'assistant-msg-456',
       conversation_id: testConversationId,
       role: 'assistant',
@@ -325,14 +342,14 @@ describe('POST /api/chat/conversations/[id]/messages', () => {
     const res = await POST(req, { params: Promise.resolve({ id: testConversationId }) });
     expect(res.status).toBe(201);
 
-    // Verify A2A events were persisted
-    const insertedDoc = msgCol.insertOne.mock.calls[0][0];
-    expect(insertedDoc.a2a_events).toHaveLength(3);
-    expect(insertedDoc.a2a_events[0].type).toBe('tool_start');
-    expect(insertedDoc.a2a_events[0].toolName).toBe('weather_api');
-    expect(insertedDoc.a2a_events[1].type).toBe('artifact');
-    expect(insertedDoc.a2a_events[1].artifactName).toBe('execution_plan_update');
-    expect(insertedDoc.metadata.is_final).toBe(true);
+    // Verify A2A events were persisted in $set
+    const updateDoc = msgCol.updateOne.mock.calls[0][1];
+    expect(updateDoc.$set.a2a_events).toHaveLength(3);
+    expect(updateDoc.$set.a2a_events[0].type).toBe('tool_start');
+    expect(updateDoc.$set.a2a_events[0].toolName).toBe('weather_api');
+    expect(updateDoc.$set.a2a_events[1].type).toBe('artifact');
+    expect(updateDoc.$set.a2a_events[1].artifactName).toBe('execution_plan_update');
+    expect(updateDoc.$set.metadata.is_final).toBe(true);
   });
 
   it('saves a message without A2A events (simple user message)', async () => {
@@ -350,10 +367,16 @@ describe('POST /api/chat/conversations/[id]/messages', () => {
     mockCollections['conversations'] = convCol;
 
     const msgCol = createMockCollection();
-    const insertedId = new ObjectId();
-    msgCol.insertOne.mockResolvedValue({ insertedId });
+    const upsertedId = new ObjectId();
+    msgCol.updateOne.mockResolvedValue({
+      upsertedId,
+      upsertedCount: 1,
+      matchedCount: 0,
+      modifiedCount: 0,
+      acknowledged: true,
+    });
     msgCol.findOne.mockResolvedValue({
-      _id: insertedId,
+      _id: upsertedId,
       conversation_id: testConversationId,
       role: 'user',
       content: 'Simple question',
@@ -377,9 +400,9 @@ describe('POST /api/chat/conversations/[id]/messages', () => {
     const res = await POST(req, { params: Promise.resolve({ id: testConversationId }) });
     expect(res.status).toBe(201);
 
-    const insertedDoc = msgCol.insertOne.mock.calls[0][0];
-    expect(insertedDoc.a2a_events).toBeUndefined();
-    expect(insertedDoc.message_id).toBeUndefined();
+    const updateDoc = msgCol.updateOne.mock.calls[0][1];
+    expect(updateDoc.$set.a2a_events).toBeUndefined();
+    expect(updateDoc.$setOnInsert.message_id).toBeUndefined();
   });
 
   it('rejects request with missing required fields', async () => {
@@ -473,9 +496,21 @@ describe('Cross-device message persistence', () => {
     const userMsgId = new ObjectId();
     const assistantMsgId = new ObjectId();
 
-    msgCol.insertOne
-      .mockResolvedValueOnce({ insertedId: userMsgId })
-      .mockResolvedValueOnce({ insertedId: assistantMsgId });
+    msgCol.updateOne
+      .mockResolvedValueOnce({
+        upsertedId: userMsgId,
+        upsertedCount: 1,
+        matchedCount: 0,
+        modifiedCount: 0,
+        acknowledged: true,
+      })
+      .mockResolvedValueOnce({
+        upsertedId: assistantMsgId,
+        upsertedCount: 1,
+        matchedCount: 0,
+        modifiedCount: 0,
+        acknowledged: true,
+      });
 
     msgCol.findOne
       .mockResolvedValueOnce({

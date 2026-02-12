@@ -64,11 +64,10 @@ interface ChatState {
 // Track loading state to prevent multiple simultaneous loads
 let isLoadingConversations = false;
 
-// Track which messages have been saved to MongoDB to avoid duplicates.
-// Value is { isFinal, contentLength } — used to detect when a message needs
-// a follow-up UPDATE (e.g., streaming finished and content/is_final changed).
-const savedMessageIds = new Set<string>();
-const savedMessageState = new Map<string, { isFinal: boolean; contentLength: number }>();
+// NOTE: savedMessageIds / savedMessageState tracking removed.
+// With the upsert-based API, saveMessagesToServer sends ALL messages every
+// time and the server handles insert-or-update via message_id. This eliminates
+// the "two sources of truth" drift that caused stale content in MongoDB.
 
 // Track in-flight and recently completed message loads to prevent:
 // 1. Concurrent requests for the same conversation
@@ -649,136 +648,49 @@ const storeImplementation = (set: any, get: any) => ({
           const serverItems = response.items;
           console.log(`[ChatStore] Received ${serverItems.length} conversations from server (total: ${response.total})`);
 
-          // Get current local state to preserve messages
+          // MongoDB is the sole source of truth for the conversation list.
+          // Messages start empty — loadMessagesFromServer fills them when the
+          // conversation is opened. Only preserve local-only conversations that
+          // are actively streaming (just created, server hasn't caught up).
           const currentState = get();
-          const localConversationsMap = new Map(
-            currentState.conversations.map(conv => [conv.id, conv])
-          );
 
-          // Convert MongoDB conversations to local format, merging with local messages
+          // Convert server items to local Conversation format
           const serverConversations: Conversation[] = serverItems.map((conv) => {
-            const localConv = localConversationsMap.get(conv._id);
+            // If this conversation is actively streaming in this session,
+            // preserve the in-memory messages and events (live stream buffer).
+            const isStreaming = currentState.streamingConversations.has(conv._id);
+            const localConv = currentState.conversations.find(c => c.id === conv._id);
 
-            // If we have local messages, preserve them (they're more up-to-date)
-            // Otherwise use empty array (messages will be loaded when conversation is opened)
-            const localConvTyped = localConv as Conversation | undefined;
-            const messages = localConvTyped?.messages && localConvTyped.messages.length > 0
-              ? localConvTyped.messages
-              : [];
-
-            const a2aEvents = localConvTyped?.a2aEvents && localConvTyped.a2aEvents.length > 0
-              ? localConvTyped.a2aEvents
-              : [];
-
-            // Preserve title from server (source of truth), but fallback to local if server title is missing/empty
             const title = (conv.title && conv.title.trim())
               ? conv.title
-              : (localConvTyped?.title && localConvTyped.title.trim())
-                ? localConvTyped.title
-                : "New Conversation";
-
-            console.log(`[ChatStore] Mapping conversation ${conv._id}:`, {
-              serverTitle: conv.title,
-              localTitle: localConvTyped?.title,
-              finalTitle: title,
-              hasMessages: messages.length > 0
-            });
+              : "New Conversation";
 
             return {
               id: conv._id,
               title,
               createdAt: new Date(conv.created_at),
               updatedAt: new Date(conv.updated_at),
-              messages, // Preserve local messages if they exist
-              a2aEvents, // Preserve local events if they exist
+              // Preserve in-flight messages/events for streaming conversations only
+              messages: isStreaming && localConv ? localConv.messages : [],
+              a2aEvents: isStreaming && localConv ? localConv.a2aEvents : [],
               sharing: conv.sharing,
             };
           });
 
-          // Merge: Only keep local-only conversations if they're actively streaming
-          // (meaning they were just created in this session and the server hasn't caught up).
-          // Conversations deleted on another browser/device should NOT be preserved.
+          // Keep local-only conversations that are actively streaming
+          // (just created in this session, server hasn't caught up yet)
           const serverIds = new Set(serverConversations.map(c => c.id));
-          const localOnlyConversations = currentState.conversations.filter(
+          const localOnlyStreaming = currentState.conversations.filter(
             conv => !serverIds.has(conv.id) && currentState.streamingConversations.has(conv.id)
           );
 
-          if (localOnlyConversations.length > 0) {
-            console.log(`[ChatStore] Keeping ${localOnlyConversations.length} local-only conversations (actively streaming)`);
+          if (localOnlyStreaming.length > 0) {
+            console.log(`[ChatStore] Keeping ${localOnlyStreaming.length} local-only conversations (actively streaming)`);
           }
 
-          // Log removed conversations (deleted on another device)
-          const removedConversations = currentState.conversations.filter(
-            conv => !serverIds.has(conv.id) && !currentState.streamingConversations.has(conv.id)
-          );
-          if (removedConversations.length > 0) {
-            console.log(`[ChatStore] Removing ${removedConversations.length} conversations deleted on server:`,
-              removedConversations.map(c => ({ id: c.id.substring(0, 8), title: c.title }))
-            );
-          }
-
-          // Combine server conversations with local-only conversations (only streaming ones)
-          const mergedConversations = [...serverConversations, ...localOnlyConversations];
-
-          // Always update with merged conversations to sync with server
-          // But preserve local messages, events, and titles for conversations that exist locally.
-          // IMPORTANT: Re-read current state here because loadMessagesFromServer may have
-          // updated conversations between the time we started this function and now.
-          // Without this, we'd overwrite events that loadMessagesFromServer just restored.
-          const latestState = get();
-          const finalConversations = mergedConversations.map(serverConv => {
-            // Use latestState (not stale currentState) so we pick up events/messages
-            // that loadMessagesFromServer may have populated in the meantime
-            const localConv = latestState.conversations.find(c => c.id === serverConv.id)
-              || currentState.conversations.find(c => c.id === serverConv.id);
-
-            if (localConv) {
-              // Preserve title from server (source of truth), but fallback to local
-              const title = (serverConv.title && serverConv.title.trim())
-                ? serverConv.title
-                : (localConv.title && localConv.title.trim())
-                  ? localConv.title
-                  : "New Conversation";
-
-              // Preserve local messages if they exist and server conv has none
-              const messages = localConv.messages.length > 0 && serverConv.messages.length === 0
-                ? localConv.messages
-                : serverConv.messages.length > 0
-                  ? serverConv.messages
-                  : localConv.messages;
-
-              // Preserve a2aEvents from local state — loadMessagesFromServer may have
-              // restored them from MongoDB while this function was in-flight. Also preserve
-              // per-message events (msg.events) by keeping the local messages reference.
-              const a2aEvents = localConv.a2aEvents.length > 0
-                ? localConv.a2aEvents
-                : serverConv.a2aEvents;
-
-              return {
-                ...serverConv,
-                title,
-                messages,
-                a2aEvents,
-              };
-            }
-
-            // Ensure title is never empty
-            if (!serverConv.title || !serverConv.title.trim()) {
-              return {
-                ...serverConv,
-                title: "New Conversation"
-              };
-            }
-            return serverConv;
-          });
-
-          const sortedConversations = finalConversations.sort(
+          const allConversations = [...serverConversations, ...localOnlyStreaming];
+          const sortedConversations = allConversations.sort(
             (a, b) => b.updatedAt.getTime() - a.updatedAt.getTime()
-          );
-
-          // Log titles to debug
-          console.log(`[ChatStore] Final conversations with titles:`,
-            sortedConversations.map(c => ({ id: c.id.substring(0, 8), title: c.title, hasTitle: !!c.title }))
           );
 
           // Check if active conversation was deleted on another device
@@ -787,7 +699,6 @@ const storeImplementation = (set: any, get: any) => ({
 
           set({
             conversations: sortedConversations,
-            // Clear active conversation if it was deleted on another device
             ...(activeId && !activeStillExists ? {
               activeConversationId: sortedConversations.length > 0 ? sortedConversations[0].id : null,
               a2aEvents: [],
@@ -798,7 +709,7 @@ const storeImplementation = (set: any, get: any) => ({
             console.log(`[ChatStore] Active conversation ${activeId.substring(0, 8)} was deleted on another device, switching to first conversation`);
           }
 
-          console.log(`[ChatStore] Loaded ${serverConversations.length} conversations from MongoDB, merged with ${localOnlyConversations.length} local conversations, preserved messages for ${finalConversations.filter(c => c.messages.length > 0).length} conversations`);
+          console.log(`[ChatStore] Loaded ${serverConversations.length} conversations from MongoDB (${localOnlyStreaming.length} local-only streaming preserved)`);
         } catch (error) {
           console.error('[ChatStore] Failed to load conversations from MongoDB:', error);
           console.error('[ChatStore] Error details:', {
@@ -812,7 +723,11 @@ const storeImplementation = (set: any, get: any) => ({
         }
       },
 
-      // Save messages to MongoDB after streaming completes
+      // Save messages to MongoDB via upsert (idempotent).
+      // The API uses updateOne + upsert on message_id, so this can be called
+      // multiple times safely — periodic saves during streaming AND the final
+      // save after streaming completes all go through the same code path.
+      // No localStorage cache, no "saved vs stale" tracking needed.
       saveMessagesToServer: async (conversationId: string) => {
         const storageMode = getStorageMode();
         if (storageMode !== 'mongodb') return;
@@ -821,67 +736,41 @@ const storeImplementation = (set: any, get: any) => ({
         const conv = state.conversations.find((c: Conversation) => c.id === conversationId);
         if (!conv || conv.messages.length === 0) return;
 
-        // Partition messages into new (never saved) and stale (saved but content/final changed)
-        const unsavedMessages: ChatMessage[] = [];
-        const staleMessages: ChatMessage[] = [];
-
-        for (const msg of conv.messages) {
-          const key = `${conversationId}:${msg.id}`;
-          if (!savedMessageIds.has(key)) {
-            unsavedMessages.push(msg);
-          } else {
-            // Already saved — check if content or is_final changed since last save
-            const prev = savedMessageState.get(key);
-            if (prev) {
-              const currentIsFinal = msg.isFinal ?? false;
-              const contentChanged = (msg.content?.length || 0) !== prev.contentLength;
-              const finalChanged = currentIsFinal && !prev.isFinal;
-              if (contentChanged || finalChanged) {
-                staleMessages.push(msg);
-              }
-            }
-          }
-        }
-
-        if (unsavedMessages.length === 0 && staleMessages.length === 0) {
-          console.log('[ChatStore] No new or stale messages to save for:', conversationId);
-          return;
-        }
-
-        console.log(`[ChatStore] Saving ${unsavedMessages.length} new + ${staleMessages.length} stale messages to MongoDB for: ${conversationId}`);
-
         // A2A events during streaming are stored at the conversation level (conv.a2aEvents)
         // via addA2AEvent(), NOT on individual msg.events (addEventToMessage is not called).
         // To persist events to MongoDB, we attach the conversation-level events to the
         // last assistant message being saved (the one that was just streamed).
         const convEvents = conv.a2aEvents || [];
-        const allMessagesToSave = [...unsavedMessages, ...staleMessages];
         const lastAssistantIdx = (() => {
-          for (let i = allMessagesToSave.length - 1; i >= 0; i--) {
-            if (allMessagesToSave[i].role === 'assistant') return i;
+          for (let i = conv.messages.length - 1; i >= 0; i--) {
+            if (conv.messages[i].role === 'assistant') return i;
           }
           return -1;
         })();
 
         const execPlanCount = convEvents.filter((e: A2AEvent) => e.artifact?.name === 'execution_plan_update').length;
         const toolStartCount = convEvents.filter((e: A2AEvent) => e.artifact?.name === 'tool_notification_start').length;
-        console.log(`[A2A-DEBUG] 💾 saveMessagesToServer: conv=${conversationId.substring(0, 8)}, convEvents=${convEvents.length} (${execPlanCount} exec_plans, ${toolStartCount} tool_starts), lastAssistantIdx=${lastAssistantIdx}, unsavedMsgs=${unsavedMessages.length}, staleMsgs=${staleMessages.length}`);
+        console.log(`[A2A-DEBUG] 💾 saveMessagesToServer: conv=${conversationId.substring(0, 8)}, msgs=${conv.messages.length}, convEvents=${convEvents.length} (${execPlanCount} exec_plans, ${toolStartCount} tool_starts), lastAssistantIdx=${lastAssistantIdx}`);
 
-        // ── INSERT new messages ──
-        for (let i = 0; i < unsavedMessages.length; i++) {
-          const msg = unsavedMessages[i];
-          // allMessagesToSave index for this message is i (unsaved are first)
-          const allIdx = i;
+        let savedCount = 0;
+        for (let i = 0; i < conv.messages.length; i++) {
+          const msg = conv.messages[i];
           try {
+            // Determine A2A events for this message:
+            // 1. If the message already has per-message events, use those
+            // 2. If this is the last assistant message and conversation has events, use conv events
+            // 3. Otherwise, don't send events (leave existing events in MongoDB unchanged)
             let serializedEvents: Record<string, unknown>[] | undefined;
 
             if (msg.events?.length > 0) {
               serializedEvents = msg.events.map(serializeA2AEvent);
-            } else if (allIdx === lastAssistantIdx && convEvents.length > 0) {
+            } else if (i === lastAssistantIdx && convEvents.length > 0) {
               serializedEvents = convEvents.map(serializeA2AEvent);
               console.log(`[ChatStore] Attaching ${convEvents.length} conversation-level A2A events to assistant message ${msg.id}`);
             }
 
+            // The API does upsert on message_id — inserts on first call,
+            // updates content/metadata/events on subsequent calls.
             await apiClient.addMessage(conversationId, {
               message_id: msg.id,
               role: msg.role,
@@ -895,53 +784,13 @@ const storeImplementation = (set: any, get: any) => ({
               a2a_events: serializedEvents,
             });
 
-            const key = `${conversationId}:${msg.id}`;
-            savedMessageIds.add(key);
-            savedMessageState.set(key, {
-              isFinal: msg.isFinal ?? false,
-              contentLength: msg.content?.length || 0,
-            });
+            savedCount++;
           } catch (error: any) {
             console.error(`[ChatStore] Failed to save message ${msg.id}:`, error?.message);
           }
         }
 
-        // ── UPDATE stale messages (content/metadata/events changed since last save) ──
-        for (let i = 0; i < staleMessages.length; i++) {
-          const msg = staleMessages[i];
-          const allIdx = unsavedMessages.length + i;
-          try {
-            // Determine A2A events: if this is the last assistant in allMessagesToSave
-            let serializedEvents: Record<string, unknown>[] | undefined;
-            if (msg.events?.length > 0) {
-              serializedEvents = msg.events.map(serializeA2AEvent);
-            } else if (allIdx === lastAssistantIdx && convEvents.length > 0) {
-              serializedEvents = convEvents.map(serializeA2AEvent);
-              console.log(`[ChatStore] Attaching ${convEvents.length} conversation-level A2A events to stale assistant message ${msg.id}`);
-            }
-
-            await apiClient.updateMessage(msg.id, {
-              content: msg.content,
-              metadata: {
-                is_final: msg.isFinal ?? true,
-                is_interrupted: msg.isInterrupted ?? false,
-                ...(msg.taskId && { task_id: msg.taskId }),
-              },
-              ...(serializedEvents && { a2a_events: serializedEvents }),
-            });
-
-            const key = `${conversationId}:${msg.id}`;
-            savedMessageState.set(key, {
-              isFinal: msg.isFinal ?? false,
-              contentLength: msg.content?.length || 0,
-            });
-            console.log(`[ChatStore] Updated stale message ${msg.id} in MongoDB (isFinal=${msg.isFinal}, content=${(msg.content?.length || 0)} chars)`);
-          } catch (error: any) {
-            console.error(`[ChatStore] Failed to update stale message ${msg.id}:`, error?.message);
-          }
-        }
-
-        console.log(`[ChatStore] Saved ${unsavedMessages.length} new + ${staleMessages.length} updated messages to MongoDB`);
+        console.log(`[ChatStore] Upserted ${savedCount}/${conv.messages.length} messages to MongoDB`);
       },
 
       // ═══════════════════════════════════════════════════════════════
@@ -1082,18 +931,10 @@ const storeImplementation = (set: any, get: any) => ({
           }
         }
 
-        const state = get();
-        const conv = state.conversations.find((c: Conversation) => c.id === conversationId);
-        const hasLocalMessages = conv && conv.messages.length > 0;
-        const hasLocalEvents = hasLocalMessages && (
-          conv.a2aEvents.length > 0 ||
-          conv.messages.some((m: ChatMessage) => m.events && m.events.length > 0)
-        );
-
         messageLoadState.set(conversationId, { inFlight: true, lastLoadedAt: loadState?.lastLoadedAt ?? 0 });
 
         try {
-          console.log(`[ChatStore] Loading messages from MongoDB for: ${conversationId} (hasLocalMessages=${hasLocalMessages}, hasLocalEvents=${hasLocalEvents})`);
+          console.log(`[ChatStore] Loading messages from MongoDB for: ${conversationId}`);
           const response = await apiClient.getMessages(conversationId, { page_size: 100 });
 
           if (!response?.items || response.items.length === 0) {
@@ -1155,14 +996,6 @@ const storeImplementation = (set: any, get: any) => ({
               } : undefined,
             };
 
-            // Mark as already saved so we don't re-save or re-update unnecessarily
-            const savedKey = `${conversationId}:${chatMsg.id}`;
-            savedMessageIds.add(savedKey);
-            savedMessageState.set(savedKey, {
-              isFinal: chatMsg.isFinal ?? false,
-              contentLength: chatMsg.content?.length || 0,
-            });
-
             return chatMsg;
           });
 
@@ -1189,13 +1022,11 @@ const storeImplementation = (set: any, get: any) => ({
           });
 
           if (isCurrentlyStreaming) {
-            console.log(`[A2A-DEBUG] ⚠️ loadMessagesFromServer: SKIPPING a2aEvents overwrite — conversation is streaming (would restore stale events from previous turn)`);
-          }
+            // Conversation is actively streaming — the in-memory Zustand state is the
+            // live buffer being built by the stream. Don't overwrite it with stale MongoDB
+            // data. Only merge events from MongoDB into local messages that lack them.
+            console.log(`[A2A-DEBUG] ⚠️ loadMessagesFromServer: conversation is streaming — merging events only, preserving live messages`);
 
-          if (hasLocalMessages) {
-            // We have local message stubs — merge events AND any new messages
-            // from MongoDB that don't exist locally (e.g., follow-up messages
-            // from another device).
             const serverEventsByMsgId = new Map<string, A2AEvent[]>();
             for (const msg of messages) {
               if (msg.events.length > 0) {
@@ -1203,55 +1034,39 @@ const storeImplementation = (set: any, get: any) => ({
               }
             }
 
-            // Build a set of local message IDs to detect new server messages
-            const localMsgIds = new Set(conv!.messages.map((m: ChatMessage) => m.id));
-
-            // Find messages on server that don't exist locally (follow-up from other device)
-            const newServerMessages = messages.filter(m => !localMsgIds.has(m.id));
-
             set((state: ChatState) => ({
               conversations: state.conversations.map((c: Conversation) =>
                 c.id === conversationId
                   ? {
                       ...c,
-                      // Only overwrite a2aEvents if NOT currently streaming.
-                      // During streaming, a2aEvents are managed by clearA2AEvents/addA2AEvent.
-                      ...(isCurrentlyStreaming ? {} : { a2aEvents: lastTurnEvents }),
-                      messages: [
-                        // Existing local messages with events merged in
-                        ...c.messages.map((localMsg: ChatMessage) => {
-                          const serverEvents = serverEventsByMsgId.get(localMsg.id);
-                          if (serverEvents && localMsg.events.length === 0) {
-                            return { ...localMsg, events: serverEvents };
-                          }
-                          return localMsg;
-                        }),
-                        // Append new messages from server that don't exist locally
-                        ...newServerMessages,
-                      ],
+                      // Don't overwrite a2aEvents during streaming
+                      messages: c.messages.map((localMsg: ChatMessage) => {
+                        const serverEvents = serverEventsByMsgId.get(localMsg.id);
+                        if (serverEvents && localMsg.events.length === 0) {
+                          return { ...localMsg, events: serverEvents };
+                        }
+                        return localMsg;
+                      }),
                     }
                   : c
               ),
             }));
-
-            const mergedEventCount = lastTurnEvents.length;
-            console.log(`[ChatStore] Merged ${isCurrentlyStreaming ? 0 : mergedEventCount} A2A events (last turn, skipped=${isCurrentlyStreaming}) and ${newServerMessages.length} new messages from MongoDB into ${conv!.messages.length} local messages for: ${conversationId}`);
           } else {
-            // No local messages — replace entirely with MongoDB data
+            // Not streaming — MongoDB is the sole source of truth.
+            // Replace local state entirely with what came from MongoDB.
             set((state: ChatState) => ({
               conversations: state.conversations.map((c: Conversation) =>
                 c.id === conversationId
                   ? {
                       ...c,
                       messages,
-                      // Only set a2aEvents if NOT currently streaming
-                      ...(isCurrentlyStreaming ? {} : { a2aEvents: lastTurnEvents }),
+                      a2aEvents: lastTurnEvents,
                     }
                   : c
               ),
             }));
 
-            console.log(`[ChatStore] Loaded ${messages.length} messages with ${isCurrentlyStreaming ? 0 : lastTurnEvents.length} events (last turn, skipped=${isCurrentlyStreaming}) from MongoDB for: ${conversationId}`);
+            console.log(`[ChatStore] Loaded ${messages.length} messages with ${lastTurnEvents.length} events from MongoDB for: ${conversationId}`);
           }
 
         } catch (error: any) {
@@ -1441,57 +1256,159 @@ export const useChatStore = shouldUseLocalStorage()
         },
       })
     )
-  : // MongoDB mode: Still use localStorage as cache, but sync with server
-    // Keep messages in cache (they're the source of truth until saved to MongoDB)
-    // but strip A2A events (too large for localStorage, will reload from MongoDB)
-    create<ChatState>()(
-      persist(storeImplementation, {
-        name: "caipe-chat-history-mongodb-cache",
-        storage: createJSONStorage(() => localStorage),
-        partialize: (state) => ({
-          conversations: state.conversations.map((conv) => ({
-            ...conv,
-            a2aEvents: [], // Don't persist events in localStorage (too large, stored in MongoDB)
-            messages: conv.messages.map((msg) => ({
-              ...msg,
-              events: [], // Don't persist per-message events in localStorage (stored in MongoDB)
-            })),
-          })),
-          activeConversationId: state.activeConversationId,
-          selectedTurnIdsArray: Array.from(state.selectedTurnIds.entries()),
-        }),
-        onRehydrateStorage: () => (state) => {
-          if (state) {
-            state.conversations = state.conversations.map((conv) => ({
-              ...conv,
-              createdAt: new Date(conv.createdAt),
-              updatedAt: new Date(conv.updatedAt),
-              a2aEvents: [],
-              messages: conv.messages.map((msg, idx, allMsgs) => {
-                // CRASH RECOVERY: same heal logic as localStorage mode above.
-                let healed = false;
-                if (msg.role === 'assistant' && !msg.isFinal) {
-                  const hasFollowUp = allMsgs.slice(idx + 1).some(m => m.role === 'user');
-                  if (hasFollowUp) healed = true;
-                }
-                return {
-                  ...msg,
-                  timestamp: new Date(msg.timestamp),
-                  events: [],
-                  isFinal: healed ? true : msg.isFinal,
-                  isInterrupted: healed
-                    ? false
-                    : (msg.role === 'assistant' && !msg.isFinal ? true : msg.isInterrupted),
-                };
-              }),
-            }));
-            state.a2aEvents = [];
-            const storedArray = (state as unknown as { selectedTurnIdsArray?: [string, string][] }).selectedTurnIdsArray;
-            state.selectedTurnIds = new Map(storedArray || []);
-          }
-        },
-      })
-    );
+  : // MongoDB mode: NO localStorage cache — MongoDB is the sole source of truth.
+    // State lives in Zustand's in-memory store only (survives within a session via
+    // React re-renders) and is loaded from / saved to MongoDB explicitly.
+    // This eliminates the "two sources of truth" drift that caused stale content,
+    // phantom "interrupted" banners, and merge conflicts between localStorage and MongoDB.
+    create<ChatState>()(storeImplementation);
+
+// ═══════════════════════════════════════════════════════════════
+// DEBUG: Expose diagnostic helpers on window for debugging message persistence
+// Run in browser console:   __caipeDebug.messages()        — local messages
+//                           __caipeDebug.compare()         — local vs MongoDB diff
+//                           __caipeDebug.mongo()           — raw MongoDB fetch
+//                           __caipeDebug.localStorage()    — raw localStorage data
+// ═══════════════════════════════════════════════════════════════
+if (typeof window !== 'undefined') {
+  (window as any).__caipeDebug = {
+    /** Show local messages for the active conversation */
+    messages: () => {
+      const state = useChatStore.getState();
+      const conv = state.conversations.find((c: Conversation) => c.id === state.activeConversationId);
+      if (!conv) { console.log('No active conversation'); return; }
+      console.log(`Conversation: ${conv.id} (${conv.title || 'untitled'})`);
+      console.log(`Messages: ${conv.messages.length}`);
+      console.table(conv.messages.map((m: ChatMessage) => ({
+        id: m.id?.substring(0, 8),
+        role: m.role,
+        contentLen: m.content?.length || 0,
+        contentPreview: (m.content || '').substring(0, 80),
+        isFinal: m.isFinal,
+        isInterrupted: m.isInterrupted,
+        taskId: m.taskId?.substring(0, 8),
+        turnId: m.turnId?.substring(0, 8),
+        events: m.events?.length || 0,
+      })));
+      return conv.messages;
+    },
+    /** Fetch messages from MongoDB for the active conversation and compare */
+    compare: async () => {
+      const state = useChatStore.getState();
+      const convId = state.activeConversationId;
+      if (!convId) { console.log('No active conversation'); return; }
+      const conv = state.conversations.find((c: Conversation) => c.id === convId);
+      const localMsgs = conv?.messages || [];
+
+      try {
+        const res = await fetch(`/api/chat/conversations/${convId}/messages?pageSize=100`);
+        const data = await res.json();
+        const mongoMsgs = data.items || data.data || [];
+
+        console.log(`\n=== COMPARISON for ${convId} ===`);
+        console.log(`Local: ${localMsgs.length} messages | MongoDB: ${mongoMsgs.length} messages`);
+
+        const maxLen = Math.max(localMsgs.length, mongoMsgs.length);
+        const rows: any[] = [];
+        for (let i = 0; i < maxLen; i++) {
+          const local = localMsgs[i] as ChatMessage | undefined;
+          const mongo = mongoMsgs[i] as any | undefined;
+          rows.push({
+            '#': i,
+            localId: local?.id?.substring(0, 8) || '—',
+            mongoId: (mongo?.message_id || mongo?._id)?.substring(0, 8) || '—',
+            role: local?.role || mongo?.role || '—',
+            localContentLen: local?.content?.length || 0,
+            mongoContentLen: mongo?.content?.length || 0,
+            contentMatch: local && mongo ? (local.content?.length === mongo.content?.length ? '✅' : `❌ Δ${(local.content?.length || 0) - (mongo.content?.length || 0)}`) : '—',
+            localIsFinal: local?.isFinal,
+            mongoIsFinal: mongo?.metadata?.is_final,
+            finalMatch: local && mongo ? (Boolean(local.isFinal) === Boolean(mongo.metadata?.is_final) ? '✅' : '❌') : '—',
+            localInterrupted: local?.isInterrupted,
+            mongoInterrupted: mongo?.metadata?.is_interrupted,
+            localEvents: local?.events?.length || 0,
+            mongoEvents: mongo?.a2a_events?.length || 0,
+          });
+        }
+        console.table(rows);
+        return { local: localMsgs, mongo: mongoMsgs, rows };
+      } catch (err) {
+        console.error('Failed to fetch from MongoDB:', err);
+      }
+    },
+    /** Fetch raw MongoDB messages for active conversation */
+    mongo: async () => {
+      const convId = useChatStore.getState().activeConversationId;
+      if (!convId) { console.log('No active conversation'); return; }
+      const res = await fetch(`/api/chat/conversations/${convId}/messages?pageSize=100`);
+      const data = await res.json();
+      const items = data.items || data.data || [];
+      console.log(`MongoDB: ${items.length} messages for ${convId}`);
+      console.table(items.map((m: any) => ({
+        id: (m.message_id || m._id)?.substring(0, 8),
+        role: m.role,
+        contentLen: m.content?.length || 0,
+        contentPreview: (m.content || '').substring(0, 80),
+        is_final: m.metadata?.is_final,
+        is_interrupted: m.metadata?.is_interrupted,
+        task_id: m.metadata?.task_id?.substring(0, 8),
+        events: m.a2a_events?.length || 0,
+      })));
+      return items;
+    },
+    /** Show raw localStorage cache data */
+    localStorage: () => {
+      for (const key of ['caipe-chat-history', 'caipe-chat-history-mongodb-cache']) {
+        const raw = window.localStorage.getItem(key);
+        if (raw) {
+          try {
+            const parsed = JSON.parse(raw);
+            const convs = parsed?.state?.conversations || [];
+            console.log(`\n=== ${key} ===`);
+            console.log(`Conversations: ${convs.length}`);
+            for (const conv of convs) {
+              console.log(`  ${conv.id?.substring(0, 8)}: "${conv.title}" — ${conv.messages?.length || 0} messages`);
+              if (conv.messages) {
+                console.table(conv.messages.map((m: any) => ({
+                  id: m.id?.substring(0, 8),
+                  role: m.role,
+                  contentLen: m.content?.length || 0,
+                  isFinal: m.isFinal,
+                  isInterrupted: m.isInterrupted,
+                })));
+              }
+            }
+          } catch { console.log(`${key}: parse error`); }
+        } else {
+          console.log(`${key}: not found`);
+        }
+      }
+    },
+    /** Show storage mode info */
+    storageMode: () => {
+      const mode = getStorageMode();
+      console.log(`Storage mode: ${mode}`);
+      if (mode === 'mongodb') {
+        console.log('MongoDB is sole source of truth — no localStorage cache');
+      } else {
+        console.log('localStorage mode — data persisted in browser only');
+      }
+    },
+  };
+  console.log('[CAIPE] Debug helpers available: __caipeDebug.messages(), __caipeDebug.compare(), __caipeDebug.mongo(), __caipeDebug.localStorage(), __caipeDebug.storageMode()');
+
+  // ── ONE-TIME CLEANUP: Remove stale localStorage cache from MongoDB mode ──
+  // Previous versions used localStorage as a cache in MongoDB mode under the key
+  // "caipe-chat-history-mongodb-cache". This created two-source-of-truth bugs.
+  // Clear it on startup so users don't accidentally load stale cached data.
+  if (getStorageMode() === 'mongodb') {
+    const staleKey = 'caipe-chat-history-mongodb-cache';
+    if (window.localStorage.getItem(staleKey)) {
+      console.log(`[ChatStore] Removing stale localStorage cache: ${staleKey}`);
+      window.localStorage.removeItem(staleKey);
+    }
+  }
+}
 
 // ═══════════════════════════════════════════════════════════════
 // PERSISTENCE HARDENING: Save in-flight conversations on tab close / navigation

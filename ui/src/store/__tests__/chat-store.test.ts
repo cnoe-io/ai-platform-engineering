@@ -6,9 +6,9 @@
  *
  * Covers:
  * - serializeA2AEvent: strips raw payload, preserves key fields
- * - saveMessagesToServer: saves unsaved messages, tracks savedMessageIds, handles errors
- * - loadMessagesFromServer: loads from MongoDB, deserializes events, skips if already loaded
- * - loadConversationsFromServer: deletion sync across devices, active conversation cleanup
+ * - saveMessagesToServer: upserts all messages every call (API upserts on message_id), handles errors
+ * - loadMessagesFromServer: loads from MongoDB, when NOT streaming replaces local state entirely
+ * - loadConversationsFromServer: server conversations replace local; messages start empty (filled by loadMessagesFromServer)
  * - setConversationStreaming: triggers auto-save when streaming completes
  * - createConversation: creates on server in MongoDB mode
  * - deleteConversation: deletes on server in MongoDB mode
@@ -160,21 +160,27 @@ describe('chat-store', () => {
       }));
     });
 
-    it('does not re-save messages that were already saved', async () => {
-      const conv = makeConversation({ id: 'dedup-test' });
-      const msg = makeMessage({ id: 'msg-already-saved', role: 'user', content: 'Hi' });
-      conv.messages = [msg];
+    it('upserts all messages on every call', async () => {
+      const conv = makeConversation({ id: 'upsert-test' });
+      conv.messages = [
+        makeMessage({ id: 'msg-1', role: 'user', content: 'First' }),
+        makeMessage({ id: 'msg-2', role: 'assistant', content: 'Response', isFinal: true }),
+      ];
 
       useChatStore.setState({ conversations: [conv] });
 
-      // First save
-      await useChatStore.getState().saveMessagesToServer('dedup-test');
-      expect(mockApiClient.addMessage).toHaveBeenCalledTimes(1);
+      // First save — upserts both messages
+      await useChatStore.getState().saveMessagesToServer('upsert-test');
+      expect(mockApiClient.addMessage).toHaveBeenCalledTimes(2);
+      expect(mockApiClient.addMessage).toHaveBeenCalledWith('upsert-test', expect.objectContaining({ message_id: 'msg-1' }));
+      expect(mockApiClient.addMessage).toHaveBeenCalledWith('upsert-test', expect.objectContaining({ message_id: 'msg-2' }));
 
-      // Second save — should skip
+      // Second save — upserts ALL messages again (API does upsert on message_id)
       mockApiClient.addMessage.mockClear();
-      await useChatStore.getState().saveMessagesToServer('dedup-test');
-      expect(mockApiClient.addMessage).not.toHaveBeenCalled();
+      await useChatStore.getState().saveMessagesToServer('upsert-test');
+      expect(mockApiClient.addMessage).toHaveBeenCalledTimes(2);
+      expect(mockApiClient.addMessage).toHaveBeenCalledWith('upsert-test', expect.objectContaining({ message_id: 'msg-1' }));
+      expect(mockApiClient.addMessage).toHaveBeenCalledWith('upsert-test', expect.objectContaining({ message_id: 'msg-2' }));
     });
 
     it('serializes A2A events when saving assistant messages', async () => {
@@ -543,15 +549,17 @@ describe('chat-store', () => {
       expect(updatedConv!.a2aEvents.some(e => e.artifact?.name === 'tool_notification_start')).toBe(true);
     });
 
-    it('preserves local message state (feedback) when merging events from MongoDB', async () => {
-      const conv = makeConversation({ id: 'preserve-feedback' });
+    it('replaces local state entirely when loading from MongoDB (no merge, feedback lost)', async () => {
+      // When NOT streaming, MongoDB data REPLACES local state entirely.
+      // Local-only state like feedback is not preserved.
+      const conv = makeConversation({ id: 'replace-feedback' });
       conv.messages = [
         makeMessage({
           id: 'msg-with-feedback',
           role: 'assistant',
           content: 'Great answer',
-          events: [], // No events (stripped by partialize)
-          feedback: { type: 'like', submitted: true }, // But has feedback from local interaction
+          events: [],
+          feedback: { type: 'like', submitted: true }, // Local feedback — will be lost
         }),
       ];
       useChatStore.setState({ conversations: [conv] });
@@ -561,7 +569,7 @@ describe('chat-store', () => {
           {
             _id: 'mongo-fb',
             message_id: 'msg-with-feedback',
-            conversation_id: 'preserve-feedback',
+            conversation_id: 'replace-feedback',
             role: 'assistant',
             content: 'Great answer',
             created_at: '2026-01-01T00:00:00Z',
@@ -574,16 +582,18 @@ describe('chat-store', () => {
         total: 1,
       });
 
-      await useChatStore.getState().loadMessagesFromServer('preserve-feedback');
+      await useChatStore.getState().loadMessagesFromServer('replace-feedback');
 
-      const updatedConv = useChatStore.getState().conversations.find(c => c.id === 'preserve-feedback');
+      const updatedConv = useChatStore.getState().conversations.find(c => c.id === 'replace-feedback');
 
-      // Events should be merged from MongoDB
+      // MongoDB messages replace local state
+      expect(updatedConv!.messages).toHaveLength(1);
       expect(updatedConv!.messages[0].events).toHaveLength(1);
       expect(updatedConv!.messages[0].events[0].type).toBe('tool_end');
 
-      // Local feedback should be preserved (not overwritten)
-      expect(updatedConv!.messages[0].feedback).toEqual({ type: 'like', submitted: true });
+      // Local feedback is NOT preserved — server data replaces local entirely
+      // (Server response has no feedback field, so it's undefined)
+      expect(updatedConv!.messages[0].feedback).toBeUndefined();
     });
 
     it('still loads from server when conversation has local events on conversation level (for cross-device sync)', async () => {
@@ -943,15 +953,15 @@ describe('chat-store', () => {
       expect(mockApiClient.getMessages).toHaveBeenCalledTimes(1);
     });
 
-    it('preserves local feedback when appending new server messages', async () => {
-      // Simulate: Device A has 2 messages, user gave feedback on the assistant message.
-      // Device B sends a follow-up. When Device A syncs, feedback should be preserved.
-      const conv = makeConversation({ id: 'feedback-preserve-sync' });
+    it('replaces local messages entirely with MongoDB data (feedback not preserved)', async () => {
+      // When NOT streaming, MongoDB data REPLACES local state entirely.
+      // Local feedback on existing messages is lost — server is source of truth.
+      const conv = makeConversation({ id: 'feedback-replace-sync' });
       conv.messages = [
         makeMessage({ id: 'msg-user-1', role: 'user', content: 'List apps', events: [] }),
         makeMessage({
           id: 'msg-asst-1', role: 'assistant', content: 'Here are apps...',
-          events: [], feedback: { type: 'like', submitted: true },
+          events: [], feedback: { type: 'like', submitted: true }, // Local feedback — will be lost
         }),
       ];
       useChatStore.setState({ conversations: [conv] });
@@ -959,12 +969,12 @@ describe('chat-store', () => {
       mockApiClient.getMessages.mockResolvedValue({
         items: [
           {
-            _id: 'mongo-1', message_id: 'msg-user-1', conversation_id: 'feedback-preserve-sync',
+            _id: 'mongo-1', message_id: 'msg-user-1', conversation_id: 'feedback-replace-sync',
             role: 'user', content: 'List apps', created_at: '2026-02-01T00:00:00Z',
             metadata: { turn_id: 'turn-1' }, a2a_events: [],
           },
           {
-            _id: 'mongo-2', message_id: 'msg-asst-1', conversation_id: 'feedback-preserve-sync',
+            _id: 'mongo-2', message_id: 'msg-asst-1', conversation_id: 'feedback-replace-sync',
             role: 'assistant', content: 'Here are apps...', created_at: '2026-02-01T00:00:01Z',
             metadata: { turn_id: 'turn-1', is_final: true },
             a2a_events: [
@@ -973,12 +983,12 @@ describe('chat-store', () => {
             ],
           },
           {
-            _id: 'mongo-3', message_id: 'msg-user-2', conversation_id: 'feedback-preserve-sync',
+            _id: 'mongo-3', message_id: 'msg-user-2', conversation_id: 'feedback-replace-sync',
             role: 'user', content: 'Follow up', created_at: '2026-02-01T00:01:00Z',
             metadata: { turn_id: 'turn-2' }, a2a_events: [],
           },
           {
-            _id: 'mongo-4', message_id: 'msg-asst-2', conversation_id: 'feedback-preserve-sync',
+            _id: 'mongo-4', message_id: 'msg-asst-2', conversation_id: 'feedback-replace-sync',
             role: 'assistant', content: 'Follow up response', created_at: '2026-02-01T00:01:01Z',
             metadata: { turn_id: 'turn-2', is_final: true },
             a2a_events: [],
@@ -987,15 +997,16 @@ describe('chat-store', () => {
         total: 4,
       });
 
-      await useChatStore.getState().loadMessagesFromServer('feedback-preserve-sync');
+      await useChatStore.getState().loadMessagesFromServer('feedback-replace-sync');
 
-      const updatedConv = useChatStore.getState().conversations.find(c => c.id === 'feedback-preserve-sync');
+      const updatedConv = useChatStore.getState().conversations.find(c => c.id === 'feedback-replace-sync');
       expect(updatedConv!.messages).toHaveLength(4);
 
-      // Original feedback should be preserved on the local message
-      expect(updatedConv!.messages[1].feedback).toEqual({ type: 'like', submitted: true });
+      // Messages are replaced entirely — local feedback is NOT preserved
+      // (Server response has no feedback on msg-asst-1, so it's undefined)
+      expect(updatedConv!.messages[1].feedback).toBeUndefined();
 
-      // New messages from server should be appended
+      // All 4 messages come from server (replacement, not merge)
       expect(updatedConv!.messages[2].content).toBe('Follow up');
       expect(updatedConv!.messages[3].content).toBe('Follow up response');
     });
@@ -1215,15 +1226,17 @@ describe('chat-store', () => {
       expect(useChatStore.getState().conversations).toHaveLength(0);
     });
 
-    it('preserves local messages when server conversation exists without messages', async () => {
+    it('conversations from server have empty messages (filled by loadMessagesFromServer)', async () => {
+      // loadConversationsFromServer sets messages: [] for non-streaming server conversations.
+      // Messages are loaded separately when the user opens the conversation via loadMessagesFromServer.
       const localMsg = makeMessage({ id: 'local-msg', content: 'I have content' });
-      const conv = makeConversation({ id: 'preserve-msgs', title: 'Has Messages', messages: [localMsg] });
+      const conv = makeConversation({ id: 'empty-msgs', title: 'Has Messages', messages: [localMsg] });
 
       useChatStore.setState({ conversations: [conv] });
 
       mockApiClient.getConversations.mockResolvedValue({
         items: [
-          { _id: 'preserve-msgs', title: 'Has Messages', created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
+          { _id: 'empty-msgs', title: 'Has Messages', created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
         ],
         total: 1,
         page: 1,
@@ -1233,9 +1246,9 @@ describe('chat-store', () => {
 
       await useChatStore.getState().loadConversationsFromServer();
 
-      const updatedConv = useChatStore.getState().conversations.find(c => c.id === 'preserve-msgs');
-      expect(updatedConv!.messages).toHaveLength(1);
-      expect(updatedConv!.messages[0].content).toBe('I have content');
+      const updatedConv = useChatStore.getState().conversations.find(c => c.id === 'empty-msgs');
+      // Server conversations start with empty messages — loadMessagesFromServer fills them when opened
+      expect(updatedConv!.messages).toHaveLength(0);
     });
 
     it('skips loading in localStorage mode', async () => {
