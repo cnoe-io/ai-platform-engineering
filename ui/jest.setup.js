@@ -46,3 +46,10 @@ global.fetch = jest.fn(() =>
     text: async () => '',
   })
 )
+
+// Polyfill TextEncoder/TextDecoder for jsdom (used in a2a-client tests)
+if (typeof global.TextEncoder === 'undefined') {
+  const { TextEncoder, TextDecoder } = require('util')
+  global.TextEncoder = TextEncoder
+  global.TextDecoder = TextDecoder
+}
