@@ -226,6 +226,17 @@ export interface UpdateMessageRequest {
     rating: 'positive' | 'negative';
     comment?: string;
   };
+  /** Update message content (e.g., after streaming completes with final content) */
+  content?: string;
+  /** Update metadata fields (e.g., is_final after streaming completes) */
+  metadata?: {
+    is_final?: boolean;
+    is_interrupted?: boolean;
+    task_id?: string;
+    turn_id?: string;
+  };
+  /** Update A2A events (e.g., after streaming completes with full event history) */
+  a2a_events?: any[];
 }
 
 // Bookmark API

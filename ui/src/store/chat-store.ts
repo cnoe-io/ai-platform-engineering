@@ -64,8 +64,11 @@ interface ChatState {
 // Track loading state to prevent multiple simultaneous loads
 let isLoadingConversations = false;
 
-// Track which messages have been saved to MongoDB to avoid duplicates
+// Track which messages have been saved to MongoDB to avoid duplicates.
+// Value is { isFinal, contentLength } — used to detect when a message needs
+// a follow-up UPDATE (e.g., streaming finished and content/is_final changed).
 const savedMessageIds = new Set<string>();
+const savedMessageState = new Map<string, { isFinal: boolean; contentLength: number }>();
 
 // Track in-flight and recently completed message loads to prevent:
 // 1. Concurrent requests for the same conversation
@@ -818,46 +821,63 @@ const storeImplementation = (set: any, get: any) => ({
         const conv = state.conversations.find((c: Conversation) => c.id === conversationId);
         if (!conv || conv.messages.length === 0) return;
 
-        // Find messages that haven't been saved yet
-        const unsavedMessages = conv.messages.filter(
-          (msg: ChatMessage) => !savedMessageIds.has(`${conversationId}:${msg.id}`)
-        );
+        // Partition messages into new (never saved) and stale (saved but content/final changed)
+        const unsavedMessages: ChatMessage[] = [];
+        const staleMessages: ChatMessage[] = [];
 
-        if (unsavedMessages.length === 0) {
-          console.log('[ChatStore] No new messages to save for:', conversationId);
+        for (const msg of conv.messages) {
+          const key = `${conversationId}:${msg.id}`;
+          if (!savedMessageIds.has(key)) {
+            unsavedMessages.push(msg);
+          } else {
+            // Already saved — check if content or is_final changed since last save
+            const prev = savedMessageState.get(key);
+            if (prev) {
+              const currentIsFinal = msg.isFinal ?? false;
+              const contentChanged = (msg.content?.length || 0) !== prev.contentLength;
+              const finalChanged = currentIsFinal && !prev.isFinal;
+              if (contentChanged || finalChanged) {
+                staleMessages.push(msg);
+              }
+            }
+          }
+        }
+
+        if (unsavedMessages.length === 0 && staleMessages.length === 0) {
+          console.log('[ChatStore] No new or stale messages to save for:', conversationId);
           return;
         }
 
-        console.log(`[ChatStore] Saving ${unsavedMessages.length} messages to MongoDB for: ${conversationId}`);
+        console.log(`[ChatStore] Saving ${unsavedMessages.length} new + ${staleMessages.length} stale messages to MongoDB for: ${conversationId}`);
 
         // A2A events during streaming are stored at the conversation level (conv.a2aEvents)
         // via addA2AEvent(), NOT on individual msg.events (addEventToMessage is not called).
         // To persist events to MongoDB, we attach the conversation-level events to the
         // last assistant message being saved (the one that was just streamed).
         const convEvents = conv.a2aEvents || [];
+        const allMessagesToSave = [...unsavedMessages, ...staleMessages];
         const lastAssistantIdx = (() => {
-          for (let i = unsavedMessages.length - 1; i >= 0; i--) {
-            if (unsavedMessages[i].role === 'assistant') return i;
+          for (let i = allMessagesToSave.length - 1; i >= 0; i--) {
+            if (allMessagesToSave[i].role === 'assistant') return i;
           }
           return -1;
         })();
 
         const execPlanCount = convEvents.filter((e: A2AEvent) => e.artifact?.name === 'execution_plan_update').length;
         const toolStartCount = convEvents.filter((e: A2AEvent) => e.artifact?.name === 'tool_notification_start').length;
-        console.log(`[A2A-DEBUG] 💾 saveMessagesToServer: conv=${conversationId.substring(0, 8)}, convEvents=${convEvents.length} (${execPlanCount} exec_plans, ${toolStartCount} tool_starts), lastAssistantIdx=${lastAssistantIdx}, unsavedMsgs=${unsavedMessages.length}`);
+        console.log(`[A2A-DEBUG] 💾 saveMessagesToServer: conv=${conversationId.substring(0, 8)}, convEvents=${convEvents.length} (${execPlanCount} exec_plans, ${toolStartCount} tool_starts), lastAssistantIdx=${lastAssistantIdx}, unsavedMsgs=${unsavedMessages.length}, staleMsgs=${staleMessages.length}`);
 
+        // ── INSERT new messages ──
         for (let i = 0; i < unsavedMessages.length; i++) {
           const msg = unsavedMessages[i];
+          // allMessagesToSave index for this message is i (unsaved are first)
+          const allIdx = i;
           try {
-            // Determine A2A events for this message:
-            // 1. If the message already has per-message events, use those
-            // 2. If this is the last assistant message and conversation has events, use conv events
-            // 3. Otherwise, no events
             let serializedEvents: Record<string, unknown>[] | undefined;
 
             if (msg.events?.length > 0) {
               serializedEvents = msg.events.map(serializeA2AEvent);
-            } else if (i === lastAssistantIdx && convEvents.length > 0) {
+            } else if (allIdx === lastAssistantIdx && convEvents.length > 0) {
               serializedEvents = convEvents.map(serializeA2AEvent);
               console.log(`[ChatStore] Attaching ${convEvents.length} conversation-level A2A events to assistant message ${msg.id}`);
             }
@@ -868,21 +888,60 @@ const storeImplementation = (set: any, get: any) => ({
               content: msg.content,
               metadata: {
                 turn_id: msg.turnId || `turn-${Date.now()}`,
-                is_final: msg.isFinal ?? false, // Explicitly false for in-progress messages
+                is_final: msg.isFinal ?? false,
                 ...(msg.taskId && { task_id: msg.taskId }),
                 ...(msg.isInterrupted && { is_interrupted: msg.isInterrupted }),
               },
               a2a_events: serializedEvents,
             });
 
-            savedMessageIds.add(`${conversationId}:${msg.id}`);
+            const key = `${conversationId}:${msg.id}`;
+            savedMessageIds.add(key);
+            savedMessageState.set(key, {
+              isFinal: msg.isFinal ?? false,
+              contentLength: msg.content?.length || 0,
+            });
           } catch (error: any) {
-            // Don't fail the whole save if one message fails
             console.error(`[ChatStore] Failed to save message ${msg.id}:`, error?.message);
           }
         }
 
-        console.log(`[ChatStore] Saved ${unsavedMessages.length} messages to MongoDB`);
+        // ── UPDATE stale messages (content/metadata/events changed since last save) ──
+        for (let i = 0; i < staleMessages.length; i++) {
+          const msg = staleMessages[i];
+          const allIdx = unsavedMessages.length + i;
+          try {
+            // Determine A2A events: if this is the last assistant in allMessagesToSave
+            let serializedEvents: Record<string, unknown>[] | undefined;
+            if (msg.events?.length > 0) {
+              serializedEvents = msg.events.map(serializeA2AEvent);
+            } else if (allIdx === lastAssistantIdx && convEvents.length > 0) {
+              serializedEvents = convEvents.map(serializeA2AEvent);
+              console.log(`[ChatStore] Attaching ${convEvents.length} conversation-level A2A events to stale assistant message ${msg.id}`);
+            }
+
+            await apiClient.updateMessage(msg.id, {
+              content: msg.content,
+              metadata: {
+                is_final: msg.isFinal ?? true,
+                is_interrupted: msg.isInterrupted ?? false,
+                ...(msg.taskId && { task_id: msg.taskId }),
+              },
+              ...(serializedEvents && { a2a_events: serializedEvents }),
+            });
+
+            const key = `${conversationId}:${msg.id}`;
+            savedMessageState.set(key, {
+              isFinal: msg.isFinal ?? false,
+              contentLength: msg.content?.length || 0,
+            });
+            console.log(`[ChatStore] Updated stale message ${msg.id} in MongoDB (isFinal=${msg.isFinal}, content=${(msg.content?.length || 0)} chars)`);
+          } catch (error: any) {
+            console.error(`[ChatStore] Failed to update stale message ${msg.id}:`, error?.message);
+          }
+        }
+
+        console.log(`[ChatStore] Saved ${unsavedMessages.length} new + ${staleMessages.length} updated messages to MongoDB`);
       },
 
       // ═══════════════════════════════════════════════════════════════
@@ -1042,8 +1101,14 @@ const storeImplementation = (set: any, get: any) => ({
             return;
           }
 
+          // Build an ordered list of raw items for look-ahead heuristics.
+          // We need to know whether a "not final" assistant message is actually
+          // followed by a subsequent user message — if so the response completed
+          // successfully but the original session crashed before writing is_final=true.
+          const rawItems: any[] = response.items;
+
           // Convert MongoDB messages to ChatMessage format
-          const messages: ChatMessage[] = response.items.map((msg: any) => {
+          const messages: ChatMessage[] = rawItems.map((msg: any, idx: number) => {
             // Deserialize A2A events
             const events: A2AEvent[] = (msg.a2a_events || []).map((e: any) => ({
               ...e,
@@ -1053,10 +1118,24 @@ const storeImplementation = (set: any, get: any) => ({
             // Determine isFinal: prefer explicit metadata value.
             // We now always save is_final explicitly (false for in-progress, true for complete).
             // For legacy messages that don't have is_final, default to true (they were complete).
-            const isFinal = msg.metadata?.is_final != null
+            let isFinal = msg.metadata?.is_final != null
               ? Boolean(msg.metadata.is_final)
               : true; // Legacy messages without is_final metadata are assumed complete
 
+            // ── Stale is_final heal ──────────────────────────────────
+            // If an assistant message has is_final=false but a subsequent user
+            // message exists, the response DID complete — the original page just
+            // crashed before persisting is_final=true.  Fix the flag so the
+            // "Response was interrupted" banner does not show.
+            if (msg.role === 'assistant' && !isFinal) {
+              const hasFollowUp = rawItems.slice(idx + 1).some((m: any) => m.role === 'user');
+              if (hasFollowUp) {
+                console.log(`[ChatStore] Healing stale is_final=false for assistant message ${msg.message_id || msg._id} (followed by user message)`);
+                isFinal = true;
+              }
+            }
+
+            const isExplicitlyInterrupted = Boolean(msg.metadata?.is_interrupted);
             const chatMsg: ChatMessage = {
               id: msg.message_id || msg._id?.toString() || generateId(),
               role: msg.role as "user" | "assistant",
@@ -1066,17 +1145,23 @@ const storeImplementation = (set: any, get: any) => ({
               isFinal,
               turnId: msg.metadata?.turn_id,
               taskId: msg.metadata?.task_id,
-              // Mark as interrupted if: explicitly flagged in MongoDB OR assistant
-              // message is not final (was mid-stream when saved)
-              isInterrupted: msg.metadata?.is_interrupted || (msg.role === 'assistant' && !isFinal),
+              // Mark as interrupted only if explicitly flagged in MongoDB, or
+              // if this is the very last assistant message and it's not final
+              // (genuinely mid-stream when saved, with no follow-up).
+              isInterrupted: isExplicitlyInterrupted || (msg.role === 'assistant' && !isFinal),
               feedback: msg.feedback ? {
                 type: msg.feedback.rating === 'positive' ? 'like' : msg.feedback.rating === 'negative' ? 'dislike' : null,
                 submitted: true,
               } : undefined,
             };
 
-            // Mark as already saved so we don't re-save
-            savedMessageIds.add(`${conversationId}:${chatMsg.id}`);
+            // Mark as already saved so we don't re-save or re-update unnecessarily
+            const savedKey = `${conversationId}:${chatMsg.id}`;
+            savedMessageIds.add(savedKey);
+            savedMessageState.set(savedKey, {
+              isFinal: chatMsg.isFinal ?? false,
+              contentLength: chatMsg.content?.length || 0,
+            });
 
             return chatMsg;
           });
@@ -1326,15 +1411,28 @@ export const useChatStore = shouldUseLocalStorage()
               createdAt: new Date(conv.createdAt),
               updatedAt: new Date(conv.updatedAt),
               a2aEvents: [],
-              messages: conv.messages.map((msg) => ({
-                ...msg,
-                timestamp: new Date(msg.timestamp),
-                events: [],
+              messages: conv.messages.map((msg, idx, allMsgs) => {
                 // CRASH RECOVERY: Mark non-final assistant messages as interrupted.
                 // After a page crash/reload, streamingConversations is empty (not persisted),
                 // so any assistant message without isFinal=true was mid-stream when the tab died.
-                isInterrupted: msg.role === 'assistant' && !msg.isFinal ? true : msg.isInterrupted,
-              })),
+                //
+                // HEAL: If a subsequent user message exists, the response actually completed
+                // — the original session just didn't persist isFinal=true before crashing.
+                let healed = false;
+                if (msg.role === 'assistant' && !msg.isFinal) {
+                  const hasFollowUp = allMsgs.slice(idx + 1).some(m => m.role === 'user');
+                  if (hasFollowUp) healed = true;
+                }
+                return {
+                  ...msg,
+                  timestamp: new Date(msg.timestamp),
+                  events: [],
+                  isFinal: healed ? true : msg.isFinal,
+                  isInterrupted: healed
+                    ? false
+                    : (msg.role === 'assistant' && !msg.isFinal ? true : msg.isInterrupted),
+                };
+              }),
             }));
             state.a2aEvents = [];
             const storedArray = (state as unknown as { selectedTurnIdsArray?: [string, string][] }).selectedTurnIdsArray;
@@ -1369,13 +1467,23 @@ export const useChatStore = shouldUseLocalStorage()
               createdAt: new Date(conv.createdAt),
               updatedAt: new Date(conv.updatedAt),
               a2aEvents: [],
-              messages: conv.messages.map((msg) => ({
-                ...msg,
-                timestamp: new Date(msg.timestamp),
-                events: [],
-                // CRASH RECOVERY: Mark non-final assistant messages as interrupted.
-                isInterrupted: msg.role === 'assistant' && !msg.isFinal ? true : msg.isInterrupted,
-              })),
+              messages: conv.messages.map((msg, idx, allMsgs) => {
+                // CRASH RECOVERY: same heal logic as localStorage mode above.
+                let healed = false;
+                if (msg.role === 'assistant' && !msg.isFinal) {
+                  const hasFollowUp = allMsgs.slice(idx + 1).some(m => m.role === 'user');
+                  if (hasFollowUp) healed = true;
+                }
+                return {
+                  ...msg,
+                  timestamp: new Date(msg.timestamp),
+                  events: [],
+                  isFinal: healed ? true : msg.isFinal,
+                  isInterrupted: healed
+                    ? false
+                    : (msg.role === 'assistant' && !msg.isFinal ? true : msg.isInterrupted),
+                };
+              }),
             }));
             state.a2aEvents = [];
             const storedArray = (state as unknown as { selectedTurnIdsArray?: [string, string][] }).selectedTurnIdsArray;
