@@ -689,6 +689,63 @@ Use this as the reference point for all date calculations. When users say "today
         """
         return sum(self._count_message_tokens(msg) for msg in messages)
 
+    @staticmethod
+    def _find_safe_split_index(messages: list, desired_keep_count: int) -> int:
+        """
+        Find a safe index to split messages so that no AIMessage with tool_calls
+        is separated from its corresponding ToolMessage(s).
+
+        Bedrock Converse API (and other providers) require that every ``toolUse``
+        block is immediately followed by a ``toolResult`` block in the next
+        message.  If context compression or trimming naively slices the message
+        list, an AIMessage with pending tool_calls can end up at the boundary
+        without its ToolMessage partner(s), causing a ValidationException.
+
+        This helper walks backward from the desired split point and adjusts
+        it so the *first kept message* is never a ToolMessage whose
+        AIMessage parent was removed.
+
+        Args:
+            messages: Full list of conversation messages (no system messages).
+            desired_keep_count: How many messages (from the end) we'd *like*
+                to keep.
+
+        Returns:
+            The 0-based index into ``messages`` at which we should start
+            keeping.  Everything before this index is safe to summarize or
+            remove.
+        """
+        if desired_keep_count >= len(messages):
+            return 0  # Keep everything
+
+        candidate = len(messages) - desired_keep_count
+
+        # Walk the candidate forward if the first kept message is a ToolMessage —
+        # that means the AIMessage with tool_calls is on the remove side.
+        # Walk backward instead to include the AIMessage + its ToolMessages.
+        while candidate > 0:
+            first_kept = messages[candidate]
+
+            # If first kept message is a ToolMessage, we must also keep the
+            # preceding AIMessage (and any other ToolMessages for the same call).
+            if isinstance(first_kept, ToolMessage):
+                candidate -= 1
+                continue
+
+            # If the message just before our boundary is an AIMessage with
+            # tool_calls, its ToolMessage results are in the kept set — but the
+            # AIMessage itself is in the remove set.  Move it to the kept set.
+            preceding = messages[candidate - 1]
+            if isinstance(preceding, AIMessage):
+                tool_calls = getattr(preceding, "tool_calls", None) or []
+                if tool_calls:
+                    candidate -= 1
+                    continue
+
+            break  # Safe boundary found
+
+        return candidate
+
     async def _trim_messages_if_needed(self, config: RunnableConfig) -> None:
         """
         Trim old messages from the checkpointer if context is too large.
@@ -750,9 +807,15 @@ Use this as the reference point for all date calculations. When users say "today
                 else:
                     conversation_messages.append(msg)
 
-            # Keep recent N messages
-            messages_to_keep = conversation_messages[-self.min_messages_to_keep:]
-            messages_to_remove = conversation_messages[:-self.min_messages_to_keep]
+            # Keep recent N messages — use safe split to avoid orphaning tool calls
+            safe_idx = self._find_safe_split_index(conversation_messages, self.min_messages_to_keep)
+            messages_to_keep = conversation_messages[safe_idx:]
+            messages_to_remove = conversation_messages[:safe_idx]
+
+            logger.info(
+                f"{agent_name}: Safe split at index {safe_idx}/{len(conversation_messages)} "
+                f"(keeping {len(messages_to_keep)}, removing {len(messages_to_remove)})"
+            )
 
             # Calculate tokens after trimming
             kept_tokens = (
@@ -760,11 +823,20 @@ Use this as the reference point for all date calculations. When users say "today
                 self._count_total_tokens(messages_to_keep)
             )
 
-            # If still too large, trim more aggressively
+            # If still too large, trim more aggressively — but respect tool-call boundaries
             while kept_tokens > self.max_context_tokens and len(messages_to_keep) > 2:
-                # Remove the oldest message from kept messages
-                removed = messages_to_keep.pop(0)
-                messages_to_remove.append(removed)
+                # Remove the oldest message from kept messages — skip if it would orphan a tool call
+                first_kept = messages_to_keep[0]
+                if isinstance(first_kept, AIMessage) and getattr(first_kept, "tool_calls", None):
+                    # Remove this AIMessage AND all its ToolMessages
+                    removed = messages_to_keep.pop(0)
+                    messages_to_remove.append(removed)
+                    while messages_to_keep and isinstance(messages_to_keep[0], ToolMessage):
+                        removed = messages_to_keep.pop(0)
+                        messages_to_remove.append(removed)
+                else:
+                    removed = messages_to_keep.pop(0)
+                    messages_to_remove.append(removed)
                 kept_tokens = (
                     self._count_total_tokens(system_messages) +
                     self._count_total_tokens(messages_to_keep)
@@ -928,10 +1000,16 @@ Use this as the reference point for all date calculations. When users say "today
                 target_tokens = int(self.max_context_tokens * 0.5)
                 langmem_succeeded = False
 
-                # Try LangMem summarization first
+                # Try LangMem summarization first — use safe split to avoid orphaning tool calls
                 state_messages = state.values.get("messages", [])
-                messages_to_summarize = state_messages[:-self.min_messages_to_keep]
-                messages_to_keep = state_messages[-self.min_messages_to_keep:]
+                safe_idx = self._find_safe_split_index(state_messages, self.min_messages_to_keep)
+                messages_to_summarize = state_messages[:safe_idx]
+                messages_to_keep = state_messages[safe_idx:]
+
+                logger.info(
+                    f"{agent_name}: Pre-flight safe split at index {safe_idx}/{len(state_messages)} "
+                    f"(summarize {len(messages_to_summarize)}, keep {len(messages_to_keep)})"
+                )
 
                 if messages_to_summarize:
                     result = await summarize_messages(
@@ -968,10 +1046,19 @@ Use this as the reference point for all date calculations. When users say "today
                 if not langmem_succeeded:
                     messages_to_remove_count = 0
 
-                    # Remove oldest messages until we're under target
+                    # Remove oldest messages until we're under target — respect tool-call boundaries
                     while history_tokens > target_tokens and len(messages) > self.min_messages_to_keep:
-                        messages.pop(0)  # Remove oldest message
-                        messages_to_remove_count += 1
+                        first_msg = messages[0]
+                        # If this is an AIMessage with tool_calls, also remove its ToolMessages
+                        if isinstance(first_msg, AIMessage) and getattr(first_msg, "tool_calls", None):
+                            messages.pop(0)
+                            messages_to_remove_count += 1
+                            while messages and isinstance(messages[0], ToolMessage):
+                                messages.pop(0)
+                                messages_to_remove_count += 1
+                        else:
+                            messages.pop(0)
+                            messages_to_remove_count += 1
                         history_tokens = self._count_total_tokens(messages)
 
                     if messages_to_remove_count > 0:
@@ -1001,6 +1088,350 @@ Use this as the reference point for all date calculations. When users say "today
         """Ensure the graph is initialized before use."""
         if self.graph is None:
             await self._setup_mcp_and_graph(config)
+
+    # ------------------------------------------------------------------
+    # Exception-recovery helpers
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _is_recoverable_llm_error(exc: BaseException) -> bool:
+        """
+        Determine if an LLM/provider error is recoverable via context repair.
+
+        Recoverable errors typically involve malformed message history
+        (orphaned tool calls, missing tool results) that can be fixed by
+        repairing the checkpoint state.
+
+        Non-recoverable errors include authentication failures, quota
+        exhaustion, and model-not-found issues.
+        """
+        error_str = str(exc).lower()
+        error_type = type(exc).__name__
+
+        # --- Recoverable patterns ---
+        recoverable_patterns = [
+            # Bedrock Converse API: orphaned tool calls
+            "expected toolresult blocks",
+            "toolresult",
+            # LangGraph: orphaned tool calls detected at graph level
+            "aimessages with tool_calls that do not have a corresponding toolmessage",
+            "found aimessages with tool_calls",
+            # Generic context overflow / input-too-long
+            "input is too long",
+            "maximum context length",
+            "context length exceeded",
+            "context_length_exceeded",
+            "token limit",
+            # Bedrock throttling (transient)
+            "throttlingexception",
+            "too many requests",
+            "rate exceeded",
+            # Transient network / service errors
+            "service unavailable",
+            "internal server error",
+            "502",
+            "503",
+            "504",
+            "connection reset",
+            "connection aborted",
+            "incomplete chunked read",
+            "peer closed connection",
+        ]
+        for pattern in recoverable_patterns:
+            if pattern in error_str:
+                return True
+
+        # ValidationException from botocore is usually recoverable
+        if error_type == "ValidationException":
+            return True
+
+        return False
+
+    async def _emergency_context_repair(self, config: RunnableConfig, agent_name: str) -> None:
+        """
+        Aggressively repair context state after a stream failure.
+
+        This performs:
+        1. Orphaned tool-call repair (add synthetic ToolMessages)
+        2. If still too large, forceful context trimming
+        3. Final orphan repair pass
+
+        This method is itself fully protected — failures are logged but
+        never propagated.
+        """
+        logger.info(f"{agent_name}: Starting emergency context repair...")
+
+        # Step 1: Repair orphaned tool calls
+        try:
+            await self._repair_orphaned_tool_calls(config)
+            logger.info(f"{agent_name}: Emergency repair step 1/3 complete — orphan repair done")
+        except Exception as e:
+            logger.error(f"{agent_name}: Emergency orphan repair failed: {e}")
+
+        # Step 2: Aggressive context trimming
+        try:
+            state = await self.graph.aget_state(config)
+            if state and state.values and "messages" in state.values:
+                messages = state.values["messages"]
+                total_tokens = self._count_total_tokens(messages)
+
+                # If context is over 60% of limit, force-trim to 40%
+                threshold = int(self.max_context_tokens * 0.6)
+                if total_tokens > threshold:
+                    logger.warning(
+                        f"{agent_name}: Emergency trim: {total_tokens:,} tokens > {threshold:,} threshold. "
+                        f"Force-trimming to 40% of limit."
+                    )
+                    await self._trim_messages_if_needed(config)
+                    logger.info(f"{agent_name}: Emergency repair step 2/3 complete — trim done")
+                else:
+                    logger.info(f"{agent_name}: Emergency repair step 2/3 — context size OK ({total_tokens:,} tokens)")
+        except Exception as e:
+            logger.error(f"{agent_name}: Emergency context trimming failed: {e}")
+
+        # Step 3: Final orphan repair (trimming may have created new orphans)
+        try:
+            await self._repair_orphaned_tool_calls(config)
+            logger.info(f"{agent_name}: Emergency repair step 3/3 complete — final orphan pass done")
+        except Exception as e:
+            logger.error(f"{agent_name}: Emergency final orphan repair failed: {e}")
+
+        logger.info(f"{agent_name}: Emergency context repair finished")
+
+    @staticmethod
+    def _format_user_error(agent_name: str, exc: BaseException) -> str:
+        """
+        Format an exception into a user-friendly error message.
+
+        Avoids leaking internal stack traces to the end user while still
+        providing actionable information.
+        """
+        error_str = str(exc)
+        error_type = type(exc).__name__
+
+        # Recognisable patterns → friendly messages
+        if "expected toolresult" in error_str.lower() or "toolresult" in error_str.lower():
+            return (
+                f"❌ {agent_name.title()}: The conversation history became corrupted "
+                f"(orphaned tool call). Automatic recovery failed. "
+                f"Please start a new conversation or ask your question again."
+            )
+        if "input is too long" in error_str.lower() or "context length" in error_str.lower():
+            return (
+                f"❌ {agent_name.title()}: The conversation is too long for the model's context window. "
+                f"Please start a new conversation."
+            )
+        if "throttling" in error_str.lower() or "rate" in error_str.lower() or "429" in error_str:
+            return (
+                f"⚠️ {agent_name.title()}: The AI service is rate-limited. "
+                f"Please wait a moment and try again."
+            )
+        if "timeout" in error_str.lower() or "timed out" in error_str.lower():
+            return (
+                f"⚠️ {agent_name.title()}: The request timed out. "
+                f"Please try again — the service may be under heavy load."
+            )
+        if "connection" in error_str.lower():
+            return (
+                f"⚠️ {agent_name.title()}: Connection error. "
+                f"The backend service may be temporarily unavailable. Please try again."
+            )
+
+        # Generic fallback
+        return (
+            f"❌ {agent_name.title()}: An unexpected error occurred ({error_type}). "
+            f"Please try again or start a new conversation."
+        )
+
+    async def _retry_stream(
+        self,
+        inputs: dict[str, Any],
+        config: RunnableConfig,
+        agent_name: str,
+        enable_streaming: bool,
+        seen_tool_calls: set,
+        retry_count: int,
+        max_retries: int,
+    ) -> AsyncIterable[dict[str, Any]]:
+        """
+        Retry the graph.astream call after emergency context repair.
+
+        This is separated from stream() to keep the retry logic clean.
+        The retry is *not* recursive — it makes a single additional attempt
+        and on failure yields a terminal error event.
+        """
+        logger.info(f"{agent_name}: Retry attempt {retry_count}/{max_retries} starting...")
+
+        try:
+            if enable_streaming:
+                async for item_type, item in self.graph.astream(inputs, config, stream_mode=['messages', 'custom']):
+                    if item_type == 'custom':
+                        yield item
+                        continue
+                    if item_type != 'messages':
+                        continue
+
+                    message = item[0] if item else None
+                    if not message:
+                        continue
+
+                    if isinstance(message, HumanMessage):
+                        continue
+
+                    # Handle AIMessageChunk
+                    if isinstance(message, AIMessageChunk):
+                        if hasattr(message, "tool_calls") and message.tool_calls:
+                            for tool_call in message.tool_calls:
+                                tool_name = tool_call.get("name", "")
+                                tool_id = tool_call.get("id", "")
+                                if not tool_name or not tool_name.strip():
+                                    continue
+                                if tool_id and tool_id in seen_tool_calls:
+                                    continue
+                                if tool_id:
+                                    seen_tool_calls.add(tool_id)
+                                yield {
+                                    'is_task_complete': False,
+                                    'require_user_input': False,
+                                    'tool_call': {'id': tool_id or tool_name, 'name': tool_name},
+                                    'kind': 'tool_call',
+                                    'content': f"🔧 {agent_name.title()}: Calling tool: {tool_name.title()}\n",
+                                }
+                            continue
+
+                        if message.content:
+                            content = message.content
+                            if isinstance(content, list):
+                                content = ''.join(
+                                    p.get('text', '') if isinstance(p, dict) else str(p) for p in content
+                                )
+                            elif not isinstance(content, str):
+                                content = str(content) if content else ''
+                            if content:
+                                yield {
+                                    'is_task_complete': False,
+                                    'require_user_input': False,
+                                    'kind': 'text_chunk',
+                                    'content': content,
+                                }
+                        continue
+
+                    # Handle ToolMessage
+                    if isinstance(message, ToolMessage):
+                        tool_name = getattr(message, "name", "unknown")
+                        tool_content = getattr(message, "content", "")
+                        if isinstance(tool_content, list):
+                            tool_content = ''.join(
+                                p.get('text', '') if isinstance(p, dict) else str(p) for p in tool_content
+                            )
+                        elif not isinstance(tool_content, str):
+                            tool_content = str(tool_content) if tool_content else ""
+
+                        is_error = (getattr(message, "status", "") == "error") or ("error" in tool_content.lower()[:100])
+                        icon = "❌" if is_error else "✅"
+                        status = "failed" if is_error else "completed"
+                        yield {
+                            'is_task_complete': False,
+                            'require_user_input': False,
+                            'tool_result': {'name': tool_name, 'status': status, 'is_error': is_error},
+                            'kind': 'tool_result',
+                            'content': f"{icon} {agent_name.title()}: Tool {tool_name.title()} {status}\n",
+                        }
+                        continue
+
+                    # Handle full AIMessage
+                    if isinstance(message, AIMessage):
+                        content_text = ""
+                        if isinstance(message.content, str):
+                            content_text = message.content
+                        elif isinstance(message.content, list):
+                            content_text = "".join(
+                                (p.get("text") or p.get("content") or str(p)) if isinstance(p, dict)
+                                else (getattr(p, "text", str(p)) if hasattr(p, "text") else str(p))
+                                for p in message.content
+                            )
+                        if content_text:
+                            yield {
+                                'is_task_complete': False,
+                                'require_user_input': False,
+                                'kind': 'text_chunk',
+                                'content': content_text,
+                            }
+                        continue
+            else:
+                # Full message mode retry
+                processed_message_count = 0
+                async for state in self.graph.astream(inputs, config, stream_mode='values'):
+                    if not isinstance(state, dict) or 'messages' not in state:
+                        continue
+                    messages = state.get('messages', [])
+                    new_messages = messages[processed_message_count:]
+                    processed_message_count = len(messages)
+                    for message in new_messages:
+                        if isinstance(message, HumanMessage):
+                            continue
+                        content_text = str(getattr(message, "content", "")) if hasattr(message, "content") else ""
+                        if content_text:
+                            yield {
+                                'is_task_complete': False,
+                                'require_user_input': False,
+                                'content': content_text,
+                            }
+
+            # Retry succeeded — yield completion
+            yield {
+                'is_task_complete': True,
+                'require_user_input': False,
+                'content': '',
+            }
+
+        except asyncio.CancelledError:
+            logger.warning(f"{agent_name}: Retry stream cancelled by client")
+            yield {
+                'is_task_complete': True,
+                'require_user_input': False,
+                'kind': 'cancelled',
+                'content': f"⚠️ {agent_name.title()} operation was cancelled.",
+            }
+
+        except (Exception, BaseExceptionGroup) as retry_exc:
+            # Extract underlying exception from ExceptionGroup if needed
+            actual_exc = retry_exc
+            if isinstance(retry_exc, BaseExceptionGroup) and retry_exc.exceptions:
+                actual_exc = retry_exc.exceptions[0]
+
+            logger.error(
+                f"{agent_name}: Retry {retry_count}/{max_retries} also failed: "
+                f"{type(actual_exc).__name__}: {actual_exc}",
+                exc_info=True,
+            )
+
+            if retry_count < max_retries and self._is_recoverable_llm_error(actual_exc):
+                # One more retry allowed
+                retry_count += 1
+                logger.warning(f"{agent_name}: Attempting further recovery (retry {retry_count}/{max_retries})...")
+                yield {
+                    'is_task_complete': False,
+                    'require_user_input': False,
+                    'kind': 'status',
+                    'content': f"⚠️ {agent_name.title()}: Recovery attempt {retry_count}/{max_retries}...\n",
+                }
+                try:
+                    await self._emergency_context_repair(config, agent_name)
+                except Exception as repair_err:
+                    logger.error(f"{agent_name}: Retry emergency repair failed: {repair_err}")
+
+                async for event in self._retry_stream(
+                    inputs, config, agent_name, enable_streaming,
+                    seen_tool_calls, retry_count, max_retries,
+                ):
+                    yield event
+            else:
+                yield {
+                    'is_task_complete': True,
+                    'require_user_input': False,
+                    'content': self._format_user_error(agent_name, actual_exc),
+                }
 
     @trace_agent_stream("base")  # Subclasses should override the agent name
     async def stream(
@@ -1052,17 +1483,46 @@ Use this as the reference point for all date calculations. When users say "today
         )
 
         # Ensure graph is initialized
-        await self._ensure_graph_initialized(config)
+        try:
+            await self._ensure_graph_initialized(config)
+        except Exception as e:
+            logger.error(f"{agent_name}: Graph initialization failed: {e}", exc_info=True)
+            yield {
+                'is_task_complete': True,
+                'require_user_input': False,
+                'content': f"⚠️ {agent_name.title()}: Agent initialization failed. Please try again.",
+            }
+            return
 
-        # CRITICAL: Repair orphaned tool calls BEFORE any LLM invocation
-        # This prevents "Found AIMessages with tool_calls that do not have a corresponding ToolMessage" errors
-        await self._repair_orphaned_tool_calls(config)
+        # --- Pre-flight context maintenance ---
+        # Each step is independently protected so a failure in one doesn't
+        # prevent the others from running.  If all maintenance fails the
+        # graph.astream call itself will detect the issue and we handle it
+        # in the main try/except.
+        try:
+            await self._repair_orphaned_tool_calls(config)
+        except Exception as e:
+            logger.error(f"{agent_name}: Pre-flight orphan repair failed: {e}", exc_info=True)
 
-        # Pre-flight check: Estimate context usage BEFORE calling LLM
-        await self._preflight_context_check(config, enhanced_query)
+        try:
+            await self._preflight_context_check(config, enhanced_query)
+        except Exception as e:
+            logger.error(f"{agent_name}: Pre-flight context check failed: {e}", exc_info=True)
 
-        # Auto-trim old messages to prevent context overflow
-        await self._trim_messages_if_needed(config)
+        try:
+            await self._trim_messages_if_needed(config)
+        except Exception as e:
+            logger.error(f"{agent_name}: Message trimming failed: {e}", exc_info=True)
+
+        # SAFETY NET: Repair orphaned tool calls AGAIN after compression/trimming.
+        # Context compression (LangMem summarization) or message trimming may have
+        # removed ToolMessages whose AIMessage parents are still in the kept set,
+        # or vice versa.  This second repair pass catches any orphans created by
+        # the compression/trim steps above.
+        try:
+            await self._repair_orphaned_tool_calls(config)
+        except Exception as e:
+            logger.error(f"{agent_name}: Post-compression orphan repair failed: {e}", exc_info=True)
 
         # Track which messages we've already processed to avoid duplicates
         seen_tool_calls = set()
@@ -1072,6 +1532,11 @@ Use this as the reference point for all date calculations. When users say "today
 
         # Flag to track if stream was cancelled
         stream_cancelled = False
+
+        # Maximum number of automatic retries when the LLM call fails due to
+        # recoverable errors (e.g., orphaned tool calls, context corruption).
+        max_retries = int(os.getenv("MAX_LLM_RETRIES", "2"))
+        retry_count = 0
 
         try:
             if enable_streaming:
@@ -1434,6 +1899,90 @@ Use this as the reference point for all date calculations. When users say "today
                 'content': f"⚠️ {agent_name.title()} operation was cancelled.",
             }
             return
+
+        except BaseExceptionGroup as eg:
+            # Python 3.11+ ExceptionGroup from asyncio TaskGroup / anyio
+            # Extract the first real exception for diagnosis.
+            first_exc = eg.exceptions[0] if eg.exceptions else eg
+            error_str = str(first_exc)
+            logger.error(
+                f"{agent_name}: ExceptionGroup during stream (retry {retry_count}/{max_retries}): "
+                f"{type(first_exc).__name__}: {error_str}",
+                exc_info=True,
+            )
+
+            # Check if this is a recoverable context/tool-call error
+            is_recoverable = self._is_recoverable_llm_error(first_exc)
+            if is_recoverable and retry_count < max_retries:
+                retry_count += 1
+                logger.warning(
+                    f"{agent_name}: Attempting recovery (retry {retry_count}/{max_retries}) — "
+                    f"repairing orphaned tool calls and retrying..."
+                )
+                yield {
+                    'is_task_complete': False,
+                    'require_user_input': False,
+                    'kind': 'status',
+                    'content': f"⚠️ {agent_name.title()}: Encountered an error, attempting automatic recovery "
+                               f"(attempt {retry_count}/{max_retries})...\n",
+                }
+                try:
+                    await self._emergency_context_repair(config, agent_name)
+                except Exception as repair_err:
+                    logger.error(f"{agent_name}: Emergency repair failed: {repair_err}", exc_info=True)
+
+                # Retry by re-entering the stream — yield from a recursive call
+                async for event in self._retry_stream(inputs, config, agent_name, enable_streaming, seen_tool_calls, retry_count, max_retries):
+                    yield event
+                return
+            else:
+                # Non-recoverable or retries exhausted
+                yield {
+                    'is_task_complete': True,
+                    'require_user_input': False,
+                    'content': self._format_user_error(agent_name, first_exc),
+                }
+                return
+
+        except Exception as e:
+            # Catch-all for any other exception during streaming
+            error_str = str(e)
+            error_type = type(e).__name__
+            logger.error(
+                f"{agent_name}: Exception during stream (retry {retry_count}/{max_retries}): "
+                f"{error_type}: {error_str}",
+                exc_info=True,
+            )
+
+            is_recoverable = self._is_recoverable_llm_error(e)
+            if is_recoverable and retry_count < max_retries:
+                retry_count += 1
+                logger.warning(
+                    f"{agent_name}: Attempting recovery (retry {retry_count}/{max_retries}) — "
+                    f"repairing context and retrying..."
+                )
+                yield {
+                    'is_task_complete': False,
+                    'require_user_input': False,
+                    'kind': 'status',
+                    'content': f"⚠️ {agent_name.title()}: Encountered an error, attempting automatic recovery "
+                               f"(attempt {retry_count}/{max_retries})...\n",
+                }
+                try:
+                    await self._emergency_context_repair(config, agent_name)
+                except Exception as repair_err:
+                    logger.error(f"{agent_name}: Emergency repair failed: {repair_err}", exc_info=True)
+
+                async for event in self._retry_stream(inputs, config, agent_name, enable_streaming, seen_tool_calls, retry_count, max_retries):
+                    yield event
+                return
+            else:
+                yield {
+                    'is_task_complete': True,
+                    'require_user_input': False,
+                    'content': self._format_user_error(agent_name, e),
+                }
+                return
 
         # Yield task completion marker (only if not cancelled)
         if not stream_cancelled:
