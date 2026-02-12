@@ -353,11 +353,17 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
     async def _handle_task_complete(self, event: dict, state: StreamState,
                                     content: str, task: A2ATask, event_queue: EventQueue):
         """Handle task completion event."""
-        final_content, is_datapart = self._get_final_content(state)
-
-        # Fall back to event content if nothing accumulated
-        if not final_content and not is_datapart:
+        # If event came from ResponseFormat tool (structured response mode), use content directly since it's already clean
+        if event.get('from_response_format_tool'):
+            logger.info("Using content directly from ResponseFormat tool (structured response mode)")
             final_content = content
+            is_datapart = False
+        else:
+            final_content, is_datapart = self._get_final_content(state)
+
+            # Fall back to event content if nothing accumulated
+            if not final_content and not is_datapart:
+                final_content = content
 
         # Create appropriate artifact
         if is_datapart:
