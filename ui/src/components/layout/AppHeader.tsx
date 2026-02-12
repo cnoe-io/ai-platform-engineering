@@ -18,7 +18,7 @@ import { UserMenu } from "@/components/user-menu";
 import { SettingsPanel } from "@/components/settings-panel";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { getConfig } from "@/lib/config";
+import { config, getLogoFilterClass } from "@/lib/config";
 import { useChatStore } from "@/store/chat-store";
 import { useCAIPEHealth } from "@/hooks/use-caipe-health";
 import { useRAGHealth } from "@/hooks/use-rag-health";
@@ -51,16 +51,16 @@ export function AppHeader() {
   }, [session, isAdmin]);
 
   // Health check for CAIPE supervisor (polls every 30 seconds)
-  const { 
-    status: caipeStatus, 
-    url: caipeUrl, 
-    secondsUntilNextCheck: caipeNextCheck, 
-    agents, 
+  const {
+    status: caipeStatus,
+    url: caipeUrl,
+    secondsUntilNextCheck: caipeNextCheck,
+    agents,
     tags,
     mongoDBStatus,
     storageMode
   } = useCAIPEHealth();
-  
+
   // Health check for RAG server (polls every 30 seconds)
   const {
     status: ragStatus,
@@ -70,7 +70,7 @@ export function AppHeader() {
   } = useRAGHealth();
 
   // Check if RAG is enabled in config
-  const ragEnabled = getConfig('ragEnabled');
+  const ragEnabled = config.ragEnabled;
 
   // Fetch version info
   const { versionInfo } = useVersion();
@@ -92,7 +92,7 @@ export function AppHeader() {
     if (pathname?.startsWith("/knowledge-bases")) return "knowledge";
     if (pathname?.startsWith("/agent-builder") || pathname?.startsWith("/use-cases")) return "agent-builder";
     if (pathname?.startsWith("/admin")) return "admin";
-    return "agent-builder"; // Default to Agentic Workflows (formerly use-cases)
+    return "agent-builder"; // Default to Agent Skills (formerly use-cases)
   };
 
   const activeTab = getActiveTab();
@@ -104,22 +104,22 @@ export function AppHeader() {
         <Link
           href="/"
           className="flex items-center gap-2.5 cursor-pointer hover:opacity-80 transition-opacity"
-          title={getConfig('tagline')}
+          title={config.tagline}
         >
           <img
-            src={getConfig('logoUrl')}
-            alt={`${getConfig('appName')} Logo`}
-            className="h-8 w-auto"
+            src={config.logoUrl}
+            alt={`${config.appName} Logo`}
+            className={`h-8 w-auto ${getLogoFilterClass(config.logoStyle)}`}
           />
-          <span className="font-bold text-base gradient-text">{getConfig('appName')}</span>
-          {getConfig('previewMode') && (
+          <span className="font-bold text-base gradient-text">{config.appName}</span>
+          {config.previewMode && (
             <span className="px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider bg-amber-500/20 text-amber-500 border border-amber-500/30 rounded">
               Preview
             </span>
           )}
         </Link>
 
-        {/* Navigation Pills - Agentic Workflows first for prominence */}
+        {/* Navigation Pills - Agent Skills first for prominence */}
         <div className="flex items-center bg-muted/50 rounded-full p-1">
           <Link
             href="/agent-builder"
@@ -132,7 +132,7 @@ export function AppHeader() {
             )}
           >
             <Zap className="h-3.5 w-3.5" />
-            Agentic Workflows
+            Agent Skills
           </Link>
           <Link
             href="/chat"
@@ -245,11 +245,11 @@ export function AppHeader() {
                     <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white/20 backdrop-blur-sm">
                       <span className={cn(
                         "inline-block w-2 h-2 rounded-full",
-                        combinedStatus === "connected" ? "bg-green-400 animate-pulse" : 
+                        combinedStatus === "connected" ? "bg-green-400 animate-pulse" :
                         combinedStatus === "checking" ? "bg-amber-400 animate-pulse" : "bg-red-400"
                       )} />
                       <span className="text-xs font-medium text-white">
-                        {combinedStatus === "connected" ? "All Systems Live" : 
+                        {combinedStatus === "connected" ? "All Systems Live" :
                          combinedStatus === "checking" ? "Checking" : "Issues Detected"}
                       </span>
                     </div>
@@ -403,7 +403,7 @@ export function AppHeader() {
                           <div className="text-xs text-muted-foreground">Knowledge Graph</div>
                           <div className={cn(
                             "px-2 py-0.5 rounded-full text-[10px] font-bold",
-                            graphRagEnabled 
+                            graphRagEnabled
                               ? "bg-green-500/15 text-green-400 border border-green-500/30"
                               : "bg-gray-500/15 text-gray-400 border border-gray-500/30"
                           )}>
@@ -414,7 +414,7 @@ export function AppHeader() {
                     </>
                   )}
                 </div>
-                
+
                 {/* Footer */}
                 <div className="px-4 py-2.5 bg-muted/20 border-t border-border/50 space-y-1.5">
                   <div className="flex items-center justify-between text-xs">
@@ -423,8 +423,8 @@ export function AppHeader() {
                       <span>Health checks active (30s interval)</span>
                     </div>
                     <div className="text-muted-foreground">
-                      {combinedStatus === "connected" ? "All systems operational" : 
-                       combinedStatus === "checking" ? "Checking status..." : 
+                      {combinedStatus === "connected" ? "All systems operational" :
+                       combinedStatus === "checking" ? "Checking status..." :
                        "Check logs for details"}
                     </div>
                   </div>
@@ -452,7 +452,7 @@ export function AppHeader() {
           </Popover>
         </div>
 
-        {/* Settings, Theme, Links & User */}
+        {/* UI Personalization, Theme, Links & User */}
         <div className="flex items-center gap-1 border-l border-border pl-3">
           <SettingsPanel />
           <ThemeToggle />

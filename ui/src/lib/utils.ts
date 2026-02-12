@@ -53,3 +53,24 @@ export function parseSSELine(line: string): { event?: string; data?: string } | 
 
   return null;
 }
+
+/**
+ * Deduplicate an array of items by a key property, keeping the first occurrence.
+ *
+ * This is used to prevent React duplicate key warnings when localStorage cache
+ * and MongoDB sync race conditions produce duplicate entries (e.g., messages
+ * with the same ID appearing twice in a conversation).
+ *
+ * @param items Array of items to deduplicate
+ * @param keyFn Function to extract the unique key from each item
+ * @returns New array with duplicates removed (first occurrence kept)
+ */
+export function deduplicateByKey<T>(items: T[], keyFn: (item: T) => string): T[] {
+  const seen = new Set<string>();
+  return items.filter((item) => {
+    const key = keyFn(item);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}

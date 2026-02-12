@@ -202,7 +202,7 @@ console.log('[Auth] JWT keys:', Object.keys(token));
 
 ## ✅ Status
 
-**FIXED**: Session cookie size reduced from 8KB to <1KB
+**FIXED**: Session cookie size reduced from 8KB to less than 1KB
 
 **Action Required**:
 1. ✅ Code updated
