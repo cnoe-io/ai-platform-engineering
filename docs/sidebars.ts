@@ -214,6 +214,10 @@ const sidebars: SidebarsConfig = {
         },
         {
           type: 'doc',
+          id: 'agents/gitlab',
+        },
+        {
+          type: 'doc',
           id: 'agents/jira',
         },
         {
