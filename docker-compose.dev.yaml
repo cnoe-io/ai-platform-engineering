@@ -58,6 +58,8 @@ services:
       - SPLUNK_AGENT_HOST=agent-splunk
       - WEATHER_AGENT_HOST=agent-weather
       - WEBEX_AGENT_HOST=agent-webex
+      - JARVIS_AGENT_HOST=agent-jarvis
+      - JARVIS_AGENT_PORT=58000
 
       # RAG Service Configuration
       - RAG_SERVER_URL=${RAG_SERVER_URL:-http://rag_server:9446}
@@ -88,6 +90,7 @@ services:
       - ENABLE_WEBEX=${ENABLE_WEBEX:-false}
       - ENABLE_WEBEX=${ENABLE_WEBEX:-false}
       - ENABLE_WEATHER=${ENABLE_WEATHER:-false}
+      - ENABLE_JARVIS=${ENABLE_JARVIS:-false}
 
       # Tracing configuration (will be read from .env if ENABLE_TRACING=true)
       - ENABLE_TRACING=${ENABLE_TRACING:-false}
@@ -630,7 +633,6 @@ services:
       start_period: 15s
     profiles:
       - komodor
-      - all-agents
 
   # PagerDuty Agent
   agent-pagerduty:
@@ -850,6 +852,41 @@ services:
       - AGENT_FORGE_BASE_URL=${AGENT_FORGE_BASE_URL:-http://localhost:8000}
     profiles:
       - agentforge
+      - all-agents
+
+  ####################################################################################################
+  #                                      AGENT JARVIS A2A P2P                                        #
+  ####################################################################################################
+  # Jarvis is an external A2A agent (pre-built image). It exposes two ports:
+  #   - 8000: FastAPI health/agent-card endpoint
+  #   - 58000: A2A protocol endpoint (used by the supervisor via JARVIS_AGENT_PORT)
+  #
+  # Configuration lives in .env.jarvis (NOT committed to git — contains credentials).
+  # See docker-compose.jarvis.yaml for the canonical reference.
+  agent-jarvis:
+    image: jarvis-agent:dev
+    container_name: agent-jarvis
+    restart: unless-stopped
+    env_file:
+      - .env.jarvis
+    ports:
+      - "48000:8000"   # FastAPI port (health, agent-card)
+      - "58000:58000"  # A2A protocol port
+    environment:
+      - A2A_TRANSPORT=p2p
+      - ALLOWED_ORIGINS=*
+      - LANGGRAPH_CHECKPOINT_MEMORY_SAVER=memory
+      - ENABLE_KNOWLEDGE_GRAPH=false
+      - ENABLE_K8S_AGENT=false
+      - AIGATEWAY_SERVER_URL=${AIGATEWAY_SERVER_URL:-NOT_SET}
+      # Tracing (inherits from .env if ENABLE_TRACING=true)
+      - ENABLE_TRACING=${ENABLE_TRACING:-false}
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-NOT_SET}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY:-NOT_SET}
+      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
+    command: python3 -m jarvis_agent.combined_server --fastapi-port 8000 --a2a-port 58000
+    profiles:
+      - jarvis
       - all-agents
 
   ####################################################################################################
