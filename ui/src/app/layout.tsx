@@ -1,11 +1,12 @@
 import type { Metadata } from "next";
+import { headers } from "next/headers";
 import { Inter, JetBrains_Mono, Source_Sans_3, IBM_Plex_Sans } from "next/font/google";
 import { ThemeProvider } from "@/components/theme-provider";
 import { AuthProvider } from "@/components/auth-provider";
 import { TokenExpiryGuard } from "@/components/token-expiry-guard";
 import { ThemeInjector } from "@/components/theme-injector";
-import { PublicEnvScript } from "@/components/public-env-script";
 import { ToastProvider } from "@/components/ui/toast";
+import { getServerConfig, getClientConfigScript } from "@/lib/config";
 import "./globals.css";
 
 // Primary font: Inter - Used by OpenAI, clean and highly readable
@@ -41,44 +42,56 @@ const jetbrainsMono = JetBrains_Mono({
   fallback: ["monospace", "Courier New"],
 });
 
-// Branding defaults
-const DEFAULT_TAGLINE = "Multi-Agent Collaboration & Workflow Automation";
-const DEFAULT_DESCRIPTION = "AI agents and native apps collaborating across tools and teams to get work done.";
-const DEFAULT_APP_NAME = "CAIPE";
+/**
+ * Dynamic metadata — reads process.env at request time so branding
+ * reflects runtime env vars, not build-time values.
+ */
+export async function generateMetadata(): Promise<Metadata> {
+  const cfg = getServerConfig();
+  const fullDescription = `${cfg.tagline} - ${cfg.description}`;
 
-// Get branding from environment variables
-const tagline = process.env.NEXT_PUBLIC_TAGLINE || DEFAULT_TAGLINE;
-const description = process.env.NEXT_PUBLIC_DESCRIPTION || DEFAULT_DESCRIPTION;
-const appName = process.env.NEXT_PUBLIC_APP_NAME || DEFAULT_APP_NAME;
-const fullDescription = `${tagline} - ${description}`;
+  const faviconUrl = cfg.faviconUrl || "/favicon.ico";
 
-export const metadata: Metadata = {
-  title: `${appName} UI`,
-  description: fullDescription,
-  icons: {
-    icon: [
-      { url: "/favicon.ico", sizes: "any" },
-      { url: "/icon.ico", sizes: "any" },
-    ],
-    shortcut: "/favicon.ico",
-    apple: "/favicon.ico",
-  },
-  openGraph: {
-    title: `${appName} UI`,
+  return {
+    title: `${cfg.appName} UI`,
     description: fullDescription,
-    url: "https://caipe.example.com",
-  },
-};
+    icons: {
+      icon: [
+        { url: faviconUrl, sizes: "any" },
+      ],
+      shortcut: faviconUrl,
+      apple: faviconUrl,
+    },
+    openGraph: {
+      title: `${cfg.appName} UI`,
+      description: fullDescription,
+      url: "https://caipe.example.com",
+    },
+  };
+}
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  // Force dynamic rendering so config reads process.env at request time,
+  // not at build time when env vars are empty.
+  await headers();
+
+  // Build the XSS-safe JSON for client-side config injection.
+  // Only client-safe values are included (no secrets).
+  const configScript = getClientConfigScript();
+
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
-        <PublicEnvScript />
+        {/* Inject client config synchronously before any JS runs */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `window.__APP_CONFIG__=${configScript};`,
+          }}
+        />
       </head>
       <body
         className={`${inter.variable} ${sourceSans.variable} ${ibmPlex.variable} ${jetbrainsMono.variable} font-sans antialiased`}

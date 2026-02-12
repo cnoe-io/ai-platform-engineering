@@ -1,5 +1,5 @@
 /**
- * Agentic Workflows Configuration Types
+ * Agent Skills Configuration Types
  * 
  * These types define the structure for both:
  * - Multi-step agent workflows (based on task_config.yaml)

@@ -1,7 +1,7 @@
 // GET /api/users/me/favorites - Get user's favorite agent configs
 // PUT /api/users/me/favorites - Update user's favorite agent configs
 
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest } from 'next/server';
 import { getCollection, isMongoDBConfigured } from '@/lib/mongodb';
 import {
   withAuth,
@@ -27,14 +27,26 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
   return withAuth(request, async (req, user) => {
     const users = await getCollection<User>('users');
 
+    // Upsert: ensure user exists (atomic — no race with /api/users/me).
+    // $setOnInsert only applies when creating a new doc, so it won't
+    // overwrite fields that /api/users/me may have already set.
+    const now = new Date();
+    await users.updateOne(
+      { email: user.email },
+      {
+        $setOnInsert: {
+          email: user.email,
+          name: user.name || user.email,
+          created_at: now,
+          favorites: [],
+        },
+        $set: { updated_at: now },
+      } as any,
+      { upsert: true }
+    );
+
     const userProfile = await users.findOne({ email: user.email });
-
-    if (!userProfile) {
-      throw new ApiError('User not found', 404);
-    }
-
-    // Return favorites array (empty array if not set)
-    const favorites = (userProfile as any).favorites || [];
+    const favorites = (userProfile as any)?.favorites || [];
 
     return successResponse({ favorites });
   });
@@ -64,15 +76,25 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
 
     const users = await getCollection<User>('users');
 
-    // Update favorites
+    // Upsert: ensure user exists and set favorites atomically.
+    // $setOnInsert creates a minimal user doc if missing (won't overwrite
+    // fields that /api/users/me may have already set).
+    // $set always applies — updates favorites and updated_at.
+    const now = new Date();
     await users.updateOne(
       { email: user.email },
       {
+        $setOnInsert: {
+          email: user.email,
+          name: user.name || user.email,
+          created_at: now,
+        },
         $set: {
           favorites: uniqueFavorites as string[],
-          updated_at: new Date(),
+          updated_at: now,
         },
-      } as any
+      } as any,
+      { upsert: true }
     );
 
     console.log(`[Favorites] Updated favorites for ${user.email}: ${uniqueFavorites.length} items`);
