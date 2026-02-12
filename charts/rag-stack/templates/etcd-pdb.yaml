@@ -1,0 +1,20 @@
+{{- if and .Values.milvus.enabled .Values.milvus.etcd.podDisruptionBudget.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ .Release.Name }}-etcd
+  labels:
+    {{- include "rag-stack.labels" . | nindent 4 }}
+    app.kubernetes.io/name: etcd
+    component: etcd
+spec:
+  {{- if .Values.milvus.etcd.podDisruptionBudget.minAvailable }}
+  minAvailable: {{ .Values.milvus.etcd.podDisruptionBudget.minAvailable }}
+  {{- else if .Values.milvus.etcd.podDisruptionBudget.maxUnavailable }}
+  maxUnavailable: {{ .Values.milvus.etcd.podDisruptionBudget.maxUnavailable }}
+  {{- end }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: etcd
+      app.kubernetes.io/instance: {{ .Release.Name }}
+{{- end }}
