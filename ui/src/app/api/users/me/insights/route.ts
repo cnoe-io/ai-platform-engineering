@@ -1,7 +1,7 @@
 // GET /api/users/me/insights - Get user prompt insights and usage analytics
 
-import { NextRequest } from 'next/server';
-import { getCollection } from '@/lib/mongodb';
+import { NextRequest, NextResponse } from 'next/server';
+import { getCollection, isMongoDBConfigured } from '@/lib/mongodb';
 import {
   withAuth,
   withErrorHandler,
@@ -11,6 +11,17 @@ import type { Conversation, Message } from '@/types/mongodb';
 
 // GET /api/users/me/insights
 export const GET = withErrorHandler(async (request: NextRequest) => {
+  if (!isMongoDBConfigured) {
+    return NextResponse.json(
+      {
+        success: false,
+        error: 'MongoDB not configured - insights require MongoDB for persistent storage',
+        code: 'MONGODB_NOT_CONFIGURED',
+      },
+      { status: 503 }
+    );
+  }
+
   return withAuth(request, async (req, user) => {
     const conversations = await getCollection<Conversation>('conversations');
     const messages = await getCollection<Message>('messages');

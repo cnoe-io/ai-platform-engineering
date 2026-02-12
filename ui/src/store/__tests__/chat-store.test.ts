@@ -1804,4 +1804,160 @@ describe('chat-store', () => {
       expect(useChatStore.getState().a2aEvents).toHaveLength(0);
     });
   });
+
+  // --------------------------------------------------------------------------
+  // evictOldMessageContent
+  // --------------------------------------------------------------------------
+
+  describe('evictOldMessageContent', () => {
+    it('truncates content to 80-char preview for evicted messages', () => {
+      const longContent = 'A'.repeat(500);
+      const conv = makeConversation({ id: 'evict-test' });
+      conv.messages = [
+        makeMessage({ id: 'old-msg', content: longContent, role: 'assistant' }),
+        makeMessage({ id: 'recent-msg', content: 'Keep this', role: 'user' }),
+      ];
+      useChatStore.setState({ conversations: [conv] });
+
+      useChatStore.getState().evictOldMessageContent('evict-test', ['old-msg']);
+
+      const updated = useChatStore.getState().conversations.find(c => c.id === 'evict-test');
+      expect(updated!.messages[0].content).toHaveLength(80);
+      expect(updated!.messages[0].content).toBe('A'.repeat(80));
+      // Recent message should be untouched
+      expect(updated!.messages[1].content).toBe('Keep this');
+    });
+
+    it('clears rawStreamContent from evicted messages', () => {
+      const conv = makeConversation({ id: 'raw-evict' });
+      conv.messages = [
+        makeMessage({
+          id: 'stream-msg',
+          content: 'Streamed content',
+          rawStreamContent: 'Very long raw stream data...',
+          role: 'assistant',
+        }),
+      ];
+      useChatStore.setState({ conversations: [conv] });
+
+      useChatStore.getState().evictOldMessageContent('raw-evict', ['stream-msg']);
+
+      const updated = useChatStore.getState().conversations.find(c => c.id === 'raw-evict');
+      expect(updated!.messages[0].rawStreamContent).toBeUndefined();
+    });
+
+    it('clears events from evicted messages', () => {
+      const event = makeA2AEvent({ id: 'evt-old' });
+      const conv = makeConversation({ id: 'events-evict' });
+      conv.messages = [
+        makeMessage({
+          id: 'msg-with-events',
+          content: 'Old answer',
+          events: [event],
+          role: 'assistant',
+        }),
+      ];
+      useChatStore.setState({ conversations: [conv] });
+
+      useChatStore.getState().evictOldMessageContent('events-evict', ['msg-with-events']);
+
+      const updated = useChatStore.getState().conversations.find(c => c.id === 'events-evict');
+      expect(updated!.messages[0].events).toEqual([]);
+    });
+
+    it('does nothing when messageIdsToEvict is empty', () => {
+      const conv = makeConversation({ id: 'no-evict' });
+      const originalContent = 'Keep this content intact';
+      conv.messages = [
+        makeMessage({ id: 'safe-msg', content: originalContent }),
+      ];
+      useChatStore.setState({ conversations: [conv] });
+
+      useChatStore.getState().evictOldMessageContent('no-evict', []);
+
+      const updated = useChatStore.getState().conversations.find(c => c.id === 'no-evict');
+      expect(updated!.messages[0].content).toBe(originalContent);
+    });
+
+    it('only evicts specified messages, leaving others untouched', () => {
+      const conv = makeConversation({ id: 'selective-evict' });
+      conv.messages = [
+        makeMessage({ id: 'evict-me', content: 'X'.repeat(200), role: 'assistant' }),
+        makeMessage({ id: 'keep-me', content: 'Y'.repeat(200), role: 'user' }),
+        makeMessage({ id: 'also-evict', content: 'Z'.repeat(200), role: 'assistant' }),
+      ];
+      useChatStore.setState({ conversations: [conv] });
+
+      useChatStore.getState().evictOldMessageContent('selective-evict', ['evict-me', 'also-evict']);
+
+      const updated = useChatStore.getState().conversations.find(c => c.id === 'selective-evict');
+      // Evicted messages should be truncated
+      expect(updated!.messages[0].content).toHaveLength(80);
+      expect(updated!.messages[2].content).toHaveLength(80);
+      // Kept message should be untouched
+      expect(updated!.messages[1].content).toHaveLength(200);
+    });
+
+    it('does not affect other conversations', () => {
+      const conv1 = makeConversation({ id: 'target-conv' });
+      conv1.messages = [
+        makeMessage({ id: 'target-msg', content: 'T'.repeat(200) }),
+      ];
+      const conv2 = makeConversation({ id: 'other-conv' });
+      conv2.messages = [
+        makeMessage({ id: 'other-msg', content: 'O'.repeat(200) }),
+      ];
+      useChatStore.setState({ conversations: [conv1, conv2] });
+
+      useChatStore.getState().evictOldMessageContent('target-conv', ['target-msg']);
+
+      const updated1 = useChatStore.getState().conversations.find(c => c.id === 'target-conv');
+      const updated2 = useChatStore.getState().conversations.find(c => c.id === 'other-conv');
+      expect(updated1!.messages[0].content).toHaveLength(80);
+      expect(updated2!.messages[0].content).toHaveLength(200); // Untouched
+    });
+
+    it('handles messages with short content gracefully (no truncation needed)', () => {
+      const conv = makeConversation({ id: 'short-content' });
+      conv.messages = [
+        makeMessage({ id: 'short-msg', content: 'Short', role: 'assistant' }),
+      ];
+      useChatStore.setState({ conversations: [conv] });
+
+      useChatStore.getState().evictOldMessageContent('short-content', ['short-msg']);
+
+      const updated = useChatStore.getState().conversations.find(c => c.id === 'short-content');
+      // Content shorter than 80 chars should remain as-is (slice returns full string)
+      expect(updated!.messages[0].content).toBe('Short');
+      expect(updated!.messages[0].events).toEqual([]);
+    });
+
+    it('handles non-existent message IDs gracefully (no crash)', () => {
+      const conv = makeConversation({ id: 'ghost-ids' });
+      conv.messages = [
+        makeMessage({ id: 'real-msg', content: 'R'.repeat(200) }),
+      ];
+      useChatStore.setState({ conversations: [conv] });
+
+      // Should not throw
+      useChatStore.getState().evictOldMessageContent('ghost-ids', ['nonexistent-1', 'nonexistent-2']);
+
+      // Existing message should be untouched
+      const updated = useChatStore.getState().conversations.find(c => c.id === 'ghost-ids');
+      expect(updated!.messages[0].content).toHaveLength(200);
+    });
+
+    it('handles non-existent conversation gracefully (no crash)', () => {
+      const conv = makeConversation({ id: 'exists' });
+      conv.messages = [makeMessage({ id: 'msg-1', content: 'data' })];
+      useChatStore.setState({ conversations: [conv] });
+
+      // Should not throw — conversation doesn't match
+      useChatStore.getState().evictOldMessageContent('doesnt-exist', ['msg-1']);
+
+      // Existing conversation should be untouched
+      const updated = useChatStore.getState().conversations.find(c => c.id === 'exists');
+      expect(updated!.messages[0].content).toBe('data');
+    });
+  });
 });

@@ -19,6 +19,7 @@ import {
   BarChart3,
   FileText,
   Zap,
+  Database,
 } from "lucide-react";
 import { AuthGuard } from "@/components/auth-guard";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -26,6 +27,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { SimpleLineChart } from "@/components/admin/SimpleLineChart";
 import { CAIPESpinner } from "@/components/ui/caipe-spinner";
 import { cn } from "@/lib/utils";
+import { getStorageMode } from "@/lib/storage-config";
 
 // ─── Types ───────────────────────────────────────────────────────
 interface InsightsData {
@@ -107,7 +109,11 @@ function InsightsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  const storageMode = getStorageMode();
+  const mongoEnabled = storageMode === "mongodb";
+
   useEffect(() => {
+    if (!mongoEnabled) return;
     if (status !== "authenticated") return;
 
     const loadInsights = async () => {
@@ -136,7 +142,31 @@ function InsightsPage() {
     };
 
     loadInsights();
-  }, [status]);
+  }, [status, mongoEnabled]);
+
+  // Insights requires MongoDB for persistent storage of conversations/messages
+  if (!mongoEnabled) {
+    return (
+      <div className="flex items-center justify-center h-[calc(100vh-4rem)]">
+        <Card className="max-w-md">
+          <CardContent className="pt-6 text-center space-y-3">
+            <Database className="h-10 w-10 text-muted-foreground mx-auto" />
+            <h2 className="text-lg font-semibold">MongoDB Required</h2>
+            <p className="text-sm text-muted-foreground">
+              Personal Insights requires MongoDB for persistent storage.
+              Configure MongoDB to enable usage analytics and prompt history.
+            </p>
+            <button
+              onClick={() => router.push("/chat")}
+              className="mt-4 px-4 py-2 text-sm rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
+            >
+              Go to Chat
+            </button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   if (loading) {
     return (

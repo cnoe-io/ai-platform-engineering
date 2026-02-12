@@ -44,9 +44,12 @@ const mockGetCollection = jest.fn((name: string) => {
   return Promise.resolve(mockCollections[name]);
 });
 
+let mockIsMongoDBConfigured = true;
 jest.mock('@/lib/mongodb', () => ({
   getCollection: (...args: any[]) => mockGetCollection(...args),
-  isMongoDBConfigured: true,
+  get isMongoDBConfigured() {
+    return mockIsMongoDBConfigured;
+  },
 }));
 
 // ============================================================================
@@ -97,6 +100,7 @@ function authenticatedSession(email = 'user@example.com') {
 function resetMocks() {
   mockGetServerSession.mockReset();
   mockGetCollection.mockClear();
+  mockIsMongoDBConfigured = true;
   Object.keys(mockCollections).forEach((key) => delete mockCollections[key]);
 }
 
@@ -139,6 +143,68 @@ describe('GET /api/users/me/insights — Auth', () => {
     mockCollections['conversations'] = convCol;
 
     // Messages
+    const msgCol = createMockCollection();
+    msgCol.countDocuments.mockResolvedValue(0);
+    msgCol.find.mockReturnValue({
+      sort: jest.fn().mockReturnValue({
+        limit: jest.fn().mockReturnValue({
+          project: jest.fn().mockReturnValue({
+            toArray: jest.fn().mockResolvedValue([]),
+          }),
+        }),
+      }),
+    });
+    mockCollections['messages'] = msgCol;
+
+    const req = makeRequest('/api/users/me/insights');
+    const res = await GET(req);
+    expect(res.status).toBe(200);
+  });
+});
+
+// ============================================================================
+// Tests: MongoDB guard
+// ============================================================================
+
+describe('GET /api/users/me/insights — MongoDB Guard', () => {
+  beforeEach(resetMocks);
+
+  it('returns 503 when MongoDB is not configured', async () => {
+    mockIsMongoDBConfigured = false;
+    const req = makeRequest('/api/users/me/insights');
+    const res = await GET(req);
+    expect(res.status).toBe(503);
+
+    const body = await res.json();
+    expect(body.success).toBe(false);
+    expect(body.code).toBe('MONGODB_NOT_CONFIGURED');
+    expect(body.error).toMatch(/MongoDB not configured/i);
+  });
+
+  it('does not call getCollection when MongoDB is not configured', async () => {
+    mockIsMongoDBConfigured = false;
+    const req = makeRequest('/api/users/me/insights');
+    await GET(req);
+    expect(mockGetCollection).not.toHaveBeenCalled();
+  });
+
+  it('proceeds normally when MongoDB is configured', async () => {
+    mockIsMongoDBConfigured = true;
+    mockGetServerSession.mockResolvedValue(authenticatedSession());
+
+    const usersCol = createMockCollection();
+    usersCol.findOne.mockResolvedValue(null);
+    mockCollections['users'] = usersCol;
+
+    const convCol = createMockCollection();
+    convCol.find.mockReturnValue({
+      project: jest.fn().mockReturnValue({
+        toArray: jest.fn().mockResolvedValue([]),
+      }),
+    });
+    convCol.countDocuments.mockResolvedValue(0);
+    mockCollections['conversations'] = convCol;
+
     const msgCol = createMockCollection();
     msgCol.countDocuments.mockResolvedValue(0);
     msgCol.find.mockReturnValue({
