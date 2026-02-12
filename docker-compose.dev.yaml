@@ -876,7 +876,7 @@ services:
       - LANGGRAPH_CHECKPOINT_MEMORY_SAVER=memory
       - ENABLE_KNOWLEDGE_GRAPH=false
       - ENABLE_K8S_AGENT=false
-      - AIGATEWAY_SERVER_URL=https://platform-api.outshift.ai/control-plane-api/api/v1
+      - AIGATEWAY_SERVER_URL=${AIGATEWAY_SERVER_URL:-NOT_SET}
       # Tracing (inherits from .env if ENABLE_TRACING=true)
       - ENABLE_TRACING=${ENABLE_TRACING:-false}
       - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-NOT_SET}
