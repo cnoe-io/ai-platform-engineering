@@ -709,8 +709,14 @@ class IngestorBuilder:
     self._startup_function = startup_function
     return self
 
-  def run(self):
-    """Build and run the ingestor"""
+  def run(self, loop: asyncio.AbstractEventLoop | None = None):
+    """Build and run the ingestor
+
+    Args:
+        loop: Optional event loop to use. If not provided, asyncio.run() will create one.
+              Use this when you need to install a custom reactor (e.g., Twisted asyncio reactor)
+              before running the ingestor.
+    """
     # Validate required parameters
     assert self._name, "Ingestor name is required. Use .name('my-ingestor')"
     assert self._type, "Ingestor type is required. Use .type('my-type')"
@@ -723,7 +729,11 @@ class IngestorBuilder:
       self._metadata = {}
 
     # Run the ingestor
-    asyncio.run(self._run_ingestor())
+    if loop is not None:
+      # Use provided event loop (useful for Twisted reactor integration)
+      loop.run_until_complete(self._run_ingestor())
+    else:
+      asyncio.run(self._run_ingestor())
 
   async def _calculate_next_sync_time(self, client: Client) -> tuple[int, bool]:
     """

@@ -137,30 +137,31 @@ affinity: {}
 # Environment variables (non-sensitive configuration)
 env:
   # CAIPE Supervisor URL - should point to the supervisor-agent service
-  NEXT_PUBLIC_A2A_BASE_URL: "http://ai-platform-engineering-supervisor-agent:8000"
+  A2A_BASE_URL: "http://ai-platform-engineering-supervisor-agent:8000"
 
 # ConfigMap for non-sensitive configuration
 # These values are mounted as environment variables to the pod
 config:
   # Feature flags
-  NEXT_PUBLIC_ENABLE_SUBAGENT_CARDS: "true"
-  NEXT_PUBLIC_SSO_ENABLED: "true"
+  ENABLE_SUBAGENT_CARDS: "true"
+  SSO_ENABLED: "true"
   # NextAuth URL (non-sensitive)
   NEXTAUTH_URL: "http://localhost:3000"
   # Node environment
   NODE_ENV: "production"
   # MongoDB configuration
-  NEXT_PUBLIC_MONGODB_ENABLED: "true"
   MONGODB_DATABASE: "caipe"
   # RAG Server URL (if RAG is enabled)
-  # NEXT_PUBLIC_RAG_URL: "http://ai-platform-engineering-rag-server:9446"
+  # RAG_URL: "http://ai-platform-engineering-rag-server:9446"
   # Branding configuration
-  NEXT_PUBLIC_TAGLINE: "Multi-Agent Workflow Automation"
-  NEXT_PUBLIC_DESCRIPTION: "Where Humans and AI agents collaborate to deliver high quality outcomes."
-  NEXT_PUBLIC_APP_NAME: "CAIPE"
-  NEXT_PUBLIC_LOGO_URL: "/logo.svg"
-  NEXT_PUBLIC_SHOW_POWERED_BY: "false"
-  NEXT_PUBLIC_PREVIEW_MODE: "false"
+  TAGLINE: "Multi-Agent Workflow Automation"
+  DESCRIPTION: "Where Humans and AI agents collaborate to deliver high quality outcomes."
+  APP_NAME: "CAIPE"
+  LOGO_URL: "/logo.svg"
+  LOGO_STYLE: "default"
+  # SPINNER_COLOR: ""
+  SHOW_POWERED_BY: "false"
+  PREVIEW_MODE: "false"
   # OIDC required group (non-sensitive)
   OIDC_REQUIRED_GROUP: "app-users"
   # OIDC admin group (non-sensitive)
@@ -168,7 +169,7 @@ config:
   # OIDC refresh token support
   OIDC_ENABLE_REFRESH_TOKEN: "true"
   # Support contact email
-  NEXT_PUBLIC_SUPPORT_EMAIL: "support@example.com"
+  SUPPORT_EMAIL: "support@example.com"
 
 # External Secrets configuration for sensitive data (OIDC credentials, NextAuth secret)
 # These secrets are fetched from your secret store (Vault, AWS Secrets Manager, etc.)

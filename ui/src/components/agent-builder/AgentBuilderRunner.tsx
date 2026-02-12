@@ -1547,7 +1547,7 @@ export function AgentBuilderRunner({
           <Button 
             variant="ghost" 
             size="icon" 
-            onClick={() => router.push('/agent-builder/history')} 
+            onClick={() => router.push('/skills/history')}
             title="View workflow history"
           >
             <ArrowLeft className="h-5 w-5" />

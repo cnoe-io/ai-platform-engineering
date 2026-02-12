@@ -9,7 +9,12 @@ import { authOptions } from '@/lib/auth-config';
  * The RAG server validates the JWT token and extracts user identity/groups/role.
  *
  * Authentication:
- * - Authorization: Bearer {access_token} (OIDC JWT token)
+ * - Authorization: Bearer {access_token} (OIDC JWT access token)
+ * - X-Identity-Token: {id_token} (OIDC JWT ID token for claims extraction)
+ *
+ * Some OIDC providers only include user claims (email, groups) in the ID token,
+ * not the access token. The X-Identity-Token header allows the RAG server to
+ * extract these claims from the ID token while using the access token for auth.
  *
  * The RAG server ONLY supports JWT Bearer tokens, not OAuth2Proxy headers.
  * If no JWT is available and trusted network is enabled on RAG server,
@@ -29,9 +34,11 @@ function getRagServerUrl(): string {
 /**
  * Get auth headers from the current session
  * 
- * Extracts JWT access token from session and sends as Bearer token to RAG server.
+ * Extracts JWT access token and ID token from session and sends to RAG server.
+ * - Access token: Used for authentication (Bearer token)
+ * - ID token: Used for claims extraction (email, groups) via X-Identity-Token header
  * 
- * @returns Headers object with Authorization Bearer token for RAG server
+ * @returns Headers object with Authorization Bearer token and optional ID token for RAG server
  */
 async function getRbacHeaders(): Promise<Record<string, string>> {
   const headers: Record<string, string> = {
@@ -42,9 +49,15 @@ async function getRbacHeaders(): Promise<Record<string, string>> {
     const session = await getServerSession(authOptions);
     
     // Pass JWT access token as Bearer token
-    // RAG server validates JWT and extracts email, groups, and determines role
+    // RAG server validates JWT and uses it for authentication
     if (session?.accessToken) {
       headers['Authorization'] = `Bearer ${session.accessToken}`;
+    }
+
+    // Pass ID token for claims extraction (email, groups)
+    // Some OIDC providers only include user claims in the ID token, not the access token
+    if (session?.idToken) {
+      headers['X-Identity-Token'] = session.idToken;
     }
   } catch (error) {
     // If session retrieval fails, continue without auth headers

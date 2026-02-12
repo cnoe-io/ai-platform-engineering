@@ -194,6 +194,10 @@ export interface ChatMessage {
   turnId?: string;
   /** Raw accumulated stream content - never overwritten, always appended */
   rawStreamContent?: string;
+  /** A2A task ID from the backend — used for crash recovery (tasks/get polling) */
+  taskId?: string;
+  /** True when streaming was interrupted by a crash/reload before completion */
+  isInterrupted?: boolean;
 }
 
 // Input field configuration for use case forms

@@ -1,5 +1,5 @@
-// Agentic Workflows Components
-// Barrel export for all Agentic Workflows related components
+// Agent Skills Components
+// Barrel export for all Agent Skills related components
 
 export { AgentBuilderGallery } from "./AgentBuilderGallery";
 export {

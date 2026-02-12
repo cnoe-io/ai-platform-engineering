@@ -29,7 +29,7 @@ jobs:
       should_prerelease: ${{ steps.prerelease-check.outputs.should_run }}
     steps:
       - name: 📥 Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v6.0.2
         with:
           # For PRs: checkout PR branch; For push: checkout the pushed ref
           ref: ${{ github.event_name == 'pull_request' && github.head_ref || github.ref }}

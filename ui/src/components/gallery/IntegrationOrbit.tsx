@@ -1,6 +1,6 @@
 "use client";
 
-import React from "react";
+import React, { useMemo } from "react";
 import { motion } from "framer-motion";
 import { getConfig, getLogoFilterClass } from "@/lib/config";
 
@@ -230,12 +230,31 @@ const integrations = [
   },
 ];
 
-// Outer orbit integrations (8 items)
-const outerOrbit = integrations.slice(0, 8);
-// Inner orbit integrations (7 items)
-const innerOrbit = integrations.slice(8, 15);
-
 export function IntegrationOrbit() {
+  // Filter integrations based on config
+  const filteredIntegrations = useMemo(() => {
+    const enabledIcons = getConfig('enabledIntegrationIcons');
+    if (!enabledIcons) {
+      // Show all icons if not configured
+      return integrations;
+    }
+    // Filter to only show enabled icons (case-insensitive match)
+    return integrations.filter((integration) =>
+      enabledIcons.includes(integration.name.toLowerCase())
+    );
+  }, []);
+
+  // Split filtered integrations between outer and inner orbits
+  const outerOrbit = useMemo(() => {
+    const count = Math.min(8, Math.ceil(filteredIntegrations.length * 0.55));
+    return filteredIntegrations.slice(0, count);
+  }, [filteredIntegrations]);
+
+  const innerOrbit = useMemo(() => {
+    const outerCount = Math.min(8, Math.ceil(filteredIntegrations.length * 0.55));
+    return filteredIntegrations.slice(outerCount);
+  }, [filteredIntegrations]);
+
   return (
     <div className="relative w-[400px] h-[400px] flex items-center justify-center">
       {/* Subtle center glow only - blends with page background */}

@@ -7,7 +7,8 @@ import {
   MessageSquare,
   History,
   Plus,
-  Trash2,
+  Archive,
+  ArchiveRestore,
   ChevronLeft,
   ChevronRight,
   Sparkles,
@@ -17,7 +18,8 @@ import {
   Users2,
   Shield,
   Users,
-  TrendingUp
+  TrendingUp,
+  RefreshCw
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -25,7 +27,9 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { useChatStore } from "@/store/chat-store";
 import { cn, formatDate, truncateText } from "@/lib/utils";
 import { UseCaseBuilderDialog } from "@/components/gallery/UseCaseBuilder";
+import { RecycleBinDialog } from "@/components/chat/RecycleBinDialog";
 import { ShareButton } from "@/components/chat/ShareButton";
+import { useToast } from "@/components/ui/toast";
 import { getStorageMode, getStorageModeDisplay } from "@/lib/storage-config";
 import type { Conversation } from "@/types/a2a";
 
@@ -45,16 +49,20 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
     setActiveConversation,
     createConversation,
     deleteConversation,
-    loadConversationsFromServer
+    loadConversationsFromServer,
+    loadMessagesFromServer,
   } = useChatStore();
   const [useCaseBuilderOpen, setUseCaseBuilderOpen] = useState(false);
   const storageMode = getStorageMode(); // Exclusive storage mode
   const [isPending, startTransition] = useTransition();
   const [sidebarWidth, setSidebarWidth] = useState(320); // Track sidebar width
   const [isResizing, setIsResizing] = useState(false);
+  const [isReloading, setIsReloading] = useState(false);
+  const [recycleBinOpen, setRecycleBinOpen] = useState(false);
+  const { toast } = useToast();
 
   // Load conversations from server when sidebar mounts (MongoDB mode only)
-  // Always load from server to sync with database, but preserve local messages
+  // Also re-sync when tab becomes visible (user switches back from another browser/tab)
   useEffect(() => {
     if (activeTab === "chat" && storageMode === 'mongodb') {
       // Always load from server - the loadConversationsFromServer function
@@ -63,6 +71,19 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
         console.error('[Sidebar] Failed to load conversations:', error);
       });
     }
+
+    // Re-sync when user returns to this tab (catches cross-browser deletes)
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible' && activeTab === "chat" && storageMode === 'mongodb') {
+        console.log('[Sidebar] Tab became visible, re-syncing conversations');
+        loadConversationsFromServer().catch((error) => {
+          console.error('[Sidebar] Failed to re-sync conversations:', error);
+        });
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab, storageMode]); // Intentionally exclude loadConversationsFromServer to prevent re-runs
 
@@ -88,6 +109,24 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
       };
     }
   }, [isResizing]);
+
+  const handleReloadConversations = async () => {
+    if (isReloading) return;
+    setIsReloading(true);
+    try {
+      console.log('[Sidebar] Manual reload triggered');
+      await loadConversationsFromServer();
+      // Also force-reload the active conversation's messages to pick up
+      // follow-up messages from other devices and refresh A2A events
+      if (activeConversationId) {
+        await loadMessagesFromServer(activeConversationId, { force: true });
+      }
+    } catch (error) {
+      console.error('[Sidebar] Failed to reload conversations:', error);
+    } finally {
+      setIsReloading(false);
+    }
+  };
 
   const handleNewChat = async () => {
     try {
@@ -190,9 +229,30 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
         </div>
       )}
 
-      {/* Storage Mode Indicator - Subtle icon with tooltip */}
+      {/* Bottom-right indicators: Archive + Storage Mode */}
       {activeTab === "chat" && !collapsed && (
-        <div className="absolute bottom-2 right-2 z-10 overflow-visible">
+        <div className="absolute bottom-2 right-2 z-10 overflow-visible flex items-center gap-1.5">
+          {/* Archive button — only in MongoDB mode */}
+          {storageMode === 'mongodb' && (
+            <TooltipProvider delayDuration={200}>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    onClick={() => setRecycleBinOpen(true)}
+                    className="p-1.5 rounded-md bg-muted/50 border border-border/50 hover:bg-muted transition-colors cursor-pointer"
+                  >
+                    <ArchiveRestore className="h-3.5 w-3.5 text-muted-foreground" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="top" sideOffset={8}>
+                  <p className="font-medium text-xs">Archive</p>
+                  <p className="text-[10px] mt-0.5 opacity-70">Restore deleted conversations</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          )}
+
+          {/* Storage Mode Indicator */}
           <TooltipProvider delayDuration={200}>
             {storageMode === 'localStorage' ? (
               <Tooltip>
@@ -229,7 +289,27 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
           {!collapsed && (
             <div className="px-3 py-2 flex items-center gap-2 text-xs text-muted-foreground uppercase tracking-wider shrink-0">
               <History className="h-3 w-3" />
-              <span>History</span>
+              <span className="flex-1">History</span>
+              {storageMode === 'mongodb' && (
+                <TooltipProvider delayDuration={300}>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-5 w-5 hover:bg-muted"
+                        onClick={handleReloadConversations}
+                        disabled={isReloading}
+                      >
+                        <RefreshCw className={cn("h-3 w-3", isReloading && "animate-spin")} />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent side="right" sideOffset={4}>
+                      <p className="text-xs">Reload conversations</p>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              )}
             </div>
           )}
 
@@ -317,53 +397,67 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
                               isOwner={new Date(conv.createdAt) > new Date('2026-01-28')}
                             />
                           </div>
+                          <TooltipProvider delayDuration={200}>
+                          <Tooltip>
+                          <TooltipTrigger asChild>
                           <Button
                             variant="ghost"
                             size="icon"
                             className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity"
                             onClick={async (e) => {
-                              console.log('[Sidebar] Delete clicked for:', conv.id);
+                              console.log('[Sidebar] Archive clicked for:', conv.id);
                               e.stopPropagation();
                               
-                              // Check if this is the only conversation
-                              const conversationsBeforeDelete = useChatStore.getState().conversations;
-                              const isOnlyConversation = conversationsBeforeDelete.length === 1;
-                              const isDeletingActiveConversation = activeConversationId === conv.id;
+                              // Capture state BEFORE any async work
+                              const conversationsBeforeArchive = useChatStore.getState().conversations;
+                              const isLastConversation = conversationsBeforeArchive.length === 1;
+                              const archivedTitle = conv.title || 'Untitled';
                               
-                              console.log('[Sidebar] Before delete:', {
-                                count: conversationsBeforeDelete.length,
-                                isOnly: isOnlyConversation,
-                                isDeletingActive: isDeletingActiveConversation
+                              console.log('[Sidebar] Before archive:', {
+                                count: conversationsBeforeArchive.length,
+                                isLast: isLastConversation,
                               });
-                              
-                              // Delete conversation (this updates the store and sets new activeConversationId)
+
+                              // If this is the last conversation, create a new one FIRST
+                              // so the user always has somewhere to land
+                              let navigateToId: string | null = null;
+                              if (isLastConversation) {
+                                navigateToId = createConversation();
+                                console.log('[Sidebar] Created replacement conversation:', navigateToId);
+                              }
+
+                              // Archive the conversation (updates store + server)
                               await deleteConversation(conv.id);
-                              
-                              // Wait for store to update
-                              await new Promise(resolve => setTimeout(resolve, 100));
-                              
-                              // Get updated state
-                              const storeState = useChatStore.getState();
-                              const newActiveId = storeState.activeConversationId;
-                              const remainingConversations = storeState.conversations;
-                              
-                              console.log('[Sidebar] After delete:', {
-                                newActiveId,
-                                remainingCount: remainingConversations.length
-                              });
-                              
-                              // Navigate based on whether there are remaining conversations
-                              if (newActiveId && remainingConversations.length > 0) {
-                                console.log('[Sidebar] Navigating to next conversation:', newActiveId);
-                                router.replace(`/chat/${newActiveId}`);
+
+                              // Show toast
+                              if (storageMode === 'mongodb') {
+                                toast(`"${archivedTitle}" moved to Archive`, "success", 4000);
                               } else {
-                                console.log('[Sidebar] No conversations left, navigating to /chat');
-                                router.replace('/chat');
+                                toast(`"${archivedTitle}" deleted`, "success", 3000);
+                              }
+
+                              // Navigate
+                              if (navigateToId) {
+                                // Last conversation case — go to the fresh conversation
+                                router.replace(`/chat/${navigateToId}`);
+                              } else {
+                                // Multiple conversations — store already picked the next active
+                                const storeState = useChatStore.getState();
+                                const newActiveId = storeState.activeConversationId;
+                                if (newActiveId) {
+                                  router.replace(`/chat/${newActiveId}`);
+                                }
                               }
                             }}
                           >
-                            <Trash2 className="h-3 w-3" />
+                            <Archive className="h-3 w-3" />
                           </Button>
+                          </TooltipTrigger>
+                          <TooltipContent side="top" sideOffset={4}>
+                            <p className="text-xs">Archive conversation</p>
+                          </TooltipContent>
+                          </Tooltip>
+                          </TooltipProvider>
                         </div>
                       </>
                     )}
@@ -541,6 +635,12 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
             onUseCaseSaved();
           }
         }}
+      />
+
+      {/* Archive Dialog */}
+      <RecycleBinDialog
+        open={recycleBinOpen}
+        onOpenChange={setRecycleBinOpen}
       />
 
     </motion.div>

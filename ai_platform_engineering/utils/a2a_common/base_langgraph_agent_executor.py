@@ -3,6 +3,7 @@
 
 """Base agent executor for A2A protocol handling with streaming support."""
 
+import asyncio
 import logging
 from abc import ABC
 from typing_extensions import override
@@ -58,6 +59,7 @@ class BaseLangGraphAgentExecutor(AgentExecutor, ABC):
         2. Gets trace_id from parent agent (if this is a sub-agent)
         3. Streams agent responses through the event queue
         4. Handles three states: working, input_required, completed
+        5. Catches ALL exceptions to prevent A2A stream from breaking
 
         Args:
             context: Request context with user input and current task
@@ -101,37 +103,101 @@ class BaseLangGraphAgentExecutor(AgentExecutor, ABC):
 
         # Accumulate content from all streaming events
         accumulated_content: list[str] = []
-        streaming_artifact_id: str | None = None
+        # Use instance attribute to share streaming_artifact_id with _process_stream_event
+        self._streaming_artifact_id: str | None = None
 
         # Send initial working status so clients know the task has started
-        await event_queue.enqueue_event(
-            TaskStatusUpdateEvent(
-                status=TaskStatus(state=TaskState.working),
-                final=False,
-                context_id=task.context_id,
-                task_id=task.id,
-            )
-        )
-
-        # Stream responses from the underlying agent
-        # Use the extracted context_id (from supervisor metadata) for conversation continuity
-        async for event in self.agent.stream(query, context_id, trace_id):
-            if event['is_task_complete']:
-                # Task completed successfully - send empty final marker (content already streamed)
-                final_content = ''.join(accumulated_content) if accumulated_content else event.get('content', '')
-                logger.info(
-                    f"{agent_name}: Task complete. Accumulated {len(accumulated_content)} chunks, "
-                    f"final_content length: {len(final_content)}"
+        try:
+            await event_queue.enqueue_event(
+                TaskStatusUpdateEvent(
+                    status=TaskStatus(state=TaskState.working),
+                    final=False,
+                    context_id=task.context_id,
+                    task_id=task.id,
                 )
+            )
+        except Exception as e:
+            logger.error(f"{agent_name}: Failed to send initial working status: {e}")
+            # Continue anyway — the stream may still work
 
-                # Close the streaming artifact (if any) so SSE consumers see last_chunk=True
-                if streaming_artifact_id is not None:
-                    closing_artifact = new_text_artifact(
-                        name='streaming_result',
-                        description=f'Streaming result from {agent_name} (complete)',
-                        text='',
+        try:
+            # Stream responses from the underlying agent
+            # Use the extracted context_id (from supervisor metadata) for conversation continuity
+            async for event in self.agent.stream(query, context_id, trace_id):
+                try:
+                    await self._process_stream_event(
+                        event, task, agent_name, accumulated_content,
+                        event_queue,
                     )
-                    closing_artifact.artifact_id = streaming_artifact_id
+                except Exception as event_err:
+                    # Individual event processing failure should NOT kill the stream
+                    logger.error(
+                        f"{agent_name}: Error processing stream event (kind={event.get('kind', 'unknown')}): "
+                        f"{type(event_err).__name__}: {event_err}",
+                        exc_info=True,
+                    )
+                    continue
+
+        except asyncio.CancelledError:
+            logger.warning(f"{agent_name}: A2A execute cancelled by client")
+            await self._send_error_completion(
+                event_queue, task, agent_name,
+                f"⚠️ {agent_name.title()} operation was cancelled.",
+            )
+            return
+
+        except (Exception, BaseExceptionGroup) as e:
+            # Extract underlying exception from ExceptionGroup if needed
+            actual_exc = e
+            if isinstance(e, BaseExceptionGroup) and e.exceptions:
+                actual_exc = e.exceptions[0]
+
+            logger.error(
+                f"{agent_name}: A2A execute failed with {type(actual_exc).__name__}: {actual_exc}",
+                exc_info=True,
+            )
+
+            # Send a graceful error to the client via A2A protocol instead of
+            # letting the exception bubble up and kill the SSE connection.
+            error_msg = BaseLangGraphAgent._format_user_error(agent_name, actual_exc)
+            await self._send_error_completion(event_queue, task, agent_name, error_msg)
+            return
+
+    async def _process_stream_event(
+        self,
+        event: dict,
+        task,
+        agent_name: str,
+        accumulated_content: list[str],
+        event_queue: EventQueue,
+    ) -> None:
+        """
+        Process a single stream event from the agent.
+
+        Separated from execute() for cleaner exception handling — if a single
+        event fails to process, the stream continues.
+
+        Uses self._streaming_artifact_id to track the artifact across chunks.
+        """
+        streaming_artifact_id = self._streaming_artifact_id
+
+        if event.get('is_task_complete'):
+            # Task completed successfully - send empty final marker (content already streamed)
+            final_content = ''.join(accumulated_content) if accumulated_content else event.get('content', '')
+            logger.info(
+                f"{agent_name}: Task complete. Accumulated {len(accumulated_content)} chunks, "
+                f"final_content length: {len(final_content)}"
+            )
+
+            # Close the streaming artifact (if any) so SSE consumers see last_chunk=True
+            if streaming_artifact_id is not None:
+                closing_artifact = new_text_artifact(
+                    name='streaming_result',
+                    description=f'Streaming result from {agent_name} (complete)',
+                    text='',
+                )
+                closing_artifact.artifact_id = streaming_artifact_id
+                try:
                     await event_queue.enqueue_event(
                         TaskArtifactUpdateEvent(
                             append=True,
@@ -141,8 +207,11 @@ class BaseLangGraphAgentExecutor(AgentExecutor, ABC):
                             artifact=closing_artifact,
                         )
                     )
+                except Exception as e:
+                    logger.error(f"{agent_name}: Failed to close streaming artifact: {e}")
 
-                # Emit a final artifact containing the full result for non-streaming clients
+            # Emit a final artifact containing the full result for non-streaming clients
+            try:
                 await event_queue.enqueue_event(
                     TaskArtifactUpdateEvent(
                         append=False,
@@ -156,6 +225,10 @@ class BaseLangGraphAgentExecutor(AgentExecutor, ABC):
                         ),
                     )
                 )
+            except Exception as e:
+                logger.error(f"{agent_name}: Failed to send complete_result artifact: {e}")
+
+            try:
                 await event_queue.enqueue_event(
                     TaskStatusUpdateEvent(
                         status=TaskStatus(state=TaskState.completed),
@@ -164,8 +237,12 @@ class BaseLangGraphAgentExecutor(AgentExecutor, ABC):
                         task_id=task.id,
                     )
                 )
-            elif event['require_user_input']:
-                # Agent requires user input - send input_required status
+            except Exception as e:
+                logger.error(f"{agent_name}: Failed to send completed status: {e}")
+
+        elif event.get('require_user_input'):
+            # Agent requires user input - send input_required status
+            try:
                 await event_queue.enqueue_event(
                     TaskStatusUpdateEvent(
                         status=TaskStatus(
@@ -181,20 +258,24 @@ class BaseLangGraphAgentExecutor(AgentExecutor, ABC):
                         task_id=task.id,
                     )
                 )
-            else:
-                # Check if this is a custom event from writer() (e.g., sub-agent streaming via artifact-update)
-                if 'type' in event and event.get('type') == 'artifact-update':
-                    # Custom artifact-update event from sub-agent - forward as TaskArtifactUpdateEvent
-                    result = event.get('result', {})
-                    artifact = result.get('artifact')
+            except Exception as e:
+                logger.error(f"{agent_name}: Failed to send input_required status: {e}")
 
-                    if artifact:
-                        # Extract text length for logging
-                        parts = artifact.get('parts', [])
-                        text_len = sum(len(p.get('text', '')) for p in parts if isinstance(p, dict))
+        else:
+            # Check if this is a custom event from writer() (e.g., sub-agent streaming via artifact-update)
+            if 'type' in event and event.get('type') == 'artifact-update':
+                # Custom artifact-update event from sub-agent - forward as TaskArtifactUpdateEvent
+                result = event.get('result', {})
+                artifact = result.get('artifact')
 
-                        logger.info(f"{agent_name}: Forwarding artifact-update from sub-agent ({text_len} chars)")
+                if artifact:
+                    # Extract text length for logging
+                    parts = artifact.get('parts', [])
+                    text_len = sum(len(p.get('text', '')) for p in parts if isinstance(p, dict))
 
+                    logger.info(f"{agent_name}: Forwarding artifact-update from sub-agent ({text_len} chars)")
+
+                    try:
                         # Convert dict to proper Artifact object
                         from a2a.types import Artifact, TextPart
                         artifact_obj = Artifact(
@@ -213,110 +294,182 @@ class BaseLangGraphAgentExecutor(AgentExecutor, ABC):
                                 artifact=artifact_obj,
                             )
                         )
-                        continue
+                    except Exception as e:
+                        logger.error(f"{agent_name}: Failed to forward artifact-update: {e}")
+                    return
 
-                # Agent is still working - stream tool messages immediately, accumulate AI responses
-                content = event['content']
+            # Agent is still working - stream tool messages immediately, accumulate AI responses
+            content = event.get('content', '')
 
-                kind = event.get('kind')
-                if not kind:
-                    if 'tool_call' in event:
-                        kind = 'tool_call'
-                    elif 'tool_result' in event:
-                        kind = 'tool_result'
-                    else:
-                        kind = 'text_chunk'
+            kind = event.get('kind')
+            if not kind:
+                if 'tool_call' in event:
+                    kind = 'tool_call'
+                elif 'tool_result' in event:
+                    kind = 'tool_result'
+                else:
+                    kind = 'text_chunk'
 
-                # Check if this is a tool call or tool result message
-                if kind == 'tool_call' or 'tool_call' in event:
-                    tool_info = event.get('tool_call', {})
-                    tool_name = tool_info.get('name', 'unknown')
-                    description = f"Tool call started: {tool_name}"
-                    logger.info(f"{agent_name}: 🔧 Tool call - {tool_name}")
-                    await event_queue.enqueue_event(
-                        TaskArtifactUpdateEvent(
-                            append=False,
-                            context_id=task.context_id,
-                            task_id=task.id,
-                            last_chunk=False,
-                            artifact=new_text_artifact(
-                                name='tool_notification_start',
-                                description=description,
-                                text=content or description,
-                            ),
-                        )
+            # Check if this is a tool call or tool result message
+            if kind == 'tool_call' or 'tool_call' in event:
+                tool_info = event.get('tool_call', {})
+                tool_name = tool_info.get('name', 'unknown')
+                description = f"Tool call started: {tool_name}"
+                logger.info(f"{agent_name}: 🔧 Tool call - {tool_name}")
+                await event_queue.enqueue_event(
+                    TaskArtifactUpdateEvent(
+                        append=False,
+                        context_id=task.context_id,
+                        task_id=task.id,
+                        last_chunk=False,
+                        artifact=new_text_artifact(
+                            name='tool_notification_start',
+                            description=description,
+                            text=content or description,
+                        ),
                     )
-                    continue
+                )
+                return
 
-                if kind == 'tool_result' or 'tool_result' in event:
-                    tool_info = event.get('tool_result', {})
-                    tool_name = tool_info.get('name', 'unknown')
-                    is_error = tool_info.get('is_error', False) or tool_info.get('status') == 'failed'
-                    status_text = 'failed' if is_error else tool_info.get('status', 'completed')
-                    description = f"Tool call {status_text}: {tool_name}"
-                    logger.info(f"{agent_name}: ✅ Tool result - {tool_name} ({status_text})")
-                    await event_queue.enqueue_event(
-                        TaskArtifactUpdateEvent(
-                            append=False,
-                            context_id=task.context_id,
-                            task_id=task.id,
-                            last_chunk=False,
-                            artifact=new_text_artifact(
-                                name='tool_notification_end',
-                                description=description,
-                                text=content or description,
-                            ),
-                        )
+            if kind == 'tool_result' or 'tool_result' in event:
+                tool_info = event.get('tool_result', {})
+                tool_name = tool_info.get('name', 'unknown')
+                is_error = tool_info.get('is_error', False) or tool_info.get('status') == 'failed'
+                status_text = 'failed' if is_error else tool_info.get('status', 'completed')
+                description = f"Tool call {status_text}: {tool_name}"
+                logger.info(f"{agent_name}: ✅ Tool result - {tool_name} ({status_text})")
+                await event_queue.enqueue_event(
+                    TaskArtifactUpdateEvent(
+                        append=False,
+                        context_id=task.context_id,
+                        task_id=task.id,
+                        last_chunk=False,
+                        artifact=new_text_artifact(
+                            name='tool_notification_end',
+                            description=description,
+                            text=content or description,
+                        ),
                     )
-                    continue
+                )
+                return
 
-                if kind == 'tool_output':
-                    if content:
-                        await event_queue.enqueue_event(
-                            TaskArtifactUpdateEvent(
-                                append=False,
-                                context_id=task.context_id,
-                                task_id=task.id,
-                                last_chunk=False,
-                                artifact=new_text_artifact(
-                                    name='tool_output',
-                                    description=f'Tool output from {agent_name}',
-                                    text=content,
-                                ),
-                            )
-                        )
-                    continue
-
-                # Default behaviour: treat as AI text chunk
+            if kind == 'tool_output':
                 if content:
-                    accumulated_content.append(content)
-                    logger.debug(
-                        f"{agent_name}: Accumulated AI response chunk ({len(content)} chars). Total chunks: {len(accumulated_content)}"
-                    )
-
-                    artifact = new_text_artifact(
-                        name='streaming_result',
-                        description=f'Streaming result from {agent_name}',
-                        text=content,
-                    )
-
-                    append_flag = False
-                    if streaming_artifact_id is None:
-                        streaming_artifact_id = artifact.artifact_id
-                        append_flag = False
-                    else:
-                        artifact.artifact_id = streaming_artifact_id
-                        append_flag = True
-
                     await event_queue.enqueue_event(
                         TaskArtifactUpdateEvent(
-                            append=append_flag,
+                            append=False,
                             context_id=task.context_id,
                             task_id=task.id,
                             last_chunk=False,
-                            artifact=artifact,
+                            artifact=new_text_artifact(
+                                name='tool_output',
+                                description=f'Tool output from {agent_name}',
+                                text=content,
+                            ),
                         )
                     )
+                return
+
+            # Handle status events (from retry/recovery in base agent)
+            if kind == 'status':
+                if content:
+                    await event_queue.enqueue_event(
+                        TaskArtifactUpdateEvent(
+                            append=False,
+                            context_id=task.context_id,
+                            task_id=task.id,
+                            last_chunk=False,
+                            artifact=new_text_artifact(
+                                name='status_update',
+                                description=f'Status from {agent_name}',
+                                text=content,
+                            ),
+                        )
+                    )
+                return
+
+            # Default behaviour: treat as AI text chunk
+            if content:
+                accumulated_content.append(content)
+                logger.debug(
+                    f"{agent_name}: Accumulated AI response chunk ({len(content)} chars). Total chunks: {len(accumulated_content)}"
+                )
+
+                artifact = new_text_artifact(
+                    name='streaming_result',
+                    description=f'Streaming result from {agent_name}',
+                    text=content,
+                )
+
+                append_flag = False
+                if streaming_artifact_id is None:
+                    streaming_artifact_id = artifact.artifact_id
+                    self._streaming_artifact_id = streaming_artifact_id
+                    append_flag = False
+                else:
+                    artifact.artifact_id = streaming_artifact_id
+                    append_flag = True
+
+                await event_queue.enqueue_event(
+                    TaskArtifactUpdateEvent(
+                        append=append_flag,
+                        context_id=task.context_id,
+                        task_id=task.id,
+                        last_chunk=False,
+                        artifact=artifact,
+                    )
+                )
+
+    async def _send_error_completion(
+        self,
+        event_queue: EventQueue,
+        task,
+        agent_name: str,
+        error_message: str,
+    ) -> None:
+        """
+        Send a graceful error completion through the A2A event queue.
+
+        This ensures the client receives a proper task-completed event
+        with an error message instead of the SSE connection just dying.
+        """
+        try:
+            # Send the error as a final artifact
+            await event_queue.enqueue_event(
+                TaskArtifactUpdateEvent(
+                    append=False,
+                    context_id=task.context_id,
+                    task_id=task.id,
+                    last_chunk=True,
+                    artifact=new_text_artifact(
+                        name='error_result',
+                        description=f'Error from {agent_name}',
+                        text=error_message,
+                    ),
+                )
+            )
+        except Exception as e:
+            logger.error(f"{agent_name}: Failed to send error artifact: {e}")
+
+        try:
+            # Mark the task as completed (with the error content)
+            await event_queue.enqueue_event(
+                TaskStatusUpdateEvent(
+                    status=TaskStatus(
+                        state=TaskState.completed,
+                        message=new_agent_text_message(
+                            error_message,
+                            task.context_id,
+                            task.id,
+                        ),
+                    ),
+                    final=True,
+                    context_id=task.context_id,
+                    task_id=task.id,
+                )
+            )
+        except Exception as e:
+            logger.error(f"{agent_name}: Failed to send error completion status: {e}")
 
     @override
     async def cancel(

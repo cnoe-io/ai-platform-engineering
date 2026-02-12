@@ -1,12 +1,13 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { Settings, X, Type, Palette, Monitor, Check } from "lucide-react";
+import { X, Type, Palette, Monitor, Check, Cloud, CloudOff } from "lucide-react";
 import { useTheme } from "next-themes";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { apiClient } from "@/lib/api-client";
 
 // Font size options
 const fontSizes = [
@@ -81,6 +82,9 @@ type FontSize = typeof fontSizes[number]["id"];
 type FontFamily = typeof fontFamilies[number]["id"];
 type GradientTheme = typeof gradientThemes[number]["id"];
 
+// Sync status type for UI indicator
+type SyncStatus = 'idle' | 'syncing' | 'synced' | 'error';
+
 export function SettingsPanel() {
   const [open, setOpen] = useState(false);
   const { theme, setTheme } = useTheme();
@@ -88,10 +92,62 @@ export function SettingsPanel() {
   const [fontFamily, setFontFamily] = useState<FontFamily>("inter");
   const [gradientTheme, setGradientTheme] = useState<GradientTheme>("default");
   const [mounted, setMounted] = useState(false);
+  const [syncStatus, setSyncStatus] = useState<SyncStatus>('idle');
+  const syncTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const debounceRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Load settings from localStorage
+  // Apply gradient theme to CSS custom properties
+  const applyGradientTheme = useCallback((themeId: GradientTheme) => {
+    const selectedTheme = gradientThemes.find(t => t.id === themeId);
+    if (selectedTheme) {
+      document.documentElement.style.setProperty("--gradient-from", selectedTheme.from);
+      document.documentElement.style.setProperty("--gradient-to", selectedTheme.to);
+      document.documentElement.setAttribute("data-gradient-theme", themeId);
+    }
+  }, []);
+
+  // Save preferences to localStorage (fast cache)
+  const saveToLocalStorage = useCallback((prefs: {
+    fontSize?: FontSize;
+    fontFamily?: FontFamily;
+    gradientTheme?: GradientTheme;
+    theme?: string;
+  }) => {
+    if (prefs.fontSize) localStorage.setItem("caipe-font-size", prefs.fontSize);
+    if (prefs.fontFamily) localStorage.setItem("caipe-font-family", prefs.fontFamily);
+    if (prefs.gradientTheme) localStorage.setItem("caipe-gradient-theme", prefs.gradientTheme);
+    // Theme is managed by next-themes (also uses localStorage)
+  }, []);
+
+  // Sync preferences to MongoDB (debounced)
+  const syncToServer = useCallback((prefs: Record<string, string>) => {
+    // Clear previous debounce
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+
+    debounceRef.current = setTimeout(async () => {
+      try {
+        setSyncStatus('syncing');
+        await apiClient.updatePreferences(prefs);
+        setSyncStatus('synced');
+
+        // Reset to idle after 2 seconds
+        if (syncTimeoutRef.current) clearTimeout(syncTimeoutRef.current);
+        syncTimeoutRef.current = setTimeout(() => setSyncStatus('idle'), 2000);
+      } catch (error) {
+        // MongoDB not available or auth not configured - localStorage still works
+        console.debug('Settings sync to server skipped:', error);
+        setSyncStatus('error');
+        if (syncTimeoutRef.current) clearTimeout(syncTimeoutRef.current);
+        syncTimeoutRef.current = setTimeout(() => setSyncStatus('idle'), 3000);
+      }
+    }, 500);
+  }, []);
+
+  // Load settings on mount: try MongoDB first, fall back to localStorage
   useEffect(() => {
     setMounted(true);
+
+    // Immediately apply from localStorage (fast)
     const savedFontSize = localStorage.getItem("caipe-font-size") as FontSize | null;
     const savedFontFamily = localStorage.getItem("caipe-font-family") as FontFamily | null;
     const savedGradientTheme = localStorage.getItem("caipe-gradient-theme") as GradientTheme | null;
@@ -108,39 +164,80 @@ export function SettingsPanel() {
       setGradientTheme(savedGradientTheme);
       applyGradientTheme(savedGradientTheme);
     } else {
-      // Apply default theme
       applyGradientTheme("default");
     }
-  }, []);
+
+    // Then try to load from server (may override localStorage with cross-device prefs)
+    apiClient.getSettings()
+      .then((settings) => {
+        if (settings?.preferences) {
+          const prefs = settings.preferences;
+
+          if (prefs.font_size && fontSizes.some(f => f.id === prefs.font_size)) {
+            const fs = prefs.font_size as FontSize;
+            setFontSize(fs);
+            document.body.setAttribute("data-font-size", fs);
+            localStorage.setItem("caipe-font-size", fs);
+          }
+
+          if (prefs.font_family && fontFamilies.some(f => f.id === prefs.font_family)) {
+            const ff = prefs.font_family as FontFamily;
+            setFontFamily(ff);
+            document.body.setAttribute("data-font-family", ff);
+            localStorage.setItem("caipe-font-family", ff);
+          }
+
+          if (prefs.gradient_theme && gradientThemes.some(g => g.id === prefs.gradient_theme)) {
+            const gt = prefs.gradient_theme as GradientTheme;
+            setGradientTheme(gt);
+            applyGradientTheme(gt);
+            localStorage.setItem("caipe-gradient-theme", gt);
+          }
+
+          if (prefs.theme && themes.some(t => t.id === prefs.theme)) {
+            setTheme(prefs.theme);
+          }
+        }
+      })
+      .catch(() => {
+        // Server not available - localStorage values are already applied
+        console.debug('Settings: using localStorage (server unavailable)');
+      });
+
+    return () => {
+      if (syncTimeoutRef.current) clearTimeout(syncTimeoutRef.current);
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Apply font size
   const handleFontSizeChange = (size: FontSize) => {
     setFontSize(size);
-    localStorage.setItem("caipe-font-size", size);
+    saveToLocalStorage({ fontSize: size });
     document.body.setAttribute("data-font-size", size);
+    syncToServer({ font_size: size });
   };
 
   // Apply font family
   const handleFontFamilyChange = (family: FontFamily) => {
     setFontFamily(family);
-    localStorage.setItem("caipe-font-family", family);
+    saveToLocalStorage({ fontFamily: family });
     document.body.setAttribute("data-font-family", family);
+    syncToServer({ font_family: family });
   };
 
   // Apply gradient theme
-  const applyGradientTheme = (themeId: GradientTheme) => {
-    const selectedTheme = gradientThemes.find(t => t.id === themeId);
-    if (selectedTheme) {
-      document.documentElement.style.setProperty("--gradient-from", selectedTheme.from);
-      document.documentElement.style.setProperty("--gradient-to", selectedTheme.to);
-      document.documentElement.setAttribute("data-gradient-theme", themeId);
-    }
-  };
-
   const handleGradientThemeChange = (themeId: GradientTheme) => {
     setGradientTheme(themeId);
-    localStorage.setItem("caipe-gradient-theme", themeId);
+    saveToLocalStorage({ gradientTheme: themeId });
     applyGradientTheme(themeId);
+    syncToServer({ gradient_theme: themeId });
+  };
+
+  // Apply theme (extends next-themes setTheme to also sync to server)
+  const handleThemeChange = (themeId: string) => {
+    setTheme(themeId);
+    syncToServer({ theme: themeId });
   };
 
   if (!mounted) return null;
@@ -168,7 +265,18 @@ export function SettingsPanel() {
           >
               {/* Header */}
               <div className="sticky top-0 bg-card/95 backdrop-blur-sm border-b border-border p-4 flex items-center justify-between">
-                <h2 className="text-lg font-semibold">Settings</h2>
+                <div className="flex items-center gap-2">
+                  <h2 className="text-lg font-semibold">UI Personalization</h2>
+                  {syncStatus === 'syncing' && (
+                    <span title="Syncing to server..."><Cloud className="h-4 w-4 text-muted-foreground animate-pulse" /></span>
+                  )}
+                  {syncStatus === 'synced' && (
+                    <span title="Synced to server"><Cloud className="h-4 w-4 text-green-500" /></span>
+                  )}
+                  {syncStatus === 'error' && (
+                    <span title="Local only (server unavailable)"><CloudOff className="h-4 w-4 text-muted-foreground" /></span>
+                  )}
+                </div>
                 <Button
                   variant="ghost"
                   size="icon"
@@ -261,7 +369,7 @@ export function SettingsPanel() {
                     {themes.map((option) => (
                       <button
                         key={option.id}
-                        onClick={() => setTheme(option.id)}
+                        onClick={() => handleThemeChange(option.id)}
                         className={cn(
                           "w-full flex items-center justify-between px-3 py-2.5 rounded-lg border transition-all text-left",
                           theme === option.id
@@ -377,15 +485,15 @@ export function SettingsPanel() {
 
   return (
     <>
-      {/* Settings Button */}
+      {/* UI Personalization Button */}
       <Button
         variant="ghost"
         size="icon"
         className="h-8 w-8"
         onClick={() => setOpen(true)}
-        title="Settings"
+        title="UI Personalization"
       >
-        <Settings className="h-4 w-4" />
+        <Palette className="h-4 w-4" />
       </Button>
 
       {/* Render modal in portal to ensure it's above everything */}
