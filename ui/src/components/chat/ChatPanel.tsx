@@ -3,7 +3,7 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { useSession } from "next-auth/react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Send, Square, User, Bot, Sparkles, Copy, Check, Loader2, ChevronDown, ChevronUp, ArrowDown, RotateCcw, Gitlab, Slack, Video, Activity } from "lucide-react";
+import { Send, Square, User, Bot, Sparkles, Copy, Check, Loader2, ChevronDown, ChevronUp, ArrowDown, RotateCcw, Gitlab, Slack, Video, Activity, MessageSquare, Clock } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
@@ -41,7 +41,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle }: ChatP
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const scrollViewportRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  
+
   // User input form state
   const [pendingUserInput, setPendingUserInput] = useState<{
     messageId: string;
@@ -52,6 +52,9 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle }: ChatP
   const [isUserScrolledUp, setIsUserScrolledUp] = useState(false);
   const [showScrollButton, setShowScrollButton] = useState(false);
   const isAutoScrollingRef = useRef(false);
+
+  // Message window: collapse older turns for render performance
+  const [olderTurnsExpanded, setOlderTurnsExpanded] = useState(false);
 
   const {
     activeConversationId,
@@ -69,6 +72,8 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle }: ChatP
     updateMessageFeedback,
     consumePendingMessage,
     recoverInterruptedTask,
+    evictOldMessageContent,
+    loadMessagesFromServer,
   } = useChatStore();
 
   // Get access token from session (if SSO is enabled and user is authenticated)
@@ -141,10 +146,11 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle }: ChatP
     }
   }, [conversation?.messages?.at(-1)?.content, isThisConversationStreaming, isUserScrolledUp, scrollToBottom]);
 
-  // Reset scroll state when conversation changes
+  // Reset scroll state and collapse older turns when conversation changes
   useEffect(() => {
     setIsUserScrolledUp(false);
     setShowScrollButton(false);
+    setOlderTurnsExpanded(false); // Re-collapse older turns on conversation switch
     // Scroll to bottom when switching conversations
     setTimeout(() => scrollToBottom("instant"), 50);
   }, [activeConversationId, scrollToBottom]);
@@ -160,28 +166,45 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle }: ChatP
     if (isThisConversationStreaming) return; // Don't recover while streaming
 
     // Find the last interrupted assistant message with a taskId
-    const interruptedMsg = [...(conversation.messages || [])].reverse().find(
+    const msgs = conversation.messages || [];
+    const interruptedMsg = [...msgs].reverse().find(
       (m) => m.role === "assistant" && m.isInterrupted && m.taskId
     );
 
-    if (!interruptedMsg) return;
+    // Diagnostic: log message states for debugging recovery detection
+    const assistantMsgs = msgs.filter((m) => m.role === "assistant");
+    if (assistantMsgs.length > 0) {
+      const last = assistantMsgs[assistantMsgs.length - 1];
+      console.log(`[ChatPanel][Recovery] Last assistant message: id=${last.id}, isFinal=${last.isFinal}, isInterrupted=${last.isInterrupted}, taskId=${last.taskId || 'none'}`);
+    }
+
+    if (!interruptedMsg) {
+      console.log(`[ChatPanel][Recovery] No interrupted message with taskId found in ${assistantMsgs.length} assistant messages`);
+      return;
+    }
 
     // Don't re-attempt if already recovering this message
     if (recoveringMessageId === interruptedMsg.id) return;
 
-    console.log(`[ChatPanel] Found interrupted message ${interruptedMsg.id} with taskId=${interruptedMsg.taskId} — attempting recovery`);
+    // Validate endpoint before attempting recovery
+    if (!endpoint) {
+      console.error(`[ChatPanel][Recovery] Cannot recover — endpoint is not set`);
+      return;
+    }
+
+    console.log(`[ChatPanel][Recovery] Found interrupted message ${interruptedMsg.id} with taskId=${interruptedMsg.taskId} — attempting recovery via ${endpoint}`);
     setRecoveringMessageId(interruptedMsg.id);
 
     recoverInterruptedTask(activeConversationId, interruptedMsg.id, endpoint, accessToken as string | undefined)
       .then((recovered) => {
         if (recovered) {
-          console.log(`[ChatPanel] Successfully recovered task result for message ${interruptedMsg.id}`);
+          console.log(`[ChatPanel][Recovery] Successfully recovered task result for message ${interruptedMsg.id}`);
         } else {
-          console.log(`[ChatPanel] Could not recover task for message ${interruptedMsg.id} — user can retry`);
+          console.log(`[ChatPanel][Recovery] Could not recover task for message ${interruptedMsg.id} — user can retry`);
         }
       })
       .catch((error) => {
-        console.error(`[ChatPanel] Recovery failed:`, error);
+        console.error(`[ChatPanel][Recovery] Recovery failed:`, error);
       })
       .finally(() => {
         setRecoveringMessageId(null);
@@ -207,7 +230,12 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle }: ChatP
     }
 
     // Clear previous turn's events (tasks, tool completions, A2A stream events)
+    console.log(`[A2A-DEBUG] 🧹 clearA2AEvents() called for conv=${convId} — starting new turn`);
+    const preCleanConv = useChatStore.getState().conversations.find((c: any) => c.id === convId);
+    console.log(`[A2A-DEBUG] 🧹 PRE-CLEAR event count: ${preCleanConv?.a2aEvents?.length ?? 0}`, preCleanConv?.a2aEvents?.map((e: any) => `${e.type}/${e.artifact?.name || 'n/a'}`));
     clearA2AEvents(convId);
+    const postCleanConv = useChatStore.getState().conversations.find((c: any) => c.id === convId);
+    console.log(`[A2A-DEBUG] 🧹 POST-CLEAR event count: ${postCleanConv?.a2aEvents?.length ?? 0}`);
 
     // Add user message - generate turnId for this request/response pair
     const turnId = `turn-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
@@ -268,7 +296,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle }: ChatP
         // Buffer event for batched store update (flushed on UI_UPDATE_INTERVAL)
         const storeEvent = toStoreEvent(event, `event-${eventNum}-${Date.now()}`);
         eventBuffer.push(storeEvent as Parameters<typeof addA2AEvent>[0]);
-        
+
         // Flush buffer immediately for important events that update the Tasks panel
         // (execution plans, tool notifications, final results, user input forms)
         const isImportantArtifact =
@@ -280,11 +308,27 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle }: ChatP
           artifactName === "final_result" ||
           artifactName === "UserInputMetaData";
 
+        // Log important artifacts in detail
+        if (isImportantArtifact) {
+          const artifactText = event.artifact?.parts?.[0]?.text?.substring(0, 200) || '';
+          console.log(`[A2A-DEBUG] ⚡ IMPORTANT ARTIFACT #${eventNum}: ${artifactName}`, {
+            convId,
+            artifactId: event.artifact?.artifactId,
+            text: artifactText,
+            bufferSize: eventBuffer.length,
+            taskId: event.taskId,
+          });
+        }
+
         if (isImportantArtifact && eventBuffer.length > 0) {
+          console.log(`[A2A-DEBUG] 📤 FLUSH buffer (${eventBuffer.length} events) for important artifact: ${artifactName}`);
           for (const bufferedEvent of eventBuffer) {
             addA2AEvent(bufferedEvent, convId!);
           }
           eventBuffer.length = 0;
+          // Log store state right after flush
+          const storeConv = useChatStore.getState().conversations.find((c: any) => c.id === convId);
+          console.log(`[A2A-DEBUG] 📊 POST-FLUSH store event count: ${storeConv?.a2aEvents?.length ?? 0}`);
         }
 
         // ═══════════════════════════════════════════════════════════════
@@ -393,6 +437,9 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle }: ChatP
           const now = Date.now();
           if (now - lastUIUpdate >= UI_UPDATE_INTERVAL) {
             // Flush buffered A2A events first
+            if (eventBuffer.length > 0) {
+              console.log(`[A2A-DEBUG] 📤 THROTTLE-FLUSH buffer (${eventBuffer.length} events) at interval`);
+            }
             for (const bufferedEvent of eventBuffer) {
               addA2AEvent(bufferedEvent, convId!);
             }
@@ -408,10 +455,26 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle }: ChatP
       // ═══════════════════════════════════════════════════════════════
 
       // Flush any remaining buffered events
+      if (eventBuffer.length > 0) {
+        console.log(`[A2A-DEBUG] 📤 FINAL-FLUSH remaining buffer (${eventBuffer.length} events)`);
+      }
       for (const bufferedEvent of eventBuffer) {
         addA2AEvent(bufferedEvent, convId!);
       }
       eventBuffer.length = 0;
+
+      // Log final event state
+      const finalConv = useChatStore.getState().conversations.find((c: any) => c.id === convId);
+      const finalEvents = finalConv?.a2aEvents || [];
+      const execPlanEvents = finalEvents.filter((e: any) => e.artifact?.name === 'execution_plan_update' || e.artifact?.name === 'execution_plan_status_update');
+      const toolStartEvents = finalEvents.filter((e: any) => e.artifact?.name === 'tool_notification_start');
+      const toolEndEvents = finalEvents.filter((e: any) => e.artifact?.name === 'tool_notification_end');
+      console.log(`[A2A-DEBUG] 🏁 STREAM COMPLETE - total events in store: ${finalEvents.length}`, {
+        execution_plans: execPlanEvents.length,
+        tool_starts: toolStartEvents.length,
+        tool_ends: toolEndEvents.length,
+        exec_plan_texts: execPlanEvents.map((e: any) => e.artifact?.parts?.[0]?.text?.substring(0, 150)),
+      });
 
       console.log(`[A2A SDK] 🏁 STREAM COMPLETE - ${eventCounter} events, hasResult=${hasReceivedCompleteResult}`);
       console.log(`[A2A SDK] 📊 Final content: ${accumulatedText.length} chars, Raw stream: ${rawStreamContent.length} chars`);
@@ -465,7 +528,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle }: ChatP
     // If streaming and not force sending, queue the message (up to 3)
     if (isThisConversationStreaming && !forceSend) {
       const message = input.trim();
-      
+
       // Add to queue if under limit
       if (queuedMessages.length < 3) {
         setQueuedMessages(prev => [...prev, message]);
@@ -524,17 +587,17 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle }: ChatP
   // Handle user input form submission
   const handleUserInputSubmit = useCallback(async (formData: Record<string, string>) => {
     if (!pendingUserInput) return;
-    
+
     console.log("[ChatPanel] 📝 User input form submitted:", formData);
-    
+
     // Format the form data as a message
     const formattedMessage = Object.entries(formData)
       .map(([key, value]) => `${key}: ${value}`)
       .join("\n");
-    
+
     // Clear pending input
     setPendingUserInput(null);
-    
+
     // Submit the form data as a new message
     await submitMessage(formattedMessage);
   }, [pendingUserInput, submitMessage]);
@@ -548,12 +611,12 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle }: ChatP
     const cursorPos = e.target.selectionStart;
     const textBeforeCursor = newValue.slice(0, cursorPos);
     const lastAtSymbol = textBeforeCursor.lastIndexOf('@');
-    
+
     if (lastAtSymbol !== -1) {
       // Check if @ is at start of word (preceded by space or at beginning)
       const charBeforeAt = lastAtSymbol > 0 ? textBeforeCursor[lastAtSymbol - 1] : ' ';
       const isAtWordStart = charBeforeAt === ' ' || charBeforeAt === '\n';
-      
+
       if (isAtWordStart) {
         const textAfterAt = textBeforeCursor.slice(lastAtSymbol + 1);
         // Only show if no space after @ (still typing the mention)
@@ -564,26 +627,26 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle }: ChatP
         }
       }
     }
-    
+
     setShowMentionMenu(false);
   }, []);
 
   // Handle mention selection
   const handleMentionSelect = useCallback((agent: CustomCall) => {
     if (!inputRef.current) return;
-    
+
     const cursorPos = inputRef.current.selectionStart;
     const textBeforeCursor = input.slice(0, cursorPos);
     const lastAtSymbol = textBeforeCursor.lastIndexOf('@');
-    
+
     if (lastAtSymbol !== -1) {
       const textBeforeAt = input.slice(0, lastAtSymbol);
       const textAfterCursor = input.slice(cursorPos);
       const newText = textBeforeAt + agent.prompt + ' ' + textAfterCursor;
-      
+
       setInput(newText);
       setShowMentionMenu(false);
-      
+
       // Set cursor position after the mention
       setTimeout(() => {
         if (inputRef.current) {
@@ -602,7 +665,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle }: ChatP
       setShowMentionMenu(false);
       return;
     }
-    
+
     // Force send: Cmd/Ctrl + Enter
     if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
       e.preventDefault();
@@ -639,44 +702,117 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle }: ChatP
             )}
 
             <AnimatePresence mode="popLayout">
-              {deduplicateByKey(conversation?.messages ?? [], (msg) => msg.id).map((msg, index, arr) => {
-                const isLastMessage = index === arr.length - 1;
-                const isAssistantStreaming = isThisConversationStreaming && msg.role === "assistant" && isLastMessage;
+              {(() => {
+                const allMessages = deduplicateByKey(conversation?.messages ?? [], (msg) => msg.id);
+                const turns = groupMessagesIntoTurns(allMessages);
+                const shouldCollapse = turns.length > COLLAPSE_THRESHOLD && !olderTurnsExpanded;
+                const collapsedTurns = shouldCollapse ? turns.slice(0, -VISIBLE_TURN_COUNT) : [];
+                // Flatten visible turns back to messages for rendering
+                const visibleTurns = shouldCollapse ? turns.slice(-VISIBLE_TURN_COUNT) : turns;
+                const visibleMessages = visibleTurns.flatMap(t =>
+                  [t.userMsg, t.assistantMsg].filter(Boolean) as ChatMessageType[]
+                );
 
-                // For retry: if user message, use its content; if assistant, find preceding user message
-                const getRetryContent = () => {
-                  if (msg.role === "user") return msg.content;
-                  // Find the user message right before this assistant message
-                  for (let i = index - 1; i >= 0; i--) {
-                    if (arr[i].role === "user") {
-                      return arr[i].content;
-                    }
+                // Build a Set of visible message IDs for quick lookup against allMessages
+                const visibleMsgIds = new Set(visibleMessages.map(m => m.id));
+                // When expanded, render all messages
+                const renderMessages = olderTurnsExpanded || turns.length <= COLLAPSE_THRESHOLD
+                  ? allMessages
+                  : allMessages.filter(m => visibleMsgIds.has(m.id));
+
+                // Collect message IDs for older turns (for eviction on collapse)
+                const olderTurnMsgIds = shouldCollapse
+                  ? [] // Not needed when already collapsed
+                  : turns.slice(0, -VISIBLE_TURN_COUNT).flatMap(t =>
+                      [t.userMsg?.id, t.assistantMsg?.id].filter(Boolean) as string[]
+                    );
+
+                const handleCollapse = () => {
+                  // Evict content from old messages before collapsing
+                  if (activeConversationId && olderTurnMsgIds.length > 0) {
+                    evictOldMessageContent(activeConversationId, olderTurnMsgIds);
                   }
-                  return null;
+                  setOlderTurnsExpanded(false);
                 };
 
-                // Check if this is the last assistant message (latest answer)
-                const isLastAssistantMessage = msg.role === "assistant" && 
-                  index === arr.length - 1;
+                const handleExpand = () => {
+                  setOlderTurnsExpanded(true);
+                  // Re-load messages from MongoDB to restore evicted content
+                  if (activeConversationId) {
+                    loadMessagesFromServer(activeConversationId, { force: true });
+                  }
+                };
 
                 return (
-                  <ChatMessage
-                    key={msg.id}
-                    message={msg}
-                    onCopy={handleCopy}
-                    isCopied={copiedId === msg.id}
-                    isStreaming={isAssistantStreaming}
-                    isLatestAnswer={isLastAssistantMessage}
-                    onStop={isAssistantStreaming ? handleStop : undefined}
-                    onRetry={getRetryContent() ? () => handleRetry(getRetryContent()!) : undefined}
-                    feedback={msg.feedback}
-                    onFeedbackChange={(feedback) => handleFeedbackChange(msg.id, feedback)}
-                    onFeedbackSubmit={(feedback) => handleFeedbackSubmit(msg.id, feedback)}
-                    isRecovering={recoveringMessageId === msg.id}
-                    conversationId={conversationId}
-                  />
+                  <>
+                    {/* Collapsed older turns banner */}
+                    {shouldCollapse && collapsedTurns.length > 0 && (
+                      <CollapsedTurnsBanner
+                        key="collapsed-turns"
+                        turns={collapsedTurns}
+                        onExpand={handleExpand}
+                      />
+                    )}
+
+                    {/* Re-collapse button when older turns are expanded */}
+                    {olderTurnsExpanded && turns.length > COLLAPSE_THRESHOLD && (
+                      <motion.button
+                        key="collapse-banner"
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        onClick={handleCollapse}
+                        className={cn(
+                          "w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg",
+                          "bg-muted/30 hover:bg-muted/50 border border-dashed border-border/40 hover:border-border/60",
+                          "transition-all duration-200 cursor-pointer text-xs text-muted-foreground hover:text-foreground"
+                        )}
+                      >
+                        <ChevronUp className="h-3 w-3" />
+                        <span>Collapse {turns.length - VISIBLE_TURN_COUNT} older turns</span>
+                      </motion.button>
+                    )}
+
+                    {/* Rendered messages (recent turns, or all if expanded) */}
+                    {renderMessages.map((msg, index, arr) => {
+                      const isLastMessage = index === arr.length - 1;
+                      const isAssistantStreaming = isThisConversationStreaming && msg.role === "assistant" && isLastMessage;
+
+                      // For retry: if user message, use its content; if assistant, find preceding user message
+                      const getRetryContent = () => {
+                        if (msg.role === "user") return msg.content;
+                        for (let i = index - 1; i >= 0; i--) {
+                          if (arr[i].role === "user") {
+                            return arr[i].content;
+                          }
+                        }
+                        return null;
+                      };
+
+                      // Check if this is the last assistant message (latest answer)
+                      const isLastAssistantMessage = msg.role === "assistant" &&
+                        index === arr.length - 1;
+
+                      return (
+                        <ChatMessage
+                          key={msg.id}
+                          message={msg}
+                          onCopy={handleCopy}
+                          isCopied={copiedId === msg.id}
+                          isStreaming={isAssistantStreaming}
+                          isLatestAnswer={isLastAssistantMessage}
+                          onStop={isAssistantStreaming ? handleStop : undefined}
+                          onRetry={getRetryContent() ? () => handleRetry(getRetryContent()!) : undefined}
+                          feedback={msg.feedback}
+                          onFeedbackChange={(feedback) => handleFeedbackChange(msg.id, feedback)}
+                          onFeedbackSubmit={(feedback) => handleFeedbackSubmit(msg.id, feedback)}
+                          isRecovering={recoveringMessageId === msg.id}
+                          conversationId={conversationId}
+                        />
+                      );
+                    })}
+                  </>
                 );
-              })}
+              })()}
             </AnimatePresence>
 
             {/* User Input Form */}
@@ -779,7 +915,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle }: ChatP
                   </div>
                   <div className="max-h-64 overflow-y-auto">
                     {DEFAULT_AGENTS
-                      .filter(agent => 
+                      .filter(agent =>
                         agent.label.toLowerCase().includes(mentionFilter) ||
                         agent.id.toLowerCase().includes(mentionFilter)
                       )
@@ -1049,6 +1185,131 @@ function StreamingView({ message, showRawStream, setShowRawStream, isStreaming =
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Message Window: Auto-collapse old turns for performance
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Number of recent turns to keep fully rendered. Older turns are collapsed. */
+const VISIBLE_TURN_COUNT = 2;
+/** Minimum total turns before auto-collapsing kicks in. */
+const COLLAPSE_THRESHOLD = 2;
+
+/** A "turn" is a user message + its assistant response (or a lone message). */
+interface Turn {
+  userMsg?: ChatMessageType;
+  assistantMsg?: ChatMessageType;
+  /** Short preview text for the collapsed summary row. */
+  preview: string;
+  /** Timestamp of the turn (user message timestamp). */
+  timestamp: Date;
+}
+
+/**
+ * Group a flat message list into turns (user+assistant pairs).
+ * Messages are paired by order: each user message is followed by an assistant
+ * message to form a turn. Unpaired messages become solo turns.
+ */
+function groupMessagesIntoTurns(messages: ChatMessageType[]): Turn[] {
+  const turns: Turn[] = [];
+  let i = 0;
+  while (i < messages.length) {
+    const msg = messages[i];
+    if (msg.role === "user" && i + 1 < messages.length && messages[i + 1].role === "assistant") {
+      // Paired turn
+      const assistantMsg = messages[i + 1];
+      turns.push({
+        userMsg: msg,
+        assistantMsg,
+        preview: msg.content.slice(0, 80).trim() + (msg.content.length > 80 ? "..." : ""),
+        timestamp: msg.timestamp,
+      });
+      i += 2;
+    } else {
+      // Solo message (orphan user or assistant)
+      turns.push({
+        ...(msg.role === "user" ? { userMsg: msg } : { assistantMsg: msg }),
+        preview: msg.content.slice(0, 80).trim() + (msg.content.length > 80 ? "..." : ""),
+        timestamp: msg.timestamp,
+      });
+      i += 1;
+    }
+  }
+  return turns;
+}
+
+/**
+ * CollapsedTurnsBanner — lightweight summary for older turns that are hidden.
+ * Clicking it expands the old messages. Shows turn count, first query preview,
+ * and time range. Renders ~5 DOM nodes vs hundreds for full messages.
+ */
+const CollapsedTurnsBanner = React.memo(function CollapsedTurnsBanner({
+  turns,
+  onExpand,
+}: {
+  turns: Turn[];
+  onExpand: () => void;
+}) {
+  if (turns.length === 0) return null;
+
+  const oldest = turns[0];
+  const newest = turns[turns.length - 1];
+  const msgCount = turns.reduce((n, t) => n + (t.userMsg ? 1 : 0) + (t.assistantMsg ? 1 : 0), 0);
+
+  const formatTime = (d: Date) => {
+    const date = d instanceof Date ? d : new Date(d);
+    return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  };
+
+  return (
+    <motion.button
+      initial={{ opacity: 0, y: -8 }}
+      animate={{ opacity: 1, y: 0 }}
+      onClick={onExpand}
+      className={cn(
+        "w-full flex items-center gap-3 px-4 py-3 rounded-xl",
+        "bg-muted/40 hover:bg-muted/60 border border-border/40 hover:border-border/60",
+        "transition-all duration-200 cursor-pointer group text-left"
+      )}
+    >
+      {/* Icon */}
+      <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
+        <MessageSquare className="h-4 w-4 text-primary/70" />
+      </div>
+
+      {/* Content */}
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-semibold text-foreground/80">
+            {turns.length} older {turns.length === 1 ? "turn" : "turns"}
+          </span>
+          <span className="text-xs text-muted-foreground">
+            ({msgCount} messages)
+          </span>
+        </div>
+        <p className="text-xs text-muted-foreground/70 truncate mt-0.5">
+          {oldest.preview}
+          {turns.length > 1 && ` — ... — ${newest.preview}`}
+        </p>
+      </div>
+
+      {/* Time range */}
+      <div className="flex items-center gap-1.5 shrink-0 text-xs text-muted-foreground/60">
+        <Clock className="h-3 w-3" />
+        <span>{formatTime(oldest.timestamp)}</span>
+        {turns.length > 1 && (
+          <>
+            <span>—</span>
+            <span>{formatTime(newest.timestamp)}</span>
+          </>
+        )}
+      </div>
+
+      {/* Expand hint */}
+      <ChevronDown className="h-4 w-4 text-muted-foreground/50 group-hover:text-foreground/70 transition-colors shrink-0" />
+    </motion.button>
+  );
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 // ChatMessage Component
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -1108,7 +1369,7 @@ const ChatMessage = React.memo(function ChatMessage({
 
   // Get a preview of the streaming content (last 200 chars)
   const streamPreview = message.content.slice(-200).trim();
-  
+
   // Get preview for collapsed view (first 300 chars)
   const collapsedPreview = message.content.slice(0, 300).trim();
 
@@ -1151,8 +1412,8 @@ const ChatMessage = React.memo(function ChatMessage({
         {/* Role label with collapse button and stop button for assistant messages */}
         <div className={cn(
           "flex items-center mb-1.5",
-          isUser 
-            ? "text-primary justify-end" 
+          isUser
+            ? "text-primary justify-end"
             : "text-muted-foreground justify-between"
         )}>
           {isUser ? (

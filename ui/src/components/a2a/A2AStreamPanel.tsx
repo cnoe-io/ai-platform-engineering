@@ -71,11 +71,16 @@ export function A2AStreamPanel() {
   // IMPORTANT: Uses useMemo instead of a Zustand selector to avoid infinite loops —
   // returning `[]` from a selector creates a new reference each time, and Zustand's
   // default Object.is equality check sees it as changed, causing re-renders.
+  //
   const conversations = useChatStore((s) => s.conversations);
   const a2aEvents = useMemo(() => {
     if (!activeConversationId) return EMPTY_EVENTS;
     const conv = conversations.find((c) => c.id === activeConversationId);
-    return conv?.a2aEvents || EMPTY_EVENTS;
+    const events = conv?.a2aEvents || EMPTY_EVENTS;
+    const execPlans = events.filter(e => e.artifact?.name === 'execution_plan_update' || e.artifact?.name === 'execution_plan_status_update');
+    const toolStarts = events.filter(e => e.artifact?.name === 'tool_notification_start');
+    console.log(`[A2A-DEBUG] 🔍 A2AStreamPanel.a2aEvents: conv=${activeConversationId.substring(0, 8)}, total=${events.length}, exec_plans=${execPlans.length}, tool_starts=${toolStarts.length}`);
+    return events;
   }, [activeConversationId, conversations]);
 
   const [filter, setFilter] = useState<FilterType>("all");
@@ -439,13 +444,32 @@ export function A2AStreamPanel() {
                                   className="cursor-pointer group/details"
                                   onClick={(e) => e.stopPropagation()}
                                 >
-                                  <summary className="text-muted-foreground hover:text-foreground flex items-center gap-1">
+                                  <summary className="text-muted-foreground hover:text-foreground flex items-center gap-1 select-none">
                                     <ChevronDown className="h-3 w-3 group-open/details:rotate-180 transition-transform" />
                                     Raw JSON
                                   </summary>
                                   <div className="mt-2 relative">
-                                    <pre className="p-2 pr-10 bg-muted/50 rounded-md overflow-x-auto text-[10px] font-mono max-h-40">
-                                      {JSON.stringify(event.raw, null, 2)}
+                                    <pre className="p-2 pr-10 bg-muted/50 rounded-md overflow-x-auto text-[10px] font-mono max-h-40 whitespace-pre-wrap break-all">
+                                      {JSON.stringify(
+                                        // Prefer event.raw if available (live streaming).
+                                        // After reload from MongoDB, raw is stripped by serializeA2AEvent
+                                        // to avoid circular refs, so reconstruct from persisted fields.
+                                        event.raw || {
+                                          id: event.id,
+                                          type: event.type,
+                                          timestamp: event.timestamp,
+                                          taskId: event.taskId,
+                                          contextId: event.contextId,
+                                          status: event.status,
+                                          isFinal: event.isFinal,
+                                          sourceAgent: event.sourceAgent,
+                                          displayName: event.displayName,
+                                          displayContent: event.displayContent,
+                                          ...(event.artifact ? { artifact: event.artifact } : {}),
+                                        },
+                                        null,
+                                        2
+                                      )}
                                     </pre>
                                     <Button
                                       size="icon"
@@ -458,7 +482,20 @@ export function A2AStreamPanel() {
                                       )}
                                       onClick={(e) => {
                                         e.stopPropagation();
-                                        copyToClipboard(JSON.stringify(event.raw, null, 2), event.id);
+                                        const jsonData = event.raw || {
+                                          id: event.id,
+                                          type: event.type,
+                                          timestamp: event.timestamp,
+                                          taskId: event.taskId,
+                                          contextId: event.contextId,
+                                          status: event.status,
+                                          isFinal: event.isFinal,
+                                          sourceAgent: event.sourceAgent,
+                                          displayName: event.displayName,
+                                          displayContent: event.displayContent,
+                                          ...(event.artifact ? { artifact: event.artifact } : {}),
+                                        };
+                                        copyToClipboard(JSON.stringify(jsonData, null, 2), event.id);
                                       }}
                                       title={copiedEventId === event.id ? "Copied!" : "Copy JSON"}
                                     >

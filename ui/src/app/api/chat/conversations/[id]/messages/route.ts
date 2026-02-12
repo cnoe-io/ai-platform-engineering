@@ -65,8 +65,12 @@ export const POST = withErrorHandler(async (
 
     validateRequired(body, ['role', 'content']);
 
-    // Verify user has access
+    // Verify user has access and get conversation for owner_id
     await requireConversationAccess(conversationId, user.email, getCollection);
+
+    const conversations = await getCollection<Conversation>('conversations');
+    const conversation = await conversations.findOne({ _id: conversationId });
+    const ownerId = conversation?.owner_id || user.email;
 
     const messages = await getCollection<Message>('messages');
 
@@ -74,6 +78,7 @@ export const POST = withErrorHandler(async (
     const newMessage: Omit<Message, '_id'> = {
       message_id: body.message_id,
       conversation_id: conversationId,
+      owner_id: ownerId, // Denormalized for analytics — avoids $lookup in aggregations
       role: body.role,
       content: body.content,
       created_at: now,
@@ -92,7 +97,6 @@ export const POST = withErrorHandler(async (
     const result = await messages.insertOne(newMessage as Message);
 
     // Update conversation metadata
-    const conversations = await getCollection<Conversation>('conversations');
     await conversations.updateOne(
       { _id: conversationId },
       {

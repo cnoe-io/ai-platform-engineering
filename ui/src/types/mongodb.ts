@@ -65,6 +65,7 @@ export interface Message {
   _id?: ObjectId;
   message_id?: string; // Client-generated ID for cross-reference
   conversation_id: string;
+  owner_id?: string; // User email — denormalized from conversation for analytics queries
   role: 'user' | 'assistant' | 'system';
   content: string;
   created_at: Date;

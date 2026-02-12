@@ -12,6 +12,7 @@ import {
   Loader2,
   Database,
   Shield,
+  Lightbulb,
 } from "lucide-react";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { UserMenu } from "@/components/user-menu";
@@ -51,16 +52,16 @@ export function AppHeader() {
   }, [session, isAdmin]);
 
   // Health check for CAIPE supervisor (polls every 30 seconds)
-  const { 
-    status: caipeStatus, 
-    url: caipeUrl, 
-    secondsUntilNextCheck: caipeNextCheck, 
-    agents, 
+  const {
+    status: caipeStatus,
+    url: caipeUrl,
+    secondsUntilNextCheck: caipeNextCheck,
+    agents,
     tags,
     mongoDBStatus,
     storageMode
   } = useCAIPEHealth();
-  
+
   // Health check for RAG server (polls every 30 seconds)
   const {
     status: ragStatus,
@@ -90,6 +91,7 @@ export function AppHeader() {
   const getActiveTab = () => {
     if (pathname?.startsWith("/chat")) return "chat";
     if (pathname?.startsWith("/knowledge-bases")) return "knowledge";
+    if (pathname?.startsWith("/insights")) return "insights";
     if (pathname?.startsWith("/agent-builder") || pathname?.startsWith("/use-cases")) return "agent-builder";
     if (pathname?.startsWith("/admin")) return "admin";
     return "agent-builder"; // Default to Agent Skills (formerly use-cases)
@@ -160,6 +162,22 @@ export function AppHeader() {
             >
               <Database className="h-3.5 w-3.5" />
               Knowledge Bases
+            </Link>
+          )}
+          {/* Insights tab - visible to all authenticated users when MongoDB is configured */}
+          {storageMode === 'mongodb' && session && (
+            <Link
+              href="/insights"
+              prefetch={true}
+              className={cn(
+                "flex items-center gap-1.5 px-4 py-1.5 rounded-full text-sm font-medium transition-all",
+                activeTab === "insights"
+                  ? "bg-primary text-primary-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              <Lightbulb className="h-3.5 w-3.5" />
+              Personal Insights
             </Link>
           )}
           {/* Admin tab - only visible to admin users, disabled if MongoDB not configured */}
@@ -245,11 +263,11 @@ export function AppHeader() {
                     <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white/20 backdrop-blur-sm">
                       <span className={cn(
                         "inline-block w-2 h-2 rounded-full",
-                        combinedStatus === "connected" ? "bg-green-400 animate-pulse" : 
+                        combinedStatus === "connected" ? "bg-green-400 animate-pulse" :
                         combinedStatus === "checking" ? "bg-amber-400 animate-pulse" : "bg-red-400"
                       )} />
                       <span className="text-xs font-medium text-white">
-                        {combinedStatus === "connected" ? "All Systems Live" : 
+                        {combinedStatus === "connected" ? "All Systems Live" :
                          combinedStatus === "checking" ? "Checking" : "Issues Detected"}
                       </span>
                     </div>
@@ -403,7 +421,7 @@ export function AppHeader() {
                           <div className="text-xs text-muted-foreground">Knowledge Graph</div>
                           <div className={cn(
                             "px-2 py-0.5 rounded-full text-[10px] font-bold",
-                            graphRagEnabled 
+                            graphRagEnabled
                               ? "bg-green-500/15 text-green-400 border border-green-500/30"
                               : "bg-gray-500/15 text-gray-400 border border-gray-500/30"
                           )}>
@@ -414,7 +432,7 @@ export function AppHeader() {
                     </>
                   )}
                 </div>
-                
+
                 {/* Footer */}
                 <div className="px-4 py-2.5 bg-muted/20 border-t border-border/50 space-y-1.5">
                   <div className="flex items-center justify-between text-xs">
@@ -423,8 +441,8 @@ export function AppHeader() {
                       <span>Health checks active (30s interval)</span>
                     </div>
                     <div className="text-muted-foreground">
-                      {combinedStatus === "connected" ? "All systems operational" : 
-                       combinedStatus === "checking" ? "Checking status..." : 
+                      {combinedStatus === "connected" ? "All systems operational" :
+                       combinedStatus === "checking" ? "Checking status..." :
                        "Check logs for details"}
                     </div>
                   </div>

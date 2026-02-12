@@ -44,8 +44,8 @@ interface ContextPanelProps {
   onCollapse?: (collapsed: boolean) => void;
 }
 
-export function ContextPanel({ 
-  debugMode, 
+export function ContextPanel({
+  debugMode,
   onDebugModeChange,
   collapsed = false,
   onCollapse
@@ -69,7 +69,18 @@ export function ContextPanel({
   const conversationEvents = useMemo(() => {
     if (!activeConversationId) return EMPTY_EVENTS;
     const conv = conversations.find((c) => c.id === activeConversationId);
-    return conv?.a2aEvents || EMPTY_EVENTS;
+    const events = conv?.a2aEvents || EMPTY_EVENTS;
+    const execPlans = events.filter(e => e.artifact?.name === 'execution_plan_update' || e.artifact?.name === 'execution_plan_status_update');
+    const toolStarts = events.filter(e => e.artifact?.name === 'tool_notification_start');
+    const toolEnds = events.filter(e => e.artifact?.name === 'tool_notification_end');
+    console.log(`[A2A-DEBUG] 🎯 ContextPanel.conversationEvents: conv=${activeConversationId.substring(0, 8)}, total=${events.length}, exec_plans=${execPlans.length}, tool_starts=${toolStarts.length}, tool_ends=${toolEnds.length}`);
+    if (execPlans.length > 0) {
+      console.log(`[A2A-DEBUG] 🎯 Execution plan contents:`, execPlans.map(e => ({
+        id: e.id,
+        text: e.artifact?.parts?.[0]?.text?.substring(0, 200),
+      })));
+    }
+    return events;
   }, [activeConversationId, conversations]);
 
   // Default to tasks tab, switch to debug if debug mode is enabled
@@ -98,6 +109,12 @@ export function ContextPanel({
   // When streaming ends, mark all tasks as completed
   const executionTasks = useMemo(() => {
     const tasks = parseExecutionTasks(conversationEvents);
+    console.log(`[A2A-DEBUG] 📋 ContextPanel.executionTasks: parsed ${tasks.length} tasks from ${conversationEvents.length} events, isStreaming=${isActuallyStreaming}`, tasks.map(t => ({
+      id: t.id,
+      agent: t.agent,
+      description: t.description?.substring(0, 50),
+      status: t.status,
+    })));
     // If streaming has ended and we have tasks, mark remaining as completed
     if (!isActuallyStreaming && tasks.length > 0) {
       return tasks.map(task => ({
@@ -111,6 +128,11 @@ export function ContextPanel({
   // Parse tool calls - show running during streaming, completed after
   const { activeToolCalls, completedToolCalls } = useMemo(() => {
     const allTools = parseToolCalls(conversationEvents);
+    console.log(`[A2A-DEBUG] 🔧 ContextPanel.toolCalls: parsed ${allTools.length} tools, isStreaming=${isActuallyStreaming}`, allTools.map(t => ({
+      tool: t.tool,
+      status: t.status,
+      agent: t.agent,
+    })));
     if (isActuallyStreaming) {
       // During streaming: show only running tools
       return {
@@ -480,13 +502,20 @@ export function ContextPanel({
 // Parse execution plan tasks from A2A events (ONLY from execution_plan artifacts, not tool notifications)
 function parseExecutionTasks(events: A2AEvent[]): ExecutionTask[] {
   const tasksMap = new Map<string, ExecutionTask>();
+  let execPlanEventCount = 0;
 
-  events.forEach((event) => {
+  events.forEach((event, eventIdx) => {
     // ONLY check for execution plan artifacts - NOT tool notifications
     if (event.artifact?.name === "execution_plan_update" ||
         event.artifact?.name === "execution_plan_status_update") {
+      execPlanEventCount++;
 
       const text = event.displayContent || event.artifact?.parts?.[0]?.text || "";
+      console.log(`[A2A-DEBUG] 📋 parseExecutionTasks: processing exec_plan event #${execPlanEventCount} (eventIdx=${eventIdx}, eventId=${event.id})`, {
+        artifactName: event.artifact?.name,
+        textPreview: text.substring(0, 200),
+        existingTaskKeys: Array.from(tasksMap.keys()),
+      });
 
       // Parse TODO list format from agent-forge style output
       // Matches patterns like:

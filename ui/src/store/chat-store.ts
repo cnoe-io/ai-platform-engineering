@@ -50,6 +50,7 @@ interface ChatState {
   saveMessagesToServer: (conversationId: string) => Promise<void>; // Save messages to MongoDB after streaming
   recoverInterruptedTask: (conversationId: string, messageId: string, endpoint: string, accessToken?: string) => Promise<boolean>; // Level 2: Poll tasks/get for interrupted messages
   loadMessagesFromServer: (conversationId: string, options?: { force?: boolean }) => Promise<void>; // Load messages from MongoDB when opening conversation
+  evictOldMessageContent: (conversationId: string, messageIdsToEvict: string[]) => void; // Evict content from old messages to free memory
 
   // Turn selection actions for per-message event tracking
   setSelectedTurn: (conversationId: string, turnId: string | null) => void;
@@ -348,18 +349,33 @@ const storeImplementation = (set: any, get: any) => ({
 
       addA2AEvent: (event: A2AEvent, conversationId?: string) => {
         const convId = conversationId || get().activeConversationId;
+        const artifactName = event.artifact?.name || 'n/a';
+        const isImportant = ['execution_plan_update', 'execution_plan_status_update', 'tool_notification_start', 'tool_notification_end', 'final_result', 'partial_result'].includes(artifactName);
+        if (isImportant) {
+          const prevConv = get().conversations.find((c: Conversation) => c.id === convId);
+          console.log(`[A2A-DEBUG] ➕ addA2AEvent: ${event.type}/${artifactName} to conv=${convId?.substring(0, 8)}`, {
+            eventId: event.id,
+            prevEventCount: prevConv?.a2aEvents?.length ?? 0,
+            artifactText: event.artifact?.parts?.[0]?.text?.substring(0, 100),
+          });
+        }
         set((prev: ChatState) => {
           // Add to global events for current session display
           const newGlobalEvents = [...prev.a2aEvents, event];
 
           // Also add to the specific conversation's events if we have a convId
           if (convId) {
+            const conv = prev.conversations.find((c: Conversation) => c.id === convId);
+            const newCount = (conv?.a2aEvents?.length ?? 0) + 1;
+            if (isImportant) {
+              console.log(`[A2A-DEBUG] ➕ addA2AEvent APPLIED: conv=${convId?.substring(0, 8)} newEventCount=${newCount}`);
+            }
             return {
               a2aEvents: newGlobalEvents,
-              conversations: prev.conversations.map((conv: Conversation) =>
-                conv.id === convId
-                  ? { ...conv, a2aEvents: [...conv.a2aEvents, event] }
-                  : conv
+              conversations: prev.conversations.map((c: Conversation) =>
+                c.id === convId
+                  ? { ...c, a2aEvents: [...c.a2aEvents, event] }
+                  : c
               ),
             };
           }
@@ -384,6 +400,11 @@ const storeImplementation = (set: any, get: any) => ({
 
       clearA2AEvents: (conversationId?: string) => {
         if (conversationId) {
+          const prevConv = get().conversations.find((c: Conversation) => c.id === conversationId);
+          const prevCount = prevConv?.a2aEvents?.length ?? 0;
+          const prevExecPlans = prevConv?.a2aEvents?.filter((e: A2AEvent) => e.artifact?.name === 'execution_plan_update').length ?? 0;
+          const prevToolStarts = prevConv?.a2aEvents?.filter((e: A2AEvent) => e.artifact?.name === 'tool_notification_start').length ?? 0;
+          console.log(`[A2A-DEBUG] 🧹 clearA2AEvents(${conversationId.substring(0, 8)}): clearing ${prevCount} events (${prevExecPlans} exec_plans, ${prevToolStarts} tool_starts)`);
           // Clear events for a specific conversation
           set((prev: ChatState) => ({
             conversations: prev.conversations.map((conv: Conversation) =>
@@ -393,6 +414,7 @@ const storeImplementation = (set: any, get: any) => ({
             ),
           }));
         } else {
+          console.log(`[A2A-DEBUG] 🧹 clearA2AEvents(global): clearing ${get().a2aEvents.length} global events`);
           // Clear global session-only events
           set({ a2aEvents: [] });
         }
@@ -696,25 +718,47 @@ const storeImplementation = (set: any, get: any) => ({
           const mergedConversations = [...serverConversations, ...localOnlyConversations];
 
           // Always update with merged conversations to sync with server
-          // But preserve local messages and titles for conversations that exist locally
+          // But preserve local messages, events, and titles for conversations that exist locally.
+          // IMPORTANT: Re-read current state here because loadMessagesFromServer may have
+          // updated conversations between the time we started this function and now.
+          // Without this, we'd overwrite events that loadMessagesFromServer just restored.
+          const latestState = get();
           const finalConversations = mergedConversations.map(serverConv => {
-            const localConv = currentState.conversations.find(c => c.id === serverConv.id);
-            // If local has messages and server doesn't, keep local messages
-            if (localConv && localConv.messages.length > 0 && serverConv.messages.length === 0) {
-              // Also preserve title if server title is missing/empty but local has one
+            // Use latestState (not stale currentState) so we pick up events/messages
+            // that loadMessagesFromServer may have populated in the meantime
+            const localConv = latestState.conversations.find(c => c.id === serverConv.id)
+              || currentState.conversations.find(c => c.id === serverConv.id);
+
+            if (localConv) {
+              // Preserve title from server (source of truth), but fallback to local
               const title = (serverConv.title && serverConv.title.trim())
                 ? serverConv.title
                 : (localConv.title && localConv.title.trim())
                   ? localConv.title
                   : "New Conversation";
 
+              // Preserve local messages if they exist and server conv has none
+              const messages = localConv.messages.length > 0 && serverConv.messages.length === 0
+                ? localConv.messages
+                : serverConv.messages.length > 0
+                  ? serverConv.messages
+                  : localConv.messages;
+
+              // Preserve a2aEvents from local state — loadMessagesFromServer may have
+              // restored them from MongoDB while this function was in-flight. Also preserve
+              // per-message events (msg.events) by keeping the local messages reference.
+              const a2aEvents = localConv.a2aEvents.length > 0
+                ? localConv.a2aEvents
+                : serverConv.a2aEvents;
+
               return {
                 ...serverConv,
                 title,
-                messages: localConv.messages,
-                a2aEvents: localConv.a2aEvents.length > 0 ? localConv.a2aEvents : serverConv.a2aEvents,
+                messages,
+                a2aEvents,
               };
             }
+
             // Ensure title is never empty
             if (!serverConv.title || !serverConv.title.trim()) {
               return {
@@ -798,6 +842,10 @@ const storeImplementation = (set: any, get: any) => ({
           return -1;
         })();
 
+        const execPlanCount = convEvents.filter((e: A2AEvent) => e.artifact?.name === 'execution_plan_update').length;
+        const toolStartCount = convEvents.filter((e: A2AEvent) => e.artifact?.name === 'tool_notification_start').length;
+        console.log(`[A2A-DEBUG] 💾 saveMessagesToServer: conv=${conversationId.substring(0, 8)}, convEvents=${convEvents.length} (${execPlanCount} exec_plans, ${toolStartCount} tool_starts), lastAssistantIdx=${lastAssistantIdx}, unsavedMsgs=${unsavedMessages.length}`);
+
         for (let i = 0; i < unsavedMessages.length; i++) {
           const msg = unsavedMessages[i];
           try {
@@ -820,7 +868,7 @@ const storeImplementation = (set: any, get: any) => ({
               content: msg.content,
               metadata: {
                 turn_id: msg.turnId || `turn-${Date.now()}`,
-                is_final: msg.isFinal,
+                is_final: msg.isFinal ?? false, // Explicitly false for in-progress messages
                 ...(msg.taskId && { task_id: msg.taskId }),
                 ...(msg.isInterrupted && { is_interrupted: msg.isInterrupted }),
               },
@@ -852,11 +900,11 @@ const storeImplementation = (set: any, get: any) => ({
         if (!msg || !msg.taskId || !msg.isInterrupted) return false;
 
         const taskId = msg.taskId;
-        console.log(`[ChatStore] Attempting to recover interrupted task: ${taskId} for message ${messageId}`);
+        console.log(`[ChatStore] Attempting to recover interrupted task: ${taskId} for message ${messageId} via endpoint ${endpoint}`);
 
         // Use the legacy A2A client for tasks/get (it has the method built-in)
         const { A2AClient } = await import("@/lib/a2a-client");
-        const client = new A2AClient(endpoint, accessToken);
+        const client = new A2AClient({ endpoint, accessToken });
 
         const MAX_POLLS = 30; // Max 30 polls (5 minutes at 10s intervals)
         const POLL_INTERVAL = 10000; // 10 seconds between polls
@@ -1002,16 +1050,25 @@ const storeImplementation = (set: any, get: any) => ({
               timestamp: new Date(e.timestamp),
             }));
 
+            // Determine isFinal: prefer explicit metadata value.
+            // We now always save is_final explicitly (false for in-progress, true for complete).
+            // For legacy messages that don't have is_final, default to true (they were complete).
+            const isFinal = msg.metadata?.is_final != null
+              ? Boolean(msg.metadata.is_final)
+              : true; // Legacy messages without is_final metadata are assumed complete
+
             const chatMsg: ChatMessage = {
               id: msg.message_id || msg._id?.toString() || generateId(),
               role: msg.role as "user" | "assistant",
               content: msg.content,
               timestamp: new Date(msg.created_at),
               events,
-              isFinal: msg.metadata?.is_final ?? true,
+              isFinal,
               turnId: msg.metadata?.turn_id,
               taskId: msg.metadata?.task_id,
-              isInterrupted: msg.metadata?.is_interrupted,
+              // Mark as interrupted if: explicitly flagged in MongoDB OR assistant
+              // message is not final (was mid-stream when saved)
+              isInterrupted: msg.metadata?.is_interrupted || (msg.role === 'assistant' && !isFinal),
               feedback: msg.feedback ? {
                 type: msg.feedback.rating === 'positive' ? 'like' : msg.feedback.rating === 'negative' ? 'dislike' : null,
                 submitted: true,
@@ -1029,8 +1086,26 @@ const storeImplementation = (set: any, get: any) => ({
           // matching the live-streaming behavior where clearA2AEvents() is called
           // at the start of each new turn. This prevents completed tools from
           // old turns from accumulating in the Tasks panel.
+          //
+          // CRITICAL: If the conversation is currently streaming, do NOT overwrite
+          // a2aEvents — they were cleared by clearA2AEvents() at the start of the
+          // new turn and are being populated by addA2AEvent() from the live stream.
+          // Overwriting them with MongoDB data would restore the PREVIOUS turn's
+          // events, causing cross-turn contamination (e.g., showing "AWS accounts"
+          // tasks when the user asked about "github profile").
+          const isCurrentlyStreaming = get().streamingConversations.has(conversationId);
           const lastAssistantMsg = [...messages].reverse().find(m => m.role === 'assistant');
           const lastTurnEvents: A2AEvent[] = lastAssistantMsg?.events || [];
+          const loadedExecPlans = lastTurnEvents.filter(e => e.artifact?.name === 'execution_plan_update').length;
+          const loadedToolStarts = lastTurnEvents.filter(e => e.artifact?.name === 'tool_notification_start').length;
+          console.log(`[A2A-DEBUG] 📥 loadMessagesFromServer: conv=${conversationId.substring(0, 8)}, msgs=${messages.length}, lastAssistant=${lastAssistantMsg?.id?.substring(0, 8) ?? 'NONE'}, lastTurnEvents=${lastTurnEvents.length} (${loadedExecPlans} exec_plans, ${loadedToolStarts} tool_starts), isStreaming=${isCurrentlyStreaming}`, {
+            allMsgEventCounts: messages.map(m => ({ id: m.id.substring(0, 8), role: m.role, events: m.events.length })),
+            execPlanTexts: lastTurnEvents.filter(e => e.artifact?.name === 'execution_plan_update').map(e => e.artifact?.parts?.[0]?.text?.substring(0, 100)),
+          });
+
+          if (isCurrentlyStreaming) {
+            console.log(`[A2A-DEBUG] ⚠️ loadMessagesFromServer: SKIPPING a2aEvents overwrite — conversation is streaming (would restore stale events from previous turn)`);
+          }
 
           if (hasLocalMessages) {
             // We have local message stubs — merge events AND any new messages
@@ -1054,7 +1129,9 @@ const storeImplementation = (set: any, get: any) => ({
                 c.id === conversationId
                   ? {
                       ...c,
-                      a2aEvents: lastTurnEvents,
+                      // Only overwrite a2aEvents if NOT currently streaming.
+                      // During streaming, a2aEvents are managed by clearA2AEvents/addA2AEvent.
+                      ...(isCurrentlyStreaming ? {} : { a2aEvents: lastTurnEvents }),
                       messages: [
                         // Existing local messages with events merged in
                         ...c.messages.map((localMsg: ChatMessage) => {
@@ -1073,18 +1150,23 @@ const storeImplementation = (set: any, get: any) => ({
             }));
 
             const mergedEventCount = lastTurnEvents.length;
-            console.log(`[ChatStore] Merged ${mergedEventCount} A2A events (last turn) and ${newServerMessages.length} new messages from MongoDB into ${conv!.messages.length} local messages for: ${conversationId}`);
+            console.log(`[ChatStore] Merged ${isCurrentlyStreaming ? 0 : mergedEventCount} A2A events (last turn, skipped=${isCurrentlyStreaming}) and ${newServerMessages.length} new messages from MongoDB into ${conv!.messages.length} local messages for: ${conversationId}`);
           } else {
             // No local messages — replace entirely with MongoDB data
             set((state: ChatState) => ({
               conversations: state.conversations.map((c: Conversation) =>
                 c.id === conversationId
-                  ? { ...c, messages, a2aEvents: lastTurnEvents }
+                  ? {
+                      ...c,
+                      messages,
+                      // Only set a2aEvents if NOT currently streaming
+                      ...(isCurrentlyStreaming ? {} : { a2aEvents: lastTurnEvents }),
+                    }
                   : c
               ),
             }));
 
-            console.log(`[ChatStore] Loaded ${messages.length} messages with ${lastTurnEvents.length} events (last turn) from MongoDB for: ${conversationId}`);
+            console.log(`[ChatStore] Loaded ${messages.length} messages with ${isCurrentlyStreaming ? 0 : lastTurnEvents.length} events (last turn, skipped=${isCurrentlyStreaming}) from MongoDB for: ${conversationId}`);
           }
 
         } catch (error: any) {
@@ -1098,6 +1180,40 @@ const storeImplementation = (set: any, get: any) => ({
         } finally {
           messageLoadState.set(conversationId, { inFlight: false, lastLoadedAt: Date.now() });
         }
+      },
+
+      // Evict content from old messages to free memory.
+      // Replaces content with a short preview and clears rawStreamContent + events.
+      // The full content can be re-loaded from MongoDB via loadMessagesFromServer.
+      evictOldMessageContent: (conversationId: string, messageIdsToEvict: string[]) => {
+        if (messageIdsToEvict.length === 0) return;
+        const evictSet = new Set(messageIdsToEvict);
+        let evictedCount = 0;
+        let freedChars = 0;
+
+        set((state: ChatState) => ({
+          conversations: state.conversations.map((c: Conversation) => {
+            if (c.id !== conversationId) return c;
+            return {
+              ...c,
+              messages: c.messages.map((msg: ChatMessage) => {
+                if (!evictSet.has(msg.id)) return msg;
+                // Keep a short preview for the collapsed banner, evict the rest
+                const preview = msg.content.slice(0, 80);
+                freedChars += (msg.content?.length || 0) + (msg.rawStreamContent?.length || 0);
+                evictedCount++;
+                return {
+                  ...msg,
+                  content: preview,
+                  rawStreamContent: undefined,
+                  events: [], // Clear events too — they're in MongoDB
+                };
+              }),
+            };
+          }),
+        }));
+
+        console.log(`[ChatStore] Evicted content from ${evictedCount} messages (~${(freedChars / 1024).toFixed(0)}KB freed) for: ${conversationId.substring(0, 8)}`);
       },
 
       // Turn selection actions for per-message event tracking

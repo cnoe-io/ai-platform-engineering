@@ -3,7 +3,7 @@
 import React, { useState, useRef, useEffect } from "react";
 import { useSession, signIn, signOut } from "next-auth/react";
 import { motion, AnimatePresence } from "framer-motion";
-import { LogIn, LogOut, ChevronDown, Shield, Users, Hash, Code, ChevronRight, Layers, ExternalLink, Clock, RefreshCw, Bug, Settings, Copy, Check, KeyRound } from "lucide-react";
+import { LogIn, LogOut, ChevronDown, Shield, Users, Hash, Code, ChevronRight, Layers, ExternalLink, Clock, RefreshCw, Bug, Settings, Copy, Check, KeyRound, Lightbulb } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { config } from "@/lib/config";
@@ -332,6 +332,23 @@ export function UserMenu() {
                 <ChevronRight className="h-3.5 w-3.5" />
               </button>
             </div>
+
+            {/* Insights */}
+            {config.mongodbEnabled && (
+              <div className="border-b border-border">
+                <a
+                  href="/insights"
+                  onClick={() => setOpen(false)}
+                  className="w-full flex items-center justify-between px-4 py-2 text-xs font-medium hover:bg-muted/50 transition-colors"
+                >
+                  <div className="flex items-center gap-2">
+                    <Lightbulb className="h-3.5 w-3.5" />
+                    <span>Personal Insights</span>
+                  </div>
+                  <ChevronRight className="h-3.5 w-3.5" />
+                </a>
+              </div>
+            )}
 
             {/* Actions */}
             <div className="p-1.5">
