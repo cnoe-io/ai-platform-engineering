@@ -185,21 +185,43 @@ SKIP_INIT_TESTS=false
 
 ### Embeddings Configuration
 
+The server supports multiple embedding providers. Most are API-based and work with the default image.
+
+**Supported Providers:**
+
+| Provider | Image Required | Environment Variables |
+|----------|---------------|----------------------|
+| `azure-openai` (default) | Default | `AZURE_OPENAI_API_KEY`, `AZURE_OPENAI_ENDPOINT`, `AZURE_OPENAI_API_VERSION` |
+| `openai` | Default | `OPENAI_API_KEY` |
+| `aws-bedrock` | Default | AWS credentials via boto3 |
+| `cohere` | Default | `COHERE_API_KEY` |
+| `ollama` | Default | `OLLAMA_BASE_URL` |
+| `litellm` | Default | `LITELLM_API_BASE`, `LITELLM_API_KEY` |
+| `huggingface` | **`-hf` variant** | `HUGGINGFACEHUB_API_TOKEN` (optional), `EMBEDDINGS_DEVICE` |
+
 ```bash
-# Embeddings provider (azure_openai or openai)
-EMBEDDINGS_PROVIDER=azure_openai
+# Embeddings provider
+EMBEDDINGS_PROVIDER=azure-openai
 
 # Model name
 EMBEDDINGS_MODEL=text-embedding-3-small
 
-# Azure OpenAI (if using azure_openai provider)
+# Azure OpenAI (if using azure-openai provider)
 AZURE_OPENAI_API_KEY=your-api-key
 AZURE_OPENAI_ENDPOINT=https://your-resource.openai.azure.com
 AZURE_OPENAI_API_VERSION=2024-02-15-preview
 
 # OpenAI (if using openai provider)
 OPENAI_API_KEY=your-api-key
+
+# HuggingFace (requires -hf image variant)
+# EMBEDDINGS_PROVIDER=huggingface
+# EMBEDDINGS_MODEL=sentence-transformers/all-MiniLM-L6-v2
+# EMBEDDINGS_DEVICE=cpu  # or cuda, mps
+# EMBEDDINGS_BATCH_SIZE=32
 ```
+
+> **Note:** Using `EMBEDDINGS_PROVIDER=huggingface` with the default image will result in an error prompting you to use the `-hf` image variant.
 
 ### Performance & Limits
 
@@ -298,10 +320,31 @@ For detailed architecture and tool descriptions, see [ARCHITECTURE.md](./ARCHITE
 
 ### Docker
 
-Build the server image:
+The server is available in two image variants:
+
+| Variant | Tag | Size | Use Case |
+|---------|-----|------|----------|
+| **Default (slim)** | `:latest`, `:0.2.x` | ~1.3 GB | API-based embeddings (Azure OpenAI, OpenAI, Bedrock, Cohere, LiteLLM, Ollama) |
+| **HuggingFace** | `:latest-hf`, `:0.2.x-hf` | ~2.3 GB | Local HuggingFace/sentence-transformers models (includes PyTorch) |
+
+**Pull the default image:**
+```bash
+docker pull ghcr.io/cnoe-io/caipe-rag-server:latest
+```
+
+**Pull the HuggingFace variant (if using local embeddings):**
+```bash
+docker pull ghcr.io/cnoe-io/caipe-rag-server:latest-hf
+```
+
+Build the server image locally:
 
 ```bash
+# Default (slim) variant
 docker build -f build/Dockerfile.server -t rag-server .
+
+# HuggingFace variant (includes PyTorch)
+docker build -f build/Dockerfile.server --build-arg VARIANT=huggingface -t rag-server:hf .
 ```
 
 Run with environment variables:

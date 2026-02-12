@@ -453,7 +453,6 @@ dependencies = [
     { name = "cymple" },
     { name = "langchain-aws" },
     { name = "langchain-cohere" },
-    { name = "langchain-huggingface" },
     { name = "langchain-ollama" },
     { name = "langchain-openai" },
     { name = "neo4j" },
@@ -461,18 +460,24 @@ dependencies = [
     { name = "redis" },
 ]
 
+[package.optional-dependencies]
+huggingface = [
+    { name = "langchain-huggingface" },
+]
+
 [package.metadata]
 requires-dist = [
     { name = "cymple", specifier = ">=0.12.0" },
     { name = "langchain-aws", specifier = ">=0.2.24" },
     { name = "langchain-cohere", specifier = ">=0.3.0" },
-    { name = "langchain-huggingface", specifier = ">=0.3.0" },
+    { name = "langchain-huggingface", marker = "extra == 'huggingface'", specifier = ">=0.3.0" },
     { name = "langchain-ollama", specifier = ">=0.3.0" },
     { name = "langchain-openai", specifier = ">=0.3.18" },
     { name = "neo4j", specifier = ">=5.28.1" },
     { name = "pydantic", specifier = ">=2.11.7" },
     { name = "redis", specifier = ">=6.2.0" },
 ]
+provides-extras = ["huggingface"]
 
 [[package]]
 name = "constantly"
@@ -3723,7 +3728,6 @@ dependencies = [
     { name = "fastapi", extra = ["standard"] },
     { name = "fastmcp" },
     { name = "httpx" },
-    { name = "huggingface-hub" },
     { name = "langchain" },
     { name = "langchain-community" },
     { name = "langchain-core" },
@@ -3737,7 +3741,6 @@ dependencies = [
     { name = "python-jose", extra = ["cryptography"] },
     { name = "pyyaml" },
     { name = "redis" },
-    { name = "sentence-transformers" },
     { name = "uvicorn" },
 ]
 
@@ -3749,23 +3752,10 @@ dev = [
     { name = "pytest-mock" },
     { name = "ruff" },
 ]
-embeddings-all = [
-    { name = "langchain-aws" },
-    { name = "langchain-cohere" },
-    { name = "langchain-huggingface" },
-    { name = "langchain-ollama" },
-]
-embeddings-aws = [
-    { name = "langchain-aws" },
-]
-embeddings-cohere = [
-    { name = "langchain-cohere" },
-]
-embeddings-huggingface = [
-    { name = "langchain-huggingface" },
-]
-embeddings-ollama = [
-    { name = "langchain-ollama" },
+huggingface = [
+    { name = "common", extra = ["huggingface"] },
+    { name = "huggingface-hub" },
+    { name = "sentence-transformers" },
 ]
 
 [package.dev-dependencies]
@@ -3793,23 +3783,16 @@ requires-dist = [
     { name = "click", specifier = ">=8.1.7" },
     { name = "cnoe-agent-utils", specifier = "==0.3.9" },
     { name = "common", directory = "../common" },
+    { name = "common", extras = ["huggingface"], marker = "extra == 'huggingface'", directory = "../common" },
     { name = "fastapi", extras = ["standard"], specifier = ">=0.116.1" },
     { name = "fastmcp", specifier = ">=2.12.4" },
     { name = "httpx", specifier = ">=0.28.1" },
-    { name = "huggingface-hub", specifier = ">=0.36.0" },
+    { name = "huggingface-hub", marker = "extra == 'huggingface'", specifier = ">=0.36.0" },
     { name = "langchain", specifier = ">=0.1.0" },
-    { name = "langchain-aws", marker = "extra == 'embeddings-all'", specifier = ">=0.3.0" },
-    { name = "langchain-aws", marker = "extra == 'embeddings-aws'", specifier = ">=0.3.0" },
-    { name = "langchain-cohere", marker = "extra == 'embeddings-all'", specifier = ">=0.3.0" },
-    { name = "langchain-cohere", marker = "extra == 'embeddings-cohere'", specifier = ">=0.3.0" },
     { name = "langchain-community" },
     { name = "langchain-core", specifier = "==1.1.2" },
-    { name = "langchain-huggingface", marker = "extra == 'embeddings-all'", specifier = ">=0.3.0" },
-    { name = "langchain-huggingface", marker = "extra == 'embeddings-huggingface'", specifier = ">=0.3.0" },
     { name = "langchain-milvus", specifier = ">=0.1.10" },
     { name = "langchain-milvus", specifier = ">=0.2.1" },
-    { name = "langchain-ollama", marker = "extra == 'embeddings-all'", specifier = ">=0.3.0" },
-    { name = "langchain-ollama", marker = "extra == 'embeddings-ollama'", specifier = ">=0.3.0" },
     { name = "langchain-openai", specifier = ">=0.3.18" },
     { name = "lxml", specifier = ">=6.0.1" },
     { name = "openai", specifier = ">=1.0.0" },
@@ -3825,10 +3808,10 @@ requires-dist = [
     { name = "pyyaml", specifier = ">=6.0.3" },
     { name = "redis", specifier = ">=5.0.0" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.4.0" },
-    { name = "sentence-transformers", specifier = ">=5.2.0" },
+    { name = "sentence-transformers", marker = "extra == 'huggingface'", specifier = ">=5.2.0" },
     { name = "uvicorn", specifier = ">=0.35.0" },
 ]
-provides-extras = ["dev", "embeddings-aws", "embeddings-cohere", "embeddings-huggingface", "embeddings-ollama", "embeddings-all"]
+provides-extras = ["dev", "huggingface"]
 
 [package.metadata.requires-dev]
 dev = [

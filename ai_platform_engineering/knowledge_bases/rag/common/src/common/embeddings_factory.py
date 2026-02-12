@@ -9,20 +9,19 @@ Supported providers:
 - openai
 - aws-bedrock
 - cohere
-- huggingface (local)
+- huggingface (local) - requires huggingface extra, use -hf image variant
 - ollama (local)
 - litellm (proxy mode - connects to LiteLLM proxy)
 
-All embedding provider packages are included in the Docker image.
+Most embedding providers are included in the default Docker image.
+HuggingFace/PyTorch requires the -hf image variant (~900MB larger).
 """
 
 import os
 from langchain_core.embeddings import Embeddings
+
+# Core providers - always available (lightweight, API-based)
 from langchain_openai import AzureOpenAIEmbeddings, OpenAIEmbeddings
-from langchain_aws import BedrockEmbeddings
-from langchain_cohere import CohereEmbeddings
-from langchain_huggingface import HuggingFaceEmbeddings
-from langchain_ollama import OllamaEmbeddings
 
 from common.utils import get_logger
 
@@ -82,6 +81,9 @@ class EmbeddingsFactory:
       embeddings = OpenAIEmbeddings(model=model)
 
     elif provider == "aws-bedrock":
+      # Lazy import - lightweight API-based provider
+      from langchain_aws import BedrockEmbeddings
+
       # Default to Titan embedding model if not specified
       bedrock_model = os.getenv("EMBEDDINGS_MODEL", "amazon.titan-embed-text-v2:0")
       region = os.getenv("AWS_REGION", "us-east-1")
@@ -89,6 +91,9 @@ class EmbeddingsFactory:
       embeddings = BedrockEmbeddings(model_id=bedrock_model, region_name=region)
 
     elif provider == "cohere":
+      # Lazy import - lightweight API-based provider
+      from langchain_cohere import CohereEmbeddings
+
       api_key = os.getenv("COHERE_API_KEY")
       if not api_key:
         raise ValueError("COHERE_API_KEY environment variable is required for Cohere embeddings")
@@ -96,6 +101,12 @@ class EmbeddingsFactory:
       embeddings = CohereEmbeddings(model=model, cohere_api_key=api_key)  # type: ignore[call-arg]
 
     elif provider == "huggingface":
+      # Lazy import - heavy provider requiring PyTorch (~900MB)
+      # Only available in -hf image variant
+      try:
+        from langchain_huggingface import HuggingFaceEmbeddings
+      except ImportError:
+        raise ValueError("HuggingFace embeddings require the 'huggingface' extra. Use the -hf image variant or install with: pip install server[huggingface]")
       # Default to a popular sentence transformer model
       hf_model = os.getenv("EMBEDDINGS_MODEL", "sentence-transformers/all-MiniLM-L6-v2")
       hf_token = os.getenv("HUGGINGFACEHUB_API_TOKEN") or os.getenv("HF_TOKEN")
@@ -126,6 +137,9 @@ class EmbeddingsFactory:
       )
 
     elif provider == "ollama":
+      # Lazy import - lightweight local provider
+      from langchain_ollama import OllamaEmbeddings
+
       ollama_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
       embeddings = OllamaEmbeddings(base_url=ollama_url, model=model)
 
