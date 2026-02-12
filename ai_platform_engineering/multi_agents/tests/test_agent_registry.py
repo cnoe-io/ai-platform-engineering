@@ -551,7 +551,8 @@ class TestRegistryExclusions(unittest.TestCase):
             "EXCLUDE_FROM_AGENT_REGISTRY": "MY_PSEUDO",
         }, clear=True):
             registry = AgentRegistry()
-        mapping = registry.get_agent_address_mapping(["GITHUB", "MY_PSEUDO"])
+            # Call inside the with block so env vars are still active
+            mapping = registry.get_agent_address_mapping(["GITHUB", "MY_PSEUDO"])
         self.assertIn("GITHUB", mapping)
         self.assertNotIn("MY_PSEUDO", mapping)
 
@@ -564,7 +565,8 @@ class TestRegistryExclusions(unittest.TestCase):
             "GITHUB_AGENT_PORT": "9001",
         }, clear=True):
             registry = AgentRegistry()
-        mapping = registry.get_agent_address_mapping(["GITHUB", "STREAMING"])
+            # Call inside the with block so env vars are still active
+            mapping = registry.get_agent_address_mapping(["GITHUB", "STREAMING"])
         self.assertEqual(mapping["GITHUB"], "http://gh-host:9001")
         self.assertNotIn("STREAMING", mapping)
 
