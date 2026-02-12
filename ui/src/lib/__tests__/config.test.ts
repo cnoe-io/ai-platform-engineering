@@ -113,7 +113,7 @@ describe('getServerConfig', () => {
         'tagline', 'description', 'appName', 'logoUrl', 'previewMode',
         'gradientFrom', 'gradientTo', 'logoStyle', 'spinnerColor',
         'showPoweredBy', 'supportEmail', 'allowDevAdminWhenSsoDisabled',
-        'storageMode',
+        'storageMode', 'enabledIntegrationIcons', 'faviconUrl',
       ];
       expect(Object.keys(cfg).sort()).toEqual(expectedKeys.sort());
     });
@@ -513,7 +513,7 @@ describe('getClientConfigScript (XSS safety)', () => {
       'tagline', 'description', 'appName', 'logoUrl', 'previewMode',
       'gradientFrom', 'gradientTo', 'logoStyle', 'spinnerColor',
       'showPoweredBy', 'supportEmail', 'allowDevAdminWhenSsoDisabled',
-      'storageMode',
+      'storageMode', 'enabledIntegrationIcons', 'faviconUrl',
     ];
     expect(Object.keys(parsed).sort()).toEqual(expectedKeys.sort());
   });

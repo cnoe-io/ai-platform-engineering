@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import { ArrowLeft, LayoutGrid } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { WorkflowHistoryView } from "@/components/agent-builder/WorkflowHistoryView";
+import { WorkflowHistoryView } from "@/components/skills/WorkflowHistoryView";
 import { AuthGuard } from "@/components/auth-guard";
 import type { WorkflowRun } from "@/types/workflow-run";
 
@@ -21,7 +21,7 @@ export default function WorkflowHistoryPage() {
   const handleReRun = (run: WorkflowRun) => {
     // Navigate to agent builder with the workflow ID
     // The agent-builder page will need to handle the runWorkflow query param
-    router.push(`/agent-builder?workflow=${run.workflow_id}&autorun=true`);
+    router.push(`/skills?workflow=${run.workflow_id}&autorun=true`);
   };
 
   return (
@@ -41,17 +41,17 @@ export default function WorkflowHistoryPage() {
           <Button 
             variant="ghost" 
             size="icon" 
-            onClick={() => router.push('/agent-builder')}
-            title="Back to workflows"
+            onClick={() => router.push('/skills')}
+            title="Back to Skills"
           >
             <ArrowLeft className="h-5 w-5" />
           </Button>
 
           {/* Title */}
           <div>
-            <h1 className="text-2xl font-bold">Workflow Run History</h1>
+            <h1 className="text-2xl font-bold">Skills Run History</h1>
             <p className="text-sm text-muted-foreground">
-              View and manage all your workflow executions
+              View and manage all your skill executions
             </p>
           </div>
         </div>
