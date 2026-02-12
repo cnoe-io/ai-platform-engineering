@@ -387,7 +387,6 @@ services:
         condition: service_healthy
     profiles:
       - komodor
-      - all-agents
 
   mcp-komodor:
     image: ghcr.io/cnoe-io/mcp-komodor:${IMAGE_TAG:-0.2.15}
@@ -406,7 +405,6 @@ services:
       start_period: 15s
     profiles:
       - komodor
-      - all-agents
 
   # PagerDuty Agent
   agent-pagerduty:

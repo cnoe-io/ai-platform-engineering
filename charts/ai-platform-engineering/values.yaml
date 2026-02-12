@@ -38,6 +38,9 @@ global:
   metrics:
     enabled: false
 
+  agentgateway:
+    enabled: false
+
   caipeUi:
     enabled: false
 

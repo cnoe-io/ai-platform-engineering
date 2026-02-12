@@ -374,6 +374,12 @@ milvus:
       limits:
         cpu: 200m
         memory: 256Mi
+    # PodDisruptionBudget configuration for dataNode
+    # Protects data persistence during voluntary disruptions
+    podDisruptionBudget:
+      enabled: false
+      # maxUnavailable: 1  # Only allow 1 pod to be unavailable during voluntary disruptions
+      # minAvailable: 1    # OR ensure at least 1 pod is always available
 
   queryNode:
     annotations: {}
@@ -381,12 +387,32 @@ milvus:
       limits:
         cpu: 200m
         memory: 256Mi
+    # PodDisruptionBudget configuration for queryNode
+    # Protects search query capacity during voluntary disruptions
+    podDisruptionBudget:
+      enabled: false
+      # maxUnavailable: 1  # Only allow 1 pod to be unavailable during voluntary disruptions
+      # minAvailable: 1    # OR ensure at least 1 pod is always available
 
   etcd:
     podAnnotations: {}
+    # PodDisruptionBudget configuration for etcd
+    # Recommended for production to maintain etcd quorum during voluntary disruptions
+    podDisruptionBudget:
+      enabled: false
+      # maxUnavailable: 1  # Only allow 1 pod to be unavailable during voluntary disruptions
+      # OR use minAvailable to ensure quorum is maintained
+      # minAvailable: 2  # Ensure at least 2 out of 3 pods are available (maintains quorum)
 
   minio:
     podAnnotations: {}
+    # PodDisruptionBudget configuration for MinIO
+    # Recommended for production to prevent multiple MinIO pods from being disrupted simultaneously
+    podDisruptionBudget:
+      enabled: false
+      # maxUnavailable: 1  # Only allow 1 pod to be unavailable during voluntary disruptions
+      # OR use minAvailable to ensure a minimum number of pods are available
+      # minAvailable: 3  # Ensure at least 3 out of 4 pods are available (maintains quorum)
 
 # RAG Ingestors configuration
 # Disabled by default - configure ingestors as needed
