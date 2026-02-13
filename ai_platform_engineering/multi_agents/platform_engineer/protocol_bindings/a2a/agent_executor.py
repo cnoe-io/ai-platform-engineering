@@ -713,8 +713,9 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
             trace_id = str(uuid.uuid4()).replace('-', '').lower()
             logger.info(f"Generated ROOT trace_id: {trace_id}")
 
-        # Initialize state with trace_id for client feedback/scoring
-        state = StreamState(trace_id=trace_id)
+        # Initialize state
+        state = StreamState()
+        state.trace_id = trace_id  # For client feedback/scoring
 
         try:
             async for event in self.agent.stream(query, context_id, trace_id):
