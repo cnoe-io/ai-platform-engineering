@@ -1,91 +1,38 @@
+## 0.2.17 (2026-02-13)
+
+### Fix
+
+- manual release is missing ci-caipe-ui
+
+## 0.2.16-rc.1 (2026-02-13)
+
+### Fix
+
+- lint err
+- don't call _get_final_content if using response_format_tool
+- ui to render field_options correctly with the new structured final output using field_values
+- Merge origin/main into feat/add-structured-response-v2
+
 ## 0.2.16 (2026-02-13)
 
 ### Feat
 
 - **ui**: track message sender identity for shared conversations
 - **ui**: show user first name instead of 'You' in chat messages
-
-### Fix
-
-- **ui**: auto-select conversation and preserve messages on tab switch
-
-## 0.2.15-rc.10 (2026-02-13)
-
-### Fix
-
-- resolve lint errors in dedup tests and agent_executor
-- **streaming**: extend dedup to _handle_task_complete and add comprehensive tests
-- **streaming**: deduplicate sub-agent content in single-agent scenarios
-
-## 0.2.15-rc.9 (2026-02-13)
-
-### Feat
-
+- introduce new was_task_successful and depricate request_user_input if USE_STRUCTURED_RESPONSE is true
+- add support for USE_STRUCTURED_RESPONSE where LLM uses structured response tool call as its final output
 - **a2a**: add source agent tracking for sub-agent message grouping
-
-### Fix
-
-- **ui**: correct WorkflowHistoryView import path after skills rename
-- **lint**: remove unused imports and variables in test files
-
-### Refactor
-
-- **ui**: remove ENABLE_SUBAGENT_CARDS flag and Agent Stream card boxes
-
-## 0.2.15-rc.8 (2026-02-13)
-
-### Fix
-
-- **docs**: add gitlab agent to sidebar navigation
-
-## 0.2.15-rc.7 (2026-02-12)
-
-### Fix
-
-- **slack-ingestor**: always update datasource timestamp to prevent infinite sync loops
-
-## 0.2.15-rc.6 (2026-02-12)
-
-### Feat
-
+- agent resilience, registry exclusions, and infra improvements
+- **rag-stack**: add PodDisruptionBudgets for Milvus components
+- add agentgateway helm chart under ai-platform-engineering
+- introduce new was_task_successful and depricate request_user_input if USE_STRUCTURED_RESPONSE is true
+- add support for USE_STRUCTURED_RESPONSE where LLM uses structured response tool call as its final output
 - **ui**: add configurable favicon via NEXT_PUBLIC_FAVICON_URL
 - **ui**: rename Agentic Workflows to Skills and add icon customization
-
-### Fix
-
-- **ui**: use upsert in favorites API to avoid 404 race condition
-- **ui**: update remaining Agentic Workflows references to Skills
-
-## 0.2.15-rc.5 (2026-02-12)
-
-### Feat
-
 - **rag**: add slim ingestors variant and consolidate CI matrix
-
-### Fix
-
-- **web-ingestor**: use consistent HTTP error formatting for sitemap and robots.txt failures
-- **web-ingestor**: report HTTP errors for sitemap, robots.txt, and batch ingestion to job status
-- uv lock
-- **docs**: escape email in MDX to fix Docusaurus build
-
-## 0.2.15-rc.4 (2026-02-12)
-
-### Feat
-
 - **github**: add private key path passthrough and clean up env example
 - **github**: add token sanitization to prevent credential leakage
 - **github**: add GitHub App token auto-refresh for MCP authentication
-
-### Fix
-
-- **github**: remove unused timezone import to fix lint error
-- **agent-github**: add langchain as direct dependency for langfuse tracing
-
-## 0.2.15-rc.3 (2026-02-12)
-
-### Feat
-
 - **ui**: add user insights page, enhanced admin dashboard, and chat performance improvements
 - **ui**: add crash recovery with interrupted message detection and task polling
 - **ui**: add copy-to-clipboard for access token and ID token in user menu
@@ -108,11 +55,37 @@
 - **ingestors**: integrate Scrapy loader into web ingestor
 - **common**: add ScrapySettings model and job metrics tracking
 - **ingestors**: add Scrapy-based web loader infrastructure
-- agent resilience, registry exclusions, and infra improvements
-- **rag-stack**: add PodDisruptionBudgets for Milvus components
 
 ### Fix
 
+- **ui**: auto-select conversation and preserve messages on tab switch
+- resolve lint errors in dedup tests and agent_executor
+- **streaming**: extend dedup to _handle_task_complete and add comprehensive tests
+- **streaming**: deduplicate sub-agent content in single-agent scenarios
+- merge conflict
+- add default env var for supervisor with new USE_STRUCTURED_RESPONSE
+- **ui**: correct WorkflowHistoryView import path after skills rename
+- **lint**: remove unused imports and variables in test files
+- **docs**: add gitlab agent to sidebar navigation
+- add default env var for supervisor with new USE_STRUCTURED_RESPONSE
+- **slack-ingestor**: always update datasource timestamp to prevent infinite sync loops
+- replace hardcoded AIGATEWAY_SERVER_URL with env var reference
+- **build**: include multi-agent tests in make test target
+- **test**: correct env var scoping in registry exclusion tests
+- do not trust llm gateway-api is not a chart
+- agentgateway requires gateway-api
+- need to install agentgateway CRD
+- correct repo
+- try
+- v2.2.0-main does not exist despite being referenced in docs
+- **ui**: use upsert in favorites API to avoid 404 race condition
+- **ui**: update remaining Agentic Workflows references to Skills
+- **web-ingestor**: use consistent HTTP error formatting for sitemap and robots.txt failures
+- **web-ingestor**: report HTTP errors for sitemap, robots.txt, and batch ingestion to job status
+- uv lock
+- **docs**: escape email in MDX to fix Docusaurus build
+- **github**: remove unused timezone import to fix lint error
+- **agent-github**: add langchain as direct dependency for langfuse tracing
 - **ui**: resolve TypeScript build failure in ChatPanel
 - **ui**: fix session expiry by enabling token refresh on updateSession
 - **ui**: update stale messages in MongoDB after streaming completes
@@ -128,16 +101,17 @@
 - **ui**: storage mode always showing localStorage on client
 - **ci**: fix CAIPE UI Tests workflow and Jest tests
 - **ui**: runtime env script order and storage-mode re-check
+- **docs**: resolve MDX compilation and broken link errors breaking GH Pages build
 - **lint**: remove unnecessary f-string prefix
 - **lint**: remove unused imports and delete scripts folder
 - **ingestors**: correct metadata structure for source URL in documents
-- replace hardcoded AIGATEWAY_SERVER_URL with env var reference
-- **build**: include multi-agent tests in make test target
-- **test**: correct env var scoping in registry exclusion tests
-- **docs**: resolve MDX compilation and broken link errors breaking GH Pages build
+- **ui**: remove container healthcheck and align RAG_SERVER_URL usage
+- **ui**: replace build-time env vars with runtime PublicEnvScript injection
+- **ci**: ensure caipe-ui builds on RC tag pushes
 
 ### Refactor
 
+- **ui**: remove ENABLE_SUBAGENT_CARDS flag and Agent Stream card boxes
 - **ui**: remove localStorage cache in MongoDB mode, use upsert for messages
 - **ui**: move Personal Insights to user menu, replace Recent Prompts with Skill Usage
 - **ui**: rename Agentic Workflows to Agent Skills
@@ -150,60 +124,13 @@
 
 - **ui**: fix scroll performance, A2A Debug rendering, and history re-renders
 
-## 0.2.15-rc.2 (2026-02-06)
-
-### Fix
-
-- **ui**: remove container healthcheck and align RAG_SERVER_URL usage
-- **ui**: replace build-time env vars with runtime PublicEnvScript injection
-
-## 0.2.15-rc.1 (2026-02-05)
-
-### Fix
-
-- **ci**: ensure caipe-ui builds on RC tag pushes
-
 ## 0.2.15 (2026-02-05)
-
-## 0.2.14-rc.7 (2026-02-05)
 
 ### Feat
 
 - **ui,rag**: add RAG disable feature and trusted network config
 - **ui**: add version display in System Status popover
-
-### Fix
-
-- **ui**: improve Docker build network resilience for npm ci
-
-## 0.2.14-rc.6 (2026-02-05)
-
-### Fix
-
-- lint/js issues
-- **rag**: crash when collectiond doesnt exist
-- some layout fixes; node details card
-- graph view now works
-- **ui**: knowledgebases page now defaults to search
-- **ui**: search bar improvements
-- **ui**: redesigned datasources section
-
-## 0.2.14-rc.5 (2026-02-05)
-
-### Feat
-
 - **gitlab**: add MCP server config and comprehensive documentation
-
-### Fix
-
-- **gitlab**: escape curly braces in prompt configs and set INFO log level
-- **lang**: fix splunk specific gitlab instance
-- **code**: lint
-
-## 0.2.14-rc.4 (2026-02-04)
-
-### Feat
-
 - **rag**: add JWT authentication and RBAC documentation
 - **ci**: enhance CAIPE UI test coverage reporting in PRs
 - **ci**: add CAIPE UI test automation and fix test mocks
@@ -246,9 +173,33 @@
 - **backend**: implement Phase 2 - audit logging and notifications
 - **backend**: implement MongoDB chat history backend (Phase 1)
 - **dev**: add MongoDB service to docker-compose.dev.yaml
+- **rag**: ui improvements for rbac, configs and readme
+- **rag**: auth rework for user and ingestor
+- **ui**: unified connection status popup
+- **ingestor**: add OAuth2 client credentials authentication support
+- **auth**: implement JWT validation for RAG server with multi-provider support
+- **ui**: add rag rbac to knowledge-bases tab
+- **ui**: add ingestor type availability logic; fix icons
+- **ui**: add back ingestors section
+- **task-config**: update self service tasks
+- **streaming**: enable subagent token streaming
+- **task-config**: initial task config implementation
+- **ui**: add manual refresh token button to test token validity
+- **ui**: display refresh token metadata in OIDC token dialog
 
 ### Fix
 
+- **ui**: improve Docker build network resilience for npm ci
+- lint/js issues
+- **rag**: crash when collectiond doesnt exist
+- some layout fixes; node details card
+- graph view now works
+- **ui**: knowledgebases page now defaults to search
+- **ui**: search bar improvements
+- **ui**: redesigned datasources section
+- **gitlab**: escape curly braces in prompt configs and set INFO log level
+- **lang**: fix splunk specific gitlab instance
+- **code**: lint
 - **rag**: resolve linting errors in RAG server restapi
 - **ui**: implement hybrid auth for RAG proxy with JWT Bearer and OAuth2Proxy fallback
 - **ui**: restore TypeScript strict mode with pragmatic relaxations
@@ -300,36 +251,6 @@
 - **ui**: add API proxy rewrites for MongoDB chat backend
 - **backend**: properly mount chat API routes on FastAPI
 - **ui**: redirect /chat to UUID-based conversation URL
-
-### Refactor
-
-- **charts**: reorganize MongoDB under caipe-ui context
-- **ui**: complete branding update for login/logout pages
-- **ui**: update branding to Multi-Agent Collaboration & Workflow Automation
-- remove all MongoDB integration from entire project
-
-### Perf
-
-- **ui**: optimize A2A trace view timeline scaling and tick spacing
-- **ui**: reduce workflow history auto-refresh from 3s to 15s
-
-## 0.2.14-rc.3 (2026-02-04)
-
-## 0.2.14-rc.2 (2026-02-04)
-
-### Feat
-
-- **rag**: ui improvements for rbac, configs and readme
-- **rag**: auth rework for user and ingestor
-- **ui**: unified connection status popup
-- **ingestor**: add OAuth2 client credentials authentication support
-- **auth**: implement JWT validation for RAG server with multi-provider support
-- **ui**: add rag rbac to knowledge-bases tab
-- **ui**: add ingestor type availability logic; fix icons
-- **ui**: add back ingestors section
-
-### Fix
-
 - remove webui from build
 - clear results in search
 - **ui**: better UX for knowledge base page
@@ -342,22 +263,21 @@
 - **ui**: add permission tooltip with new user-info endpoint
 - **rag**: cleaner response for user-info endpoint
 - **ui**: get permissions directly from RAG server
-
-## 0.2.14-rc.1 (2026-02-03)
-
-### Feat
-
-- **task-config**: update self service tasks
-- **streaming**: enable subagent token streaming
-- **task-config**: initial task config implementation
-- **ui**: add manual refresh token button to test token validity
-- **ui**: display refresh token metadata in OIDC token dialog
-
-### Fix
-
 - **webex**: fix mcp tools in webex agent and update tasks
 - **create-github-repo**: fix mcp tools and add backstage step
 - **ui**: prevent AuthGuard from getting stuck on 'Verifying authorization'
+
+### Refactor
+
+- **charts**: reorganize MongoDB under caipe-ui context
+- **ui**: complete branding update for login/logout pages
+- **ui**: update branding to Multi-Agent Collaboration & Workflow Automation
+- remove all MongoDB integration from entire project
+
+### Perf
+
+- **ui**: optimize A2A trace view timeline scaling and tick spacing
+- **ui**: reduce workflow history auto-refresh from 3s to 15s
 
 ## 0.2.14 (2026-01-28)
 
@@ -428,10 +348,6 @@
 - **ui**: make OIDC group claim configurable
 - **ui**: add OIDC SSO with group-based authorization
 - add caipe-ui using a2ui, copilotkit
-- add authn to rag-stack chart
-- add role/userinfo to ui, fix ingestor type not availalbe
-- add RBAC to rag server endpoints
-- add agentgateway helm chart under ai-platform-engineering
 
 ### Fix
 
@@ -499,14 +415,6 @@
 - **ui**: fix React child rendering error in ContextPanel
 - **ui**: add spin animation and improve login loading screen
 - **rbac**: add email validation, audit logging, role validation, and improve documentation
-- lint issues
-- add missing models
-- do not trust llm gateway-api is not a chart
-- agentgateway requires gateway-api
-- need to install agentgateway CRD
-- correct repo
-- try
-- v2.2.0-main does not exist despite being referenced in docs
 
 ### Refactor
 
@@ -531,11 +439,19 @@
 
 ## 0.2.11 (2026-01-21)
 
+### Feat
+
+- add authn to rag-stack chart
+- add role/userinfo to ui, fix ingestor type not availalbe
+- add RBAC to rag server endpoints
+
 ### Fix
 
 - extract context_id from supervisor message metadata for conversation continuity
 - **ci**: make helm rc bump to directly trigger pre-release push
 - **ci**: force re-registration of workflow_run trigger
+- lint issues
+- add missing models
 - do not include agentForge CI in the finalise and fix arm64 build
 
 ## 0.2.10 (2026-01-20)
