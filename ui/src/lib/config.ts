@@ -46,8 +46,6 @@ export interface Config {
   ragEnabled: boolean;
   /** Whether MongoDB persistence is enabled */
   mongodbEnabled: boolean;
-  /** Whether to show sub-agent streaming cards in chat (experimental) */
-  enableSubAgentCards: boolean;
   /** Main tagline displayed throughout the UI */
   tagline: string;
   /** Description text displayed throughout the UI */
@@ -104,7 +102,6 @@ const DEFAULT_CONFIG: Config = {
   ssoEnabled: false,
   ragEnabled: true,
   mongodbEnabled: false,
-  enableSubAgentCards: false,
   tagline: DEFAULT_TAGLINE,
   description: DEFAULT_DESCRIPTION,
   appName: DEFAULT_APP_NAME,
@@ -154,7 +151,6 @@ export function getServerConfig(): Config {
   const ragEnabled = env('RAG_ENABLED') !== 'false';
   const mongodbEnabled = !!(process.env.MONGODB_URI && process.env.MONGODB_DATABASE)
     || env('MONGODB_ENABLED') === 'true';
-  const enableSubAgentCards = env('ENABLE_SUBAGENT_CARDS') === 'true';
   const previewMode = env('PREVIEW_MODE') === 'true';
   const allowDevAdminWhenSsoDisabled = env('ALLOW_DEV_ADMIN_WHEN_SSO_DISABLED') === 'true';
 
@@ -172,7 +168,6 @@ export function getServerConfig(): Config {
     ssoEnabled,
     ragEnabled,
     mongodbEnabled,
-    enableSubAgentCards,
     tagline: env('TAGLINE') || DEFAULT_TAGLINE,
     description: env('DESCRIPTION') || DEFAULT_DESCRIPTION,
     appName: env('APP_NAME') || DEFAULT_APP_NAME,
