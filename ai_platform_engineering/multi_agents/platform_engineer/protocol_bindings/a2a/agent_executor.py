@@ -279,7 +279,7 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                 parts_text = first_part.get('text')
         text_preview = parts_text[:100] if parts_text else '(no parts.text)'
         text_len = len(parts_text) if parts_text else 0
-        
+
         if artifact_name in ('final_result', 'partial_result'):
             logger.info(f"📤 FINAL ARTIFACT: parts_count={len(parts)}, text_len={text_len}")
             logger.info(f"📤 FINAL ARTIFACT preview: {text_preview}...")
@@ -409,7 +409,8 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
             f"supervisor_content_len={len(state.supervisor_content)}, "
             f"sub_agent_content_len={len(state.sub_agent_content)}, "
             f"sub_agents_completed={state.sub_agents_completed}, "
-            f"event_content_len={len(content)}"
+            f"event_content_len={len(content)}, "
+            f"from_response_format_tool={event.get('from_response_format_tool', False)}"
         )
 
         # ================================================================
@@ -429,11 +430,18 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
             logger.info(f"Task {task.id} completed (single sub-agent, deduped).")
             return
 
-        final_content, is_datapart = self._get_final_content(state)
-
-        # Fall back to event content if nothing accumulated
-        if not final_content and not is_datapart:
+        # If event came from ResponseFormat tool (structured response mode),
+        # use content directly since it's the clean final answer
+        if event.get('from_response_format_tool'):
+            logger.info("Using content directly from ResponseFormat tool (structured response mode)")
             final_content = content
+            is_datapart = False
+        else:
+            final_content, is_datapart = self._get_final_content(state)
+
+            # Fall back to event content if nothing accumulated
+            if not final_content and not is_datapart:
+                final_content = content
 
         logger.info(
             f"Task {task.id} final_result: is_datapart={is_datapart}, "
@@ -815,14 +823,44 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                 # Normalize content
                 content = self._normalize_content(event.get('content', ''))
 
-                # 2. Task complete
+                # 2. ResponseFormat tool response — always the final output
+                #    The LLM called the structured response tool, so this IS the
+                #    final user-facing answer regardless of is_task_complete.
+                #    (The LLM may set is_task_complete=False when the task "failed"
+                #    but the response is still terminal — there's nothing more to do.)
+                if event.get('from_response_format_tool'):
+                    # Derive require_user_input from metadata.user_input
+                    # (In structured mode, request_user_input tool is removed;
+                    #  user input is expressed via PlatformEngineerResponse metadata)
+                    metadata = event.get('metadata') or {}
+                    needs_user_input = (
+                        event.get('require_user_input')
+                        or (isinstance(metadata, dict) and metadata.get('user_input'))
+                    )
+                    if needs_user_input:
+                        state.user_input_required = True
+                        logger.info("ResponseFormat tool requires user input — treating as input_required")
+                        await self._handle_user_input_required(content, task, event_queue, metadata if isinstance(metadata, dict) else None)
+                        return
+                    else:
+                        state.task_complete = True
+                        logger.info(
+                            f"ResponseFormat tool response is final output "
+                            f"(is_task_complete={event.get('is_task_complete')}, "
+                            f"content_len={len(content)})"
+                        )
+                        await self._ensure_execution_plan_completed(event_queue, task)
+                        await self._handle_task_complete(event, state, content, task, event_queue)
+                        return
+
+                # 3. Task complete
                 if event.get('is_task_complete'):
                     state.task_complete = True
                     await self._ensure_execution_plan_completed(event_queue, task)
                     await self._handle_task_complete(event, state, content, task, event_queue)
                     return
 
-                # 3. User input required
+                # 4. User input required
                 if event.get('require_user_input'):
                     state.user_input_required = True
                     # Pass metadata from event (contains form field definitions)
@@ -830,7 +868,7 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                     await self._handle_user_input_required(content, task, event_queue, metadata)
                     return
 
-                # 4. Streaming chunk
+                # 5. Streaming chunk
                 await self._handle_streaming_chunk(event, state, content, task, event_queue)
 
             # Stream ended without explicit completion

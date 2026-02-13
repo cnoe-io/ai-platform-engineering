@@ -129,7 +129,8 @@ export function MetadataInputForm({
       {/* Form */}
       <form onSubmit={handleSubmit} className="space-y-4">
         {inputFields.map((field, idx) => {
-          const fieldType = field.field_type || "text";
+          // Auto-detect "select" when field_values are provided (agent may omit field_type)
+          const fieldType = field.field_type || (field.field_values && field.field_values.length > 0 ? "select" : "text");
           const fieldLabel = field.field_label || field.field_name.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
           
           return (

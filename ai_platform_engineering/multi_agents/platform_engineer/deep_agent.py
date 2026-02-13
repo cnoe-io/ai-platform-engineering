@@ -9,15 +9,18 @@ import asyncio
 import time
 import httpx
 import traceback
+import json
+
 from langchain_core.messages import AIMessage
+from langchain_core.tools import tool
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.checkpoint.memory import InMemorySaver
 from cnoe_agent_utils import LLMFactory
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from typing import Optional, Dict, Any, List
 
-
 from ai_platform_engineering.multi_agents.platform_engineer import platform_registry
+from ai_platform_engineering.multi_agents.platform_engineer.response_format import PlatformEngineerResponse
 from ai_platform_engineering.multi_agents.platform_engineer.prompts import agent_prompts, generate_system_prompt
 from ai_platform_engineering.multi_agents.tools import (
     reflect_on_output,
@@ -49,11 +52,23 @@ from deepagents import async_create_deep_agent
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
+# Explicit ResponseFormat tool so Bedrock sees it in tool list
+@tool("ResponseFormat", args_schema=PlatformEngineerResponse)
+def response_format_tool(**kwargs):
+  try:
+    return json.dumps(kwargs)
+  except Exception:
+    return str(kwargs)
+
 # RAG Configuration
-ENABLE_RAG = os.getenv("ENABLE_RAG", "false").lower() in ("true", "1", "yes")
+ENABLE_RAG = os.getenv("ENABLE_RAG", "false").lower() == "true"
 RAG_SERVER_URL = os.getenv("RAG_SERVER_URL", "http://localhost:9446").strip("/")
 RAG_CONNECTIVITY_RETRIES = 5
 RAG_CONNECTIVITY_WAIT_SECONDS = 10
+
+# Structured Response Configuration
+# When enabled, LLM uses ResponseFormat tool for final answers instead of [FINAL ANSWER] marker
+USE_STRUCTURED_RESPONSE = os.getenv("USE_STRUCTURED_RESPONSE", "false").lower() == "true"
 
 class AIPlatformEngineerMAS:
   def __init__(self):
@@ -249,7 +264,7 @@ class AIPlatformEngineerMAS:
             logger.error(f"Error during RAG setup: {e}")
             self.rag_enabled = False
 
-    system_prompt = generate_system_prompt(current_agents, self.rag_config)
+    system_prompt = generate_system_prompt(current_agents, self.rag_config, USE_STRUCTURED_RESPONSE)
 
     logger.info(f"📝 Generated system prompt: {len(system_prompt)} chars")
 
@@ -262,7 +277,7 @@ class AIPlatformEngineerMAS:
         format_markdown,
         fetch_url,
         get_current_date,
-        request_user_input,  # Structured user input tool for dynamic forms
+        *([request_user_input] if not USE_STRUCTURED_RESPONSE else []),  # Only in unstructured mode; structured mode uses PlatformEngineerResponse.metadata instead
         write_workspace_file,
         read_workspace_file,
         list_workspace_files,
@@ -282,6 +297,13 @@ class AIPlatformEngineerMAS:
         append_file, # append_file("/tmp/log.txt", "entry\n")
         list_files,  # list_files("/tmp/repo", pattern="*.yaml")
     ]
+
+    # Add ResponseFormat tool only when structured response mode is enabled
+    if USE_STRUCTURED_RESPONSE:
+      all_tools.append(response_format_tool)
+      logger.info("✅ Structured response mode enabled - added ResponseFormat tool")
+    else:
+      logger.info("❌ Structured response mode disabled - ResponseFormat tool not added and using [FINAL ANSWER] marker in prompt config")
 
     # Add RAG tools if initially loaded
     if self.rag_tools:
@@ -305,14 +327,36 @@ class AIPlatformEngineerMAS:
 
     logger.info("🎨 Creating deep agent with system prompt")
 
-    deep_agent = async_create_deep_agent(
-      tools=all_tools,  # A2A tools + RAG tools + reflect_on_output for validation
-      instructions=system_prompt,  # System prompt enforces TODO-based execution workflow
-      subagents=subagents,  # CustomSubAgents for proper task() delegation
-      model=base_model,
-      # response_format=PlatformEngineerResponse  # Removed: Causes embedded JSON in streaming output
-      # Sub-agent DataParts (like Jarvis forms) still work - they're forwarded independently
-    )
+    # Response format instruction tells the LLM how to use the ResponseFormat tool
+    # Only used when USE_STRUCTURED_RESPONSE is enabled
+    if USE_STRUCTURED_RESPONSE:
+      response_format_instruction = (
+        "CRITICAL: You MUST call the ResponseFormat tool for EVERY response - including greetings, simple questions, and informational queries. "
+        "This is NON-NEGOTIABLE. Never output the final answer as plain text. "
+        "When you are ready to provide ANY answer (simple or complex), call ResponseFormat directly. "
+        "Do NOT output the answer as text before calling the tool - put it ONLY in the tool's 'content' field. "
+        "Normal streaming (tool calls, planning, intermediate outputs) is fine, but the FINAL answer must go through ResponseFormat. "
+        "Place the final user-facing answer (clean markdown, no thinking/preamble) in the 'content' field. "
+        "Set 'is_task_complete' to true when done (including when the task failed and there is nothing more you can do). "
+        "When you need information from the user, set metadata.user_input to true and populate metadata.input_fields with the fields you need."
+      )
+    else:
+      # Unstructured mode: rely on [FINAL ANSWER] marker in prompt config
+      response_format_instruction = None
+
+    # Build deep agent kwargs - only include response_format when structured mode is enabled
+    deep_agent_kwargs = {
+      "tools": all_tools,  # A2A tools + RAG tools + reflect_on_output for validation
+      "instructions": system_prompt,  # System prompt enforces TODO-based execution workflow
+      "subagents": subagents,  # CustomSubAgents for proper task() delegation
+      "model": base_model,
+    }
+
+    # Add response_format only when structured response mode is enabled
+    if USE_STRUCTURED_RESPONSE and response_format_instruction:
+      deep_agent_kwargs["response_format"] = (response_format_instruction, PlatformEngineerResponse)
+
+    deep_agent = async_create_deep_agent(**deep_agent_kwargs)
 
     # Check if LANGGRAPH_DEV is defined in the environment
     if os.getenv("LANGGRAPH_DEV"):
