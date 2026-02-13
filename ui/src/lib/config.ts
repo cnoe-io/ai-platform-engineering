@@ -79,6 +79,10 @@ export interface Config {
   enabledIntegrationIcons: string[] | null;
   /** Favicon URL (relative or absolute) */
   faviconUrl: string;
+  /** Documentation URL (hidden in header if not set) */
+  docsUrl: string | null;
+  /** Source code URL (hidden in header if not set) */
+  sourceUrl: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -117,6 +121,8 @@ const DEFAULT_CONFIG: Config = {
   storageMode: 'localStorage',
   enabledIntegrationIcons: null,
   faviconUrl: '/favicon.ico',
+  docsUrl: null,
+  sourceUrl: null,
 };
 
 // ---------------------------------------------------------------------------
@@ -189,6 +195,8 @@ export function getServerConfig(): Config {
       return null;
     })(),
     faviconUrl: env('FAVICON_URL') || '/favicon.ico',
+    docsUrl: env('DOCS_URL') || null,
+    sourceUrl: env('SOURCE_URL') || null,
   };
 }
 

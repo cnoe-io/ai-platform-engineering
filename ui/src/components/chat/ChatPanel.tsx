@@ -970,7 +970,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle }: ChatP
                     ? queuedMessages.length >= 3
                       ? "Queue full (3/3). Send or cancel messages to queue more, or Cmd+Enter to force send..."
                       : `Type to queue message (${queuedMessages.length}/3), or Cmd+Enter to force send...`
-                    : "Ask CAIPE anything or type @ to mention an agent..."
+                    : `Ask ${getConfig('appName')} anything or type @ to mention an agent...`
                 }
                 className="flex-1 bg-transparent resize-none outline-none px-3 py-2.5 text-sm"
                 minRows={1}
@@ -1003,7 +1003,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle }: ChatP
           </div>
 
           <p className="text-xs text-muted-foreground text-center">
-            CAIPE can make mistakes. Verify important information.
+            {getConfig('appName')} can make mistakes. Verify important information.
           </p>
         </div>
       </div>
@@ -1373,7 +1373,7 @@ const ChatMessage = React.memo(function ChatMessage({
             </span>
           ) : (
             <>
-              <span className="text-xs font-medium">CAIPE</span>
+              <span className="text-xs font-medium">{getConfig('appName')}</span>
               <div className="flex items-center gap-2">
                 {/* Collapse button - shown when not streaming and content is long */}
                 {!isStreaming && displayContent && displayContent.length > 300 && (

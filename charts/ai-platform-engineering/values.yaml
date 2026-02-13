@@ -375,6 +375,9 @@ caipe-ui:
     SHOW_POWERED_BY: "false"
     # Preview mode
     PREVIEW_MODE: "false"
+    # Header link URLs (leave empty/commented to hide)
+    # DOCS_URL: "https://your-docs-site.com"
+    # SOURCE_URL: "https://github.com/your-org/your-repo"
   # External Secrets configuration for sensitive data (OIDC credentials, NextAuth secret, MongoDB credentials)
   externalSecrets:
     enabled: false  # Set to true to enable external secrets
