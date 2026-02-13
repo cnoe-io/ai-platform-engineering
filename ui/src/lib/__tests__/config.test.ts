@@ -113,6 +113,7 @@ describe('getServerConfig', () => {
         'gradientFrom', 'gradientTo', 'logoStyle', 'spinnerColor',
         'showPoweredBy', 'supportEmail', 'allowDevAdminWhenSsoDisabled',
         'storageMode', 'enabledIntegrationIcons', 'faviconUrl',
+        'docsUrl', 'sourceUrl',
       ];
       expect(Object.keys(cfg).sort()).toEqual(expectedKeys.sort());
     });
@@ -508,6 +509,7 @@ describe('getClientConfigScript (XSS safety)', () => {
       'gradientFrom', 'gradientTo', 'logoStyle', 'spinnerColor',
       'showPoweredBy', 'supportEmail', 'allowDevAdminWhenSsoDisabled',
       'storageMode', 'enabledIntegrationIcons', 'faviconUrl',
+      'docsUrl', 'sourceUrl',
     ];
     expect(Object.keys(parsed).sort()).toEqual(expectedKeys.sort());
   });

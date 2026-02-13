@@ -300,9 +300,9 @@ describe('ChatPanel', () => {
 
       render(<ChatPanel endpoint="/api/test" />)
 
-      // Find the CAIPE label, then its parent message content container
-      const caipeLabel = screen.getByText('CAIPE')
-      const messageContent = caipeLabel.closest('.flex-1.min-w-0')
+      // Find the app name label, then its parent message content container
+      const appNameLabel = screen.getByText('Test App')
+      const messageContent = appNameLabel.closest('.flex-1.min-w-0')
       expect(messageContent).not.toBeNull()
 
       // The bubble div inside it
