@@ -5,7 +5,6 @@ import asyncio
 import json
 import logging
 import os
-import re
 from collections.abc import AsyncIterable
 from typing import Any
 
@@ -355,7 +354,7 @@ class AIPlatformEngineerA2ABinding:
                           response_format_streaming = True
                           if response_format_args is None:
                               response_format_args = {"_partial_json": ""}
-                          logging.info(f"🎯 BEDROCK: ResponseFormat tool streaming started")
+                          logging.info("🎯 BEDROCK: ResponseFormat tool streaming started")
 
                       # Accumulate args string (Bedrock streams JSON incrementally)
                       # Once we're streaming ResponseFormat, accumulate all args chunks
