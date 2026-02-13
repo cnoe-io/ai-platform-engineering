@@ -189,6 +189,7 @@ jobs:
             "ci-a2a-rag.yml:false"
             "ci-supervisor-agent.yml:false"
             "ci-agent-forge-plugin.yml:false"
+            "ci-caipe-ui.yml:false"
           )
 
           SUCCESS=0
