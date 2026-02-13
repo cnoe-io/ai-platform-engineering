@@ -533,6 +533,22 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
         # Also detect agent from event metadata if provided
         source_agent = event.get('source_agent') or state.current_agent or 'supervisor'
 
+        # ================================================================
+        # DEDUPLICATION: After a sub-agent sends complete_result, the
+        # supervisor re-streams that same content as its "synthesis".
+        # For single-agent scenarios (sub_agents_completed == 1), this
+        # produces duplicate content in the UI. Suppress streaming
+        # artifacts after sub-agent completion for single-agent flows.
+        # Multi-agent flows (2+ sub-agents) still need the supervisor
+        # synthesis. Tool notifications are always forwarded.
+        # ================================================================
+        if not is_tool_notification and state.sub_agents_completed == 1:
+            # Single sub-agent already sent complete_result — supervisor is just
+            # re-streaming the same content. Accumulate silently but don't forward.
+            state.supervisor_content.append(content)
+            logger.debug(f"⏭️ Suppressing duplicate streaming chunk after sub-agent completion ({len(content)} chars)")
+            return
+
         # Accumulate non-notification content (unless DataPart already received)
         if not is_tool_notification and not state.sub_agent_datapart:
             state.supervisor_content.append(content)
@@ -580,6 +596,30 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
         logger.info(f"📦 Stream end - supervisor_content: {len(state.supervisor_content)} items, {sum(len(c) for c in state.supervisor_content)} chars")
         logger.info(f"📦 Stream end - sub_agent_content: {len(state.sub_agent_content)} items, {sum(len(c) for c in state.sub_agent_content)} chars")
         logger.info(f"📦 Stream end - sub_agents_completed: {state.sub_agents_completed}")
+
+        # ================================================================
+        # DEDUPLICATION: Single sub-agent scenario
+        # If exactly 1 sub-agent completed (sent complete_result which was
+        # already forwarded to the client), send a final_result with the
+        # extracted content (for isFinal=true in UI) + completion status,
+        # instead of re-sending the full accumulated content again.
+        # ================================================================
+        if state.sub_agents_completed == 1 and state.sub_agent_content:
+            deduped_content = ''.join(state.sub_agent_content)
+            deduped_content = self._extract_final_answer(deduped_content)
+            logger.info(
+                f"📦 Single sub-agent already sent complete_result — "
+                f"sending final_result with extracted content ({len(deduped_content)} chars)"
+            )
+            artifact = new_text_artifact(
+                name='final_result',
+                description='Complete result from Platform Engineer',
+                text=deduped_content,
+            )
+            await self._send_artifact(event_queue, task, artifact, append=False, last_chunk=True)
+            await self._send_completion(event_queue, task)
+            logger.info(f"Task {task.id} completed (stream end, single sub-agent, deduped).")
+            return
 
         final_content, is_datapart = self._get_final_content(state)
         logger.info(f"📦 Final content for UI: {len(final_content) if isinstance(final_content, str) else 'datapart'} chars, is_datapart={is_datapart}")
