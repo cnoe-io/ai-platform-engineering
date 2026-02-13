@@ -272,6 +272,10 @@ test: test-supervisor test-multi-agents test-agents ## Run all tests (supervisor
 test-multi-agents: setup-venv ## Run multi-agent system tests
 	@echo "Running multi-agent system tests..."
 	@. .venv/bin/activate && uv run pytest ai_platform_engineering/multi_agents/tests/ -v
+	@echo "Running platform engineer tests..."
+	@. .venv/bin/activate && uv run pytest ai_platform_engineering/multi_agents/platform_engineer/tests/ -v
+	@echo "Running a2a common utility tests..."
+	@. .venv/bin/activate && uv run pytest ai_platform_engineering/utils/a2a_common/tests/ -v
 
 ## ========== RAG Module Tests ==========
 
