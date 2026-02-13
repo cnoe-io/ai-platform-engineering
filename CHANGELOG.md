@@ -1,3 +1,168 @@
+## 0.2.16 (2026-02-13)
+
+### Feat
+
+- **ui**: track message sender identity for shared conversations
+- **ui**: show user first name instead of 'You' in chat messages
+
+### Fix
+
+- **ui**: auto-select conversation and preserve messages on tab switch
+
+## 0.2.15-rc.10 (2026-02-13)
+
+### Fix
+
+- resolve lint errors in dedup tests and agent_executor
+- **streaming**: extend dedup to _handle_task_complete and add comprehensive tests
+- **streaming**: deduplicate sub-agent content in single-agent scenarios
+
+## 0.2.15-rc.9 (2026-02-13)
+
+### Feat
+
+- **a2a**: add source agent tracking for sub-agent message grouping
+
+### Fix
+
+- **ui**: correct WorkflowHistoryView import path after skills rename
+- **lint**: remove unused imports and variables in test files
+
+### Refactor
+
+- **ui**: remove ENABLE_SUBAGENT_CARDS flag and Agent Stream card boxes
+
+## 0.2.15-rc.8 (2026-02-13)
+
+### Fix
+
+- **docs**: add gitlab agent to sidebar navigation
+
+## 0.2.15-rc.7 (2026-02-12)
+
+### Fix
+
+- **slack-ingestor**: always update datasource timestamp to prevent infinite sync loops
+
+## 0.2.15-rc.6 (2026-02-12)
+
+### Feat
+
+- **ui**: add configurable favicon via NEXT_PUBLIC_FAVICON_URL
+- **ui**: rename Agentic Workflows to Skills and add icon customization
+
+### Fix
+
+- **ui**: use upsert in favorites API to avoid 404 race condition
+- **ui**: update remaining Agentic Workflows references to Skills
+
+## 0.2.15-rc.5 (2026-02-12)
+
+### Feat
+
+- **rag**: add slim ingestors variant and consolidate CI matrix
+
+### Fix
+
+- **web-ingestor**: use consistent HTTP error formatting for sitemap and robots.txt failures
+- **web-ingestor**: report HTTP errors for sitemap, robots.txt, and batch ingestion to job status
+- uv lock
+- **docs**: escape email in MDX to fix Docusaurus build
+
+## 0.2.15-rc.4 (2026-02-12)
+
+### Feat
+
+- **github**: add private key path passthrough and clean up env example
+- **github**: add token sanitization to prevent credential leakage
+- **github**: add GitHub App token auto-refresh for MCP authentication
+
+### Fix
+
+- **github**: remove unused timezone import to fix lint error
+- **agent-github**: add langchain as direct dependency for langfuse tracing
+
+## 0.2.15-rc.3 (2026-02-12)
+
+### Feat
+
+- **ui**: add user insights page, enhanced admin dashboard, and chat performance improvements
+- **ui**: add crash recovery with interrupted message detection and task polling
+- **ui**: add copy-to-clipboard for access token and ID token in user menu
+- **ui**: add conversation archive with soft-delete, restore, and auto-purge
+- **ui**: add silent token refresh and dismiss persistence for expiry guard
+- **ui**: persist chat messages and A2A events to MongoDB for cross-device sync
+- **ui**: sync UI personalization to MongoDB for cross-device persistence
+- **ui**: implement team management — view details, manage members, delete teams
+- **ui**: add branding env vars to docker-compose and helm values
+- **ui**: replace NEXT_PUBLIC_ with runtime config via /api/config
+- **rag-server**: reduce Docker image size by making HuggingFace optional
+- **helm**: simplify rag-server config to use generic env map
+- **embeddings**: add LiteLLM proxy support for embeddings
+- **auth**: add X-Identity-Token header support for ID token claims extraction
+- **ingestors**: add status messages for JavaScript rendering mode
+- **build**: add Playwright/Chromium support to ingestors image
+- **ingestors**: add backwards compatibility for deprecated settings fields
+- **ui**: display document and chunk metrics in ingest view
+- **server**: add chunk count tracking and cleanup utility
+- **ingestors**: integrate Scrapy loader into web ingestor
+- **common**: add ScrapySettings model and job metrics tracking
+- **ingestors**: add Scrapy-based web loader infrastructure
+- agent resilience, registry exclusions, and infra improvements
+- **rag-stack**: add PodDisruptionBudgets for Milvus components
+
+### Fix
+
+- **ui**: resolve TypeScript build failure in ChatPanel
+- **ui**: fix session expiry by enabling token refresh on updateSession
+- **ui**: update stale messages in MongoDB after streaming completes
+- **ui**: improve code block rendering for shell commands
+- **ui**: respect user scroll position during agent streaming
+- **ui**: prevent long text from overflowing chat messages to the right
+- **ui**: resolve infinite re-login loop when session is expiring
+- **ui**: remove title prop from Lucide icons to fix TypeScript build error
+- **ui**: sync follow-up messages across devices and fix event accumulation
+- **ui**: add Safari SSE streaming polyfill for A2A compatibility
+- **ui**: sync conversation deletions across browsers and devices
+- **ui**: sync conversation ID between client and MongoDB to fix share dialog
+- **ui**: storage mode always showing localStorage on client
+- **ci**: fix CAIPE UI Tests workflow and Jest tests
+- **ui**: runtime env script order and storage-mode re-check
+- **lint**: remove unnecessary f-string prefix
+- **lint**: remove unused imports and delete scripts folder
+- **ingestors**: correct metadata structure for source URL in documents
+- replace hardcoded AIGATEWAY_SERVER_URL with env var reference
+- **build**: include multi-agent tests in make test target
+- **test**: correct env var scoping in registry exclusion tests
+- **docs**: resolve MDX compilation and broken link errors breaking GH Pages build
+
+### Refactor
+
+- **ui**: remove localStorage cache in MongoDB mode, use upsert for messages
+- **ui**: move Personal Insights to user menu, replace Recent Prompts with Skill Usage
+- **ui**: rename Agentic Workflows to Agent Skills
+- **ui**: use Palette icon for UI Personalization button
+- **ui**: rename Settings to UI Personalization with Paintbrush icon
+- **ui**: replace /api/config fetch with window.__APP_CONFIG__ injection
+- **ui**: replace useConfig() with getConfig()/config imports
+
+### Perf
+
+- **ui**: fix scroll performance, A2A Debug rendering, and history re-renders
+
+## 0.2.15-rc.2 (2026-02-06)
+
+### Fix
+
+- **ui**: remove container healthcheck and align RAG_SERVER_URL usage
+- **ui**: replace build-time env vars with runtime PublicEnvScript injection
+
+## 0.2.15-rc.1 (2026-02-05)
+
+### Fix
+
+- **ci**: ensure caipe-ui builds on RC tag pushes
+
 ## 0.2.15 (2026-02-05)
 
 ## 0.2.14-rc.7 (2026-02-05)
@@ -34,7 +199,6 @@
 - **gitlab**: escape curly braces in prompt configs and set INFO log level
 - **lang**: fix splunk specific gitlab instance
 - **code**: lint
-- clean-up argocd.json
 
 ## 0.2.14-rc.4 (2026-02-04)
 
@@ -264,6 +428,10 @@
 - **ui**: make OIDC group claim configurable
 - **ui**: add OIDC SSO with group-based authorization
 - add caipe-ui using a2ui, copilotkit
+- add authn to rag-stack chart
+- add role/userinfo to ui, fix ingestor type not availalbe
+- add RBAC to rag server endpoints
+- add agentgateway helm chart under ai-platform-engineering
 
 ### Fix
 
@@ -331,6 +499,14 @@
 - **ui**: fix React child rendering error in ContextPanel
 - **ui**: add spin animation and improve login loading screen
 - **rbac**: add email validation, audit logging, role validation, and improve documentation
+- lint issues
+- add missing models
+- do not trust llm gateway-api is not a chart
+- agentgateway requires gateway-api
+- need to install agentgateway CRD
+- correct repo
+- try
+- v2.2.0-main does not exist despite being referenced in docs
 
 ### Refactor
 
@@ -355,19 +531,11 @@
 
 ## 0.2.11 (2026-01-21)
 
-### Feat
-
-- add authn to rag-stack chart
-- add role/userinfo to ui, fix ingestor type not availalbe
-- add RBAC to rag server endpoints
-
 ### Fix
 
 - extract context_id from supervisor message metadata for conversation continuity
 - **ci**: make helm rc bump to directly trigger pre-release push
 - **ci**: force re-registration of workflow_run trigger
-- lint issues
-- add missing models
 - do not include agentForge CI in the finalise and fix arm64 build
 
 ## 0.2.10 (2026-01-20)
@@ -1093,7 +1261,7 @@ Closes: #324
 - updates
 - Remove undefined imports from evals __init__.py
 - remove test_extractor.py error file
-- pin kb-rag services to sha-b098b8d
+- pin kb-rag services to sha-f3a1a25
 - fix workshop4 to specific version
 
 ### Refactor
