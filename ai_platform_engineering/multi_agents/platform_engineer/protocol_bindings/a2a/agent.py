@@ -355,11 +355,7 @@ class AIPlatformEngineerA2ABinding:
                           response_format_streaming = True
                           if response_format_args is None:
                               response_format_args = {"_partial_json": ""}
-<<<<<<< HEAD
-                          logging.info(f"🎯 BEDROCK: ResponseFormat tool streaming started")
-=======
                           logging.info("🎯 BEDROCK: ResponseFormat tool streaming started")
->>>>>>> c3b832e35504ca19c1d449d6d965ee7193c423d2
 
                       # Accumulate args string (Bedrock streams JSON incrementally)
                       # Once we're streaming ResponseFormat, accumulate all args chunks
@@ -438,10 +434,7 @@ class AIPlatformEngineerA2ABinding:
                                   "is_task_complete": False,
                                   "require_user_input": False,
                                   "content": f"🔧 Supervisor: Calling Agent {tool_name_formatted}...\n",
-<<<<<<< HEAD
-=======
                                   "source_agent": tool_name,
->>>>>>> c3b832e35504ca19c1d449d6d965ee7193c423d2
                                   "tool_call": {
                                       "name": tool_name,
                                       "status": "started",
