@@ -30,6 +30,15 @@ interface ChatPanelProps {
 
 export function ChatPanel({ endpoint, conversationId, conversationTitle }: ChatPanelProps) {
   const { data: session } = useSession();
+
+  // Derive the user's first name for message labels (falls back to "You")
+  const userDisplayName = useMemo(() => {
+    const fullName = session?.user?.name;
+    if (!fullName) return "You";
+    const firstName = fullName.split(" ")[0].trim();
+    return firstName || "You";
+  }, [session?.user?.name]);
+
   const [input, setInput] = useState("");
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [queuedMessages, setQueuedMessages] = useState<string[]>([]);
@@ -807,6 +816,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle }: ChatP
                           onFeedbackSubmit={(feedback) => handleFeedbackSubmit(msg.id, feedback)}
                           isRecovering={recoveringMessageId === msg.id}
                           conversationId={conversationId}
+                          userDisplayName={userDisplayName}
                         />
                       );
                     })}
@@ -1250,6 +1260,8 @@ interface ChatMessageProps {
   conversationId?: string;
   // Crash recovery: true when polling tasks/get for this message's interrupted task
   isRecovering?: boolean;
+  // Display name for user messages (first name from session, falls back to "You")
+  userDisplayName?: string;
 }
 
 /**
@@ -1269,6 +1281,7 @@ const ChatMessage = React.memo(function ChatMessage({
   onFeedbackSubmit,
   conversationId,
   isRecovering = false,
+  userDisplayName = "You",
 }: ChatMessageProps) {
   const isUser = message.role === "user";
   // Show Thinking expanded by default — content is truncated to 2000 chars during
@@ -1335,7 +1348,7 @@ const ChatMessage = React.memo(function ChatMessage({
             : "text-muted-foreground justify-between"
         )}>
           {isUser ? (
-            <span className="text-xs font-medium">You</span>
+            <span className="text-xs font-medium">{userDisplayName}</span>
           ) : (
             <>
               <span className="text-xs font-medium">CAIPE</span>

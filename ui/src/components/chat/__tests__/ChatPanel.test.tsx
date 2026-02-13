@@ -312,15 +312,60 @@ describe('ChatPanel', () => {
     })
 
     it('should constrain user message container width to 85%', () => {
-      const msg = createMessage({ role: 'user', content: 'Test' })
+      const msg = createMessage({ role: 'user', content: 'Hello world' })
       mockGetActiveConversation.mockReturnValue(createConversation([msg]))
 
       render(<ChatPanel endpoint="/api/test" />)
 
-      const youLabel = screen.getByText('You')
+      // Session mock has name: 'Test User', so first name "Test" is shown as the role label
+      const youLabel = screen.getByText('Test')
       const contentWrapper = youLabel.closest('.flex-1.min-w-0')
       expect(contentWrapper).not.toBeNull()
       expect(contentWrapper!.className).toContain('max-w-[85%]')
+    })
+
+    it('should display first name from session for user messages', () => {
+      const msg = createMessage({ role: 'user', content: 'Hello there' })
+      mockGetActiveConversation.mockReturnValue(createConversation([msg]))
+
+      render(<ChatPanel endpoint="/api/test" />)
+
+      // Session mock has name: 'Test User', first name extracted as "Test"
+      expect(screen.getByText('Test')).toBeInTheDocument()
+    })
+
+    it('should fall back to "You" when session has no user name', () => {
+      const msg = createMessage({ role: 'user', content: 'Hello there' })
+      mockGetActiveConversation.mockReturnValue(createConversation([msg]))
+
+      // Override session to have no name
+      const { useSession } = require('next-auth/react')
+      useSession.mockReturnValueOnce({
+        data: { user: { email: 'test@test.com' }, accessToken: 'test-token' },
+        status: 'authenticated' as const,
+        update: jest.fn(),
+      })
+
+      render(<ChatPanel endpoint="/api/test" />)
+
+      expect(screen.getByText('You')).toBeInTheDocument()
+    })
+
+    it('should fall back to "You" when session is unauthenticated', () => {
+      const msg = createMessage({ role: 'user', content: 'Hello there' })
+      mockGetActiveConversation.mockReturnValue(createConversation([msg]))
+
+      // Override session to be unauthenticated
+      const { useSession } = require('next-auth/react')
+      useSession.mockReturnValueOnce({
+        data: null,
+        status: 'unauthenticated' as const,
+        update: jest.fn(),
+      })
+
+      render(<ChatPanel endpoint="/api/test" />)
+
+      expect(screen.getByText('You')).toBeInTheDocument()
     })
 
     it('should render collapsed preview for long assistant messages that are not latest', () => {
