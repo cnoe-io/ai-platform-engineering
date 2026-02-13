@@ -423,7 +423,7 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
         if state.sub_agents_completed == 1 and state.sub_agent_content and not state.sub_agent_datapart:
             logger.info(
                 f"Task {task.id}: single sub-agent already sent complete_result — "
-                f"skipping duplicate final_result, sending completion status only"
+                "skipping duplicate final_result, sending completion status only"
             )
             await self._send_completion(event_queue, task)
             logger.info(f"Task {task.id} completed (single sub-agent, deduped).")
@@ -625,8 +625,8 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
         # ================================================================
         if state.sub_agents_completed == 1 and state.sub_agent_content:
             logger.info(
-                f"📦 Single sub-agent already sent complete_result — "
-                f"skipping duplicate final_result, sending completion status only"
+                "📦 Single sub-agent already sent complete_result — "
+                "skipping duplicate final_result, sending completion status only"
             )
             await self._send_completion(event_queue, task)
             logger.info(f"Task {task.id} completed (stream end, single sub-agent, deduped).")

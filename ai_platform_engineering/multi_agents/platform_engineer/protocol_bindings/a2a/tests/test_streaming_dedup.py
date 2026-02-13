@@ -42,13 +42,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from a2a.types import (
     TaskArtifactUpdateEvent,
     TaskState,
-    TaskStatus,
     TaskStatusUpdateEvent,
 )
 from ai_platform_engineering.multi_agents.platform_engineer.protocol_bindings.a2a.agent_executor import (
     AIPlatformEngineerA2AExecutor,
     StreamState,
-    new_text_artifact,
 )
 
 
@@ -340,7 +338,6 @@ class TestStreamEndDedup(unittest.IsolatedAsyncioTestCase):
         await executor._handle_stream_end(state, task, eq)
 
         # DataPart triggers _get_final_content which returns datapart — should send artifact
-        artifacts = _extract_artifacts(executor)
         # DataPart path goes through normal flow (no dedup since sub_agent_content is empty)
         status_events = _extract_status_events(executor)
         self.assertEqual(len(status_events), 1)
@@ -548,7 +545,6 @@ class TestEndToEndGitHubProfilePattern(unittest.IsolatedAsyncioTestCase):
         )
 
         # === Assertions ===
-        all_events = _extract_sent_events(executor)
         all_artifacts = _extract_artifacts(executor)
         all_statuses = _extract_status_events(executor)
 
