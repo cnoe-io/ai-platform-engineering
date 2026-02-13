@@ -79,7 +79,6 @@ jest.mock('@/lib/config', () => ({
       tagline: 'Test tagline',
       description: 'Test description',
       ssoEnabled: false,
-      enableSubAgentCards: false,
     }
     return configs[key]
   }),
@@ -143,15 +142,6 @@ jest.mock('../CustomCallButtons', () => ({
 }))
 jest.mock('@/components/shared/AgentLogos', () => ({
   AGENT_LOGOS: {},
-}))
-jest.mock('../SubAgentCard', () => ({
-  SubAgentCard: () => null,
-  groupEventsByAgent: () => new Map(),
-  getAgentDisplayOrder: () => [],
-  isRealSubAgent: () => false,
-}))
-jest.mock('../AgentStreamBox', () => ({
-  AgentStreamBox: () => <div data-testid="agent-stream-box" />,
 }))
 jest.mock('../MetadataInputForm', () => ({
   MetadataInputForm: () => <div data-testid="metadata-input-form" />,

@@ -697,7 +697,6 @@ export function UserMenu() {
                     <ConfigRow label="SSO Enabled" value={config.ssoEnabled} />
                     <ConfigRow label="RAG Enabled" value={config.ragEnabled} />
                     <ConfigRow label="MongoDB Enabled" value={config.mongodbEnabled} />
-                    <ConfigRow label="Sub-Agent Cards" value={config.enableSubAgentCards} />
                     <ConfigRow label="Allow Dev Admin (no SSO)" value={config.allowDevAdminWhenSsoDisabled} />
                     <ConfigRow label="Storage Mode" value={config.storageMode} />
                   </div>

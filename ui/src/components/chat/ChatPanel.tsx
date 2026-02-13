@@ -20,8 +20,6 @@ import { getConfig } from "@/lib/config";
 import { FeedbackButton, Feedback } from "./FeedbackButton";
 import { DEFAULT_AGENTS, CustomCall } from "./CustomCallButtons";
 import { AGENT_LOGOS } from "@/components/shared/AgentLogos";
-import { SubAgentCard, groupEventsByAgent, getAgentDisplayOrder, isRealSubAgent } from "./SubAgentCard";
-import { AgentStreamBox } from "./AgentStreamBox";
 import { MetadataInputForm, type UserInputMetadata, type InputField } from "./MetadataInputForm";
 
 interface ChatPanelProps {
@@ -1008,9 +1006,6 @@ interface StreamingViewProps {
 }
 
 function StreamingView({ message, showRawStream, setShowRawStream, isStreaming = false }: StreamingViewProps) {
-  // Feature flag for sub-agent cards (experimental)
-  const enableSubAgentCards = getConfig('enableSubAgentCards');
-
   // Ref for auto-scrolling the Thinking container to the bottom on new content.
   // Safe because content is truncated to 2000 chars during streaming.
   const thinkingRef = useRef<HTMLDivElement>(null);
@@ -1024,45 +1019,6 @@ function StreamingView({ message, showRawStream, setShowRawStream, isStreaming =
       thinkingRef.current.scrollTop = thinkingRef.current.scrollHeight;
     }
   }, [message.rawStreamContent, isStreaming]);
-
-  // Group events by source agent (including supervisor)
-  const eventGroups = useMemo(() => {
-    const groups = groupEventsByAgent(message.events);
-    // Also include supervisor events if present
-    const supervisorEvents = message.events.filter(e => !e.sourceAgent || e.sourceAgent.toLowerCase() === "supervisor");
-    if (supervisorEvents.length > 0) {
-      groups.set("supervisor", supervisorEvents);
-    }
-    return groups;
-  }, [message.events]);
-
-  // Get display order - sub-agents first, supervisor only if sub-agents exist.
-  // When the supervisor is the only agent, its content flows through the
-  // "Thinking" section below — showing it as a sub-agent card is misleading.
-  const agentOrder = useMemo(() => {
-    const order: string[] = [];
-    const seen = new Set<string>();
-
-    // First pass: collect sub-agents (not supervisor) in event order
-    for (const event of message.events) {
-      const agent = (event.sourceAgent || "supervisor").toLowerCase();
-      if (!seen.has(agent) && agent !== "supervisor") {
-        seen.add(agent);
-        order.push(agent);
-      }
-    }
-
-    // Only include supervisor card when there are real sub-agents,
-    // so the orchestration context is visible alongside the sub-agents.
-    if (order.length > 0 && eventGroups.has("supervisor")) {
-      order.unshift("supervisor");
-    }
-
-    return order;
-  }, [message.events, eventGroups]);
-
-  // Show agent stream boxes only when there are actual sub-agents
-  const hasAgents = agentOrder.length > 0;
 
   return (
     <div className="space-y-4">
@@ -1079,46 +1035,6 @@ function StreamingView({ message, showRawStream, setShowRawStream, isStreaming =
             <div className="w-2 h-2 bg-primary rounded-full" />
           </div>
           <span className="text-sm text-muted-foreground">Thinking...</span>
-        </motion.div>
-      )}
-
-      {/* Individual Agent Stream Boxes - Intuitive per-agent streaming */}
-      {hasAgents && (
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          className="space-y-3"
-        >
-          <div className="flex items-center gap-2 mb-2">
-            <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
-              Agent Streams
-            </span>
-            <div className="flex-1 h-px bg-border/50" />
-            <span className="text-xs text-muted-foreground/60">
-              {agentOrder.length} {agentOrder.length === 1 ? 'agent' : 'agents'}
-            </span>
-          </div>
-
-          {/* Individual streaming boxes for each agent */}
-          <div className="space-y-3">
-            <AnimatePresence mode="popLayout">
-              {agentOrder.map(agentName => {
-                const events = eventGroups.get(agentName) || [];
-                // Show box if has events, is streaming, or has content
-                const hasContent = events.some(e => e.displayContent && e.displayContent.trim().length > 0);
-                if (events.length === 0 && !isStreaming && !hasContent) return null;
-
-                return (
-                  <AgentStreamBox
-                    key={agentName}
-                    agentName={agentName}
-                    events={events}
-                    isStreaming={isStreaming}
-                  />
-                );
-              })}
-            </AnimatePresence>
-          </div>
         </motion.div>
       )}
 

@@ -8,7 +8,6 @@ Tests the core functionality of the BaseLangGraphAgent class,
 including date/time injection and system instruction generation.
 """
 
-import asyncio
 import pytest
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -417,7 +416,7 @@ class TestFindSafeSplitIndex:
 
     def test_desired_keep_zero(self):
         """desired_keep_count=0 is an edge case — candidate equals len(messages)."""
-        msgs = [HumanMessage(content="q"), AIMessage(content="a")]
+        _ = [HumanMessage(content="q"), AIMessage(content="a")]
         # With 0 desired keep, candidate = len - 0 = 2, which is out-of-bounds
         # for the while loop.  The code accesses messages[candidate] so this
         # would raise IndexError.  In practice desired_keep_count is always >= 2.
