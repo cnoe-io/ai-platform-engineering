@@ -656,10 +656,15 @@ const storeImplementation = (set: any, get: any) => ({
 
           // Convert server items to local Conversation format
           const serverConversations: Conversation[] = serverItems.map((conv) => {
-            // If this conversation is actively streaming in this session,
-            // preserve the in-memory messages and events (live stream buffer).
+            // Preserve in-memory messages and events when:
+            // 1. The conversation is actively streaming (live stream buffer), OR
+            // 2. The conversation already has messages loaded in memory (avoid
+            //    discarding data that loadMessagesFromServer already fetched —
+            //    otherwise switching tabs wipes the active conversation's content
+            //    and the cooldown prevents an immediate re-fetch).
             const isStreaming = currentState.streamingConversations.has(conv._id);
             const localConv = currentState.conversations.find(c => c.id === conv._id);
+            const hasLoadedMessages = localConv && localConv.messages.length > 0;
 
             const title = (conv.title && conv.title.trim())
               ? conv.title
@@ -670,9 +675,9 @@ const storeImplementation = (set: any, get: any) => ({
               title,
               createdAt: new Date(conv.created_at),
               updatedAt: new Date(conv.updated_at),
-              // Preserve in-flight messages/events for streaming conversations only
-              messages: isStreaming && localConv ? localConv.messages : [],
-              a2aEvents: isStreaming && localConv ? localConv.a2aEvents : [],
+              // Preserve messages/events for streaming OR already-loaded conversations
+              messages: (isStreaming || hasLoadedMessages) && localConv ? localConv.messages : [],
+              a2aEvents: (isStreaming || hasLoadedMessages) && localConv ? localConv.a2aEvents : [],
               sharing: conv.sharing,
             };
           });
