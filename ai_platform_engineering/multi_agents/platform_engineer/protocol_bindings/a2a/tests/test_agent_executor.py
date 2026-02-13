@@ -16,7 +16,6 @@ Tests cover:
   - _handle_task_complete: final content selection
 """
 
-import asyncio
 import unittest
 import uuid
 from dataclasses import fields as dc_fields
@@ -30,8 +29,6 @@ from a2a.types import (
     TaskStatusUpdateEvent,
     TextPart,
 )
-from a2a.utils import new_text_artifact
-
 from ai_platform_engineering.multi_agents.platform_engineer.protocol_bindings.a2a.agent_executor import (
     AIPlatformEngineerA2AExecutor,
     StreamState,
@@ -647,7 +644,7 @@ class TestTypedArtifactAccumulation(unittest.IsolatedAsyncioTestCase):
 
     async def test_streaming_result_accumulated_in_supervisor_content(self):
         """streaming_result typed events should accumulate in supervisor_content."""
-        executor = _make_executor()
+        _make_executor()  # ensure executor can be constructed
         state = StreamState()
 
         # Simulate what execute() does for typed artifact events
