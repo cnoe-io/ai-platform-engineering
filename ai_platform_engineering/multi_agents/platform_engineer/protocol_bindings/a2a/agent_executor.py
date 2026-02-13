@@ -63,6 +63,9 @@ class StreamState:
     current_agent: Optional[str] = None
     agent_streaming_artifact_ids: Dict[str, str] = field(default_factory=dict)
 
+    # Trace ID for feedback/scoring (exposed to clients)
+    trace_id: Optional[str] = None
+
 
 class AIPlatformEngineerA2AExecutor(AgentExecutor):
     """AI Platform Engineer A2A Executor."""
@@ -298,9 +301,9 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
             )
         )
 
-    async def _send_completion(self, event_queue: EventQueue, task: A2ATask):
-        """Send task completion status."""
-        logger.info(f"📤 Sending completion status for task {task.id}")
+    async def _send_completion(self, event_queue: EventQueue, task: A2ATask, trace_id: str = None):
+        """Send task completion status with optional trace_id for client feedback."""
+        logger.info(f"📤 Sending completion status for task {task.id} (trace_id={trace_id})")
         await self._safe_enqueue_event(
             event_queue,
             TaskStatusUpdateEvent(
@@ -308,6 +311,7 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                 final=True,
                 context_id=task.context_id,
                 task_id=task.id,
+                metadata={'trace_id': trace_id} if trace_id else None,
             )
         )
         logger.info(f"📤 Completion status enqueued for task {task.id}")
@@ -426,7 +430,7 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                 f"Task {task.id}: single sub-agent already sent complete_result — "
                 "skipping duplicate final_result, sending completion status only"
             )
-            await self._send_completion(event_queue, task)
+            await self._send_completion(event_queue, task, trace_id=state.trace_id)
             logger.info(f"Task {task.id} completed (single sub-agent, deduped).")
             return
 
@@ -463,8 +467,13 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                 text=final_content if isinstance(final_content, str) else '',
             )
 
+        # Include trace_id in artifact metadata for client feedback/scoring
+        if state.trace_id:
+            artifact.metadata = artifact.metadata or {}
+            artifact.metadata['trace_id'] = state.trace_id
+
         await self._send_artifact(event_queue, task, artifact, append=False, last_chunk=True)
-        await self._send_completion(event_queue, task)
+        await self._send_completion(event_queue, task, trace_id=state.trace_id)
         logger.info(f"Task {task.id} completed.")
 
     async def _handle_user_input_required(self, content: str, task: A2ATask,
@@ -636,7 +645,7 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                 "📦 Single sub-agent already sent complete_result — "
                 "skipping duplicate final_result, sending completion status only"
             )
-            await self._send_completion(event_queue, task)
+            await self._send_completion(event_queue, task, trace_id=state.trace_id)
             logger.info(f"Task {task.id} completed (stream end, single sub-agent, deduped).")
             return
 
@@ -663,9 +672,14 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
             else:
                 artifact = new_text_artifact(name=artifact_name, description=description, text=final_content)
 
+            # Include trace_id in artifact metadata for client feedback/scoring
+            if state.trace_id:
+                artifact.metadata = artifact.metadata or {}
+                artifact.metadata['trace_id'] = state.trace_id
+
             await self._send_artifact(event_queue, task, artifact, append=False, last_chunk=True)
 
-        await self._send_completion(event_queue, task)
+        await self._send_completion(event_queue, task, trace_id=state.trace_id)
         logger.info(f"Task {task.id} completed (stream end, {state.sub_agents_completed} sub-agents).")
 
     # ─────────────────────────────────────────────────────────────────────────
@@ -699,8 +713,8 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
             trace_id = str(uuid.uuid4()).replace('-', '').lower()
             logger.info(f"Generated ROOT trace_id: {trace_id}")
 
-        # Initialize state
-        state = StreamState()
+        # Initialize state with trace_id for client feedback/scoring
+        state = StreamState(trace_id=trace_id)
 
         try:
             async for event in self.agent.stream(query, context_id, trace_id):
