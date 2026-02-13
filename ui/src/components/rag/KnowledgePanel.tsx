@@ -86,7 +86,7 @@ export function KnowledgePanel() {
             />
             {/* Logo container */}
             <div className="relative w-16 h-16 rounded-2xl gradient-primary-br flex items-center justify-center shadow-2xl">
-              <img src="/logo.svg" alt="CAIPE" className="h-10 w-10" />
+              <img src="/logo.svg" alt={config.appName} className="h-10 w-10" />
             </div>
           </div>
           {/* Spinner */}

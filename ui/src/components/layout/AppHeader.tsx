@@ -240,7 +240,7 @@ export function AppHeader() {
                   <div className="flex items-start justify-between gap-3">
                     <div className="flex-1">
                       <div className="text-base font-bold text-white mb-1">System Status</div>
-                      <div className="text-xs text-white/80">CAIPE Supervisor & RAG Server</div>
+                      <div className="text-xs text-white/80">{config.appName} Supervisor & RAG Server</div>
                     </div>
                     <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white/20 backdrop-blur-sm">
                       <span className={cn(
@@ -261,7 +261,7 @@ export function AppHeader() {
                   <div className="space-y-3">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
-                        <div className="text-sm font-bold text-foreground">CAIPE Supervisor</div>
+                        <div className="text-sm font-bold text-foreground">{config.appName} Supervisor</div>
                         <div className={cn(
                           "px-2 py-0.5 rounded-full text-[10px] font-bold",
                           caipeStatus === "connected" && "bg-green-500/15 text-green-400 border border-green-500/30",
@@ -456,26 +456,30 @@ export function AppHeader() {
         <div className="flex items-center gap-1 border-l border-border pl-3">
           <SettingsPanel />
           <ThemeToggle />
-          <Button variant="ghost" size="icon" className="h-8 w-8" asChild>
-            <a
-              href="https://cnoe-io.github.io/ai-platform-engineering/ui/"
-              target="_blank"
-              rel="noopener noreferrer"
-              title="Documentation"
-            >
-              <BookOpen className="h-4 w-4" />
-            </a>
-          </Button>
-          <Button variant="ghost" size="icon" className="h-8 w-8" asChild>
-            <a
-              href="https://github.com/cnoe-io/ai-platform-engineering"
-              target="_blank"
-              rel="noopener noreferrer"
-              title="GitHub"
-            >
-              <Github className="h-4 w-4" />
-            </a>
-          </Button>
+          {config.docsUrl && (
+            <Button variant="ghost" size="icon" className="h-8 w-8" asChild>
+              <a
+                href={config.docsUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                title="Documentation"
+              >
+                <BookOpen className="h-4 w-4" />
+              </a>
+            </Button>
+          )}
+          {config.sourceUrl && (
+            <Button variant="ghost" size="icon" className="h-8 w-8" asChild>
+              <a
+                href={config.sourceUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                title="Source Code"
+              >
+                <Github className="h-4 w-4" />
+              </a>
+            </Button>
+          )}
           {/* User Menu - Only shown when SSO is enabled */}
           <UserMenu />
         </div>

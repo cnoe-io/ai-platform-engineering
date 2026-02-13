@@ -24,15 +24,21 @@ interface TechItem {
   category: "platform" | "protocol" | "frontend" | "backend" | "community";
 }
 
-// Helper to get CAIPE description dynamically — uses hardcoded defaults
+// Helper to get platform name dynamically — uses config.appName
+// since techStack is defined at module level (outside component scope).
+function getPlatformName(): string {
+  return config.appName;
+}
+
+// Helper to get platform description dynamically — uses hardcoded defaults
 // since techStack is defined at module level (outside component scope).
 // The actual values shown in the dialog will come from the config module.
-function getCaipeDescription(): string {
+function getPlatformDescription(): string {
   return "Multi-Agent Workflow Automation - Where Humans and AI agents collaborate to deliver high quality outcomes.";
 }
 
 const techStack: TechItem[] = [
-  { name: "CAIPE", get description() { return getCaipeDescription(); }, url: "https://caipe.io", category: "platform" },
+  { get name() { return getPlatformName(); }, get description() { return getPlatformDescription(); }, url: "https://caipe.io", category: "platform" },
   { name: "A2A Protocol", description: "Agent-to-Agent protocol for inter-agent communication (by Google)", url: "https://google.github.io/A2A/", category: "protocol" },
   { name: "A2UI", description: "Agent-to-User Interface specification for declarative UI widgets", url: "https://a2ui.org/", category: "protocol" },
   { name: "MCP", description: "Model Context Protocol for AI tool integration (by Anthropic)", url: "https://modelcontextprotocol.io/", category: "protocol" },
@@ -709,7 +715,7 @@ export function UserMenu() {
                     <span className="text-sm font-semibold">Services</span>
                   </div>
                   <div className="bg-muted/30 rounded-lg p-4 border border-border space-y-0">
-                    <ConfigRow label="CAIPE URL" value={config.caipeUrl} />
+                    <ConfigRow label={`${config.appName} URL`} value={config.caipeUrl} />
                     <ConfigRow label="RAG URL" value={config.ragUrl} />
                     <ConfigRow label="Environment" value={config.isDev ? "development" : config.isProd ? "production" : "unknown"} />
                   </div>

@@ -170,6 +170,9 @@ config:
   OIDC_ENABLE_REFRESH_TOKEN: "true"
   # Support contact email
   SUPPORT_EMAIL: "support@example.com"
+  # Header link URLs (leave empty/commented to hide)
+  # DOCS_URL: "https://your-docs-site.com"
+  # SOURCE_URL: "https://github.com/your-org/your-repo"
 
 # External Secrets configuration for sensitive data (OIDC credentials, NextAuth secret)
 # These secrets are fetched from your secret store (Vault, AWS Secrets Manager, etc.)
