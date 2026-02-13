@@ -5,7 +5,7 @@
 
 import asyncio
 import unittest
-from unittest.mock import AsyncMock, Mock, patch
+from unittest.mock import AsyncMock, Mock
 
 from a2a.types import Task, TaskState, TaskArtifactUpdateEvent, TaskStatusUpdateEvent
 
@@ -372,7 +372,7 @@ class TestBaseLangGraphAgentExecutor(unittest.IsolatedAsyncioTestCase):
         # Make the agent stream raise an exception
         async def failing_stream(query, context_id, trace_id=None):
             raise Exception("expected toolResult blocks in conversation turn")
-            yield  # noqa: make it a generator
+            yield  # noqa: F841 — make it a generator
 
         self.agent.stream = failing_stream
 

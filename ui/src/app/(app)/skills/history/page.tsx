@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import { ArrowLeft, LayoutGrid } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { WorkflowHistoryView } from "@/components/skills/WorkflowHistoryView";
+import { WorkflowHistoryView } from "@/components/agent-builder/WorkflowHistoryView";
 import { AuthGuard } from "@/components/auth-guard";
 import type { WorkflowRun } from "@/types/workflow-run";
 

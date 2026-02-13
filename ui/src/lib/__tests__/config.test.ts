@@ -66,7 +66,7 @@ describe('getServerConfig', () => {
       // Clear ALL env vars that the config reads
       clearEnv(
         'A2A_BASE_URL', 'RAG_URL', 'SSO_ENABLED', 'RAG_ENABLED',
-        'MONGODB_ENABLED', 'ENABLE_SUBAGENT_CARDS', 'PREVIEW_MODE',
+        'MONGODB_ENABLED', 'PREVIEW_MODE',
         'ALLOW_DEV_ADMIN_WHEN_SSO_DISABLED', 'SHOW_POWERED_BY',
         'LOGO_STYLE', 'SPINNER_COLOR', 'TAGLINE', 'DESCRIPTION',
         'APP_NAME', 'LOGO_URL', 'GRADIENT_FROM', 'GRADIENT_TO',
@@ -87,7 +87,6 @@ describe('getServerConfig', () => {
       expect(cfg.ssoEnabled).toBe(false);
       expect(cfg.ragEnabled).toBe(true); // default true
       expect(cfg.mongodbEnabled).toBe(false);
-      expect(cfg.enableSubAgentCards).toBe(false);
       expect(cfg.tagline).toBe('Multi-Agent Workflow Automation');
       expect(cfg.description).toBe(
         'Where Humans and AI agents collaborate to deliver high quality outcomes.',
@@ -109,7 +108,7 @@ describe('getServerConfig', () => {
       const cfg = getServerConfig();
       const expectedKeys: (keyof Config)[] = [
         'caipeUrl', 'ragUrl', 'isDev', 'isProd', 'ssoEnabled',
-        'ragEnabled', 'mongodbEnabled', 'enableSubAgentCards',
+        'ragEnabled', 'mongodbEnabled',
         'tagline', 'description', 'appName', 'logoUrl', 'previewMode',
         'gradientFrom', 'gradientTo', 'logoStyle', 'spinnerColor',
         'showPoweredBy', 'supportEmail', 'allowDevAdminWhenSsoDisabled',
@@ -171,11 +170,6 @@ describe('getServerConfig', () => {
     it('should read DESCRIPTION', () => {
       process.env.DESCRIPTION = 'A custom description for testing.';
       expect(getServerConfig().description).toBe('A custom description for testing.');
-    });
-
-    it('should read ENABLE_SUBAGENT_CARDS=true', () => {
-      process.env.ENABLE_SUBAGENT_CARDS = 'true';
-      expect(getServerConfig().enableSubAgentCards).toBe(true);
     });
 
     it('should read PREVIEW_MODE=true', () => {
@@ -509,7 +503,7 @@ describe('getClientConfigScript (XSS safety)', () => {
     const parsed = JSON.parse(script);
     const expectedKeys: (keyof Config)[] = [
       'caipeUrl', 'ragUrl', 'isDev', 'isProd', 'ssoEnabled',
-      'ragEnabled', 'mongodbEnabled', 'enableSubAgentCards',
+      'ragEnabled', 'mongodbEnabled',
       'tagline', 'description', 'appName', 'logoUrl', 'previewMode',
       'gradientFrom', 'gradientTo', 'logoStyle', 'spinnerColor',
       'showPoweredBy', 'supportEmail', 'allowDevAdminWhenSsoDisabled',
@@ -556,7 +550,6 @@ describe('client-side config (window.__APP_CONFIG__)', () => {
         ssoEnabled: true,
         ragEnabled: true,
         mongodbEnabled: true,
-        enableSubAgentCards: true,
         tagline: 'Prod Tagline',
         description: 'Prod Description',
         appName: 'ProdApp',
@@ -579,7 +572,6 @@ describe('client-side config (window.__APP_CONFIG__)', () => {
       expect(getConfig('showPoweredBy')).toBe(false);
       expect(getConfig('spinnerColor')).toBe('#00ff00');
       expect(getConfig('isProd')).toBe(true);
-      expect(getConfig('enableSubAgentCards')).toBe(true);
     });
 
     it('should reflect changes when window.__APP_CONFIG__ is updated', () => {
@@ -589,7 +581,7 @@ describe('client-side config (window.__APP_CONFIG__)', () => {
         ragUrl: 'http://localhost:9446',
         isDev: true, isProd: false,
         ssoEnabled: false, ragEnabled: true,
-        mongodbEnabled: false, enableSubAgentCards: false,
+        mongodbEnabled: false,
         tagline: 'Dev', description: 'Dev', appName: 'DevApp',
         logoUrl: '/logo.svg', previewMode: false,
         gradientFrom: '#000', gradientTo: '#fff',
@@ -619,7 +611,7 @@ describe('client-side config (window.__APP_CONFIG__)', () => {
         ragUrl: 'https://rag.test.com',
         isDev: false, isProd: true,
         ssoEnabled: true, ragEnabled: false,
-        mongodbEnabled: true, enableSubAgentCards: false,
+        mongodbEnabled: true,
         tagline: 'Proxy Test', description: 'Test',
         appName: 'ProxyApp', logoUrl: '/proxy.svg',
         previewMode: true, gradientFrom: '#aaa', gradientTo: '#bbb',
@@ -674,7 +666,7 @@ describe('getLogoFilterClass', () => {
     setWindowConfig({
       caipeUrl: '', ragUrl: '', isDev: false, isProd: false,
       ssoEnabled: false, ragEnabled: true, mongodbEnabled: false,
-      enableSubAgentCards: false, tagline: '', description: '',
+      tagline: '', description: '',
       appName: '', logoUrl: '', previewMode: false,
       gradientFrom: '', gradientTo: '', logoStyle: 'white',
       spinnerColor: null, showPoweredBy: true, supportEmail: '',
@@ -791,7 +783,7 @@ describe('edge cases', () => {
     it('should roundtrip all default config values', () => {
       clearEnv(
         'A2A_BASE_URL', 'RAG_URL', 'SSO_ENABLED', 'RAG_ENABLED',
-        'MONGODB_ENABLED', 'ENABLE_SUBAGENT_CARDS', 'PREVIEW_MODE',
+        'MONGODB_ENABLED', 'PREVIEW_MODE',
         'ALLOW_DEV_ADMIN_WHEN_SSO_DISABLED', 'SHOW_POWERED_BY',
         'LOGO_STYLE', 'SPINNER_COLOR', 'TAGLINE', 'DESCRIPTION',
         'APP_NAME', 'LOGO_URL', 'GRADIENT_FROM', 'GRADIENT_TO',
@@ -884,7 +876,7 @@ describe('end-to-end: layout injection → client read', () => {
     // Simulate a fresh deployment with no env vars at all
     clearEnv(
       'A2A_BASE_URL', 'RAG_URL', 'SSO_ENABLED', 'RAG_ENABLED',
-      'MONGODB_ENABLED', 'ENABLE_SUBAGENT_CARDS', 'PREVIEW_MODE',
+      'MONGODB_ENABLED', 'PREVIEW_MODE',
       'ALLOW_DEV_ADMIN_WHEN_SSO_DISABLED', 'SHOW_POWERED_BY',
       'LOGO_STYLE', 'SPINNER_COLOR', 'TAGLINE', 'DESCRIPTION',
       'APP_NAME', 'LOGO_URL', 'GRADIENT_FROM', 'GRADIENT_TO',
@@ -920,7 +912,6 @@ describe('end-to-end: layout injection → client read', () => {
     process.env.MONGODB_DATABASE = 'grid-prod';
     process.env.SPINNER_COLOR = '#4ecdc4';
     process.env.SUPPORT_EMAIL = 'support@grid.cisco.com';
-    process.env.ENABLE_SUBAGENT_CARDS = 'true';
 
     const script = getClientConfigScript();
     setWindowConfig(JSON.parse(script));
@@ -934,7 +925,6 @@ describe('end-to-end: layout injection → client read', () => {
     expect(getConfig('storageMode')).toBe('mongodb');
     expect(getConfig('spinnerColor')).toBe('#4ecdc4');
     expect(getConfig('supportEmail')).toBe('support@grid.cisco.com');
-    expect(getConfig('enableSubAgentCards')).toBe(true);
     expect(getConfig('caipeUrl')).toBe('http://caipe-supervisor:8000');
 
     // Secrets must NOT be in the script
