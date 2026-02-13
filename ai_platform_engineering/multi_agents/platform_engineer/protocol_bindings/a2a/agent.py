@@ -507,7 +507,6 @@ class AIPlatformEngineerA2ABinding:
 
                   if content:  # Only yield if there's actual content
                       # Check for querying announcements and emit as tool_update events
-                      import re
                       querying_pattern = r'🔍\s+Querying\s+(\w+)\s+for\s+([^.]+?)\.\.\.'
                       match = re.search(querying_pattern, content)
 
@@ -891,7 +890,6 @@ class AIPlatformEngineerA2ABinding:
               logging.error(f"❌ Bedrock tool_use ordering error: {error_str}")
 
               # Extract the problematic tool_use ID from error if possible
-              import re
               id_match = re.search(r'tooluse_[A-Za-z0-9_-]+', error_str)
               problem_id = id_match.group(0) if id_match else "unknown"
               logging.error(f"Problematic tool_use ID: {problem_id}")
