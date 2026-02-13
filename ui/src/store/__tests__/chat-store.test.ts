@@ -1226,17 +1226,18 @@ describe('chat-store', () => {
       expect(useChatStore.getState().conversations).toHaveLength(0);
     });
 
-    it('conversations from server have empty messages (filled by loadMessagesFromServer)', async () => {
-      // loadConversationsFromServer sets messages: [] for non-streaming server conversations.
-      // Messages are loaded separately when the user opens the conversation via loadMessagesFromServer.
+    it('preserves in-memory messages for conversations that already have them loaded', async () => {
+      // When loadConversationsFromServer refreshes the list, conversations that already
+      // have messages loaded in memory should keep them to avoid wiping content on tab switch.
+      // Messages are only empty for conversations that have NOT been opened yet.
       const localMsg = makeMessage({ id: 'local-msg', content: 'I have content' });
-      const conv = makeConversation({ id: 'empty-msgs', title: 'Has Messages', messages: [localMsg] });
+      const conv = makeConversation({ id: 'has-msgs', title: 'Has Messages', messages: [localMsg] });
 
       useChatStore.setState({ conversations: [conv] });
 
       mockApiClient.getConversations.mockResolvedValue({
         items: [
-          { _id: 'empty-msgs', title: 'Has Messages', created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
+          { _id: 'has-msgs', title: 'Has Messages', created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
         ],
         total: 1,
         page: 1,
@@ -1246,9 +1247,31 @@ describe('chat-store', () => {
 
       await useChatStore.getState().loadConversationsFromServer();
 
-      const updatedConv = useChatStore.getState().conversations.find(c => c.id === 'empty-msgs');
-      // Server conversations start with empty messages — loadMessagesFromServer fills them when opened
-      expect(updatedConv!.messages).toHaveLength(0);
+      const updatedConv = useChatStore.getState().conversations.find(c => c.id === 'has-msgs');
+      // Messages should be preserved — not wiped to empty
+      expect(updatedConv!.messages).toHaveLength(1);
+      expect(updatedConv!.messages[0].content).toBe('I have content');
+    });
+
+    it('new server conversations without local messages start with empty messages', async () => {
+      // Conversations that have NOT been opened locally should start with empty messages.
+      // loadMessagesFromServer fills them when the user opens the conversation.
+      useChatStore.setState({ conversations: [] });
+
+      mockApiClient.getConversations.mockResolvedValue({
+        items: [
+          { _id: 'new-conv', title: 'New Conversation', created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
+        ],
+        total: 1,
+        page: 1,
+        page_size: 100,
+        has_more: false,
+      });
+
+      await useChatStore.getState().loadConversationsFromServer();
+
+      const newConv = useChatStore.getState().conversations.find(c => c.id === 'new-conv');
+      expect(newConv!.messages).toHaveLength(0);
     });
 
     it('skips loading in localStorage mode', async () => {
