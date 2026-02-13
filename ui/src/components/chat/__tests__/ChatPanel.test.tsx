@@ -368,6 +368,72 @@ describe('ChatPanel', () => {
       expect(screen.getByText('You')).toBeInTheDocument()
     })
 
+    it('should display senderName from message when available (shared conversation)', () => {
+      // Simulate a message from another user in a shared conversation
+      const msg = createMessage({
+        role: 'user',
+        content: 'Hello from Alice',
+        senderName: 'Alice Johnson',
+        senderEmail: 'alice@example.com',
+      })
+      mockGetActiveConversation.mockReturnValue(createConversation([msg]))
+
+      render(<ChatPanel endpoint="/api/test" />)
+
+      // Should show first name from senderName, not session user's name
+      expect(screen.getByText('Alice')).toBeInTheDocument()
+    })
+
+    it('should fall back to session name for legacy messages without senderName', () => {
+      // Legacy message with no sender fields — should use session's first name
+      const msg = createMessage({
+        role: 'user',
+        content: 'Legacy message',
+        // No senderName, senderEmail, senderImage
+      })
+      mockGetActiveConversation.mockReturnValue(createConversation([msg]))
+
+      render(<ChatPanel endpoint="/api/test" />)
+
+      // Session has 'Test User', first name is 'Test'
+      expect(screen.getByText('Test')).toBeInTheDocument()
+    })
+
+    it('should show sender avatar image when senderImage is available', () => {
+      const msg = createMessage({
+        role: 'user',
+        content: 'Message with avatar',
+        senderName: 'Bob Smith',
+        senderImage: 'https://example.com/bob.png',
+      })
+      mockGetActiveConversation.mockReturnValue(createConversation([msg]))
+
+      render(<ChatPanel endpoint="/api/test" />)
+
+      const img = screen.getByAltText('Bob Smith')
+      expect(img).toBeInTheDocument()
+      expect(img).toHaveAttribute('src', 'https://example.com/bob.png')
+    })
+
+    it('should show User icon when no senderImage is available', () => {
+      const msg = createMessage({
+        role: 'user',
+        content: 'No avatar message',
+        senderName: 'Charlie',
+        // No senderImage
+      })
+      mockGetActiveConversation.mockReturnValue(createConversation([msg]))
+
+      const { container } = render(<ChatPanel endpoint="/api/test" />)
+
+      // Should render the User icon SVG (lucide icon), not an img element
+      const avatarDiv = container.querySelector('.bg-primary')
+      expect(avatarDiv).not.toBeNull()
+      // Should NOT have an img inside
+      const img = avatarDiv?.querySelector('img')
+      expect(img).toBeNull()
+    })
+
     it('should render collapsed preview for long assistant messages that are not latest', () => {
       const longContent = 'A'.repeat(500)
       const assistantMsg = createMessage({

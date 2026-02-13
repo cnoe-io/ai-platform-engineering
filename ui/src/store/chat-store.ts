@@ -780,6 +780,11 @@ const storeImplementation = (set: any, get: any) => ({
               message_id: msg.id,
               role: msg.role,
               content: msg.content,
+              // Include sender identity so shared conversations attribute messages correctly.
+              // These are set in $setOnInsert on the API side (immutable after first write).
+              ...(msg.senderEmail && { sender_email: msg.senderEmail }),
+              ...(msg.senderName && { sender_name: msg.senderName }),
+              ...(msg.senderImage && { sender_image: msg.senderImage }),
               metadata: {
                 turn_id: msg.turnId || `turn-${Date.now()}`,
                 is_final: msg.isFinal ?? false,
@@ -999,6 +1004,12 @@ const storeImplementation = (set: any, get: any) => ({
                 type: msg.feedback.rating === 'positive' ? 'like' : msg.feedback.rating === 'negative' ? 'dislike' : null,
                 submitted: true,
               } : undefined,
+              // Sender identity — present for messages created after this feature.
+              // Legacy messages without these fields will fall back to session-based
+              // display in the UI (backward compatible).
+              senderEmail: msg.sender_email,
+              senderName: msg.sender_name,
+              senderImage: msg.sender_image,
             };
 
             return chatMsg;

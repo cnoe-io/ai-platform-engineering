@@ -246,7 +246,14 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle }: ChatP
 
     // Add user message - generate turnId for this request/response pair
     const turnId = `turn-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
-    addMessage(convId, { role: "user", content: messageToSend }, turnId);
+    addMessage(convId, {
+      role: "user",
+      content: messageToSend,
+      // Stamp sender identity so shared conversations attribute messages correctly
+      senderEmail: session?.user?.email ?? undefined,
+      senderName: session?.user?.name ?? undefined,
+      senderImage: session?.user?.image ?? undefined,
+    }, turnId);
 
     // Add assistant message placeholder with same turnId
     const assistantMsgId = addMessage(convId, { role: "assistant", content: "" }, turnId);
@@ -1319,7 +1326,7 @@ const ChatMessage = React.memo(function ChatMessage({
       {/* Avatar */}
       <div
         className={cn(
-          "w-9 h-9 rounded-xl flex items-center justify-center shrink-0 shadow-sm",
+          "w-9 h-9 rounded-xl flex items-center justify-center shrink-0 shadow-sm overflow-hidden",
           isUser
             ? "bg-primary"
             : "gradient-primary-br",
@@ -1327,7 +1334,15 @@ const ChatMessage = React.memo(function ChatMessage({
         )}
       >
         {isUser ? (
-          <User className="h-4 w-4 text-white" />
+          message.senderImage ? (
+            <img
+              src={message.senderImage}
+              alt={message.senderName || userDisplayName}
+              className="w-9 h-9 rounded-xl object-cover"
+            />
+          ) : (
+            <User className="h-4 w-4 text-white" />
+          )
         ) : isStreaming ? (
           <Loader2 className="h-4 w-4 text-white animate-spin" />
         ) : (
@@ -1348,7 +1363,14 @@ const ChatMessage = React.memo(function ChatMessage({
             : "text-muted-foreground justify-between"
         )}>
           {isUser ? (
-            <span className="text-xs font-medium">{userDisplayName}</span>
+            <span className="text-xs font-medium">
+              {/* Priority: message-level senderName (from MongoDB, the actual sender)
+                  → session-based userDisplayName (backward compat for legacy messages)
+                  → "You" (no session / no data) */}
+              {message.senderName
+                ? message.senderName.split(" ")[0]
+                : userDisplayName}
+            </span>
           ) : (
             <>
               <span className="text-xs font-medium">CAIPE</span>

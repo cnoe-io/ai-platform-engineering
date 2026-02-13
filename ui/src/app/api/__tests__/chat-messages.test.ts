@@ -653,6 +653,188 @@ describe('POST /api/chat/conversations/[id]/messages', () => {
 });
 
 // ============================================================================
+// Tests: Sender identity for shared conversations
+// ============================================================================
+
+describe('Sender identity in shared conversations', () => {
+  beforeEach(resetMocks);
+
+  it('stores sender_email and sender_name from request body on insert', async () => {
+    mockGetServerSession.mockResolvedValue(authenticatedSession('alice@example.com'));
+
+    const usersCol = createMockCollection();
+    usersCol.findOne.mockResolvedValue(null);
+    mockCollections['users'] = usersCol;
+
+    const convCol = createMockCollection();
+    convCol.findOne.mockResolvedValue({
+      _id: testConversationId,
+      owner_id: 'owner@example.com', // Different from sender
+      sharing: { shared_with: ['alice@example.com'] },
+    });
+    mockCollections['conversations'] = convCol;
+
+    const msgCol = createMockCollection();
+    const upsertedId = new ObjectId();
+    msgCol.updateOne.mockResolvedValue({
+      upsertedId,
+      upsertedCount: 1,
+      matchedCount: 0,
+      modifiedCount: 0,
+      acknowledged: true,
+    });
+    msgCol.findOne.mockResolvedValue({
+      _id: upsertedId,
+      message_id: 'shared-msg-1',
+      conversation_id: testConversationId,
+      role: 'user',
+      content: 'Hello from Alice',
+      sender_email: 'alice@example.com',
+      sender_name: 'Alice Johnson',
+      created_at: new Date(),
+    });
+    mockCollections['messages'] = msgCol;
+
+    const sharingCol = createMockCollection();
+    sharingCol.findOne.mockResolvedValue({
+      conversation_id: testConversationId,
+      user_email: 'alice@example.com',
+      access_level: 'write',
+    });
+    mockCollections['sharing_access'] = sharingCol;
+
+    const req = makeRequest(`/api/chat/conversations/${testConversationId}/messages`, {
+      method: 'POST',
+      body: JSON.stringify({
+        message_id: 'shared-msg-1',
+        role: 'user',
+        content: 'Hello from Alice',
+        sender_email: 'alice@example.com',
+        sender_name: 'Alice Johnson',
+        metadata: { turn_id: 'turn-1' },
+      }),
+    });
+
+    const res = await POST(req, { params: Promise.resolve({ id: testConversationId }) });
+    expect(res.status).toBe(201);
+
+    // Verify sender fields are in $setOnInsert (immutable per message)
+    const updateDoc = msgCol.updateOne.mock.calls[0][1];
+    expect(updateDoc.$setOnInsert.sender_email).toBe('alice@example.com');
+    expect(updateDoc.$setOnInsert.sender_name).toBe('Alice Johnson');
+  });
+
+  it('falls back to authenticated user identity when no sender fields provided', async () => {
+    mockGetServerSession.mockResolvedValue(authenticatedSession('bob@example.com'));
+
+    const usersCol = createMockCollection();
+    usersCol.findOne.mockResolvedValue(null);
+    mockCollections['users'] = usersCol;
+
+    const convCol = createMockCollection();
+    convCol.findOne.mockResolvedValue({
+      _id: testConversationId,
+      owner_id: 'bob@example.com',
+    });
+    mockCollections['conversations'] = convCol;
+
+    const msgCol = createMockCollection();
+    msgCol.updateOne.mockResolvedValue({
+      upsertedId: new ObjectId(),
+      upsertedCount: 1,
+      matchedCount: 0,
+      modifiedCount: 0,
+      acknowledged: true,
+    });
+    msgCol.findOne.mockResolvedValue({
+      _id: new ObjectId(),
+      message_id: 'legacy-msg-1',
+      conversation_id: testConversationId,
+      role: 'user',
+      content: 'No sender fields',
+      created_at: new Date(),
+    });
+    mockCollections['messages'] = msgCol;
+
+    const sharingCol = createMockCollection();
+    mockCollections['sharing_access'] = sharingCol;
+
+    // Send without sender_email / sender_name
+    const req = makeRequest(`/api/chat/conversations/${testConversationId}/messages`, {
+      method: 'POST',
+      body: JSON.stringify({
+        message_id: 'legacy-msg-1',
+        role: 'user',
+        content: 'No sender fields',
+        metadata: { turn_id: 'turn-1' },
+      }),
+    });
+
+    const res = await POST(req, { params: Promise.resolve({ id: testConversationId }) });
+    expect(res.status).toBe(201);
+
+    // Should fall back to authenticated session user
+    const updateDoc = msgCol.updateOne.mock.calls[0][1];
+    expect(updateDoc.$setOnInsert.sender_email).toBe('bob@example.com');
+    expect(updateDoc.$setOnInsert.sender_name).toBe('Test User');
+  });
+
+  it('does not set sender fields for assistant messages', async () => {
+    mockGetServerSession.mockResolvedValue(authenticatedSession());
+
+    const usersCol = createMockCollection();
+    usersCol.findOne.mockResolvedValue(null);
+    mockCollections['users'] = usersCol;
+
+    const convCol = createMockCollection();
+    convCol.findOne.mockResolvedValue({
+      _id: testConversationId,
+      owner_id: 'user@example.com',
+    });
+    mockCollections['conversations'] = convCol;
+
+    const msgCol = createMockCollection();
+    msgCol.updateOne.mockResolvedValue({
+      upsertedId: new ObjectId(),
+      upsertedCount: 1,
+      matchedCount: 0,
+      modifiedCount: 0,
+      acknowledged: true,
+    });
+    msgCol.findOne.mockResolvedValue({
+      _id: new ObjectId(),
+      message_id: 'assistant-msg-no-sender',
+      conversation_id: testConversationId,
+      role: 'assistant',
+      content: 'AI response',
+      created_at: new Date(),
+    });
+    mockCollections['messages'] = msgCol;
+
+    const sharingCol = createMockCollection();
+    mockCollections['sharing_access'] = sharingCol;
+
+    const req = makeRequest(`/api/chat/conversations/${testConversationId}/messages`, {
+      method: 'POST',
+      body: JSON.stringify({
+        message_id: 'assistant-msg-no-sender',
+        role: 'assistant',
+        content: 'AI response',
+        metadata: { turn_id: 'turn-1', is_final: true },
+      }),
+    });
+
+    const res = await POST(req, { params: Promise.resolve({ id: testConversationId }) });
+    expect(res.status).toBe(201);
+
+    // Assistant messages should not have sender fields
+    const updateDoc = msgCol.updateOne.mock.calls[0][1];
+    expect(updateDoc.$setOnInsert.sender_email).toBeUndefined();
+    expect(updateDoc.$setOnInsert.sender_name).toBeUndefined();
+  });
+});
+
+// ============================================================================
 // Tests: Cross-device message persistence scenario
 // ============================================================================
 
