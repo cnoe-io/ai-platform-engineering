@@ -486,7 +486,8 @@ class TestHandleStreamEnd(unittest.IsolatedAsyncioTestCase):
         artifact = artifact_events[-1][0][1].artifact
         self.assertEqual(artifact.name, 'final_result')
 
-    async def test_single_agent_sends_final_result(self):
+    async def test_single_agent_dedup_skips_final_result(self):
+        """Single sub-agent with content: dedup skips final_result, sends completion only."""
         executor = _make_executor()
         state = StreamState()
         state.sub_agents_completed = 1
@@ -496,13 +497,20 @@ class TestHandleStreamEnd(unittest.IsolatedAsyncioTestCase):
 
         await executor._handle_stream_end(state, task, eq)
 
+        # Dedup: no final_result artifact (complete_result was already forwarded)
         artifact_events = [
             c for c in executor._safe_enqueue_event.call_args_list
             if isinstance(c[0][1], TaskArtifactUpdateEvent)
         ]
-        self.assertGreaterEqual(len(artifact_events), 1)
-        artifact = artifact_events[-1][0][1].artifact
-        self.assertEqual(artifact.name, 'final_result')
+        self.assertEqual(len(artifact_events), 0)
+
+        # Completion status sent
+        completion_events = [
+            c for c in executor._safe_enqueue_event.call_args_list
+            if isinstance(c[0][1], TaskStatusUpdateEvent)
+            and c[0][1].status.state == TaskState.completed
+        ]
+        self.assertEqual(len(completion_events), 1)
 
     async def test_no_agents_sends_partial_result(self):
         executor = _make_executor()

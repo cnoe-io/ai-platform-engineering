@@ -411,6 +411,24 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
             f"sub_agents_completed={state.sub_agents_completed}, "
             f"event_content_len={len(content)}"
         )
+
+        # ================================================================
+        # DEDUPLICATION: Single sub-agent scenario
+        # If exactly 1 sub-agent completed, its complete_result was already
+        # forwarded to the client by _handle_sub_agent_artifact. The UI
+        # uses the status-update (final=true, state=completed) to set
+        # isFinal. Sending another final_result with the same content
+        # would duplicate it. Just send completion status.
+        # ================================================================
+        if state.sub_agents_completed == 1 and state.sub_agent_content and not state.sub_agent_datapart:
+            logger.info(
+                f"Task {task.id}: single sub-agent already sent complete_result — "
+                f"skipping duplicate final_result, sending completion status only"
+            )
+            await self._send_completion(event_queue, task)
+            logger.info(f"Task {task.id} completed (single sub-agent, deduped).")
+            return
+
         final_content, is_datapart = self._get_final_content(state)
 
         # Fall back to event content if nothing accumulated
@@ -599,24 +617,17 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
 
         # ================================================================
         # DEDUPLICATION: Single sub-agent scenario
-        # If exactly 1 sub-agent completed (sent complete_result which was
-        # already forwarded to the client), send a final_result with the
-        # extracted content (for isFinal=true in UI) + completion status,
-        # instead of re-sending the full accumulated content again.
+        # If exactly 1 sub-agent completed, its complete_result was already
+        # forwarded to the client by _handle_sub_agent_artifact. The UI
+        # sets isFinal from the status-update event (final=true,
+        # state=completed). Sending final_result with the same content
+        # would duplicate it. Just send completion status.
         # ================================================================
         if state.sub_agents_completed == 1 and state.sub_agent_content:
-            deduped_content = ''.join(state.sub_agent_content)
-            deduped_content = self._extract_final_answer(deduped_content)
             logger.info(
                 f"📦 Single sub-agent already sent complete_result — "
-                f"sending final_result with extracted content ({len(deduped_content)} chars)"
+                f"skipping duplicate final_result, sending completion status only"
             )
-            artifact = new_text_artifact(
-                name='final_result',
-                description='Complete result from Platform Engineer',
-                text=deduped_content,
-            )
-            await self._send_artifact(event_queue, task, artifact, append=False, last_chunk=True)
             await self._send_completion(event_queue, task)
             logger.info(f"Task {task.id} completed (stream end, single sub-agent, deduped).")
             return
