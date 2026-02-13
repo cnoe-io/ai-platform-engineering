@@ -38,6 +38,7 @@ from .worker_types import (
   MessageType,
   CrawlRequest,
   CrawlProgress,
+  CrawlDocuments,
   CrawlResult,
   CrawlStatus,
 )
@@ -103,6 +104,57 @@ class WorkerSpider(Spider):
     self.last_progress_time = 0
     self.progress_interval = 2  # Report progress every 2 seconds (was 5)
 
+    # Cancellation support
+    self._cancelled = False
+
+    # Batch streaming settings
+    self.batch_size = 50  # Send documents to main process every N documents
+    self.batch_number = 0
+    self.documents_in_current_batch: List[dict] = []
+
+  def _build_request_meta(self, **extra_meta) -> dict:
+    """
+    Build request meta dict with Playwright settings if JS rendering is enabled.
+
+    Args:
+        **extra_meta: Additional meta fields to include
+
+    Returns:
+        Meta dict for Request objects
+    """
+    meta = dict(extra_meta)
+
+    if self.crawl_request.render_javascript:
+      from scrapy_playwright.page import PageMethod
+
+      # Enable Playwright for this request
+      meta["playwright"] = True
+      meta["playwright_include_page"] = False  # Don't need page object in callback
+
+      # Build page methods for waiting
+      page_methods = []
+      if self.crawl_request.wait_for_selector:
+        page_methods.append(
+          PageMethod(
+            "wait_for_selector",
+            self.crawl_request.wait_for_selector,
+            timeout=self.crawl_request.page_load_timeout * 1000,
+          )
+        )
+      # Wait for network idle to ensure dynamic content is loaded
+      page_methods.append(
+        PageMethod(
+          "wait_for_load_state",
+          "networkidle",
+          timeout=self.crawl_request.page_load_timeout * 1000,
+        )
+      )
+
+      if page_methods:
+        meta["playwright_page_methods"] = page_methods
+
+    return meta
+
   def start_requests(self):
     """Generate initial request(s) based on crawl mode."""
     # Send initial progress message for JS rendering
@@ -130,7 +182,7 @@ class WorkerSpider(Spider):
       )
     else:
       # Single URL or recursive mode - start with the URL
-      yield Request(self.start_url, callback=self.parse_page, errback=self.handle_error)
+      yield Request(self.start_url, callback=self.parse_page, errback=self.handle_error, meta=self._build_request_meta())
 
   def parse_sitemap(self, response: Response):
     """Parse sitemap.xml and yield requests for each URL."""
@@ -158,7 +210,7 @@ class WorkerSpider(Spider):
 
     # Yield requests
     for url in urls_to_crawl:
-      yield Request(url, callback=self.parse_page, errback=self.handle_error)
+      yield Request(url, callback=self.parse_page, errback=self.handle_error, meta=self._build_request_meta())
 
   def handle_sitemap_error(self, failure):
     """Handle sitemap fetch failure - fall back to robots.txt."""
@@ -186,7 +238,7 @@ class WorkerSpider(Spider):
     else:
       # No sitemap in robots.txt, fall back to crawling the start URL
       self.logger.warning("No sitemap found in robots.txt, falling back to start URL")
-      yield Request(self.start_url, callback=self.parse_page, errback=self.handle_error)
+      yield Request(self.start_url, callback=self.parse_page, errback=self.handle_error, meta=self._build_request_meta())
 
   def handle_robots_error(self, failure):
     """Handle robots.txt fetch failure."""
@@ -195,12 +247,17 @@ class WorkerSpider(Spider):
     self.logger.warning(error_msg)
     if len(self.errors) < self.max_errors:
       self.errors.append(error_msg)
-    yield Request(self.start_url, callback=self.parse_page, errback=self.handle_error)
+    yield Request(self.start_url, callback=self.parse_page, errback=self.handle_error, meta=self._build_request_meta())
 
   def parse_page(self, response: Response):
     """Parse a page and extract content."""
     # Remove from pending set
     self.pending_urls.discard(response.url)
+
+    # Check if crawl was cancelled
+    if self._cancelled:
+      self.logger.debug(f"Skipping {response.url} - crawl cancelled")
+      return
 
     # Check limits
     if self.pages_crawled >= self.max_pages:
@@ -210,6 +267,15 @@ class WorkerSpider(Spider):
     if response.url in self.visited_urls:
       return
     self.visited_urls.add(response.url)
+
+    # Update effective domain after following redirects (e.g., caipe.io -> cnoe-io.github.io)
+    # This ensures that in recursive mode, we follow links on the actual domain we landed on
+    if self.effective_domain is None:
+      response_domain = urlparse(response.url).netloc
+      start_domain = urlparse(self.start_url).netloc
+      if response_domain != start_domain:
+        self.effective_domain = response_domain
+        self.logger.info(f"Detected redirect: {start_domain} -> {response_domain}, updating effective domain")
 
     # Handle non-200 responses
     if response.status != 200:
@@ -250,8 +316,13 @@ class WorkerSpider(Spider):
             },
           },
         }
+        # Add to current batch instead of documents list (for streaming)
         self.documents.append(doc)
+        self.documents_in_current_batch.append(doc)
         self.pages_crawled += 1
+
+        # Flush batch if it's full
+        self._maybe_flush_document_batch()
 
         self.logger.debug(f"Parsed page {self.pages_crawled}: {response.url}")
       else:
@@ -270,12 +341,12 @@ class WorkerSpider(Spider):
     # Report progress periodically
     self._maybe_report_progress(response.url)
 
-    # Follow links if in recursive mode
-    if self.crawl_mode == "recursive" and self.pages_crawled < self.max_pages:
+    # Follow links if in recursive mode (but not if cancelled)
+    if self.crawl_mode == "recursive" and self.pages_crawled < self.max_pages and not self._cancelled:
       for link in self._extract_links(response):
         if self._should_follow(link) and link not in self.pending_urls:
           self.pending_urls.add(link)
-          yield Request(link, callback=self.parse_page, errback=self.handle_error)
+          yield Request(link, callback=self.parse_page, errback=self.handle_error, meta=self._build_request_meta())
 
   def handle_error(self, failure):
     """Handle request errors."""
@@ -416,13 +487,60 @@ class WorkerSpider(Spider):
       )
       self.result_queue.put(WorkerMessage.crawl_progress(progress).to_dict())
 
+  def cancel(self):
+    """
+    Cancel the crawl.
+
+    Called by worker_main when a CANCEL_CRAWL message is received.
+    The spider will stop processing new pages and close gracefully.
+    """
+    self.logger.info(f"Crawl cancelled for job {self.crawl_request.job_id}")
+    self._cancelled = True
+    # Flush any pending documents
+    self._flush_document_batch(is_final=True)
+
+  def _maybe_flush_document_batch(self):
+    """Flush document batch if we've reached batch_size."""
+    if len(self.documents_in_current_batch) >= self.batch_size:
+      self._flush_document_batch(is_final=False)
+
+  def _flush_document_batch(self, is_final: bool = False):
+    """
+    Send accumulated documents to main process.
+
+    Args:
+        is_final: True if this is the last batch (spider closing)
+    """
+    if not self.documents_in_current_batch and not is_final:
+      return
+
+    self.batch_number += 1
+    docs = CrawlDocuments(
+      job_id=self.crawl_request.job_id,
+      documents=self.documents_in_current_batch,
+      batch_number=self.batch_number,
+      is_final_batch=is_final,
+    )
+    self.result_queue.put(WorkerMessage.crawl_documents(docs).to_dict())
+    self.logger.info(f"Sent document batch {self.batch_number} with {len(self.documents_in_current_batch)} documents (final={is_final})")
+
+    # Clear the batch
+    self.documents_in_current_batch = []
+
   def closed(self, reason):
     """Called when spider closes."""
     elapsed = time.time() - self.start_time
 
+    # Flush any remaining documents in the batch
+    if self.documents_in_current_batch:
+      self._flush_document_batch(is_final=True)
+
     # Determine status and build fatal error message
     fatal_error = None
-    if self.pages_crawled == 0:
+    if self._cancelled:
+      status = CrawlStatus.PARTIAL
+      fatal_error = "Crawl was cancelled"
+    elif self.pages_crawled == 0:
       status = CrawlStatus.FAILED
       # Build detailed error message explaining why no pages were crawled
       fatal_error = self._build_failure_message()
@@ -436,7 +554,7 @@ class WorkerSpider(Spider):
       status=status,
       pages_crawled=self.pages_crawled,
       pages_failed=self.pages_failed,
-      documents=self.documents,
+      documents=[],  # Documents are now streamed via CRAWL_DOCUMENTS messages
       elapsed_seconds=elapsed,
       fatal_error=fatal_error,
       errors=self.errors,
@@ -518,12 +636,19 @@ def build_spider_settings(request: CrawlRequest) -> dict:
   return build_scrapy_settings(settings)
 
 
-def run_crawl(request: CrawlRequest, result_queue: Queue):
+def run_crawl(request: CrawlRequest, result_queue: Queue, spider_holder: dict):
   """
   Run a single crawl using Scrapy.
 
   This function sets up the CrawlerRunner and runs the spider.
+
+  Args:
+      request: The crawl request configuration
+      result_queue: Queue to send results back to main process
+      spider_holder: Dict to store reference to active spider for cancellation
   """
+  from scrapy import signals
+
   # Build settings
   scrapy_settings = build_spider_settings(request)
 
@@ -533,8 +658,24 @@ def run_crawl(request: CrawlRequest, result_queue: Queue):
   # Create runner
   runner = CrawlerRunner(settings=scrapy_settings)
 
+  # Store request info for spider lookup
+  spider_holder["job_id"] = request.job_id
+
+  # Use signal to capture spider reference when it opens
+  def on_spider_opened(spider):
+    spider_holder["spider"] = spider
+
+  def on_spider_closed(spider, reason):
+    spider_holder["spider"] = None
+    spider_holder["job_id"] = None
+
+  # Create crawler and connect signals
+  crawler = runner.create_crawler(WorkerSpider)
+  crawler.signals.connect(on_spider_opened, signal=signals.spider_opened)
+  crawler.signals.connect(on_spider_closed, signal=signals.spider_closed)
+
   # Run spider
-  deferred = runner.crawl(WorkerSpider, request=request, result_queue=result_queue)
+  deferred = runner.crawl(crawler, request=request, result_queue=result_queue)
 
   return deferred
 
@@ -555,6 +696,44 @@ def worker_main(worker_id: int, request_queue: Queue, result_queue: Queue):
   # Signal that we're ready
   result_queue.put(WorkerMessage.worker_ready(worker_id).to_dict())
 
+  # Track active spider for cancellation support
+  spider_holder = {"spider": None, "job_id": None, "crawling": False}
+
+  def check_for_cancellation():
+    """Check for cancellation messages while a crawl is in progress."""
+    if not spider_holder["crawling"]:
+      return  # No crawl in progress, main check_queue handles everything
+
+    try:
+      if not request_queue.empty():
+        msg_dict = request_queue.get_nowait()
+        msg = WorkerMessage.from_dict(msg_dict)
+
+        if msg.type == MessageType.SHUTDOWN:
+          print(f"[Worker {worker_id}] Received shutdown signal during crawl")
+          if spider_holder["spider"]:
+            spider_holder["spider"].cancel()
+          reactor.stop()
+          return
+
+        if msg.type == MessageType.CANCEL_CRAWL:
+          job_id = msg.payload.get("job_id")
+          print(f"[Worker {worker_id}] Received cancel request for job: {job_id}")
+          if spider_holder["spider"] and spider_holder["job_id"] == job_id:
+            spider_holder["spider"].cancel()
+          # Don't return - let crawl finish naturally after cancel flag is set
+
+        # If we get a new CRAWL_REQUEST while one is running, put it back (shouldn't happen)
+        if msg.type == MessageType.CRAWL_REQUEST:
+          print(f"[Worker {worker_id}] WARNING: Received crawl request while already crawling, ignoring")
+
+    except Exception as e:
+      print(f"[Worker {worker_id}] Error checking for cancellation: {e}")
+
+    # Keep checking while crawling
+    if spider_holder["crawling"]:
+      reactor.callLater(0.5, check_for_cancellation)
+
   def check_queue():
     """Check for new requests in the queue."""
     try:
@@ -565,8 +744,19 @@ def worker_main(worker_id: int, request_queue: Queue, result_queue: Queue):
 
         if msg.type == MessageType.SHUTDOWN:
           print(f"[Worker {worker_id}] Received shutdown signal")
+          # Cancel active spider if any
+          if spider_holder["spider"]:
+            spider_holder["spider"].cancel()
           reactor.stop()
           return
+
+        if msg.type == MessageType.CANCEL_CRAWL:
+          job_id = msg.payload.get("job_id")
+          print(f"[Worker {worker_id}] Received cancel request for job: {job_id}")
+          # Cancel if this is the active job
+          if spider_holder["spider"] and spider_holder["job_id"] == job_id:
+            spider_holder["spider"].cancel()
+          # Continue checking queue (don't return, crawl will finish on its own)
 
         if msg.type == MessageType.CRAWL_REQUEST:
           # Parse request
@@ -576,11 +766,20 @@ def worker_main(worker_id: int, request_queue: Queue, result_queue: Queue):
           # Signal crawl started
           result_queue.put(WorkerMessage.crawl_started(request.job_id).to_dict())
 
-          # Run the crawl
-          d = run_crawl(request, result_queue)
+          # Mark as crawling and start cancellation checker
+          spider_holder["crawling"] = True
+          reactor.callLater(0.5, check_for_cancellation)
 
-          # When done, check for more work
-          d.addCallback(lambda _: reactor.callLater(0.1, check_queue))
+          # Run the crawl
+          d = run_crawl(request, result_queue, spider_holder)
+
+          # When done, reset crawling flag and check for more work
+          def on_crawl_done(_):
+            spider_holder["crawling"] = False
+            reactor.callLater(0.1, check_queue)
+            return _
+
+          d.addCallback(on_crawl_done)
           d.addErrback(lambda f: handle_crawl_error(f, request.job_id, result_queue))
           return
 

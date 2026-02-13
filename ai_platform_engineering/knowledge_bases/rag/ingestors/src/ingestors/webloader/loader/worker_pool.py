@@ -25,6 +25,7 @@ from .worker_types import (
   MessageType,
   CrawlRequest,
   CrawlProgress,
+  CrawlDocuments,
   CrawlResult,
   CrawlStatus,
 )
@@ -41,7 +42,9 @@ class PendingJob:
 
   request: CrawlRequest
   future: asyncio.Future
+  worker_id: int  # Track which worker is handling this job
   on_progress: Optional[Callable[[CrawlProgress], Awaitable[None]]] = None
+  on_documents: Optional[Callable[[CrawlDocuments], Awaitable[bool]]] = None  # Returns False to cancel
 
 
 class ScrapyWorkerPool:
@@ -190,6 +193,27 @@ class ScrapyWorkerPool:
             except Exception:
               logger.warning("Progress callback error")
 
+        elif msg.type == MessageType.CRAWL_DOCUMENTS:
+          # Streaming document batch from worker
+          job_id = msg.payload.get("job_id")
+          pending = self.pending_jobs.get(job_id)
+
+          if pending and pending.on_documents:
+            docs = CrawlDocuments(
+              job_id=job_id,
+              documents=msg.payload.get("documents", []),
+              batch_number=msg.payload.get("batch_number", 0),
+              is_final_batch=msg.payload.get("is_final_batch", False),
+            )
+            try:
+              # Callback returns False if we should cancel the crawl
+              should_continue = await pending.on_documents(docs)
+              if not should_continue:
+                logger.info(f"Documents callback requested cancellation for job {job_id}")
+                await self.cancel_crawl(job_id)
+            except Exception as e:
+              logger.warning(f"Documents callback error: {e}")
+
         elif msg.type == MessageType.CRAWL_RESULT:
           job_id = msg.payload.get("job_id")
           pending = self.pending_jobs.pop(job_id, None)
@@ -214,10 +238,6 @@ class ScrapyWorkerPool:
               pending.future.set_result(result)
 
             logger.info(f"Crawl completed: {job_id} - {result.pages_crawled} pages in {result.elapsed_seconds:.1f}s")
-
-            # Find which worker handled this and mark available
-            # For now, we track by job -> worker mapping
-            # TODO: Add worker_id to result messages
 
         elif msg.type == MessageType.WORKER_READY:
           worker_id = msg.payload.get("worker_id")
@@ -246,6 +266,7 @@ class ScrapyWorkerPool:
     self,
     request: CrawlRequest,
     on_progress: Optional[Callable[[CrawlProgress], Awaitable[None]]] = None,
+    on_documents: Optional[Callable[[CrawlDocuments], Awaitable[bool]]] = None,
     timeout: float = 3600,  # 1 hour default
   ) -> CrawlResult:
     """
@@ -254,6 +275,9 @@ class ScrapyWorkerPool:
     Args:
         request: Crawl request configuration
         on_progress: Optional callback for progress updates
+        on_documents: Optional callback for streaming document batches.
+            Called with each batch of documents as they're crawled.
+            Return True to continue crawling, False to cancel.
         timeout: Maximum time to wait for crawl completion
 
     Returns:
@@ -278,11 +302,13 @@ class ScrapyWorkerPool:
     loop = asyncio.get_event_loop()
     future = loop.create_future()
 
-    # Track pending job
+    # Track pending job with worker_id for cancellation support
     self.pending_jobs[request.job_id] = PendingJob(
       request=request,
       future=future,
+      worker_id=worker_id,
       on_progress=on_progress,
+      on_documents=on_documents,
     )
 
     # Send request to worker
@@ -321,6 +347,35 @@ class ScrapyWorkerPool:
       await self.available_workers.put(worker_id)
 
       raise
+
+  async def cancel_crawl(self, job_id: str) -> bool:
+    """
+    Cancel an active crawl.
+
+    Sends a cancellation message to the worker handling the job.
+    The worker will stop crawling and send a final result.
+
+    Args:
+        job_id: The job ID to cancel
+
+    Returns:
+        True if cancellation was sent, False if job not found
+    """
+    pending = self.pending_jobs.get(job_id)
+    if not pending:
+      logger.warning(f"Cannot cancel job {job_id}: not found in pending jobs")
+      return False
+
+    worker_id = pending.worker_id
+    logger.info(f"Sending cancel request for job {job_id} to worker {worker_id}")
+
+    try:
+      msg = WorkerMessage.cancel_crawl(job_id)
+      self.request_queues[worker_id].put(msg.to_dict())
+      return True
+    except Exception as e:
+      logger.error(f"Error sending cancel request for job {job_id}: {e}")
+      return False
 
   async def shutdown(self, timeout: float = 10):
     """

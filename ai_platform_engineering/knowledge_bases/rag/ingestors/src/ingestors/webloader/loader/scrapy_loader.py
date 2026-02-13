@@ -16,7 +16,7 @@ from common.ingestor import Client
 from common.utils import get_logger
 
 from .worker_pool import get_worker_pool
-from .worker_types import CrawlRequest, CrawlProgress, CrawlResult, CrawlStatus
+from .worker_types import CrawlRequest, CrawlProgress, CrawlDocuments, CrawlResult, CrawlStatus
 
 logger = get_logger(__name__)
 
@@ -57,12 +57,20 @@ class ScrapyLoader:
     """
     Load content from a URL using Scrapy worker pool.
 
+    Uses streaming ingestion: documents are sent to the server as they are crawled,
+    rather than waiting for the entire crawl to complete. If the server rejects
+    documents (e.g., job terminated), the crawl is cancelled.
+
     Args:
         url: URL to scrape
         settings: Scraping configuration
         job_id: ID of the ingestion job
     """
     self.logger.info(f"Starting Scrapy crawl for {url} with mode {settings.crawl_mode}")
+
+    # Track streaming ingestion state
+    documents_ingested = 0
+    crawl_cancelled = False
 
     try:
       # Update job status with mode info
@@ -135,18 +143,72 @@ class ScrapyLoader:
           await self.job_manager.increment_progress(job_id, delta)
           last_pages_crawled = progress.pages_crawled
 
-      # Run crawl
+      # Streaming documents callback
+      async def on_documents(docs: CrawlDocuments) -> bool:
+        """
+        Handle streaming document batches from the crawler.
+
+        Returns True to continue crawling, False to cancel.
+        """
+        nonlocal documents_ingested, crawl_cancelled
+
+        if not docs.documents:
+          return True  # Empty batch, continue
+
+        # Convert document dicts to LangChain Documents
+        documents = []
+        for doc_dict in docs.documents:
+          doc = Document(
+            id=doc_dict.get("id"),
+            page_content=doc_dict.get("page_content", ""),
+            metadata=doc_dict.get("metadata", {}),
+          )
+          documents.append(doc)
+
+        self.logger.info(f"Received batch {docs.batch_number} with {len(documents)} documents (streaming)")
+
+        # Send to RAG server
+        try:
+          await self.client.ingest_documents(
+            job_id=job_id,
+            datasource_id=self.datasource_info.datasource_id,
+            documents=documents,
+          )
+
+          documents_ingested += len(documents)
+          await self.job_manager.increment_document_count(job_id, len(documents))
+
+          self.logger.info(f"Ingested batch {docs.batch_number} ({len(documents)} documents, {documents_ingested} total)")
+          return True  # Continue crawling
+
+        except Exception as e:
+          error_msg = str(e)
+          self.logger.warning(f"Failed to ingest batch {docs.batch_number}: {error_msg}")
+
+          # Check if this is a job rejection (job no longer IN_PROGRESS)
+          # HTTP 400 with "IN_PROGRESS" or "terminated" typically means job was cancelled
+          if "400" in error_msg and ("IN_PROGRESS" in error_msg or "terminated" in error_msg.lower()):
+            self.logger.info(f"Job {job_id} appears to be terminated, cancelling crawl")
+            crawl_cancelled = True
+            return False  # Cancel crawling
+
+          # Other errors - log but continue crawling
+          await self.job_manager.add_error_msg(job_id, f"Batch ingest failed: {error_msg}")
+          return True
+
+      # Run crawl with streaming ingestion
       self.logger.info(f"Submitting crawl to worker pool: {url}")
       result = await pool.crawl(
         request=request,
         on_progress=on_progress,
+        on_documents=on_documents,
         timeout=settings.max_pages * 30,  # ~30 seconds per page max
       )
 
-      self.logger.info(f"Crawl completed: {result.pages_crawled} pages, status: {result.status}")
+      self.logger.info(f"Crawl completed: {result.pages_crawled} pages, status: {result.status}, documents_ingested: {documents_ingested}")
 
-      # Process results
-      await self._process_result(result, job_id, url)
+      # Process final result (handles any remaining documents and status)
+      await self._process_result(result, job_id, url, documents_ingested, crawl_cancelled)
 
     except Exception as e:
       self.logger.error(f"Crawl failed: {e}")
@@ -162,15 +224,48 @@ class ScrapyLoader:
     finally:
       gc.collect()
 
-  async def _process_result(self, result: CrawlResult, job_id: str, url: str):
+  async def _process_result(
+    self,
+    result: CrawlResult,
+    job_id: str,
+    url: str,
+    documents_already_ingested: int = 0,
+    crawl_cancelled: bool = False,
+  ):
     """
-    Process crawl result and ingest documents.
+    Process crawl result and update job status.
+
+    With streaming ingestion, documents are ingested as they're crawled via on_documents callback.
+    This method handles the final status update and any documents that weren't streamed
+    (fallback for non-streaming mode).
 
     Args:
         result: Crawl result from worker
         job_id: Job ID
         url: Original URL
+        documents_already_ingested: Count of documents already sent to server via streaming
+        crawl_cancelled: True if crawl was cancelled (e.g., job terminated)
     """
+    # If crawl was cancelled, set appropriate status
+    if crawl_cancelled:
+      # Add any error messages from the crawl
+      for error in result.errors:
+        await self.job_manager.add_error_msg(job_id, error)
+
+      if documents_already_ingested > 0:
+        await self.job_manager.upsert_job(
+          job_id=job_id,
+          status=JobStatus.COMPLETED_WITH_ERRORS,
+          message=f"Crawl cancelled after ingesting {documents_already_ingested} documents",
+        )
+      else:
+        await self.job_manager.upsert_job(
+          job_id=job_id,
+          status=JobStatus.FAILED,
+          message="Crawl cancelled (job terminated)",
+        )
+      return
+
     if result.status == CrawlStatus.FAILED:
       fatal_error = result.fatal_error or f"Failed to crawl {url}"
       self.logger.error(f"Crawl failed: {fatal_error}")
@@ -190,7 +285,10 @@ class ScrapyLoader:
       )
       return
 
-    if not result.documents:
+    # Check if we have any documents (either streamed or in result)
+    total_documents = documents_already_ingested + len(result.documents)
+
+    if total_documents == 0:
       # Build a more helpful message if we have filtering stats
       fatal_error = result.fatal_error
       if not fatal_error:
@@ -212,49 +310,44 @@ class ScrapyLoader:
       )
       return
 
-    # Convert document dicts to LangChain Documents
-    documents = []
-    for doc_dict in result.documents:
-      doc = Document(
-        id=doc_dict.get("id"),
-        page_content=doc_dict.get("page_content", ""),
-        metadata=doc_dict.get("metadata", {}),
-      )
-      documents.append(doc)
+    # Ingest any documents that weren't streamed (fallback for non-streaming or final batch)
+    if result.documents:
+      self.logger.info(f"Ingesting {len(result.documents)} remaining documents from final result")
 
-    self.logger.info(f"Ingesting {len(documents)} documents to RAG server")
-
-    # Send to RAG server in batches
-    batch_size = 100
-    total_batches = (len(documents) + batch_size - 1) // batch_size  # Ceiling division
-
-    for i in range(0, len(documents), batch_size):
-      batch = documents[i : i + batch_size]
-      batch_num = i // batch_size + 1
-
-      # Update job message with batch progress
-      await self.job_manager.upsert_job(
-        job_id=job_id,
-        status=JobStatus.IN_PROGRESS,
-        message=f"Sending batch {batch_num}/{total_batches} to server ({len(batch)} documents)",
-      )
-
-      try:
-        await self.client.ingest_documents(
-          job_id=job_id,
-          datasource_id=self.datasource_info.datasource_id,
-          documents=batch,
+      # Convert document dicts to LangChain Documents
+      documents = []
+      for doc_dict in result.documents:
+        doc = Document(
+          id=doc_dict.get("id"),
+          page_content=doc_dict.get("page_content", ""),
+          metadata=doc_dict.get("metadata", {}),
         )
-        self.logger.info(f"Ingested batch {batch_num}/{total_batches} ({len(batch)} documents)")
+        documents.append(doc)
 
-        # Track document count
-        await self.job_manager.increment_document_count(job_id, len(batch))
+      # Send to RAG server in batches
+      batch_size = 100
+      total_batches = (len(documents) + batch_size - 1) // batch_size
 
-      except Exception as e:
-        error_msg = f"Failed to ingest batch {batch_num}/{total_batches}: {e}"
-        self.logger.error(error_msg)
-        await self.job_manager.add_error_msg(job_id, error_msg)
-        # Continue with next batch
+      for i in range(0, len(documents), batch_size):
+        batch = documents[i : i + batch_size]
+        batch_num = i // batch_size + 1
+
+        try:
+          await self.client.ingest_documents(
+            job_id=job_id,
+            datasource_id=self.datasource_info.datasource_id,
+            documents=batch,
+          )
+          self.logger.info(f"Ingested final batch {batch_num}/{total_batches} ({len(batch)} documents)")
+
+          # Track document count
+          await self.job_manager.increment_document_count(job_id, len(batch))
+
+        except Exception as e:
+          error_msg = f"Failed to ingest final batch {batch_num}/{total_batches}: {e}"
+          self.logger.error(error_msg)
+          await self.job_manager.add_error_msg(job_id, error_msg)
+          # Continue with next batch
 
     # Update final status
     if result.status == CrawlStatus.PARTIAL:
