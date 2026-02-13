@@ -434,6 +434,143 @@ describe('ChatPanel', () => {
       expect(img).toBeNull()
     })
 
+    it('should fall back to session name when senderName is empty string', () => {
+      const msg = createMessage({
+        role: 'user',
+        content: 'Empty sender name',
+        senderName: '',
+      })
+      mockGetActiveConversation.mockReturnValue(createConversation([msg]))
+
+      render(<ChatPanel endpoint="/api/test" />)
+
+      // Empty string is falsy, should fall back to session first name "Test"
+      expect(screen.getByText('Test')).toBeInTheDocument()
+    })
+
+    it('should show User icon when senderImage is empty string', () => {
+      const msg = createMessage({
+        role: 'user',
+        content: 'Empty image URL',
+        senderName: 'Dave',
+        senderImage: '',
+      })
+      mockGetActiveConversation.mockReturnValue(createConversation([msg]))
+
+      const { container } = render(<ChatPanel endpoint="/api/test" />)
+
+      // Empty string is falsy, should not render img
+      const avatarDiv = container.querySelector('.bg-primary')
+      expect(avatarDiv).not.toBeNull()
+      expect(avatarDiv?.querySelector('img')).toBeNull()
+    })
+
+    it('should display different sender names for multiple users in shared conversation', () => {
+      const aliceMsg = createMessage({
+        role: 'user',
+        content: 'Hi from Alice',
+        senderName: 'Alice Johnson',
+        senderEmail: 'alice@example.com',
+      })
+      const assistantReply = createMessage({
+        role: 'assistant',
+        content: 'Hello Alice!',
+        isFinal: true,
+      })
+      const bobMsg = createMessage({
+        role: 'user',
+        content: 'Hi from Bob',
+        senderName: 'Bob Williams',
+        senderEmail: 'bob@example.com',
+      })
+      mockGetActiveConversation.mockReturnValue(
+        createConversation([aliceMsg, assistantReply, bobMsg])
+      )
+
+      render(<ChatPanel endpoint="/api/test" />)
+
+      // Both first names should appear
+      expect(screen.getByText('Alice')).toBeInTheDocument()
+      expect(screen.getByText('Bob')).toBeInTheDocument()
+    })
+
+    it('should show different avatars for messages from different users', () => {
+      const msgWithAvatar = createMessage({
+        role: 'user',
+        content: 'Message with avatar',
+        senderName: 'Eve',
+        senderImage: 'https://example.com/eve.png',
+      })
+      const msgWithoutAvatar = createMessage({
+        role: 'user',
+        content: 'Message without avatar',
+        senderName: 'Frank',
+        // No senderImage
+      })
+      mockGetActiveConversation.mockReturnValue(
+        createConversation([msgWithAvatar, msgWithoutAvatar])
+      )
+
+      render(<ChatPanel endpoint="/api/test" />)
+
+      // Eve's message should have an avatar img
+      const eveImg = screen.getByAltText('Eve')
+      expect(eveImg).toBeInTheDocument()
+      expect(eveImg).toHaveAttribute('src', 'https://example.com/eve.png')
+
+      // Frank's message should show the name but no img avatar
+      expect(screen.getByText('Frank')).toBeInTheDocument()
+      // Frank should NOT have an avatar img (queryByAltText returns null)
+      expect(screen.queryByAltText('Frank')).not.toBeInTheDocument()
+    })
+
+    it('should use userDisplayName as alt text when senderImage present but senderName absent', () => {
+      const msg = createMessage({
+        role: 'user',
+        content: 'Avatar but no name',
+        senderImage: 'https://example.com/anon.png',
+        // No senderName
+      })
+      mockGetActiveConversation.mockReturnValue(createConversation([msg]))
+
+      render(<ChatPanel endpoint="/api/test" />)
+
+      // Session has 'Test User', first name 'Test' — used as alt fallback
+      const img = screen.getByAltText('Test')
+      expect(img).toBeInTheDocument()
+      expect(img).toHaveAttribute('src', 'https://example.com/anon.png')
+    })
+
+    it('should show senderName first name even if session has different user', () => {
+      // Current session is 'Test User', but message is from 'Grace Hopper'
+      const msg = createMessage({
+        role: 'user',
+        content: 'Message from another user',
+        senderName: 'Grace Hopper',
+        senderEmail: 'grace@example.com',
+      })
+      mockGetActiveConversation.mockReturnValue(createConversation([msg]))
+
+      render(<ChatPanel endpoint="/api/test" />)
+
+      // Should show "Grace", not "Test" (the session user)
+      expect(screen.getByText('Grace')).toBeInTheDocument()
+      expect(screen.queryByText('Test')).not.toBeInTheDocument()
+    })
+
+    it('should handle senderName with only first name (no space)', () => {
+      const msg = createMessage({
+        role: 'user',
+        content: 'Single name user',
+        senderName: 'Madonna',
+      })
+      mockGetActiveConversation.mockReturnValue(createConversation([msg]))
+
+      render(<ChatPanel endpoint="/api/test" />)
+
+      expect(screen.getByText('Madonna')).toBeInTheDocument()
+    })
+
     it('should render collapsed preview for long assistant messages that are not latest', () => {
       const longContent = 'A'.repeat(500)
       const assistantMsg = createMessage({
