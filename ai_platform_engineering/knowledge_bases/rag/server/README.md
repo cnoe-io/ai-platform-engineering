@@ -360,21 +360,112 @@ docker run -d \
   rag-server
 ```
 
+## Helm Chart Configuration
+
+The RAG server Helm chart exposes RBAC configuration in `values.yaml`:
+
+```yaml
+# charts/rag-stack/charts/rag-server/values.yaml
+rbac:
+  allowUnauthenticated: false       # Require authentication
+  adminGroups: "admin"
+  ingestonlyGroups: "rag-access"
+  readonlyGroups: "rag-readonly"
+  defaultRole: "readonly"
+```
+
+For settings not yet in the Helm chart, use the `env` section:
+
+```yaml
+# values-production.yaml
+rbac:
+  allowUnauthenticated: false
+  adminGroups: "sre_admin"
+  ingestonlyGroups: "rag-access"
+  defaultRole: "readonly"
+
+env:
+  RBAC_DEFAULT_AUTHENTICATED_ROLE: "readonly"
+  RBAC_ADMIN_EMAILS: "admin@example.com"
+  OIDC_EMAIL_CLAIM: "email"
+  OIDC_GROUP_CLAIM: "groups"
+  ALLOW_TRUSTED_NETWORK: "false"
+```
+
+Deploy with custom values:
+
+```bash
+helm upgrade rag-server charts/rag-stack/charts/rag-server \
+  -f values-production.yaml \
+  --set image.tag=latest
+```
+
 ## Troubleshooting
 
-### Slow ingestion
+### Authentication Issues
+
+#### "Unauthenticated" despite valid JWT
+
+**Symptom:** Server returns `is_authenticated: false` even with valid token
+
+**Diagnosis:**
+```bash
+# Check if JWT is expired
+docker logs rag_server | grep "Signature has expired"
+
+# Check what's in the JWT token
+docker logs rag_server | grep "Token claims keys:"
+```
+
+**Solution:**
+- If "Signature has expired": Token expired, implement refresh or use access token
+- If missing claims: Configure correct claim mappings (`OIDC_EMAIL_CLAIM`, etc.)
+
+#### "readonly" role instead of expected role
+
+**Symptom:** User gets readonly role despite being in admin group
+
+**Diagnosis:**
+```bash
+# Check if groups are in the token
+docker logs rag_server | grep "No group claims found"
+
+# Check RBAC configuration
+docker logs rag_server | grep "RBAC Configuration:" -A 10
+```
+
+**Solution:**
+- If "No group claims found": Groups not in access token, use email-based RBAC or configure provider
+- Verify `RBAC_ADMIN_GROUPS` matches your actual group names (case-sensitive)
+
+#### "Invalid email format" warning
+
+**Symptom:** Log shows `Invalid email format in token claims: c8d1d12e1d9d471e...`
+
+**Cause:** Server is reading the `sub` claim instead of `email`/`username`
+
+**Solution:** Configure correct email claim:
+```bash
+OIDC_EMAIL_CLAIM=email     # Standard OIDC
+# or
+OIDC_EMAIL_CLAIM=username  # If provider uses username claim
+```
+
+### Performance Issues
+
+#### Slow ingestion
 
 - Increase `MAX_INGESTION_CONCURRENCY` (default: 30)
 - Check Milvus resource allocation
 - Monitor Neo4j memory usage (if Graph RAG enabled)
 
-### Query timeouts
+#### Query timeouts
 
 - Increase Milvus query timeout
 - Reduce `MAX_RESULTS_PER_QUERY` for faster responses
 - Use more specific filters to narrow search scope
 
-### Out of memory
+#### Out of memory
 
 - Reduce `MAX_DOCUMENTS_PER_INGEST` for smaller batches
 - Decrease `MAX_INGESTION_CONCURRENCY`
