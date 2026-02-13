@@ -80,6 +80,14 @@ export const POST = withErrorHandler(async (
 
     const now = new Date();
 
+    // Resolve sender identity for user messages.
+    // If the client provides sender fields, use them. Otherwise, fall back to
+    // the authenticated session user. This ensures shared conversations correctly
+    // attribute each message to the person who typed it.
+    const senderEmail = body.sender_email || (body.role === 'user' ? user.email : undefined);
+    const senderName = body.sender_name || (body.role === 'user' ? user.name : undefined);
+    const senderImage = body.sender_image || undefined;
+
     // Upsert: update if message_id exists, insert otherwise.
     // $set updates content/metadata/events on every call (idempotent).
     // $setOnInsert sets immutable fields only on first insert.
@@ -106,6 +114,10 @@ export const POST = withErrorHandler(async (
           owner_id: ownerId,
           role: body.role,
           created_at: now,
+          // Sender identity — set only on insert (immutable per message)
+          ...(senderEmail && { sender_email: senderEmail }),
+          ...(senderName && { sender_name: senderName }),
+          ...(senderImage && { sender_image: senderImage }),
         },
       },
       { upsert: true }

@@ -69,6 +69,13 @@ export interface Message {
   role: 'user' | 'assistant' | 'system';
   content: string;
   created_at: Date;
+  // Sender identity — tracks who actually typed this message.
+  // Distinct from owner_id (conversation creator). Required for shared conversations
+  // where multiple users can send messages. All fields are optional for backward
+  // compatibility with messages created before this feature.
+  sender_email?: string;
+  sender_name?: string;
+  sender_image?: string;
   metadata: {
     turn_id: string;
     model?: string;
@@ -209,6 +216,10 @@ export interface AddMessageRequest {
   message_id?: string; // Client-generated ID for cross-reference
   role: 'user' | 'assistant' | 'system';
   content: string;
+  // Sender identity for shared conversations (optional for backward compatibility)
+  sender_email?: string;
+  sender_name?: string;
+  sender_image?: string;
   metadata?: {
     turn_id: string;
     model?: string;

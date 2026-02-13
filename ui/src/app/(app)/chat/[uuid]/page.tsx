@@ -85,9 +85,16 @@ function ChatUUIDPage() {
         // 1. Restore A2A events stripped by localStorage partialize
         // 2. Pick up follow-up messages sent from other devices
         // 3. Keep Tasks and A2A Debug panels in sync
-        // The store uses a cooldown to prevent rapid re-fetches from re-renders.
+        //
+        // IMPORTANT: When the conversation exists in the store but has NO messages
+        // (e.g. after loadConversationsFromServer replaced store objects with
+        // metadata-only entries from the list API), force a reload to ensure
+        // messages appear immediately. This commonly happens when switching tabs
+        // (Chat → Skills → Chat) because the Sidebar refreshes the conversation
+        // list, replacing in-memory conversations with empty-message stubs.
         if (storageMode === 'mongodb') {
-          loadMessagesFromServer(uuid).catch((err) => {
+          const hasMessages = localConv.messages && localConv.messages.length > 0;
+          loadMessagesFromServer(uuid, { force: !hasMessages }).catch((err) => {
             console.warn('[ChatUUID] Failed to load messages from server:', err);
           });
         }
