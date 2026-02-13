@@ -430,8 +430,6 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
             logger.info(f"Task {task.id} completed (single sub-agent, deduped).")
             return
 
-        final_content, is_datapart = self._get_final_content(state)
-
         # If event came from ResponseFormat tool (structured response mode),
         # use content directly since it's the clean final answer
         if event.get('from_response_format_tool'):
