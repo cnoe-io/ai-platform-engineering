@@ -20,8 +20,12 @@ The recommended authentication method for production deployments. Users authenti
 1. User authenticates with OIDC provider via UI
 2. UI receives JWT access token
 3. UI includes token in `Authorization: Bearer <token>` header
-4. RAG server validates token against OIDC provider
-5. Server extracts user identity and groups from token claims
+4. RAG server validates token:
+   - Signature verification against OIDC provider's JWKS
+   - Expiry (`exp`), not-before (`nbf`), issued-at (`iat`) claims
+   - Audience (`aud`) matches configured `OIDC_AUDIENCE`
+   - Issuer (`iss`) matches configured `OIDC_ISSUER`
+5. Server resolves user groups (see [Groups Resolution Flow](#groups-resolution-flow))
 6. Server assigns role based on group membership
 
 ### OAuth2 Client Credentials (Ingestors)
@@ -85,16 +89,83 @@ The server automatically discovers OIDC endpoints from the issuer URL and valida
 
 ## Group Claims
 
-For group-based role assignment to work, your OIDC provider must include groups in the JWT access token. The server auto-detects common group claim names:
+For group-based role assignment, the RAG server uses a tiered approach to resolve user groups efficiently:
+
+### Groups Resolution Flow
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                    VALIDATE ACCESS TOKEN                             │
+│  ✓ Signature (JWKS)  ✓ exp  ✓ nbf  ✓ iat  ✓ aud  ✓ iss             │
+└─────────────────────────────┬───────────────────────────────────────┘
+                              ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│  Step 1: Check ACCESS TOKEN for groups                              │
+│  (Providers like Keycloak include groups in access_token)           │
+└──────────────────────┬──────────────────────────────────────────────┘
+                       │
+          ┌────────────┴────────────┐
+          │                         │
+       FOUND                    NOT FOUND
+    (use these)                     │
+          │                         ▼
+          │         ┌─────────────────────────────────────────────────┐
+          │         │  Step 2: Check REDIS CACHE                      │
+          │         │  Key: rag/groups_cache:{sub}                    │
+          │         │  TTL: 30 minutes (configurable)                 │
+          │         └──────────────────────┬──────────────────────────┘
+          │                                │
+          │                   ┌────────────┴────────────┐
+          │                   │                         │
+          │               CACHE HIT                 CACHE MISS
+          │              (use these)                    │
+          │                   │                         ▼
+          │                   │         ┌─────────────────────────────┐
+          │                   │         │  Step 3: Fetch from         │
+          │                   │         │  OIDC /userinfo endpoint    │
+          │                   │         │  → Cache result in Redis    │
+          │                   │         └─────────────────────────────┘
+          │                   │                         │
+          └───────────────────┴─────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│  DETERMINE ROLE FROM GROUPS                                          │
+│  Priority: admin_groups → ingestonly_groups → readonly_groups        │
+│           → admin_emails → ingestonly_emails → readonly_emails       │
+│           → default_authenticated_role                               │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+### How It Works
+
+| Scenario | What Happens | Performance |
+|----------|--------------|-------------|
+| **Groups in access_token** (Keycloak, Okta) | Uses groups directly from token | Fastest - no external calls |
+| **Groups only in userinfo** (Duo SSO) | First request fetches from userinfo, caches result | Slower first request, fast subsequent |
+| **Repeat requests** (within TTL) | Cache hit - uses cached groups | Fast - no external calls |
+| **Redis unavailable** | Falls back to userinfo every request | Slower but functional |
+| **Userinfo fails** | Empty groups - user gets default role | Graceful degradation |
+
+### Supported Group Claim Names
+
+The server auto-detects common group claim names from both access tokens and userinfo responses:
 
 - `groups`
+- `members`
 - `memberOf`
 - `roles`
 - `cognito:groups`
 
 If your provider uses a different claim name, configure `OIDC_GROUP_CLAIM`.
 
-**Note:** Some providers only include groups in the ID token, not the access token. Check your provider's documentation for configuring group claims in access tokens.
+### Caching Configuration
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `GROUPS_CACHE_TTL_SECONDS` | `1800` (30 min) | How long to cache groups in Redis |
+
+The cache key format is `rag/groups_cache:{sub}` where `sub` is the user's subject identifier from the access token.
 
 ## Security Best Practices
 
