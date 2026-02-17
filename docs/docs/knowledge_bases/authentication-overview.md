@@ -221,13 +221,24 @@ For group-based role assignment, the RAG server uses a tiered approach to resolv
 
 The server auto-detects common group claim names from both access tokens and userinfo responses:
 
-- `groups`
 - `members`
 - `memberOf`
+- `groups`
+- `group`
 - `roles`
 - `cognito:groups`
 
-If your provider uses a different claim name, configure `OIDC_GROUP_CLAIM`.
+If your provider uses a different claim name, configure `OIDC_GROUP_CLAIM`. This supports comma-separated values to check multiple claims:
+
+```bash
+# Check a single custom claim
+OIDC_GROUP_CLAIM=myGroups
+
+# Check multiple claims (all are checked, groups are combined and deduplicated)
+OIDC_GROUP_CLAIM=groups,members,roles
+```
+
+When not set, all default claims are checked and combined automatically.
 
 ### Caching Configuration
 
