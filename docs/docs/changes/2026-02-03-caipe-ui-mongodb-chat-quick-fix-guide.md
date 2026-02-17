@@ -39,7 +39,7 @@ window.location.href = '/login';
 
 ### Step 2: Log Back In
 
-1. You'll be redirected to Duo SSO
+1. You'll be redirected to your SSO provider
 2. Complete authentication
 3. You'll land on the home page
 4. **Fresh session with valid token!** ✅

@@ -128,12 +128,12 @@ CAIPE RAG uses three roles with hierarchical permissions:
 
 When determining a user's role, the server checks in order:
 
-1. **Group membership** - If user's groups (from JWT) match configured admin/ingestonly/readonly groups
-2. **Email match** - If user's email matches configured admin/ingestonly/readonly emails
-3. **Default role** - Falls back to configured default for authenticated users
-4. **Trusted network** - If enabled and request is from trusted IP
+1. **Admin groups** - If user's groups match any configured `RBAC_ADMIN_GROUPS`
+2. **Ingestonly groups** - If user's groups match any configured `RBAC_INGESTONLY_GROUPS`
+3. **Readonly groups** - If user's groups match any configured `RBAC_READONLY_GROUPS`
+4. **Default role** - Falls back to `RBAC_DEFAULT_AUTHENTICATED_ROLE`
 
-The first match wins. This allows fine-grained control with group-based assignment as the primary mechanism.
+The first match wins (most permissive role). For unauthenticated requests from trusted networks, `TRUSTED_NETWORK_DEFAULT_ROLE` is used instead.
 
 ### Actor Types
 
@@ -209,31 +209,13 @@ For group-based role assignment, the RAG server fetches user information (email 
 ┌─────────────────────────────────────────────────────────────────────┐
 │  DETERMINE ROLE FROM GROUPS                                          │
 │  Priority: admin_groups → ingestonly_groups → readonly_groups        │
-│           → admin_emails → ingestonly_emails → readonly_emails       │
 │           → default_authenticated_role                               │
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
-### Why Always Fetch Userinfo?
+### Why Userinfo?
 
-The `/userinfo` endpoint is the **authoritative source** for user claims. This approach:
-
-| Benefit | Explanation |
-|---------|-------------|
-| **Consistent data** | Email and groups always come from the same authoritative source |
-| **Provider agnostic** | Works regardless of what claims your OIDC provider includes in access tokens |
-| **Handles Duo SSO** | Duo SSO includes groups in access_token but not email - userinfo has both |
-| **Standards compliant** | OAuth 2.0 recommends resource servers use userinfo for user data |
-| **Cached for performance** | First request fetches userinfo, subsequent requests use Redis cache |
-
-### How It Works
-
-| Scenario | What Happens | Performance |
-|----------|--------------|-------------|
-| **First request** | Fetch from userinfo endpoint, cache result | One external call |
-| **Repeat requests** (within TTL) | Cache hit - uses cached email+groups | Fast - no external calls |
-| **Redis unavailable** | Fetch from userinfo every request | Slower but functional |
-| **Userinfo fails** | Falls back to access_token claims | Graceful degradation |
+The `/userinfo` endpoint is the **authoritative source** for user claims - it works regardless of what your OIDC provider includes in access tokens. Results are cached in Redis (30min TTL) for performance. If userinfo fails, the server falls back to access_token claims.
 
 ### Supported Group Claim Names
 
@@ -257,6 +239,21 @@ OIDC_GROUP_CLAIM=groups,members,roles
 ```
 
 When not set, all default claims are checked and combined automatically.
+
+### Email Extraction Priority
+
+When extracting the user's email from userinfo or token claims, the server checks these claims in order:
+
+| Priority | Claim | Description |
+|----------|-------|-------------|
+| 1 | `email` | Standard OIDC claim |
+| 2 | `preferred_username` | Common in Keycloak, Azure AD |
+| 3 | `upn` | User Principal Name (Microsoft) |
+| 4 | `sub` | Subject identifier (last resort, usually opaque) |
+
+The first non-empty value is used. If all are empty, defaults to `"unknown"`.
+
+> **Note:** When `sub` is used as a fallback, the email may appear as an opaque hash. This is logged as a warning but doesn't affect authentication - the userinfo endpoint typically provides the real email.
 
 ### Caching Configuration
 

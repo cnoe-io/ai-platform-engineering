@@ -5,7 +5,7 @@ This document describes the complete OIDC authentication flow in the CAIPE UI, i
 ## Overview
 
 The CAIPE UI implements a multi-layered authentication architecture using:
-- **OIDC Provider** (SSO) - External identity provider (Okta, Duo, Keycloak, etc.)
+- **OIDC Provider** (SSO) - External identity provider (Okta, Keycloak, Azure AD, etc.)
 - **Next.js SSR** - Server-side session management via NextAuth.js
 - **React Client** - Browser-based UI with token-based API calls
 - **CAIPE Backend** - Supervisor agent with Bearer token validation
