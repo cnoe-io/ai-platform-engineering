@@ -889,36 +889,67 @@ export default function IngestView() {
 
                           {/* URL Patterns */}
                           {crawlMode === 'recursive' && (
-                            <div className="grid grid-cols-2 gap-4">
-                              <div>
-                                <label className="block text-sm font-medium text-muted-foreground mb-1">
-                                  Allowed URL Patterns
-                                </label>
-                                <textarea
-                                  placeholder="Regex patterns (one per line)&#10;e.g. /docs/.*&#10;/api/.*"
-                                  value={allowedUrlPatterns}
-                                  onChange={(e) => setAllowedUrlPatterns(e.target.value)}
-                                  className="w-full px-3 py-2 border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent bg-background text-foreground text-xs font-mono resize-none"
-                                  rows={3}
-                                />
-                                <p className="mt-1 text-xs text-muted-foreground">
-                                  Only crawl URLs matching these patterns
-                                </p>
-                              </div>
-                              <div>
-                                <label className="block text-sm font-medium text-muted-foreground mb-1">
-                                  Denied URL Patterns
-                                </label>
-                                <textarea
-                                  placeholder="Regex patterns (one per line)&#10;e.g. /blog/.*&#10;\.pdf$"
-                                  value={deniedUrlPatterns}
-                                  onChange={(e) => setDeniedUrlPatterns(e.target.value)}
-                                  className="w-full px-3 py-2 border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent bg-background text-foreground text-xs font-mono resize-none"
-                                  rows={3}
-                                />
-                                <p className="mt-1 text-xs text-muted-foreground">
-                                  Skip URLs matching these patterns
-                                </p>
+                            <div className="space-y-3">
+                              {/* Restrict to this page button */}
+                              {url && (
+                                <div className="flex items-center gap-2">
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => {
+                                      try {
+                                        const parsed = new URL(url)
+                                        // Build regex: escape special chars, match base path
+                                        const baseUrl = `${parsed.origin}${parsed.pathname}`
+                                        const escapedPattern = `^${baseUrl.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`
+                                        setAllowedUrlPatterns(escapedPattern)
+                                      } catch (e) {
+                                        // Invalid URL, ignore
+                                      }
+                                    }}
+                                    className="text-xs"
+                                  >
+                                    <LinkIcon className="h-3 w-3 mr-1" />
+                                    Restrict to this page
+                                  </Button>
+                                  <span className="text-xs text-muted-foreground">
+                                    Auto-generate pattern to only crawl tabs/sections of this page
+                                  </span>
+                                </div>
+                              )}
+                              
+                              <div className="grid grid-cols-2 gap-4">
+                                <div>
+                                  <label className="block text-sm font-medium text-muted-foreground mb-1">
+                                    Allowed URL Patterns
+                                  </label>
+                                  <textarea
+                                    placeholder="Regex patterns (one per line)&#10;e.g. /docs/.*&#10;/api/.*"
+                                    value={allowedUrlPatterns}
+                                    onChange={(e) => setAllowedUrlPatterns(e.target.value)}
+                                    className="w-full px-3 py-2 border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent bg-background text-foreground text-xs font-mono resize-none"
+                                    rows={3}
+                                  />
+                                  <p className="mt-1 text-xs text-muted-foreground">
+                                    Only crawl URLs matching these regex patterns. Use single backslash to escape: <code className="bg-muted px-1 rounded">Badge\?section=</code>
+                                  </p>
+                                </div>
+                                <div>
+                                  <label className="block text-sm font-medium text-muted-foreground mb-1">
+                                    Denied URL Patterns
+                                  </label>
+                                  <textarea
+                                    placeholder="Regex patterns (one per line)&#10;e.g. /blog/.*&#10;\.pdf$"
+                                    value={deniedUrlPatterns}
+                                    onChange={(e) => setDeniedUrlPatterns(e.target.value)}
+                                    className="w-full px-3 py-2 border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent bg-background text-foreground text-xs font-mono resize-none"
+                                    rows={3}
+                                  />
+                                  <p className="mt-1 text-xs text-muted-foreground">
+                                    Skip URLs matching these regex patterns. Use single backslash to escape: <code className="bg-muted px-1 rounded">\.(pdf|zip)$</code>
+                                  </p>
+                                </div>
                               </div>
                             </div>
                           )}
