@@ -14,11 +14,13 @@ class MessageType(str, Enum):
 
   # Main -> Worker
   CRAWL_REQUEST = "crawl_request"
+  CANCEL_CRAWL = "cancel_crawl"  # Request to stop crawling a specific job
   SHUTDOWN = "shutdown"
 
   # Worker -> Main
   CRAWL_STARTED = "crawl_started"
   CRAWL_PROGRESS = "crawl_progress"
+  CRAWL_DOCUMENTS = "crawl_documents"  # Batch of documents ready for ingestion
   CRAWL_RESULT = "crawl_result"
   WORKER_READY = "worker_ready"
   WORKER_ERROR = "worker_error"
@@ -83,6 +85,21 @@ class CrawlProgress:
 
 
 @dataclass
+class CrawlDocuments:
+  """
+  Batch of documents ready for ingestion.
+
+  Sent from worker to main process as documents are crawled.
+  This enables streaming ingestion instead of waiting for crawl completion.
+  """
+
+  job_id: str
+  documents: list[dict] = field(default_factory=list)  # Serialized Document objects
+  batch_number: int = 0  # For tracking/logging
+  is_final_batch: bool = False  # True if this is the last batch
+
+
+@dataclass
 class CrawlResult:
   """
   Final result of a crawl operation.
@@ -132,6 +149,11 @@ class WorkerMessage:
     return cls(type=MessageType.CRAWL_REQUEST, payload=request.__dict__)
 
   @classmethod
+  def cancel_crawl(cls, job_id: str) -> "WorkerMessage":
+    """Create a cancel crawl message."""
+    return cls(type=MessageType.CANCEL_CRAWL, payload={"job_id": job_id})
+
+  @classmethod
   def shutdown(cls) -> "WorkerMessage":
     """Create a shutdown message."""
     return cls(type=MessageType.SHUTDOWN)
@@ -145,6 +167,19 @@ class WorkerMessage:
   def crawl_progress(cls, progress: CrawlProgress) -> "WorkerMessage":
     """Create a progress update message."""
     return cls(type=MessageType.CRAWL_PROGRESS, payload=progress.__dict__)
+
+  @classmethod
+  def crawl_documents(cls, docs: CrawlDocuments) -> "WorkerMessage":
+    """Create a crawl documents message for streaming ingestion."""
+    return cls(
+      type=MessageType.CRAWL_DOCUMENTS,
+      payload={
+        "job_id": docs.job_id,
+        "documents": docs.documents,
+        "batch_number": docs.batch_number,
+        "is_final_batch": docs.is_final_batch,
+      },
+    )
 
   @classmethod
   def crawl_result(cls, result: CrawlResult) -> "WorkerMessage":

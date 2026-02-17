@@ -88,6 +88,43 @@ Scraping behavior is configured per-request via `ScrapySettings`. Key options:
 - Rate limiting to prevent overwhelming servers
 - Task queue management with configurable limits
 
+### 7. Streaming Ingestion & Job Cancellation
+
+Documents are sent to the RAG server **as they are crawled**, rather than waiting for the entire crawl to complete. This enables:
+
+- **Early data availability**: Documents become searchable while crawling continues
+- **Job termination support**: If a job is cancelled mid-crawl, the crawler stops promptly
+- **Partial results**: Already-ingested documents are preserved even if the crawl is interrupted
+
+**Architecture:**
+
+```
+┌─────────────────┐     CRAWL_DOCUMENTS      ┌──────────────────┐
+│   WorkerSpider  │ ──────────────────────▶ │   WorkerPool     │
+│   (subprocess)  │                          │   (main process) │
+│                 │ ◀────────────────────── │                  │
+└─────────────────┘     CANCEL_CRAWL         └──────────────────┘
+                                                     │
+                                                     │ on_documents()
+                                                     ▼
+                                             ┌──────────────────┐
+                                             │   ScrapyLoader   │
+                                             │  → Send to RAG   │
+                                             │  → Check status  │
+                                             └──────────────────┘
+```
+
+**How it works:**
+1. WorkerSpider batches documents (default: 50 per batch) and sends `CRAWL_DOCUMENTS` messages
+2. WorkerPool receives batches and calls `on_documents` callback in ScrapyLoader
+3. ScrapyLoader sends documents to RAG server immediately
+4. If server rejects (job terminated), ScrapyLoader sends `CANCEL_CRAWL` to worker
+5. Worker stops crawling and sends final result with partial stats
+
+### 8. Redirect Handling
+
+When crawling sites that redirect (e.g., `caipe.io` → `cnoe-io.github.io`), the crawler automatically updates its domain filtering to follow links on the **destination domain**, not the original URL. This ensures recursive crawling works correctly through redirects.
+
 ## Running with Docker Compose
 
 The Webloader should be part of your main deployment and have access to the same Redis instance as the RAG server.
