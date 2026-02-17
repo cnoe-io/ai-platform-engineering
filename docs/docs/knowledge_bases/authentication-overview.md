@@ -44,6 +44,76 @@ For local development and testing, trusted network access allows connections fro
 
 **Important:** Never enable trusted network in production. It grants the configured role (default: `admin`) to all requests from trusted IPs.
 
+## Token Type Detection Flow
+
+After validating the JWT token, the server determines whether it's a **user token** (SSO) or **client credentials token** (machine-to-machine):
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                    VALIDATE ACCESS TOKEN                             │
+│  ✓ Signature (JWKS)  ✓ exp  ✓ nbf  ✓ iat  ✓ aud  ✓ iss             │
+└─────────────────────────────┬───────────────────────────────────────┘
+                              ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│  Check: grant_type == "client_credentials"?                          │
+└──────────────────────┬──────────────────────────────────────────────┘
+                       │
+          ┌────────────┴────────────┐
+          │ YES                     │ NO
+          ▼                         ▼
+┌─────────────────┐    ┌──────────────────────────────────────────────┐
+│ CLIENT CREDS    │    │  Check: has client_id/azp but NO user claims? │
+│ (skip to role)  │    │  (email, preferred_username, upn, name)       │
+└─────────────────┘    └──────────────────────┬───────────────────────┘
+                                              │
+                              ┌───────────────┴───────────────┐
+                              │ YES                           │ NO
+                              ▼                               ▼
+               ┌─────────────────┐           ┌────────────────────────┐
+               │ CLIENT CREDS    │           │  Check: token_use ==   │
+               │ (skip to role)  │           │  "client_credentials"? │
+               └─────────────────┘           └───────────┬────────────┘
+                                                         │
+                                         ┌───────────────┴───────────┐
+                                         │ YES                       │ NO
+                                         ▼                           ▼
+                          ┌─────────────────┐       ┌─────────────────────┐
+                          │ CLIENT CREDS    │       │  Check: sub is UUID │
+                          │ (skip to role)  │       │  AND no user claims?│
+                          └─────────────────┘       └──────────┬──────────┘
+                                                               │
+                                               ┌───────────────┴───────────┐
+                                               │ YES                       │ NO
+                                               ▼                           ▼
+                                ┌─────────────────┐         ┌──────────────────┐
+                                │ CLIENT CREDS    │         │ USER TOKEN (SSO) │
+                                │ (skip to role)  │         │ → Groups Flow    │
+                                └─────────────────┘         └──────────────────┘
+```
+
+### Client Credentials Path
+
+When detected as client credentials:
+- **Role**: Assigned `RBAC_CLIENT_CREDENTIALS_ROLE` (default: `ingestonly`)
+- **Groups**: Empty (not applicable for machine tokens)
+- **Email**: Set to `client:{client_id}` or `client:{ingestor_type}:{ingestor_name}`
+
+### User Token (SSO) Path
+
+When detected as a user token:
+- Proceeds to [Groups Resolution Flow](#groups-resolution-flow)
+- Role determined from group membership
+
+### Detection Criteria Summary
+
+| Check | Claim | Indicates Client Credentials |
+|-------|-------|------------------------------|
+| 1 | `grant_type == "client_credentials"` | Yes |
+| 2 | Has `client_id`/`azp` but no `email`/`preferred_username`/`upn`/`name` | Yes |
+| 3 | `token_use == "client_credentials"` | Yes |
+| 4 | `sub` is UUID format AND no user claims | Yes |
+| 5 | None of the above | No → User token |
+
 ## Role-Based Access Control (RBAC)
 
 CAIPE RAG uses three roles with hierarchical permissions:
