@@ -79,20 +79,20 @@ INGESTOR_OIDC_CLIENT_ID=rag-ingestor
 
 The RAG server fetches user claims (email, groups) from the OIDC provider's `/userinfo` endpoint using the access token. This is the standards-compliant approach where:
 - Only the access token is sent to the RAG server
-- Groups are fetched server-side from the authoritative OIDC source
+- Email and groups are fetched server-side from the authoritative OIDC source
 - Results are cached in Redis to reduce load on the OIDC provider
 
 ```bash
-# Groups cache TTL in seconds (default: 30 minutes)
-GROUPS_CACHE_TTL_SECONDS=1800
+# Userinfo cache TTL in seconds (default: 30 minutes)
+USERINFO_CACHE_TTL_SECONDS=1800
 ```
 
 The server will:
 1. Validate the **access token** for authentication (signature, expiry, audience, issuer)
 2. Extract the user's `sub` (subject) from the access token
-3. Check Redis cache for the user's groups
+3. Check Redis cache for the user's info (email + groups)
 4. On cache miss, call the OIDC provider's `/userinfo` endpoint
-5. Cache the groups for future requests (configurable TTL)
+5. Cache the userinfo for future requests (configurable TTL)
 6. Determine role from cached groups
 
 This approach:
@@ -132,7 +132,7 @@ This table shows how different authentication methods map to roles and which env
 
 | Auth Method | Actor Type | Default Role | Role Controlled By | Required Env Vars | Optional Env Vars |
 |-------------|------------|--------------|-------------------|-------------------|-------------------|
-| **OAuth2 (UI)** | User | Based on groups | `RBAC_*_GROUPS` mappings, falls back to `RBAC_DEFAULT_AUTHENTICATED_ROLE` | `OIDC_ISSUER`<br>`OIDC_CLIENT_ID` | `OIDC_DISCOVERY_URL`<br>`OIDC_GROUP_CLAIM`<br>`GROUPS_CACHE_TTL_SECONDS` |
+| **OAuth2 (UI)** | User | Based on groups | `RBAC_*_GROUPS` mappings, falls back to `RBAC_DEFAULT_AUTHENTICATED_ROLE` | `OIDC_ISSUER`<br>`OIDC_CLIENT_ID` | `OIDC_DISCOVERY_URL`<br>`OIDC_GROUP_CLAIM`<br>`USERINFO_CACHE_TTL_SECONDS` |
 | **OAuth2 (Ingestor)** | Ingestor | `ingestonly` | `RBAC_CLIENT_CREDENTIALS_ROLE` | `INGESTOR_OIDC_ISSUER` or `INGESTOR_OIDC_DISCOVERY_URL`<br>`INGESTOR_OIDC_CLIENT_ID` | `INGESTOR_OIDC_SCOPE` |
 | **Trusted Network** | User or Ingestor | `admin` (dev default) | `TRUSTED_NETWORK_DEFAULT_ROLE` | `ALLOW_TRUSTED_NETWORK=true` | `TRUSTED_NETWORK_CIDRS`<br>`TRUSTED_NETWORK_TOKEN` |
 | **Anonymous** | Public | `anonymous` | N/A (fixed) | None | None |
@@ -144,7 +144,7 @@ This table shows how different authentication methods map to roles and which env
    - Groups fetched from OIDC userinfo endpoint (cached in Redis)
    - Falls back to `RBAC_DEFAULT_AUTHENTICATED_ROLE` (default: `readonly`) if no group match
    - Group-to-role mapping: `RBAC_READONLY_GROUPS`, `RBAC_INGESTONLY_GROUPS`, `RBAC_ADMIN_GROUPS`
-   - Cache TTL controlled by `GROUPS_CACHE_TTL_SECONDS` (default: 1800 = 30 minutes)
+   - Cache TTL controlled by `USERINFO_CACHE_TTL_SECONDS` (default: 1800 = 30 minutes)
 
 2. **OAuth2 for Ingestors (Client Credentials)**
    - Machine-to-machine authentication using client credentials flow

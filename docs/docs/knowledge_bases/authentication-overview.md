@@ -159,9 +159,9 @@ The server automatically discovers OIDC endpoints from the issuer URL and valida
 
 ## Group Claims
 
-For group-based role assignment, the RAG server uses a tiered approach to resolve user groups efficiently:
+For group-based role assignment, the RAG server fetches user information (email and groups) from the OIDC provider's `/userinfo` endpoint. This ensures the server always has authoritative user data regardless of what claims are included in the access token.
 
-### Groups Resolution Flow
+### User Info Resolution Flow
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
@@ -170,31 +170,38 @@ For group-based role assignment, the RAG server uses a tiered approach to resolv
 └─────────────────────────────┬───────────────────────────────────────┘
                               ▼
 ┌─────────────────────────────────────────────────────────────────────┐
-│  Step 1: Check ACCESS TOKEN for groups                              │
-│  (Providers like Keycloak include groups in access_token)           │
+│  Extract 'sub' (subject identifier) from access token               │
+│  Used as cache key for userinfo lookup                              │
+└──────────────────────┬──────────────────────────────────────────────┘
+                       │
+                       ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│  Step 1: Check REDIS CACHE for userinfo                             │
+│  Key: rag/rbac/userinfo_cache:{sub}                                 │
+│  Contains: { email, groups }                                        │
 └──────────────────────┬──────────────────────────────────────────────┘
                        │
           ┌────────────┴────────────┐
           │                         │
-       FOUND                    NOT FOUND
-    (use these)                     │
-          │                         ▼
+      CACHE HIT                 CACHE MISS
+     (use cached                    │
+      email+groups)                 ▼
           │         ┌─────────────────────────────────────────────────┐
-          │         │  Step 2: Check REDIS CACHE                      │
-          │         │  Key: rag/rbac/groups_cache:{sub}               │
-          │         │  TTL: 30 minutes (configurable)                 │
+          │         │  Step 2: Fetch from OIDC /userinfo endpoint     │
+          │         │  GET {issuer}/userinfo                          │
+          │         │  Authorization: Bearer {access_token}           │
           │         └──────────────────────┬──────────────────────────┘
           │                                │
           │                   ┌────────────┴────────────┐
           │                   │                         │
-          │               CACHE HIT                 CACHE MISS
-          │              (use these)                    │
-          │                   │                         ▼
-          │                   │         ┌─────────────────────────────┐
-          │                   │         │  Step 3: Fetch from         │
-          │                   │         │  OIDC /userinfo endpoint    │
-          │                   │         │  → Cache result in Redis    │
-          │                   │         └─────────────────────────────┘
+          │               SUCCESS                    FAILED
+          │                   │                         │
+          │                   ▼                         ▼
+          │    ┌──────────────────────────┐  ┌─────────────────────────┐
+          │    │  Extract email & groups  │  │  FALLBACK: Extract from │
+          │    │  from userinfo response  │  │  access_token claims    │
+          │    │  → Cache in Redis (TTL)  │  │  (graceful degradation) │
+          │    └──────────────────────────┘  └─────────────────────────┘
           │                   │                         │
           └───────────────────┴─────────────────────────┘
                               │
@@ -207,15 +214,26 @@ For group-based role assignment, the RAG server uses a tiered approach to resolv
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
+### Why Always Fetch Userinfo?
+
+The `/userinfo` endpoint is the **authoritative source** for user claims. This approach:
+
+| Benefit | Explanation |
+|---------|-------------|
+| **Consistent data** | Email and groups always come from the same authoritative source |
+| **Provider agnostic** | Works regardless of what claims your OIDC provider includes in access tokens |
+| **Handles Duo SSO** | Duo SSO includes groups in access_token but not email - userinfo has both |
+| **Standards compliant** | OAuth 2.0 recommends resource servers use userinfo for user data |
+| **Cached for performance** | First request fetches userinfo, subsequent requests use Redis cache |
+
 ### How It Works
 
 | Scenario | What Happens | Performance |
 |----------|--------------|-------------|
-| **Groups in access_token** (Keycloak, Okta) | Uses groups directly from token | Fastest - no external calls |
-| **Groups only in userinfo** (Duo SSO) | First request fetches from userinfo, caches result | Slower first request, fast subsequent |
-| **Repeat requests** (within TTL) | Cache hit - uses cached groups | Fast - no external calls |
-| **Redis unavailable** | Falls back to userinfo every request | Slower but functional |
-| **Userinfo fails** | Empty groups - user gets default role | Graceful degradation |
+| **First request** | Fetch from userinfo endpoint, cache result | One external call |
+| **Repeat requests** (within TTL) | Cache hit - uses cached email+groups | Fast - no external calls |
+| **Redis unavailable** | Fetch from userinfo every request | Slower but functional |
+| **Userinfo fails** | Falls back to access_token claims | Graceful degradation |
 
 ### Supported Group Claim Names
 
@@ -244,9 +262,9 @@ When not set, all default claims are checked and combined automatically.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `GROUPS_CACHE_TTL_SECONDS` | `1800` (30 min) | How long to cache groups in Redis |
+| `USERINFO_CACHE_TTL_SECONDS` | `1800` (30 min) | How long to cache userinfo (email + groups) in Redis |
 
-The cache key format is `rag/rbac/groups_cache:{sub}` where `sub` is the user's subject identifier from the access token.
+The cache key format is `rag/rbac/userinfo_cache:{sub}` where `sub` is the user's subject identifier from the access token.
 
 ## Security Best Practices
 

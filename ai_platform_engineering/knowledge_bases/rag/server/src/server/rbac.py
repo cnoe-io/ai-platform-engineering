@@ -18,12 +18,13 @@ import os
 import re
 import json
 import ipaddress
+from dataclasses import dataclass
 from typing import List, Dict, Any, Optional
 from fastapi import Depends, HTTPException, Request
 from jose import JWTError
 import redis.asyncio as redis
 from common.models.rbac import Role, UserContext
-from common.constants import REDIS_GROUPS_CACHE_PREFIX
+from common.constants import REDIS_USERINFO_CACHE_PREFIX
 from common import utils
 from server.auth import get_auth_manager, AuthManager
 
@@ -100,96 +101,106 @@ logger.info(f"  OIDC_GROUP_CLAIM: {OIDC_GROUP_CLAIM if OIDC_GROUP_CLAIM else '(a
 # Groups Cache (Redis-backed)
 # ============================================================================
 
-# Groups cache TTL in seconds (default: 30 minutes)
-# Groups are fetched from OIDC userinfo endpoint and cached to reduce load
-GROUPS_CACHE_TTL_SECONDS = int(os.getenv("GROUPS_CACHE_TTL_SECONDS", 1800))
+# Userinfo cache TTL in seconds (default: 30 minutes)
+# User info (email, groups) is fetched from OIDC userinfo endpoint and cached to reduce load
+USERINFO_CACHE_TTL_SECONDS = int(os.getenv("USERINFO_CACHE_TTL_SECONDS", 1800))
 
-logger.info(f"  GROUPS_CACHE_TTL_SECONDS: {GROUPS_CACHE_TTL_SECONDS}")
+logger.info(f"  USERINFO_CACHE_TTL_SECONDS: {USERINFO_CACHE_TTL_SECONDS}")
 
 
-class GroupsCache:
+@dataclass
+class CachedUserInfo:
+  """Cached user information from OIDC userinfo endpoint."""
+
+  email: str
+  groups: List[str]
+
+
+class UserInfoCache:
   """
-  Redis-backed cache for user groups fetched from OIDC userinfo endpoint.
+  Redis-backed cache for user info fetched from OIDC userinfo endpoint.
 
-  This cache reduces load on the OIDC provider by caching group membership
-  for a configurable TTL. Groups are keyed by the user's 'sub' claim from
-  the access token.
+  This cache reduces load on the OIDC provider by caching user information
+  (email and groups) for a configurable TTL. Data is keyed by the user's
+  'sub' claim from the access token.
   """
 
   def __init__(self, redis_client: redis.Redis):
     """
-    Initialize groups cache with Redis client.
+    Initialize userinfo cache with Redis client.
 
     Args:
         redis_client: Async Redis client instance
     """
     self.redis_client = redis_client
-    self._ttl = GROUPS_CACHE_TTL_SECONDS
+    self._ttl = USERINFO_CACHE_TTL_SECONDS
 
-  async def get(self, sub: str) -> Optional[List[str]]:
+  async def get(self, sub: str) -> Optional[CachedUserInfo]:
     """
-    Get cached groups for a user.
+    Get cached user info for a user.
 
     Args:
         sub: User's subject identifier from access token
 
     Returns:
-        List of groups if cached and not expired, None otherwise
+        CachedUserInfo if cached and not expired, None otherwise
     """
     try:
-      data = await self.redis_client.get(f"{REDIS_GROUPS_CACHE_PREFIX}{sub}")
+      data = await self.redis_client.get(f"{REDIS_USERINFO_CACHE_PREFIX}{sub}")
       if data:
-        groups = json.loads(data)
-        logger.debug(f"Groups cache hit for sub={sub[:16]}..., groups_count={len(groups)}")
-        return groups
-      logger.debug(f"Groups cache miss for sub={sub[:16]}...")
+        parsed = json.loads(data)
+        user_info = CachedUserInfo(email=parsed["email"], groups=parsed["groups"])
+        logger.debug(f"Userinfo cache hit for sub={sub[:16]}..., email={user_info.email}, groups_count={len(user_info.groups)}")
+        return user_info
+      logger.debug(f"Userinfo cache miss for sub={sub[:16]}...")
       return None
     except Exception as e:
-      logger.warning(f"Groups cache get failed for sub={sub[:16]}...: {e}")
+      logger.warning(f"Userinfo cache get failed for sub={sub[:16]}...: {e}")
       return None
 
-  async def set(self, sub: str, groups: List[str]) -> None:
+  async def set(self, sub: str, user_info: CachedUserInfo) -> None:
     """
-    Cache groups for a user with TTL.
+    Cache user info with TTL.
 
     Args:
         sub: User's subject identifier from access token
-        groups: List of group names
+        user_info: User information to cache
     """
     try:
-      await self.redis_client.setex(f"{REDIS_GROUPS_CACHE_PREFIX}{sub}", self._ttl, json.dumps(groups))
-      logger.debug(f"Groups cached for sub={sub[:16]}..., groups_count={len(groups)}, ttl={self._ttl}s")
+      data = json.dumps({"email": user_info.email, "groups": user_info.groups})
+      await self.redis_client.setex(f"{REDIS_USERINFO_CACHE_PREFIX}{sub}", self._ttl, data)
+      logger.debug(f"Userinfo cached for sub={sub[:16]}..., email={user_info.email}, groups_count={len(user_info.groups)}, ttl={self._ttl}s")
     except Exception as e:
-      logger.warning(f"Groups cache set failed for sub={sub[:16]}...: {e}")
+      logger.warning(f"Userinfo cache set failed for sub={sub[:16]}...: {e}")
 
   async def delete(self, sub: str) -> None:
     """
-    Delete cached groups for a user.
+    Delete cached user info.
 
     Args:
         sub: User's subject identifier from access token
     """
     try:
-      await self.redis_client.delete(f"{REDIS_GROUPS_CACHE_PREFIX}{sub}")
-      logger.debug(f"Groups cache deleted for sub={sub[:16]}...")
+      await self.redis_client.delete(f"{REDIS_USERINFO_CACHE_PREFIX}{sub}")
+      logger.debug(f"Userinfo cache deleted for sub={sub[:16]}...")
     except Exception as e:
-      logger.warning(f"Groups cache delete failed for sub={sub[:16]}...: {e}")
+      logger.warning(f"Userinfo cache delete failed for sub={sub[:16]}...: {e}")
 
 
-# Global groups cache instance (set by restapi.py on startup)
-_groups_cache: Optional[GroupsCache] = None
+# Global userinfo cache instance (set by restapi.py on startup)
+_userinfo_cache: Optional[UserInfoCache] = None
 
 
-def set_groups_cache(cache: GroupsCache) -> None:
-  """Set the global groups cache instance."""
-  global _groups_cache
-  _groups_cache = cache
-  logger.info("Groups cache initialized")
+def set_userinfo_cache(cache: UserInfoCache) -> None:
+  """Set the global userinfo cache instance."""
+  global _userinfo_cache
+  _userinfo_cache = cache
+  logger.info("Userinfo cache initialized")
 
 
-def get_groups_cache() -> Optional[GroupsCache]:
-  """Get the global groups cache instance."""
-  return _groups_cache
+def get_userinfo_cache() -> Optional[UserInfoCache]:
+  """Get the global userinfo cache instance."""
+  return _userinfo_cache
 
 
 # ============================================================================
@@ -516,21 +527,17 @@ async def _authenticate_from_token(request: Request, auth_manager: AuthManager) 
   """
   Internal helper to authenticate user from JWT token.
 
-  Uses a tiered approach to fetch user groups:
-  1. Check if groups are in the access_token itself (most efficient)
-  2. Check Redis cache for previously fetched groups
-  3. Fetch from OIDC userinfo endpoint (authoritative source)
-
-  This approach handles OIDC providers that include groups in access tokens
-  (like Keycloak) as well as those that only include groups in userinfo
-  (like Duo SSO).
+  For user tokens, always fetches user info (email, groups) from the OIDC
+  userinfo endpoint, with Redis caching to reduce load on the provider.
+  This ensures we always get authoritative email and group information,
+  regardless of what claims are in the access token.
 
   Flow:
   1. Validate access_token (signature, expiry, audience, issuer)
-  2. Check if client credentials token (machine-to-machine)
-  3. Extract 'sub' (user ID) from access_token
-  4. Check for groups in access_token → cache → userinfo
-  5. Cache groups for future requests
+  2. Check if client credentials token (machine-to-machine) → return immediately
+  3. Extract 'sub' (user ID) from access_token for cache key
+  4. Check Redis cache for userinfo (email + groups)
+  5. On cache miss, fetch from OIDC userinfo endpoint and cache result
   6. Determine role from groups
 
   Returns:
@@ -580,81 +587,60 @@ async def _authenticate_from_token(request: Request, auth_manager: AuthManager) 
     # Extract user's subject identifier for cache key
     sub = access_claims.get("sub")
     if not sub:
-      logger.warning("Access token missing 'sub' claim, cannot cache groups")
+      logger.warning("Access token missing 'sub' claim, cannot use cache")
       sub = "unknown"
     else:
       logger.debug(f"Extracted sub from access_token: {sub[:16]}...")
 
-    # Extract email from access token (always available after validation)
-    email = extract_email_from_claims(access_claims)
-    logger.debug(f"Extracted email from access_token: {email}")
-
-    # Strategy for groups:
-    # 1. Check if groups are already in the access token (most efficient)
-    # 2. Check Redis cache
-    # 3. Fetch from userinfo endpoint (authoritative source)
+    # For user tokens, always get email and groups from userinfo (with caching)
+    # This ensures we have authoritative user info regardless of access_token claims
+    email = None
     groups = None
-    groups_source = None
+    info_source = None
 
-    # Step 1: Check if groups are in the access token itself
-    logger.debug("Step 1: Checking for groups in access_token claims...")
-    access_token_groups = extract_groups_from_claims(access_claims)
-    if access_token_groups:
-      groups = access_token_groups
-      groups_source = "access_token"
-      logger.info(f"Groups found in access_token: email={email}, groups={groups}")
-    else:
-      logger.debug("No groups found in access_token claims")
+    # Step 1: Check Redis cache for userinfo
+    userinfo_cache = get_userinfo_cache()
+    if userinfo_cache and sub != "unknown":
+      logger.debug("Checking Redis cache for userinfo...")
+      cached_info = await userinfo_cache.get(sub)
+      if cached_info is not None:
+        email = cached_info.email
+        groups = cached_info.groups
+        info_source = "cache"
+        logger.info(f"Userinfo found in cache: email={email}, groups_count={len(groups)}")
 
-    # Step 2: Check Redis cache (only if not found in access token)
-    if groups is None:
-      logger.debug("Step 2: Checking Redis cache for groups...")
-      groups_cache = get_groups_cache()
-      if groups_cache and sub != "unknown":
-        cached_groups = await groups_cache.get(sub)
-        if cached_groups is not None:
-          groups = cached_groups
-          groups_source = "cache"
-          logger.info(f"Groups found in cache: email={email}, groups={groups}")
-        else:
-          logger.debug(f"Cache miss for sub={sub[:16]}...")
-      elif not groups_cache:
-        logger.debug("Groups cache not available, skipping cache lookup")
-      else:
-        logger.debug("Cannot use cache: sub is unknown")
-
-    # Step 3: Fetch from userinfo endpoint (only if not found elsewhere)
-    if groups is None:
-      logger.debug("Step 3: Fetching groups from OIDC userinfo endpoint...")
+    # Step 2: Fetch from userinfo endpoint on cache miss
+    if email is None:
+      logger.debug("Fetching userinfo from OIDC endpoint...")
       try:
         userinfo = await auth_manager.fetch_userinfo(token, provider)
         logger.debug(f"Userinfo response keys: {list(userinfo.keys())}")
+
+        email = extract_email_from_claims(userinfo)
         groups = extract_groups_from_claims(userinfo)
-        groups_source = "userinfo"
-        logger.info(f"Groups fetched from userinfo: email={email}, groups={groups}")
+        info_source = "userinfo"
+        logger.info(f"Userinfo fetched: email={email}, groups_count={len(groups)}")
 
-        # Also extract email from userinfo if available (more authoritative)
-        userinfo_email = extract_email_from_claims(userinfo)
-        if userinfo_email and userinfo_email != "unknown":
-          if userinfo_email != email:
-            logger.debug(f"Using email from userinfo instead of access_token: {userinfo_email}")
-          email = userinfo_email
-
-        # Cache the groups for future requests
-        groups_cache = get_groups_cache()
-        if groups_cache and sub != "unknown":
-          await groups_cache.set(sub, groups)
-          logger.debug(f"Groups cached for sub={sub[:16]}...")
-        elif not groups_cache:
-          logger.debug("Groups cache not available, skipping cache write")
+        # Cache the userinfo for future requests
+        if userinfo_cache and sub != "unknown":
+          await userinfo_cache.set(sub, CachedUserInfo(email=email, groups=groups))
+          logger.debug(f"Userinfo cached for sub={sub[:16]}...")
+        elif not userinfo_cache:
+          logger.debug("Userinfo cache not available, skipping cache write")
 
       except Exception as e:
-        # Userinfo fetch failed - use empty groups
-        logger.warning(f"Userinfo fetch failed, no groups available: {e}")
-        groups = []
-        groups_source = "none"
+        # Userinfo fetch failed - fall back to access_token claims
+        logger.warning(f"Userinfo fetch failed, falling back to access_token claims: {e}")
+        email = extract_email_from_claims(access_claims)
+        groups = extract_groups_from_claims(access_claims)
+        info_source = "access_token_fallback"
+        logger.info(f"Using fallback claims: email={email}, groups_count={len(groups)}")
 
-    logger.info(f"Groups resolution complete: email={email}, groups_count={len(groups)}, groups_source={groups_source}")
+    logger.info(f"User info resolution complete: email={email}, groups_count={len(groups) if groups else 0}, source={info_source}")
+
+    # Ensure groups is always a list (defensive)
+    if groups is None:
+      groups = []
 
     # Validate email format
     if email and email != "unknown" and not EMAIL_REGEX.match(email):
@@ -666,7 +652,7 @@ async def _authenticate_from_token(request: Request, auth_manager: AuthManager) 
 
     user_context = UserContext(email=email, groups=groups, role=role, is_authenticated=True)
 
-    logger.info(f"User authenticated successfully: email={email}, role={role}, groups_count={len(groups)}, groups_source={groups_source}")
+    logger.info(f"User authenticated successfully: email={email}, role={role}, groups_count={len(groups)}, source={info_source}")
     return user_context
 
   except JWTError as e:
