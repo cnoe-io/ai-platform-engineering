@@ -111,7 +111,7 @@ For group-based role assignment, the RAG server uses a tiered approach to resolv
           │                         ▼
           │         ┌─────────────────────────────────────────────────┐
           │         │  Step 2: Check REDIS CACHE                      │
-          │         │  Key: rag/groups_cache:{sub}                    │
+          │         │  Key: rag/rbac/groups_cache:{sub}               │
           │         │  TTL: 30 minutes (configurable)                 │
           │         └──────────────────────┬──────────────────────────┘
           │                                │
@@ -165,7 +165,7 @@ If your provider uses a different claim name, configure `OIDC_GROUP_CLAIM`.
 |----------|---------|-------------|
 | `GROUPS_CACHE_TTL_SECONDS` | `1800` (30 min) | How long to cache groups in Redis |
 
-The cache key format is `rag/groups_cache:{sub}` where `sub` is the user's subject identifier from the access token.
+The cache key format is `rag/rbac/groups_cache:{sub}` where `sub` is the user's subject identifier from the access token.
 
 ## Security Best Practices
 
