@@ -42,7 +42,7 @@ Configure environment variables for JWT-based authentication:
 OIDC_ISSUER=https://your-keycloak.com/realms/production
 OIDC_CLIENT_ID=rag-ui
 OIDC_CLIENT_SECRET=xxx
-OIDC_GROUP_CLAIM=groups  # Optional: auto-detects if empty
+OIDC_GROUP_CLAIM=groups  # Optional: auto-detects if empty; supports comma-separated (e.g., "groups,members,roles")
 
 # Ingestor authentication (OAuth2 client credentials)
 INGESTOR_OIDC_ISSUER=https://your-keycloak.com/realms/production

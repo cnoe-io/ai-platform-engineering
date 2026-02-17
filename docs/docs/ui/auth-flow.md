@@ -262,7 +262,7 @@ OIDC_ENABLE_REFRESH_TOKEN=true  # default
 
 # Group-based Authorization (optional)
 OIDC_REQUIRED_GROUP=backstage-access
-OIDC_GROUP_CLAIM=groups  # auto-detect if not set
+OIDC_GROUP_CLAIM=groups  # auto-detect if not set; supports comma-separated (e.g., "groups,members,roles")
 
 # NextAuth Session
 NEXTAUTH_SECRET=your-secret-here
