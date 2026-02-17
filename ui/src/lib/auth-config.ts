@@ -13,7 +13,10 @@ import type { NextAuthOptions } from "next-auth";
  *   (Also accepts NEXT_PUBLIC_SSO_ENABLED for backward compatibility.)
  *   If SSO does not appear enabled: check window.__APP_CONFIG__ in the browser
  *   or GET /api/debug/auth-status.
- * - OIDC_GROUP_CLAIM: The OIDC claim name for groups (default: auto-detect from memberOf, groups, etc.)
+ * - OIDC_GROUP_CLAIM: The OIDC claim name(s) for groups. Supports:
+ *     - Single value: "memberOf"
+ *     - Comma-separated: "groups,members,roles" (all checked, results combined)
+ *     - Empty/unset: auto-detect from common claim names
  * - OIDC_REQUIRED_GROUP: Group name required for access (default: "backstage-access")
  * - OIDC_REQUIRED_ADMIN_GROUP: Group name for admin access (default: none)
  * - OIDC_ENABLE_REFRESH_TOKEN: "true" to enable refresh token support (default: true if not set)
@@ -23,7 +26,8 @@ import type { NextAuthOptions } from "next-auth";
 // Defaults to true for backward compatibility, but can be disabled if OIDC provider doesn't support it
 export const ENABLE_REFRESH_TOKEN = process.env.OIDC_ENABLE_REFRESH_TOKEN !== "false";
 
-// Group claim name - configurable via env var
+// Group claim name(s) - configurable via env var
+// Supports single value or comma-separated list (e.g., "groups,members,roles")
 // If not set, will auto-detect from common claim names
 export const GROUP_CLAIM = process.env.OIDC_GROUP_CLAIM || "";
 
@@ -37,20 +41,44 @@ export const REQUIRED_ADMIN_GROUP = process.env.OIDC_REQUIRED_ADMIN_GROUP || "";
 // Note: Duo SSO uses "members" for full group list, "groups" for limited set
 const DEFAULT_GROUP_CLAIMS = ["members", "memberOf", "groups", "group", "roles", "cognito:groups"];
 
-// Helper to extract groups from OIDC claims
-// Combines groups from multiple claims (Duo uses both "groups" and "members")
+/**
+ * Helper to add groups from a claim value to a set
+ */
+function addGroupsFromValue(value: unknown, groups: Set<string>): void {
+  if (Array.isArray(value)) {
+    value.map(String).forEach(g => groups.add(g));
+  } else if (typeof value === "string") {
+    // Some providers return comma-separated or space-separated groups
+    value.split(/[,\s]+/).filter(Boolean).forEach(g => groups.add(g));
+  }
+}
+
+/**
+ * Extract groups from OIDC claims with configurable claim name(s).
+ * Mirrors the logic in server/src/server/rbac.py extract_groups_from_claims()
+ *
+ * Uses OIDC_GROUP_CLAIM if set (supports comma-separated for multiple claims),
+ * otherwise checks ALL common claim names and combines groups from all
+ * of them (using a set for deduplication).
+ *
+ * @param profile - OIDC profile/claims object
+ * @returns Array of unique group names
+ */
 function extractGroups(profile: Record<string, unknown>): string[] {
   const allGroups = new Set<string>();
 
-  // If a specific claim is configured, use only that
+  // If specific claim(s) configured, use only those
+  // Supports comma-separated list (e.g., "groups,members,roles")
   if (GROUP_CLAIM) {
-    const value = profile[GROUP_CLAIM];
-    if (Array.isArray(value)) {
-      value.map(String).forEach(g => allGroups.add(g));
-    } else if (typeof value === "string") {
-      value.split(/[,\s]+/).filter(Boolean).forEach(g => allGroups.add(g));
-    } else {
-      console.warn(`OIDC group claim "${GROUP_CLAIM}" not found in profile`);
+    const configuredClaims = GROUP_CLAIM.split(",").map(c => c.trim()).filter(Boolean);
+    for (const claimName of configuredClaims) {
+      const value = profile[claimName];
+      if (value !== undefined) {
+        addGroupsFromValue(value, allGroups);
+      }
+    }
+    if (allGroups.size === 0) {
+      console.warn(`OIDC group claim(s) "${GROUP_CLAIM}" not found in profile`);
     }
     return Array.from(allGroups);
   }
@@ -59,11 +87,8 @@ function extractGroups(profile: Record<string, unknown>): string[] {
   // This is important for Duo SSO which uses both "groups" and "members"
   for (const claim of DEFAULT_GROUP_CLAIMS) {
     const value = profile[claim];
-    if (Array.isArray(value)) {
-      value.map(String).forEach(g => allGroups.add(g));
-    } else if (typeof value === "string") {
-      // Some providers return comma-separated or space-separated groups
-      value.split(/[,\s]+/).filter(Boolean).forEach(g => allGroups.add(g));
+    if (value !== undefined) {
+      addGroupsFromValue(value, allGroups);
     }
   }
 

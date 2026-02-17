@@ -10,16 +10,21 @@ This module provides:
 - User context extraction from JWT tokens (Bearer authentication)
 - Trusted network access (IP-based or header-based)
 - Role determination from group membership
+- Groups caching via Redis (fetched from OIDC userinfo endpoint)
 - FastAPI dependencies for role-based endpoint protection
 """
 
 import os
 import re
+import json
 import ipaddress
+from dataclasses import dataclass
 from typing import List, Dict, Any, Optional
 from fastapi import Depends, HTTPException, Request
 from jose import JWTError
+import redis.asyncio as redis
 from common.models.rbac import Role, UserContext
+from common.constants import REDIS_USERINFO_CACHE_PREFIX
 from common import utils
 from server.auth import get_auth_manager, AuthManager
 
@@ -91,6 +96,112 @@ if ALLOW_TRUSTED_NETWORK:
   logger.info(f"  TRUSTED_NETWORK_TOKEN: {'(set)' if TRUSTED_NETWORK_TOKEN else '(not set)'}")
   logger.info(f"  TRUSTED_NETWORK_DEFAULT_ROLE: {TRUSTED_NETWORK_DEFAULT_ROLE}")
 logger.info(f"  OIDC_GROUP_CLAIM: {OIDC_GROUP_CLAIM if OIDC_GROUP_CLAIM else '(auto-detect)'}")
+
+# ============================================================================
+# Groups Cache (Redis-backed)
+# ============================================================================
+
+# Userinfo cache TTL in seconds (default: 30 minutes)
+# User info (email, groups) is fetched from OIDC userinfo endpoint and cached to reduce load
+USERINFO_CACHE_TTL_SECONDS = int(os.getenv("USERINFO_CACHE_TTL_SECONDS", 1800))
+
+logger.info(f"  USERINFO_CACHE_TTL_SECONDS: {USERINFO_CACHE_TTL_SECONDS}")
+
+
+@dataclass
+class CachedUserInfo:
+  """Cached user information from OIDC userinfo endpoint."""
+
+  email: str
+  groups: List[str]
+
+
+class UserInfoCache:
+  """
+  Redis-backed cache for user info fetched from OIDC userinfo endpoint.
+
+  This cache reduces load on the OIDC provider by caching user information
+  (email and groups) for a configurable TTL. Data is keyed by the user's
+  'sub' claim from the access token.
+  """
+
+  def __init__(self, redis_client: redis.Redis):
+    """
+    Initialize userinfo cache with Redis client.
+
+    Args:
+        redis_client: Async Redis client instance
+    """
+    self.redis_client = redis_client
+    self._ttl = USERINFO_CACHE_TTL_SECONDS
+
+  async def get(self, sub: str) -> Optional[CachedUserInfo]:
+    """
+    Get cached user info for a user.
+
+    Args:
+        sub: User's subject identifier from access token
+
+    Returns:
+        CachedUserInfo if cached and not expired, None otherwise
+    """
+    try:
+      data = await self.redis_client.get(f"{REDIS_USERINFO_CACHE_PREFIX}{sub}")
+      if data:
+        parsed = json.loads(data)
+        user_info = CachedUserInfo(email=parsed["email"], groups=parsed["groups"])
+        logger.debug(f"Userinfo cache hit for sub={sub[:16]}..., email={user_info.email}, groups_count={len(user_info.groups)}")
+        return user_info
+      logger.debug(f"Userinfo cache miss for sub={sub[:16]}...")
+      return None
+    except Exception as e:
+      logger.warning(f"Userinfo cache get failed for sub={sub[:16]}...: {e}")
+      return None
+
+  async def set(self, sub: str, user_info: CachedUserInfo) -> None:
+    """
+    Cache user info with TTL.
+
+    Args:
+        sub: User's subject identifier from access token
+        user_info: User information to cache
+    """
+    try:
+      data = json.dumps({"email": user_info.email, "groups": user_info.groups})
+      await self.redis_client.setex(f"{REDIS_USERINFO_CACHE_PREFIX}{sub}", self._ttl, data)
+      logger.debug(f"Userinfo cached for sub={sub[:16]}..., email={user_info.email}, groups_count={len(user_info.groups)}, ttl={self._ttl}s")
+    except Exception as e:
+      logger.warning(f"Userinfo cache set failed for sub={sub[:16]}...: {e}")
+
+  async def delete(self, sub: str) -> None:
+    """
+    Delete cached user info.
+
+    Args:
+        sub: User's subject identifier from access token
+    """
+    try:
+      await self.redis_client.delete(f"{REDIS_USERINFO_CACHE_PREFIX}{sub}")
+      logger.debug(f"Userinfo cache deleted for sub={sub[:16]}...")
+    except Exception as e:
+      logger.warning(f"Userinfo cache delete failed for sub={sub[:16]}...: {e}")
+
+
+# Global userinfo cache instance (set by restapi.py on startup)
+_userinfo_cache: Optional[UserInfoCache] = None
+
+
+def set_userinfo_cache(cache: UserInfoCache) -> None:
+  """Set the global userinfo cache instance."""
+  global _userinfo_cache
+  _userinfo_cache = cache
+  logger.info("Userinfo cache initialized")
+
+
+def get_userinfo_cache() -> Optional[UserInfoCache]:
+  """Get the global userinfo cache instance."""
+  return _userinfo_cache
+
 
 # ============================================================================
 # Role Hierarchy and Permission Logic
@@ -416,9 +527,18 @@ async def _authenticate_from_token(request: Request, auth_manager: AuthManager) 
   """
   Internal helper to authenticate user from JWT token.
 
-  Supports optional X-Identity-Token header for ID token with user claims.
-  If provided, the ID token is validated and used for email/groups extraction.
-  If not provided, falls back to extracting claims from the access token.
+  For user tokens, always fetches user info (email, groups) from the OIDC
+  userinfo endpoint, with Redis caching to reduce load on the provider.
+  This ensures we always get authoritative email and group information,
+  regardless of what claims are in the access token.
+
+  Flow:
+  1. Validate access_token (signature, expiry, audience, issuer)
+  2. Check if client credentials token (machine-to-machine) → return immediately
+  3. Extract 'sub' (user ID) from access_token for cache key
+  4. Check Redis cache for userinfo (email + groups)
+  5. On cache miss, fetch from OIDC userinfo endpoint and cache result
+  6. Determine role from groups
 
   Returns:
       UserContext if authentication successful, None if no auth or invalid
@@ -429,10 +549,6 @@ async def _authenticate_from_token(request: Request, auth_manager: AuthManager) 
     return None
 
   token = auth_header[7:]  # Remove "Bearer " prefix
-
-  # Extract optional ID token for claims (some OIDC providers only include
-  # user claims like email/groups in the ID token, not the access token)
-  id_token = request.headers.get("X-Identity-Token")
 
   # Extract optional ingestor identification headers
   ingestor_type = request.headers.get("X-Ingestor-Type")
@@ -468,42 +584,79 @@ async def _authenticate_from_token(request: Request, auth_manager: AuthManager) 
     else:
       logger.debug("Regular user token detected (not client credentials)")
 
-    # Determine which claims to use for email/groups extraction
-    claims_for_extraction = access_claims
-    claims_source = "access_token"
+    # Extract user's subject identifier for cache key
+    sub = access_claims.get("sub")
+    if not sub:
+      logger.warning("Access token missing 'sub' claim, cannot use cache")
+      sub = "unknown"
+    else:
+      logger.debug(f"Extracted sub from access_token: {sub[:16]}...")
 
-    # If ID token provided, validate and use its claims for user identity
-    if id_token:
+    # For user tokens, always get email and groups from userinfo (with caching)
+    # This ensures we have authoritative user info regardless of access_token claims
+    email = None
+    groups = None
+    info_source = None
+
+    # Step 1: Check Redis cache for userinfo
+    userinfo_cache = get_userinfo_cache()
+    if userinfo_cache and sub != "unknown":
+      logger.debug("Checking Redis cache for userinfo...")
+      cached_info = await userinfo_cache.get(sub)
+      if cached_info is not None:
+        email = cached_info.email
+        groups = cached_info.groups
+        info_source = "cache"
+        logger.info(f"Userinfo found in cache: email={email}, groups_count={len(groups)}")
+
+    # Step 2: Fetch from userinfo endpoint on cache miss
+    if email is None:
+      logger.debug("Fetching userinfo from OIDC endpoint...")
       try:
-        id_claims = await auth_manager.validate_id_token(id_token, provider)
-        claims_for_extraction = id_claims
-        claims_source = "id_token"
-        logger.debug(f"Using ID token for claims extraction, keys: {list(id_claims.keys())}")
-      except JWTError as e:
-        # ID token provided but invalid - reject the request
-        logger.warning(f"ID token validation failed: {e}")
-        raise  # Re-raise to trigger 401 response
+        userinfo = await auth_manager.fetch_userinfo(token, provider)
+        logger.debug(f"Userinfo response keys: {list(userinfo.keys())}")
 
-    # Regular user token - extract email and groups from appropriate claims
-    email = extract_email_from_claims(claims_for_extraction)
-    groups = extract_groups_from_claims(claims_for_extraction)
+        email = extract_email_from_claims(userinfo)
+        groups = extract_groups_from_claims(userinfo)
+        info_source = "userinfo"
+        logger.info(f"Userinfo fetched: email={email}, groups_count={len(groups)}")
 
-    logger.debug(f"Extracted from {claims_source}: email={email}, groups={groups}")
+        # Cache the userinfo for future requests
+        if userinfo_cache and sub != "unknown":
+          await userinfo_cache.set(sub, CachedUserInfo(email=email, groups=groups))
+          logger.debug(f"Userinfo cached for sub={sub[:16]}...")
+        elif not userinfo_cache:
+          logger.debug("Userinfo cache not available, skipping cache write")
+
+      except Exception as e:
+        # Userinfo fetch failed - fall back to access_token claims
+        logger.warning(f"Userinfo fetch failed, falling back to access_token claims: {e}")
+        email = extract_email_from_claims(access_claims)
+        groups = extract_groups_from_claims(access_claims)
+        info_source = "access_token_fallback"
+        logger.info(f"Using fallback claims: email={email}, groups_count={len(groups)}")
+
+    logger.info(f"User info resolution complete: email={email}, groups_count={len(groups) if groups else 0}, source={info_source}")
+
+    # Ensure groups is always a list (defensive)
+    if groups is None:
+      groups = []
 
     # Validate email format
     if email and email != "unknown" and not EMAIL_REGEX.match(email):
-      logger.warning(f"Invalid email format in token claims: {email[:50]}")
+      logger.warning(f"Invalid email format in claims: {email[:50]}")
 
     # Determine role from groups
     role = determine_role_from_groups(groups)
+    logger.info(f"Role determined: email={email}, role={role}, groups={groups}")
 
     user_context = UserContext(email=email, groups=groups, role=role, is_authenticated=True)
 
-    logger.debug(f"User authenticated: {email}, role: {role}, groups: {groups}")
+    logger.info(f"User authenticated successfully: email={email}, role={role}, groups_count={len(groups)}, source={info_source}")
     return user_context
 
   except JWTError as e:
-    logger.debug(f"Token validation failed: {e}")
+    logger.warning(f"Token validation failed: {e}")
     return None
 
 

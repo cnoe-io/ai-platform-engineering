@@ -106,4 +106,4 @@ npm run dev
 
 - **403 Forbidden**: User lacks required role. Check groups in `/api/user/info`.
 - **401 Unauthorized**: Session expired. Re-authenticate via `/api/auth/signin`.
-- **Wrong role**: Verify `OIDC_GROUP_CLAIM` matches your provider and groups are in claims.
+- **Wrong role**: Verify `OIDC_GROUP_CLAIM` matches your provider and groups are in claims. Supports comma-separated values (e.g., `groups,members,roles`).

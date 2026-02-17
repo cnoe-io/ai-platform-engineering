@@ -6,19 +6,20 @@ import { authOptions } from '@/lib/auth-config';
  * RAG API Proxy with JWT Bearer Token Authentication
  *
  * Proxies requests from /api/rag/* to the RAG server with JWT authentication.
- * The RAG server validates the JWT token and extracts user identity/groups/role.
+ * The RAG server validates the JWT token and fetches user claims (email, groups)
+ * from the OIDC userinfo endpoint, caching them in Redis.
  *
  * Authentication:
  * - Authorization: Bearer {access_token} (OIDC JWT access token)
- * - X-Identity-Token: {id_token} (OIDC JWT ID token for claims extraction)
  *
- * Some OIDC providers only include user claims (email, groups) in the ID token,
- * not the access token. The X-Identity-Token header allows the RAG server to
- * extract these claims from the ID token while using the access token for auth.
+ * The RAG server uses the access_token to:
+ * 1. Authenticate the request (validate JWT signature, expiry, audience)
+ * 2. Fetch user claims from OIDC userinfo endpoint (cached in Redis)
+ * 3. Determine user role based on group membership
  *
- * The RAG server ONLY supports JWT Bearer tokens, not OAuth2Proxy headers.
- * If no JWT is available and trusted network is enabled on RAG server,
- * requests from trusted IPs (like localhost) will still work.
+ * This is the standards-compliant OAuth approach - only the access_token is
+ * passed downstream, and user claims are fetched server-side from the
+ * authoritative source (OIDC provider's userinfo endpoint).
  *
  * Example:
  *   /api/rag/healthz -> RAG_SERVER_URL/healthz (with Bearer token)
@@ -34,11 +35,11 @@ function getRagServerUrl(): string {
 /**
  * Get auth headers from the current session
  * 
- * Extracts JWT access token and ID token from session and sends to RAG server.
- * - Access token: Used for authentication (Bearer token)
- * - ID token: Used for claims extraction (email, groups) via X-Identity-Token header
+ * Extracts JWT access token from session and sends to RAG server.
+ * The RAG server uses this token to authenticate and fetch user claims
+ * from the OIDC userinfo endpoint (with caching).
  * 
- * @returns Headers object with Authorization Bearer token and optional ID token for RAG server
+ * @returns Headers object with Authorization Bearer token for RAG server
  */
 async function getRbacHeaders(): Promise<Record<string, string>> {
   const headers: Record<string, string> = {
@@ -49,15 +50,9 @@ async function getRbacHeaders(): Promise<Record<string, string>> {
     const session = await getServerSession(authOptions);
     
     // Pass JWT access token as Bearer token
-    // RAG server validates JWT and uses it for authentication
+    // RAG server validates JWT and fetches user claims from OIDC userinfo endpoint
     if (session?.accessToken) {
       headers['Authorization'] = `Bearer ${session.accessToken}`;
-    }
-
-    // Pass ID token for claims extraction (email, groups)
-    // Some OIDC providers only include user claims in the ID token, not the access token
-    if (session?.idToken) {
-      headers['X-Identity-Token'] = session.idToken;
     }
   } catch (error) {
     // If session retrieval fails, continue without auth headers
