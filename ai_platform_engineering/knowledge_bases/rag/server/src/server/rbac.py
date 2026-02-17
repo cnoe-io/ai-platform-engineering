@@ -25,7 +25,7 @@ import redis.asyncio as redis
 from common.models.rbac import Role, UserContext
 from common.constants import REDIS_GROUPS_CACHE_PREFIX
 from common import utils
-from server.auth import get_auth_manager, AuthManager, OIDCProvider
+from server.auth import get_auth_manager, AuthManager
 
 logger = utils.get_logger(__name__)
 
@@ -597,18 +597,18 @@ async def _authenticate_from_token(request: Request, auth_manager: AuthManager) 
     groups_source = None
 
     # Step 1: Check if groups are in the access token itself
-    logger.debug(f"Step 1: Checking for groups in access_token claims...")
+    logger.debug("Step 1: Checking for groups in access_token claims...")
     access_token_groups = extract_groups_from_claims(access_claims)
     if access_token_groups:
       groups = access_token_groups
       groups_source = "access_token"
       logger.info(f"Groups found in access_token: email={email}, groups={groups}")
     else:
-      logger.debug(f"No groups found in access_token claims")
+      logger.debug("No groups found in access_token claims")
 
     # Step 2: Check Redis cache (only if not found in access token)
     if groups is None:
-      logger.debug(f"Step 2: Checking Redis cache for groups...")
+      logger.debug("Step 2: Checking Redis cache for groups...")
       groups_cache = get_groups_cache()
       if groups_cache and sub != "unknown":
         cached_groups = await groups_cache.get(sub)
@@ -619,13 +619,13 @@ async def _authenticate_from_token(request: Request, auth_manager: AuthManager) 
         else:
           logger.debug(f"Cache miss for sub={sub[:16]}...")
       elif not groups_cache:
-        logger.debug(f"Groups cache not available, skipping cache lookup")
+        logger.debug("Groups cache not available, skipping cache lookup")
       else:
-        logger.debug(f"Cannot use cache: sub is unknown")
+        logger.debug("Cannot use cache: sub is unknown")
 
     # Step 3: Fetch from userinfo endpoint (only if not found elsewhere)
     if groups is None:
-      logger.debug(f"Step 3: Fetching groups from OIDC userinfo endpoint...")
+      logger.debug("Step 3: Fetching groups from OIDC userinfo endpoint...")
       try:
         userinfo = await auth_manager.fetch_userinfo(token, provider)
         logger.debug(f"Userinfo response keys: {list(userinfo.keys())}")
@@ -646,7 +646,7 @@ async def _authenticate_from_token(request: Request, auth_manager: AuthManager) 
           await groups_cache.set(sub, groups)
           logger.debug(f"Groups cached for sub={sub[:16]}...")
         elif not groups_cache:
-          logger.debug(f"Groups cache not available, skipping cache write")
+          logger.debug("Groups cache not available, skipping cache write")
 
       except Exception as e:
         # Userinfo fetch failed - use empty groups
