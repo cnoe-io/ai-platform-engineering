@@ -16,7 +16,10 @@ from dotenv import load_dotenv
 from pydantic import BaseModel
 
 from ai_platform_engineering.utils.a2a_common.base_langgraph_agent import BaseLangGraphAgent
+from ai_platform_engineering.utils.github_app_token_provider import get_github_token, is_github_app_mode
 from ai_platform_engineering.utils.subagent_prompts import load_subagent_prompt_config
+from ai_platform_engineering.utils.token_sanitizer import sanitize_output
+from agent_github.tools import get_gh_cli_tool
 
 logger = logging.getLogger(__name__)
 
@@ -42,10 +45,21 @@ class GitHubAgent(BaseLangGraphAgent):
     RESPONSE_FORMAT_INSTRUCTION = _prompt_config.response_format_instruction
 
     def __init__(self):
-        """Initialize GitHub agent with token validation."""
-        self.github_token = os.getenv("GITHUB_PERSONAL_ACCESS_TOKEN")
-        if not self.github_token:
-            logger.warning("GITHUB_PERSONAL_ACCESS_TOKEN not set, GitHub integration will be limited")
+        """Initialize GitHub agent with token validation.
+
+        Supports two authentication modes:
+        1. GitHub App (recommended): Set GITHUB_APP_ID, GITHUB_APP_PRIVATE_KEY,
+           and GITHUB_APP_INSTALLATION_ID for auto-refreshing tokens.
+        2. PAT (fallback): Set GITHUB_PERSONAL_ACCESS_TOKEN for static token auth.
+        """
+        self._use_app_auth = is_github_app_mode()
+        if self._use_app_auth:
+            logger.info("GitHub agent using GitHub App authentication (auto-refreshing tokens)")
+        else:
+            token = os.getenv("GITHUB_PERSONAL_ACCESS_TOKEN")
+            if not token:
+                logger.warning("No GitHub auth configured. Set GITHUB_APP_ID + GITHUB_APP_PRIVATE_KEY + "
+                               "GITHUB_APP_INSTALLATION_ID for App auth, or GITHUB_PERSONAL_ACCESS_TOKEN for PAT auth.")
 
         # Call parent constructor (no parameters needed)
         super().__init__()
@@ -58,17 +72,26 @@ class GitHubAgent(BaseLangGraphAgent):
         """
         Provide custom HTTP MCP configuration for GitHub Copilot API.
 
+        Uses get_github_token() which automatically handles:
+        - GitHub App tokens (auto-refreshed before each MCP session)
+        - PAT tokens (static, from environment)
+
         Returns:
             Dictionary with GitHub Copilot API configuration
         """
-        if not self.github_token:
-            logger.error("Cannot configure GitHub MCP: GITHUB_PERSONAL_ACCESS_TOKEN not set")
+        token = get_github_token()
+        if not token:
+            logger.error(
+                "Cannot configure GitHub MCP: no GitHub auth configured. "
+                "Set GITHUB_APP_ID + GITHUB_APP_PRIVATE_KEY + GITHUB_APP_INSTALLATION_ID "
+                "for App auth, or GITHUB_PERSONAL_ACCESS_TOKEN for PAT auth."
+            )
             return None
 
         return {
                     "url": "https://api.githubcopilot.com/mcp",
                     "headers": {
-                      "Authorization": f"Bearer {self.github_token}",
+                      "Authorization": f"Bearer {token}",
                     },
                   }
 
@@ -106,15 +129,65 @@ class GitHubAgent(BaseLangGraphAgent):
 
     def get_additional_tools(self) -> list:
         """
-        Return additional custom tools for GitHub agent.
+        Provide additional custom tools for GitHub agent.
 
-        The GitHub agent now uses only the GitHub MCP server for all operations.
-        No additional CLI tools are needed.
+        Returns gh CLI tool for operations not covered by GitHub Copilot MCP,
+        such as fetching workflow run logs.
 
         Returns:
-            Empty list - all tools come from GitHub MCP server
+            List containing gh CLI tool if enabled
         """
-        return []
+        tools = []
+
+        # Add gh CLI tool for workflow logs and other operations
+        gh_tool = get_gh_cli_tool()
+        if gh_tool:
+            tools.append(gh_tool)
+            logger.info("GitHub agent: Added gh CLI tool (gh_cli_execute)")
+
+        return tools
+
+    def _wrap_mcp_tools(self, tools: list, context_id: str) -> list:
+        """
+        Wrap MCP tools with token sanitization on top of base class error handling.
+
+        SECURITY: GitHub MCP (Copilot API) responses may contain tokens or
+        auth info in error messages. This override ensures all MCP tool output
+        is passed through sanitize_output() before reaching the LLM or user.
+        """
+        from functools import wraps
+
+        # First apply base class wrapping (error handling + truncation)
+        wrapped = super()._wrap_mcp_tools(tools, context_id)
+
+        # Then add token sanitization on top
+        for tool in wrapped:
+            if hasattr(tool, '_run'):
+                original_run = tool._run
+
+                @wraps(original_run)
+                def sanitized_run(*args, _orig=original_run, **kwargs):
+                    result = _orig(*args, **kwargs)
+                    if isinstance(result, str):
+                        return sanitize_output(result)
+                    return result
+
+                tool._run = sanitized_run
+
+            if hasattr(tool, '_arun'):
+                original_arun = tool._arun
+
+                @wraps(original_arun)
+                async def sanitized_arun(*args, _orig=original_arun, **kwargs):
+                    result = await _orig(*args, **kwargs)
+                    if isinstance(result, str):
+                        return sanitize_output(result)
+                    return result
+
+                tool._arun = sanitized_arun
+
+        logger.info(f"GitHub agent: Applied token sanitization to {len(wrapped)} MCP tools")
+        return wrapped
 
     def _parse_tool_error(self, error: Exception, tool_name: str) -> str:
         """
@@ -156,7 +229,8 @@ class GitHubAgent(BaseLangGraphAgent):
             # Generic TaskGroup error without specific cause
             return f"GitHub API request failed for {tool_name}. The API may be temporarily unavailable. Please try again."
         else:
-            return f"Error executing {tool_name}: {error_str}"
+            # SECURITY: sanitize error_str as it may contain tokens (e.g., in URLs)
+            return f"Error executing {tool_name}: {sanitize_output(error_str)}"
 
     async def stream(
         self, query: str, sessionId: str, trace_id: str = None
@@ -188,6 +262,6 @@ class GitHubAgent(BaseLangGraphAgent):
                 'is_task_complete': True,
                 'require_user_input': False,
                 'kind': 'error',
-                'content': f"❌ An unexpected error occurred: {str(e)}\n\nPlease try again or contact support if the issue persists.",
+                'content': f"❌ An unexpected error occurred: {sanitize_output(str(e))}\n\nPlease try again or contact support if the issue persists.",
             }
 

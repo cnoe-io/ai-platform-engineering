@@ -1,6 +1,6 @@
 # Webloader Ingestor
 
-The Webloader ingestor is a specialized ingestor that crawls and ingests web pages and documentation sites into the RAG system. It supports sitemap parsing, automatic reloading, and concurrent URL processing.
+The Webloader ingestor is a specialized ingestor that crawls and ingests web pages and documentation sites into the RAG system. It supports sitemap parsing, recursive crawling, JavaScript rendering, and concurrent URL processing.
 
 ## Overview
 
@@ -8,8 +8,8 @@ The Webloader operates differently from other ingestors:
 - **Event-Driven**: Listens to Redis queue for ingestion requests from the RAG server
 - **Concurrent Processing**: Handles multiple URL ingestion tasks simultaneously
 - **Automatic Reloading**: Periodically re-ingests datasources to keep content fresh
-- **Sitemap Support**: Can automatically discover and crawl URLs from sitemaps
-- **Smart Scrapers**: Includes specialized scrapers for Docusaurus and MkDocs sites
+- **Scrapy-Powered**: Uses Scrapy with Playwright for robust web scraping
+- **Smart Parsers**: Includes specialized parsers for Docusaurus, MkDocs, Sphinx, ReadTheDocs, and VitePress sites
 
 ## Architecture
 
@@ -28,10 +28,29 @@ The Webloader must run **alongside the RAG server** with access to the **same Re
 
 ## Optional Environment Variables
 
-- `WEBLOADER_MAX_CONCURRENCY` - Max concurrent HTTP requests per ingestion (default: `10`)
 - `WEBLOADER_MAX_INGESTION_TASKS` - Max concurrent ingestion tasks (default: `5`)
 - `WEBLOADER_RELOAD_INTERVAL` - Auto-reload interval in seconds (default: `86400` = 24 hours)
 - `LOG_LEVEL` - Logging level (default: `INFO`)
+
+## Scraping Configuration
+
+Scraping behavior is configured per-request via `ScrapySettings`. Key options:
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `crawl_mode` | `single` | `single` (one page), `sitemap` (discover sitemap), `recursive` (follow links) |
+| `max_depth` | `2` | Max link depth for recursive crawling (1-10) |
+| `max_pages` | `2000` | Maximum pages to crawl |
+| `render_javascript` | `false` | Enable Playwright for JavaScript-heavy sites |
+| `wait_for_selector` | `null` | CSS selector to wait for (JS rendering only) |
+| `page_load_timeout` | `30` | Page load timeout in seconds |
+| `follow_external_links` | `false` | Follow links to external domains |
+| `allowed_url_patterns` | `null` | Regex whitelist for URLs to include |
+| `denied_url_patterns` | `null` | Regex blacklist for URLs to exclude |
+| `download_delay` | `0.5` | Delay between requests (seconds) |
+| `concurrent_requests` | `10` | Max concurrent requests per crawl |
+| `respect_robots_txt` | `true` | Obey robots.txt rules |
+| `user_agent` | `null` | Custom user agent string |
 
 ## Features
 
@@ -41,25 +60,70 @@ The Webloader must run **alongside the RAG server** with access to the **same Re
 - Extracts metadata (title, description, etc.)
 - Stores documents with source URL tracking
 
-### 2. Sitemap Support
-- Automatically checks for and parses sitemaps
-- Supports both XML sitemaps and sitemap indexes
-- Can limit maximum URLs to crawl from sitemap
+### 2. Crawl Modes
+- **Single URL**: Scrape only the specified URL
+- **Sitemap**: Discover and crawl sitemap.xml automatically
+- **Recursive**: Follow links from the starting URL up to `max_depth`
 
-### 3. Specialized Scrapers
+### 3. JavaScript Rendering
+- Enable `render_javascript: true` for JavaScript-heavy sites (SPAs)
+- Uses Playwright for headless browser rendering
+- Supports waiting for specific selectors before extraction
+
+### 4. Specialized Parsers
 - **Docusaurus**: Optimized for Docusaurus documentation sites
 - **MkDocs**: Optimized for MkDocs documentation sites
+- **Sphinx**: Supports various Sphinx themes (Alabaster, RTD, Furo, PyData)
+- **ReadTheDocs**: Optimized for ReadTheDocs-hosted documentation
+- **VitePress**: Optimized for VitePress sites
 - **Generic**: Falls back to generic HTML parsing for other sites
 
-### 4. Automatic Reloading
+### 5. Automatic Reloading
 - Periodically re-ingests all datasources
 - Keeps content up-to-date automatically
 - Can be triggered on-demand via Redis
 
-### 5. Concurrent Processing
+### 6. Concurrent Processing
 - Processes multiple URLs simultaneously
 - Rate limiting to prevent overwhelming servers
 - Task queue management with configurable limits
+
+### 7. Streaming Ingestion & Job Cancellation
+
+Documents are sent to the RAG server **as they are crawled**, rather than waiting for the entire crawl to complete. This enables:
+
+- **Early data availability**: Documents become searchable while crawling continues
+- **Job termination support**: If a job is cancelled mid-crawl, the crawler stops promptly
+- **Partial results**: Already-ingested documents are preserved even if the crawl is interrupted
+
+**Architecture:**
+
+```
+┌─────────────────┐     CRAWL_DOCUMENTS      ┌──────────────────┐
+│   WorkerSpider  │ ──────────────────────▶ │   WorkerPool     │
+│   (subprocess)  │                          │   (main process) │
+│                 │ ◀────────────────────── │                  │
+└─────────────────┘     CANCEL_CRAWL         └──────────────────┘
+                                                     │
+                                                     │ on_documents()
+                                                     ▼
+                                             ┌──────────────────┐
+                                             │   ScrapyLoader   │
+                                             │  → Send to RAG   │
+                                             │  → Check status  │
+                                             └──────────────────┘
+```
+
+**How it works:**
+1. WorkerSpider batches documents (default: 50 per batch) and sends `CRAWL_DOCUMENTS` messages
+2. WorkerPool receives batches and calls `on_documents` callback in ScrapyLoader
+3. ScrapyLoader sends documents to RAG server immediately
+4. If server rejects (job terminated), ScrapyLoader sends `CANCEL_CRAWL` to worker
+5. Worker stops crawling and sends final result with partial stats
+
+### 8. Redirect Handling
+
+When crawling sites that redirect (e.g., `caipe.io` → `cnoe-io.github.io`), the crawler automatically updates its domain filtering to follow links on the **destination domain**, not the original URL. This ensures recursive crawling works correctly through redirects.
 
 ## Running with Docker Compose
 

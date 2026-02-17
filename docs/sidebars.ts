@@ -214,6 +214,10 @@ const sidebars: SidebarsConfig = {
         },
         {
           type: 'doc',
+          id: 'agents/gitlab',
+        },
+        {
+          type: 'doc',
           id: 'agents/jira',
         },
         {
@@ -255,8 +259,32 @@ const sidebars: SidebarsConfig = {
           id: 'knowledge_bases/index',
           label: 'Overview',
         },
+        {
+          type: 'doc',
+          id: 'knowledge_bases/architecture',
+          label: 'Architecture',
+        },
+        {
+          type: 'doc',
+          id: 'knowledge_bases/ingestors',
+          label: 'Ingestors',
+        },
+        {
+          type: 'doc',
+          id: 'knowledge_bases/ontology-agent',
+          label: 'Ontology Agent',
+        },
+        {
+          type: 'doc',
+          id: 'knowledge_bases/mcp-tools',
+          label: 'MCP Tools',
+        },
+        {
+          type: 'doc',
+          id: 'knowledge_bases/authentication-overview',
+          label: 'Authentication',
+        },
       ],
-
     },
     {
       type: 'category',

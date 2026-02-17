@@ -347,17 +347,14 @@ async def sync_slack_channels(client: Client):
         
         # Fetch messages
         messages, newest_ts = syncer.fetch_channel_messages(
-            channel_id, 
-            channel_name, 
+            channel_id,
+            channel_name,
             lookback_days,
             last_ts
         )
-        
-        if not messages:
-            logger.info(f"No new messages for #{channel_name}")
-            continue
-        
-        # Create datasource
+
+        # ALWAYS create/update datasource to record we checked this channel
+        # This prevents infinite sync loops when there are no new messages
         datasource = DataSourceInfo(
             datasource_id=datasource_id,
             ingestor_id=client.ingestor_id or "",
@@ -367,12 +364,17 @@ async def sync_slack_channels(client: Client):
             metadata={
                 "channel_id": channel_id,
                 "channel_name": channel_name,
-                "last_ts": newest_ts,
-                "workspace_url": workspace_url
+                "last_ts": newest_ts if newest_ts else last_ts,  # Keep old ts if no new messages
+                "workspace_url": workspace_url,
+                "lookback_days": lookback_days
             }
         )
         await client.upsert_datasource(datasource)
-        
+
+        if not messages:
+            logger.info(f"No new messages for #{channel_name} - datasource timestamp updated")
+            continue
+
         # Convert messages to thread documents
         documents = syncer.group_messages_by_thread(messages, channel_id, channel_name, include_bots, datasource_id, client.ingestor_id or "")
         

@@ -35,7 +35,7 @@ jobs:
           egress-policy: audit
 
       - name: 📥 Checkout repository (with synced Chart.yaml files)
-        uses: actions/checkout@v6.0.1
+        uses: actions/checkout@v6.0.2
         with:
           ref: main
           fetch-depth: 0
@@ -189,6 +189,7 @@ jobs:
             "ci-a2a-rag.yml:false"
             "ci-supervisor-agent.yml:false"
             "ci-agent-forge-plugin.yml:false"
+            "ci-caipe-ui.yml:false"
           )
 
           SUCCESS=0

@@ -194,6 +194,18 @@ export interface ChatMessage {
   turnId?: string;
   /** Raw accumulated stream content - never overwritten, always appended */
   rawStreamContent?: string;
+  /** A2A task ID from the backend — used for crash recovery (tasks/get polling) */
+  taskId?: string;
+  /** True when streaming was interrupted by a crash/reload before completion */
+  isInterrupted?: boolean;
+  /**
+   * Sender identity — who actually typed this message.
+   * Required for shared conversations where multiple users participate.
+   * All fields are optional for backward compatibility with legacy messages.
+   */
+  senderEmail?: string;
+  senderName?: string;
+  senderImage?: string;
 }
 
 // Input field configuration for use case forms

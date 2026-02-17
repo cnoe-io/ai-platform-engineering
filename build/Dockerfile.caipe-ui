@@ -85,9 +85,8 @@ EXPOSE 3000
 ENV PORT=3000
 ENV HOSTNAME="0.0.0.0"
 
-# Runtime environment variables are auto-discovered via two layers:
+# Runtime environment variables are injected via two layers:
 # 1. entrypoint.sh generates /app/public/env-config.js at container start
-# 2. PublicEnvScript server component reads process.env at request time
-# Any NEXT_PUBLIC_* env var set on the container is automatically available
-# to client-side code via window.__RUNTIME_ENV__. No manual listing needed.
+# 2. Server component reads process.env at request time via API
+# Both NEXT_PUBLIC_* and plain env vars are supported.
 CMD ["/app/entrypoint.sh"]

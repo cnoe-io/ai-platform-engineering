@@ -9,7 +9,13 @@
  * - AsyncGenerator pattern for streaming (same as agent-forge)
  * - Bearer token authentication support
  * - Proper event typing from the SDK
+ * - Safari compatibility via streaming polyfills
  */
+
+// Safari compatibility: the @a2a-js/sdk uses response.body.pipeThrough(new TextDecoderStream())
+// internally, which fails on Safari. On Safari, we bypass the SDK's streaming
+// and use our own reader-based SSE parser instead.
+import { isSafariBrowser, parseSseStreamSafari } from "./streaming-polyfill";
 
 import {
   JsonRpcTransport,
@@ -45,49 +51,6 @@ export interface A2ASDKClientConfig {
 }
 
 /**
- * Input field definition for HITL forms
- */
-export interface HITLInputField {
-  field_name: string;
-  field_description: string;
-  field_values?: string[] | null;
-  required?: boolean;  // Optional fields have required: false (defaults to true)
-  default_value?: string | null;  // Pre-populated default value
-}
-
-/**
- * HITL form data extracted from DataPart
- */
-export interface HITLFormData {
-  /** Whether this is an input-required form */
-  requiresInput: boolean;
-  /** Input fields for the form */
-  inputFields?: HITLInputField[];
-  /** Tool name that triggered the form */
-  toolName?: string;
-  /** Full tool calls data */
-  toolCalls?: Array<{
-    name: string;
-    args: Record<string, unknown>;
-  }>;
-}
-
-/**
- * HITL decision for resuming after form submission
- * Uses LangChain HITL format: approve, edit, or reject
- */
-export interface HITLDecision {
-  /** Decision type: approve (execute as-is), edit (execute with modified args), or reject */
-  type: 'approve' | 'edit' | 'reject';
-  /** Action/tool name this decision applies to */
-  actionName: string;
-  /** Edited args (for 'edit' type) - contains the modified tool arguments */
-  args?: Record<string, unknown>;
-  /** Message/reason (for 'reject' type) */
-  message?: string;
-}
-
-/**
  * Parsed event with extracted display content for UI rendering
  */
 export interface ParsedA2AEvent {
@@ -109,10 +72,24 @@ export interface ParsedA2AEvent {
   taskId?: string;
   /** Source agent name if present (from artifact metadata) */
   sourceAgent?: string;
-  /** HITL form data if this is an input-required event */
-  hitlFormData?: HITLFormData;
-  /** Whether this event requires user input */
-  requiresInput?: boolean;
+  /** Whether user input is required */
+  requireUserInput?: boolean;
+  /** Structured metadata for user input forms */
+  metadata?: {
+    user_input?: boolean;
+    input_title?: string;
+    input_description?: string;
+    input_fields?: Array<{
+      field_name: string;
+      field_label?: string;
+      field_description?: string;
+      field_type?: string;
+      field_values?: string[];
+      placeholder?: string;
+      required?: boolean;
+      default_value?: string;
+    }>;
+  };
 }
 
 /**
@@ -120,24 +97,27 @@ export interface ParsedA2AEvent {
  */
 export class A2ASDKClient {
   private transport: JsonRpcTransport;
+  private endpoint: string;
   private accessToken?: string;
   private userEmail?: string;
   private abortController: AbortController | null = null;
+  /** Direct fetch for Safari fallback (bypasses SDK's broken pipeThrough) */
+  private fetchImpl: typeof fetch;
 
   constructor(config: A2ASDKClientConfig) {
+    this.endpoint = config.endpoint;
     this.accessToken = config.accessToken;
     this.userEmail = config.userEmail;
 
     // Create fetch with authentication if token provided
-    // Note: In browsers, fetch must be bound to window to avoid "Illegal invocation" errors
-    const boundFetch: typeof fetch = (input: RequestInfo | URL, init?: RequestInit) => fetch(input, init);
-    const fetchImpl = this.accessToken
+    // Note: Must bind fetch to window to avoid "Illegal invocation" error
+    this.fetchImpl = this.accessToken
       ? this.createAuthenticatedFetch(this.accessToken)
-      : boundFetch;
+      : fetch.bind(window);
 
     this.transport = new JsonRpcTransport({
       endpoint: config.endpoint,
-      fetchImpl,
+      fetchImpl: this.fetchImpl,
     });
   }
 
@@ -148,15 +128,14 @@ export class A2ASDKClient {
     this.accessToken = token;
 
     // Recreate transport with new token
-    // Note: In browsers, fetch must be bound to window to avoid "Illegal invocation" errors
-    const boundFetch: typeof fetch = (input: RequestInfo | URL, init?: RequestInit) => fetch(input, init);
-    const fetchImpl = token
+    // Note: Must bind fetch to window to avoid "Illegal invocation" error
+    this.fetchImpl = token
       ? this.createAuthenticatedFetch(token)
-      : boundFetch;
+      : fetch.bind(window);
 
     this.transport = new JsonRpcTransport({
-      endpoint: (this.transport as unknown as { endpoint: string }).endpoint,
-      fetchImpl,
+      endpoint: this.endpoint,
+      fetchImpl: this.fetchImpl,
     });
   }
 
@@ -164,9 +143,6 @@ export class A2ASDKClient {
    * Create authenticated fetch with Bearer token
    */
   private createAuthenticatedFetch(token: string): typeof fetch {
-    // In browsers, fetch must be bound to window to avoid "Illegal invocation" errors
-    const boundFetch: typeof fetch = (input: RequestInfo | URL, init?: RequestInit) => fetch(input, init);
-    
     const authHandler: AuthenticationHandler = {
       headers: async () => ({
         Authorization: `Bearer ${token}`,
@@ -186,17 +162,8 @@ export class A2ASDKClient {
       },
     };
 
-    return createAuthenticatingFetchWithRetry(boundFetch, authHandler);
+    return createAuthenticatingFetchWithRetry(fetch, authHandler);
   }
-
-  /**
-   * HITL Decision types for form responses (LangChain HITL format)
-   */
-  static readonly DECISION_TYPES = {
-    APPROVE: 'approve',  // Execute tool call as-is
-    EDIT: 'edit',        // Execute with modified args
-    REJECT: 'reject',    // Reject the tool call with message
-  } as const;
 
   /**
    * Send a message and stream the response using AsyncGenerator
@@ -205,13 +172,11 @@ export class A2ASDKClient {
    *
    * @param message The user's message text
    * @param contextId Optional context ID for conversation continuity
-   * @param metadata Optional metadata (e.g., resume command for HITL)
    * @returns AsyncGenerator that yields parsed A2A events
    */
   async *sendMessageStream(
     message: string,
-    contextId?: string,
-    metadata?: Record<string, unknown>
+    contextId?: string
   ): AsyncGenerator<ParsedA2AEvent, void, undefined> {
     // Abort any previous request
     if (this.abortController) {
@@ -228,22 +193,12 @@ export class A2ASDKClient {
       ? `by user: ${this.userEmail}\n\n${message}`
       : message;
 
-    // Build message parts - include metadata as DataPart if provided
-    const parts: Array<{ kind: string; text?: string; data?: Record<string, unknown> }> = [
-      { kind: "text", text: messageWithContext }
-    ];
-    
-    // Add metadata as a DataPart for HITL resume
-    if (metadata) {
-      parts.push({ kind: "data", data: metadata });
-    }
-
     const params: MessageSendParams = {
       message: {
         kind: "message",
         messageId,
         role: "user",
-        parts: parts as MessageSendParams["message"]["parts"],
+        parts: [{ kind: "text", text: messageWithContext }],
         ...(contextId && { contextId }),
       },
     };
@@ -251,8 +206,13 @@ export class A2ASDKClient {
     console.log(`[A2A SDK] 📤 Sending message to endpoint`);
     console.log(`[A2A SDK] 📤 User: ${this.userEmail || "anonymous"}`);
     console.log(`[A2A SDK] 📤 contextId: ${contextId || "new conversation"}`);
-    if (metadata) {
-      console.log(`[A2A SDK] 📤 metadata:`, metadata);
+
+    // Safari: bypass SDK's transport.sendMessageStream which uses
+    // response.body.pipeThrough(new TextDecoderStream()) — broken in Safari.
+    // Instead, do the fetch + SSE parsing ourselves with getReader().
+    if (isSafariBrowser()) {
+      yield* this.sendMessageStreamSafari(params);
+      return;
     }
 
     let eventCount = 0;
@@ -295,6 +255,97 @@ export class A2ASDKClient {
   }
 
   /**
+   * Safari-specific streaming implementation.
+   *
+   * Performs the JSON-RPC fetch manually and uses our reader-based SSE parser
+   * (getReader + TextDecoder) instead of the SDK's pipeThrough-based one.
+   */
+  private async *sendMessageStreamSafari(
+    params: MessageSendParams,
+  ): AsyncGenerator<ParsedA2AEvent, void, undefined> {
+    let eventCount = 0;
+
+    try {
+      // Build the JSON-RPC request (same format the SDK uses)
+      const rpcRequest = {
+        jsonrpc: "2.0" as const,
+        method: "message/stream",
+        params,
+        id: Date.now(),
+      };
+
+      console.log(`[A2A SDK Safari] 📤 Sending SSE request to ${this.endpoint}`);
+
+      const response = await this.fetchImpl(this.endpoint, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Accept": "text/event-stream",
+        },
+        body: JSON.stringify(rpcRequest),
+        signal: this.abortController?.signal,
+      });
+
+      if (!response.ok) {
+        if (response.status === 401) {
+          throw new Error(
+            "Session expired: Your authentication token has expired. " +
+            "Please save your work and log in again."
+          );
+        }
+        const errorBody = await response.text().catch(() => "");
+        throw new Error(
+          `HTTP error for message/stream: ${response.status} ${response.statusText}. Response: ${errorBody || "(empty)"}`
+        );
+      }
+
+      // Parse SSE events using our Safari-compatible reader-based parser
+      for await (const sseEvent of parseSseStreamSafari(response)) {
+        try {
+          const jsonRpcResponse = JSON.parse(sseEvent.data);
+
+          if (jsonRpcResponse.error) {
+            throw new Error(
+              `SSE error: ${jsonRpcResponse.error.message} (Code: ${jsonRpcResponse.error.code})`
+            );
+          }
+
+          const result = jsonRpcResponse.result;
+          if (!result) continue;
+
+          eventCount++;
+          const parsed = this.parseEvent(result as A2AStreamEvent, eventCount);
+
+          if (parsed) {
+            yield parsed;
+          }
+
+          if (this.isStreamComplete(result as A2AStreamEvent)) {
+            console.log(`[A2A SDK Safari] 🏁 Stream complete after ${eventCount} events`);
+            return;
+          }
+        } catch (parseError) {
+          if (parseError instanceof Error && parseError.message.startsWith("SSE error:")) {
+            throw parseError;
+          }
+          console.error("[A2A SDK Safari] Failed to parse SSE event:", parseError, "Data:", sseEvent.data.substring(0, 200));
+        }
+      }
+
+      console.log(`[A2A SDK Safari] 📡 Stream ended naturally after ${eventCount} events`);
+    } catch (error) {
+      if ((error as Error).name === "AbortError") {
+        console.log(`[A2A SDK Safari] Stream aborted after ${eventCount} events`);
+      } else {
+        console.error(`[A2A SDK Safari] Stream error:`, error);
+        throw error;
+      }
+    } finally {
+      this.abortController = null;
+    }
+  }
+
+  /**
    * Abort the current stream
    */
   abort(): void {
@@ -302,42 +353,6 @@ export class A2ASDKClient {
       this.abortController.abort();
       this.abortController = null;
     }
-  }
-
-  /**
-   * Send a HITL form response (approve/edit/reject)
-   * 
-   * @param contextId The conversation context ID
-   * @param decisions Array of decisions for each action in the form
-   * @returns AsyncGenerator that yields parsed A2A events
-   */
-  async *sendHITLResponse(
-    contextId: string,
-    decisions: HITLDecision[]
-  ): AsyncGenerator<ParsedA2AEvent, void, undefined> {
-    // Format decisions for the backend
-    const formattedDecisions = decisions.map(decision => ({
-      type: decision.type,
-      action_name: decision.actionName,
-      args: decision.args,
-      message: decision.message,
-    }));
-
-    const metadata = {
-      resume: {
-        decisions: formattedDecisions,
-      },
-    };
-
-    // Send empty message with resume metadata
-    const message = decisions.length === 1 && decisions[0].type === 'reject' && decisions[0].message
-      ? decisions[0].message
-      : "Form submitted";
-
-    console.log(`[A2A SDK] 📤 Sending HITL response with ${decisions.length} decisions`);
-
-    // Use sendMessageStream with metadata
-    yield* this.sendMessageStream(message, contextId, metadata);
   }
 
   /**
@@ -429,12 +444,10 @@ export class A2ASDKClient {
    * Parse a TaskStatusUpdateEvent
    */
   private parseStatusEvent(event: TaskStatusUpdateEvent, eventNum: number): ParsedA2AEvent {
-    const state = event.status?.state || "unknown";
-    const isInputRequired = state === "input-required";
-    
-    console.log(`[A2A SDK] #${eventNum} STATUS: ${state} final=${event.final} inputRequired=${isInputRequired}`);
+    console.log(`[A2A SDK] #${eventNum} STATUS: ${event.status?.state} final=${event.final}`);
 
     // Create meaningful display content for status updates
+    const state = event.status?.state || "unknown";
     const finalText = event.final ? " (final)" : "";
     const taskIdShort = event.taskId ? ` - Task: ${event.taskId.substring(0, 8)}...` : "";
     const displayContent = `Status: ${state}${finalText}${taskIdShort}`;
@@ -447,7 +460,6 @@ export class A2ASDKClient {
       shouldAppend: false,
       contextId: event.contextId,
       taskId: event.taskId,
-      requiresInput: isInputRequired,
     };
   }
 
@@ -461,24 +473,54 @@ export class A2ASDKClient {
 
     // Extract sourceAgent from artifact metadata
     const sourceAgent = artifact?.metadata?.sourceAgent as string | undefined;
+    
+    // Extract user input metadata if present
+    // Check both metadata.metadata (legacy) and DataPart (new format)
+    let requireUserInput = artifact?.metadata?.require_user_input as boolean | undefined;
+    let userInputMetadata = artifact?.metadata?.metadata as {
+      user_input?: boolean;
+      input_title?: string;
+      input_description?: string;
+      input_fields?: Array<{
+        field_name: string;
+        field_label?: string;
+        field_description?: string;
+        field_type?: string;
+        field_values?: string[];
+        placeholder?: string;
+        required?: boolean;
+        default_value?: string;
+      }>;
+    } | undefined;
+    
+    // For UserInputMetaData artifacts, extract data from DataPart
+    if (artifactName === "UserInputMetaData" && artifact?.parts) {
+      for (const part of artifact.parts) {
+        if ((part as DataPart).kind === "data" && (part as DataPart).data) {
+          const dataPart = part as DataPart;
+          userInputMetadata = dataPart.data as typeof userInputMetadata;
+          requireUserInput = true;
+          console.log(`[A2A SDK] 📝 Extracted UserInputMetaData from DataPart:`, {
+            title: userInputMetadata?.input_title,
+            fields: userInputMetadata?.input_fields?.length || 0
+          });
+          break;
+        }
+      }
+    }
 
     // Determine if this is a final result
     const isFinalResult = artifactName === "final_result" || artifactName === "partial_result";
     const shouldAppend = event.append !== false;
 
-    // Check for HITL form data (caipe_form artifact)
-    let hitlFormData: HITLFormData | undefined = undefined;
-    if (artifactName === "caipe_form" && artifact?.parts) {
-      hitlFormData = this.extractHITLFormData(artifact.parts);
-      if (hitlFormData?.requiresInput) {
-        console.log(`[A2A SDK] #${eventNum} 📋 HITL FORM: ${hitlFormData.toolName || 'unknown'} with ${hitlFormData.inputFields?.length || 0} fields`);
-      }
-    }
-
-    console.log(`[A2A SDK] #${eventNum} ARTIFACT: ${artifactName} append=${shouldAppend} content=${textContent.length} chars agent=${sourceAgent || 'none'}`);
+    console.log(`[A2A SDK] #${eventNum} ARTIFACT: ${artifactName} append=${shouldAppend} content=${textContent.length} chars agent=${sourceAgent || 'none'} requireUserInput=${requireUserInput || false}`);
 
     if (isFinalResult) {
       console.log(`[A2A SDK] 🎉 ${artifactName.toUpperCase()} RECEIVED!`);
+    }
+    
+    if (requireUserInput && userInputMetadata?.input_fields) {
+      console.log(`[A2A SDK] 📝 USER INPUT REQUESTED with ${userInputMetadata.input_fields.length} fields`);
     }
 
     return {
@@ -490,164 +532,9 @@ export class A2ASDKClient {
       shouldAppend,
       contextId: event.contextId,
       taskId: event.taskId,
-      sourceAgent, // Include sourceAgent in parsed event
-      hitlFormData,
-      requiresInput: hitlFormData?.requiresInput,
-    };
-  }
-
-  /**
-   * Extract HITL form data from artifact parts (DataPart)
-   */
-  private extractHITLFormData(parts: (TextPart | DataPart | FilePart)[] | undefined): HITLFormData | undefined {
-    if (!parts || !Array.isArray(parts)) return undefined;
-
-    for (const part of parts) {
-      // Check for DataPart (kind === "data" or has data property)
-      const dataPart = part as DataPart;
-      if (dataPart.kind === "data" && dataPart.data) {
-        return this.parseHITLDataPart(dataPart.data);
-      }
-      // Also check for nested root structure (A2A SDK sometimes wraps parts)
-      const nestedPart = part as { root?: DataPart };
-      if (nestedPart.root?.kind === "data" && nestedPart.root?.data) {
-        return this.parseHITLDataPart(nestedPart.root.data);
-      }
-    }
-
-    return undefined;
-  }
-
-  /**
-   * Parse the data from a DataPart to extract HITL form fields
-   */
-  private parseHITLDataPart(data: Record<string, unknown>): HITLFormData | undefined {
-    // The data structure from agent_executor.py can be in several formats:
-    // 
-    // Format 1 (direct tool_calls):
-    // {
-    //   "tool_calls": [{ "name": "CAIPEAgentResponse", "args": { "metadata": { "input_fields": [...] } } }],
-    //   "additional_kwargs": { "agent_type": "caipe" }
-    // }
-    //
-    // Format 2 (langchain message_to_dict output):
-    // {
-    //   "type": "ai",
-    //   "content": "...",
-    //   "tool_calls": [...],
-    //   ...
-    // }
-    //
-    // Format 3 (nested in data key - from message_to_dict["data"]):
-    // {
-    //   "content": "...",
-    //   "tool_calls": [...],
-    //   ...
-    // }
-    
-    // First, try direct tool_calls
-    let toolCalls = data.tool_calls as Array<{ name: string; args: Record<string, unknown> }> | undefined;
-    
-    // If not found, check additional_kwargs
-    if (!toolCalls || toolCalls.length === 0) {
-      const additionalKwargs = data.additional_kwargs as Record<string, unknown> | undefined;
-      if (additionalKwargs?.tool_calls) {
-        toolCalls = additionalKwargs.tool_calls as Array<{ name: string; args: Record<string, unknown> }>;
-      }
-    }
-    
-    // If found tool_calls, extract form fields
-    if (toolCalls && toolCalls.length > 0) {
-      console.log('[A2A SDK] Found tool_calls in HITL data:', toolCalls);
-      return this.extractFromToolCalls(toolCalls);
-    }
-
-    // Try alternate structures
-    const content = data.content;
-    
-    // Check for content that contains input_fields
-    if (content) {
-      // Content can be a string (JSON) or an array (Bedrock/Anthropic format)
-      if (typeof content === 'string') {
-        try {
-          const parsed = JSON.parse(content);
-          if (parsed.metadata?.input_fields) {
-            console.log('[A2A SDK] Found input_fields in parsed content');
-            return {
-              requiresInput: true,
-              inputFields: parsed.metadata.input_fields as HITLInputField[],
-              toolName: 'CAIPEAgentResponse',
-            };
-          }
-        } catch {
-          // Not JSON, continue
-        }
-      } else if (Array.isArray(content)) {
-        // Bedrock format: content is array of objects like [{ type: "tool_use", name, input: {...} }]
-        console.log('[A2A SDK] content is array, checking for tool_use');
-        for (const item of content) {
-          if (item && typeof item === 'object') {
-            const contentItem = item as { type?: string; name?: string; input?: Record<string, unknown> };
-            if (contentItem.type === 'tool_use' && contentItem.input) {
-              const metadata = contentItem.input.metadata as { input_fields?: HITLInputField[] } | undefined;
-              if (metadata?.input_fields) {
-                console.log('[A2A SDK] Found input_fields in content array tool_use item');
-                return {
-                  requiresInput: true,
-                  inputFields: metadata.input_fields,
-                  toolName: contentItem.name || 'CAIPEAgentResponse',
-                };
-              }
-            }
-          }
-        }
-      }
-    }
-    
-    // Check if there's a nested 'data' key (from message_to_dict wrapper)
-    const nestedData = data.data as Record<string, unknown> | undefined;
-    if (nestedData) {
-      console.log('[A2A SDK] Found nested data, recursing');
-      return this.parseHITLDataPart(nestedData);
-    }
-    
-    console.log('[A2A SDK] Could not find tool_calls in HITL data:', Object.keys(data));
-    return undefined;
-  }
-
-  /**
-   * Extract HITL form data from tool_calls array
-   */
-  private extractFromToolCalls(toolCalls: Array<{ name: string; args: Record<string, unknown> }>): HITLFormData | undefined {
-    const inputFields: HITLInputField[] = [];
-    let toolName: string | undefined;
-
-    for (const toolCall of toolCalls) {
-      toolName = toolCall.name;
-      const args = toolCall.args || {};
-      
-      // Check for metadata.input_fields pattern (CAIPEAgentResponse)
-      const metadata = args.metadata as { input_fields?: HITLInputField[] } | undefined;
-      if (metadata?.input_fields) {
-        inputFields.push(...metadata.input_fields);
-      }
-      
-      // Also check for direct input_fields
-      const directInputFields = args.input_fields as HITLInputField[] | undefined;
-      if (directInputFields) {
-        inputFields.push(...directInputFields);
-      }
-    }
-
-    if (inputFields.length === 0) {
-      return undefined;
-    }
-
-    return {
-      requiresInput: true,
-      inputFields,
-      toolName,
-      toolCalls,
+      sourceAgent,
+      requireUserInput,
+      metadata: userInputMetadata,
     };
   }
 

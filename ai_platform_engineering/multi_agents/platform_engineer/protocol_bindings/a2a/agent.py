@@ -5,6 +5,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 from collections.abc import AsyncIterable
 from typing import Any
 
@@ -17,6 +18,7 @@ from a2a.types import (
 )
 from ai_platform_engineering.multi_agents.platform_engineer.deep_agent import (
     AIPlatformEngineerMAS,
+    USE_STRUCTURED_RESPONSE,
 )
 from ai_platform_engineering.multi_agents.platform_engineer.prompts import (
     system_prompt
@@ -30,8 +32,9 @@ from ai_platform_engineering.utils.a2a_common.langmem_utils import (
 )
 from langchain_core.messages import AIMessage, AIMessageChunk, ToolMessage
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-logger = logging.getLogger(__name__)
+_log_level = os.getenv("LOG_LEVEL", "INFO").upper()
+logging.basicConfig(level=getattr(logging, _log_level, logging.INFO), format='%(asctime)s - %(levelname)s - %(message)s')
+
 
 class AIPlatformEngineerA2ABinding:
   """
@@ -264,9 +267,18 @@ class AIPlatformEngineerA2ABinding:
           accumulated_ai_content = []
           final_ai_message = None
 
+          # Track ResponseFormat tool call for structured response mode
+          response_format_content = None
+          response_format_args = None  # Complete tool args when captured
+          response_format_streaming = False  # True when we're streaming ResponseFormat args
+
           # Track sub-agent responses for fallback if synthesis fails
           # Format: {tool_name: response_content}
           accumulated_subagent_responses = {}
+
+          # Track current active agent for sub-agent message grouping
+          # This is used by the executor to add sourceAgent metadata to artifacts
+          current_agent: str | None = None
 
           # Check if token-by-token streaming is enabled (default: true)
           # When disabled, uses 'values' mode which waits for complete messages
@@ -331,10 +343,40 @@ class AIPlatformEngineerA2ABinding:
               if has_tool_calls:
                   logging.debug(f"Message with tool_calls detected: type={type(message).__name__}, tool_calls={message.tool_calls}")
 
+              # BEDROCK STREAMING: Accumulate tool args from tool_call_chunks
+              # Bedrock streams tool args as partial JSON strings in tool_call_chunks[].args
+              if hasattr(message, "tool_call_chunks") and message.tool_call_chunks:
+                  for chunk in message.tool_call_chunks:
+                      chunk_name = chunk.get("name", "")
+                      chunk_args = chunk.get("args", "")
+
+                      # If this chunk has the tool name, track that we're in a ResponseFormat call
+                      if chunk_name and chunk_name.lower() in ('responseformat', 'platformengineerresponse'):
+                          response_format_streaming = True
+                          if response_format_args is None:
+                              response_format_args = {"_partial_json": ""}
+                          logging.info("🎯 BEDROCK: ResponseFormat tool streaming started")
+
+                      # Accumulate args string (Bedrock streams JSON incrementally)
+                      # Once we're streaming ResponseFormat, accumulate all args chunks
+                      if chunk_args and response_format_streaming:
+                          if response_format_args is None:
+                              response_format_args = {"_partial_json": ""}
+                          if "_partial_json" not in response_format_args:
+                              response_format_args["_partial_json"] = ""
+                          response_format_args["_partial_json"] += chunk_args
+
               # Stream LLM tokens (includes execution plans and responses)
               if isinstance(message, AIMessageChunk):
+                  # BEDROCK DEBUG: Check additional_kwargs for tool use data
+                  if hasattr(message, "additional_kwargs") and message.additional_kwargs:
+                      add_kwargs = message.additional_kwargs
+                      if "tool_use" in add_kwargs or "toolUse" in add_kwargs:
+                          tool_use_data = add_kwargs.get("tool_use") or add_kwargs.get("toolUse")
+                          logging.info(f"🔍 BEDROCK: Found tool_use in additional_kwargs: {str(tool_use_data)[:500]}")
+
                   # Check if this chunk has tool_calls (tool invocation)
-                  if hasattr(message, "tool_calls") and message.tool_calls:
+                  if has_tool_calls:
                       # This is a tool call chunk - emit tool start notifications
                       for tool_call in message.tool_calls:
                           tool_name = tool_call.get("name", "")
@@ -343,21 +385,84 @@ class AIPlatformEngineerA2ABinding:
                               logging.debug("Skipping tool call with empty name (streaming chunk)")
                               continue
 
+                          # Track current agent for sub-agent message grouping
+                          current_agent = tool_name
                           logging.debug(f"Tool call started (from AIMessageChunk): {tool_name}")
 
+                          # Agent returned the final structured response
+                          if tool_name.lower() in ('responseformat', 'platformengineerresponse'):
+                            tool_args = tool_call.get("args", {})
+
+                            # CRITICAL: Always accumulate/update tool args as they stream in
+                            # Bedrock streams tool args incrementally, so we keep the latest version
+                            if tool_args:
+                                # Merge new args into existing (in case they're incremental)
+                                if response_format_args is None:
+                                    response_format_args = {}
+                                response_format_args.update(tool_args)
+                                logging.info(f"📝 AIMessageChunk: Updated ResponseFormat args, keys={list(response_format_args.keys())}")
+
+                            # Extract 'content' field which contains the actual response
+                            structured_content = tool_args.get("content", "") or tool_args.get("message", "") or tool_args.get("response", "")
+                            if structured_content:
+                                response_format_content = structured_content
+                                logging.info(f"📝 SUPERVISOR AIMessageChunk: Captured ResponseFormat content: {len(response_format_content)} chars")
+
+                                # When structured response mode is enabled, yield completion event directly
+                                if USE_STRUCTURED_RESPONSE:
+                                    logging.info("🎯 Structured response mode: yielding completion from AIMessageChunk ResponseFormat tool")
+                                    yield {
+                                        "is_task_complete": tool_args.get("is_task_complete", True),
+                                        "require_user_input": tool_args.get("require_user_input", False),
+                                        "content": structured_content,
+                                        "metadata": tool_args.get("metadata"),
+                                        "from_response_format_tool": True
+                                    }
+                                    continue  # Skip tool notification, already handled
+                            else:
+                                # Args are empty or content not yet available - in structured response mode,
+                                # skip and wait for complete args (they'll be captured in response_format_args)
+                                if USE_STRUCTURED_RESPONSE:
+                                    logging.debug(f"📝 Structured response mode: ResponseFormat content empty, waiting (accumulated args keys: {list(response_format_args.keys()) if response_format_args else 'none'})")
+                                    continue  # Skip notification, wait for complete tool call
+
                           # Stream tool start notification to client with metadata
-                          tool_name_formatted = tool_name.title()
-                          yield {
-                              "is_task_complete": False,
-                              "require_user_input": False,
-                              "content": f"🔧 Supervisor: Calling Agent {tool_name_formatted}...\n",
-                              "tool_call": {
-                                  "name": tool_name,
-                                  "status": "started",
-                                  "type": "notification"
+                          # But ONLY if we haven't already yielded the completion
+                          if not (USE_STRUCTURED_RESPONSE and response_format_content):
+                              tool_name_formatted = tool_name.title()
+                              yield {
+                                  "is_task_complete": False,
+                                  "require_user_input": False,
+                                  "content": f"🔧 Supervisor: Calling Agent {tool_name_formatted}...\n",
+                                  "source_agent": tool_name,
+                                  "tool_call": {
+                                      "name": tool_name,
+                                      "status": "started",
+                                      "type": "notification"
+                                  }
                               }
-                          }
-                      # Don't process content for tool call chunks
+
+                      # CRITICAL: Before skipping content processing, check for tool_use blocks in content
+                      # Bedrock puts complete tool args in content[].input, not in tool_calls[].args during streaming
+                      msg_content = message.content
+                      if isinstance(msg_content, list):
+                          for item in msg_content:
+                              if isinstance(item, dict) and item.get('type') == 'tool_use':
+                                  tool_name = item.get('name', '')
+                                  tool_input = item.get('input', {})
+                                  if tool_name.lower() in ('responseformat', 'platformengineerresponse') and tool_input:
+                                      logging.info(f"🎯 AIMessageChunk: Found tool_use in content! tool={tool_name}, input_keys={list(tool_input.keys())}")
+                                      response_format_args = tool_input
+                                      response_format_content = tool_input.get("content", "") or tool_input.get("message", "")
+                                      if response_format_content and USE_STRUCTURED_RESPONSE:
+                                          logging.info(f"🎯 AIMessageChunk: Yielding completion from tool_use block ({len(response_format_content)} chars)")
+                                          yield {
+                                              "is_task_complete": tool_input.get("is_task_complete", True),
+                                              "require_user_input": tool_input.get("require_user_input", False),
+                                              "content": response_format_content,
+                                              "metadata": tool_input.get("metadata"),
+                                              "from_response_format_tool": True
+                                          }
                       continue
 
                   content = message.content
@@ -366,7 +471,28 @@ class AIPlatformEngineerA2ABinding:
                       text_parts = []
                       for item in content:
                           if isinstance(item, dict):
-                              text_parts.append(item.get('text', ''))
+                              # CRITICAL: Check for tool_use blocks in content (Bedrock format)
+                              # This is where Bedrock puts the complete tool args!
+                              item_type = item.get('type', '')
+                              if item_type == 'tool_use':
+                                  tool_name = item.get('name', '')
+                                  tool_input = item.get('input', {})
+                                  if tool_name.lower() in ('responseformat', 'platformengineerresponse') and tool_input:
+                                      logging.info(f"🎯 BEDROCK: Found tool_use in content! tool={tool_name}, input_keys={list(tool_input.keys())}")
+                                      response_format_args = tool_input
+                                      response_format_content = tool_input.get("content", "") or tool_input.get("message", "")
+                                      if response_format_content and USE_STRUCTURED_RESPONSE:
+                                          logging.info(f"🎯 BEDROCK: Yielding completion from content tool_use block ({len(response_format_content)} chars)")
+                                          yield {
+                                              "is_task_complete": tool_input.get("is_task_complete", True),
+                                              "require_user_input": tool_input.get("require_user_input", False),
+                                              "content": response_format_content,
+                                              "metadata": tool_input.get("metadata"),
+                                              "from_response_format_tool": True
+                                          }
+                                          continue  # Skip normal content processing
+                              else:
+                                  text_parts.append(item.get('text', ''))
                           elif isinstance(item, str):
                               text_parts.append(item)
                           else:
@@ -381,19 +507,20 @@ class AIPlatformEngineerA2ABinding:
 
                   if content:  # Only yield if there's actual content
                       # Check for querying announcements and emit as tool_update events
-                      import re
                       querying_pattern = r'🔍\s+Querying\s+(\w+)\s+for\s+([^.]+?)\.\.\.'
                       match = re.search(querying_pattern, content)
 
                       if match:
                           agent_name = match.group(1)
                           purpose = match.group(2)
+                          current_agent = agent_name.lower()  # Update current agent
                           logging.debug(f"Tool update detected: {agent_name} - {purpose}")
                           # Emit as tool_update event
                           yield {
                               "is_task_complete": False,
                               "require_user_input": False,
                               "content": content,
+                              "source_agent": current_agent,
                               "tool_update": {
                                   "name": agent_name.lower(),
                                   "purpose": purpose,
@@ -402,15 +529,16 @@ class AIPlatformEngineerA2ABinding:
                               }
                           }
                       else:
-                          # Regular content - no special handling
+                          # Regular content - include source_agent for grouping
                           yield {
                               "is_task_complete": False,
                               "require_user_input": False,
                               "content": content,
+                              "source_agent": current_agent or "supervisor",
                           }
 
               # Handle AIMessage with tool calls (tool start indicators)
-              elif isinstance(message, AIMessage) and hasattr(message, "tool_calls") and message.tool_calls:
+              elif isinstance(message, AIMessage) and has_tool_calls:
                   for tool_call in message.tool_calls:
                       tool_name = tool_call.get("name", "")
                       tool_call_id = tool_call.get("id", "")
@@ -425,7 +553,53 @@ class AIPlatformEngineerA2ABinding:
                           pending_tool_calls[tool_call_id] = tool_name
                           logging.debug(f"Tracked tool call: {tool_call_id} -> {tool_name}")
 
+                      # Track current agent for sub-agent message grouping
+                      current_agent = tool_name
                       logging.info(f"Tool call started: {tool_name}")
+
+                      # CRITICAL: Capture ResponseFormat content from AIMessage
+                      # This is the DETERMINISTIC way to get the final response
+                      # ResponseFormat tool contains the structured final output
+                      # Note: Tool is defined as @tool("ResponseFormat") but Bedrock returns the schema name "PlatformEngineerResponse"
+                      if tool_name.lower() in ('responseformat', 'platformengineerresponse'):
+                          tool_args = tool_call.get("args", {})
+                          logging.info(f"🎯 AIMessage ResponseFormat detected! tool_name={tool_name}, args_keys={list(tool_args.keys()) if tool_args else 'empty'}")
+                          # Extract 'content' or 'message' field which contains the actual response
+                          structured_content = tool_args.get("content", "") or tool_args.get("message", "") or tool_args.get("response", "")
+                          if structured_content:
+                              response_format_content = structured_content
+                              response_format_args = tool_args  # Save complete args for final yield
+                              logging.info(f"🎯 AIMessage ResponseFormat: Captured content ({len(response_format_content)} chars)")
+                              logging.info(f"🎯 AIMessage ResponseFormat content preview: {response_format_content[:300]}")
+
+                              # When structured response mode is enabled, yield completion event directly
+                              if USE_STRUCTURED_RESPONSE:
+                                  logging.info("🎯 Structured response mode: yielding completion from AIMessage ResponseFormat tool")
+                                  yield {
+                                      "is_task_complete": tool_args.get("is_task_complete", True),
+                                      "require_user_input": tool_args.get("require_user_input", False),
+                                      "content": structured_content,
+                                      "metadata": tool_args.get("metadata"),
+                                      "from_response_format_tool": True
+                                  }
+                                  continue  # Skip tool notification, already handled
+                          else:
+                              # Fallback: try to get any string value from args
+                              import json
+                              for key, val in tool_args.items():
+                                  if isinstance(val, str) and len(val) > 10:
+                                      response_format_content = val
+                                      response_format_args = tool_args  # Save args
+                                      logging.info(f"📝 SUPERVISOR: Captured ResponseFormat '{key}' field: {len(response_format_content)} chars")
+                                      break
+                              if not response_format_content and tool_args:
+                                  try:
+                                      response_format_content = json.dumps(tool_args)
+                                      response_format_args = tool_args  # Save args
+                                      logging.info(f"📝 SUPERVISOR: Captured ResponseFormat args as JSON: {len(response_format_content)} chars")
+                                  except Exception:
+                                      response_format_content = str(tool_args)
+                                      response_format_args = tool_args  # Save args
 
                       # Stream tool start notification to client with metadata
                       tool_name_formatted = tool_name.title()
@@ -433,6 +607,7 @@ class AIPlatformEngineerA2ABinding:
                           "is_task_complete": False,
                           "require_user_input": False,
                           "content": f"🔧 Supervisor: Calling Agent {tool_name_formatted}...\n",
+                          "source_agent": tool_name,
                           "tool_call": {
                               "name": tool_name,
                               "status": "started",
@@ -466,8 +641,6 @@ class AIPlatformEngineerA2ABinding:
                       pending_tool_calls.pop(tool_call_id)
                       logging.debug(f"Resolved tool call: {tool_call_id} -> {tool_name}")
 
-                  logging.debug(f"Tool call completed: {tool_name} (content: {len(tool_content)} chars)")
-
                   # Track sub-agent responses for fallback if synthesis fails
                   # Only track significant responses (sub-agent tools like 'task', agent names)
                   if tool_content and len(tool_content) > 100:
@@ -485,6 +658,33 @@ class AIPlatformEngineerA2ABinding:
                       'graph_raw_query_data', 'graph_raw_query_ontology'
                   }
 
+                  # CRITICAL: Handle ResponseFormat tool in structured response mode
+                  # The tool returns JSON with the structured response fields
+                  if USE_STRUCTURED_RESPONSE and tool_name.lower() in ('responseformat', 'platformengineerresponse'):
+                      try:
+                          # Parse the JSON result from the tool
+                          tool_result = json.loads(tool_content) if tool_content else {}
+                          structured_content = tool_result.get("content", "") or tool_result.get("message", "") or tool_result.get("response", "")
+                          if structured_content:
+                              # Save for final yield fallback
+                              response_format_args = tool_result
+                              response_format_content = structured_content
+                              is_task_complete_val = tool_result.get("is_task_complete", True)
+                              require_user_input_val = tool_result.get("require_user_input", False)
+                              yield {
+                                  "is_task_complete": is_task_complete_val,
+                                  "require_user_input": require_user_input_val,
+                                  "content": structured_content,
+                                  "metadata": tool_result.get("metadata"),
+                                  "from_response_format_tool": True
+                              }
+                              continue  # Skip normal tool completion handling
+                          else:
+                              logging.warning(f"ResponseFormat tool result has no content: {tool_result}")
+                      except json.JSONDecodeError as e:
+                          logging.warning(f"Failed to parse ResponseFormat result as JSON: {e}, content was: {tool_content[:200] if tool_content else 'EMPTY'}")
+                          # Fall through to normal handling
+
                   # Special handling for write_todos: execution plan vs status updates
                   if tool_name == "write_todos" and tool_content and tool_content.strip():
                       if not self._execution_plan_sent:
@@ -494,6 +694,7 @@ class AIPlatformEngineerA2ABinding:
                           yield {
                               "is_task_complete": False,
                               "require_user_input": False,
+                              "source_agent": "supervisor",
                               "artifact": {
                                   "name": "execution_plan_update",
                                   "description": "TODO-based execution plan",
@@ -507,6 +708,7 @@ class AIPlatformEngineerA2ABinding:
                           yield {
                               "is_task_complete": False,
                               "require_user_input": False,
+                              "source_agent": "supervisor",
                               "artifact": {
                                   "name": "execution_plan_status_update",
                                   "description": "TODO progress update",
@@ -522,7 +724,7 @@ class AIPlatformEngineerA2ABinding:
                           fields = tool_result.get("fields", [])
                           title = tool_result.get("title", "User Input Required")
                           description = tool_result.get("description", "Please provide the following information")
-                          
+
                           # Convert to the metadata.input_fields format expected by frontend
                           input_fields = []
                           for field in fields:
@@ -536,9 +738,9 @@ class AIPlatformEngineerA2ABinding:
                                   "required": field.get("required", True),
                                   "default_value": field.get("default_value"),
                               })
-                          
+
                           logging.info(f"📝 Emitting user input form: {title} with {len(input_fields)} fields")
-                          
+
                           # Yield structured user input request
                           yield {
                               "is_task_complete": False,
@@ -557,10 +759,11 @@ class AIPlatformEngineerA2ABinding:
                           logging.warning(f"Failed to parse request_user_input content: {e}")
                           # Fall through to normal handling if parsing fails
                   elif tool_name in rag_tool_names:
-                    # For RAG tools, we don't want to stream the content, as its a LOT of text
+                    # For RAG tools, we don't want to stream the content, as its a LOT of text
                       yield {
                             "is_task_complete": False,
                             "require_user_input": False,
+                            "source_agent": tool_name,
                             "content": f"🔍 {tool_name}...",
                       }
                   # Stream other tool content normally (actual results for user)
@@ -568,6 +771,7 @@ class AIPlatformEngineerA2ABinding:
                       yield {
                           "is_task_complete": False,
                           "require_user_input": False,
+                          "source_agent": tool_name,
                           "content": tool_content + "\n",
                       }
 
@@ -576,6 +780,7 @@ class AIPlatformEngineerA2ABinding:
                   yield {
                       "is_task_complete": False,
                       "require_user_input": False,
+                      "source_agent": tool_name,
                       "content": f"✅ Supervisor: Agent task {tool_name_formatted} completed\n",
                       "tool_result": {
                           "name": tool_name,
@@ -685,7 +890,6 @@ class AIPlatformEngineerA2ABinding:
               logging.error(f"❌ Bedrock tool_use ordering error: {error_str}")
 
               # Extract the problematic tool_use ID from error if possible
-              import re
               id_match = re.search(r'tooluse_[A-Za-z0-9_-]+', error_str)
               problem_id = id_match.group(0) if id_match else "unknown"
               logging.error(f"Problematic tool_use ID: {problem_id}")
@@ -932,12 +1136,29 @@ class AIPlatformEngineerA2ABinding:
                   and getattr(message, "tool_calls", None)
                   and len(message.tool_calls) > 0
               ):
-                  logging.debug("Detected AIMessage with tool calls, yielding")
-                  yield {
-                      "is_task_complete": False,
-                      "require_user_input": False,
-                      "content": "",
-                  }
+                  # Check for ResponseFormat tool in fallback stream
+                  for tool_call in message.tool_calls:
+                      tool_name = tool_call.get("name", "")
+                      if tool_name.lower() in ('responseformat', 'platformengineerresponse'):
+                          tool_args = tool_call.get("args", {})
+                          structured_content = tool_args.get("content", "") or tool_args.get("message", "") or tool_args.get("response", "")
+                          if structured_content and USE_STRUCTURED_RESPONSE:
+                              logging.info("🎯 Fallback stream: Structured response mode - yielding completion from ResponseFormat tool")
+                              yield {
+                                  "is_task_complete": tool_args.get("is_task_complete", True),
+                                  "require_user_input": tool_args.get("require_user_input", False),
+                                  "content": structured_content,
+                                  "metadata": tool_args.get("metadata"),
+                                  "from_response_format_tool": True
+                              }
+                              break
+                  else:
+                      logging.debug("Detected AIMessage with tool calls, yielding")
+                      yield {
+                          "is_task_complete": False,
+                          "require_user_input": False,
+                          "content": "",
+                      }
               elif isinstance(message, ToolMessage):
                   # Stream ToolMessage content (includes formatted TODO lists)
                   tool_content = message.content if hasattr(message, 'content') else ""
@@ -998,10 +1219,39 @@ class AIPlatformEngineerA2ABinding:
                   final_ai_message = message
 
       # After EITHER primary or fallback streaming completes, parse the final response to extract is_task_complete
-      logging.info(f"🔍 POST-STREAM PARSING: final_ai_message={final_ai_message is not None}, accumulated_chunks={len(accumulated_ai_content)}")
+      logging.info(f"🔍 POST-STREAM PARSING: final_ai_message={final_ai_message is not None}, accumulated_chunks={len(accumulated_ai_content)}, response_format_args={response_format_args is not None}")
 
-      # Try to use final_ai_message first, otherwise use accumulated content
-      if final_ai_message:
+      # PRIORITY 1: If we captured ResponseFormat tool args during streaming, use them directly
+      # This is the most reliable way to get structured response in structured response mode
+      if USE_STRUCTURED_RESPONSE and response_format_args:
+          logging.info(f"🎯 POST-STREAM: Using captured ResponseFormat tool args for completion, keys={list(response_format_args.keys())}")
+
+          # Handle partial JSON that was accumulated from tool_call_chunks (Bedrock streaming)
+          if "_partial_json" in response_format_args and response_format_args["_partial_json"]:
+              partial_str = response_format_args["_partial_json"]
+              logging.info(f"🎯 POST-STREAM: Parsing accumulated tool_call_chunks JSON ({len(partial_str)} chars)")
+              logging.debug(f"🎯 POST-STREAM: Partial JSON preview: {partial_str[:500]}...")
+              try:
+                  import json
+                  parsed = json.loads(partial_str)
+                  if isinstance(parsed, dict):
+                      response_format_args.update(parsed)
+                      del response_format_args["_partial_json"]  # Clean up
+                      logging.info(f"🎯 POST-STREAM: Parsed partial JSON successfully! keys={list(response_format_args.keys())}")
+              except json.JSONDecodeError as e:
+                  logging.warning(f"🎯 POST-STREAM: Failed to parse partial JSON: {e}, content: {partial_str[:200]}...")
+
+          structured_content = response_format_args.get("content", "") or response_format_args.get("message", "") or response_format_args.get("response", "")
+          final_response = {
+              'is_task_complete': response_format_args.get("is_task_complete", True),
+              'require_user_input': response_format_args.get("require_user_input", False),
+              'content': structured_content,
+              'metadata': response_format_args.get("metadata"),
+              'from_response_format_tool': True
+          }
+          logging.info(f"🎯 POST-STREAM: ResponseFormat response: is_task_complete={final_response['is_task_complete']}, content_len={len(structured_content) if structured_content else 0}")
+      # PRIORITY 2: Try to use final_ai_message first, otherwise use accumulated content
+      elif final_ai_message:
           logging.info("✅ Using final AIMessage for structured response parsing")
           # Extract content from AIMessage
           final_content = final_ai_message.content if hasattr(final_ai_message, 'content') else str(final_ai_message)
@@ -1046,9 +1296,17 @@ class AIPlatformEngineerA2ABinding:
       # Sending it again in the final response would cause duplication.
       #
       # Solution: Clear 'content' from final_response when in streaming mode.
+      # EXCEPTION 1: If content came from ResponseFormat tool, it's the REAL structured content
+      # EXCEPTION 2: If is_task_complete=True (from [FINAL ANSWER] marker), the content is the final answer
+      # In both cases, should NOT be cleared (the accumulated chunks were just the LLM "thinking" text)
       if accumulated_ai_content and len(accumulated_ai_content) > 1:
-          logging.info(f"⏭️ Clearing content from final response - already streamed {len(accumulated_ai_content)} chunks")
-          final_response['content'] = ''
+          if final_response.get('from_response_format_tool'):
+              logging.info(f"✅ Keeping content from ResponseFormat tool (not clearing despite {len(accumulated_ai_content)} streamed chunks)")
+          elif final_response.get('is_task_complete'):
+              logging.info(f"✅ Keeping content - task is complete with [FINAL ANSWER] (not clearing despite {len(accumulated_ai_content)} streamed chunks)")
+          else:
+              logging.info(f"⏭️ Clearing content from final response - already streamed {len(accumulated_ai_content)} chunks")
+              final_response['content'] = ''
 
       logging.info(f"🚀 YIELDING FINAL RESPONSE: is_task_complete={final_response.get('is_task_complete')}, require_user_input={final_response.get('require_user_input')}, content_length={len(final_response.get('content', ''))}")
       yield final_response
@@ -1128,7 +1386,19 @@ class AIPlatformEngineerA2ABinding:
       content = ai_message if isinstance(ai_message, str) else str(ai_message)
 
       # Log the raw content for debugging
-      logging.info(f"Raw LLM content (fallback handling): {repr(content)}")
+
+      # CRITICAL: Check for [FINAL ANSWER] marker (used when USE_STRUCTURED_RESPONSE=false)
+      # This marker indicates the task is complete and the content after it is the final answer
+    #   final_answer_marker = "[FINAL ANSWER]"
+    #   if final_answer_marker in content:
+    #       marker_pos = content.find(final_answer_marker)
+    #       final_content = content[marker_pos + len(final_answer_marker):].strip()
+    #       logging.info(f"✅ Found [FINAL ANSWER] marker at position {marker_pos}, extracted {len(final_content)} chars")
+    #       return {
+    #           'is_task_complete': True,
+    #           'require_user_input': False,
+    #           'content': final_content,
+    #       }
 
       # Strip markdown code block formatting if present
       if content.startswith('```json') and content.endswith('```'):
@@ -1138,7 +1408,6 @@ class AIPlatformEngineerA2ABinding:
         content = content[3:-3].strip()  # Remove ``` at start and end
         logging.info("Stripped ``` formatting")
 
-      logging.info(f"Content after stripping: {repr(content)}")
 
       # If content doesn't look like JSON, treat it as a working text update
       if not (content.startswith('{') or content.startswith('[')):

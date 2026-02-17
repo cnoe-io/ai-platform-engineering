@@ -26,6 +26,24 @@ logger = logging.getLogger(__name__)
 
 GENERIC_CLIENT = "generic_client"
 
+# ENABLE_* variables that are NOT real agents and should never be included
+# in the agent registry or connectivity checks.  These are feature flags,
+# pseudo-agents, or capabilities — not addressable A2A agent endpoints.
+#
+# Override with the EXCLUDE_FROM_AGENT_REGISTRY env var (comma-separated, case-insensitive).
+# Example: EXCLUDE_FROM_AGENT_REGISTRY=ACE,AUTO,RAG,CUSTOM_FLAG
+DEFAULT_REGISTRY_EXCLUSIONS = frozenset({
+    "TRACING",              # Observability feature flag
+    "STREAMING",            # Streaming feature flag
+    "ACE",                  # ACE feature flag — not an A2A agent
+    "ARTIFACT_STREAMING",   # Artifact streaming feature flag
+    "AUTO",                 # Auto-mode feature flag
+    "GRAPH_RAG",            # Graph RAG capability flag
+    "RAG",                  # RAG capability flag
+    "SUBAGENT_CARDS",       # UI feature flag for sub-agent cards
+})
+
+
 class AgentRegistry:
     """Centralized registry for transport-aware agent management."""
 
@@ -69,25 +87,57 @@ class AgentRegistry:
         logger.info("Loaded agents: %s", list(self._agents.keys()))
 
     def get_enabled_agents_from_env(self) -> List[str]:
-        """Get all environment variables that start with ENABLE_*."""
+        """
+        Get all environment variables that start with ENABLE_* and are set to 'true'.
+
+        Feature flags and pseudo-agents listed in the registry exclusion set
+        are filtered out so they never appear in AGENT_NAMES or the
+        connectivity table.
+        """
+        exclusions = self._get_registry_exclusions()
         enabled_agents = []
         for k, v in os.environ.items():
             if k.startswith('ENABLE_'):
+                agent_name = k.split('ENABLE_')[1]
                 logger.info(f"Found env var: {k} = {v}")
                 if v.lower() == "true":
+                    if agent_name.upper() in exclusions:
+                        logger.info(f"Skipping feature flag '{k}' (excluded from agent registry)")
+                        continue
                     logger.info(f"Env var {k} is enabled")
-                    enabled_agents.append(k.split('ENABLE_')[1])
+                    enabled_agents.append(agent_name)
         logger.info(f"Enabled agents: {enabled_agents}")
         return enabled_agents
 
+    @staticmethod
+    def _get_registry_exclusions() -> frozenset:
+        """
+        Build the set of ENABLE_* names that should be excluded from the
+        agent registry (feature flags, pseudo-agents, capability toggles).
+
+        Uses DEFAULT_REGISTRY_EXCLUSIONS as the baseline and merges any
+        additional names from the EXCLUDE_FROM_AGENT_REGISTRY env var.
+        """
+        exclusions = set(DEFAULT_REGISTRY_EXCLUSIONS)
+        env_extra = os.getenv("EXCLUDE_FROM_AGENT_REGISTRY", "")
+        if env_extra:
+            for name in env_extra.split(","):
+                name = name.strip().upper()
+                if name:
+                    exclusions.add(name)
+        return frozenset(exclusions)
+
     def get_agent_address_mapping(self, agent_names: List[str]) -> Dict[str, str]:
-        """Get the address mapping for all enabled agents, skipping TRACING and STREAMING pseudo-agents."""
+        """
+        Get the address mapping for all enabled agents, skipping
+        feature flags and pseudo-agents listed in the registry exclusions.
+        """
+        exclusions = self._get_registry_exclusions()
         address_mapping = {}
         for agent in agent_names:
             upper = agent.upper()
-            # Skip pseudo-agents related to tracing and streaming
-            if upper in ("TRACING", "STREAMING"):
-                logger.info(f"Skipping pseudo-agent '{agent}' (TRACING/STREAMING)")
+            if upper in exclusions:
+                logger.info(f"Skipping non-agent ENABLE_* flag '{agent}' (excluded from registry)")
                 continue
             host = os.getenv(f"{upper}_AGENT_HOST", "localhost")
             port = os.getenv(f"{upper}_AGENT_PORT", "8000")

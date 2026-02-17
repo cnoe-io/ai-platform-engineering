@@ -297,13 +297,15 @@ test-agents: test-mcp-argocd test-mcp-jira ## Run tests for all agents (in their
 	@echo "Skipping RAG module tests (temporarily disabled)..."
 	@echo "✓ RAG tests skipped"
 
-test: test-supervisor test-agents ## Run all tests (supervisor + agents)
+test: test-supervisor test-multi-agents test-agents ## Run all tests (supervisor + multi-agents + agents)
 
 ## ========== Multi-Agent Tests ==========
 
 test-multi-agents: setup-venv ## Run multi-agent system tests
 	@echo "Running multi-agent system tests..."
 	@. .venv/bin/activate && uv run pytest ai_platform_engineering/multi_agents/tests/ -v
+	@echo "Running platform engineer executor tests..."
+	@. .venv/bin/activate && uv run pytest ai_platform_engineering/multi_agents/platform_engineer/protocol_bindings/a2a/tests/ -v
 
 ## ========== RAG Module Tests ==========
 

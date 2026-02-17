@@ -94,7 +94,7 @@ spec:
     - metadata:
         name: data
         labels:
-          {{- include "mongodb.labels" . | nindent 10 }}
+          {{- include "mongodb.selectorLabels" . | nindent 10 }}
       spec:
         accessModes:
           {{- range .Values.persistence.accessModes }}

@@ -59,6 +59,13 @@ class StreamState:
     task_complete: bool = False
     user_input_required: bool = False
 
+    # Source agent tracking for sub-agent message grouping
+    current_agent: Optional[str] = None
+    agent_streaming_artifact_ids: Dict[str, str] = field(default_factory=dict)
+
+    # Trace ID for feedback/scoring (exposed to clients)
+    trace_id: Optional[str] = None
+
 
 class AIPlatformEngineerA2AExecutor(AgentExecutor):
     """AI Platform Engineer A2A Executor."""
@@ -158,7 +165,7 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
             # Extract everything after the marker
             idx = content.find(marker)
             final_content = content[idx + len(marker):].strip()
-            logger.debug(f"Extracted final answer: {len(final_content)} chars (marker found at pos {idx})")
+            logger.info(f"Extracted final answer: {len(final_content)} chars (marker found at pos {idx})")
             return final_content
         return content
 
@@ -179,27 +186,32 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
         intermediate thinking/planning messages.
         """
         if state.sub_agent_datapart:
+            logger.info("_get_final_content: using sub_agent_datapart")
             return state.sub_agent_datapart, True
 
         # Multi-agent scenario: prefer supervisor synthesis
         # The supervisor summarizes results from all sub-agents
         if state.sub_agents_completed > 1 and state.supervisor_content:
             raw_content = ''.join(state.supervisor_content)
-            logger.debug(f"Multi-agent scenario ({state.sub_agents_completed} agents): using supervisor synthesis ({len(raw_content)} chars)")
-            return self._extract_final_answer(raw_content), False
+            extracted = self._extract_final_answer(raw_content)
+            logger.info(f"_get_final_content: multi-agent synthesis ({state.sub_agents_completed} agents), raw={len(raw_content)} chars, extracted={len(extracted)} chars")
+            return extracted, False
 
         # Single agent or no supervisor content: use sub-agent content
         if state.sub_agent_content:
             raw_content = ''.join(state.sub_agent_content)
-            logger.debug(f"Using sub-agent content ({len(raw_content)} chars)")
-            return self._extract_final_answer(raw_content), False
+            extracted = self._extract_final_answer(raw_content)
+            logger.info(f"_get_final_content: sub-agent content, raw={len(raw_content)} chars, extracted={len(extracted)} chars")
+            return extracted, False
 
         # Fallback to supervisor content even for single agent
         if state.supervisor_content:
             raw_content = ''.join(state.supervisor_content)
-            logger.debug(f"Fallback to supervisor content ({len(raw_content)} chars)")
-            return self._extract_final_answer(raw_content), False
+            extracted = self._extract_final_answer(raw_content)
+            logger.info(f"_get_final_content: fallback supervisor content, raw={len(raw_content)} chars, extracted={len(extracted)} chars, has_FINAL_ANSWER={'[FINAL ANSWER]' in raw_content}")
+            return extracted, False
 
+        logger.warning("_get_final_content: NO content available (all sources empty)")
         return '', False
 
     def _is_tool_notification(self, content: str, event: dict) -> bool:
@@ -254,19 +266,44 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
     async def _send_artifact(self, event_queue: EventQueue, task: A2ATask,
                              artifact: Artifact, append: bool, last_chunk: bool = False):
         """Send an artifact update event."""
+        # Debug: Log artifact being sent
+        artifact_name = getattr(artifact, 'name', 'unknown')
+        # A2A stores text in parts[0].text, not in a top-level text attribute
+        parts = getattr(artifact, 'parts', [])
+        parts_text = None
+        if parts:
+            # Try different ways to access text
+            first_part = parts[0]
+            if hasattr(first_part, 'text'):
+                parts_text = first_part.text
+            elif hasattr(first_part, 'root') and hasattr(first_part.root, 'text'):
+                parts_text = first_part.root.text
+            elif isinstance(first_part, dict):
+                parts_text = first_part.get('text')
+        text_preview = parts_text[:100] if parts_text else '(no parts.text)'
+        text_len = len(parts_text) if parts_text else 0
+
+        if artifact_name in ('final_result', 'partial_result'):
+            logger.info(f"📤 FINAL ARTIFACT: parts_count={len(parts)}, text_len={text_len}")
+            logger.info(f"📤 FINAL ARTIFACT preview: {text_preview}...")
+            # Debug: Log the actual artifact structure
+            logger.info(f"📤 FINAL ARTIFACT parts[0] type: {type(parts[0]) if parts else 'NO_PARTS'}")
+            logger.info(f"📤 FINAL ARTIFACT parts[0] attrs: {dir(parts[0]) if parts else 'NO_PARTS'}")
+
         await self._safe_enqueue_event(
             event_queue,
             TaskArtifactUpdateEvent(
                 append=append,
                 context_id=task.context_id,
                 task_id=task.id,
-                last_chunk=last_chunk,
+                lastChunk=last_chunk,
                 artifact=artifact,
             )
         )
 
-    async def _send_completion(self, event_queue: EventQueue, task: A2ATask):
-        """Send task completion status."""
+    async def _send_completion(self, event_queue: EventQueue, task: A2ATask, trace_id: str = None):
+        """Send task completion status with optional trace_id for client feedback."""
+        logger.info(f"📤 Sending completion status for task {task.id} (trace_id={trace_id})")
         await self._safe_enqueue_event(
             event_queue,
             TaskStatusUpdateEvent(
@@ -274,8 +311,10 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                 final=True,
                 context_id=task.context_id,
                 task_id=task.id,
+                metadata={'trace_id': trace_id} if trace_id else None,
             )
         )
+        logger.info(f"📤 Completion status enqueued for task {task.id}")
 
     async def _send_error(self, event_queue: EventQueue, task: A2ATask, error_msg: str):
         """Send task failure status."""
@@ -307,10 +346,20 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
         artifact_name = artifact_data.get('name', 'streaming_result')
         parts = artifact_data.get('parts', [])
 
+        # Extract sourceAgent from artifact metadata, event, or current state
+        existing_metadata = artifact_data.get('metadata', {})
+        source_agent = (
+            existing_metadata.get('sourceAgent') or
+            event.get('source_agent') or
+            state.current_agent or
+            'sub-agent'
+        )
+        logger.debug(f"📦 Sub-agent artifact from: {source_agent}")
+
         # Accumulate final results (complete_result, final_result, partial_result)
         if artifact_name in ('complete_result', 'final_result', 'partial_result'):
             state.sub_agents_completed += 1
-            logger.debug(f"Sub-agent completed with {artifact_name} (total completed: {state.sub_agents_completed})")
+            logger.info(f"Sub-agent completed with {artifact_name} (total completed: {state.sub_agents_completed})")
 
             for part in parts:
                 if isinstance(part, dict):
@@ -330,11 +379,17 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                 elif part.get('data'):
                     artifact_parts.append(Part(root=DataPart(data=part['data'])))
 
+        # Create artifact with sourceAgent metadata for sub-agent message grouping
         artifact = Artifact(
             artifactId=artifact_data.get('artifactId'),
             name=artifact_name,
-            description=artifact_data.get('description', 'From sub-agent'),
-            parts=artifact_parts
+            description=artifact_data.get('description', f'From {source_agent}'),
+            parts=artifact_parts,
+            metadata={
+                'sourceAgent': source_agent,
+                'agentType': 'sub-agent',
+                **existing_metadata  # Preserve any other metadata
+            }
         )
 
         # Track artifact ID for append logic
@@ -353,11 +408,50 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
     async def _handle_task_complete(self, event: dict, state: StreamState,
                                     content: str, task: A2ATask, event_queue: EventQueue):
         """Handle task completion event."""
-        final_content, is_datapart = self._get_final_content(state)
+        logger.info(
+            f"Task {task.id} _handle_task_complete: "
+            f"supervisor_content_len={len(state.supervisor_content)}, "
+            f"sub_agent_content_len={len(state.sub_agent_content)}, "
+            f"sub_agents_completed={state.sub_agents_completed}, "
+            f"event_content_len={len(content)}, "
+            f"from_response_format_tool={event.get('from_response_format_tool', False)}"
+        )
 
-        # Fall back to event content if nothing accumulated
-        if not final_content and not is_datapart:
+        # ================================================================
+        # DEDUPLICATION: Single sub-agent scenario
+        # If exactly 1 sub-agent completed, its complete_result was already
+        # forwarded to the client by _handle_sub_agent_artifact. The UI
+        # uses the status-update (final=true, state=completed) to set
+        # isFinal. Sending another final_result with the same content
+        # would duplicate it. Just send completion status.
+        # ================================================================
+        if state.sub_agents_completed == 1 and state.sub_agent_content and not state.sub_agent_datapart:
+            logger.info(
+                f"Task {task.id}: single sub-agent already sent complete_result — "
+                "skipping duplicate final_result, sending completion status only"
+            )
+            await self._send_completion(event_queue, task, trace_id=state.trace_id)
+            logger.info(f"Task {task.id} completed (single sub-agent, deduped).")
+            return
+
+        # If event came from ResponseFormat tool (structured response mode),
+        # use content directly since it's the clean final answer
+        if event.get('from_response_format_tool'):
+            logger.info("Using content directly from ResponseFormat tool (structured response mode)")
             final_content = content
+            is_datapart = False
+        else:
+            final_content, is_datapart = self._get_final_content(state)
+
+            # Fall back to event content if nothing accumulated
+            if not final_content and not is_datapart:
+                final_content = content
+
+        logger.info(
+            f"Task {task.id} final_result: is_datapart={is_datapart}, "
+            f"content_len={len(final_content) if isinstance(final_content, str) else 'N/A'}, "
+            f"preview={str(final_content)[:200] if final_content else '(empty)'}"
+        )
 
         # Create appropriate artifact
         if is_datapart:
@@ -373,15 +467,20 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                 text=final_content if isinstance(final_content, str) else '',
             )
 
+        # Include trace_id in artifact metadata for client feedback/scoring
+        if state.trace_id:
+            artifact.metadata = artifact.metadata or {}
+            artifact.metadata['trace_id'] = state.trace_id
+
         await self._send_artifact(event_queue, task, artifact, append=False, last_chunk=True)
-        await self._send_completion(event_queue, task)
+        await self._send_completion(event_queue, task, trace_id=state.trace_id)
         logger.info(f"Task {task.id} completed.")
 
     async def _handle_user_input_required(self, content: str, task: A2ATask,
                                           event_queue: EventQueue, metadata: Optional[Dict] = None):
         """
         Handle user input required event.
-        
+
         Args:
             content: The text content describing the input request
             task: The current A2A task
@@ -407,14 +506,14 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
         # This allows the UI to render a structured form instead of just text
         if metadata and metadata.get("input_fields"):
             logger.info(f"📝 Sending user input form metadata with {len(metadata.get('input_fields', []))} fields")
-            
+
             # Create a DataPart artifact with the form metadata
             form_artifact = new_data_artifact(
                 name="UserInputMetaData",
                 description="Structured user input form definition",
                 data=metadata
             )
-            
+
             # Send the form metadata artifact
             await self._safe_enqueue_event(
                 event_queue,
@@ -426,7 +525,7 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                     task_id=task.id,
                 )
             )
-        
+
         # Send the status update with the text content (backward compatible)
         await self._safe_enqueue_event(
             event_queue,
@@ -456,14 +555,44 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
 
         is_tool_notification = self._is_tool_notification(content, event)
 
+        # Track current agent from tool_call events for sub-agent message grouping
+        if 'tool_call' in event:
+            tool_name = event['tool_call'].get('name', 'unknown')
+            state.current_agent = tool_name
+            logger.info(f"🎯 Current agent set to: {tool_name}")
+        elif 'tool_result' in event:
+            # Tool completed - keep current agent for any remaining content
+            tool_name = event['tool_result'].get('name', state.current_agent)
+            logger.info(f"✅ Tool completed: {tool_name}")
+
+        # Also detect agent from event metadata if provided
+        source_agent = event.get('source_agent') or state.current_agent or 'supervisor'
+
+        # ================================================================
+        # DEDUPLICATION: After a sub-agent sends complete_result, the
+        # supervisor re-streams that same content as its "synthesis".
+        # For single-agent scenarios (sub_agents_completed == 1), this
+        # produces duplicate content in the UI. Suppress streaming
+        # artifacts after sub-agent completion for single-agent flows.
+        # Multi-agent flows (2+ sub-agents) still need the supervisor
+        # synthesis. Tool notifications are always forwarded.
+        # ================================================================
+        if not is_tool_notification and state.sub_agents_completed == 1:
+            # Single sub-agent already sent complete_result — supervisor is just
+            # re-streaming the same content. Accumulate silently but don't forward.
+            state.supervisor_content.append(content)
+            logger.debug(f"⏭️ Suppressing duplicate streaming chunk after sub-agent completion ({len(content)} chars)")
+            return
+
         # Accumulate non-notification content (unless DataPart already received)
         if not is_tool_notification and not state.sub_agent_datapart:
             state.supervisor_content.append(content)
 
-        # Create artifact
+        # Create artifact with sourceAgent metadata
         if is_tool_notification:
             artifact_name, description = self._get_artifact_name_for_notification(content, event)
             artifact = new_text_artifact(name=artifact_name, description=description, text=content)
+            artifact.metadata = {'sourceAgent': source_agent, 'agentType': 'notification'}
             use_append = False
             state.seen_artifact_ids.add(artifact.artifact_id)
         elif state.streaming_artifact_id is None:
@@ -473,6 +602,7 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                 description='Streaming result',
                 text=content,
             )
+            artifact.metadata = {'sourceAgent': source_agent, 'agentType': 'streaming'}
             state.streaming_artifact_id = artifact.artifact_id
             state.seen_artifact_ids.add(artifact.artifact_id)
             state.first_artifact_sent = True
@@ -485,6 +615,7 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                 text=content,
             )
             artifact.artifact_id = state.streaming_artifact_id
+            artifact.metadata = {'sourceAgent': source_agent, 'agentType': 'streaming'}
             use_append = True
 
         await self._send_artifact(event_queue, task, artifact, append=use_append)
@@ -496,7 +627,30 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
         # For single-agent scenarios where sub-agent already sent complete_result,
         # we just need to send the completion status (content already forwarded)
 
+        # Debug: Log accumulated content before getting final
+        logger.info(f"📦 Stream end - supervisor_content: {len(state.supervisor_content)} items, {sum(len(c) for c in state.supervisor_content)} chars")
+        logger.info(f"📦 Stream end - sub_agent_content: {len(state.sub_agent_content)} items, {sum(len(c) for c in state.sub_agent_content)} chars")
+        logger.info(f"📦 Stream end - sub_agents_completed: {state.sub_agents_completed}")
+
+        # ================================================================
+        # DEDUPLICATION: Single sub-agent scenario
+        # If exactly 1 sub-agent completed, its complete_result was already
+        # forwarded to the client by _handle_sub_agent_artifact. The UI
+        # sets isFinal from the status-update event (final=true,
+        # state=completed). Sending final_result with the same content
+        # would duplicate it. Just send completion status.
+        # ================================================================
+        if state.sub_agents_completed == 1 and state.sub_agent_content:
+            logger.info(
+                "📦 Single sub-agent already sent complete_result — "
+                "skipping duplicate final_result, sending completion status only"
+            )
+            await self._send_completion(event_queue, task, trace_id=state.trace_id)
+            logger.info(f"Task {task.id} completed (stream end, single sub-agent, deduped).")
+            return
+
         final_content, is_datapart = self._get_final_content(state)
+        logger.info(f"📦 Final content for UI: {len(final_content) if isinstance(final_content, str) else 'datapart'} chars, is_datapart={is_datapart}")
 
         # If we have accumulated content (supervisor synthesis or sub-agent content), send it
         if final_content or is_datapart:
@@ -518,9 +672,14 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
             else:
                 artifact = new_text_artifact(name=artifact_name, description=description, text=final_content)
 
+            # Include trace_id in artifact metadata for client feedback/scoring
+            if state.trace_id:
+                artifact.metadata = artifact.metadata or {}
+                artifact.metadata['trace_id'] = state.trace_id
+
             await self._send_artifact(event_queue, task, artifact, append=False, last_chunk=True)
 
-        await self._send_completion(event_queue, task)
+        await self._send_completion(event_queue, task, trace_id=state.trace_id)
         logger.info(f"Task {task.id} completed (stream end, {state.sub_agents_completed} sub-agents).")
 
     # ─────────────────────────────────────────────────────────────────────────
@@ -556,6 +715,7 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
 
         # Initialize state
         state = StreamState()
+        state.trace_id = trace_id  # For client feedback/scoring
 
         try:
             async for event in self.agent.stream(query, context_id, trace_id):
@@ -584,6 +744,29 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                             artifact=event.artifact
                         )
                         await self._safe_enqueue_event(event_queue, transformed)
+
+                        # 🔧 CRITICAL FIX: Accumulate content from typed artifacts for final_result
+                        # Without this, _get_final_content returns empty and UI never gets final render
+                        artifact = event.artifact
+                        if artifact and hasattr(artifact, 'parts') and artifact.parts:
+                            artifact_name = getattr(artifact, 'name', 'streaming_result')
+                            is_final_artifact = artifact_name in ('complete_result', 'final_result', 'partial_result')
+
+                            for part in artifact.parts:
+                                part_root = getattr(part, 'root', None)
+                                if part_root and hasattr(part_root, 'text') and part_root.text:
+                                    # Accumulate streaming content
+                                    if artifact_name == 'streaming_result':
+                                        if not self._is_tool_notification(part_root.text, {}):
+                                            state.supervisor_content.append(part_root.text)
+                                    # Accumulate final results from sub-agents
+                                    elif is_final_artifact:
+                                        state.sub_agent_content.append(part_root.text)
+
+                            # Increment sub_agents_completed once per final artifact
+                            if is_final_artifact:
+                                state.sub_agents_completed += 1
+                                logger.info(f"Sub-agent completed via typed event with {artifact_name} (total: {state.sub_agents_completed})")
                     else:
                         corrected = TaskStatusUpdateEvent(
                             context_id=event.context_id,
@@ -655,14 +838,44 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                 # Normalize content
                 content = self._normalize_content(event.get('content', ''))
 
-                # 2. Task complete
+                # 2. ResponseFormat tool response — always the final output
+                #    The LLM called the structured response tool, so this IS the
+                #    final user-facing answer regardless of is_task_complete.
+                #    (The LLM may set is_task_complete=False when the task "failed"
+                #    but the response is still terminal — there's nothing more to do.)
+                if event.get('from_response_format_tool'):
+                    # Derive require_user_input from metadata.user_input
+                    # (In structured mode, request_user_input tool is removed;
+                    #  user input is expressed via PlatformEngineerResponse metadata)
+                    metadata = event.get('metadata') or {}
+                    needs_user_input = (
+                        event.get('require_user_input')
+                        or (isinstance(metadata, dict) and metadata.get('user_input'))
+                    )
+                    if needs_user_input:
+                        state.user_input_required = True
+                        logger.info("ResponseFormat tool requires user input — treating as input_required")
+                        await self._handle_user_input_required(content, task, event_queue, metadata if isinstance(metadata, dict) else None)
+                        return
+                    else:
+                        state.task_complete = True
+                        logger.info(
+                            f"ResponseFormat tool response is final output "
+                            f"(is_task_complete={event.get('is_task_complete')}, "
+                            f"content_len={len(content)})"
+                        )
+                        await self._ensure_execution_plan_completed(event_queue, task)
+                        await self._handle_task_complete(event, state, content, task, event_queue)
+                        return
+
+                # 3. Task complete
                 if event.get('is_task_complete'):
                     state.task_complete = True
                     await self._ensure_execution_plan_completed(event_queue, task)
                     await self._handle_task_complete(event, state, content, task, event_queue)
                     return
 
-                # 3. User input required
+                # 4. User input required
                 if event.get('require_user_input'):
                     state.user_input_required = True
                     # Pass metadata from event (contains form field definitions)
@@ -670,7 +883,7 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                     await self._handle_user_input_required(content, task, event_queue, metadata)
                     return
 
-                # 4. Streaming chunk
+                # 5. Streaming chunk
                 await self._handle_streaming_chunk(event, state, content, task, event_queue)
 
             # Stream ended without explicit completion

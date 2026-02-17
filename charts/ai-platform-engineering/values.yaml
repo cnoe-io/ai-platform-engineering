@@ -19,11 +19,6 @@ tags:
 
 # Global configuration shared across all subcharts
 global:
-  # Deployment Mode:
-  #   "single-node" (default): Single container with MCP tools loaded in-process via stdio transport
-  #   "multi-agent": Multiple containers with A2A protocol communication between agents
-  deploymentMode: "single-node"
-
   createLlmSecret: false # if true, llm secret will be created by the parent chart. Otherwise, expect existing llm secret
   llmSecrets:
     create: false # do not create llm secret in subcharts (use global or existing llm secret)
@@ -41,6 +36,9 @@ global:
     enableGraphRag: true
 
   metrics:
+    enabled: false
+
+  agentgateway:
     enabled: false
 
   caipeUi:
@@ -110,6 +108,7 @@ supervisor-agent:
     EXTERNAL_URL: "http://localhost:8000"  # Agent url for the client. NOTE: this will be user applicaiton specific
     SKIP_AGENT_CONNECTIVITY_CHECK: "false"
     AGENT_CONNECTIVITY_ENABLE_BACKGROUND: "true"
+    USE_STRUCTURED_RESPONSE: "false" # Set to "true" to enforce agent to always use structured response format as the final output
   multiAgentConfig:
     protocol: "a2a"
     port: "8000"
@@ -354,28 +353,31 @@ caipe-ui:
     tls: []
   env:
     # CAIPE Supervisor URL - automatically configured to use the supervisor-agent service
-    # For single-node mode, override to use: "http://ai-platform-engineering-caipe:8000"
-    NEXT_PUBLIC_A2A_BASE_URL: "http://ai-platform-engineering-supervisor-agent:8000"
+    A2A_BASE_URL: "http://ai-platform-engineering-supervisor-agent:8000"
   # ConfigMap for non-sensitive configuration
   config:
     # Feature flags
-    NEXT_PUBLIC_ENABLE_SUBAGENT_CARDS: "true"
-    NEXT_PUBLIC_SSO_ENABLED: "true"
+    ENABLE_SUBAGENT_CARDS: "true"
+    SSO_ENABLED: "true"
     # MongoDB configuration
-    NEXT_PUBLIC_MONGODB_ENABLED: "true"
     MONGODB_DATABASE: "caipe"
     # NextAuth URL (non-sensitive)
     NEXTAUTH_URL: "http://localhost:3000"
     # Node environment
     NODE_ENV: "production"
     # Branding configuration
-    NEXT_PUBLIC_TAGLINE: "Multi-Agent Workflow Automation"
-    NEXT_PUBLIC_DESCRIPTION: "Where Humans and AI agents collaborate to deliver high quality outcomes."
-    NEXT_PUBLIC_APP_NAME: "CAIPE"
-    NEXT_PUBLIC_LOGO_URL: "/logo.svg"
-    NEXT_PUBLIC_SHOW_POWERED_BY: "false"
+    TAGLINE: "Multi-Agent Workflow Automation"
+    DESCRIPTION: "Where Humans and AI agents collaborate to deliver high quality outcomes."
+    APP_NAME: "CAIPE"
+    LOGO_URL: "/logo.svg"
+    LOGO_STYLE: "default"
+    # SPINNER_COLOR: ""
+    SHOW_POWERED_BY: "false"
     # Preview mode
-    NEXT_PUBLIC_PREVIEW_MODE: "false"
+    PREVIEW_MODE: "false"
+    # Header link URLs (leave empty/commented to hide)
+    # DOCS_URL: "https://your-docs-site.com"
+    # SOURCE_URL: "https://github.com/your-org/your-repo"
   # External Secrets configuration for sensitive data (OIDC credentials, NextAuth secret, MongoDB credentials)
   externalSecrets:
     enabled: false  # Set to true to enable external secrets
@@ -421,6 +423,11 @@ caipe-ui:
         #     key: dev/mongodb
         #     property: password
 
+######### RAG Stack configuration #########
+# RAG Stack - Complete stack including web, server, agent, Redis, and Milvus
+# Below values are only a subset of the values that are available in the rag-stack chart.
+# For more values, please refer to the rag-stack chart values.yaml file.
+rag-stack:
 ######### RAG Stack configuration #########
 # RAG Stack - Complete stack including web, server, agent, Redis, and Milvus
 # Below values are only a subset of the values that are available in the rag-stack chart.

@@ -311,40 +311,57 @@ def extract_groups_from_claims(claims: Dict[str, Any]) -> List[str]:
   Extract groups from JWT claims with configurable claim name.
   Mirrors the logic in ui/src/lib/auth-config.ts extractGroups()
 
-  Uses OIDC_GROUP_CLAIM if set, otherwise tries common claim names.
+  Uses OIDC_GROUP_CLAIM if set (comma-separated for multiple claims),
+  otherwise checks ALL common claim names and combines groups from all
+  of them (using a set for deduplication).
 
   Args:
       claims: JWT token claims
 
   Returns:
-      List of group names
+      List of unique group names
   """
-  # Default group claim names to try (in order)
-  default_group_claims = ["memberOf", "groups", "group", "roles", "cognito:groups"]
+  # Default group claim names to check (in order of priority)
+  # Note: Duo SSO uses "members" for full group list, "groups" for limited set
+  default_group_claims = ["members", "memberOf", "groups", "group", "roles", "cognito:groups"]
 
-  # If explicit group claim is configured, use only that
-  if OIDC_GROUP_CLAIM:
-    value = claims.get(OIDC_GROUP_CLAIM)
+  # Use a set to collect all groups and deduplicate
+  all_groups: set[str] = set()
+
+  def add_groups_from_value(value: Any) -> None:
+    """Helper to extract groups from a claim value and add to set."""
     if isinstance(value, list):
-      return [str(g) for g in value]
+      for g in value:
+        all_groups.add(str(g))
     elif isinstance(value, str):
       # Split on comma or whitespace
-      return [g.strip() for g in re.split(r"[,\s]+", value) if g.strip()]
-    else:
-      logger.warning(f"Group claim '{OIDC_GROUP_CLAIM}' not found in token")
-      return []
+      for g in re.split(r"[,\s]+", value):
+        if g.strip():
+          all_groups.add(g.strip())
 
-  # Auto-detect: Try common group claim names in order
+  # If explicit group claim(s) configured, use only those
+  # Supports comma-separated list of claim names (e.g., "groups,members,roles")
+  if OIDC_GROUP_CLAIM:
+    configured_claims = [c.strip() for c in OIDC_GROUP_CLAIM.split(",") if c.strip()]
+    for claim_name in configured_claims:
+      value = claims.get(claim_name)
+      if value is not None:
+        add_groups_from_value(value)
+    if not all_groups:
+      logger.warning(f"No groups found in configured claims: {configured_claims}")
+    return list(all_groups)
+
+  # Auto-detect: check ALL common group claim names and combine them
+  # This is important for Duo SSO which uses both "groups" and "members"
   for claim_name in default_group_claims:
     value = claims.get(claim_name)
-    if isinstance(value, list):
-      return [str(g) for g in value]
-    elif isinstance(value, str):
-      return [g.strip() for g in re.split(r"[,\s]+", value) if g.strip()]
+    if value is not None:
+      add_groups_from_value(value)
 
-  # No groups found
-  logger.debug("No group claims found in token")
-  return []
+  if not all_groups:
+    logger.debug("No group claims found in token")
+
+  return list(all_groups)
 
 
 # ============================================================================
@@ -399,6 +416,10 @@ async def _authenticate_from_token(request: Request, auth_manager: AuthManager) 
   """
   Internal helper to authenticate user from JWT token.
 
+  Supports optional X-Identity-Token header for ID token with user claims.
+  If provided, the ID token is validated and used for email/groups extraction.
+  If not provided, falls back to extracting claims from the access token.
+
   Returns:
       UserContext if authentication successful, None if no auth or invalid
   """
@@ -409,19 +430,23 @@ async def _authenticate_from_token(request: Request, auth_manager: AuthManager) 
 
   token = auth_header[7:]  # Remove "Bearer " prefix
 
+  # Extract optional ID token for claims (some OIDC providers only include
+  # user claims like email/groups in the ID token, not the access token)
+  id_token = request.headers.get("X-Identity-Token")
+
   # Extract optional ingestor identification headers
   ingestor_type = request.headers.get("X-Ingestor-Type")
   ingestor_name = request.headers.get("X-Ingestor-Name")
 
   # Validate token against configured providers
   try:
-    provider, claims = await auth_manager.validate_token(token)
-    logger.debug(f"Token validated by provider '{provider.name}'")
-    logger.debug(f"Token claims keys: {list(claims.keys())}")
+    provider, access_claims = await auth_manager.validate_token(token)
+    logger.debug(f"Access token validated by provider '{provider.name}'")
+    logger.debug(f"Access token claims keys: {list(access_claims.keys())}")
 
     # Check if this is a client credentials token (machine-to-machine)
-    if is_client_credentials_token(claims):
-      client_id = extract_client_id_from_claims(claims)
+    if is_client_credentials_token(access_claims):
+      client_id = extract_client_id_from_claims(access_claims)
 
       # Enrich logging with ingestor info if provided
       if ingestor_type and ingestor_name:
@@ -443,9 +468,27 @@ async def _authenticate_from_token(request: Request, auth_manager: AuthManager) 
     else:
       logger.debug("Regular user token detected (not client credentials)")
 
-    # Regular user token - extract email and groups
-    email = extract_email_from_claims(claims)
-    groups = extract_groups_from_claims(claims)
+    # Determine which claims to use for email/groups extraction
+    claims_for_extraction = access_claims
+    claims_source = "access_token"
+
+    # If ID token provided, validate and use its claims for user identity
+    if id_token:
+      try:
+        id_claims = await auth_manager.validate_id_token(id_token, provider)
+        claims_for_extraction = id_claims
+        claims_source = "id_token"
+        logger.debug(f"Using ID token for claims extraction, keys: {list(id_claims.keys())}")
+      except JWTError as e:
+        # ID token provided but invalid - reject the request
+        logger.warning(f"ID token validation failed: {e}")
+        raise  # Re-raise to trigger 401 response
+
+    # Regular user token - extract email and groups from appropriate claims
+    email = extract_email_from_claims(claims_for_extraction)
+    groups = extract_groups_from_claims(claims_for_extraction)
+
+    logger.debug(f"Extracted from {claims_source}: email={email}, groups={groups}")
 
     # Validate email format
     if email and email != "unknown" and not EMAIL_REGEX.match(email):

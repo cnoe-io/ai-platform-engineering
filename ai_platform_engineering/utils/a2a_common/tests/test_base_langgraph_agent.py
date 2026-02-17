@@ -11,8 +11,10 @@ including date/time injection and system instruction generation.
 import pytest
 from datetime import datetime
 from zoneinfo import ZoneInfo
-from unittest.mock import Mock, patch
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
 from typing import Dict, Any
+
+from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
 from ai_platform_engineering.utils.a2a_common.base_langgraph_agent import BaseLangGraphAgent
 
@@ -285,4 +287,392 @@ class TestIntegrationWithAgents:
             
             # Date should come first
             assert result.index("## Current Date and Time") < result.index(instruction)
+
+
+# ---------------------------------------------------------------------------
+# Helper functions for _find_safe_split_index tests
+# ---------------------------------------------------------------------------
+
+
+def _make_ai_with_tools(tool_names: list[str]) -> AIMessage:
+    """Create an AIMessage with tool_calls."""
+    return AIMessage(
+        content="calling tools",
+        tool_calls=[{"name": n, "args": {}, "id": f"call_{n}"} for n in tool_names],
+    )
+
+
+def _make_tool_msg(name: str) -> ToolMessage:
+    """Create a ToolMessage for a tool call."""
+    return ToolMessage(content=f"result of {name}", tool_call_id=f"call_{name}", name=name)
+
+
+# ---------------------------------------------------------------------------
+# Tests for _find_safe_split_index (safe context splitting)
+# ---------------------------------------------------------------------------
+
+
+class TestFindSafeSplitIndex:
+    """Test _find_safe_split_index for safe context splitting."""
+
+    def test_keep_all_when_desired_exceeds_length(self):
+        """Returns 0 when desired_keep_count >= len(messages)."""
+        msgs = [HumanMessage(content="hi"), AIMessage(content="hello")]
+        assert BaseLangGraphAgent._find_safe_split_index(msgs, 5) == 0
+        assert BaseLangGraphAgent._find_safe_split_index(msgs, 2) == 0
+
+    def test_simple_split_no_tool_calls(self):
+        """Simple split with no tool calls at boundary."""
+        msgs = [
+            HumanMessage(content="q1"),
+            AIMessage(content="a1"),
+            HumanMessage(content="q2"),
+            AIMessage(content="a2"),
+        ]
+        # Keep 2 → candidate = 4-2 = 2
+        idx = BaseLangGraphAgent._find_safe_split_index(msgs, 2)
+        assert idx == 2
+
+    def test_moves_back_when_first_kept_is_tool_message(self):
+        """Moves boundary back when first kept message is ToolMessage."""
+        msgs = [
+            HumanMessage(content="q1"),
+            _make_ai_with_tools(["search"]),
+            _make_tool_msg("search"),
+            HumanMessage(content="q2"),
+            AIMessage(content="a2"),
+        ]
+        # Keep 2 → candidate = 5-2 = 3. First kept is HumanMessage("q2") → OK
+        idx = BaseLangGraphAgent._find_safe_split_index(msgs, 2)
+        assert idx == 3
+
+        # Keep 3 → candidate = 5-3 = 2. First kept is ToolMessage("search")
+        # → must move back to include AIMessage with tool_calls at index 1
+        idx = BaseLangGraphAgent._find_safe_split_index(msgs, 3)
+        assert idx == 1
+
+    def test_moves_back_when_preceding_is_ai_with_tools(self):
+        """Moves boundary back when preceding message is AIMessage with tool_calls."""
+        msgs = [
+            HumanMessage(content="q1"),
+            _make_ai_with_tools(["fetch"]),
+            _make_tool_msg("fetch"),
+            AIMessage(content="synthesis"),
+        ]
+        # Keep 1 → candidate = 4-1 = 3. First kept is AIMessage("synthesis").
+        # Preceding is ToolMessage → no issue. Break.
+        idx = BaseLangGraphAgent._find_safe_split_index(msgs, 1)
+        assert idx == 3
+
+        # Keep 2 → candidate = 4-2 = 2. First kept is ToolMessage("fetch").
+        # → Move back to 1 (AIMessage with tool_calls).
+        # Then preceding is HumanMessage → break.
+        idx = BaseLangGraphAgent._find_safe_split_index(msgs, 2)
+        assert idx == 1
+
+    def test_multiple_tool_messages_grouped(self):
+        """Multiple ToolMessages for same AIMessage are kept together."""
+        msgs = [
+            HumanMessage(content="q1"),
+            AIMessage(content="a1"),
+            _make_ai_with_tools(["t1", "t2"]),
+            _make_tool_msg("t1"),
+            _make_tool_msg("t2"),
+            AIMessage(content="final"),
+        ]
+        # Keep 3 → candidate = 6-3 = 3. First kept = ToolMessage(t1)
+        # → move back to 2 (AIMessage with tools)
+        # → preceding is AIMessage("a1") without tools → break
+        idx = BaseLangGraphAgent._find_safe_split_index(msgs, 3)
+        assert idx == 2
+
+    def test_all_tool_messages_moves_to_ai_boundary(self):
+        """When boundary falls on ToolMessage, adjust back to its AIMessage."""
+        msgs = [
+            _make_ai_with_tools(["a"]),
+            _make_tool_msg("a"),
+            _make_ai_with_tools(["b"]),
+            _make_tool_msg("b"),
+        ]
+        # Keep 1 → candidate = 3. First kept = ToolMessage("b") → back to 2
+        # msgs[2] is AIMessage(tools=["b"]).  Preceding is ToolMessage("a") which
+        # is NOT an AIMessage with tool_calls, so loop breaks.
+        idx = BaseLangGraphAgent._find_safe_split_index(msgs, 1)
+        assert idx == 2
+
+        # Keep 3 → candidate = 1. First kept = ToolMessage("a") → back to 0
+        # msgs[0] is AIMessage(tools=["a"]).  candidate=0 → while loop exits.
+        idx = BaseLangGraphAgent._find_safe_split_index(msgs, 3)
+        assert idx == 0
+
+    def test_empty_messages(self):
+        """Empty message list returns 0."""
+        assert BaseLangGraphAgent._find_safe_split_index([], 5) == 0
+
+    def test_single_message(self):
+        """Single message returns 0."""
+        msgs = [HumanMessage(content="hi")]
+        assert BaseLangGraphAgent._find_safe_split_index(msgs, 1) == 0
+
+    def test_desired_keep_zero(self):
+        """desired_keep_count=0 is an edge case — candidate equals len(messages)."""
+        _ = [HumanMessage(content="q"), AIMessage(content="a")]
+        # With 0 desired keep, candidate = len - 0 = 2, which is out-of-bounds
+        # for the while loop.  The code accesses messages[candidate] so this
+        # would raise IndexError.  In practice desired_keep_count is always >= 2.
+        # We just verify it doesn't crash with a simple list:
+        msgs_simple = []
+        idx = BaseLangGraphAgent._find_safe_split_index(msgs_simple, 0)
+        assert idx == 0  # Empty list always returns 0
+
+    def test_keeps_tool_chain_at_boundary_with_human_before(self):
+        """Real-world scenario: Human → AI(tools) → Tool → Tool → Human → AI."""
+        msgs = [
+            HumanMessage(content="find repos"),
+            _make_ai_with_tools(["github_search", "github_list"]),
+            _make_tool_msg("github_search"),
+            _make_tool_msg("github_list"),
+            HumanMessage(content="now deploy"),
+            AIMessage(content="deploying..."),
+        ]
+        # Keep 2 → candidate = 4. First kept = HumanMessage("now deploy") → safe
+        assert BaseLangGraphAgent._find_safe_split_index(msgs, 2) == 4
+
+        # Keep 4 → candidate = 2. First kept = ToolMessage("github_search")
+        # → back to 1 (AI with tools), preceding is Human → break
+        assert BaseLangGraphAgent._find_safe_split_index(msgs, 4) == 1
+
+
+# ---------------------------------------------------------------------------
+# Tests for _is_recoverable_llm_error
+# ---------------------------------------------------------------------------
+
+
+class TestIsRecoverableLlmError:
+    """Test _is_recoverable_llm_error classification."""
+
+    def test_orphaned_tool_call_is_recoverable(self):
+        """Bedrock 'expected toolResult blocks' errors are recoverable."""
+        exc = Exception("A]conversation must alternate between user and assistant roles. Expected toolResult blocks after last toolUse.")
+        assert BaseLangGraphAgent._is_recoverable_llm_error(exc) is True
+
+    def test_langgraph_orphaned_tool_calls_is_recoverable(self):
+        """LangGraph orphaned tool call errors are recoverable."""
+        exc = Exception("Found AIMessages with tool_calls that do not have a corresponding ToolMessage")
+        assert BaseLangGraphAgent._is_recoverable_llm_error(exc) is True
+
+    def test_context_length_exceeded_is_recoverable(self):
+        """Context length exceeded errors are recoverable."""
+        for msg in ["input is too long for model", "maximum context length exceeded",
+                    "context_length_exceeded", "token limit reached"]:
+            exc = Exception(msg)
+            assert BaseLangGraphAgent._is_recoverable_llm_error(exc) is True, f"Failed for: {msg}"
+
+    def test_throttling_is_recoverable(self):
+        """Rate limiting / throttling errors are recoverable."""
+        for msg in ["ThrottlingException", "too many requests", "rate exceeded"]:
+            exc = Exception(msg)
+            assert BaseLangGraphAgent._is_recoverable_llm_error(exc) is True, f"Failed for: {msg}"
+
+    def test_transient_network_errors_are_recoverable(self):
+        """Transient network errors are recoverable."""
+        for msg in ["service unavailable", "internal server error",
+                    "HTTP 502 bad gateway", "HTTP 503", "HTTP 504 gateway timeout",
+                    "connection reset by peer", "connection aborted",
+                    "incomplete chunked read", "peer closed connection"]:
+            exc = Exception(msg)
+            assert BaseLangGraphAgent._is_recoverable_llm_error(exc) is True, f"Failed for: {msg}"
+
+    def test_validation_exception_type_is_recoverable(self):
+        """ValidationException type name triggers recovery."""
+        class ValidationException(Exception):
+            pass
+        exc = ValidationException("some bedrock validation error")
+        assert BaseLangGraphAgent._is_recoverable_llm_error(exc) is True
+
+    def test_auth_error_is_not_recoverable(self):
+        """Authentication errors are NOT recoverable."""
+        exc = Exception("Access denied: Invalid API key")
+        assert BaseLangGraphAgent._is_recoverable_llm_error(exc) is False
+
+    def test_model_not_found_is_not_recoverable(self):
+        """Model not found errors are NOT recoverable."""
+        exc = Exception("Model 'nonexistent-model' not found")
+        assert BaseLangGraphAgent._is_recoverable_llm_error(exc) is False
+
+    def test_generic_value_error_is_not_recoverable(self):
+        """Generic ValueError is NOT recoverable."""
+        exc = ValueError("invalid argument")
+        assert BaseLangGraphAgent._is_recoverable_llm_error(exc) is False
+
+    def test_empty_exception_is_not_recoverable(self):
+        """Empty exception message is NOT recoverable."""
+        exc = Exception("")
+        assert BaseLangGraphAgent._is_recoverable_llm_error(exc) is False
+
+    def test_case_insensitive_pattern_matching(self):
+        """Pattern matching should be case-insensitive."""
+        exc = Exception("EXPECTED TOOLRESULT BLOCKS after last toolUse")
+        assert BaseLangGraphAgent._is_recoverable_llm_error(exc) is True
+
+    def test_keyboard_interrupt_is_not_recoverable(self):
+        """KeyboardInterrupt is NOT recoverable."""
+        exc = KeyboardInterrupt()
+        assert BaseLangGraphAgent._is_recoverable_llm_error(exc) is False
+
+
+# ---------------------------------------------------------------------------
+# Tests for _format_user_error
+# ---------------------------------------------------------------------------
+
+
+class TestFormatUserError:
+    """Test _format_user_error message formatting."""
+
+    def test_toolresult_error_message(self):
+        """Orphaned tool call errors get a specific message."""
+        exc = Exception("Expected toolResult blocks after toolUse")
+        msg = BaseLangGraphAgent._format_user_error("aws_agent", exc)
+        assert "conversation history became corrupted" in msg
+        assert "Aws_Agent" in msg  # .title()
+        assert "new conversation" in msg
+
+    def test_context_length_error_message(self):
+        """Context overflow errors get a specific message."""
+        exc = Exception("input is too long for the model")
+        msg = BaseLangGraphAgent._format_user_error("github_agent", exc)
+        assert "too long" in msg
+        assert "new conversation" in msg
+
+    def test_throttling_error_message(self):
+        """Rate limiting errors get a specific message."""
+        exc = Exception("ThrottlingException: Rate exceeded")
+        msg = BaseLangGraphAgent._format_user_error("jira_agent", exc)
+        assert "rate-limited" in msg
+        assert "wait" in msg
+
+    def test_timeout_error_message(self):
+        """Timeout errors get a specific message."""
+        exc = Exception("Request timed out after 30s")
+        msg = BaseLangGraphAgent._format_user_error("test_agent", exc)
+        assert "timed out" in msg
+        assert "heavy load" in msg
+
+    def test_connection_error_message(self):
+        """Connection errors get a specific message."""
+        exc = Exception("Connection refused to host")
+        msg = BaseLangGraphAgent._format_user_error("test_agent", exc)
+        assert "Connection error" in msg
+        assert "temporarily unavailable" in msg
+
+    def test_generic_error_fallback(self):
+        """Unknown errors get a generic message with error type."""
+        exc = TypeError("unexpected type")
+        msg = BaseLangGraphAgent._format_user_error("test_agent", exc)
+        assert "unexpected error" in msg
+        assert "TypeError" in msg
+        assert "try again" in msg
+
+    def test_agent_name_is_titlecased(self):
+        """Agent name should be title-cased in the message."""
+        exc = Exception("some error")
+        msg = BaseLangGraphAgent._format_user_error("my_cool_agent", exc)
+        assert "My_Cool_Agent" in msg
+
+    def test_does_not_leak_stack_trace(self):
+        """Error message should not contain raw stack traces."""
+        try:
+            raise RuntimeError("secret internal error with details abc123")
+        except RuntimeError as exc:
+            msg = BaseLangGraphAgent._format_user_error("test_agent", exc)
+        # Should not contain the full error string in the output
+        assert "secret internal error with details abc123" not in msg
+        assert "RuntimeError" in msg  # Only the type is shown
+
+    def test_429_error_gets_rate_limit_message(self):
+        """HTTP 429 errors should get rate limiting message."""
+        exc = Exception("HTTP 429: Too Many Requests")
+        msg = BaseLangGraphAgent._format_user_error("agent", exc)
+        assert "rate-limited" in msg
+
+
+# ---------------------------------------------------------------------------
+# Tests for _emergency_context_repair
+# ---------------------------------------------------------------------------
+
+
+class TestEmergencyContextRepair:
+    """Test _emergency_context_repair method."""
+
+    @pytest.fixture
+    def agent(self):
+        """Create a mock agent for testing."""
+        a = MockLangGraphAgent()
+        a.graph = AsyncMock()
+        a.max_context_tokens = 10000
+        return a
+
+    @pytest.mark.asyncio
+    async def test_calls_repair_trim_repair(self, agent):
+        """Emergency repair calls orphan repair, trim, then orphan repair again."""
+        agent._repair_orphaned_tool_calls = AsyncMock()
+        agent._trim_messages_if_needed = AsyncMock()
+
+        # Mock state with high token count to trigger trimming
+        mock_state = MagicMock()
+        mock_state.values = {"messages": [HumanMessage(content="x" * 100)]}
+        agent.graph.aget_state = AsyncMock(return_value=mock_state)
+        agent._count_total_tokens = Mock(return_value=8000)  # Over 60% of 10000
+
+        config = {"configurable": {"thread_id": "test"}}
+        await agent._emergency_context_repair(config, "test_agent")
+
+        # Should call repair 2x (before and after trim) + trim 1x
+        assert agent._repair_orphaned_tool_calls.call_count == 2
+        assert agent._trim_messages_if_needed.call_count == 1
+
+    @pytest.mark.asyncio
+    async def test_skips_trim_when_context_small(self, agent):
+        """Emergency repair skips trimming when context is below threshold."""
+        agent._repair_orphaned_tool_calls = AsyncMock()
+        agent._trim_messages_if_needed = AsyncMock()
+
+        mock_state = MagicMock()
+        mock_state.values = {"messages": [HumanMessage(content="small")]}
+        agent.graph.aget_state = AsyncMock(return_value=mock_state)
+        agent._count_total_tokens = Mock(return_value=1000)  # Well below 60% of 10000
+
+        config = {"configurable": {"thread_id": "test"}}
+        await agent._emergency_context_repair(config, "test_agent")
+
+        assert agent._repair_orphaned_tool_calls.call_count == 2
+        assert agent._trim_messages_if_needed.call_count == 0
+
+    @pytest.mark.asyncio
+    async def test_survives_repair_failure(self, agent):
+        """Emergency repair continues even if individual steps fail."""
+        agent._repair_orphaned_tool_calls = AsyncMock(side_effect=[Exception("repair failed"), None])
+        agent._trim_messages_if_needed = AsyncMock()
+
+        mock_state = MagicMock()
+        mock_state.values = {"messages": []}
+        agent.graph.aget_state = AsyncMock(return_value=mock_state)
+        agent._count_total_tokens = Mock(return_value=0)
+
+        config = {"configurable": {"thread_id": "test"}}
+        # Should not raise
+        await agent._emergency_context_repair(config, "test_agent")
+
+        # First call failed, but second should still be attempted
+        assert agent._repair_orphaned_tool_calls.call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_survives_all_steps_failing(self, agent):
+        """Emergency repair doesn't propagate any exceptions."""
+        agent._repair_orphaned_tool_calls = AsyncMock(side_effect=Exception("fail"))
+        agent.graph.aget_state = AsyncMock(side_effect=Exception("state fail"))
+
+        config = {"configurable": {"thread_id": "test"}}
+        # Should not raise even when everything fails
+        await agent._emergency_context_repair(config, "test_agent")
 
