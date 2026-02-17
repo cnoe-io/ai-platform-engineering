@@ -34,7 +34,7 @@ from common.models.server import (
 )
 from common.models.rag import DataSourceInfo, IngestorInfo, valid_metadata_keys
 from common.models.rbac import Role, UserContext, UserInfoResponse
-from server.rbac import get_user_or_anonymous, require_role, has_permission, get_permissions, is_trusted_request
+from server.rbac import get_user_or_anonymous, require_role, has_permission, get_permissions, is_trusted_request, GroupsCache, set_groups_cache
 from common.graph_db.neo4j.graph_db import Neo4jDB
 from common.graph_db.base import GraphDB
 from common.constants import DATASOURCE_ID_KEY, WEBLOADER_INGESTOR_REDIS_QUEUE, WEBLOADER_INGESTOR_NAME, WEBLOADER_INGESTOR_TYPE, CONFLUENCE_INGESTOR_REDIS_QUEUE, CONFLUENCE_INGESTOR_NAME, CONFLUENCE_INGESTOR_TYPE, DEFAULT_DATA_LABEL, DEFAULT_SCHEMA_LABEL
@@ -112,6 +112,10 @@ async def app_lifespan(app: FastAPI):
   redis_client = redis.from_url(redis_url, decode_responses=True)
   metadata_storage = MetadataStorage(redis_client=redis_client)
   jobmanager = JobManager(redis_client=redis_client)
+
+  # Initialize groups cache for RBAC (caches user groups fetched from OIDC userinfo)
+  groups_cache = GroupsCache(redis_client=redis_client)
+  set_groups_cache(groups_cache)
 
   # Use EmbeddingsFactory to get embeddings based on EMBEDDINGS_PROVIDER env var
   embeddings = EmbeddingsFactory.get_embeddings()
