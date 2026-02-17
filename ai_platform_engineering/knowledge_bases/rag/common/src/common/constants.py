@@ -65,3 +65,6 @@ CONFLUENCE_INGESTOR_TYPE = "confluence"
 CONFLUENCE_INGESTOR_NAME = "default_confluence"
 
 
+
+# Redis key prefix for user groups cache (fetched from OIDC userinfo endpoint)
+REDIS_GROUPS_CACHE_PREFIX = "rag/groups_cache:"
