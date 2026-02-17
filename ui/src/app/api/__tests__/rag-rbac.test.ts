@@ -1,9 +1,6 @@
 /**
- * @jest-environment node
- */
-/**
  * Tests for RAG RBAC Integration
- *
+ * 
  * These tests verify that RBAC headers are properly injected
  * and that role determination works correctly.
  */
@@ -28,25 +25,13 @@ describe('RAG RBAC Integration', () => {
     process.env.RBAC_INGESTONLY_GROUPS = 'ingestors';
     process.env.RBAC_ADMIN_GROUPS = 'admins';
     process.env.RBAC_DEFAULT_ROLE = 'READONLY';
-    // Default: mock fetch to simulate RAG server (route proxies to RAG and returns its response)
-    global.fetch = jest.fn(() =>
-      Promise.resolve({
-        ok: true,
-        status: 200,
-        json: async () => ({}),
-      } as Response)
-    ) as jest.Mock;
   });
 
   describe('User Info API', () => {
     it('should return unauthenticated for no session', async () => {
       jest.mocked(getServerSession).mockResolvedValue(null);
-      (global.fetch as jest.Mock).mockResolvedValueOnce({
-        ok: false,
-        status: 401,
-        json: async () => ({ is_authenticated: false, email: 'unauthenticated' }),
-      } as Response);
 
+      // Dynamic import to get fresh module after mocks
       const { GET } = await import('@/app/api/user/info/route');
       const response = await GET();
       const data = await response.json();
@@ -61,16 +46,6 @@ describe('RAG RBAC Integration', () => {
         user: { email: 'test@example.com' },
         groups: [],
       } as any);
-      (global.fetch as jest.Mock).mockResolvedValueOnce({
-        ok: true,
-        status: 200,
-        json: async () => ({
-          is_authenticated: true,
-          email: 'test@example.com',
-          role: 'READONLY',
-          permissions: ['read'],
-        }),
-      } as Response);
 
       const { GET } = await import('@/app/api/user/info/route');
       const response = await GET();
@@ -88,16 +63,6 @@ describe('RAG RBAC Integration', () => {
         user: { email: 'ingestor@example.com' },
         groups: ['ingestors'],
       } as any);
-      (global.fetch as jest.Mock).mockResolvedValueOnce({
-        ok: true,
-        status: 200,
-        json: async () => ({
-          is_authenticated: true,
-          email: 'ingestor@example.com',
-          role: 'INGESTONLY',
-          permissions: ['read', 'ingest'],
-        }),
-      } as Response);
 
       const { GET } = await import('@/app/api/user/info/route');
       const response = await GET();
@@ -112,16 +77,6 @@ describe('RAG RBAC Integration', () => {
         user: { email: 'admin@example.com' },
         groups: ['admins'],
       } as any);
-      (global.fetch as jest.Mock).mockResolvedValueOnce({
-        ok: true,
-        status: 200,
-        json: async () => ({
-          is_authenticated: true,
-          email: 'admin@example.com',
-          role: 'ADMIN',
-          permissions: ['read', 'ingest', 'delete'],
-        }),
-      } as Response);
 
       const { GET } = await import('@/app/api/user/info/route');
       const response = await GET();
@@ -136,16 +91,6 @@ describe('RAG RBAC Integration', () => {
         user: { email: 'multi@example.com' },
         groups: ['readers', 'ingestors', 'admins'],
       } as any);
-      (global.fetch as jest.Mock).mockResolvedValueOnce({
-        ok: true,
-        status: 200,
-        json: async () => ({
-          is_authenticated: true,
-          email: 'multi@example.com',
-          role: 'ADMIN',
-          permissions: ['read', 'ingest', 'delete'],
-        }),
-      } as Response);
 
       const { GET } = await import('@/app/api/user/info/route');
       const response = await GET();
@@ -235,12 +180,6 @@ describe('RAG RBAC Integration', () => {
           user: { email: 'test@example.com' },
           groups,
         } as any);
-        const permissions = ['read', ...(canIngest ? ['ingest'] : []), ...(canDelete ? ['delete'] : [])];
-        (global.fetch as jest.Mock).mockResolvedValueOnce({
-          ok: true,
-          status: 200,
-          json: async () => ({ is_authenticated: true, email: 'test@example.com', role: expectedRole, permissions }),
-        } as Response);
 
         const { GET } = await import('@/app/api/user/info/route');
         const response = await GET();
@@ -262,17 +201,8 @@ describe('RAG RBAC Integration', () => {
         user: { email: 'test@example.com' },
         groups: ['unknown-group'],
       } as any);
-      (global.fetch as jest.Mock).mockResolvedValueOnce({
-        ok: true,
-        status: 200,
-        json: async () => ({
-          is_authenticated: true,
-          email: 'test@example.com',
-          role: 'INGESTONLY',
-          permissions: ['read', 'ingest'],
-        }),
-      } as Response);
 
+      // Force module reload to pick up new env
       jest.resetModules();
       const { GET } = await import('@/app/api/user/info/route');
       const response = await GET();
@@ -288,16 +218,6 @@ describe('RAG RBAC Integration', () => {
         user: { email: 'test@example.com' },
         groups: ['platform-admins'],
       } as any);
-      (global.fetch as jest.Mock).mockResolvedValueOnce({
-        ok: true,
-        status: 200,
-        json: async () => ({
-          is_authenticated: true,
-          email: 'test@example.com',
-          role: 'ADMIN',
-          permissions: ['read', 'ingest', 'delete'],
-        }),
-      } as Response);
 
       jest.resetModules();
       const { GET } = await import('@/app/api/user/info/route');

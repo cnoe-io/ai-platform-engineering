@@ -8,11 +8,7 @@ import { authOptions } from '@/lib/auth-config';
  * This endpoint proxies to the RAG server's /v1/user/info endpoint.
  * The RAG server determines role and permissions based on JWT Bearer token.
  * 
- * Authentication:
- * - Authorization: Bearer {access_token} (OIDC JWT access token)
- * - X-Identity-Token: {id_token} (OIDC JWT ID token for claims extraction)
- * 
- * The RAG server does not support OAuth2Proxy headers.
+ * Authentication: JWT Bearer token only (RAG server does not support OAuth2Proxy headers)
  */
 
 function getRagServerUrl(): string {
@@ -35,23 +31,16 @@ async function getRbacHeaders(): Promise<Record<string, string>> {
       hasUser: !!session?.user,
       userEmail: session?.user?.email,
       hasAccessToken: !!session?.accessToken,
-      hasIdToken: !!session?.idToken,
       accessTokenPrefix: session?.accessToken ? session.accessToken.substring(0, 20) + '...' : 'MISSING',
       expiresAt: session?.expiresAt ? new Date((session.expiresAt as number) * 1000).toISOString() : 'N/A'
     });
     
     // Pass JWT access token as Bearer token
-    // RAG server validates JWT and uses it for authentication
+    // RAG server validates JWT and extracts email, groups, and determines role
     if (session?.accessToken) {
       headers['Authorization'] = `Bearer ${session.accessToken}`;
     } else {
       console.warn('[User Info] ⚠️  No accessToken in session - RAG server will use trusted network or anonymous');
-    }
-
-    // Pass ID token for claims extraction (email, groups)
-    // Some OIDC providers only include user claims in the ID token, not the access token
-    if (session?.idToken) {
-      headers['X-Identity-Token'] = session.idToken;
     }
   } catch (error) {
     console.error('[User Info] Error retrieving session:', error);

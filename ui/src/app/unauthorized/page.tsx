@@ -3,13 +3,14 @@
 import React from "react";
 import { signOut } from "next-auth/react";
 import { motion } from "framer-motion";
-import { ShieldX, LogOut, Mail } from "lucide-react";
+import { ShieldX, LogOut, Mail, ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { REQUIRED_GROUP } from "@/lib/auth-config";
-import { config } from "@/lib/config";
+import { getConfig } from "@/lib/config";
+
+const SUPPORT_EMAIL = getConfig('supportEmail');
 
 export default function UnauthorizedPage() {
-
   return (
     <div className="min-h-screen flex items-center justify-center bg-background p-4">
       <motion.div
@@ -83,7 +84,7 @@ export default function UnauthorizedPage() {
               className="w-full gap-2 text-muted-foreground"
               asChild
             >
-              <a href={`mailto:${config.supportEmail}?subject=${config.appName} Access Request`}>
+              <a href={`mailto:${SUPPORT_EMAIL}?subject=CAIPE Access Request`}>
                 <Mail className="h-4 w-4" />
                 Contact Support
               </a>
@@ -93,7 +94,7 @@ export default function UnauthorizedPage() {
 
         {/* Footer */}
         <p className="text-center text-xs text-muted-foreground mt-6">
-          {config.appName} - {config.tagline}
+          {getConfig('appName')} - {getConfig('tagline')}
         </p>
       </motion.div>
     </div>

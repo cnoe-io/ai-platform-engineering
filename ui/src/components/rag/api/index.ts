@@ -89,31 +89,13 @@ export const deleteDataSource = async (datasourceId: string): Promise<void> => {
     return apiDelete('/v1/datasource', { datasource_id: datasourceId });
 };
 
-// ScrapySettings interface for web scraping configuration
-export interface ScrapySettings {
-    crawl_mode: 'single' | 'sitemap' | 'recursive';
-    max_depth?: number;
-    max_pages?: number;
-    render_javascript?: boolean;
-    wait_for_selector?: string | null;
-    page_load_timeout?: number;
-    follow_external_links?: boolean;
-    allowed_url_patterns?: string[] | null;
-    denied_url_patterns?: string[] | null;
-    download_delay?: number;
-    concurrent_requests?: number;
-    respect_robots_txt?: boolean;
-    chunk_size?: number;
-    chunk_overlap?: number;
-    user_agent?: string | null;
-}
-
 export const ingestUrl = async (params: {
     url: string;
+    check_for_sitemaps?: boolean;
+    sitemap_max_urls?: number;
     description?: string;
     ingest_type?: string;
     get_child_pages?: boolean;
-    settings?: ScrapySettings;
 }): Promise<{ datasource_id: string | null; job_id: string | null; message: string }> => {
     // Route to appropriate endpoint based on ingest_type
     if (params.ingest_type === 'confluence') {
@@ -123,12 +105,7 @@ export const ingestUrl = async (params: {
             get_child_pages: params.get_child_pages || false
         });
     } else {
-        // Web ingestion with ScrapySettings
-        return apiPost('/v1/ingest/webloader/url', {
-            url: params.url,
-            description: params.description || '',
-            settings: params.settings || { crawl_mode: 'single' }
-        });
+        return apiPost('/v1/ingest/webloader/url', params);
     }
 };
 

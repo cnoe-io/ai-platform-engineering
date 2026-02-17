@@ -13,24 +13,25 @@ import { motion, AnimatePresence } from "framer-motion";
  * TokenExpiryGuard Component
  *
  * Monitors SSO token expiry and gracefully handles session expiration:
- * - Silently refreshes token when user is active on the page
- * - Shows warning toast 5 minutes before expiry (only if silent refresh failed)
+ * - Shows warning toast 5 minutes before expiry
  * - Shows critical alert when expired
  * - Redirects to login on expiry
- * - Dismiss persists until the warning window resets (token refreshed or new expiry cycle)
+ * - Checks token before API calls
  */
 export function TokenExpiryGuard() {
-  const { data: session, status, update: updateSession } = useSession();
+  const { data: session, status } = useSession();
   const router = useRouter();
   const [showWarning, setShowWarning] = useState(false);
   const [showExpired, setShowExpired] = useState(false);
   const [timeRemaining, setTimeRemaining] = useState<string>("");
   const checkIntervalRef = useRef<NodeJS.Timeout | null>(null);
-  /** Tracks user dismissal — stores the expiresAt timestamp for which the warning was dismissed.
-   *  This way, if the token is refreshed (new expiresAt), the warning can show again for the new cycle. */
-  const dismissedForExpiryRef = useRef<number | null>(null);
-  /** Tracks whether a silent refresh is in flight to prevent concurrent attempts. */
-  const isRefreshingRef = useRef(false);
+  const [ssoEnabled, setSsoEnabled] = useState<boolean | null>(null);
+
+  // Check SSO status after hydration
+  useEffect(() => {
+    const enabled = getConfig('ssoEnabled');
+    setSsoEnabled(enabled);
+  }, []);
 
   // Handle logout
   const handleLogout = useCallback(async () => {
@@ -43,62 +44,16 @@ export function TokenExpiryGuard() {
     await signOut({ callbackUrl: "/login" });
   }, []);
 
-  // Handle relogin — must sign out first to clear the session cookie,
-  // otherwise the login page sees "authenticated" status and bounces back,
-  // creating an infinite redirect loop.
-  const handleRelogin = useCallback(async () => {
+  // Handle relogin
+  const handleRelogin = useCallback(() => {
     setShowWarning(false);
     setShowExpired(false);
-    // Set flag to prevent AuthGuard from also redirecting (prevents flickering)
-    if (typeof window !== 'undefined') {
-      sessionStorage.setItem('token-expiry-handling', 'true');
-    }
-    await signOut({ callbackUrl: "/login?session_expired=true" });
-  }, []);
-
-  // Handle dismiss — persist until this expiry cycle ends
-  const handleDismiss = useCallback((currentExpiresAt: number | null) => {
-    setShowWarning(false);
-    dismissedForExpiryRef.current = currentExpiresAt;
-  }, []);
-
-  /**
-   * Silently refresh the session token.
-   *
-   * NextAuth's JWT callback (auth-config.ts) already handles the OIDC refresh_token
-   * exchange when the token is within 5 minutes of expiry. However, the JWT callback
-   * only runs on server-side requests. If the user is idle on the page (no API calls),
-   * the token expires without being refreshed.
-   *
-   * Calling `updateSession()` (NextAuth's `update` from `useSession`) triggers a
-   * server-side session check which runs the JWT callback, causing a token refresh.
-   */
-  const attemptSilentRefresh = useCallback(async () => {
-    if (isRefreshingRef.current) return false;
-    if (!session?.hasRefreshToken) {
-      console.log("[TokenExpiryGuard] No refresh token available, cannot silently refresh");
-      return false;
-    }
-
-    isRefreshingRef.current = true;
-    try {
-      console.log("[TokenExpiryGuard] Attempting silent token refresh...");
-      // updateSession() triggers NextAuth to re-run the JWT callback server-side.
-      // If the token is near expiry, the JWT callback calls refreshAccessToken().
-      await updateSession();
-      console.log("[TokenExpiryGuard] Silent refresh triggered successfully");
-      return true;
-    } catch (error) {
-      console.error("[TokenExpiryGuard] Silent refresh failed:", error);
-      return false;
-    } finally {
-      isRefreshingRef.current = false;
-    }
-  }, [session?.hasRefreshToken, updateSession]);
+    router.push("/login");
+  }, [router]);
 
   // Check token expiry
   const checkTokenExpiry = useCallback(() => {
-    if (!getConfig('ssoEnabled')) {
+    if (ssoEnabled === null || !ssoEnabled) {
       return; // SSO not enabled
     }
 
@@ -174,43 +129,22 @@ export function TokenExpiryGuard() {
       return;
     }
 
-    // If the token was refreshed (expiresAt changed), clear the dismissed state
-    // so the warning can show again for the next expiry cycle.
-    if (dismissedForExpiryRef.current !== null && dismissedForExpiryRef.current !== actualExpiresAt) {
-      console.log("[TokenExpiryGuard] Token was refreshed, clearing dismissed state");
-      dismissedForExpiryRef.current = null;
-    }
-
-    // Within warning window (5 min before expiry)
+    // Show warning if we're within warning window (5 min before expiry)
     const now = Math.floor(Date.now() / 1000);
     if (warningTime && now >= warningTime && !showExpired) {
-      // First: attempt silent refresh automatically (the user shouldn't have to do anything)
-      if (!isRefreshingRef.current) {
-        attemptSilentRefresh().then((refreshed) => {
-          if (refreshed) {
-            // Refresh was triggered — next check cycle will see the new expiresAt
-            // and hide the warning (or never show it)
-            console.log("[TokenExpiryGuard] Silent refresh initiated, waiting for updated session");
-          }
-        });
-      }
-
-      // Show warning only if not dismissed for this expiry cycle
-      const isDismissed = dismissedForExpiryRef.current === actualExpiresAt;
-      if (!showWarning && !isDismissed) {
+      if (!showWarning) {
         console.warn(`[TokenExpiryGuard] Token expiring in ${formatTimeUntilExpiry(secondsUntilExpiry)}`);
         setShowWarning(true);
       }
     } else if (showWarning && !isExpired) {
-      // Token was refreshed (we're outside warning window now), hide warning
+      // Token was refreshed, hide warning
       setShowWarning(false);
-      dismissedForExpiryRef.current = null;
     }
-  }, [status, session, showWarning, showExpired, handleLogout, attemptSilentRefresh]);
+  }, [ssoEnabled, status, session, showWarning, showExpired, handleLogout]);
 
   // Set up periodic token expiry checking
   useEffect(() => {
-    if (!getConfig('ssoEnabled') || status !== "authenticated") {
+    if (ssoEnabled === null || !ssoEnabled || status !== "authenticated") {
       return;
     }
 
@@ -225,20 +159,12 @@ export function TokenExpiryGuard() {
         clearInterval(checkIntervalRef.current);
       }
     };
-  }, [status, checkTokenExpiry]);
+  }, [ssoEnabled, status, checkTokenExpiry]);
 
   // Don't render if SSO is not enabled
-  if (!getConfig('ssoEnabled')) {
+  if (!ssoEnabled) {
     return null;
   }
-
-  // Compute current expiresAt for the dismiss handler (same logic as in checkTokenExpiry)
-  const sessionExpiresAt = (() => {
-    if (!session) return null;
-    const userExpiry = (session.user as unknown as { expiresAt?: number })?.expiresAt;
-    const jwtExpiry = (session as unknown as { expiresAt?: number }).expiresAt;
-    return userExpiry || jwtExpiry || null;
-  })();
 
   return (
     <>
@@ -260,9 +186,7 @@ export function TokenExpiryGuard() {
                   </h3>
                   <p className="text-sm text-muted-foreground mb-3">
                     Your session will expire in <strong className="text-foreground">{timeRemaining}</strong>.
-                    {session?.hasRefreshToken
-                      ? " Attempting to refresh automatically..."
-                      : " Please save your work and re-login to continue."}
+                    Please save your work and re-login to continue.
                   </p>
                   <div className="flex gap-2">
                     <Button
@@ -277,7 +201,7 @@ export function TokenExpiryGuard() {
                     <Button
                       size="sm"
                       variant="ghost"
-                      onClick={() => handleDismiss(sessionExpiresAt)}
+                      onClick={() => setShowWarning(false)}
                     >
                       Dismiss
                     </Button>

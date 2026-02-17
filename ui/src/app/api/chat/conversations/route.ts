@@ -36,14 +36,11 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
 
     const conversations = await getCollection<Conversation>('conversations');
 
-    // Build query — exclude soft-deleted conversations from normal listing
+    // Build query
     const query: any = {
       $or: [
         { owner_id: user.email },
         { 'sharing.shared_with': user.email },
-      ],
-      $and: [
-        { $or: [{ deleted_at: null }, { deleted_at: { $exists: false } }] },
       ],
     };
 
@@ -93,7 +90,7 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
 
     const now = new Date();
     const newConversation: Conversation = {
-      _id: body.id || uuidv4(), // Use client-provided ID if given, otherwise generate
+      _id: uuidv4(),
       title: body.title,
       owner_id: user.email,
       created_at: now,

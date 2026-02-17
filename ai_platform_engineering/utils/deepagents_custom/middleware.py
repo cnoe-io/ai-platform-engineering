@@ -94,6 +94,7 @@ class TaskOrchestrationState(AgentState):
     current_task_id: NotRequired[int]
     pending_task_tool_call_id: NotRequired[str]  # Track the task tool call we're waiting for
     task_execution_pending: NotRequired[bool]  # Signal for before_model to start execution
+    user_email: NotRequired[str]  # Authenticated user's email from OIDC token
 
 
 def _generate_tool_call_id() -> str:
@@ -143,6 +144,18 @@ class DeterministicTaskMiddleware(AgentMiddleware):
         llm_prompt = task.get("llm_prompt", "")
         subagent = task.get("subagent", "general-purpose")
         display_text = task.get("display_text", f"Step {task_id}")
+        
+        # Inject authenticated user email context into task prompts
+        # This allows tasks to pre-fill user_email and requested_by fields
+        user_email = state.get("user_email", "")
+        if user_email:
+            user_context = (
+                f"\n\n[USER CONTEXT] The authenticated user's email is: {user_email}\n"
+                f"Pre-fill any user_email or requested_by fields with this value. "
+                f"Do NOT ask the user for their email — use {user_email} automatically."
+            )
+            llm_prompt = llm_prompt + user_context
+            logger.info(f"[DeterministicTaskMiddleware] Injected user_email={user_email} into task {task_id} prompt")
         
         logger.info(f"[DeterministicTaskMiddleware] before_model: Starting task {task_id}: {display_text}")
         

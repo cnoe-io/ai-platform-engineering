@@ -108,8 +108,6 @@ export const PUT = withErrorHandler(async (
 });
 
 // DELETE /api/chat/conversations/[id]
-// Soft-deletes the conversation (moves to archive).
-// Pass ?permanent=true to hard-delete immediately.
 export const DELETE = withErrorHandler(async (
   request: NextRequest,
   context: { params: Promise<{ id: string }> }
@@ -129,8 +127,6 @@ export const DELETE = withErrorHandler(async (
   return withAuth(request, async (req, user) => {
     const params = await context.params;
     const conversationId = params.id;
-    const url = new URL(request.url);
-    const permanent = url.searchParams.get('permanent') === 'true';
 
     if (!validateUUID(conversationId)) {
       throw new ApiError('Invalid conversation ID format', 400);
@@ -146,19 +142,12 @@ export const DELETE = withErrorHandler(async (
     // Only owner can delete conversation
     requireOwnership(conversation.owner_id, user.email);
 
-    if (permanent) {
-      // Hard delete: remove conversation and all messages permanently
-      await conversations.deleteOne({ _id: conversationId });
-      const messages = await getCollection('messages');
-      await messages.deleteMany({ conversation_id: conversationId });
-      return successResponse({ deleted: true, permanent: true });
-    } else {
-      // Soft delete: move to archive by setting deleted_at timestamp
-      await conversations.updateOne(
-        { _id: conversationId },
-        { $set: { deleted_at: new Date(), is_archived: true, updated_at: new Date() } }
-      );
-      return successResponse({ deleted: true, permanent: false });
-    }
+    // Delete conversation and all its messages
+    await conversations.deleteOne({ _id: conversationId });
+
+    const messages = await getCollection('messages');
+    await messages.deleteMany({ conversation_id: conversationId });
+
+    return successResponse({ deleted: true });
   });
 });

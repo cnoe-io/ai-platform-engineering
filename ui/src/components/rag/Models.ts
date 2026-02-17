@@ -20,8 +20,6 @@ export type IngestionJob = {
 	created_at: string
 	completed_at?: string
 	error_msgs?: string[]
-	document_count?: number
-	chunk_count?: number
 }
 
 export type IngestorInfo = {

@@ -73,37 +73,6 @@ describe('auth-config', () => {
     })
   })
 
-  describe('Token refresh configuration', () => {
-    const originalEnv = process.env
-
-    beforeEach(() => {
-      jest.resetModules()
-      process.env = { ...originalEnv }
-    })
-
-    afterAll(() => {
-      process.env = originalEnv
-    })
-
-    it('ENABLE_REFRESH_TOKEN defaults to true', () => {
-      delete process.env.OIDC_ENABLE_REFRESH_TOKEN
-
-      jest.isolateModules(() => {
-        const { ENABLE_REFRESH_TOKEN } = require('../auth-config')
-        expect(ENABLE_REFRESH_TOKEN).toBe(true)
-      })
-    })
-
-    it('ENABLE_REFRESH_TOKEN is false when OIDC_ENABLE_REFRESH_TOKEN=false', () => {
-      process.env.OIDC_ENABLE_REFRESH_TOKEN = 'false'
-
-      jest.isolateModules(() => {
-        const { ENABLE_REFRESH_TOKEN } = require('../auth-config')
-        expect(ENABLE_REFRESH_TOKEN).toBe(false)
-      })
-    })
-  })
-
   describe('OIDC Scope Configuration', () => {
     const originalEnv = process.env
 

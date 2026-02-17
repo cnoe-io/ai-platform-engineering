@@ -15,23 +15,16 @@ interface TechItem {
   category: "platform" | "protocol" | "frontend" | "backend" | "community";
 }
 
-// Helper to get platform name dynamically — uses getConfig('appName')
-// since techStack is defined at module level (outside component scope).
-function getPlatformName(): string {
-  return getConfig('appName');
-}
-
-// Helper to get platform description dynamically — uses hardcoded defaults
-// since techStack is defined at module level (outside component scope).
-function getPlatformDescription(): string {
-  return "Multi-Agent Workflow Automation - Where Humans and AI agents collaborate to deliver high quality outcomes.";
+// Helper to get CAIPE description dynamically
+function getCaipeDescription(): string {
+  return `${getConfig('tagline')} - ${getConfig('description')}`;
 }
 
 const techStack: TechItem[] = [
   // Platform
   {
-    get name() { return getPlatformName(); },
-    get description() { return getPlatformDescription(); },
+    name: "CAIPE",
+    get description() { return getCaipeDescription(); },
     url: "https://caipe.io",
     category: "platform",
   },

@@ -1008,7 +1008,7 @@ Use `list_self_service_tasks` to see detailed information about all available wo
         
         logger.info(f"✅ Deep agent created (generation {self._graph_generation})")
     
-    async def serve(self, prompt: str) -> str:
+    async def serve(self, prompt: str, user_email: str = "") -> str:
         """Process prompt and return response."""
         try:
             logger.debug(f"Received prompt: {prompt}")
@@ -1018,15 +1018,22 @@ Use `list_self_service_tasks` to see detailed information about all available wo
             # Ensure agent is initialized with MCP tools
             await self.ensure_initialized()
             
-            # Auto-inject current date
+            # Auto-inject current date and user context
             from datetime import datetime
             current_date = datetime.now().strftime("%Y-%m-%d")
             current_datetime = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            enhanced_prompt = f"{prompt}\n\n[Current date: {current_date}, Current date/time: {current_datetime}]"
+            context_parts = []
+            if user_email:
+                context_parts.append(f"Authenticated user email: {user_email}")
+            context_parts.append(f"Current date: {current_date}, Current date/time: {current_datetime}")
+            enhanced_prompt = f"{prompt}\n\n[{', '.join(context_parts)}]"
             
             graph = self.get_graph()
+            state_dict = {"messages": [{"role": "user", "content": enhanced_prompt}]}
+            if user_email:
+                state_dict["user_email"] = user_email
             result = await graph.ainvoke(
-                {"messages": [{"role": "user", "content": enhanced_prompt}]},
+                state_dict,
                 {"configurable": {"thread_id": uuid.uuid4()}}
             )
             
@@ -1043,7 +1050,7 @@ Use `list_self_service_tasks` to see detailed information about all available wo
             logger.error(f"Error in serve: {e}")
             raise
     
-    async def serve_stream(self, prompt: str):
+    async def serve_stream(self, prompt: str, user_email: str = ""):
         """Process prompt and stream responses."""
         try:
             logger.info(f"Received streaming prompt: {prompt}")
@@ -1056,8 +1063,12 @@ Use `list_self_service_tasks` to see detailed information about all available wo
             graph = self.get_graph()
             thread_id = str(uuid.uuid4())
             
+            state_dict = {"messages": [{"role": "user", "content": prompt}]}
+            if user_email:
+                state_dict["user_email"] = user_email
+            
             async for event in graph.astream_events(
-                {"messages": [{"role": "user", "content": prompt}]},
+                state_dict,
                 {"configurable": {"thread_id": thread_id}},
                 version="v2"
             ):

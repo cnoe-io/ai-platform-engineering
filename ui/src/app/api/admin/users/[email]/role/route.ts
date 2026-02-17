@@ -53,6 +53,11 @@ export const PATCH = withErrorHandler(async (
       throw new ApiError(`User not found: ${targetEmail}`, 404);
     }
 
+    // Prevent self-demotion
+    if (targetEmail === user.email && body.role === 'user') {
+      throw new ApiError('Cannot demote yourself from admin', 400);
+    }
+
     // Update user role
     const result = await users.updateOne(
       { email: targetEmail },

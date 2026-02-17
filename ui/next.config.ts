@@ -3,8 +3,12 @@ import type { NextConfig } from "next";
 const nextConfig: NextConfig = {
   output: "standalone",
 
-  // No NEXT_PUBLIC_* env vars needed — config is served via GET /api/config
-  // and consumed client-side through the ConfigProvider + useConfig() hook.
+  // Environment variables exposed to the browser (must use NEXT_PUBLIC_ prefix)
+  // Server-side variables are available without the prefix
+  env: {
+    // These are fallback values - actual values come from runtime env
+    NEXT_PUBLIC_CAIPE_URL: process.env.NEXT_PUBLIC_CAIPE_URL || process.env.CAIPE_URL || "http://localhost:8000",
+  },
 
   experimental: {
     serverActions: {

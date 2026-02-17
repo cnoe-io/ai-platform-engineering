@@ -54,7 +54,6 @@ export interface Conversation {
   tags: string[];
   is_archived: boolean;
   is_pinned: boolean;
-  deleted_at?: Date | null; // Soft-delete timestamp; null = not deleted; auto-purged after 7 days
 }
 
 // ============================================================================
@@ -63,29 +62,18 @@ export interface Conversation {
 
 export interface Message {
   _id?: ObjectId;
-  message_id?: string; // Client-generated ID for cross-reference
   conversation_id: string;
-  owner_id?: string; // User email — denormalized from conversation for analytics queries
   role: 'user' | 'assistant' | 'system';
   content: string;
   created_at: Date;
-  // Sender identity — tracks who actually typed this message.
-  // Distinct from owner_id (conversation creator). Required for shared conversations
-  // where multiple users can send messages. All fields are optional for backward
-  // compatibility with messages created before this feature.
-  sender_email?: string;
-  sender_name?: string;
-  sender_image?: string;
   metadata: {
     turn_id: string;
     model?: string;
     tokens_used?: number;
     latency_ms?: number;
     agent_name?: string;
-    is_final?: boolean;
   };
   artifacts?: Artifact[];
-  a2a_events?: any[]; // A2A events (tasks, tool calls, debug) serialized for persistence
   feedback?: MessageFeedback;
 }
 
@@ -109,10 +97,10 @@ export interface UserSettings {
   _id?: ObjectId;
   user_id: string; // User email
   preferences: {
-    theme: 'light' | 'dark' | 'system' | 'midnight' | 'nord' | 'tokyo';
-    gradient_theme: 'default' | 'minimal' | 'professional' | 'ocean' | 'sunset';
-    font_family: 'inter' | 'source-sans' | 'ibm-plex' | 'system';
-    font_size: 'small' | 'medium' | 'large' | 'x-large';
+    theme: 'light' | 'dark' | 'system';
+    gradient_theme: 'minimal' | 'vibrant' | 'professional';
+    font_family: 'inter' | 'system' | 'monospace';
+    font_size: 'small' | 'medium' | 'large';
     sidebar_collapsed: boolean;
     context_panel_visible: boolean;
     debug_mode: boolean;
@@ -135,8 +123,8 @@ export interface UserSettings {
 // Default settings for new users
 export const DEFAULT_USER_SETTINGS: Omit<UserSettings, '_id' | 'user_id' | 'updated_at'> = {
   preferences: {
-    theme: 'dark',
-    gradient_theme: 'default',
+    theme: 'system',
+    gradient_theme: 'minimal',
     font_family: 'inter',
     font_size: 'medium',
     sidebar_collapsed: false,
@@ -191,7 +179,6 @@ export interface SharingAccess {
 
 // Conversation API
 export interface CreateConversationRequest {
-  id?: string; // Client-generated UUID — ensures client and server share the same ID
   title: string;
   tags?: string[];
 }
@@ -213,23 +200,16 @@ export interface ShareConversationRequest {
 
 // Message API
 export interface AddMessageRequest {
-  message_id?: string; // Client-generated ID for cross-reference
   role: 'user' | 'assistant' | 'system';
   content: string;
-  // Sender identity for shared conversations (optional for backward compatibility)
-  sender_email?: string;
-  sender_name?: string;
-  sender_image?: string;
   metadata?: {
     turn_id: string;
     model?: string;
     tokens_used?: number;
     latency_ms?: number;
     agent_name?: string;
-    is_final?: boolean;
   };
   artifacts?: Artifact[];
-  a2a_events?: any[]; // A2A events (tasks, tool calls, debug)
 }
 
 export interface UpdateMessageRequest {
@@ -237,17 +217,6 @@ export interface UpdateMessageRequest {
     rating: 'positive' | 'negative';
     comment?: string;
   };
-  /** Update message content (e.g., after streaming completes with final content) */
-  content?: string;
-  /** Update metadata fields (e.g., is_final after streaming completes) */
-  metadata?: {
-    is_final?: boolean;
-    is_interrupted?: boolean;
-    task_id?: string;
-    turn_id?: string;
-  };
-  /** Update A2A events (e.g., after streaming completes with full event history) */
-  a2a_events?: any[];
 }
 
 // Bookmark API

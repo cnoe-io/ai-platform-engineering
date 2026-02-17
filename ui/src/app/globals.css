@@ -452,24 +452,6 @@
   }
 }
 
-/* Chat message overflow protection */
-.prose-container {
-  overflow-wrap: anywhere;
-  word-break: break-word;
-  min-width: 0;
-  max-width: 100%;
-}
-
-.prose-container pre {
-  max-width: 100%;
-  overflow-x: auto;
-}
-
-.prose-container img {
-  max-width: 100%;
-  height: auto;
-}
-
 /* Markdown prose styling */
 .prose-invert {
   --tw-prose-body: hsl(var(--foreground));

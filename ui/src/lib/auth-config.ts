@@ -9,10 +9,7 @@ import type { NextAuthOptions } from "next-auth";
  * - OIDC_ISSUER: OIDC provider issuer URL
  * - OIDC_CLIENT_ID: OIDC client ID
  * - OIDC_CLIENT_SECRET: OIDC client secret
- * - SSO_ENABLED: "true" to enable SSO, otherwise disabled.
- *   (Also accepts NEXT_PUBLIC_SSO_ENABLED for backward compatibility.)
- *   If SSO does not appear enabled: check window.__APP_CONFIG__ in the browser
- *   or GET /api/debug/auth-status.
+ * - NEXT_PUBLIC_SSO_ENABLED: "true" to enable SSO, otherwise disabled
  * - OIDC_GROUP_CLAIM: The OIDC claim name for groups (default: auto-detect from memberOf, groups, etc.)
  * - OIDC_REQUIRED_GROUP: Group name required for access (default: "backstage-access")
  * - OIDC_REQUIRED_ADMIN_GROUP: Group name for admin access (default: none)
@@ -131,24 +128,8 @@ async function refreshAccessToken(token: {
       };
     }
 
-    // Discover the token endpoint from the OIDC issuer's well-known configuration.
-    // Falls back to Keycloak-style path if discovery fails.
-    let tokenEndpoint: string;
-    try {
-      const wellKnownUrl = `${issuer}/.well-known/openid-configuration`;
-      const discoveryResponse = await fetch(wellKnownUrl, { next: { revalidate: 3600 } });
-      if (discoveryResponse.ok) {
-        const discoveryDoc = await discoveryResponse.json();
-        tokenEndpoint = discoveryDoc.token_endpoint;
-        console.log("[Auth] Token endpoint from OIDC discovery:", tokenEndpoint);
-      } else {
-        console.warn("[Auth] OIDC discovery failed, falling back to Keycloak-style path");
-        tokenEndpoint = `${issuer}/protocol/openid-connect/token`;
-      }
-    } catch (discoveryError) {
-      console.warn("[Auth] OIDC discovery error, falling back to Keycloak-style path:", discoveryError);
-      tokenEndpoint = `${issuer}/protocol/openid-connect/token`;
-    }
+    // Get the token endpoint from the OIDC issuer
+    const tokenEndpoint = `${issuer}/protocol/openid-connect/token`;
 
     console.log("[Auth] Refreshing access token...");
 
@@ -300,10 +281,10 @@ export const authOptions: NextAuthOptions = {
         console.log('[Auth JWT] Is authorized:', token.isAuthorized);
       }
 
-      // NOTE: When trigger === "update" (from updateSession() or refetchInterval),
-      // we intentionally DO NOT return early. The refresh logic below must run
-      // so that proactive token refresh works. Previously, an early return here
-      // caused updateSession() calls to return the stale token without refreshing.
+      // Return early if this is a forced update
+      if (trigger === "update") {
+        return token;
+      }
 
       // Check if token needs refresh (refresh 5 minutes before expiry)
       // Only attempt if refresh token support is enabled

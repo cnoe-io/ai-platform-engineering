@@ -1,11 +1,9 @@
 import { useSession } from 'next-auth/react';
 import { useEffect, useState } from 'react';
-import { getConfig } from '@/lib/config';
 
 /**
- * Hook to check if user is admin.
- * - With SSO: OIDC group (session.role) or MongoDB profile via GET /api/auth/role.
- * - Without SSO: if allowDevAdminWhenSsoDisabled and MongoDB configured, treat as admin (dev/local only).
+ * Hook to check if user is admin
+ * Checks OIDC group first (from session), then MongoDB profile via API
  */
 export function useAdminRole() {
   const { data: session } = useSession();
@@ -15,12 +13,7 @@ export function useAdminRole() {
   useEffect(() => {
     async function checkAdminRole() {
       if (!session) {
-        // No SSO login: allow admin only when explicitly enabled for dev (SSO disabled + MongoDB + flag)
-        if (!getConfig('ssoEnabled') && getConfig('allowDevAdminWhenSsoDisabled') && getConfig('storageMode') === 'mongodb') {
-          setIsAdmin(true);
-        } else {
-          setIsAdmin(false);
-        }
+        setIsAdmin(false);
         setLoading(false);
         return;
       }

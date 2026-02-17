@@ -84,23 +84,12 @@ export function ShareDialog({
           }
         }
       } else if (response.status === 404) {
-        // Conversation not found — may still be syncing to MongoDB.
-        // Only treat as legacy if storageMode is localStorage (no MongoDB at all).
-        const { getStorageMode } = await import('@/lib/storage-config');
-        const mode = getStorageMode();
-        if (mode === 'mongodb') {
-          // MongoDB is enabled but the conversation hasn't been persisted yet.
-          // Show a transient "not ready" state instead of the legacy message.
-          console.warn('[ShareDialog] Conversation not yet in MongoDB — may still be syncing:', conversationId);
-          setIsLegacyConversation(false);
-        } else {
-          setIsLegacyConversation(true);
-        }
+        // Conversation doesn't exist in MongoDB (legacy local conversation)
+        setIsLegacyConversation(true);
       }
     } catch (err) {
       console.error("Failed to load sharing info:", err);
-      // Don't assume legacy on network errors — only on explicit 404 + localStorage mode
-      setIsLegacyConversation(false);
+      setIsLegacyConversation(true);
     }
   };
 

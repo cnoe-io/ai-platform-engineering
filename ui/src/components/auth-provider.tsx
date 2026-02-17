@@ -10,16 +10,7 @@ interface AuthProviderProps {
 
 export function AuthProvider({ children, session }: AuthProviderProps) {
   return (
-    <SessionProvider
-      session={session}
-      // Re-fetch session every 4 minutes so the JWT callback runs periodically
-      // and can refresh the access token before it expires. Without this,
-      // the callback only runs on page navigation or explicit updateSession() calls.
-      refetchInterval={4 * 60}
-      // Also re-fetch when the user returns to the tab after being away.
-      // Background tabs throttle timers, so refetchInterval alone isn't enough.
-      refetchOnWindowFocus={true}
-    >
+    <SessionProvider session={session}>
       {children}
     </SessionProvider>
   );

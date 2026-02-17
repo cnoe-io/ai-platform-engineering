@@ -273,8 +273,7 @@ Create EC2 Instance:
         - application_name (optional): Application name tag (default: ${DEFAULT_APPLICATION_NAME})
         - component (optional): Component tag (default: platform)
         - resource_owner (optional): Resource owner tag (default: platform_team)
-        - owner_email_alias (required): Owner email alias for tagging
-        - user_email (required): Requester's corporate email
+        - user_email (required): Requester's corporate email (auto-filled from authenticated session)
         
         Format as key=value on each line. Write to /request.txt.
       subagent: "caipe"
@@ -319,7 +318,7 @@ Create EC2 Instance:
         - {{ .DATA_CLASSIFICATION }} -> ${DATA_CLASSIFICATION}
         - {{ .DATA_TAXONOMY }} -> ${DATA_TAXONOMY}
         - {{ .MODULE_VERSION }} -> latest
-        - {{ .CISCO_MAIL_ALIAS }} -> {owner_email_alias}
+        - {{ .CISCO_MAIL_ALIAS }} -> {user_email}
         
         Write the processed terraform content to /processed_ec2.tf
         Write "config_processed=true" to /config_status.txt
@@ -450,8 +449,7 @@ Create EKS Cluster:
         - application_name (optional): Application name tag (default: ${DEFAULT_APPLICATION_NAME})
         - component (optional): Component tag (default: platform)
         - resource_owner (optional): Resource owner tag (default: platform_team)
-        - owner_email_alias (required): Owner email alias for tagging
-        - user_email (required): Requester's corporate email
+        - user_email (required): Requester's corporate email (auto-filled from authenticated session)
         
         Format as key=value on each line. Write to /request.txt.
       subagent: "caipe"
@@ -495,7 +493,7 @@ Create EKS Cluster:
         - {{ .DATA_CLASSIFICATION }} -> ${DATA_CLASSIFICATION}
         - {{ .DATA_TAXONOMY }} -> ${DATA_TAXONOMY}
         - {{ .MODULE_VERSION }} -> 0.7.5
-        - {{ .CISCO_MAIL_ALIAS }} -> {owner_email_alias}
+        - {{ .CISCO_MAIL_ALIAS }} -> {user_email}
         
         Write the processed terraform content to /processed_eks.tf
         Write "config_processed=true" to /config_status.txt
@@ -625,8 +623,7 @@ Create S3 Bucket:
         - application_name (optional): Application name tag (default: ${DEFAULT_APPLICATION_NAME})
         - component (optional): Component tag (default: platform)
         - resource_owner (optional): Resource owner tag (default: platform_team)
-        - owner_email_alias (required): Owner email alias for tagging
-        - user_email (required): Requester's corporate email
+        - user_email (required): Requester's corporate email (auto-filled from authenticated session)
         
         Format as key=value on each line. Write to /request.txt.
       subagent: "caipe"
@@ -664,7 +661,7 @@ Create S3 Bucket:
         - {{ .DATA_CLASSIFICATION }} -> ${DATA_CLASSIFICATION}
         - {{ .DATA_TAXONOMY }} -> ${DATA_TAXONOMY}
         - {{ .TF_MODULE_VERSION }} -> 1.0.6
-        - {{ .CISCO_MAIL_ALIAS }} -> {owner_email_alias}
+        - {{ .CISCO_MAIL_ALIAS }} -> {user_email}
         
         Handle the conditional backend bucket logic:
         - If env is "dev" or "staging": bucket = "${TF_STATE_BUCKET_NONPROD}"

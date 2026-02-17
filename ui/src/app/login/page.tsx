@@ -8,94 +8,26 @@ import { LogIn, Loader2, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { LoadingScreen } from "@/components/loading-screen";
 import { IntegrationOrbit } from "@/components/gallery/IntegrationOrbit";
-import { config, getLogoFilterClass } from "@/lib/config";
-
-// Circuit breaker: detect redirect loops via sessionStorage counter.
-// If we've been redirected to /login more than 3 times within 10 seconds,
-// force a full session reset to break the loop.
-const LOOP_KEY = "login-redirect-count";
-const LOOP_TS_KEY = "login-redirect-ts";
-const LOOP_THRESHOLD = 3;
-const LOOP_WINDOW_MS = 10_000;
-
-function detectAndBreakRedirectLoop(): boolean {
-  if (typeof window === "undefined") return false;
-
-  const now = Date.now();
-  const lastTs = parseInt(sessionStorage.getItem(LOOP_TS_KEY) || "0", 10);
-  let count = parseInt(sessionStorage.getItem(LOOP_KEY) || "0", 10);
-
-  // Reset counter if outside the time window
-  if (now - lastTs > LOOP_WINDOW_MS) {
-    count = 0;
-  }
-
-  count += 1;
-  sessionStorage.setItem(LOOP_KEY, String(count));
-  sessionStorage.setItem(LOOP_TS_KEY, String(now));
-
-  if (count >= LOOP_THRESHOLD) {
-    console.error(`[Login] Redirect loop detected (${count} redirects in ${LOOP_WINDOW_MS}ms). Breaking loop...`);
-    // Clear everything to break the loop
-    sessionStorage.removeItem(LOOP_KEY);
-    sessionStorage.removeItem(LOOP_TS_KEY);
-    sessionStorage.removeItem("token-expiry-handling");
-    localStorage.clear();
-    // Clear all cookies
-    document.cookie.split(";").forEach((c) => {
-      document.cookie = c
-        .replace(/^ +/, "")
-        .replace(/=.*/, "=;expires=" + new Date().toUTCString() + ";path=/");
-    });
-    return true; // Loop detected — caller should NOT redirect
-  }
-
-  return false;
-}
-
-function clearRedirectLoopCounter() {
-  if (typeof window === "undefined") return;
-  sessionStorage.removeItem(LOOP_KEY);
-  sessionStorage.removeItem(LOOP_TS_KEY);
-}
+import { getConfig, getLogoFilterClass } from "@/lib/config";
 
 function LoginContent() {
   const { status } = useSession();
   const router = useRouter();
   const searchParams = useSearchParams();
   const [isLoading, setIsLoading] = useState(false);
-  // Initialize loopBroken synchronously so the redirect effect sees it immediately.
-  // Using a lazy initializer ensures detectAndBreakRedirectLoop() runs exactly once
-  // during the first render, before any effects fire.
-  const [loopBroken] = useState(() => detectAndBreakRedirectLoop());
   const error = searchParams.get("error");
   const sessionExpired = searchParams.get("session_expired") === "true";
-  const sessionReset = searchParams.get("session_reset");
   const callbackUrl = searchParams.get("callbackUrl") || "/";
 
-  // Redirect if already logged in — but NOT if:
-  // - session_expired/session_reset param is present (user intentionally came here)
-  // - a redirect loop was detected
+  // Redirect if already logged in
   useEffect(() => {
-    if (loopBroken || sessionExpired || sessionReset) {
-      // User is here intentionally or we broke a loop — show login form
-      return;
-    }
-
     if (status === "authenticated") {
-      // Clear counter on successful auth redirect (not a loop)
-      clearRedirectLoopCounter();
       router.push(callbackUrl);
     }
-  }, [status, router, callbackUrl, sessionExpired, sessionReset, loopBroken]);
+  }, [status, router, callbackUrl]);
 
   const handleSignIn = async () => {
     setIsLoading(true);
-    // Clear loop detection state on intentional sign-in
-    clearRedirectLoopCounter();
-    if (typeof window !== "undefined") {
-      sessionStorage.removeItem("token-expiry-handling");
-    }
     try {
       await signIn("oidc", { callbackUrl });
     } catch (err) {
@@ -142,10 +74,10 @@ function LoginContent() {
             className="text-center mt-8 max-w-sm px-4"
           >
             <h2 className="text-2xl font-bold gradient-text mb-3">
-              {config.tagline}
+              {getConfig('tagline')}
             </h2>
             <p className="text-muted-foreground">
-              {config.description}
+              {getConfig('description')}
             </p>
           </motion.div>
         </div>
@@ -163,44 +95,25 @@ function LoginContent() {
             {/* Header */}
             <div className="p-8 text-center border-b border-border bg-muted/30">
               <div className="w-16 h-16 mx-auto mb-4 rounded-2xl gradient-primary-br flex items-center justify-center animate-pulse-glow">
-                <img src={config.logoUrl} alt={config.appName} className={`h-10 w-10 ${getLogoFilterClass(config.logoStyle)}`} />
+                <img src={getConfig('logoUrl')} alt={getConfig('appName')} className={`h-10 w-10 ${getConfig('logoStyle') === 'white' ? 'brightness-0 invert' : ''}`} />
               </div>
               <div className="flex items-center justify-center gap-2">
-                <h1 className="text-2xl font-bold gradient-text">{config.appName}</h1>
-                {config.previewMode && (
+                <h1 className="text-2xl font-bold gradient-text">{getConfig('appName')}</h1>
+                {getConfig('previewMode') && (
                   <span className="px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider bg-amber-500/20 text-amber-500 border border-amber-500/30 rounded">
                     Preview
                   </span>
                 )}
               </div>
               <p className="text-sm text-muted-foreground mt-1">
-                {config.tagline}
+                {getConfig('tagline')}
               </p>
             </div>
 
             {/* Content */}
             <div className="p-8">
-              {/* Redirect Loop Recovery Message */}
-              {loopBroken && (
-                <motion.div
-                  initial={{ opacity: 0, y: -10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  className="mb-6 p-4 rounded-lg bg-destructive/10 border border-destructive/30 flex items-start gap-3"
-                >
-                  <AlertCircle className="h-5 w-5 text-destructive shrink-0 mt-0.5" />
-                  <div>
-                    <p className="text-sm font-medium text-destructive">
-                      Session Reset
-                    </p>
-                    <p className="text-xs text-destructive/80 mt-1">
-                      A login loop was detected and your session has been reset. Please sign in again.
-                    </p>
-                  </div>
-                </motion.div>
-              )}
-
               {/* Session Expired Message */}
-              {sessionExpired && !loopBroken && (
+              {sessionExpired && (
                 <motion.div
                   initial={{ opacity: 0, y: -10 }}
                   animate={{ opacity: 1, y: 0 }}
@@ -260,7 +173,7 @@ function LoginContent() {
           </div>
 
           {/* Additional Info */}
-          {config.showPoweredBy && (
+          {getConfig('showPoweredBy') && (
             <p className="text-center text-xs text-muted-foreground mt-6">
               Powered by OSS{" "}
               <a

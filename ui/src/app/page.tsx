@@ -7,8 +7,8 @@ export default function Home() {
   const router = useRouter();
   
   useEffect(() => {
-    // Redirect to skills by default
-    router.replace("/skills");
+    // Redirect to workflows (agent-builder) by default
+    router.replace("/agent-builder");
   }, [router]);
 
   return null;

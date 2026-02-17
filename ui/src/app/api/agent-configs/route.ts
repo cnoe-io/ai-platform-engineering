@@ -16,7 +16,7 @@ import { BUILTIN_QUICK_START_TEMPLATES } from "@/types/agent-config";
 /**
  * Agent Config API Routes
  *
- * Storage: MongoDB only (Agent Skills requires persistent storage)
+ * Storage: MongoDB only (Agentic Workflows requires persistent storage)
  * 
  * Features:
  * - User ownership tracking (owner_id)
@@ -25,7 +25,7 @@ import { BUILTIN_QUICK_START_TEMPLATES } from "@/types/agent-config";
  * - Falls back to built-in templates if MongoDB not configured
  */
 
-// Storage configuration - MongoDB only for Agent Skills
+// Storage configuration - MongoDB only for Agentic Workflows
 const STORAGE_TYPE = isMongoDBConfigured ? "mongodb" : "none";
 
 /**
@@ -182,7 +182,7 @@ async function getAgentConfigByIdFromMongoDB(
 // POST /api/agent-configs - Create a new agent config
 export const POST = withErrorHandler(async (request: NextRequest) => {
   if (STORAGE_TYPE !== "mongodb") {
-    throw new ApiError("Skills requires MongoDB to be configured", 503);
+    throw new ApiError("Agentic Workflows requires MongoDB to be configured", 503);
   }
 
   return await withAuth(request, async (req, user) => {
@@ -230,7 +230,7 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
 // GET /api/agent-configs - Retrieve all agent configs (system + user's own)
 export const GET = withErrorHandler(async (request: NextRequest) => {
   if (STORAGE_TYPE !== "mongodb") {
-    throw new ApiError("Skills requires MongoDB to be configured", 503);
+    throw new ApiError("Agentic Workflows requires MongoDB to be configured", 503);
   }
 
   const { searchParams } = new URL(request.url);
@@ -268,7 +268,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
 // PUT /api/agent-configs?id=<configId> - Update an existing agent config
 export const PUT = withErrorHandler(async (request: NextRequest) => {
   if (STORAGE_TYPE !== "mongodb") {
-    throw new ApiError("Skills requires MongoDB to be configured", 503);
+    throw new ApiError("Agentic Workflows requires MongoDB to be configured", 503);
   }
 
   const { searchParams } = new URL(request.url);
@@ -324,7 +324,7 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
 // DELETE /api/agent-configs?id=<configId> - Delete an agent config
 export const DELETE = withErrorHandler(async (request: NextRequest) => {
   if (STORAGE_TYPE !== "mongodb") {
-    throw new ApiError("Skills requires MongoDB to be configured", 503);
+    throw new ApiError("Agentic Workflows requires MongoDB to be configured", 503);
   }
 
   const { searchParams } = new URL(request.url);

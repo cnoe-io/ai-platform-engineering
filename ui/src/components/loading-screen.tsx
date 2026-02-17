@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import { config, getLogoFilterClass } from "@/lib/config";
+import { getConfig, getLogoFilterClass } from "@/lib/config";
 
 interface LoadingScreenProps {
   message?: string;
@@ -18,7 +18,6 @@ export function LoadingScreen({
   onCancel,
   showCancel = false
 }: LoadingScreenProps) {
-
   return (
     <div className="min-h-screen flex flex-col items-center justify-center bg-background relative overflow-hidden">
       {/* Background gradient */}
@@ -51,22 +50,22 @@ export function LoadingScreen({
           />
           {/* Logo container */}
           <div className="relative w-20 h-20 rounded-2xl gradient-primary-br flex items-center justify-center shadow-2xl">
-            <img src={config.logoUrl} alt={config.appName} className={`h-12 w-12 ${getLogoFilterClass(config.logoStyle)}`} />
+            <img src={getConfig('logoUrl')} alt={getConfig('appName')} className={`h-12 w-12 ${getLogoFilterClass()}`} />
           </div>
         </div>
 
         {/* Brand name */}
         <div className="text-center">
           <div className="flex items-center justify-center gap-2">
-            <h1 className="text-2xl font-bold gradient-text">{config.appName}</h1>
-            {config.previewMode && (
+            <h1 className="text-2xl font-bold gradient-text">{getConfig('appName')}</h1>
+            {getConfig('previewMode') && (
               <span className="px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider bg-amber-500/20 text-amber-500 border border-amber-500/30 rounded">
                 Preview
               </span>
             )}
           </div>
           <p className="text-xs text-muted-foreground mt-1">
-            {config.tagline}
+            {getConfig('tagline')}
           </p>
         </div>
 
@@ -77,13 +76,13 @@ export function LoadingScreen({
             <div className="relative w-5 h-5">
               <div
                 className="absolute inset-0 rounded-full border-2 border-primary/20"
-                style={{ borderColor: config.spinnerColor ? `${config.spinnerColor}33` : undefined }}
+                style={{ borderColor: getConfig('spinnerColor') ? `${getConfig('spinnerColor')}33` : undefined }}
               />
               <div
                 className="absolute inset-0 rounded-full border-2 border-transparent border-t-primary"
                 style={{
                   animation: 'spin 0.8s linear infinite',
-                  borderTopColor: config.spinnerColor || undefined
+                  borderTopColor: getConfig('spinnerColor') || undefined
                 }}
               />
             </div>
@@ -108,7 +107,7 @@ export function LoadingScreen({
       </div>
 
       {/* Footer */}
-      {config.showPoweredBy && (
+      {getConfig('showPoweredBy') && (
         <p className="absolute bottom-6 text-center text-xs text-muted-foreground">
           Powered by OSS{" "}
           <a

@@ -215,8 +215,9 @@ class AIPlatformEngineerA2ABinding:
       context_id: str,
       trace_id: Optional[str] = None,
       command: Optional[Command] = None,
+      user_email: Optional[str] = None,
   ) -> AsyncIterable[dict[str, Any]]:
-      logging.debug(f"Starting stream with query: {query}, context_id: {context_id}, trace_id: {trace_id}, has_command: {command is not None}")
+      logging.debug(f"Starting stream with query: {query}, context_id: {context_id}, trace_id: {trace_id}, has_command: {command is not None}, user_email: {user_email}")
       
       # Ensure agent is initialized with MCP tools (lazy loading on first stream)
       await self.ensure_initialized()
@@ -232,8 +233,19 @@ class AIPlatformEngineerA2ABinding:
       if command is not None:
           inputs = command
       else:
-          inputs = {'messages': [('user', query or '')]}
+          
+          state_dict = {'messages': [('user', query or '')]}
+          # Store user_email in graph state for middleware to use in task prompts
+          if user_email:
+              state_dict['user_email'] = user_email
+          inputs = state_dict
+      
       config = self.tracing.create_config(context_id)
+
+      # Set recursion limit - LangGraph default is 25 which is too low for
+      # deterministic task workflows (e.g. S3 creation has 8 steps, each with
+      # model + tools cycles). Match the multi-node agent's limit of 100.
+      config['recursion_limit'] = 100
 
       # Ensure metadata exists in config for tools to access
       if 'metadata' not in config:
@@ -243,6 +255,11 @@ class AIPlatformEngineerA2ABinding:
       if context_id:
           config['metadata']['context_id'] = context_id
           logging.info(f"Added context_id to config metadata: {context_id}")
+
+      # Add user_email to metadata for tools and subagents
+      if user_email:
+          config['metadata']['user_email'] = user_email
+          logging.info(f"Added user_email to config metadata: {user_email}")
 
       # Add trace_id to metadata for distributed tracing
       if trace_id:

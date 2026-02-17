@@ -37,39 +37,16 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     // Get all users
     const allUsers = await users.find({}).sort({ created_at: -1 }).toArray();
 
-    // Pre-aggregate message counts per user via conversation join.
-    // Messages have owner_id (new) or need $lookup through conversations (old).
-    const msgCountsByOwner = await messages.aggregate([
-      {
-        $lookup: {
-          from: 'conversations',
-          localField: 'conversation_id',
-          foreignField: '_id',
-          as: '_conv',
-        },
-      },
-      {
-        $addFields: {
-          _owner: {
-            $ifNull: ['$owner_id', { $arrayElemAt: ['$_conv.owner_id', 0] }],
-          },
-        },
-      },
-      { $match: { _owner: { $ne: null } } },
-      { $group: { _id: '$_owner', count: { $sum: 1 } } },
-    ]).toArray();
-
-    const msgCountMap = new Map(msgCountsByOwner.map((m) => [m._id, m.count]));
-
     // Get stats for each user
     const usersWithStats = await Promise.all(
       allUsers.map(async (u) => {
         const userConversations = await conversations.countDocuments({ owner_id: u.email });
-
+        const userMessages = await messages.countDocuments({ user_id: u.email });
+        
         // Get last activity
         const lastConversation = await conversations
           .findOne({ owner_id: u.email }, { sort: { updated_at: -1 } });
-
+        
         return {
           email: u.email,
           name: u.name,
@@ -79,7 +56,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
           last_activity: lastConversation?.updated_at || u.last_login,
           stats: {
             conversations: userConversations,
-            messages: msgCountMap.get(u.email) || 0,
+            messages: userMessages,
           },
         };
       })

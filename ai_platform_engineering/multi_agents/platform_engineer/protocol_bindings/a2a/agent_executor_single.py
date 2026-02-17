@@ -607,11 +607,20 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
             )
             query = None  # Don't use query when resuming
 
+        # Extract user email from "by user: email\n\n..." prefix injected by UI
+        user_email = None
+        raw_query = context.get_user_input() or ""
+        if raw_query.startswith("by user: "):
+            first_line = raw_query.split("\n", 1)[0]
+            user_email = first_line.replace("by user: ", "").strip()
+            if user_email:
+                logger.info(f"📧 Extracted user email from message: {user_email}")
+
         # Initialize state
         state = StreamState()
 
         try:
-            async for event in self.agent.stream(query, context_id, trace_id, command=resume_cmd):
+            async for event in self.agent.stream(query, context_id, trace_id, command=resume_cmd, user_email=user_email):
                 # FIX for A2A Streaming Duplication (Retry/Fallback):
                 # When the agent encounters an error (e.g., orphaned tool calls) and retries,
                 # the executor may have already accumulated content from the failed attempt.
@@ -679,22 +688,43 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                 if event.get('event_type') == 'interrupt':
                     msg = event.get('message')
                     if msg and hasattr(msg, 'tool_calls') and msg.tool_calls:
-                        # Convert to A2A format for frontend form display
-                        data = message_to_dict(msg)["data"]
-                        ak = data.get("additional_kwargs") or {}
-                        ak["agent_type"] = event.get("agent_type", "caipe")
-                        data["additional_kwargs"] = ak
-                        
-                        # Send the form data as an artifact FIRST (before final status)
+                        # Extract structured form metadata from CAIPEAgentResponse tool calls
+                        # The frontend expects a UserInputMetaData artifact with input_fields
+                        form_metadata = None
+                        for tc in msg.tool_calls:
+                            tc_name = tc.get("name", "")
+                            if tc_name == "CAIPEAgentResponse":
+                                tc_args = tc.get("args", {})
+                                meta = tc_args.get("metadata", {})
+                                input_fields = meta.get("input_fields", [])
+                                if input_fields:
+                                    form_metadata = {
+                                        "user_input": True,
+                                        "input_title": meta.get("input_title"),
+                                        "input_description": meta.get("input_description"),
+                                        "input_fields": input_fields,
+                                    }
+                                    break
+
+                        if not form_metadata:
+                            # Fallback: wrap the raw AIMessage for backward compatibility
+                            data = message_to_dict(msg)["data"]
+                            ak = data.get("additional_kwargs") or {}
+                            ak["agent_type"] = event.get("agent_type", "caipe")
+                            data["additional_kwargs"] = ak
+                            form_metadata = data
+                            logger.warning(f"Task {task.id}: Could not extract input_fields from interrupt, using raw message data")
+
+                        # Send as UserInputMetaData artifact (matching multi-agent executor format)
                         # This ensures the frontend receives the form before the stream ends
                         form_artifact = Artifact(
                             artifact_id=str(uuid.uuid4()),
-                            name="caipe_form",
-                            description="User input form",
-                            parts=[Part(root=DataPart(data=data))]
+                            name="UserInputMetaData",
+                            description="Structured user input form definition",
+                            parts=[Part(root=DataPart(data=form_metadata))]
                         )
                         await self._send_artifact(event_queue, task, form_artifact, append=False)
-                        logger.info(f"Task {task.id} sent caipe_form artifact with form data.")
+                        logger.info(f"Task {task.id} sent UserInputMetaData artifact with {len(form_metadata.get('input_fields', []))} fields.")
                         
                         # Then send the input-required status (final=True will end the stream)
                         await self._safe_enqueue_event(
