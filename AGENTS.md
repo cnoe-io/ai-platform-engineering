@@ -3,8 +3,12 @@
 ## Project Structure
 
 ```
-ai_platform_engineering/   # Python backend (RAG server, ingestors, common libs)
+ai_platform_engineering/   # Python backend
+  agents/                  # Sub-agents (GitHub, ArgoCD, etc.)
   knowledge_bases/rag/     # RAG server, ingestors, graphrag, ontology
+  mcp/                     # MCP (Model Context Protocol) integrations
+  multi_agents/            # Multi-agent orchestration (supervisor, deepagent)
+  utils/                   # Shared utilities
 ui/                        # Next.js frontend
 docs/                      # Documentation site (Docusaurus)
 docker-compose/            # Docker configs for services
@@ -19,6 +23,7 @@ Each component has its own environment variables - see `env.example` in `ui/` an
 
 - **Architecture & concepts** - Keep updated in `docs/`
 - **Configuration & code details** - Document in component READMEs
+- **Agent instructions** - Keep this file (`AGENTS.md`) up-to-date
 
 ## Git Guidelines
 
