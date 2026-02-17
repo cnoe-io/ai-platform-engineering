@@ -1,8 +1,35 @@
 # Agent Instructions
 
-This project uses **bd** (beads) for issue tracking. Run `bd onboard` to get started.
+## Project Structure
 
-## Quick Reference
+```
+ai_platform_engineering/   # Python backend (RAG server, ingestors, common libs)
+  knowledge_bases/rag/     # RAG server, ingestors, graphrag, ontology
+ui/                        # Next.js frontend
+docs/                      # Documentation site (Docusaurus)
+docker-compose/            # Docker configs for services
+integration/               # Integration tests
+scripts/                   # Utility scripts
+charts/                    # Helm charts
+```
+
+Each component has its own environment variables - see `env.example` in `ui/` and READMEs in `ai_platform_engineering/knowledge_bases/rag/`.
+
+## Documentation
+
+- **Architecture & concepts** - Keep updated in `docs/`
+- **Configuration & code details** - Document in component READMEs
+
+## Git Guidelines
+
+- **Sign off commits** - Use `git commit --signoff` (DCO requirement)
+- **Conventional Commits** - Format: `type(scope): description`
+  - Types: `feat`, `fix`, `docs`, `refactor`, `test`, `chore`
+  - Example: `feat(rag): add userinfo caching`
+
+## Issue Tracking (bd)
+
+This project uses **bd** (beads) for issue tracking.
 
 ```bash
 bd ready              # Find available work
@@ -12,29 +39,8 @@ bd close <id>         # Complete work
 bd sync               # Sync with git
 ```
 
-## Landing the Plane (Session Completion)
+## Quality Gates
 
-**When ending a work session**, you MUST complete ALL steps below. Work is NOT complete until `git push` succeeds.
-
-**MANDATORY WORKFLOW:**
-
-1. **File issues for remaining work** - Create issues for anything that needs follow-up
-2. **Run quality gates** (if code changed) - Tests, linters, builds
-3. **Update issue status** - Close finished work, update in-progress items
-4. **PUSH TO REMOTE** - This is MANDATORY:
-   ```bash
-   git pull --rebase
-   bd sync
-   git push
-   git status  # MUST show "up to date with origin"
-   ```
-5. **Clean up** - Clear stashes, prune remote branches
-6. **Verify** - All changes committed AND pushed
-7. **Hand off** - Provide context for next session
-
-**CRITICAL RULES:**
-- Work is NOT complete until `git push` succeeds
-- NEVER stop before pushing - that leaves work stranded locally
-- NEVER say "ready to push when you are" - YOU must push
-- If push fails, resolve and retry until it succeeds
-
+Before committing code changes, run relevant checks:
+- Python: `uv run ruff check`, `uv run pytest` (always use `uv run` to ensure virtual env)
+- UI: `nvm use` first (if available), then `npm run lint`, `npm run build`
