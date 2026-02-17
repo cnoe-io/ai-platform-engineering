@@ -20,8 +20,12 @@ The recommended authentication method for production deployments. Users authenti
 1. User authenticates with OIDC provider via UI
 2. UI receives JWT access token
 3. UI includes token in `Authorization: Bearer <token>` header
-4. RAG server validates token against OIDC provider
-5. Server extracts user identity and groups from token claims
+4. RAG server validates token:
+   - Signature verification against OIDC provider's JWKS
+   - Expiry (`exp`), not-before (`nbf`), issued-at (`iat`) claims
+   - Audience (`aud`) matches configured `OIDC_AUDIENCE`
+   - Issuer (`iss`) matches configured `OIDC_ISSUER`
+5. Server resolves user groups (see [Groups Resolution Flow](#groups-resolution-flow))
 6. Server assigns role based on group membership
 
 ### OAuth2 Client Credentials (Ingestors)
@@ -40,6 +44,76 @@ For local development and testing, trusted network access allows connections fro
 
 **Important:** Never enable trusted network in production. It grants the configured role (default: `admin`) to all requests from trusted IPs.
 
+## Token Type Detection Flow
+
+After validating the JWT token, the server determines whether it's a **user token** (SSO) or **client credentials token** (machine-to-machine):
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                    VALIDATE ACCESS TOKEN                             │
+│  ✓ Signature (JWKS)  ✓ exp  ✓ nbf  ✓ iat  ✓ aud  ✓ iss             │
+└─────────────────────────────┬───────────────────────────────────────┘
+                              ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│  Check: grant_type == "client_credentials"?                          │
+└──────────────────────┬──────────────────────────────────────────────┘
+                       │
+          ┌────────────┴────────────┐
+          │ YES                     │ NO
+          ▼                         ▼
+┌─────────────────┐    ┌──────────────────────────────────────────────┐
+│ CLIENT CREDS    │    │  Check: has client_id/azp but NO user claims? │
+│ (skip to role)  │    │  (email, preferred_username, upn, name)       │
+└─────────────────┘    └──────────────────────┬───────────────────────┘
+                                              │
+                              ┌───────────────┴───────────────┐
+                              │ YES                           │ NO
+                              ▼                               ▼
+               ┌─────────────────┐           ┌────────────────────────┐
+               │ CLIENT CREDS    │           │  Check: token_use ==   │
+               │ (skip to role)  │           │  "client_credentials"? │
+               └─────────────────┘           └───────────┬────────────┘
+                                                         │
+                                         ┌───────────────┴───────────┐
+                                         │ YES                       │ NO
+                                         ▼                           ▼
+                          ┌─────────────────┐       ┌─────────────────────┐
+                          │ CLIENT CREDS    │       │  Check: sub is UUID │
+                          │ (skip to role)  │       │  AND no user claims?│
+                          └─────────────────┘       └──────────┬──────────┘
+                                                               │
+                                               ┌───────────────┴───────────┐
+                                               │ YES                       │ NO
+                                               ▼                           ▼
+                                ┌─────────────────┐         ┌──────────────────┐
+                                │ CLIENT CREDS    │         │ USER TOKEN (SSO) │
+                                │ (skip to role)  │         │ → Groups Flow    │
+                                └─────────────────┘         └──────────────────┘
+```
+
+### Client Credentials Path
+
+When detected as client credentials:
+- **Role**: Assigned `RBAC_CLIENT_CREDENTIALS_ROLE` (default: `ingestonly`)
+- **Groups**: Empty (not applicable for machine tokens)
+- **Email**: Set to `client:{client_id}` or `client:{ingestor_type}:{ingestor_name}`
+
+### User Token (SSO) Path
+
+When detected as a user token:
+- Proceeds to [Groups Resolution Flow](#groups-resolution-flow)
+- Role determined from group membership
+
+### Detection Criteria Summary
+
+| Check | Claim | Indicates Client Credentials |
+|-------|-------|------------------------------|
+| 1 | `grant_type == "client_credentials"` | Yes |
+| 2 | Has `client_id`/`azp` but no `email`/`preferred_username`/`upn`/`name` | Yes |
+| 3 | `token_use == "client_credentials"` | Yes |
+| 4 | `sub` is UUID format AND no user claims | Yes |
+| 5 | None of the above | No → User token |
+
 ## Role-Based Access Control (RBAC)
 
 CAIPE RAG uses three roles with hierarchical permissions:
@@ -54,12 +128,12 @@ CAIPE RAG uses three roles with hierarchical permissions:
 
 When determining a user's role, the server checks in order:
 
-1. **Group membership** - If user's groups (from JWT) match configured admin/ingestonly/readonly groups
-2. **Email match** - If user's email matches configured admin/ingestonly/readonly emails
-3. **Default role** - Falls back to configured default for authenticated users
-4. **Trusted network** - If enabled and request is from trusted IP
+1. **Admin groups** - If user's groups match any configured `RBAC_ADMIN_GROUPS`
+2. **Ingestonly groups** - If user's groups match any configured `RBAC_INGESTONLY_GROUPS`
+3. **Readonly groups** - If user's groups match any configured `RBAC_READONLY_GROUPS`
+4. **Default role** - Falls back to `RBAC_DEFAULT_AUTHENTICATED_ROLE`
 
-The first match wins. This allows fine-grained control with group-based assignment as the primary mechanism.
+The first match wins (most permissive role). For unauthenticated requests from trusted networks, `TRUSTED_NETWORK_DEFAULT_ROLE` is used instead.
 
 ### Actor Types
 
@@ -85,16 +159,109 @@ The server automatically discovers OIDC endpoints from the issuer URL and valida
 
 ## Group Claims
 
-For group-based role assignment to work, your OIDC provider must include groups in the JWT access token. The server auto-detects common group claim names:
+For group-based role assignment, the RAG server fetches user information (email and groups) from the OIDC provider's `/userinfo` endpoint. This ensures the server always has authoritative user data regardless of what claims are included in the access token.
 
-- `groups`
+### User Info Resolution Flow
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                    VALIDATE ACCESS TOKEN                             │
+│  ✓ Signature (JWKS)  ✓ exp  ✓ nbf  ✓ iat  ✓ aud  ✓ iss             │
+└─────────────────────────────┬───────────────────────────────────────┘
+                              ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│  Extract 'sub' (subject identifier) from access token               │
+│  Used as cache key for userinfo lookup                              │
+└──────────────────────┬──────────────────────────────────────────────┘
+                       │
+                       ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│  Step 1: Check REDIS CACHE for userinfo                             │
+│  Key: rag/rbac/userinfo_cache:{sub}                                 │
+│  Contains: { email, groups }                                        │
+└──────────────────────┬──────────────────────────────────────────────┘
+                       │
+          ┌────────────┴────────────┐
+          │                         │
+      CACHE HIT                 CACHE MISS
+     (use cached                    │
+      email+groups)                 ▼
+          │         ┌─────────────────────────────────────────────────┐
+          │         │  Step 2: Fetch from OIDC /userinfo endpoint     │
+          │         │  GET {issuer}/userinfo                          │
+          │         │  Authorization: Bearer {access_token}           │
+          │         └──────────────────────┬──────────────────────────┘
+          │                                │
+          │                   ┌────────────┴────────────┐
+          │                   │                         │
+          │               SUCCESS                    FAILED
+          │                   │                         │
+          │                   ▼                         ▼
+          │    ┌──────────────────────────┐  ┌─────────────────────────┐
+          │    │  Extract email & groups  │  │  FALLBACK: Extract from │
+          │    │  from userinfo response  │  │  access_token claims    │
+          │    │  → Cache in Redis (TTL)  │  │  (graceful degradation) │
+          │    └──────────────────────────┘  └─────────────────────────┘
+          │                   │                         │
+          └───────────────────┴─────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│  DETERMINE ROLE FROM GROUPS                                          │
+│  Priority: admin_groups → ingestonly_groups → readonly_groups        │
+│           → default_authenticated_role                               │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+### Why Userinfo?
+
+The `/userinfo` endpoint is the **authoritative source** for user claims - it works regardless of what your OIDC provider includes in access tokens. Results are cached in Redis (30min TTL) for performance. If userinfo fails, the server falls back to access_token claims.
+
+### Supported Group Claim Names
+
+The server auto-detects common group claim names from both access tokens and userinfo responses:
+
+- `members`
 - `memberOf`
+- `groups`
+- `group`
 - `roles`
 - `cognito:groups`
 
-If your provider uses a different claim name, configure `OIDC_GROUP_CLAIM`.
+If your provider uses a different claim name, configure `OIDC_GROUP_CLAIM`. This supports comma-separated values to check multiple claims:
 
-**Note:** Some providers only include groups in the ID token, not the access token. Check your provider's documentation for configuring group claims in access tokens.
+```bash
+# Check a single custom claim
+OIDC_GROUP_CLAIM=myGroups
+
+# Check multiple claims (all are checked, groups are combined and deduplicated)
+OIDC_GROUP_CLAIM=groups,members,roles
+```
+
+When not set, all default claims are checked and combined automatically.
+
+### Email Extraction Priority
+
+When extracting the user's email from userinfo or token claims, the server checks these claims in order:
+
+| Priority | Claim | Description |
+|----------|-------|-------------|
+| 1 | `email` | Standard OIDC claim |
+| 2 | `preferred_username` | Common in Keycloak, Azure AD |
+| 3 | `upn` | User Principal Name (Microsoft) |
+| 4 | `sub` | Subject identifier (last resort, usually opaque) |
+
+The first non-empty value is used. If all are empty, defaults to `"unknown"`.
+
+> **Note:** When `sub` is used as a fallback, the email may appear as an opaque hash. This is logged as a warning but doesn't affect authentication - the userinfo endpoint typically provides the real email.
+
+### Caching Configuration
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `USERINFO_CACHE_TTL_SECONDS` | `1800` (30 min) | How long to cache userinfo (email + groups) in Redis |
+
+The cache key format is `rag/rbac/userinfo_cache:{sub}` where `sub` is the user's subject identifier from the access token.
 
 ## Security Best Practices
 

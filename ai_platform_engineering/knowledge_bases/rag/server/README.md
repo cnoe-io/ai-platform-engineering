@@ -75,21 +75,31 @@ INGESTOR_OIDC_ISSUER=https://your-keycloak.com/realms/production
 INGESTOR_OIDC_CLIENT_ID=rag-ingestor
 ```
 
-**ID Token for Claims Extraction (Optional):**
+**User Claims via UserInfo Endpoint:**
 
-Some OIDC providers (Azure AD, Okta, Auth0, etc.) include user claims like `email` and `groups` only in the ID token, not the access token. The UI can pass the ID token in a separate header:
+The RAG server fetches user claims (email, groups) from the OIDC provider's `/userinfo` endpoint using the access token. This is the standards-compliant approach where:
+- Only the access token is sent to the RAG server
+- Email and groups are fetched server-side from the authoritative OIDC source
+- Results are cached in Redis to reduce load on the OIDC provider
 
-```
-Authorization: Bearer <access_token>
-X-Identity-Token: <id_token>
+```bash
+# Userinfo cache TTL in seconds (default: 30 minutes)
+USERINFO_CACHE_TTL_SECONDS=1800
 ```
 
 The server will:
 1. Validate the **access token** for authentication (signature, expiry, audience, issuer)
-2. Validate the **ID token** signature only (skip audience/issuer checks)
-3. Extract email and groups from the **ID token** claims
+2. Extract the user's `sub` (subject) from the access token
+3. Check Redis cache for the user's info (email + groups)
+4. On cache miss, call the OIDC provider's `/userinfo` endpoint
+5. Cache the userinfo for future requests (configurable TTL)
+6. Determine role from cached groups
 
-If the ID token is provided but invalid (bad signature, expired), the request is rejected with 401 Unauthorized. If no ID token is provided, claims are extracted from the access token (backwards compatible).
+This approach:
+- Eliminates the need for ID tokens to be passed downstream
+- Ensures groups come from the authoritative source (OIDC provider)
+- Handles short-lived ID tokens gracefully (groups are cached independently)
+- Is the OAuth 2.0 recommended pattern for resource servers
 
 **Trusted Network (Development):**
 ```bash
@@ -122,7 +132,7 @@ This table shows how different authentication methods map to roles and which env
 
 | Auth Method | Actor Type | Default Role | Role Controlled By | Required Env Vars | Optional Env Vars |
 |-------------|------------|--------------|-------------------|-------------------|-------------------|
-| **OAuth2 (UI)** | User | Based on groups | `RBAC_*_GROUPS` mappings, falls back to `RBAC_DEFAULT_AUTHENTICATED_ROLE` | `OIDC_ISSUER`<br>`OIDC_CLIENT_ID` | `OIDC_DISCOVERY_URL`<br>`OIDC_GROUP_CLAIM` |
+| **OAuth2 (UI)** | User | Based on groups | `RBAC_*_GROUPS` mappings, falls back to `RBAC_DEFAULT_AUTHENTICATED_ROLE` | `OIDC_ISSUER`<br>`OIDC_CLIENT_ID` | `OIDC_DISCOVERY_URL`<br>`OIDC_GROUP_CLAIM`<br>`USERINFO_CACHE_TTL_SECONDS` |
 | **OAuth2 (Ingestor)** | Ingestor | `ingestonly` | `RBAC_CLIENT_CREDENTIALS_ROLE` | `INGESTOR_OIDC_ISSUER` or `INGESTOR_OIDC_DISCOVERY_URL`<br>`INGESTOR_OIDC_CLIENT_ID` | `INGESTOR_OIDC_SCOPE` |
 | **Trusted Network** | User or Ingestor | `admin` (dev default) | `TRUSTED_NETWORK_DEFAULT_ROLE` | `ALLOW_TRUSTED_NETWORK=true` | `TRUSTED_NETWORK_CIDRS`<br>`TRUSTED_NETWORK_TOKEN` |
 | **Anonymous** | Public | `anonymous` | N/A (fixed) | None | None |
@@ -131,9 +141,10 @@ This table shows how different authentication methods map to roles and which env
 
 1. **OAuth2 for UI (User Tokens)**
    - Regular user authentication with JWT access tokens
-   - Role determined by group membership in token claims
+   - Groups fetched from OIDC userinfo endpoint (cached in Redis)
    - Falls back to `RBAC_DEFAULT_AUTHENTICATED_ROLE` (default: `readonly`) if no group match
    - Group-to-role mapping: `RBAC_READONLY_GROUPS`, `RBAC_INGESTONLY_GROUPS`, `RBAC_ADMIN_GROUPS`
+   - Cache TTL controlled by `USERINFO_CACHE_TTL_SECONDS` (default: 1800 = 30 minutes)
 
 2. **OAuth2 for Ingestors (Client Credentials)**
    - Machine-to-machine authentication using client credentials flow

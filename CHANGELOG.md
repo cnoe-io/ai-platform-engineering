@@ -1,13 +1,31 @@
+## 0.2.18 (2026-02-17)
+
+## 0.2.17-rc.2 (2026-02-17)
+
+### Feat
+
+- **rag-ui**: add 'Restrict to this page' button for SPA tab scraping
+
+### Fix
+
+- **rag**: improve web crawler with streaming ingestion, redirect handling, and JS rendering
+- **ui**: replace hardcoded CAIPE references with configurable appName (#806)
+
+## 0.2.17-rc.1 (2026-02-13)
+
+### Feat
+
+- Return trace_id to clients for Langfuse feedback (#805)
+
+### Fix
+
+- mongodb sts can NOT rely on labels that are dependent on the chart version (#804)
+
 ## 0.2.17 (2026-02-13)
 
 ### Fix
 
 - manual release is missing ci-caipe-ui
-
-## 0.2.16-rc.1 (2026-02-13)
-
-### Fix
-
 - lint err
 - don't call _get_final_content if using response_format_tool
 - ui to render field_options correctly with the new structured final output using field_values

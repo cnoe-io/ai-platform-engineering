@@ -218,7 +218,7 @@ OIDC_REQUIRED_ADMIN_GROUP=backstage-admins
 OIDC_GROUP_CLAIM=memberOf
 ```
 
-**Duo SSO Groups:**
+**Example LDAP-style Groups:**
 ```
 CN=backstage-access,OU=Groups,DC=example,DC=com  → user role
 CN=backstage-admins,OU=Groups,DC=example,DC=com  → admin role
