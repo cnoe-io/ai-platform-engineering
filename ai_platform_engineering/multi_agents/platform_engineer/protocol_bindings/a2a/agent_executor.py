@@ -417,8 +417,17 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
             f"from_response_format_tool={event.get('from_response_format_tool', False)}"
         )
 
+        # If event came from ResponseFormat tool (structured response mode),
+        # use content directly since it's the clean final answer.
+        # This MUST be checked before deduplication: the ResponseFormat output
+        # is the authoritative supervisor synthesis and must always be sent,
+        # even when a single sub-agent already forwarded its complete_result.
+        if event.get('from_response_format_tool'):
+            logger.info("Using content directly from ResponseFormat tool (structured response mode)")
+            final_content = content
+            is_datapart = False
         # ================================================================
-        # DEDUPLICATION: Single sub-agent scenario
+        # DEDUPLICATION: Single sub-agent scenario (unstructured mode only)
         # If exactly 1 sub-agent completed, its complete_result was already
         # forwarded to the client by _handle_sub_agent_artifact.
         #
@@ -428,7 +437,7 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
         # so the UI shows the supervisor's processed answer, not the raw sub-agent
         # output. Only skip when there is no supervisor synthesis to add.
         # ================================================================
-        if state.sub_agents_completed == 1 and state.sub_agent_content and not state.sub_agent_datapart:
+        elif state.sub_agents_completed == 1 and state.sub_agent_content and not state.sub_agent_datapart:
             supervisor_synthesis = self._extract_final_answer(content) if content else ''
             if not supervisor_synthesis:
                 logger.info(
@@ -455,13 +464,6 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
             await self._send_completion(event_queue, task, trace_id=state.trace_id)
             logger.info(f"Task {task.id} completed (single sub-agent with supervisor synthesis).")
             return
-
-        # If event came from ResponseFormat tool (structured response mode),
-        # use content directly since it's the clean final answer
-        if event.get('from_response_format_tool'):
-            logger.info("Using content directly from ResponseFormat tool (structured response mode)")
-            final_content = content
-            is_datapart = False
         else:
             final_content, is_datapart = self._get_final_content(state)
 
