@@ -23,10 +23,19 @@ jobs:
       version: ${{ github.event.inputs.version }}
     secrets: inherit
 
+  # Then: Publish Helm charts to GHCR
+  publish-helm-charts:
+    name: Publish Helm Charts
+    needs: sync-chart-versions
+    uses: ./.github/workflows/helm.yml
+    with:
+      publish_all: 'true'
+    secrets: inherit
+
   # Then: Create the release
   release:
     name: Create Release
-    needs: sync-chart-versions
+    needs: [sync-chart-versions, publish-helm-charts]
     runs-on: ubuntu-latest
     steps:
       - name: 🔒 Harden runner
@@ -225,21 +234,6 @@ jobs:
             exit 1
           fi
           echo "📝 Images will be tagged with $NEW_VERSION when builds complete"
-
-      - name: 🚀 Trigger Helm chart publish
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          NEW_VERSION="${{ github.event.inputs.version }}"
-          echo "🚀 Triggering Helm chart publish for $NEW_VERSION..."
-
-          OUTPUT=$(gh workflow run helm.yml --ref main -f publish_all=true 2>&1) || {
-            echo "❌ Failed to trigger Helm publish workflow"
-            echo "   Error: $OUTPUT"
-            echo "   You may need to run it manually: gh workflow run helm.yml --ref main -f publish_all=true"
-            exit 1
-          }
-          echo "✅ Helm publish workflow triggered successfully"
 
       - name: 🚀 Create GitHub Release (Draft)
         env:
