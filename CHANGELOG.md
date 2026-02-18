@@ -1,24 +1,46 @@
-## 0.2.18 (2026-02-17)
+## 0.2.19 (2026-02-18)
 
-## 0.2.17-rc.2 (2026-02-17)
+## 0.2.18-rc.3 (2026-02-18)
+
+### Fix
+
+- **supervisor**: send supervisor synthesis as final_result in single sub-agent scenario (#809)
+
+## 0.2.18-rc.2 (2026-02-18)
+
+### Feat
+
+- **ui**: add reload interval UI and help popup for RAG ingest
+- **rag**: add per-datasource reload interval for webloader
+
+## 0.2.18-rc.1 (2026-02-17)
+
+### Feat
+
+- **ui**: support comma-separated OIDC_GROUP_CLAIM values
+- **ui**: remove X-Identity-Token header from RAG proxy
+- **rag**: implement tiered groups resolution with Redis caching
+- **rag**: add userinfo endpoint support for fetching user groups
+
+### Fix
+
+- **rag**: fix lint issues in rbac.py
+
+### Refactor
+
+- **rag**: always fetch userinfo for user claims (email + groups)
+
+## 0.2.18 (2026-02-17)
 
 ### Feat
 
 - **rag-ui**: add 'Restrict to this page' button for SPA tab scraping
+- Return trace_id to clients for Langfuse feedback (#805)
 
 ### Fix
 
 - **rag**: improve web crawler with streaming ingestion, redirect handling, and JS rendering
 - **ui**: replace hardcoded CAIPE references with configurable appName (#806)
-
-## 0.2.17-rc.1 (2026-02-13)
-
-### Feat
-
-- Return trace_id to clients for Langfuse feedback (#805)
-
-### Fix
-
 - mongodb sts can NOT rely on labels that are dependent on the chart version (#804)
 
 ## 0.2.17 (2026-02-13)
