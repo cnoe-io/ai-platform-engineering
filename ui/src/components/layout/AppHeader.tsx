@@ -75,13 +75,14 @@ export function AppHeader() {
   // Fetch version info
   const { versionInfo } = useVersion();
 
-  // Combined status: if either is checking -> checking, if either is disconnected -> disconnected, else connected
+  // Combined status: if either is checking -> checking, if supervisor is disconnected -> disconnected,
+  // if only RAG is disconnected (supervisor connected) -> rag-disconnected (amber warning), else connected
   // Note: Only include RAG in status if it's enabled
   const getCombinedStatus = () => {
     if (caipeStatus === "checking") return "checking";
     if (ragEnabled && ragStatus === "checking") return "checking";
     if (caipeStatus === "disconnected") return "disconnected";
-    if (ragEnabled && ragStatus === "disconnected") return "disconnected";
+    if (ragEnabled && ragStatus === "disconnected") return "rag-disconnected";
     return "connected";
   };
 
@@ -217,6 +218,7 @@ export function AppHeader() {
                   "flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium cursor-pointer transition-all hover:scale-105",
                   combinedStatus === "connected" && "bg-green-500/15 text-green-400 border border-green-500/30 hover:bg-green-500/20",
                   combinedStatus === "checking" && "bg-amber-500/15 text-amber-400 border border-amber-500/30 hover:bg-amber-500/20",
+                  combinedStatus === "rag-disconnected" && "bg-amber-500/15 text-amber-400 border border-amber-500/30 hover:bg-amber-500/20",
                   combinedStatus === "disconnected" && "bg-red-500/15 text-red-400 border border-red-500/30 hover:bg-red-500/20"
                 )}
               >
@@ -226,11 +228,15 @@ export function AppHeader() {
                   <div className={cn(
                     "h-2 w-2 rounded-full",
                     combinedStatus === "connected" && "bg-green-400",
+                    combinedStatus === "rag-disconnected" && "bg-amber-400",
                     combinedStatus === "disconnected" && "bg-red-400",
                     isStreaming && "animate-pulse"
                   )} />
                 )}
-                {combinedStatus === "connected" ? "Connected" : combinedStatus === "checking" ? "Checking" : "Disconnected"}
+                {combinedStatus === "connected" ? "Connected" :
+                 combinedStatus === "checking" ? "Checking" :
+                 combinedStatus === "rag-disconnected" ? "RAG Disconnected" :
+                 "Disconnected"}
               </button>
             </PopoverTrigger>
             <PopoverContent side="bottom" align="end" className="w-[600px] p-0 overflow-hidden border-2">
@@ -246,11 +252,14 @@ export function AppHeader() {
                       <span className={cn(
                         "inline-block w-2 h-2 rounded-full",
                         combinedStatus === "connected" ? "bg-green-400 animate-pulse" :
-                        combinedStatus === "checking" ? "bg-amber-400 animate-pulse" : "bg-red-400"
+                        combinedStatus === "checking" ? "bg-amber-400 animate-pulse" :
+                        combinedStatus === "rag-disconnected" ? "bg-amber-400" : "bg-red-400"
                       )} />
                       <span className="text-xs font-medium text-white">
                         {combinedStatus === "connected" ? "All Systems Live" :
-                         combinedStatus === "checking" ? "Checking" : "Issues Detected"}
+                         combinedStatus === "checking" ? "Checking" :
+                         combinedStatus === "rag-disconnected" ? "RAG Offline" :
+                         "Issues Detected"}
                       </span>
                     </div>
                   </div>
@@ -425,6 +434,7 @@ export function AppHeader() {
                     <div className="text-muted-foreground">
                       {combinedStatus === "connected" ? "All systems operational" :
                        combinedStatus === "checking" ? "Checking status..." :
+                       combinedStatus === "rag-disconnected" ? "RAG server unavailable" :
                        "Check logs for details"}
                     </div>
                   </div>
