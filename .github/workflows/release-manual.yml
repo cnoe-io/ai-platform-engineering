@@ -226,6 +226,21 @@ jobs:
           fi
           echo "📝 Images will be tagged with $NEW_VERSION when builds complete"
 
+      - name: 🚀 Trigger Helm chart publish
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          NEW_VERSION="${{ github.event.inputs.version }}"
+          echo "🚀 Triggering Helm chart publish for $NEW_VERSION..."
+
+          OUTPUT=$(gh workflow run helm.yml --ref main -f publish_all=true 2>&1) || {
+            echo "❌ Failed to trigger Helm publish workflow"
+            echo "   Error: $OUTPUT"
+            echo "   You may need to run it manually: gh workflow run helm.yml --ref main -f publish_all=true"
+            exit 1
+          }
+          echo "✅ Helm publish workflow triggered successfully"
+
       - name: 🚀 Create GitHub Release (Draft)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -261,6 +276,9 @@ jobs:
           echo "- \`pyproject.toml\` - version updated" >> $GITHUB_STEP_SUMMARY
           echo "- \`CHANGELOG.md\` - changelog generated (commitizen)" >> $GITHUB_STEP_SUMMARY
           echo "- \`uv.lock\` - lock file regenerated" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Helm Charts ⏳" >> $GITHUB_STEP_SUMMARY
+          echo "Helm chart publish workflow triggered (publish_all=true)" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Images (CI builds triggered) ⏳" >> $GITHUB_STEP_SUMMARY
           echo "CI workflows triggered asynchronously - images will be tagged with \`$NEW_VERSION\` when complete:" >> $GITHUB_STEP_SUMMARY
