@@ -657,11 +657,15 @@ class TestEndToEndArgocdVersionPattern(unittest.IsolatedAsyncioTestCase):
         all_statuses = _extract_status_events(executor)
         artifact_names = [a.artifact.name for a in all_artifacts]
 
-        # 1 complete_result, 0 final_result
+        # 1 complete_result from sub-agent
         self.assertEqual(artifact_names.count('complete_result'), 1)
-        self.assertEqual(artifact_names.count('final_result'), 0)
 
-        # Pre-subagent streaming only (3 chunks)
+        # 1 final_result: the supervisor accumulated chunks into supervisor_content
+        # (even without [FINAL ANSWER] marker), which the new logic sends as synthesis.
+        self.assertEqual(artifact_names.count('final_result'), 1,
+                         "Supervisor-accumulated content is forwarded as final_result")
+
+        # Pre-subagent streaming only (3 chunks — post-subagent chunks are suppressed as streaming)
         self.assertEqual(artifact_names.count('streaming_result'), 3)
 
         # Completion
@@ -857,6 +861,306 @@ class TestDedupDoesNotBreakExistingBehavior(unittest.IsolatedAsyncioTestCase):
         await executor._handle_task_complete(
             {'is_task_complete': True}, state, '', task, eq
         )
+
+        statuses = _extract_status_events(executor)
+        self.assertEqual(len(statuses), 1)
+        self.assertTrue(statuses[0].final)
+        self.assertEqual(statuses[0].status.state, TaskState.completed)
+
+
+# ===================================================================
+# Supervisor Synthesis Passthrough (new behavior)
+#
+# When a single sub-agent completes, the supervisor may still generate
+# its own synthesis. The new logic sends that synthesis as final_result
+# instead of unconditionally deduplicating.
+# ===================================================================
+
+class TestSupervisorSynthesisPassthroughTaskComplete(unittest.IsolatedAsyncioTestCase):
+    """
+    _handle_task_complete: single sub-agent scenario WITH supervisor synthesis.
+
+    When 'content' (accumulated supervisor output) is non-empty, it means
+    the supervisor produced its own answer. That synthesis must be forwarded
+    as final_result, even though a sub-agent already sent complete_result.
+    """
+
+    async def test_synthesis_with_final_answer_marker_sends_final_result(self):
+        """Supervisor output containing [FINAL ANSWER] marker: extract and send synthesis."""
+        executor = _make_executor()
+        state = StreamState()
+        state.sub_agents_completed = 1
+        state.sub_agent_content = ['Raw GitHub data: testuser has 42 repos']
+        task = _make_task()
+        eq = _make_event_queue()
+
+        supervisor_output = (
+            "Let me analyse what we found.\n\n"
+            "[FINAL ANSWER]\n"
+            "**GitHub Summary for testuser**\n\n"
+            "testuser maintains 42 public repositories. Their most active "
+            "language is Python with strong contributions to open-source projects."
+        )
+
+        await executor._handle_task_complete(
+            {'is_task_complete': True}, state, supervisor_output, task, eq
+        )
+
+        artifacts = _extract_artifacts(executor)
+        statuses = _extract_status_events(executor)
+
+        # Exactly 1 final_result with the supervisor synthesis (after marker)
+        final_results = [a for a in artifacts if a.artifact.name == 'final_result']
+        self.assertEqual(len(final_results), 1, "Supervisor synthesis must be sent as final_result")
+
+        text = final_results[0].artifact.parts[0].root.text
+        self.assertIn('GitHub Summary for testuser', text)
+        self.assertNotIn('[FINAL ANSWER]', text, "Marker must be stripped from final_result")
+
+        # Completion status still sent
+        self.assertEqual(len(statuses), 1)
+        self.assertTrue(statuses[0].final)
+        self.assertEqual(statuses[0].status.state, TaskState.completed)
+
+    async def test_synthesis_without_marker_sends_full_content_as_final_result(self):
+        """Supervisor output without [FINAL ANSWER] marker: full content sent as synthesis."""
+        executor = _make_executor()
+        state = StreamState()
+        state.sub_agents_completed = 1
+        state.sub_agent_content = ['Sub-agent raw output']
+        task = _make_task()
+        eq = _make_event_queue()
+
+        supervisor_output = "Based on the data retrieved: the answer is 42."
+
+        await executor._handle_task_complete(
+            {'is_task_complete': True}, state, supervisor_output, task, eq
+        )
+
+        artifacts = _extract_artifacts(executor)
+        statuses = _extract_status_events(executor)
+
+        final_results = [a for a in artifacts if a.artifact.name == 'final_result']
+        self.assertEqual(len(final_results), 1)
+
+        text = final_results[0].artifact.parts[0].root.text
+        self.assertIn('the answer is 42', text)
+
+        self.assertEqual(len(statuses), 1)
+        self.assertTrue(statuses[0].final)
+
+    async def test_empty_content_still_deduplicates(self):
+        """Empty content string (no synthesis): dedup still applies, no final_result."""
+        executor = _make_executor()
+        state = StreamState()
+        state.sub_agents_completed = 1
+        state.sub_agent_content = ['Sub-agent answered already']
+        task = _make_task()
+        eq = _make_event_queue()
+
+        await executor._handle_task_complete(
+            {'is_task_complete': True}, state, '', task, eq
+        )
+
+        artifacts = _extract_artifacts(executor)
+        self.assertEqual(len(artifacts), 0, "Empty content must still dedup")
+
+        statuses = _extract_status_events(executor)
+        self.assertEqual(len(statuses), 1)
+        self.assertEqual(statuses[0].status.state, TaskState.completed)
+
+    async def test_synthesis_does_not_include_marker_text(self):
+        """Ensure [FINAL ANSWER] marker is not present in the artifact text."""
+        executor = _make_executor()
+        state = StreamState()
+        state.sub_agents_completed = 1
+        state.sub_agent_content = ['raw']
+        task = _make_task()
+        eq = _make_event_queue()
+
+        content_with_marker = "Reasoning step.\n[FINAL ANSWER]\nClean synthesis here."
+        await executor._handle_task_complete(
+            {'is_task_complete': True}, state, content_with_marker, task, eq
+        )
+
+        artifacts = _extract_artifacts(executor)
+        final_results = [a for a in artifacts if a.artifact.name == 'final_result']
+        self.assertEqual(len(final_results), 1)
+
+        text = final_results[0].artifact.parts[0].root.text
+        self.assertNotIn('[FINAL ANSWER]', text)
+        self.assertIn('Clean synthesis here.', text)
+
+    async def test_synthesis_sends_completion_status(self):
+        """Even when synthesis is sent, completion status (final=true) must follow."""
+        executor = _make_executor()
+        state = StreamState()
+        state.sub_agents_completed = 1
+        state.sub_agent_content = ['raw']
+        task = _make_task()
+        eq = _make_event_queue()
+
+        await executor._handle_task_complete(
+            {'is_task_complete': True}, state,
+            '[FINAL ANSWER]\nSynthesis text.', task, eq
+        )
+
+        statuses = _extract_status_events(executor)
+        self.assertEqual(len(statuses), 1)
+        self.assertTrue(statuses[0].final)
+        self.assertEqual(statuses[0].status.state, TaskState.completed)
+
+    async def test_trace_id_propagated_to_synthesis_artifact(self):
+        """trace_id from state must appear in the synthesis final_result metadata."""
+        executor = _make_executor()
+        state = StreamState()
+        state.sub_agents_completed = 1
+        state.sub_agent_content = ['raw']
+        state.trace_id = 'trace-abc123'
+        task = _make_task()
+        eq = _make_event_queue()
+
+        await executor._handle_task_complete(
+            {'is_task_complete': True}, state,
+            '[FINAL ANSWER]\nAnswer with trace.', task, eq
+        )
+
+        artifacts = _extract_artifacts(executor)
+        final_results = [a for a in artifacts if a.artifact.name == 'final_result']
+        self.assertEqual(len(final_results), 1)
+        self.assertEqual(final_results[0].artifact.metadata.get('trace_id'), 'trace-abc123')
+
+
+class TestSupervisorSynthesisPassthroughStreamEnd(unittest.IsolatedAsyncioTestCase):
+    """
+    _handle_stream_end: single sub-agent scenario WITH supervisor synthesis
+    accumulated in state.supervisor_content.
+
+    When supervisor_content is non-empty, that content is treated as the
+    supervisor's synthesis and forwarded as final_result.
+    """
+
+    async def test_supervisor_content_with_final_answer_marker_sends_synthesis(self):
+        """supervisor_content contains [FINAL ANSWER] marker: extract and forward."""
+        executor = _make_executor()
+        state = StreamState()
+        state.sub_agents_completed = 1
+        state.sub_agent_content = ['Sub-agent answered.']
+        state.supervisor_content = [
+            'Thinking...\n',
+            '[FINAL ANSWER]\n',
+            'The synthesized answer from the supervisor.',
+        ]
+        task = _make_task()
+        eq = _make_event_queue()
+
+        await executor._handle_stream_end(state, task, eq)
+
+        artifacts = _extract_artifacts(executor)
+        statuses = _extract_status_events(executor)
+
+        final_results = [a for a in artifacts if a.artifact.name == 'final_result']
+        self.assertEqual(len(final_results), 1)
+
+        text = final_results[0].artifact.parts[0].root.text
+        self.assertIn('synthesized answer', text)
+        self.assertNotIn('[FINAL ANSWER]', text)
+
+        self.assertEqual(len(statuses), 1)
+        self.assertTrue(statuses[0].final)
+
+    async def test_supervisor_content_without_marker_sends_full_content(self):
+        """supervisor_content without marker: entire content sent as final_result."""
+        executor = _make_executor()
+        state = StreamState()
+        state.sub_agents_completed = 1
+        state.sub_agent_content = ['raw']
+        state.supervisor_content = ['Here is the direct supervisor answer.']
+        task = _make_task()
+        eq = _make_event_queue()
+
+        await executor._handle_stream_end(state, task, eq)
+
+        artifacts = _extract_artifacts(executor)
+        final_results = [a for a in artifacts if a.artifact.name == 'final_result']
+        self.assertEqual(len(final_results), 1)
+
+        text = final_results[0].artifact.parts[0].root.text
+        self.assertIn('direct supervisor answer', text)
+
+    async def test_empty_supervisor_content_still_deduplicates(self):
+        """Empty supervisor_content: dedup still applies, only completion sent."""
+        executor = _make_executor()
+        state = StreamState()
+        state.sub_agents_completed = 1
+        state.sub_agent_content = ['Already answered by sub-agent.']
+        # supervisor_content intentionally empty
+        task = _make_task()
+        eq = _make_event_queue()
+
+        await executor._handle_stream_end(state, task, eq)
+
+        artifacts = _extract_artifacts(executor)
+        self.assertEqual(len(artifacts), 0, "Empty supervisor_content must still dedup")
+
+        statuses = _extract_status_events(executor)
+        self.assertEqual(len(statuses), 1)
+        self.assertEqual(statuses[0].status.state, TaskState.completed)
+
+    async def test_multi_chunk_supervisor_content_concatenated(self):
+        """Multiple supervisor_content chunks are joined before extraction."""
+        executor = _make_executor()
+        state = StreamState()
+        state.sub_agents_completed = 1
+        state.sub_agent_content = ['raw']
+        state.supervisor_content = [
+            'Chunk one. ',
+            '[FINAL ANSWER]\n',
+            'Part A of synthesis. ',
+            'Part B of synthesis.',
+        ]
+        task = _make_task()
+        eq = _make_event_queue()
+
+        await executor._handle_stream_end(state, task, eq)
+
+        artifacts = _extract_artifacts(executor)
+        final_results = [a for a in artifacts if a.artifact.name == 'final_result']
+        self.assertEqual(len(final_results), 1)
+
+        text = final_results[0].artifact.parts[0].root.text
+        self.assertIn('Part A of synthesis', text)
+        self.assertIn('Part B of synthesis', text)
+
+    async def test_trace_id_propagated_to_synthesis_artifact(self):
+        """trace_id must appear in the synthesis artifact metadata."""
+        executor = _make_executor()
+        state = StreamState()
+        state.sub_agents_completed = 1
+        state.sub_agent_content = ['raw']
+        state.supervisor_content = ['[FINAL ANSWER]\nSynthesis.']
+        state.trace_id = 'trace-xyz789'
+        task = _make_task()
+        eq = _make_event_queue()
+
+        await executor._handle_stream_end(state, task, eq)
+
+        artifacts = _extract_artifacts(executor)
+        final_results = [a for a in artifacts if a.artifact.name == 'final_result']
+        self.assertEqual(len(final_results), 1)
+        self.assertEqual(final_results[0].artifact.metadata.get('trace_id'), 'trace-xyz789')
+
+    async def test_synthesis_completion_always_final_true(self):
+        """When synthesis is sent via stream_end, completion must still be final=True."""
+        executor = _make_executor()
+        state = StreamState()
+        state.sub_agents_completed = 1
+        state.sub_agent_content = ['raw']
+        state.supervisor_content = ['Supervisor synthesis.']
+        task = _make_task()
+        eq = _make_event_queue()
+
+        await executor._handle_stream_end(state, task, eq)
 
         statuses = _extract_status_events(executor)
         self.assertEqual(len(statuses), 1)
