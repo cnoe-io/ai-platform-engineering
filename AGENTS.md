@@ -49,3 +49,9 @@ bd sync               # Sync with git
 Before committing code changes, run relevant checks:
 - Python: `uv run ruff check`, `uv run pytest` (always use `uv run` to ensure virtual env)
 - UI: `nvm use` first (if available), then `npm run lint`, `npm run build`
+
+## Code Style
+
+- **Imports at top** - All imports must be at the top of the file, unless otherwise specified
+- **Type hints required** - Python functions should have type hints for parameters and return values
+- **Error handling** - Use specific exceptions, log errors with context, don't silently swallow exceptions

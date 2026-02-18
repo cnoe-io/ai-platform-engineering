@@ -28,8 +28,8 @@ The Webloader must run **alongside the RAG server** with access to the **same Re
 
 ## Optional Environment Variables
 
+- `WEBLOADER_CHECK_INTERVAL` - How often to check if datasources need reloading, in seconds (default: `600` = 10 minutes)
 - `WEBLOADER_MAX_INGESTION_TASKS` - Max concurrent ingestion tasks (default: `5`)
-- `WEBLOADER_RELOAD_INTERVAL` - Auto-reload interval in seconds (default: `86400` = 24 hours)
 - `LOG_LEVEL` - Logging level (default: `INFO`)
 
 ## Scraping Configuration
@@ -51,6 +51,27 @@ Scraping behavior is configured per-request via `ScrapySettings`. Key options:
 | `concurrent_requests` | `10` | Max concurrent requests per crawl |
 | `respect_robots_txt` | `true` | Obey robots.txt rules |
 | `user_agent` | `null` | Custom user agent string |
+
+## Request-Level Options
+
+In addition to `ScrapySettings`, the URL ingestion request supports:
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `reload_interval` | `null` | Per-datasource auto-reload interval in seconds. If not set, uses global `WEBLOADER_RELOAD_INTERVAL`. Minimum: 60 seconds. |
+
+**Example request with custom reload interval:**
+```json
+{
+  "url": "https://example.com/docs",
+  "description": "Example documentation",
+  "reload_interval": 3600,
+  "settings": {
+    "crawl_mode": "sitemap",
+    "max_pages": 500
+  }
+}
+```
 
 ## Features
 
@@ -79,8 +100,11 @@ Scraping behavior is configured per-request via `ScrapySettings`. Key options:
 - **Generic**: Falls back to generic HTML parsing for other sites
 
 ### 5. Automatic Reloading
-- Periodically re-ingests all datasources
-- Keeps content up-to-date automatically
+- Each datasource can have its own `reload_interval` (in seconds)
+- If not specified, uses the global `WEBLOADER_RELOAD_INTERVAL` (default: 24 hours)
+- Minimum reload interval is 60 seconds (enforced automatically)
+- Only datasources that are due for reload are refreshed (based on `last_updated` timestamp)
+- Manual reloads reset the timer for that datasource
 - Can be triggered on-demand via Redis
 
 ### 6. Concurrent Processing

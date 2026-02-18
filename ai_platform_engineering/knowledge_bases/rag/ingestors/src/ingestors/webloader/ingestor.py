@@ -20,7 +20,7 @@ from common.ingestor import IngestorBuilder, Client
 from common.models.rag import DataSourceInfo
 from common.models.server import IngestorRequest, UrlIngestRequest, WebIngestorCommand, UrlReloadRequest, ScrapySettings, CrawlMode
 from common.job_manager import JobStatus, JobManager
-from common.constants import WEBLOADER_INGESTOR_REDIS_QUEUE, WEBLOADER_INGESTOR_NAME, WEBLOADER_INGESTOR_TYPE
+from common.constants import WEBLOADER_INGESTOR_REDIS_QUEUE, WEBLOADER_INGESTOR_NAME, WEBLOADER_INGESTOR_TYPE, MIN_RELOAD_INTERVAL
 from common.utils import get_logger, generate_datasource_id_from_url
 
 from loader.scrapy_loader import ScrapyLoader
@@ -32,7 +32,8 @@ logger = get_logger(__name__)
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379")
 
 # Webloader configuration
-RELOAD_INTERVAL = int(os.getenv("WEBLOADER_RELOAD_INTERVAL", "86400"))  # 24 hours default
+CHECK_INTERVAL = int(os.getenv("WEBLOADER_CHECK_INTERVAL", "600"))  # How often to check if any datasources need reloading (default: 10 mins)
+DEFAULT_RELOAD_INTERVAL = 86400  # 24 hours - fallback for old datasources without reload_interval
 MAX_INGESTION_TASKS = int(os.getenv("WEBLOADER_MAX_INGESTION_TASKS", "5"))  # Max concurrent ingestion tasks
 
 redis_client = Redis.from_url(REDIS_URL, decode_responses=True)
@@ -352,25 +353,52 @@ async def redis_listener(client: Client):
 
 async def periodic_reload(client: Client):
   """
-  Reload all datasources for this ingestor.
-  Fetches datasources filtered by ingestor_id and re-ingests them.
+  Reload datasources that are due for refresh based on their individual reload intervals.
+  Fetches datasources filtered by ingestor_id and re-ingests only those that are due.
   Called periodically by IngestorBuilder or on-demand via Redis.
   """
-  logger.info("Starting datasource reload...")
+  logger.info("Starting datasource reload check...")
   job_manager = JobManager(redis_client)
+  current_time = int(time.time())
 
   try:
     datasources = await client.list_datasources(ingestor_id=client.ingestor_id)
-    logger.info(f"Found {len(datasources)} datasources to reload")
+    logger.info(f"Found {len(datasources)} datasources to check")
+
+    reloaded_count = 0
+    skipped_count = 0
 
     for datasource_info in datasources:
       try:
+        # Get per-datasource reload interval from metadata, fall back to default for old datasources
+        ds_reload_interval = DEFAULT_RELOAD_INTERVAL
+        if datasource_info.metadata:
+          stored_interval = datasource_info.metadata.get("reload_interval")
+          if stored_interval is not None:
+            ds_reload_interval = stored_interval
+            # Enforce minimum reload interval
+            if ds_reload_interval < MIN_RELOAD_INTERVAL:
+              logger.warning(f"Datasource {datasource_info.datasource_id} has reload_interval {ds_reload_interval}s below minimum {MIN_RELOAD_INTERVAL}s, using minimum")
+              ds_reload_interval = MIN_RELOAD_INTERVAL
+
+        # Check if datasource is due for reload
+        if datasource_info.last_updated is not None:
+          time_since_update = current_time - datasource_info.last_updated
+          if time_since_update < ds_reload_interval:
+            logger.debug(f"Skipping datasource {datasource_info.datasource_id}: last updated {time_since_update}s ago, interval is {ds_reload_interval}s")
+            skipped_count += 1
+            continue
+
+        # Datasource is due for reload (or has never been updated)
+        logger.info(f"Reloading datasource {datasource_info.datasource_id} (interval: {ds_reload_interval}s)")
         await reload_datasource(client, job_manager, datasource_info)
+        reloaded_count += 1
+
       except Exception as e:
         logger.error(f"Error reloading datasource {datasource_info.datasource_id}: {e}")
         logger.error(traceback.format_exc())
 
-    logger.info("Datasource reload completed")
+    logger.info(f"Datasource reload completed: {reloaded_count} reloaded, {skipped_count} skipped")
 
   except Exception as e:
     logger.error(f"Error in datasource reload: {e}")
@@ -383,7 +411,8 @@ if __name__ == "__main__":
 
     # Build and run the ingestor with standard asyncio
     # No Twisted reactor needed - Scrapy runs in subprocess workers
-    IngestorBuilder().name(WEBLOADER_INGESTOR_NAME).type(WEBLOADER_INGESTOR_TYPE).description("Default ingestor for websites and sitemaps").metadata({"reload_interval": RELOAD_INTERVAL}).sync_with_fn(periodic_reload).with_startup(redis_listener).every(RELOAD_INTERVAL).run()
+    # Note: .every(CHECK_INTERVAL) sets how often to check if datasources need reloading
+    IngestorBuilder().name(WEBLOADER_INGESTOR_NAME).type(WEBLOADER_INGESTOR_TYPE).description("Default ingestor for websites and sitemaps").metadata({}).sync_with_fn(periodic_reload).with_startup(redis_listener).every(CHECK_INTERVAL).run()
 
   except KeyboardInterrupt:
     logger.info("Webloader ingestor interrupted by user")

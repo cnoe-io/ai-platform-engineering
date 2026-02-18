@@ -114,6 +114,7 @@ export const ingestUrl = async (params: {
     ingest_type?: string;
     get_child_pages?: boolean;
     settings?: ScrapySettings;
+    reload_interval?: number;
 }): Promise<{ datasource_id: string | null; job_id: string | null; message: string }> => {
     // Route to appropriate endpoint based on ingest_type
     if (params.ingest_type === 'confluence') {
@@ -123,11 +124,12 @@ export const ingestUrl = async (params: {
             get_child_pages: params.get_child_pages || false
         });
     } else {
-        // Web ingestion with ScrapySettings
+        // Web ingestion with ScrapySettings and optional reload_interval
         return apiPost('/v1/ingest/webloader/url', {
             url: params.url,
             description: params.description || '',
-            settings: params.settings || { crawl_mode: 'single' }
+            settings: params.settings || { crawl_mode: 'single' },
+            reload_interval: params.reload_interval
         });
     }
 };
