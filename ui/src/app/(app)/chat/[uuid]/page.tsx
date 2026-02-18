@@ -25,7 +25,13 @@ function ChatUUIDPage() {
   const [contextPanelCollapsed, setContextPanelCollapsed] = useState(false);
   const [debugMode, setDebugMode] = useState(false);
 
-  const { conversations: localConversations, setActiveConversation, loadMessagesFromServer } = useChatStore();
+  // Only subscribe to stable functions — NOT to `conversations`.
+  // Subscribing to `conversations` caused this effect to re-run on every
+  // Zustand update (every streamed token, every A2A event), which triggered
+  // excessive loadMessagesFromServer calls that could overwrite correct
+  // in-memory state with stale MongoDB data. Instead, we read conversations
+  // imperatively inside the effect via useChatStore.getState().
+  const { setActiveConversation, loadMessagesFromServer } = useChatStore();
   const caipeUrl = getConfig('caipeUrl');
 
   const handleTabChange = (tab: "chat" | "gallery" | "knowledge" | "admin") => {
@@ -41,7 +47,7 @@ function ChatUUIDPage() {
   };
 
   // Check store immediately (synchronous, no loading state!)
-  const existingConv = localConversations.find((c) => c.id === uuid);
+  const existingConv = useChatStore.getState().conversations.find((c) => c.id === uuid);
 
   const [conversation, setConversation] = useState<Conversation | LocalConversation | null>(existingConv || null);
   const [loading, setLoading] = useState(!existingConv); // Only show spinner if NOT in store
@@ -73,7 +79,9 @@ function ChatUUIDPage() {
       }
 
       // Check Zustand store first (instant, no loading spinner!)
-      const localConv = localConversations.find((c) => c.id === uuid);
+      // Read imperatively — this effect must NOT depend on `conversations`
+      // to avoid re-running on every store update during streaming.
+      const localConv = useChatStore.getState().conversations.find((c) => c.id === uuid);
       if (localConv) {
         console.log("[ChatUUID] Found conversation in store, loading instantly");
         setConversation(localConv);
@@ -217,7 +225,11 @@ function ChatUUIDPage() {
     }
 
     loadConversation();
-  }, [uuid, localConversations, setActiveConversation]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- Intentionally omit conversations.
+    // We read useChatStore.getState() imperatively to avoid re-running on every
+    // store update, which caused excessive loadMessagesFromServer calls that
+    // overwrote correct final content with stale MongoDB data during streaming.
+  }, [uuid, storageMode, setActiveConversation, loadMessagesFromServer]);
 
   // Show loading spinner only when actually fetching from MongoDB
   if (loading) {

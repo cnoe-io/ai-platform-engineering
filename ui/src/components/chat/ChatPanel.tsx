@@ -320,6 +320,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle }: ChatP
           artifactName === "tool_notification_end" ||
           artifactName === "partial_result" ||
           artifactName === "final_result" ||
+          artifactName === "complete_result" ||
           artifactName === "UserInputMetaData";
 
         // Log important artifacts in detail
@@ -364,16 +365,27 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle }: ChatP
 
         // 🔍 DEBUG: Condensed logging
         const isImportantEvent = artifactName === "final_result" || artifactName === "partial_result" ||
-                                  event.type === "status" || artifactName === "UserInputMetaData";
+                                  artifactName === "complete_result" || event.type === "status" || artifactName === "UserInputMetaData";
         if (isImportantEvent || eventNum % 50 === 0) {
           console.log(`[A2A SDK] #${eventNum} ${event.type}/${artifactName} len=${newContent?.length || 0} final=${event.isFinal} buf=${accumulatedText.length}`);
         }
 
         // ═══════════════════════════════════════════════════════════════
-        // PRIORITY 1: Handle final_result/partial_result IMMEDIATELY
+        // PRIORITY 1: Handle final/complete results IMMEDIATELY
         // (Agent-forge pattern)
+        //
+        // The backend sends different artifact names depending on the scenario:
+        //   - "final_result": multi-agent synthesis or explicit completion
+        //   - "partial_result": partial/streaming result
+        //   - "complete_result": single sub-agent completed (backend dedup
+        //     skips sending a separate final_result because the sub-agent's
+        //     complete_result IS the final answer)
+        //
+        // All three must be treated identically: replace accumulatedText,
+        // set isFinal=true, and guard against subsequent events corrupting
+        // the content via hasReceivedCompleteResult.
         // ═══════════════════════════════════════════════════════════════
-        if (artifactName === "partial_result" || artifactName === "final_result") {
+        if (artifactName === "partial_result" || artifactName === "final_result" || artifactName === "complete_result") {
           console.log(`\n${'🎉'.repeat(20)}`);
           console.log(`[A2A SDK] 🎉 ${artifactName.toUpperCase()} RECEIVED! Event #${eventNum}`);
           console.log(`[A2A SDK] 📄 Content: ${newContent.length} chars`);

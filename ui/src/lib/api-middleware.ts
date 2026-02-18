@@ -22,7 +22,7 @@ export interface AuthenticatedRequest extends NextRequest {
 /**
  * Get authenticated user from session
  * Returns user info and full session, or throws 401 error
- * 
+ *
  * Admin role is determined by:
  * 1. OIDC group membership (session.role from auth-config)
  * 2. MongoDB user.metadata.role === 'admin' (fallback)
@@ -41,7 +41,7 @@ export async function getAuthenticatedUser(request: NextRequest) {
     try {
       const users = await getCollection<User>('users');
       const dbUser = await users.findOne({ email: session.user.email });
-      
+
       if (dbUser?.metadata?.role === 'admin') {
         role = 'admin';
         console.log(`[Auth] User ${session.user.email} is admin via MongoDB profile`);
@@ -68,7 +68,7 @@ export async function getAuthenticatedUser(request: NextRequest) {
 export async function withAuth<T>(
   request: NextRequest,
   handler: (
-    request: NextRequest, 
+    request: NextRequest,
     user: { email: string; name: string; role: string },
     session: any
   ) => Promise<T>
