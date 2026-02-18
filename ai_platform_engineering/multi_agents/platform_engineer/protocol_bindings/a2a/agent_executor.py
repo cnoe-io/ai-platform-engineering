@@ -171,16 +171,12 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
 
     def _get_final_content(self, state: StreamState) -> tuple:
         """
-        Get final content with priority order for multi-agent scenarios:
+        Get final content with priority order:
         1. Sub-agent DataPart (structured data - e.g., Jarvis forms)
-        2. Supervisor content (synthesis from multiple agents)
-        3. Sub-agent text content (single agent fallback)
+        2. Supervisor content (synthesis — preferred for both single and multi-agent)
+        3. Sub-agent text content (fallback when supervisor produced nothing)
 
         Returns: (content, is_datapart)
-
-        Note: For multi-agent scenarios (sub_agents_completed > 1), supervisor
-        content is preferred as it contains the synthesis. For single-agent
-        scenarios, sub-agent content is preferred as it IS the final answer.
 
         Extracts content after [FINAL ANSWER] marker to filter out
         intermediate thinking/planning messages.
@@ -189,26 +185,21 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
             logger.info("_get_final_content: using sub_agent_datapart")
             return state.sub_agent_datapart, True
 
-        # Multi-agent scenario: prefer supervisor synthesis
-        # The supervisor summarizes results from all sub-agents
-        if state.sub_agents_completed > 1 and state.supervisor_content:
-            raw_content = ''.join(state.supervisor_content)
-            extracted = self._extract_final_answer(raw_content)
-            logger.info(f"_get_final_content: multi-agent synthesis ({state.sub_agents_completed} agents), raw={len(raw_content)} chars, extracted={len(extracted)} chars")
-            return extracted, False
-
-        # Single agent or no supervisor content: use sub-agent content
-        if state.sub_agent_content:
-            raw_content = ''.join(state.sub_agent_content)
-            extracted = self._extract_final_answer(raw_content)
-            logger.info(f"_get_final_content: sub-agent content, raw={len(raw_content)} chars, extracted={len(extracted)} chars")
-            return extracted, False
-
-        # Fallback to supervisor content even for single agent
+        # Prefer supervisor synthesis when available (covers both single and multi-agent)
         if state.supervisor_content:
             raw_content = ''.join(state.supervisor_content)
             extracted = self._extract_final_answer(raw_content)
-            logger.info(f"_get_final_content: fallback supervisor content, raw={len(raw_content)} chars, extracted={len(extracted)} chars, has_FINAL_ANSWER={'[FINAL ANSWER]' in raw_content}")
+            logger.info(
+                f"_get_final_content: supervisor synthesis ({state.sub_agents_completed} sub-agents completed), "
+                f"raw={len(raw_content)} chars, extracted={len(extracted)} chars"
+            )
+            return extracted, False
+
+        # Fallback: use sub-agent content directly when supervisor produced nothing
+        if state.sub_agent_content:
+            raw_content = ''.join(state.sub_agent_content)
+            extracted = self._extract_final_answer(raw_content)
+            logger.info(f"_get_final_content: fallback to sub-agent content, raw={len(raw_content)} chars, extracted={len(extracted)} chars")
             return extracted, False
 
         logger.warning("_get_final_content: NO content available (all sources empty)")
@@ -417,25 +408,10 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
             f"from_response_format_tool={event.get('from_response_format_tool', False)}"
         )
 
-        # ================================================================
-        # DEDUPLICATION: Single sub-agent scenario
-        # If exactly 1 sub-agent completed, its complete_result was already
-        # forwarded to the client by _handle_sub_agent_artifact. The UI
-        # uses the status-update (final=true, state=completed) to set
-        # isFinal. Sending another final_result with the same content
-        # would duplicate it. Just send completion status.
-        # ================================================================
-        if state.sub_agents_completed == 1 and state.sub_agent_content and not state.sub_agent_datapart:
-            logger.info(
-                f"Task {task.id}: single sub-agent already sent complete_result — "
-                "skipping duplicate final_result, sending completion status only"
-            )
-            await self._send_completion(event_queue, task, trace_id=state.trace_id)
-            logger.info(f"Task {task.id} completed (single sub-agent, deduped).")
-            return
-
         # If event came from ResponseFormat tool (structured response mode),
-        # use content directly since it's the clean final answer
+        # use content directly since it's the clean final answer.
+        # The ResponseFormat output is the authoritative supervisor synthesis
+        # and must always be sent.
         if event.get('from_response_format_tool'):
             logger.info("Using content directly from ResponseFormat tool (structured response mode)")
             final_content = content
@@ -623,50 +599,18 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
     async def _handle_stream_end(self, state: StreamState, task: A2ATask,
                                 event_queue: EventQueue):
         """Handle end of stream without explicit completion."""
-        # For multi-agent scenarios, we need to send the supervisor's synthesis
-        # For single-agent scenarios where sub-agent already sent complete_result,
-        # we just need to send the completion status (content already forwarded)
-
         # Debug: Log accumulated content before getting final
         logger.info(f"📦 Stream end - supervisor_content: {len(state.supervisor_content)} items, {sum(len(c) for c in state.supervisor_content)} chars")
         logger.info(f"📦 Stream end - sub_agent_content: {len(state.sub_agent_content)} items, {sum(len(c) for c in state.sub_agent_content)} chars")
         logger.info(f"📦 Stream end - sub_agents_completed: {state.sub_agents_completed}")
-
-        # ================================================================
-        # DEDUPLICATION: Single sub-agent scenario
-        # If exactly 1 sub-agent completed, its complete_result was already
-        # forwarded to the client by _handle_sub_agent_artifact. The UI
-        # sets isFinal from the status-update event (final=true,
-        # state=completed). Sending final_result with the same content
-        # would duplicate it. Just send completion status.
-        # ================================================================
-        if state.sub_agents_completed == 1 and state.sub_agent_content:
-            logger.info(
-                "📦 Single sub-agent already sent complete_result — "
-                "skipping duplicate final_result, sending completion status only"
-            )
-            await self._send_completion(event_queue, task, trace_id=state.trace_id)
-            logger.info(f"Task {task.id} completed (stream end, single sub-agent, deduped).")
-            return
 
         final_content, is_datapart = self._get_final_content(state)
         logger.info(f"📦 Final content for UI: {len(final_content) if isinstance(final_content, str) else 'datapart'} chars, is_datapart={is_datapart}")
 
         # If we have accumulated content (supervisor synthesis or sub-agent content), send it
         if final_content or is_datapart:
-            # Determine artifact name based on scenario
-            if state.sub_agents_completed > 1:
-                artifact_name = 'final_result'
-                description = 'Synthesized result from multiple agents'
-                logger.info(f"Sending multi-agent synthesis ({state.sub_agents_completed} agents)")
-            elif state.sub_agents_completed == 1:
-                # Single sub-agent already sent its result, but we may have additional content
-                artifact_name = 'final_result'
-                description = 'Final result'
-            else:
-                artifact_name = 'partial_result'
-                description = 'Partial result (stream ended)'
-
+            artifact_name = 'final_result' if state.sub_agents_completed > 0 else 'partial_result'
+            description = 'Complete result from Platform Engineer'
             if is_datapart:
                 artifact = new_data_artifact(name=artifact_name, description=description, data=final_content)
             else:

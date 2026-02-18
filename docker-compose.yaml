@@ -37,6 +37,7 @@ services:
       - SKIP_AGENT_CONNECTIVITY_CHECK=${SKIP_AGENT_CONNECTIVITY_CHECK:-false}
       # TODO: remove this after 11/20
       - ENABLE_ARTIFACT_STREAMING=true
+      - USE_STRUCTURED_RESPONSE=${USE_STRUCTURED_RESPONSE:-false}
 
       # Agent hostname mappings for agent connectivity.
       # These environment variables allow the CAIPE agent to connect to sub-agents for multi-agent orchestration.

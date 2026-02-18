@@ -1593,8 +1593,9 @@ describe('chat-store', () => {
 
     it('triggers periodic save after PERIODIC_SAVE_EVENT_THRESHOLD (20) events', async () => {
       const conv = makeConversation({ id: 'periodic-save-test' });
+      const userMsg = makeMessage({ id: 'msg-ps-user', role: 'user', content: 'hello' });
       const msg = makeMessage({ id: 'msg-ps', role: 'assistant', content: 'streaming...' });
-      conv.messages = [msg];
+      conv.messages = [userMsg, msg];
 
       useChatStore.setState({
         conversations: [conv],
