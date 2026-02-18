@@ -40,6 +40,7 @@ services:
       - AGENT_CONNECTIVITY_ENABLE_BACKGROUND=${AGENT_CONNECTIVITY_ENABLE_BACKGROUND:-true}
       - SKIP_AGENT_CONNECTIVITY_CHECK=${SKIP_AGENT_CONNECTIVITY_CHECK:-false}
       - ENABLE_ARTIFACT_STREAMING=true
+      - USE_STRUCTURED_RESPONSE=${USE_STRUCTURED_RESPONSE:-false}
 
       # Agent hostname mappings for agent connectivity.
       # These environment variables allow the CAIPE agent to connect to sub-agents for multi-agent orchestration.

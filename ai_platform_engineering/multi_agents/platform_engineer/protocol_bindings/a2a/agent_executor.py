@@ -420,18 +420,40 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
         # ================================================================
         # DEDUPLICATION: Single sub-agent scenario
         # If exactly 1 sub-agent completed, its complete_result was already
-        # forwarded to the client by _handle_sub_agent_artifact. The UI
-        # uses the status-update (final=true, state=completed) to set
-        # isFinal. Sending another final_result with the same content
-        # would duplicate it. Just send completion status.
+        # forwarded to the client by _handle_sub_agent_artifact.
+        #
+        # However, the supervisor may still generate its own synthesis after
+        # the sub-agent completes (indicated by content after the [FINAL ANSWER]
+        # marker). If the supervisor produced a synthesis, send it as final_result
+        # so the UI shows the supervisor's processed answer, not the raw sub-agent
+        # output. Only skip when there is no supervisor synthesis to add.
         # ================================================================
         if state.sub_agents_completed == 1 and state.sub_agent_content and not state.sub_agent_datapart:
+            supervisor_synthesis = self._extract_final_answer(content) if content else ''
+            if not supervisor_synthesis:
+                logger.info(
+                    f"Task {task.id}: single sub-agent already sent complete_result with no supervisor synthesis — "
+                    "skipping duplicate final_result, sending completion status only"
+                )
+                await self._send_completion(event_queue, task, trace_id=state.trace_id)
+                logger.info(f"Task {task.id} completed (single sub-agent, deduped).")
+                return
+
             logger.info(
-                f"Task {task.id}: single sub-agent already sent complete_result — "
-                "skipping duplicate final_result, sending completion status only"
+                f"Task {task.id}: single sub-agent scenario but supervisor generated synthesis "
+                f"({len(supervisor_synthesis)} chars) — sending supervisor final_result"
             )
+            artifact = new_text_artifact(
+                name='final_result',
+                description='Complete result from Platform Engineer',
+                text=supervisor_synthesis,
+            )
+            if state.trace_id:
+                artifact.metadata = artifact.metadata or {}
+                artifact.metadata['trace_id'] = state.trace_id
+            await self._send_artifact(event_queue, task, artifact, append=False, last_chunk=True)
             await self._send_completion(event_queue, task, trace_id=state.trace_id)
-            logger.info(f"Task {task.id} completed (single sub-agent, deduped).")
+            logger.info(f"Task {task.id} completed (single sub-agent with supervisor synthesis).")
             return
 
         # If event came from ResponseFormat tool (structured response mode),
@@ -635,18 +657,42 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
         # ================================================================
         # DEDUPLICATION: Single sub-agent scenario
         # If exactly 1 sub-agent completed, its complete_result was already
-        # forwarded to the client by _handle_sub_agent_artifact. The UI
-        # sets isFinal from the status-update event (final=true,
-        # state=completed). Sending final_result with the same content
-        # would duplicate it. Just send completion status.
+        # forwarded to the client by _handle_sub_agent_artifact.
+        #
+        # However, the supervisor may still generate its own synthesis (visible
+        # in accumulated supervisor_content). If the supervisor content (after
+        # extracting [FINAL ANSWER]) differs from the raw sub-agent output, send
+        # it as final_result so the UI shows the supervisor's answer.
+        # Only skip when there is no additional supervisor synthesis.
         # ================================================================
         if state.sub_agents_completed == 1 and state.sub_agent_content:
+            # Check if supervisor accumulated any synthesis after sub-agent completion
+            raw_supervisor = ''.join(state.supervisor_content)
+            supervisor_synthesis = self._extract_final_answer(raw_supervisor) if raw_supervisor else ''
+            if not supervisor_synthesis:
+                logger.info(
+                    "📦 Single sub-agent already sent complete_result with no supervisor synthesis — "
+                    "skipping duplicate final_result, sending completion status only"
+                )
+                await self._send_completion(event_queue, task, trace_id=state.trace_id)
+                logger.info(f"Task {task.id} completed (stream end, single sub-agent, deduped).")
+                return
+
             logger.info(
-                "📦 Single sub-agent already sent complete_result — "
-                "skipping duplicate final_result, sending completion status only"
+                f"📦 Single sub-agent scenario but supervisor has synthesis "
+                f"({len(supervisor_synthesis)} chars) — sending supervisor final_result"
             )
+            artifact = new_text_artifact(
+                name='final_result',
+                description='Complete result from Platform Engineer',
+                text=supervisor_synthesis,
+            )
+            if state.trace_id:
+                artifact.metadata = artifact.metadata or {}
+                artifact.metadata['trace_id'] = state.trace_id
+            await self._send_artifact(event_queue, task, artifact, append=False, last_chunk=True)
             await self._send_completion(event_queue, task, trace_id=state.trace_id)
-            logger.info(f"Task {task.id} completed (stream end, single sub-agent, deduped).")
+            logger.info(f"Task {task.id} completed (stream end, single sub-agent with supervisor synthesis).")
             return
 
         final_content, is_datapart = self._get_final_content(state)
