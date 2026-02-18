@@ -390,9 +390,11 @@ def generate_platform_system_prompt(config: Dict[str, Any], agents: Dict[str, An
     if yaml_template:
         # Provide rag_instructions placeholder - RAG is handled separately in deep_agent_single.py
         # Use empty string as default since deep agent adds RAG instructions after template formatting
+        # final_answer_instructions is empty for single-node (uses structured response by default)
         return yaml_template.format(
             tool_instructions=tool_instructions_str,
-            rag_instructions=""  # RAG instructions are appended separately by deep_agent_single.py
+            rag_instructions="",
+            final_answer_instructions=""
         )
     else:
         return f"""
