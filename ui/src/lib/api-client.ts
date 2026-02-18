@@ -163,10 +163,29 @@ class APIClient {
     });
   }
 
-  async deleteConversation(id: string): Promise<{ deleted: boolean }> {
+  async deleteConversation(id: string): Promise<{ deleted: boolean; permanent: boolean }> {
     return this.request(`/api/chat/conversations/${id}`, {
       method: 'DELETE',
     });
+  }
+
+  async permanentDeleteConversation(id: string): Promise<{ deleted: boolean; permanent: boolean }> {
+    return this.request(`/api/chat/conversations/${id}?permanent=true`, {
+      method: 'DELETE',
+    });
+  }
+
+  async restoreConversation(id: string): Promise<Conversation> {
+    return this.request(`/api/chat/conversations/${id}/restore`, {
+      method: 'POST',
+    });
+  }
+
+  async getTrash(params?: { page_size?: number }): Promise<PaginatedResponse<Conversation>> {
+    const searchParams = new URLSearchParams();
+    if (params?.page_size) searchParams.set('page_size', params.page_size.toString());
+    const query = searchParams.toString();
+    return this.request(`/api/chat/conversations/trash${query ? `?${query}` : ''}`);
   }
 
   async archiveConversation(id: string): Promise<Conversation> {

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useRef, useEffect, useMemo, useCallback } from "react";
+import React, { useState, useRef, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { ChevronDown, ChevronUp, Copy, Check, Radio, Loader2, CheckCircle, XCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -8,7 +8,6 @@ import { A2AEvent } from "@/types/a2a";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { AgentLogo, getAgentLogo } from "@/components/shared/AgentLogos";
-import { ScrollArea } from "@/components/ui/scroll-area";
 
 interface AgentStreamBoxProps {
   agentName: string;
@@ -20,8 +19,9 @@ interface AgentStreamBoxProps {
 /**
  * AgentStreamBox - Individual streaming box for each agent
  * Shows real-time streaming output per agent with intuitive UI
+ * Wrapped in React.memo to prevent re-renders when sibling components update.
  */
-export function AgentStreamBox({
+export const AgentStreamBox = React.memo(function AgentStreamBox({
   agentName,
   events,
   isStreaming = false,
@@ -29,11 +29,14 @@ export function AgentStreamBox({
 }: AgentStreamBoxProps) {
   const [isExpanded, setIsExpanded] = useState(true);
   const [copied, setCopied] = useState(false);
-  const [isUserScrolled, setIsUserScrolled] = useState(false);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
-  const isAutoScrollingRef = useRef(false);
 
-  // Aggregate streaming content from all events for this agent
+  // Aggregate streaming content from all events for this agent (chronological order).
+  // PERFORMANCE: During streaming, only keep the LAST STREAM_TAIL_CHARS characters
+  // to prevent the browser from choking on 80K+ char strings being re-rendered
+  // on every token update. Full content is shown once streaming completes.
+  const STREAM_TAIL_CHARS = 2000;
+
   const streamContent = useMemo(() => {
     const textParts: string[] = [];
 
@@ -54,8 +57,15 @@ export function AgentStreamBox({
       }
     }
 
-    return textParts.join("");
-  }, [events]);
+    const full = textParts.join("");
+
+    // During streaming, truncate to tail to avoid choking the DOM
+    if (isStreaming && full.length > STREAM_TAIL_CHARS) {
+      return "…" + full.slice(-STREAM_TAIL_CHARS);
+    }
+
+    return full;
+  }, [events, isStreaming]);
 
   // Determine agent status
   const agentStatus = useMemo(() => {
@@ -89,42 +99,8 @@ export function AgentStreamBox({
     return { displayName, color, logo };
   }, [agentName]);
 
-  // Get viewport element for scroll handling
-  const viewportRef = useRef<HTMLDivElement>(null);
-
-  // Auto-scroll handler
-  useEffect(() => {
-    const viewport = scrollAreaRef.current?.querySelector('[data-radix-scroll-area-viewport]') as HTMLDivElement;
-    if (!viewport) return;
-
-    viewportRef.current = viewport;
-
-    const handleScroll = () => {
-      if (isAutoScrollingRef.current) return;
-
-      const { scrollTop, scrollHeight, clientHeight } = viewport;
-      const isAtBottom = scrollHeight - scrollTop - clientHeight < 50;
-      setIsUserScrolled(!isAtBottom);
-    };
-
-    viewport.addEventListener('scroll', handleScroll);
-    return () => viewport.removeEventListener('scroll', handleScroll);
-  }, [isExpanded]);
-
-  // Auto-scroll when content updates
-  useEffect(() => {
-    if (isUserScrolled || !isExpanded) return;
-
-    const viewport = viewportRef.current || scrollAreaRef.current?.querySelector('[data-radix-scroll-area-viewport]') as HTMLDivElement;
-    if (!viewport) return;
-
-    isAutoScrollingRef.current = true;
-    viewport.scrollTop = viewport.scrollHeight;
-
-    requestAnimationFrame(() => {
-      isAutoScrollingRef.current = false;
-    });
-  }, [streamContent, isUserScrolled, isExpanded]);
+  // No auto-scroll — user controls their own scroll position.
+  // Auto-scroll was removed to prevent layout thrashing on large content.
 
   const handleCopy = async () => {
     await navigator.clipboard.writeText(streamContent);
@@ -254,37 +230,31 @@ export function AgentStreamBox({
             className="relative"
           >
             {streamContent ? (
-              <ScrollArea
+              /* Simple scrollable container — no auto-scroll, no flex-col-reverse.
+                 flex-col-reverse caused OOM/crash ("Aw, Snap!") on large content
+                 (80K+ chars) because the browser re-layouts the entire reversed
+                 flex container on every token update. Plain overflow-y-auto is safe. */
+              <div
                 ref={scrollAreaRef}
-                className="h-[300px] w-full"
+                className="h-[300px] w-full overflow-y-auto"
               >
-                <div className="h-full">
                 <div className="p-4">
-                  <div className="prose prose-sm dark:prose-invert max-w-none">
-                    <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                      {streamContent}
-                    </ReactMarkdown>
+                  <div className="prose prose-sm dark:prose-invert max-w-none break-words overflow-hidden" style={{ overflowWrap: 'anywhere' }}>
+                    {/* OPTIMIZED: Defer ReactMarkdown during streaming.
+                        Markdown parsing on every token chunk is expensive.
+                        Use plain <pre> while streaming, switch to ReactMarkdown when complete. */}
+                    {agentStatus === "completed" || agentStatus === "idle" ? (
+                      <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                        {streamContent}
+                      </ReactMarkdown>
+                    ) : (
+                      <pre className="text-sm whitespace-pre-wrap break-words font-sans leading-relaxed m-0">
+                        {streamContent}
+                      </pre>
+                    )}
                   </div>
-
-                  {/* Resume auto-scroll button */}
-                  {isUserScrolled && (
-                    <button
-                      onClick={() => {
-                        setIsUserScrolled(false);
-                        const viewport = viewportRef.current || scrollAreaRef.current?.querySelector('[data-radix-scroll-area-viewport]') as HTMLElement;
-                        if (viewport) {
-                          viewport.scrollTop = viewport.scrollHeight;
-                        }
-                      }}
-                      className="sticky bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-primary text-primary-foreground text-xs font-medium shadow-lg hover:bg-primary/90 transition-colors mt-4 z-10"
-                    >
-                      <ChevronDown className="h-3 w-3" />
-                      <span>Resume auto-scroll</span>
-                    </button>
-                  )}
                 </div>
               </div>
-              </ScrollArea>
             ) : isStreaming ? (
               <div className="p-8 flex flex-col items-center justify-center gap-3 text-muted-foreground">
                 <div className="flex gap-1.5">
@@ -309,4 +279,4 @@ export function AgentStreamBox({
       </AnimatePresence>
     </motion.div>
   );
-}
+});

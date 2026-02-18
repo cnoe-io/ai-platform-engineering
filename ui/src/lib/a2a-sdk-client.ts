@@ -9,7 +9,13 @@
  * - AsyncGenerator pattern for streaming (same as agent-forge)
  * - Bearer token authentication support
  * - Proper event typing from the SDK
+ * - Safari compatibility via streaming polyfills
  */
+
+// Safari compatibility: the @a2a-js/sdk uses response.body.pipeThrough(new TextDecoderStream())
+// internally, which fails on Safari. On Safari, we bypass the SDK's streaming
+// and use our own reader-based SSE parser instead.
+import { isSafariBrowser, parseSseStreamSafari } from "./streaming-polyfill";
 
 import {
   JsonRpcTransport,
@@ -87,38 +93,31 @@ export interface ParsedA2AEvent {
 }
 
 /**
- * HITL decision for resuming after form submission.
- * Maps to the LangChain HITL format (approve / edit / reject).
- */
-export interface HITLDecision {
-  type: 'approve' | 'edit' | 'reject';
-  actionName: string;
-  args?: Record<string, unknown>;
-  message?: string;
-}
-
-/**
  * A2A SDK Client - Uses official @a2a-js/sdk for protocol compliance
  */
 export class A2ASDKClient {
   private transport: JsonRpcTransport;
+  private endpoint: string;
   private accessToken?: string;
   private userEmail?: string;
   private abortController: AbortController | null = null;
+  /** Direct fetch for Safari fallback (bypasses SDK's broken pipeThrough) */
+  private fetchImpl: typeof fetch;
 
   constructor(config: A2ASDKClientConfig) {
+    this.endpoint = config.endpoint;
     this.accessToken = config.accessToken;
     this.userEmail = config.userEmail;
 
     // Create fetch with authentication if token provided
     // Note: Must bind fetch to window to avoid "Illegal invocation" error
-    const fetchImpl = this.accessToken
+    this.fetchImpl = this.accessToken
       ? this.createAuthenticatedFetch(this.accessToken)
       : fetch.bind(window);
 
     this.transport = new JsonRpcTransport({
       endpoint: config.endpoint,
-      fetchImpl,
+      fetchImpl: this.fetchImpl,
     });
   }
 
@@ -130,13 +129,13 @@ export class A2ASDKClient {
 
     // Recreate transport with new token
     // Note: Must bind fetch to window to avoid "Illegal invocation" error
-    const fetchImpl = token
+    this.fetchImpl = token
       ? this.createAuthenticatedFetch(token)
       : fetch.bind(window);
 
     this.transport = new JsonRpcTransport({
-      endpoint: (this.transport as unknown as { endpoint: string }).endpoint,
-      fetchImpl,
+      endpoint: this.endpoint,
+      fetchImpl: this.fetchImpl,
     });
   }
 
@@ -173,13 +172,11 @@ export class A2ASDKClient {
    *
    * @param message The user's message text
    * @param contextId Optional context ID for conversation continuity
-   * @param metadata Optional metadata (e.g., resume command for HITL forms)
    * @returns AsyncGenerator that yields parsed A2A events
    */
   async *sendMessageStream(
     message: string,
-    contextId?: string,
-    metadata?: Record<string, unknown>
+    contextId?: string
   ): AsyncGenerator<ParsedA2AEvent, void, undefined> {
     // Abort any previous request
     if (this.abortController) {
@@ -196,21 +193,12 @@ export class A2ASDKClient {
       ? `by user: ${this.userEmail}\n\n${message}`
       : message;
 
-    // Build message parts – include metadata as DataPart when provided
-    // (used for HITL resume commands from form submissions)
-    const parts: Array<{ kind: string; text?: string; data?: Record<string, unknown> }> = [
-      { kind: "text", text: messageWithContext },
-    ];
-    if (metadata) {
-      parts.push({ kind: "data", data: metadata });
-    }
-
     const params: MessageSendParams = {
       message: {
         kind: "message",
         messageId,
         role: "user",
-        parts: parts as MessageSendParams["message"]["parts"],
+        parts: [{ kind: "text", text: messageWithContext }],
         ...(contextId && { contextId }),
       },
     };
@@ -218,8 +206,13 @@ export class A2ASDKClient {
     console.log(`[A2A SDK] 📤 Sending message to endpoint`);
     console.log(`[A2A SDK] 📤 User: ${this.userEmail || "anonymous"}`);
     console.log(`[A2A SDK] 📤 contextId: ${contextId || "new conversation"}`);
-    if (metadata) {
-      console.log(`[A2A SDK] 📤 metadata (HITL resume):`, metadata);
+
+    // Safari: bypass SDK's transport.sendMessageStream which uses
+    // response.body.pipeThrough(new TextDecoderStream()) — broken in Safari.
+    // Instead, do the fetch + SSE parsing ourselves with getReader().
+    if (isSafariBrowser()) {
+      yield* this.sendMessageStreamSafari(params);
+      return;
     }
 
     let eventCount = 0;
@@ -262,32 +255,94 @@ export class A2ASDKClient {
   }
 
   /**
-   * Send a HITL (Human-in-the-Loop) response to resume an interrupted task.
+   * Safari-specific streaming implementation.
    *
-   * Used when the agent requests user input via a form (UserInputMetaData)
-   * and the user submits values. The decisions are sent as a DataPart resume
-   * command that the backend converts to a LangChain Command(resume=...).
+   * Performs the JSON-RPC fetch manually and uses our reader-based SSE parser
+   * (getReader + TextDecoder) instead of the SDK's pipeThrough-based one.
    */
-  async *sendHITLResponse(
-    contextId: string,
-    decisions: HITLDecision[],
+  private async *sendMessageStreamSafari(
+    params: MessageSendParams,
   ): AsyncGenerator<ParsedA2AEvent, void, undefined> {
-    const formattedDecisions = decisions.map((d) => ({
-      type: d.type,
-      action_name: d.actionName,
-      args: d.args,
-      message: d.message,
-    }));
+    let eventCount = 0;
 
-    const metadata = { resume: { decisions: formattedDecisions } };
+    try {
+      // Build the JSON-RPC request (same format the SDK uses)
+      const rpcRequest = {
+        jsonrpc: "2.0" as const,
+        method: "message/stream",
+        params,
+        id: Date.now(),
+      };
 
-    const message =
-      decisions.length === 1 && decisions[0].type === "reject" && decisions[0].message
-        ? decisions[0].message
-        : "Form submitted";
+      console.log(`[A2A SDK Safari] 📤 Sending SSE request to ${this.endpoint}`);
 
-    console.log(`[A2A SDK] 📤 Sending HITL response with ${decisions.length} decisions`);
-    yield* this.sendMessageStream(message, contextId, metadata);
+      const response = await this.fetchImpl(this.endpoint, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Accept": "text/event-stream",
+        },
+        body: JSON.stringify(rpcRequest),
+        signal: this.abortController?.signal,
+      });
+
+      if (!response.ok) {
+        if (response.status === 401) {
+          throw new Error(
+            "Session expired: Your authentication token has expired. " +
+            "Please save your work and log in again."
+          );
+        }
+        const errorBody = await response.text().catch(() => "");
+        throw new Error(
+          `HTTP error for message/stream: ${response.status} ${response.statusText}. Response: ${errorBody || "(empty)"}`
+        );
+      }
+
+      // Parse SSE events using our Safari-compatible reader-based parser
+      for await (const sseEvent of parseSseStreamSafari(response)) {
+        try {
+          const jsonRpcResponse = JSON.parse(sseEvent.data);
+
+          if (jsonRpcResponse.error) {
+            throw new Error(
+              `SSE error: ${jsonRpcResponse.error.message} (Code: ${jsonRpcResponse.error.code})`
+            );
+          }
+
+          const result = jsonRpcResponse.result;
+          if (!result) continue;
+
+          eventCount++;
+          const parsed = this.parseEvent(result as A2AStreamEvent, eventCount);
+
+          if (parsed) {
+            yield parsed;
+          }
+
+          if (this.isStreamComplete(result as A2AStreamEvent)) {
+            console.log(`[A2A SDK Safari] 🏁 Stream complete after ${eventCount} events`);
+            return;
+          }
+        } catch (parseError) {
+          if (parseError instanceof Error && parseError.message.startsWith("SSE error:")) {
+            throw parseError;
+          }
+          console.error("[A2A SDK Safari] Failed to parse SSE event:", parseError, "Data:", sseEvent.data.substring(0, 200));
+        }
+      }
+
+      console.log(`[A2A SDK Safari] 📡 Stream ended naturally after ${eventCount} events`);
+    } catch (error) {
+      if ((error as Error).name === "AbortError") {
+        console.log(`[A2A SDK Safari] Stream aborted after ${eventCount} events`);
+      } else {
+        console.error(`[A2A SDK Safari] Stream error:`, error);
+        throw error;
+      }
+    } finally {
+      this.abortController = null;
+    }
   }
 
   /**
