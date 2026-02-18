@@ -64,6 +64,10 @@ CONFLUENCE_INGESTOR_REDIS_QUEUE = "ingestor:confluence:requests"
 CONFLUENCE_INGESTOR_TYPE = "confluence"
 CONFLUENCE_INGESTOR_NAME = "default_confluence"
 
+# Minimum reload interval for datasources (in seconds)
+# Prevents excessive resource usage from too-frequent reloads
+MIN_RELOAD_INTERVAL = 60
+
 
 # Redis key prefix for userinfo cache (fetched from OIDC userinfo endpoint)
 REDIS_USERINFO_CACHE_PREFIX = "rag/rbac/userinfo_cache:"
