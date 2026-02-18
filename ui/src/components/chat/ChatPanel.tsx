@@ -13,7 +13,7 @@ import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useChatStore } from "@/store/chat-store";
-import { A2ASDKClient, type ParsedA2AEvent, toStoreEvent } from "@/lib/a2a-sdk-client";
+import { A2ASDKClient, type ParsedA2AEvent, type HITLDecision, toStoreEvent } from "@/lib/a2a-sdk-client";
 import { cn, deduplicateByKey } from "@/lib/utils";
 import { ChatMessage as ChatMessageType } from "@/types/a2a";
 import { getConfig } from "@/lib/config";
@@ -49,10 +49,11 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle }: ChatP
   const scrollViewportRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // User input form state
+  // User input form state (HITL - Human-in-the-Loop)
   const [pendingUserInput, setPendingUserInput] = useState<{
     messageId: string;
     metadata: UserInputMetadata;
+    contextId?: string;
   } | null>(null);
 
   // Auto-scroll state
@@ -358,6 +359,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle }: ChatP
             setPendingUserInput({
               messageId: assistantMsgId,
               metadata,
+              contextId: event.contextId || convId,
             });
           }
         }
@@ -600,23 +602,98 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle }: ChatP
     // Future: Send to /api/feedback endpoint
   }, []);
 
-  // Handle user input form submission
+  // Handle user input form submission via HITL resume (not plain text)
   const handleUserInputSubmit = useCallback(async (formData: Record<string, string>) => {
-    if (!pendingUserInput) return;
+    if (!pendingUserInput || !activeConversationId) return;
 
-    console.log("[ChatPanel] 📝 User input form submitted:", formData);
+    console.log("[ChatPanel] 📝 HITL form submitted:", formData);
 
-    // Format the form data as a message
-    const formattedMessage = Object.entries(formData)
-      .map(([key, value]) => `${key}: ${value}`)
-      .join("\n");
+    const turnId = `turn-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+    addMessage(activeConversationId, { role: "user", content: "Form submitted." }, turnId);
+    const assistantMsgId = addMessage(activeConversationId, { role: "assistant", content: "" }, turnId);
 
-    // Clear pending input
+    const contextId = pendingUserInput.contextId || activeConversationId;
     setPendingUserInput(null);
 
-    // Submit the form data as a new message
-    await submitMessage(formattedMessage);
-  }, [pendingUserInput, submitMessage]);
+    const client = new A2ASDKClient({ endpoint, accessToken });
+
+    // Build HITL decision with form values for the backend executor's resume handler
+    const inputFieldsWithValues = (pendingUserInput.metadata.input_fields || []).map(field => ({
+      ...field,
+      value: formData[field.field_name] || '',
+    }));
+
+    const decision: HITLDecision = {
+      type: 'approve',
+      actionName: 'CAIPEAgentResponse',
+      args: {
+        args: {
+          metadata: { input_fields: inputFieldsWithValues },
+          user_inputs: formData,
+        },
+      },
+    };
+
+    setConversationStreaming(activeConversationId, {
+      conversationId: activeConversationId,
+      messageId: assistantMsgId,
+      client: { abort: () => client.abort() } as ReturnType<typeof setConversationStreaming> extends void ? never : Parameters<typeof setConversationStreaming>[1] extends { client: infer C } ? C : never,
+    });
+
+    let accumulatedText = "";
+    let rawStreamContent = "";
+    let eventCounter = 0;
+    let hasReceivedCompleteResult = false;
+
+    try {
+      for await (const event of client.sendHITLResponse(contextId, [decision])) {
+        eventCounter++;
+        const artifactName = event.artifactName || "";
+        const newContent = event.displayContent;
+
+        const storeEvent = toStoreEvent(event, `event-${eventCounter}-${Date.now()}`);
+        addA2AEvent(storeEvent as Parameters<typeof addA2AEvent>[0], activeConversationId);
+
+        if (artifactName === "partial_result" || artifactName === "final_result") {
+          if (newContent) {
+            accumulatedText = newContent;
+            hasReceivedCompleteResult = true;
+            updateMessage(activeConversationId, assistantMsgId, {
+              content: accumulatedText,
+              rawStreamContent,
+              isFinal: true,
+            });
+          }
+        }
+
+        if (event.type === "status" && event.isFinal) {
+          setConversationStreaming(activeConversationId, null);
+          break;
+        }
+
+        if (newContent && !hasReceivedCompleteResult) {
+          accumulatedText += newContent;
+          rawStreamContent += newContent;
+          updateMessage(activeConversationId, assistantMsgId, { content: accumulatedText, rawStreamContent });
+        }
+      }
+
+      if (!hasReceivedCompleteResult && accumulatedText.length > 0) {
+        updateMessage(activeConversationId, assistantMsgId, {
+          content: accumulatedText,
+          rawStreamContent,
+          isFinal: true,
+        });
+      }
+      setConversationStreaming(activeConversationId, null);
+    } catch (error) {
+      console.error("[ChatPanel] HITL resume error:", error);
+      appendToMessage(activeConversationId, assistantMsgId,
+        `\n\n**Error:** ${(error as Error).message || "Failed to resume"}`);
+      setConversationStreaming(activeConversationId, null);
+    }
+  }, [pendingUserInput, activeConversationId, endpoint, accessToken, addMessage, updateMessage,
+      appendToMessage, addA2AEvent, setConversationStreaming]);
 
   // Handle @mention detection
   const handleInputChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {

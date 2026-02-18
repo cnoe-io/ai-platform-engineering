@@ -93,6 +93,40 @@ export interface ParsedA2AEvent {
 }
 
 /**
+ * HITL input field definition (from backend CAIPEAgentResponse)
+ */
+export interface HITLInputField {
+  field_name: string;
+  field_description: string;
+  field_values?: string[] | null;
+  required?: boolean;
+  default_value?: string | null;
+}
+
+/**
+ * HITL form data extracted from DataPart
+ */
+export interface HITLFormData {
+  requiresInput: boolean;
+  inputFields?: HITLInputField[];
+  toolName?: string;
+  toolCalls?: Array<{
+    name: string;
+    args: Record<string, unknown>;
+  }>;
+}
+
+/**
+ * HITL decision for resuming after form submission (LangChain HITL format)
+ */
+export interface HITLDecision {
+  type: 'approve' | 'edit' | 'reject';
+  actionName: string;
+  args?: Record<string, unknown>;
+  message?: string;
+}
+
+/**
  * A2A SDK Client - Uses official @a2a-js/sdk for protocol compliance
  */
 export class A2ASDKClient {
@@ -172,11 +206,13 @@ export class A2ASDKClient {
    *
    * @param message The user's message text
    * @param contextId Optional context ID for conversation continuity
+   * @param metadata Optional metadata (e.g., resume command for HITL)
    * @returns AsyncGenerator that yields parsed A2A events
    */
   async *sendMessageStream(
     message: string,
-    contextId?: string
+    contextId?: string,
+    metadata?: Record<string, unknown>
   ): AsyncGenerator<ParsedA2AEvent, void, undefined> {
     // Abort any previous request
     if (this.abortController) {
@@ -193,12 +229,20 @@ export class A2ASDKClient {
       ? `by user: ${this.userEmail}\n\n${message}`
       : message;
 
+    // Build message parts - include metadata as DataPart if provided (HITL resume)
+    const parts: Array<{ kind: string; text?: string; data?: Record<string, unknown> }> = [
+      { kind: "text", text: messageWithContext }
+    ];
+    if (metadata) {
+      parts.push({ kind: "data", data: metadata });
+    }
+
     const params: MessageSendParams = {
       message: {
         kind: "message",
         messageId,
         role: "user",
-        parts: [{ kind: "text", text: messageWithContext }],
+        parts: parts as MessageSendParams["message"]["parts"],
         ...(contextId && { contextId }),
       },
     };
@@ -206,6 +250,9 @@ export class A2ASDKClient {
     console.log(`[A2A SDK] 📤 Sending message to endpoint`);
     console.log(`[A2A SDK] 📤 User: ${this.userEmail || "anonymous"}`);
     console.log(`[A2A SDK] 📤 contextId: ${contextId || "new conversation"}`);
+    if (metadata) {
+      console.log(`[A2A SDK] 📤 metadata:`, metadata);
+    }
 
     // Safari: bypass SDK's transport.sendMessageStream which uses
     // response.body.pipeThrough(new TextDecoderStream()) — broken in Safari.
@@ -353,6 +400,36 @@ export class A2ASDKClient {
       this.abortController.abort();
       this.abortController = null;
     }
+  }
+
+  /**
+   * Send a HITL response (form submission) and stream the agent's continuation.
+   * Formats decisions as a DataPart with resume key for the backend executor.
+   */
+  async *sendHITLResponse(
+    contextId: string,
+    decisions: HITLDecision[]
+  ): AsyncGenerator<ParsedA2AEvent, void, undefined> {
+    const formattedDecisions = decisions.map(decision => ({
+      type: decision.type,
+      action_name: decision.actionName,
+      args: decision.args,
+      message: decision.message,
+    }));
+
+    const metadata = {
+      resume: {
+        decisions: formattedDecisions,
+      },
+    };
+
+    const message = decisions.length === 1 && decisions[0].type === 'reject' && decisions[0].message
+      ? decisions[0].message
+      : "Form submitted";
+
+    console.log(`[A2A SDK] 📤 Sending HITL response with ${decisions.length} decisions`);
+
+    yield* this.sendMessageStream(message, contextId, metadata);
   }
 
   /**
