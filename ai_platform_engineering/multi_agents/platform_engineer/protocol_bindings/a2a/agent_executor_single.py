@@ -606,6 +606,51 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                 update={"inputs": [{"tasks": []}]} if is_response else {}
             )
             query = None  # Don't use query when resuming
+        
+        # Fallback: When UI sends form data as plain text (not DataPart resume),
+        # detect input_required state and construct a resume Command from the text.
+        # The UI's handleUserInputSubmit sends "key: value\nkey: value\n..." as a
+        # regular message. We parse it and build the HITL approve response so the
+        # interrupted graph (CAIPEAgentResponse) can continue.
+        if resume_cmd is None and task and hasattr(task, 'status') and hasattr(task.status, 'state'):
+            task_state = task.status.state if task.status else None
+            if task_state == TaskState.input_required:
+                raw_text = context.get_user_input() or ""
+                # Strip "by user: email\n\n" prefix if present
+                form_text = raw_text
+                if form_text.startswith("by user: "):
+                    parts = form_text.split("\n\n", 1)
+                    form_text = parts[1] if len(parts) > 1 else parts[0]
+                
+                # Parse key: value pairs from the text
+                user_inputs = {}
+                for line in form_text.strip().split("\n"):
+                    if ": " in line:
+                        key, _, value = line.partition(": ")
+                        user_inputs[key.strip()] = value.strip()
+                
+                if user_inputs:
+                    logger.info(f"📝 Detected form text submission for input_required task: {len(user_inputs)} fields")
+                    for k, v in user_inputs.items():
+                        logger.info(f"  📋 {k}: {v}")
+                    
+                    # Build resume with approve + edited args containing user inputs
+                    resume_cmd = Command(
+                        resume={"decisions": [{
+                            "type": "approve",
+                            "edited_action": {
+                                "name": "CAIPEAgentResponse",
+                                "args": {
+                                    "args": {
+                                        "user_inputs": user_inputs,
+                                        "metadata": {}
+                                    }
+                                }
+                            }
+                        }]}
+                    )
+                    query = None  # Don't use query when resuming
+                    logger.info(f"📦 Constructed resume Command from form text for task {task.id}")
 
         # Extract user email from "by user: email\n\n..." prefix injected by UI
         user_email = None
