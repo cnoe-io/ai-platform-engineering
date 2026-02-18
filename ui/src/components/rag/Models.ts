@@ -17,8 +17,8 @@ export type IngestionJob = {
 	progress_counter: number
 	failed_counter: number
 	total: number
-	created_at: string
-	completed_at?: string
+	created_at: number  // Unix timestamp in seconds
+	completed_at?: number  // Unix timestamp in seconds
 	error_msgs?: string[]
 	document_count?: number
 	chunk_count?: number

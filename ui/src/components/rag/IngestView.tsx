@@ -33,7 +33,10 @@ import {
   Settings,
   X,
   Plus,
-  Search
+  Search,
+  HelpCircle,
+  ArrowRight,
+  Layers
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import type { IngestionJob, DataSourceInfo, IngestorInfo } from './Models'
@@ -203,6 +206,8 @@ export default function IngestView() {
   const [deniedUrlPatterns, setDeniedUrlPatterns] = useState('')
   const [chunkSize, setChunkSize] = useState(10000)
   const [chunkOverlap, setChunkOverlap] = useState(2000)
+  const [reloadInterval, setReloadInterval] = useState<number>(86400) // Default to 24 hours
+  const [isCustomReloadInterval, setIsCustomReloadInterval] = useState(false)
 
   // DataSources state
   const [dataSources, setDataSources] = useState<DataSourceInfo[]>([])
@@ -220,6 +225,7 @@ export default function IngestView() {
   const [refreshingIngestors, setRefreshingIngestors] = useState(false)
   const [expandedIngestors, setExpandedIngestors] = useState<Set<string>>(new Set())
   const [showIngestors, setShowIngestors] = useState(false)
+  const [showHelp, setShowHelp] = useState(false)
 
   // Confirmation dialogs state
   const [showDeleteDataSourceConfirm, setShowDeleteDataSourceConfirm] = useState<string | null>(null)
@@ -357,11 +363,8 @@ export default function IngestView() {
   const fetchJobsForDataSource = async (datasourceId: string) => {
     try {
       const jobs = await getJobsByDataSource(datasourceId)
-      const sortedJobs = jobs.sort((a, b) => {
-        const timeA = new Date(a.created_at).getTime()
-        const timeB = new Date(b.created_at).getTime()
-        return timeB - timeA
-      })
+      // Sort by created_at (Unix timestamp in seconds) - newest first
+      const sortedJobs = jobs.sort((a, b) => b.created_at - a.created_at)
       setDataSourceJobs(prev => ({ ...prev, [datasourceId]: sortedJobs }))
     } catch (error) {
       console.error(`Failed to fetch jobs for datasource ${datasourceId}:`, error)
@@ -381,7 +384,7 @@ export default function IngestView() {
     }
   }
 
-  const fetchDataSources = async () => {
+  const fetchDataSources = async (alsoRefreshJobs = false) => {
     const isRefresh = dataSources.length > 0
     if (isRefresh) {
       setRefreshingDataSources(true)
@@ -392,6 +395,11 @@ export default function IngestView() {
       const response = await getDataSources()
       const datasources = response.datasources
       setDataSources(datasources)
+      
+      // Optionally refresh jobs for all datasources (on manual refresh)
+      if (alsoRefreshJobs) {
+        await Promise.all(datasources.map(ds => fetchJobsForDataSource(ds.datasource_id)))
+      }
     } catch (error) {
       console.error('Failed to fetch data sources', error)
     } finally {
@@ -479,6 +487,8 @@ export default function IngestView() {
           chunk_size: chunkSize,
           chunk_overlap: chunkOverlap,
         } : undefined,
+        // Per-datasource reload interval (null = use global default)
+        reload_interval: ingestType === 'web' ? reloadInterval : undefined,
       })
       const { datasource_id, job_id, message } = response
       await fetchDataSources()
@@ -597,7 +607,7 @@ export default function IngestView() {
       {/* Scrollable Content */}
       <ScrollArea className="flex-1">
         <div className="p-6 space-y-6">
-          {/* Ingest URL Section */}
+          {/* Ingest Section */}
           <motion.section 
             className="bg-card rounded-xl shadow-sm border border-border p-5"
             initial={{ opacity: 0, y: 10 }}
@@ -606,7 +616,7 @@ export default function IngestView() {
           >
             <div className="flex items-center gap-2 mb-4">
               <Plus className="h-5 w-5 text-primary" />
-              <h3 className="text-base font-semibold text-foreground">Ingest URL</h3>
+              <h3 className="text-base font-semibold text-foreground">Ingest</h3>
             </div>
 
             {/* Ingest Type Selection - Pill Style */}
@@ -994,6 +1004,56 @@ export default function IngestView() {
                               </p>
                             </div>
                           </div>
+
+                          {/* Separator before Auto-Reload Settings */}
+                          <hr className="border-border/50" />
+
+                          {/* Auto-Reload Settings */}
+                          <div>
+                            <label className="block text-sm font-medium text-muted-foreground mb-1">
+                              Auto-Reload Interval
+                            </label>
+                            <select
+                              value={isCustomReloadInterval ? 'custom' : reloadInterval}
+                              onChange={(e) => {
+                                const value = e.target.value
+                                if (value === 'custom') {
+                                  setReloadInterval(3600) // Default custom to 1h
+                                  setIsCustomReloadInterval(true)
+                                } else {
+                                  setReloadInterval(Number(value))
+                                  setIsCustomReloadInterval(false)
+                                }
+                              }}
+                              className="w-full h-9 rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                            >
+                              <option value="3600">Every 1 hour</option>
+                              <option value="21600">Every 6 hours</option>
+                              <option value="86400">Every 24 hours</option>
+                              <option value="259200">Every 3 days</option>
+                              <option value="604800">Every 7 days</option>
+                              <option value="custom">Custom...</option>
+                            </select>
+                            {isCustomReloadInterval && (
+                              <div className="mt-2">
+                                <Input
+                                  type="number"
+                                  min={60}
+                                  step={60}
+                                  value={reloadInterval}
+                                  onChange={(e) => setReloadInterval(Math.max(60, Number(e.target.value)))}
+                                  className="w-full"
+                                  placeholder="Interval in seconds (min: 60)"
+                                />
+                                <p className="mt-1 text-xs text-muted-foreground">
+                                  Custom interval in seconds (minimum: 60)
+                                </p>
+                              </div>
+                            )}
+                            <p className="mt-1 text-xs text-muted-foreground">
+                              How often this data source should be automatically refreshed
+                            </p>
+                          </div>
                         </>
                       )}
                     </div>
@@ -1014,6 +1074,13 @@ export default function IngestView() {
             <div className="px-5 py-4 border-b border-border flex items-center justify-between gap-4">
               <div className="flex items-center gap-3">
                 <h3 className="text-base font-semibold text-foreground">Data Sources</h3>
+                <button
+                  onClick={() => setShowHelp(true)}
+                  className="p-1 rounded-full hover:bg-muted/50 text-muted-foreground hover:text-foreground transition-colors"
+                  title="Learn about Ingestors, Datasources, and Documents"
+                >
+                  <HelpCircle className="h-4 w-4" />
+                </button>
                 <Badge variant="secondary" className="text-xs">
                   {filteredDataSources.length} {selectedSourceType !== 'all' || searchQuery ? `of ${dataSources.length}` : ''}
                 </Badge>
@@ -1042,7 +1109,7 @@ export default function IngestView() {
                 <Button
                   variant="ghost"
                   size="sm"
-                  onClick={fetchDataSources}
+                  onClick={() => fetchDataSources(true)}
                   disabled={loadingDataSources || refreshingDataSources}
                   className="gap-2"
                 >
@@ -1232,13 +1299,18 @@ export default function IngestView() {
                                       <p className="text-xs font-medium text-muted-foreground mb-1">Chunk Overlap</p>
                                       <p className="text-foreground">{ds.default_chunk_overlap}</p>
                                     </div>
-                                  </div>
-
-                                  {/* Metrics Placeholder */}
-                                  <div className="p-3 rounded-lg border border-dashed border-border/50 bg-muted/30">
-                                    <p className="text-xs text-muted-foreground text-center">
-                                      Metrics will be displayed here
-                                    </p>
+                                    <div>
+                                      <p className="text-xs font-medium text-muted-foreground mb-1">Reload Interval</p>
+                                      <p className="text-foreground">
+                                        {(() => {
+                                          const interval = ds.metadata?.reload_interval as number | undefined
+                                          if (!interval) return 'Default'
+                                          if (interval >= 86400) return `${Math.round(interval / 86400)}d`
+                                          if (interval >= 3600) return `${Math.round(interval / 3600)}h`
+                                          return `${interval}s`
+                                        })()}
+                                      </p>
+                                    </div>
                                   </div>
 
                                   {ds.description && (
@@ -1358,12 +1430,12 @@ export default function IngestView() {
                                                       <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
                                                         <div>
                                                           <span className="font-medium text-muted-foreground">Created:</span>
-                                                          <p className="text-foreground">{new Date(job.created_at).toLocaleString()}</p>
+                                                          <p className="text-foreground">{new Date(job.created_at * 1000).toLocaleString()}</p>
                                                         </div>
                                                         {job.completed_at && (
                                                           <div>
                                                             <span className="font-medium text-muted-foreground">Completed:</span>
-                                                            <p className="text-foreground">{new Date(job.completed_at).toLocaleString()}</p>
+                                                            <p className="text-foreground">{new Date(job.completed_at * 1000).toLocaleString()}</p>
                                                           </div>
                                                         )}
                                                         <div>
@@ -1506,6 +1578,13 @@ export default function IngestView() {
               <div className="flex items-center gap-3">
                 <Server className="h-5 w-5 text-muted-foreground" />
                 <h3 className="text-base font-semibold text-foreground">Ingestors</h3>
+                <button
+                  onClick={(e) => { e.stopPropagation(); setShowHelp(true); }}
+                  className="p-1 rounded-full hover:bg-muted/50 text-muted-foreground hover:text-foreground transition-colors"
+                  title="Learn about Ingestors, Datasources, and Documents"
+                >
+                  <HelpCircle className="h-4 w-4" />
+                </button>
                 <Badge variant="secondary" className="text-xs">
                   {ingestors.length}
                 </Badge>
@@ -1811,6 +1890,141 @@ export default function IngestView() {
                   onClick={() => handleDeleteIngestor(showDeleteIngestorConfirm)}
                 >
                   Delete Ingestor
+                </Button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Help Popup */}
+      <AnimatePresence>
+        {showHelp && (
+          <motion.div 
+            className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setShowHelp(false)}
+          >
+            <motion.div 
+              className="bg-card p-6 rounded-xl shadow-2xl max-w-lg w-full mx-4 border border-border"
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between mb-5">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 rounded-lg bg-primary/10">
+                    <HelpCircle className="h-5 w-5 text-primary" />
+                  </div>
+                  <h3 className="text-lg font-bold text-foreground">How It Works</h3>
+                </div>
+                <button
+                  onClick={() => setShowHelp(false)}
+                  className="p-1 rounded-full hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+
+              {/* Diagram */}
+              <div className="mb-6 p-4 bg-muted/30 rounded-lg border border-border/50">
+                <div className="flex items-center justify-center gap-2 text-sm">
+                  <div className="flex flex-col items-center gap-1">
+                    <div className="p-2 rounded-lg bg-blue-500/20 border border-blue-500/30">
+                      <Server className="h-5 w-5 text-blue-400" />
+                    </div>
+                    <span className="text-xs font-medium text-blue-400">Ingestor</span>
+                  </div>
+                  <div className="flex flex-col items-center">
+                    <ArrowRight className="h-4 w-4 text-muted-foreground" />
+                    <span className="text-[10px] text-muted-foreground">creates</span>
+                  </div>
+                  <div className="flex flex-col items-center gap-1">
+                    <div className="p-2 rounded-lg bg-emerald-500/20 border border-emerald-500/30">
+                      <Database className="h-5 w-5 text-emerald-400" />
+                    </div>
+                    <span className="text-xs font-medium text-emerald-400">Datasource</span>
+                  </div>
+                  <div className="flex flex-col items-center">
+                    <ArrowRight className="h-4 w-4 text-muted-foreground" />
+                    <span className="text-[10px] text-muted-foreground">contains</span>
+                  </div>
+                  <div className="flex flex-col items-center gap-1">
+                    <div className="p-2 rounded-lg bg-purple-500/20 border border-purple-500/30">
+                      <FileText className="h-5 w-5 text-purple-400" />
+                    </div>
+                    <span className="text-xs font-medium text-purple-400">Documents</span>
+                  </div>
+                  <div className="flex flex-col items-center">
+                    <ArrowRight className="h-4 w-4 text-muted-foreground" />
+                    <span className="text-[10px] text-muted-foreground">split into</span>
+                  </div>
+                  <div className="flex flex-col items-center gap-1">
+                    <div className="p-2 rounded-lg bg-orange-500/20 border border-orange-500/30">
+                      <Layers className="h-5 w-5 text-orange-400" />
+                    </div>
+                    <span className="text-xs font-medium text-orange-400">Chunks</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Definitions */}
+              <div className="space-y-4">
+                <div className="flex gap-3">
+                  <div className="p-2 rounded-lg bg-blue-500/20 border border-blue-500/30 h-fit">
+                    <Server className="h-4 w-4 text-blue-400" />
+                  </div>
+                  <div>
+                    <h4 className="font-semibold text-foreground text-sm">Ingestors</h4>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      Background services that fetch and process content from external sources. Each ingestor type (web, Confluence, GitHub, etc.) handles a specific source type and can create multiple datasources.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex gap-3">
+                  <div className="p-2 rounded-lg bg-emerald-500/20 border border-emerald-500/30 h-fit">
+                    <Database className="h-4 w-4 text-emerald-400" />
+                  </div>
+                  <div>
+                    <h4 className="font-semibold text-foreground text-sm">Datasources</h4>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      A collection of documents from a single source URL or location. Each datasource tracks its own refresh schedule and contains one or more documents. Example: a documentation website.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex gap-3">
+                  <div className="p-2 rounded-lg bg-purple-500/20 border border-purple-500/30 h-fit">
+                    <FileText className="h-4 w-4 text-purple-400" />
+                  </div>
+                  <div>
+                    <h4 className="font-semibold text-foreground text-sm">Documents</h4>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      Individual pages or files extracted from a datasource. Each document is split into smaller chunks for efficient vector embedding and semantic search.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex gap-3">
+                  <div className="p-2 rounded-lg bg-orange-500/20 border border-orange-500/30 h-fit">
+                    <Layers className="h-4 w-4 text-orange-400" />
+                  </div>
+                  <div>
+                    <h4 className="font-semibold text-foreground text-sm">Chunks</h4>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      Small segments of text that are converted into vector embeddings for semantic search. Chunk size and overlap can be configured per datasource.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-6 flex justify-end">
+                <Button onClick={() => setShowHelp(false)}>
+                  Got it
                 </Button>
               </div>
             </motion.div>
