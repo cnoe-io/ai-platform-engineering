@@ -246,15 +246,3 @@ jobs:
             echo "✅ Tag '$TAG' now points to commit with synced versions"
           fi
 
-      - name: 🚀 Trigger Helm chart publish
-        if: steps.check.outputs.skip != 'true'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          echo "🚀 Triggering Helm chart publish workflow..."
-
-          if gh workflow run helm.yml --ref main -f publish_all=true 2>&1; then
-            echo "✅ Helm publish workflow triggered successfully"
-          else
-            echo "⚠️ Failed to trigger Helm publish workflow (may need to be run manually)"
-          fi
