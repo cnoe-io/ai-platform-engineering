@@ -7,7 +7,7 @@ from common.models.rag import DataSourceInfo, DocumentMetadata
 from common.models.server import DocumentIngestRequest, IngestorPingRequest, ExploreDataEntityRequest
 from common.job_manager import JobStatus, JobInfo
 from common.models.graph import Entity
-from common.constants import MIN_RELOAD_INTERVAL
+from common.constants import DEFAULT_RELOAD_INTERVAL, MIN_RELOAD_INTERVAL
 from langchain_core.documents import Document
 import common.utils as utils
 import dotenv
@@ -771,7 +771,7 @@ class IngestorBuilder:
         return (int(time_until_next_sync), False)
 
       # Find the earliest datasource that will need reloading
-      min_time_until_reload = self._sync_interval
+      min_time_until_reload = DEFAULT_RELOAD_INTERVAL
 
       for ds in datasources:
         if ds.last_updated is None:
@@ -779,8 +779,8 @@ class IngestorBuilder:
           logger.debug(f"Datasource {ds.datasource_id} has no last_updated, needs immediate sync")
           return (0, True)
 
-        # Get per-datasource reload interval from metadata, fall back to global sync_interval
-        ds_reload_interval = self._sync_interval
+        # Get per-datasource reload interval from metadata, fall back to DEFAULT_RELOAD_INTERVAL (24h)
+        ds_reload_interval = DEFAULT_RELOAD_INTERVAL
         if ds.metadata:
           stored_interval = ds.metadata.get("reload_interval")
           if stored_interval is not None:
