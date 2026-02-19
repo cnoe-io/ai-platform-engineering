@@ -7,7 +7,7 @@ from common.models.rag import DataSourceInfo, DocumentMetadata
 from common.models.server import DocumentIngestRequest, IngestorPingRequest, ExploreDataEntityRequest
 from common.job_manager import JobStatus, JobInfo
 from common.models.graph import Entity
-from common.constants import MIN_RELOAD_INTERVAL
+from common.constants import DEFAULT_RELOAD_INTERVAL, MIN_RELOAD_INTERVAL
 from langchain_core.documents import Document
 import common.utils as utils
 import dotenv
@@ -771,7 +771,7 @@ class IngestorBuilder:
         return (int(time_until_next_sync), False)
 
       # Find the earliest datasource that will need reloading
-      min_time_until_reload = self._sync_interval
+      min_time_until_reload = DEFAULT_RELOAD_INTERVAL
 
       for ds in datasources:
         if ds.last_updated is None:
@@ -779,8 +779,8 @@ class IngestorBuilder:
           logger.debug(f"Datasource {ds.datasource_id} has no last_updated, needs immediate sync")
           return (0, True)
 
-        # Get per-datasource reload interval from metadata, fall back to global sync_interval
-        ds_reload_interval = self._sync_interval
+        # Get per-datasource reload interval from metadata, fall back to DEFAULT_RELOAD_INTERVAL (24h)
+        ds_reload_interval = DEFAULT_RELOAD_INTERVAL
         if ds.metadata:
           stored_interval = ds.metadata.get("reload_interval")
           if stored_interval is not None:
@@ -887,10 +887,18 @@ class IngestorBuilder:
             logger.info("EXIT_AFTER_FIRST_SYNC is set and no datasources need updating. Exiting without sync.")
             return
 
+          # Enforce minimum sleep to prevent tight loops from misconfiguration
+          MIN_LOOP_SLEEP = 600  # 10 minute floor
           if sleep_time > 0:
             # No datasources need syncing yet, sleep until next one is due
             logger.info(f"Sleeping for {sleep_time}s before next sync")
             await asyncio.sleep(sleep_time)
+          elif self._last_sync_time is not None:
+            time_since_last_sync = int(time.time()) - self._last_sync_time
+            if time_since_last_sync < MIN_LOOP_SLEEP:
+              backoff = MIN_LOOP_SLEEP - time_since_last_sync
+              logger.warning(f"Sync returned sleep_time=0 but last sync was only {time_since_last_sync}s ago, backing off {backoff}s to prevent tight loop")
+              await asyncio.sleep(backoff)
 
           # Now run the sync (either immediately if overdue, or after sleeping)
           logger.info("Running sync cycle...")
