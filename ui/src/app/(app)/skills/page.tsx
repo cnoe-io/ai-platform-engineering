@@ -9,11 +9,13 @@ import {
   YamlImportDialog,
 } from "@/components/agent-builder";
 import { AuthGuard } from "@/components/auth-guard";
+import { getConfig } from "@/lib/config";
 import type { AgentConfig } from "@/types/agent-config";
 
 type ViewMode = "gallery" | "runner";
 
 export default function AgentBuilderPage() {
+  const workflowRunnerEnabled = getConfig('workflowRunnerEnabled');
   const [viewMode, setViewMode] = useState<ViewMode>("gallery");
   const [selectedConfig, setSelectedConfig] = useState<AgentConfig | null>(null);
   const [editingConfig, setEditingConfig] = useState<AgentConfig | undefined>(undefined);
@@ -97,7 +99,7 @@ export default function AgentBuilderPage() {
               >
                 <AgentBuilderGallery
                   onSelectConfig={handleSelectConfig}
-                  onRunQuickStart={handleRunQuickStart}
+                  onRunQuickStart={workflowRunnerEnabled ? handleRunQuickStart : undefined}
                   onEditConfig={handleEditConfig}
                   onCreateNew={handleCreateNew}
                   onImportYaml={handleImportYaml}
@@ -105,7 +107,7 @@ export default function AgentBuilderPage() {
               </motion.div>
             )}
 
-            {viewMode === "runner" && selectedConfig && (
+            {workflowRunnerEnabled && viewMode === "runner" && selectedConfig && (
               <motion.div
                 key="runner"
                 initial={{ opacity: 0, x: 20 }}

@@ -162,6 +162,8 @@ config:
   # SPINNER_COLOR: ""
   SHOW_POWERED_BY: "false"
   PREVIEW_MODE: "false"
+  # Workflow runner: set to "true" to show Run Workflow button and Multi-Step Workflows section
+  WORKFLOW_RUNNER_ENABLED: "false"
   # OIDC required group (non-sensitive)
   OIDC_REQUIRED_GROUP: "app-users"
   # OIDC admin group (non-sensitive)

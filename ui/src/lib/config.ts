@@ -83,6 +83,13 @@ export interface Config {
   docsUrl: string | null;
   /** Source code URL (hidden in header if not set) */
   sourceUrl: string | null;
+  /**
+   * Whether the dedicated workflow runner is enabled.
+   * When false (default), the "Run Workflow" button and the Multi-Step Workflows
+   * card section are hidden; "Run in Chat" remains fully functional.
+   * Set WORKFLOW_RUNNER_ENABLED=true to enable.
+   */
+  workflowRunnerEnabled: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -123,6 +130,7 @@ const DEFAULT_CONFIG: Config = {
   faviconUrl: '/favicon.ico',
   docsUrl: null,
   sourceUrl: null,
+  workflowRunnerEnabled: false,
 };
 
 // ---------------------------------------------------------------------------
@@ -159,6 +167,7 @@ export function getServerConfig(): Config {
     || env('MONGODB_ENABLED') === 'true';
   const previewMode = env('PREVIEW_MODE') === 'true';
   const allowDevAdminWhenSsoDisabled = env('ALLOW_DEV_ADMIN_WHEN_SSO_DISABLED') === 'true';
+  const workflowRunnerEnabled = env('WORKFLOW_RUNNER_ENABLED') === 'true';
 
   const showPoweredByEnv = env('SHOW_POWERED_BY');
   const showPoweredBy = showPoweredByEnv !== undefined ? showPoweredByEnv !== 'false' : true;
@@ -197,6 +206,7 @@ export function getServerConfig(): Config {
     faviconUrl: env('FAVICON_URL') || '/favicon.ico',
     docsUrl: env('DOCS_URL') || null,
     sourceUrl: env('SOURCE_URL') || null,
+    workflowRunnerEnabled,
   };
 }
 
