@@ -546,7 +546,20 @@ Use this as the reference point for all date calculations. When users say "today
                 })
 
         # Get tools from MCP client
-        tools = await client.get_tools()
+        #
+        # Some MCP backends (e.g., hosted providers) can return auth/network errors at this stage.
+        # If that happens and the agent has usable local tools (e.g., gh CLI), allow the agent to
+        # start with only those tools rather than crashing the whole container.
+        mcp_tools_error: Exception | None = None
+        try:
+            tools = await client.get_tools()
+        except Exception as e:
+            mcp_tools_error = e
+            tools = []
+            logger.error(
+                f"{agent_name}: Failed to load MCP tools; continuing with local tools only. "
+                f"Error: {type(e).__name__}: {e}"
+            )
 
         # Allow subclasses to filter tools (e.g., based on environment variables)
         tools = self._filter_mcp_tools(tools)
@@ -559,6 +572,13 @@ Use this as the reference point for all date calculations. When users say "today
         if additional_tools:
             tools.extend(additional_tools)
             logger.info(f"{agent_name}: Added {len(additional_tools)} custom tools")
+
+        # If MCP tools failed to load and there are no local tools, fail fast with context.
+        if not tools and mcp_tools_error is not None:
+            raise RuntimeError(
+                f"{agent_name}: MCP tools failed to load and no local tools are available. "
+                f"Original error: {type(mcp_tools_error).__name__}: {mcp_tools_error}"
+            ) from mcp_tools_error
 
         # Display detailed tool information for debugging
         logger.debug('*' * 50)

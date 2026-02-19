@@ -41,6 +41,8 @@ DEFAULT_REGISTRY_EXCLUSIONS = frozenset({
     "GRAPH_RAG",            # Graph RAG capability flag
     "RAG",                  # RAG capability flag
     "SUBAGENT_CARDS",       # UI feature flag for sub-agent cards
+    "CAIPE_UI",             # UI enable flag — not an A2A agent
+    "AGENT_FORGE",          # Backstage plugin service flag — not an A2A agent
 })
 
 
