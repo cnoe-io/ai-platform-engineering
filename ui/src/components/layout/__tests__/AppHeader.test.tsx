@@ -1,12 +1,18 @@
 /**
- * Unit tests for AppHeader component — nav tab visibility
+ * Unit tests for AppHeader component
  *
- * Tests:
+ * Nav tab visibility:
  * - Personal Insights tab is NOT in the nav pills (moved to user menu)
  * - Skills and Chat tabs are always visible
  * - Knowledge Bases tab is visible when RAG is enabled
  * - Admin tab is visible for admin users, disabled without MongoDB
  * - Active tab styling based on pathname
+ *
+ * Connection status badge (getCombinedStatus):
+ * - "connected"        → both supervisor & RAG online (green)
+ * - "checking"         → either service is checking (amber spinner)
+ * - "rag-disconnected" → supervisor online, RAG offline (amber warning)
+ * - "disconnected"     → supervisor offline (red), regardless of RAG
  */
 
 import React from 'react'
@@ -43,25 +49,27 @@ jest.mock('@/store/chat-store', () => ({
   })),
 }))
 
-// Mock CAIPE health hook
+// Mock CAIPE health hook — status and storageMode are mutable per test
 let mockStorageMode = 'mongodb'
+let mockCaipeStatus: 'connected' | 'disconnected' | 'checking' = 'connected'
 jest.mock('@/hooks/use-caipe-health', () => ({
   useCAIPEHealth: () => ({
-    status: 'connected',
+    status: mockCaipeStatus,
     url: 'http://localhost:8080',
     secondsUntilNextCheck: 30,
     agents: [],
-    tags: {},
-    mongoDBStatus: true,
+    tags: [],
+    mongoDBStatus: 'connected',
     storageMode: mockStorageMode,
   }),
 }))
 
-// Mock RAG health hook
+// Mock RAG health hook — status and enabled are mutable per test
 let mockRagEnabled = false
+let mockRagStatus: 'connected' | 'disconnected' | 'checking' = 'connected'
 jest.mock('@/hooks/use-rag-health', () => ({
   useRAGHealth: () => ({
-    status: 'connected',
+    status: mockRagStatus,
     url: 'http://localhost:9090',
     enabled: mockRagEnabled,
     secondsUntilNextCheck: 30,
@@ -171,6 +179,8 @@ describe('AppHeader — nav tabs', () => {
     mockPathname = '/chat'
     mockIsAdmin = false
     mockRagEnabled = false
+    mockCaipeStatus = 'connected'
+    mockRagStatus = 'connected'
     mockSession.status = 'authenticated' as const
     mockSession.data = { user: { name: 'Test User', email: 'test@test.com' } } as any
   })
@@ -271,6 +281,252 @@ describe('AppHeader — nav tabs', () => {
     it('renders SettingsPanel', () => {
       render(<AppHeader />)
       expect(screen.getByTestId('settings-panel')).toBeInTheDocument()
+    })
+  })
+})
+
+// ============================================================================
+// Connection status badge tests
+// ============================================================================
+
+describe('AppHeader — connection status badge', () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+    mockStorageMode = 'mongodb'
+    mockPathname = '/chat'
+    mockIsAdmin = false
+    mockRagEnabled = false
+    mockCaipeStatus = 'connected'
+    mockRagStatus = 'connected'
+    mockSession.status = 'authenticated' as const
+    mockSession.data = { user: { name: 'Test User', email: 'test@test.com' } } as any
+  })
+
+  describe('green — Connected', () => {
+    it('shows "Connected" when supervisor is online and RAG is disabled', () => {
+      mockCaipeStatus = 'connected'
+      mockRagEnabled = false
+      render(<AppHeader />)
+      expect(screen.getByText('Connected')).toBeInTheDocument()
+    })
+
+    it('shows "Connected" when both supervisor and RAG are online', () => {
+      mockCaipeStatus = 'connected'
+      mockRagEnabled = true
+      mockRagStatus = 'connected'
+      render(<AppHeader />)
+      expect(screen.getByText('Connected')).toBeInTheDocument()
+    })
+
+    it('Connected badge has green styling', () => {
+      mockCaipeStatus = 'connected'
+      mockRagEnabled = false
+      render(<AppHeader />)
+      const badge = screen.getByText('Connected').closest('button')
+      expect(badge?.className).toContain('green')
+    })
+
+    it('popover header shows "All Systems Live" when connected', () => {
+      mockCaipeStatus = 'connected'
+      mockRagEnabled = true
+      mockRagStatus = 'connected'
+      render(<AppHeader />)
+      expect(screen.getByText('All Systems Live')).toBeInTheDocument()
+    })
+
+    it('popover footer shows "All systems operational" when connected', () => {
+      mockCaipeStatus = 'connected'
+      mockRagEnabled = false
+      render(<AppHeader />)
+      expect(screen.getByText('All systems operational')).toBeInTheDocument()
+    })
+  })
+
+  describe('amber — Checking', () => {
+    // The button AND popover badge both render "Checking" when in checking state,
+    // so we use getAllByText and confirm the status button specifically.
+    it('shows "Checking" when supervisor is in checking state', () => {
+      mockCaipeStatus = 'checking'
+      render(<AppHeader />)
+      const matches = screen.getAllByText('Checking')
+      expect(matches.length).toBeGreaterThan(0)
+    })
+
+    it('shows "Checking" when RAG is enabled and in checking state', () => {
+      mockCaipeStatus = 'connected'
+      mockRagEnabled = true
+      mockRagStatus = 'checking'
+      render(<AppHeader />)
+      const matches = screen.getAllByText('Checking')
+      expect(matches.length).toBeGreaterThan(0)
+    })
+
+    it('Checking status button has amber styling', () => {
+      mockCaipeStatus = 'checking'
+      render(<AppHeader />)
+      // Find the status button (the one that is a <button> element)
+      const statusButton = screen.getAllByText('Checking')
+        .map(el => el.closest('button'))
+        .find(Boolean)
+      expect(statusButton?.className).toContain('amber')
+    })
+
+    it('supervisor checking takes priority over RAG connected', () => {
+      mockCaipeStatus = 'checking'
+      mockRagEnabled = true
+      mockRagStatus = 'connected'
+      render(<AppHeader />)
+      const matches = screen.getAllByText('Checking')
+      expect(matches.length).toBeGreaterThan(0)
+    })
+
+    it('supervisor checking takes priority over RAG disconnected', () => {
+      mockCaipeStatus = 'checking'
+      mockRagEnabled = true
+      mockRagStatus = 'disconnected'
+      render(<AppHeader />)
+      // Still "Checking" — supervisor check takes priority
+      const matches = screen.getAllByText('Checking')
+      expect(matches.length).toBeGreaterThan(0)
+      expect(screen.queryByText('RAG Disconnected')).not.toBeInTheDocument()
+      expect(screen.queryByText('Disconnected')).not.toBeInTheDocument()
+    })
+  })
+
+  describe('amber — RAG Disconnected (supervisor up, RAG down)', () => {
+    it('shows "RAG Disconnected" when supervisor is online but RAG is offline', () => {
+      mockCaipeStatus = 'connected'
+      mockRagEnabled = true
+      mockRagStatus = 'disconnected'
+      render(<AppHeader />)
+      expect(screen.getByText('RAG Disconnected')).toBeInTheDocument()
+    })
+
+    it('RAG Disconnected badge has amber styling, not red', () => {
+      mockCaipeStatus = 'connected'
+      mockRagEnabled = true
+      mockRagStatus = 'disconnected'
+      render(<AppHeader />)
+      const badge = screen.getByText('RAG Disconnected').closest('button')
+      expect(badge?.className).toContain('amber')
+      expect(badge?.className).not.toContain('red')
+    })
+
+    it('does NOT show "Disconnected" when only RAG is offline', () => {
+      mockCaipeStatus = 'connected'
+      mockRagEnabled = true
+      mockRagStatus = 'disconnected'
+      render(<AppHeader />)
+      expect(screen.queryByText('Disconnected')).not.toBeInTheDocument()
+    })
+
+    it('does NOT show "RAG Disconnected" when RAG is disabled (even if status is disconnected)', () => {
+      mockCaipeStatus = 'connected'
+      mockRagEnabled = false
+      mockRagStatus = 'disconnected'
+      render(<AppHeader />)
+      // RAG is not enabled, so its status is ignored → "Connected"
+      expect(screen.queryByText('RAG Disconnected')).not.toBeInTheDocument()
+      expect(screen.getByText('Connected')).toBeInTheDocument()
+    })
+
+    it('popover header shows "RAG Offline" when supervisor up but RAG down', () => {
+      mockCaipeStatus = 'connected'
+      mockRagEnabled = true
+      mockRagStatus = 'disconnected'
+      render(<AppHeader />)
+      expect(screen.getByText('RAG Offline')).toBeInTheDocument()
+    })
+
+    it('popover footer shows "RAG server unavailable" when supervisor up but RAG down', () => {
+      mockCaipeStatus = 'connected'
+      mockRagEnabled = true
+      mockRagStatus = 'disconnected'
+      render(<AppHeader />)
+      expect(screen.getByText('RAG server unavailable')).toBeInTheDocument()
+    })
+
+    it('does NOT show "Issues Detected" when only RAG is offline', () => {
+      mockCaipeStatus = 'connected'
+      mockRagEnabled = true
+      mockRagStatus = 'disconnected'
+      render(<AppHeader />)
+      expect(screen.queryByText('Issues Detected')).not.toBeInTheDocument()
+    })
+  })
+
+  describe('red — Disconnected (supervisor down)', () => {
+    it('shows "Disconnected" when supervisor is offline', () => {
+      mockCaipeStatus = 'disconnected'
+      render(<AppHeader />)
+      expect(screen.getByText('Disconnected')).toBeInTheDocument()
+    })
+
+    it('Disconnected badge has red styling', () => {
+      mockCaipeStatus = 'disconnected'
+      render(<AppHeader />)
+      const badge = screen.getByText('Disconnected').closest('button')
+      expect(badge?.className).toContain('red')
+      expect(badge?.className).not.toContain('amber')
+    })
+
+    it('shows "Disconnected" (red) when supervisor is offline even if RAG is online', () => {
+      mockCaipeStatus = 'disconnected'
+      mockRagEnabled = true
+      mockRagStatus = 'connected'
+      render(<AppHeader />)
+      expect(screen.getByText('Disconnected')).toBeInTheDocument()
+      expect(screen.queryByText('RAG Disconnected')).not.toBeInTheDocument()
+    })
+
+    it('shows "Disconnected" (red) when both supervisor and RAG are offline', () => {
+      mockCaipeStatus = 'disconnected'
+      mockRagEnabled = true
+      mockRagStatus = 'disconnected'
+      render(<AppHeader />)
+      expect(screen.getByText('Disconnected')).toBeInTheDocument()
+      expect(screen.queryByText('RAG Disconnected')).not.toBeInTheDocument()
+    })
+
+    it('popover header shows "Issues Detected" when supervisor is offline', () => {
+      mockCaipeStatus = 'disconnected'
+      render(<AppHeader />)
+      expect(screen.getByText('Issues Detected')).toBeInTheDocument()
+    })
+
+    it('popover footer shows "Check logs for details" when supervisor is offline', () => {
+      mockCaipeStatus = 'disconnected'
+      render(<AppHeader />)
+      expect(screen.getByText('Check logs for details')).toBeInTheDocument()
+    })
+  })
+
+  describe('status priority ordering', () => {
+    it('checking > disconnected: supervisor checking beats RAG disconnected', () => {
+      mockCaipeStatus = 'checking'
+      mockRagEnabled = true
+      mockRagStatus = 'disconnected'
+      render(<AppHeader />)
+      const matches = screen.getAllByText('Checking')
+      expect(matches.length).toBeGreaterThan(0)
+    })
+
+    it('supervisor-disconnected > rag-disconnected: full outage beats partial', () => {
+      mockCaipeStatus = 'disconnected'
+      mockRagEnabled = true
+      mockRagStatus = 'disconnected'
+      render(<AppHeader />)
+      expect(screen.getByText('Disconnected')).toBeInTheDocument()
+      expect(screen.queryByText('RAG Disconnected')).not.toBeInTheDocument()
+    })
+
+    it('rag-disconnected > connected: partial outage beats healthy', () => {
+      mockCaipeStatus = 'connected'
+      mockRagEnabled = true
+      mockRagStatus = 'disconnected'
+      render(<AppHeader />)
+      expect(screen.getByText('RAG Disconnected')).toBeInTheDocument()
+      expect(screen.queryByText('Connected')).not.toBeInTheDocument()
     })
   })
 })
