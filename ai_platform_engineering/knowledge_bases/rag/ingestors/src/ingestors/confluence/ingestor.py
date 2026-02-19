@@ -46,9 +46,9 @@ CONFLUENCE_USERNAME = os.environ.get("CONFLUENCE_USERNAME")
 if not CONFLUENCE_USERNAME:
     raise ValueError("CONFLUENCE_USERNAME environment variable is required")
 
-CONFLUENCE_TOKEN = os.environ.get("CONFLUENCE_TOKEN")
+CONFLUENCE_TOKEN = os.environ.get("CONFLUENCE_TOKEN") or os.environ.get("CONFLUENCE_API_TOKEN")
 if not CONFLUENCE_TOKEN:
-    raise ValueError("CONFLUENCE_TOKEN environment variable is required")
+    raise ValueError("CONFLUENCE_TOKEN (or CONFLUENCE_API_TOKEN) environment variable is required")
 
 CONFLUENCE_SSL_VERIFY = (
     os.environ.get("CONFLUENCE_SSL_VERIFY", "true").lower() == "true"
