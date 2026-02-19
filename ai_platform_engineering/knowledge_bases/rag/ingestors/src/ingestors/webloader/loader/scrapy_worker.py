@@ -96,6 +96,10 @@ class WorkerSpider(Spider):
     self.errors: list[str] = []
     self.max_errors = 50  # Limit to prevent memory issues
 
+    # Track sitemap discovery attempts for error reporting
+    self.sitemap_urls_checked: list[str] = []
+    self.robots_urls_checked: list[str] = []
+
     # Progress tracking
     self.total_pages_to_crawl: int | None = None  # Known total (from sitemap)
     self.pending_urls: set = set()  # URLs queued but not yet crawled
@@ -169,17 +173,29 @@ class WorkerSpider(Spider):
       self.result_queue.put(WorkerMessage.crawl_progress(progress).to_dict())
 
     if self.crawl_mode == "sitemap":
-      # For sitemap mode, first try to fetch the sitemap
-      # Use the full start_url (including path) to find sitemap in subdirectories
-      # For example: https://example.com/docs/ -> https://example.com/docs/sitemap.xml
-      base_url = self.start_url.rstrip("/")
+      # For sitemap mode, try to discover sitemap.xml
+      # First try subdirectory path, then fall back to root domain
+      # For example: https://example.com/docs/ -> try /docs/sitemap.xml, then /sitemap.xml
+      parsed = urlparse(self.start_url)
+      subdirectory_base = self.start_url.rstrip("/")
+      root_base = f"{parsed.scheme}://{parsed.netloc}"
 
-      # Try sitemap.xml first
+      # Determine if we have a subdirectory path
+      has_subdirectory = parsed.path and parsed.path.rstrip("/") != ""
+
+      # Try subdirectory sitemap.xml first (if there's a path)
+      sitemap_url = f"{subdirectory_base}/sitemap.xml"
+      self.sitemap_urls_checked.append(sitemap_url)
       yield Request(
-        f"{base_url}/sitemap.xml",
+        sitemap_url,
         callback=self.parse_sitemap,
         errback=self.handle_sitemap_error,
-        meta={"base_url": base_url},
+        meta={
+          "subdirectory_base": subdirectory_base,
+          "root_base": root_base,
+          "has_subdirectory": has_subdirectory,
+          "is_root_fallback": False,
+        },
       )
     else:
       # Single URL or recursive mode - start with the URL
@@ -214,41 +230,178 @@ class WorkerSpider(Spider):
       yield Request(url, callback=self.parse_page, errback=self.handle_error, meta=self._build_request_meta())
 
   def handle_sitemap_error(self, failure):
-    """Handle sitemap fetch failure - fall back to robots.txt."""
-    base_url = failure.request.meta.get("base_url", self.start_url)
+    """
+    Handle sitemap fetch failure with two-step fallback:
+    1. If subdirectory sitemap failed, try root sitemap
+    2. If root sitemap failed (or no subdirectory), try robots.txt (subdirectory then root)
+    3. If all fail, raise error (don't fall back to single page crawl)
+    """
+    meta = failure.request.meta
+    subdirectory_base = meta.get("subdirectory_base", self.start_url.rstrip("/"))
+    root_base = meta.get("root_base", subdirectory_base)
+    has_subdirectory = meta.get("has_subdirectory", False)
+    is_root_fallback = meta.get("is_root_fallback", False)
+
     error_detail = self._get_failure_reason(failure)
-    error_msg = f"Sitemap fetch failed ({error_detail}), trying robots.txt: {failure.request.url}"
+    error_msg = f"Sitemap fetch failed ({error_detail}): {failure.request.url}"
     self.logger.warning(error_msg)
     if len(self.errors) < self.max_errors:
       self.errors.append(error_msg)
 
-    yield Request(
-      f"{base_url}/robots.txt",
-      callback=self.parse_robots,
-      errback=self.handle_robots_error,
-      meta={"base_url": base_url},
-    )
+    # If we haven't tried root sitemap yet and there's a subdirectory, try root
+    if has_subdirectory and not is_root_fallback:
+      root_sitemap_url = f"{root_base}/sitemap.xml"
+      self.logger.info(f"Trying root sitemap: {root_sitemap_url}")
+      self.sitemap_urls_checked.append(root_sitemap_url)
+      yield Request(
+        root_sitemap_url,
+        callback=self.parse_sitemap,
+        errback=self.handle_sitemap_error,
+        meta={
+          "subdirectory_base": subdirectory_base,
+          "root_base": root_base,
+          "has_subdirectory": has_subdirectory,
+          "is_root_fallback": True,
+        },
+      )
+    else:
+      # Both sitemaps failed (or no subdirectory), try robots.txt
+      # Start with subdirectory robots.txt if applicable
+      if has_subdirectory:
+        robots_url = f"{subdirectory_base}/robots.txt"
+        self.logger.info(f"Trying subdirectory robots.txt: {robots_url}")
+        self.robots_urls_checked.append(robots_url)
+        yield Request(
+          robots_url,
+          callback=self.parse_robots,
+          errback=self.handle_robots_error,
+          meta={
+            "subdirectory_base": subdirectory_base,
+            "root_base": root_base,
+            "is_root_fallback": False,
+          },
+        )
+      else:
+        # No subdirectory, try root robots.txt directly
+        robots_url = f"{root_base}/robots.txt"
+        self.logger.info(f"Trying robots.txt: {robots_url}")
+        self.robots_urls_checked.append(robots_url)
+        yield Request(
+          robots_url,
+          callback=self.parse_robots,
+          errback=self.handle_robots_error,
+          meta={
+            "subdirectory_base": subdirectory_base,
+            "root_base": root_base,
+            "is_root_fallback": True,  # Mark as final attempt
+          },
+        )
 
   def parse_robots(self, response: Response):
     """Parse robots.txt for sitemap URLs."""
     sitemaps = re.findall(r"Sitemap:\s*(\S+)", response.text, re.IGNORECASE)
 
     if sitemaps:
+      self.logger.info(f"Found {len(sitemaps)} sitemap(s) in robots.txt: {sitemaps}")
       for sitemap_url in sitemaps:
-        yield Request(sitemap_url, callback=self.parse_sitemap, errback=self.handle_error)
+        self.sitemap_urls_checked.append(sitemap_url)
+        yield Request(
+          sitemap_url,
+          callback=self.parse_sitemap,
+          errback=self.handle_sitemap_from_robots_error,
+          meta={"from_robots": True},
+        )
     else:
-      # No sitemap in robots.txt, fall back to crawling the start URL
-      self.logger.warning("No sitemap found in robots.txt, falling back to start URL")
-      yield Request(self.start_url, callback=self.parse_page, errback=self.handle_error, meta=self._build_request_meta())
+      # No sitemap in robots.txt - try root robots.txt if we checked subdirectory
+      meta = response.request.meta
+      is_root_fallback = meta.get("is_root_fallback", False)
+      root_base = meta.get("root_base", "")
+      subdirectory_base = meta.get("subdirectory_base", "")
+
+      if not is_root_fallback and root_base != subdirectory_base:
+        # Try root robots.txt
+        robots_url = f"{root_base}/robots.txt"
+        self.logger.info(f"No sitemap in subdirectory robots.txt, trying root: {robots_url}")
+        self.robots_urls_checked.append(robots_url)
+        yield Request(
+          robots_url,
+          callback=self.parse_robots,
+          errback=self.handle_robots_error,
+          meta={
+            "subdirectory_base": subdirectory_base,
+            "root_base": root_base,
+            "is_root_fallback": True,
+          },
+        )
+      else:
+        # All options exhausted - fail with detailed error
+        self._fail_sitemap_discovery("No Sitemap directive found in robots.txt")
 
   def handle_robots_error(self, failure):
-    """Handle robots.txt fetch failure."""
+    """
+    Handle robots.txt fetch failure.
+    Try root robots.txt if subdirectory failed, otherwise fail with error.
+    """
+    meta = failure.request.meta
+    is_root_fallback = meta.get("is_root_fallback", False)
+    root_base = meta.get("root_base", "")
+    subdirectory_base = meta.get("subdirectory_base", "")
+
     error_detail = self._get_failure_reason(failure)
-    error_msg = f"robots.txt fetch failed ({error_detail}), crawling start URL: {failure.request.url}"
+    error_msg = f"robots.txt fetch failed ({error_detail}): {failure.request.url}"
     self.logger.warning(error_msg)
     if len(self.errors) < self.max_errors:
       self.errors.append(error_msg)
-    yield Request(self.start_url, callback=self.parse_page, errback=self.handle_error, meta=self._build_request_meta())
+
+    if not is_root_fallback and root_base != subdirectory_base:
+      # Try root robots.txt
+      robots_url = f"{root_base}/robots.txt"
+      self.logger.info(f"Trying root robots.txt: {robots_url}")
+      self.robots_urls_checked.append(robots_url)
+      yield Request(
+        robots_url,
+        callback=self.parse_robots,
+        errback=self.handle_robots_error,
+        meta={
+          "subdirectory_base": subdirectory_base,
+          "root_base": root_base,
+          "is_root_fallback": True,
+        },
+      )
+    else:
+      # All options exhausted - fail with detailed error
+      self._fail_sitemap_discovery("robots.txt not found or inaccessible")
+
+  def handle_sitemap_from_robots_error(self, failure):
+    """Handle failure when fetching a sitemap URL found in robots.txt."""
+    error_detail = self._get_failure_reason(failure)
+    error_msg = f"Sitemap from robots.txt failed ({error_detail}): {failure.request.url}"
+    self.logger.error(error_msg)
+    if len(self.errors) < self.max_errors:
+      self.errors.append(error_msg)
+    # This sitemap URL was explicitly listed in robots.txt but failed
+    # Don't try other fallbacks - this is a configuration error on the site
+    self._fail_sitemap_discovery(f"Sitemap URL from robots.txt is not accessible: {failure.request.url}")
+
+  def _fail_sitemap_discovery(self, reason: str):
+    """
+    Record a fatal sitemap discovery failure.
+    Called when all sitemap/robots.txt fallbacks have been exhausted.
+    """
+    # Build detailed error message with all URLs checked
+    checked_urls = []
+    if self.sitemap_urls_checked:
+      checked_urls.append(f"Sitemaps checked: {', '.join(self.sitemap_urls_checked)}")
+    if self.robots_urls_checked:
+      checked_urls.append(f"robots.txt checked: {', '.join(self.robots_urls_checked)}")
+
+    full_error = f"Sitemap discovery failed: {reason}. {' | '.join(checked_urls)}"
+    self.logger.error(full_error)
+    if len(self.errors) < self.max_errors:
+      self.errors.append(full_error)
+
+    # Mark the crawl as having a fatal sitemap error
+    # The spider will close with 0 pages crawled, and the error will be reported
 
   def parse_page(self, response: Response):
     """Parse a page and extract content."""
@@ -601,8 +754,16 @@ class WorkerSpider(Spider):
         if original_domain != self.effective_domain:
           parts.append(f"Tip: The site redirects from '{original_domain}' to '{self.effective_domain}'. Try using 'https://{self.effective_domain}' as the start URL, or enable 'Follow external links' to allow cross-domain crawling.")
     else:
-      # Generic failure message
-      parts.append("No pages were crawled.")
+      # Generic failure message - could be sitemap discovery failure or other issue
+      if self.crawl_mode == "sitemap":
+        parts.append("Sitemap discovery failed.")
+        if self.sitemap_urls_checked:
+          parts.append(f"Sitemaps checked: {', '.join(self.sitemap_urls_checked)}.")
+        if self.robots_urls_checked:
+          parts.append(f"robots.txt checked: {', '.join(self.robots_urls_checked)}.")
+      else:
+        parts.append("No pages were crawled.")
+
       if self.pages_failed > 0:
         parts.append(f"{self.pages_failed} requests failed.")
 
