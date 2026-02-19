@@ -6,9 +6,8 @@ as the reload interval fallback instead of DEFAULT_RELOAD_INTERVAL, causing a ti
 when datasources were older than CHECK_INTERVAL but younger than DEFAULT_RELOAD_INTERVAL.
 """
 
-import asyncio
 import time
-from unittest.mock import AsyncMock, patch, MagicMock
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
