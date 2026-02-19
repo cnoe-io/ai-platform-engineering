@@ -13,8 +13,9 @@
 #   - rag: Enable RAG services
 #   - graph_rag: Enable RAG with graph database
 #   - caipe-ui: Enable CAIPE web UI
+#   - weather: Enable remote Weather agent
 #
-# Example: docker compose -f docker-compose.dev.yaml --profile tracing up
+# Example: docker compose -f docker-compose.single-node.dev.yaml --profile weather up
 # ============================================================================
 
 services:
@@ -56,7 +57,30 @@ services:
 
       # Artifact streaming
       - ENABLE_ARTIFACT_STREAMING=true
+
+      # Remote A2A agents
+      - ENABLE_WEATHER=${ENABLE_WEATHER:-false}
+      - WEATHER_AGENT_HOST=agent-weather
+      - WEATHER_AGENT_PORT=8000
     command: platform-engineer-single
+
+  ####################################################################################################
+  #                               Remote A2A Agents                                                #
+  ####################################################################################################
+  agent-weather:
+    image: ghcr.io/cnoe-io/agent-weather:${IMAGE_TAG:-0.2.15}
+    container_name: agent-weather
+    volumes:
+      - ./charts/ai-platform-engineering/data/prompt_config.weather_agent.yaml:/app/prompt_config.weather_agent.yaml
+    env_file: [.env]
+    ports: ["8002:8000"]
+    environment:
+      - A2A_TRANSPORT=${A2A_TRANSPORT:-p2p}
+      - MCP_MODE=http
+      - MCP_HOST=weather.outshift.io
+      - MCP_PORT=8000
+    profiles:
+      - weather
 
   ####################################################################################################
   #                                       CAIPE UI                                                  #

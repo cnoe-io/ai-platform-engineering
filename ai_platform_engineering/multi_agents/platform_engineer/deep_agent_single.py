@@ -150,11 +150,17 @@ from ai_platform_engineering.multi_agents.tools import (
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
+# Remote A2A agent tool
+from ai_platform_engineering.utils.a2a_common.a2a_remote_agent_connect import A2ARemoteAgentConnectTool
+
 # Configuration
 ENABLE_RAG = os.getenv("ENABLE_RAG", "false").lower() in ("true", "1", "yes")
 RAG_SERVER_URL = os.getenv("RAG_SERVER_URL", "http://localhost:9446").strip("/")
 RAG_CONNECTIVITY_RETRIES = 5
 RAG_CONNECTIVITY_WAIT_SECONDS = 10
+
+# Remote A2A agents (run as separate containers, communicate via A2A protocol)
+ENABLE_WEATHER = os.getenv("ENABLE_WEATHER", "false").lower() in ("true", "1", "yes")
 
 
 def replace(old, new):
@@ -205,6 +211,10 @@ def create_caipe_agent_response_tool():
         # Constraint: Must provide input_fields
         if not input_fields:
             return "ERROR: No input_fields provided. You must specify input_fields with field_name, field_description, and required properties."
+
+        for field in input_fields:
+            if field.field_values:
+                field.field_values = sorted(field.field_values, key=str.casefold)
         
         # Separate fields by required status
         required_fields = [f for f in input_fields if f.required]
@@ -413,14 +423,16 @@ def create_invoke_self_service_task_tool():
             task["id"] = i
         
         # Create todos from tasks (all pending initially)
-        todos = [
-            {
+        # Include [SubagentName] prefix so the UI can render agent stickers
+        todos = []
+        for task in tasks:
+            subagent_name = task.get("subagent", "Agent").title()
+            display = task.get("display_text") or f"Step {task['id'] + 1}"
+            todos.append({
                 "id": task["id"],
-                "content": task.get("display_text", f"Step {task['id'] + 1}"),
+                "content": f"[{subagent_name}] {display}",
                 "status": "pending",
-            }
-            for task in tasks
-        ]
+            })
         
         logger.info(f"Invoking self-service task: {task_name} with {len(tasks)} steps")
         
@@ -657,6 +669,46 @@ async def create_confluence_subagent_def(prompt_config: dict = None) -> dict:
 
 
 # =============================================================================
+# Remote A2A Subagents
+# =============================================================================
+
+def _infer_remote_agent_url(name: str) -> str:
+    """Infer the URL for a remote A2A agent from environment variables."""
+    url = os.getenv(f"{name.upper()}_AGENT_URL")
+    if url:
+        return url
+    host = os.getenv(f"{name.upper()}_AGENT_HOST", "localhost")
+    port = os.getenv(f"{name.upper()}_AGENT_PORT", "8000")
+    return f"http://{host}:{port}"
+
+
+async def create_weather_remote_subagent_def(prompt_config: dict = None) -> dict:
+    """Create Weather subagent that delegates to a remote A2A weather agent."""
+    agent_url = _infer_remote_agent_url("weather")
+    logger.info(f"Creating remote weather subagent pointing to {agent_url}")
+
+    a2a_tool = A2ARemoteAgentConnectTool(
+        name="weather_a2a",
+        remote_agent_card=agent_url,
+        skill_id="",
+        description="Query weather conditions and forecasts via the remote weather agent",
+    )
+
+    system_prompt = "You are a weather assistant. Use the weather_a2a tool to answer weather questions."
+    if prompt_config:
+        agent_cfg = prompt_config.get("agents", {}).get("weather", {})
+        if agent_cfg.get("system_prompt"):
+            system_prompt = agent_cfg["system_prompt"]
+
+    return {
+        "name": "weather",
+        "description": "Weather: current conditions, forecasts, and alerts",
+        "system_prompt": system_prompt,
+        "tools": [a2a_tool],
+    }
+
+
+# =============================================================================
 # Platform Engineer MAS
 # =============================================================================
 
@@ -887,6 +939,15 @@ class PlatformEngineerDeepAgent:
             else:
                 subagent_defs.append(result)
         
+        # Add remote A2A subagents (run as separate containers)
+        if ENABLE_WEATHER:
+            try:
+                weather_def = await create_weather_remote_subagent_def(prompt_config)
+                subagent_defs.append(weather_def)
+                logger.info("🌤️ Weather remote A2A subagent enabled")
+            except Exception as e:
+                logger.warning(f"Failed to create weather remote subagent: {e}")
+        
         # Build agents_for_prompt dict for generating system prompt
         agents_for_prompt = {}
         for subagent_def in subagent_defs:
@@ -966,6 +1027,17 @@ When users ask questions about platform policies, procedures, or documentation:
 **DO NOT skip `invoke_self_service_task`** for these operations. DO NOT try to perform these operations directly with subagents.
 
 Use `list_self_service_tasks` to see detailed information about all available workflows.
+
+## Task Planning (write_todos format)
+
+When delegating work to subagents via the `task` tool, ALWAYS call `write_todos` first to announce the execution plan.
+Each todo item's `content` MUST include the subagent name in square brackets, e.g.:
+- `[Jira] Search for user's tickets`
+- `[GitHub] List recent pull requests`
+- `[AWS] Query EC2 instances`
+- `[ArgoCD] List deployed applications`
+
+This format is required so the UI can display agent stickers next to each task.
 """
         
         logger.info(f"📝 Generated system prompt with {len(agents_for_prompt)} agent routing instructions")

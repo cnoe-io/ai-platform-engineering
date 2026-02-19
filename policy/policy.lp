@@ -46,6 +46,9 @@ readonly_tool(search_repositories).
 % User search
 readonly_tool(search_users).
 
+% gh CLI fallback (when GitHub Copilot MCP is unavailable)
+readonly_tool(gh_cli_execute).
+
 % === Self-Service Mode Tools (Only in Self-Service Workflows) ===
 % These tools are allowed when running via invoke_self_service_task
 
@@ -56,6 +59,7 @@ self_service_tool(create_or_update_file).
 self_service_tool(push_files).
 self_service_tool(fork_repository).
 self_service_tool(merge_pull_request).
+self_service_tool(gh_cli_execute).
 
 % === Built-in Deep Agent Tools (Always Allowed) ===
 % These are tools provided by the deep agent framework

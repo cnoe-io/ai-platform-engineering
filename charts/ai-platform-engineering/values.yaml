@@ -14,6 +14,7 @@ tags:
   agent-pagerduty: false
   agent-slack: false
   agent-splunk: false
+  agent-weather: false
   agent-webex: false
   rag-stack: false
 
@@ -298,6 +299,19 @@ agent-webex:
       tag: ""
       pullPolicy: "Always"
     mode: "http" # Options: stdio, http
+    port: 8000
+
+agent-weather:
+  nameOverride: "agent-weather"
+  image:
+    repository: "ghcr.io/cnoe-io/agent-weather"
+    pullPolicy: "Always"
+  mcp:
+    image:
+      repository: "ghcr.io/cnoe-io/mcp-weather"
+      tag: ""
+      pullPolicy: "Always"
+    mode: "http"
     port: 8000
 
 agent-komodor:

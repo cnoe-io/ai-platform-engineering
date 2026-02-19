@@ -624,7 +624,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle }: ChatP
     }));
 
     const decision: HITLDecision = {
-      type: 'approve',
+      type: 'edit',
       actionName: 'CAIPEAgentResponse',
       args: {
         args: {

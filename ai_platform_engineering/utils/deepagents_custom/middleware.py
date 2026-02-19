@@ -132,10 +132,12 @@ class DeterministicTaskMiddleware(AgentMiddleware):
         task_pending = state.get("task_execution_pending", False)
         tasks = state.get("tasks") or []
         
-        logger.debug(f"[DeterministicTaskMiddleware] before_model: task_pending={task_pending}, tasks_count={len(tasks)}")
+        # Log all state keys to diagnose whether invoke_self_service_task's Command update was applied
+        state_keys = list(state.keys()) if hasattr(state, 'keys') else "N/A"
+        logger.info(f"[DeterministicTaskMiddleware] before_model: task_pending={task_pending}, tasks_count={len(tasks)}, state_keys={state_keys}")
         
         if not task_pending or not tasks:
-            logger.debug("[DeterministicTaskMiddleware] before_model: No pending tasks, passing through")
+            logger.info(f"[DeterministicTaskMiddleware] before_model: No pending tasks, passing through (task_pending={task_pending}, tasks={len(tasks)})")
             return None
         
         # Get next task

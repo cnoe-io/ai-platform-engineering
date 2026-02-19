@@ -55,6 +55,7 @@ class AIPlatformEngineerA2ABinding:
       self.tracing = TracingManager()
       self._execution_plan_sent = False
       self._previous_todos: dict[int, dict] = {}  # Track todo states for notifications
+      self._task_plan_entries: dict[str, dict] = {}  # Track task (subagent) calls for execution plan
       self._initialized = False
   
   async def ensure_initialized(self) -> None:
@@ -207,6 +208,46 @@ class AIPlatformEngineerA2ABinding:
               continue
       return None
 
+  def _build_task_plan_text(self) -> str:
+      """Build execution plan text from tracked task (subagent) calls.
+
+      Returns text in the emoji+bracket format the UI expects, e.g.:
+          ⏳ [Jira] Search for user's tickets
+          ✅ [GitHub] List pull requests
+      """
+      status_icons = {
+          "pending": "⏳",
+          "in_progress": "🔄",
+          "completed": "✅",
+          "failed": "❌",
+      }
+      lines = []
+      for entry in self._task_plan_entries.values():
+          icon = status_icons.get(entry["status"], "⏳")
+          agent = entry["subagent"].title()
+          lines.append(f"{icon} [{agent}] {entry['description']}")
+      return "\n".join(lines)
+
+  def _build_todo_plan_text(self) -> str:
+      """Build execution plan text from tracked todos (_previous_todos).
+
+      Todo content already contains [AgentName] prefix from the middleware/prompt.
+      We just need to prepend the status emoji.
+      """
+      status_icons = {
+          "pending": "⏳",
+          "in_progress": "🔄",
+          "completed": "✅",
+          "failed": "❌",
+      }
+      lines = []
+      for todo_id in sorted(self._previous_todos.keys(), key=lambda x: (int(x) if str(x).isdigit() else x)):
+          entry = self._previous_todos[todo_id]
+          icon = status_icons.get(entry["status"], "⏳")
+          content = entry["content"]
+          lines.append(f"{icon} {content}")
+      return "\n".join(lines)
+
   # NOTE: Not using @trace_agent_stream decorator because it doesn't support the 'command' parameter
   # needed for HITL resume functionality. Manual tracing is handled via TracingManager.
   async def stream(
@@ -221,10 +262,6 @@ class AIPlatformEngineerA2ABinding:
       
       # Ensure agent is initialized with MCP tools (lazy loading on first stream)
       await self.ensure_initialized()
-      
-      # Reset execution plan state for each new stream
-      self._execution_plan_sent = False
-      self._previous_todos = {}  # Reset todo tracking for task notifications
 
       # Track tool calls to ensure every AIMessage.tool_call gets a ToolMessage
       pending_tool_calls = {}  # {tool_call_id: tool_name}
@@ -275,6 +312,37 @@ class AIPlatformEngineerA2ABinding:
               logging.debug("No trace_id available from parameter or context")
 
       logging.debug(f"Created tracing config: {config}")
+
+      # ========================================================================
+      # EXECUTION PLAN STATE: re-seed on HITL resume, reset on fresh query
+      # ========================================================================
+      if command is not None:
+          self._task_plan_entries = {}
+          try:
+              state = await self.graph.aget_state(config)
+              existing_todos = (state.values or {}).get("todos", []) if state else []
+              if existing_todos:
+                  self._execution_plan_sent = True
+                  self._previous_todos = {}
+                  for todo in existing_todos:
+                      if isinstance(todo, dict):
+                          self._previous_todos[todo.get("id")] = {
+                              "status": todo.get("status", "pending"),
+                              "content": todo.get("content", f"Step {todo.get('id')}"),
+                          }
+                  logging.info(f"📋 HITL resume: re-seeded {len(self._previous_todos)} todos from graph state")
+              else:
+                  self._execution_plan_sent = False
+                  self._previous_todos = {}
+                  logging.debug("HITL resume: no existing todos in graph state")
+          except Exception as e:
+              logging.warning(f"Could not re-seed todos on resume: {e}")
+              self._execution_plan_sent = False
+              self._previous_todos = {}
+      else:
+          self._execution_plan_sent = False
+          self._previous_todos = {}
+          self._task_plan_entries = {}
 
       # ========================================================================
       # PRE-FLIGHT CONTEXT CHECK: Proactively compress if approaching limit
@@ -477,24 +545,77 @@ class AIPlatformEngineerA2ABinding:
                       yield event
                       continue
 
-              # ── Track todo state changes from updates stream ──
-              # Middleware-injected write_todos (via Command returns from wrap_tool_call)
-              # appear in the 'updates' stream, NOT the 'messages' stream.
-              # We must detect todo transitions here to emit task lifecycle notifications
-              # for steps AFTER the first one (the first is seen in messages stream).
+              # ── Track state changes from updates stream ──
+              # The updates stream contains full state after each node completes.
+              # Two key uses:
+              # 1. Todo transitions from middleware-injected write_todos
+              # 2. Task (subagent) tool_calls with COMPLETE args (chunks have partial args)
               if event_type == 'updates' and isinstance(event, dict):
-                  # Collect all todos lists from the update event.
-                  # Format varies: {"node_name": {"todos": [...]}} or {"todos": [...]}
                   todos_lists = []
+                  messages_lists = []
                   for key, value in event.items():
                       if key == 'todos' and isinstance(value, list):
-                          # Top-level todos (direct state update)
                           todos_lists.append(value)
+                      elif key == 'messages' and isinstance(value, list):
+                          messages_lists.append(value)
                       elif isinstance(value, dict):
                           node_todos = value.get('todos')
                           if node_todos and isinstance(node_todos, list):
                               todos_lists.append(node_todos)
+                          node_msgs = value.get('messages')
+                          if node_msgs and isinstance(node_msgs, list):
+                              messages_lists.append(node_msgs)
 
+                  # ── Detect task (subagent) tool_calls from full AIMessages ──
+                  new_task_detected = False
+                  for msgs in messages_lists:
+                      for msg in msgs:
+                          if not (isinstance(msg, AIMessage) and hasattr(msg, 'tool_calls') and msg.tool_calls):
+                              continue
+                          for tc in msg.tool_calls:
+                              if tc.get("name") != "task":
+                                  continue
+                              tc_id = tc.get("id", "")
+                              if not tc_id or tc_id in self._task_plan_entries:
+                                  continue
+                              tc_args = tc.get("args") or {}
+                              subagent_type = tc_args.get("subagent_type", "general-purpose") if isinstance(tc_args, dict) else "general-purpose"
+                              task_desc = tc_args.get("description", "Processing task") if isinstance(tc_args, dict) else "Processing task"
+                              display_desc = task_desc[:120].strip()
+                              if len(task_desc) > 120:
+                                  display_desc += "..."
+                              self._task_plan_entries[tc_id] = {
+                                  "subagent": subagent_type,
+                                  "description": display_desc,
+                                  "status": "in_progress",
+                              }
+                              new_task_detected = True
+                              logging.info(f"📋 Detected task from updates: [{subagent_type}] {display_desc}")
+
+                  # Emit plan for newly detected tasks.
+                  # When _previous_todos is populated (deterministic workflows),
+                  # use the todo plan (which includes ALL steps like CAIPE).
+                  # Otherwise fall back to the task-plan-only view.
+                  if new_task_detected:
+                      if self._previous_todos:
+                          plan_text = self._build_todo_plan_text()
+                      else:
+                          plan_text = self._build_task_plan_text()
+                      artifact_name = "execution_plan_update" if not self._execution_plan_sent else "execution_plan_status_update"
+                      self._execution_plan_sent = True
+                      logging.info(f"📋 Emitting {artifact_name} from task detection (todo-backed={bool(self._previous_todos)})")
+                      yield {
+                          "is_task_complete": False,
+                          "require_user_input": False,
+                          "artifact": {
+                              "name": artifact_name,
+                              "description": "Execution plan from subagent delegation",
+                              "text": plan_text,
+                          }
+                      }
+
+                  # ── Track todo transitions and re-emit execution plan ──
+                  plan_changed = False
                   for todos in todos_lists:
                       for todo in todos:
                           if not isinstance(todo, dict):
@@ -504,7 +625,15 @@ class AIPlatformEngineerA2ABinding:
                           old_status = self._previous_todos.get(todo_id, {}).get("status", "pending")
                           todo_content = todo.get("content", f"Step {todo_id}")
 
+                          # Always track every todo we see (needed to rebuild the full plan)
+                          if todo_id not in self._previous_todos:
+                              self._previous_todos[todo_id] = {
+                                  "status": new_status,
+                                  "content": todo_content,
+                              }
+
                           if old_status != new_status:
+                              plan_changed = True
                               if new_status == "in_progress":
                                   logging.info(f"📋 Task started (from updates): {todo_content}")
                                   yield {
@@ -530,12 +659,26 @@ class AIPlatformEngineerA2ABinding:
                                       }
                                   }
 
-                              # Update tracked state (shared with messages handler —
-                              # prevents duplicate notifications)
                               self._previous_todos[todo_id] = {
                                   "status": new_status,
                                   "content": todo_content,
                               }
+
+                  # Re-emit execution plan artifact so the UI sidebar updates
+                  if plan_changed and self._previous_todos:
+                      plan_text = self._build_todo_plan_text()
+                      artifact_name = "execution_plan_update" if not self._execution_plan_sent else "execution_plan_status_update"
+                      self._execution_plan_sent = True
+                      logging.info(f"📋 Emitting {artifact_name} from todo transition ({len(self._previous_todos)} todos)")
+                      yield {
+                          "is_task_complete": False,
+                          "require_user_input": False,
+                          "artifact": {
+                              "name": artifact_name,
+                              "description": "Execution plan progress update",
+                              "text": plan_text,
+                          }
+                      }
                   continue
 
               # Process message stream
@@ -558,14 +701,25 @@ class AIPlatformEngineerA2ABinding:
                       # This is a tool call chunk - emit tool start notifications
                       for tool_call in message.tool_calls:
                           tool_name = tool_call.get("name", "")
+                          tc_id = tool_call.get("id", "")
                           # Skip tool calls with empty names (they're partial chunks being streamed)
                           if not tool_name or not tool_name.strip():
                               logging.debug("Skipping tool call with empty name (streaming chunk)")
                               continue
 
-                          # Skip write_todos and task — handled by per-task notifications
-                          if tool_name in ("write_todos", "task"):
-                              logging.debug(f"Skipping chunk notification for '{tool_name}' (handled by task lifecycle)")
+                          # Track tool call for ToolMessage resolution
+                          if tc_id:
+                              pending_tool_calls[tc_id] = tool_name
+
+                          # write_todos — skip generic notification (handled by ToolMessage path)
+                          if tool_name == "write_todos":
+                              logging.debug("Skipping chunk notification for 'write_todos' (handled by ToolMessage path)")
+                              continue
+
+                          # task — note the tool_call_id for later (args are incomplete in chunks,
+                          # the full AIMessage with complete args arrives via the updates stream)
+                          if tool_name == "task":
+                              logging.debug(f"Noted task chunk tool_call_id={tool_call.get('id', '')}, will emit plan from updates stream")
                               continue
 
                           logging.debug(f"Tool call started (from AIMessageChunk): {tool_name}")
@@ -694,9 +848,42 @@ class AIPlatformEngineerA2ABinding:
                               }
                           continue  # Skip generic notification for write_todos
 
-                      # ── task: skip generic notification (write_todos already announced it) ──
+                      # ── task: track subagent delegation and emit execution plan ──
                       if tool_name == "task":
-                          logging.debug("Skipping generic notification for 'task' (already announced via write_todos)")
+                          task_args = tool_call.get("args", {})
+                          subagent_type = task_args.get("subagent_type", "general-purpose")
+                          task_desc = task_args.get("description", "Processing task")
+                          display_desc = task_desc[:120].strip()
+                          if len(task_desc) > 120:
+                              display_desc += "..."
+                          tc_id = tool_call.get("id", "")
+                          # Only emit if not already tracked from chunk path
+                          if tc_id and tc_id not in self._task_plan_entries:
+                              self._task_plan_entries[tc_id] = {
+                                  "subagent": subagent_type,
+                                  "description": display_desc,
+                                  "status": "in_progress",
+                              }
+                              plan_text = self._build_todo_plan_text() if self._previous_todos else self._build_task_plan_text()
+                              artifact_name = "execution_plan_update" if not self._execution_plan_sent else "execution_plan_status_update"
+                              self._execution_plan_sent = True
+                              logging.info(f"📋 Emitting {artifact_name} from task call: [{subagent_type}] {display_desc}")
+                              yield {
+                                  "is_task_complete": False,
+                                  "require_user_input": False,
+                                  "artifact": {
+                                      "name": artifact_name,
+                                      "description": "Execution plan from subagent delegation",
+                                      "text": plan_text,
+                                  }
+                              }
+                          elif tc_id and tc_id in self._task_plan_entries:
+                              # Update with full args (chunk might have had partial args)
+                              entry = self._task_plan_entries[tc_id]
+                              if subagent_type != "general-purpose":
+                                  entry["subagent"] = subagent_type
+                              if task_desc != "Processing task":
+                                  entry["description"] = display_desc
                           continue
 
                       # ── All other tools: emit standard tool notification ──
@@ -764,6 +951,21 @@ class AIPlatformEngineerA2ABinding:
                       'graph_fetch_data_entity_details', 'graph_shortest_path_between_entity_types',
                       'graph_raw_query_data', 'graph_raw_query_ontology'
                   }
+
+                  # Mark task (subagent) completion in execution plan
+                  if tool_name == "task" and tool_call_id and tool_call_id in self._task_plan_entries:
+                      self._task_plan_entries[tool_call_id]["status"] = "completed"
+                      plan_text = self._build_todo_plan_text() if self._previous_todos else self._build_task_plan_text()
+                      logging.info(f"✅ Emitting execution_plan_status_update: task {tool_call_id} completed")
+                      yield {
+                          "is_task_complete": False,
+                          "require_user_input": False,
+                          "artifact": {
+                              "name": "execution_plan_status_update",
+                              "description": "Task completed",
+                              "text": plan_text,
+                          }
+                      }
 
                   # Special handling for write_todos: execution plan vs status updates
                   if tool_name == "write_todos" and tool_content and tool_content.strip():
@@ -1373,10 +1575,35 @@ class AIPlatformEngineerA2ABinding:
                   and getattr(message, "tool_calls", None)
                   and len(message.tool_calls) > 0
               ):
-                  # Check for write_todos calls — emit task lifecycle notifications
+                  # Check for write_todos and task calls — emit task lifecycle notifications
                   for tool_call in message.tool_calls:
                       tc_name = tool_call.get("name", "")
-                      if tc_name == "write_todos":
+                      if tc_name == "task":
+                          task_args = tool_call.get("args", {})
+                          subagent_type = task_args.get("subagent_type", "general-purpose")
+                          task_desc = task_args.get("description", "Processing task")
+                          display_desc = task_desc[:120].strip()
+                          if len(task_desc) > 120:
+                              display_desc += "..."
+                          tc_id = tool_call.get("id", "")
+                          self._task_plan_entries[tc_id] = {
+                              "subagent": subagent_type,
+                              "description": display_desc,
+                              "status": "in_progress",
+                          }
+                          plan_text = self._build_todo_plan_text() if self._previous_todos else self._build_task_plan_text()
+                          artifact_name = "execution_plan_update" if not self._execution_plan_sent else "execution_plan_status_update"
+                          self._execution_plan_sent = True
+                          yield {
+                              "is_task_complete": False,
+                              "require_user_input": False,
+                              "artifact": {
+                                  "name": artifact_name,
+                                  "description": "Execution plan from subagent delegation",
+                                  "text": plan_text,
+                              }
+                          }
+                      elif tc_name == "write_todos":
                           fb_todos = tool_call.get("args", {}).get("todos", [])
                           for todo in fb_todos:
                               todo_id = todo.get("id")
@@ -1559,6 +1786,44 @@ class AIPlatformEngineerA2ABinding:
                   # Re-raise non-interrupt exceptions
                   logging.error(f"Fallback streaming failed with non-interrupt exception: {fallback_ex}")
                   raise
+
+      # ── Catch-all: sync execution plan with final graph state ──
+      # Command-based state updates (from DeterministicTaskMiddleware) may not
+      # produce updates-stream events, so _previous_todos can fall behind.
+      # Reading the graph state here guarantees the UI sees the true final plan.
+      try:
+          final_state = await self.graph.aget_state(config)
+          final_todos = (final_state.values or {}).get("todos", []) if final_state else []
+          if final_todos:
+              plan_dirty = False
+              for todo in final_todos:
+                  if not isinstance(todo, dict):
+                      continue
+                  tid = todo.get("id")
+                  new_s = todo.get("status", "pending")
+                  old_s = self._previous_todos.get(tid, {}).get("status", "pending")
+                  if tid not in self._previous_todos or old_s != new_s:
+                      plan_dirty = True
+                      self._previous_todos[tid] = {
+                          "status": new_s,
+                          "content": todo.get("content", f"Step {tid}"),
+                      }
+              if plan_dirty:
+                  plan_text = self._build_todo_plan_text()
+                  artifact_name = "execution_plan_update" if not self._execution_plan_sent else "execution_plan_status_update"
+                  self._execution_plan_sent = True
+                  logging.info(f"📋 Post-stream catch-all: emitting {artifact_name} ({len(self._previous_todos)} todos)")
+                  yield {
+                      "is_task_complete": False,
+                      "require_user_input": False,
+                      "artifact": {
+                          "name": artifact_name,
+                          "description": "Execution plan sync",
+                          "text": plan_text,
+                      }
+                  }
+      except Exception as plan_sync_err:
+          logging.warning(f"Post-stream plan sync failed: {plan_sync_err}")
 
       # After EITHER primary or fallback streaming completes, parse the final response to extract is_task_complete
       logging.info(f"🔍 POST-STREAM PARSING: final_ai_message={final_ai_message is not None}, accumulated_chunks={len(accumulated_ai_content)}")
