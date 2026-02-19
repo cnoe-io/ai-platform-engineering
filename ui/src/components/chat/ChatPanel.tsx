@@ -694,7 +694,9 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle }: ChatP
     const assistantMsgId = addMessage(activeConversationId, { role: "assistant", content: "" }, turnId);
 
     const contextId = pendingUserInput.contextId || activeConversationId;
+    dismissedInputForMessageRef.current.add(pendingUserInput.messageId);
     setPendingUserInput(null);
+    clearA2AEvents(activeConversationId);
 
     const client = new A2ASDKClient({ endpoint, accessToken });
 
@@ -774,7 +776,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle }: ChatP
       setConversationStreaming(activeConversationId, null);
     }
   }, [pendingUserInput, activeConversationId, endpoint, accessToken, addMessage, updateMessage,
-      appendToMessage, addA2AEvent, setConversationStreaming]);
+      appendToMessage, addA2AEvent, clearA2AEvents, setConversationStreaming]);
 
   // Handle @mention detection
   const handleInputChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
