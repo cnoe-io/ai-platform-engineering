@@ -24,7 +24,7 @@ Coverage:
 from __future__ import annotations
 
 import hashlib
-from unittest.mock import AsyncMock, MagicMock, call, patch
+from unittest.mock import AsyncMock, MagicMock, call
 
 import pytest
 from langchain_core.documents import Document
@@ -1197,10 +1197,6 @@ class TestIngestPagesUpsertJobMessages:
         page = make_page(title="My Special Page")
         await loader.ingest_pages([page], "job-1")
 
-        per_page_calls = [
-            c for c in jm.upsert_job.call_args_list
-            if c.kwargs.get("status") is None  # progress messages don't set status
-        ]
         assert any(
             "My Special Page" in (c.kwargs.get("message") or "")
             for c in jm.upsert_job.call_args_list
