@@ -83,7 +83,7 @@ unittest = [
 requires-dist = [
     { name = "a2a-sdk", specifier = "==0.3.0" },
     { name = "agntcy-app-sdk", specifier = "==0.4.0" },
-    { name = "cnoe-agent-utils", specifier = "==0.3.9" },
+    { name = "cnoe-agent-utils", specifier = "==0.3.10" },
     { name = "config", specifier = "==0.5.1" },
     { name = "cryptography", specifier = "==46.0.3" },
     { name = "fastapi", specifier = ">=0.115.6" },
@@ -91,7 +91,7 @@ requires-dist = [
     { name = "langchain", specifier = "==1.1.3" },
     { name = "langchain-core", specifier = "==1.1.2" },
     { name = "langchain-mcp-adapters", specifier = "==0.2.1" },
-    { name = "langfuse", specifier = "==3.10.5" },
+    { name = "langfuse", specifier = "==3.14.3" },
     { name = "langgraph", specifier = "==1.0.4" },
     { name = "langmem", specifier = ">=0.0.30" },
     { name = "mdformat", specifier = "==1.0.0" },
@@ -499,7 +499,7 @@ wheels = [
 
 [[package]]
 name = "cnoe-agent-utils"
-version = "0.3.9"
+version = "0.3.10"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "boto3" },
@@ -521,9 +521,9 @@ dependencies = [
     { name = "tiktoken" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/90/d7/7b6d91c0ee71e79710f2b9bf1dc1469d1a3926e89efbc50684b85b2ed1da/cnoe_agent_utils-0.3.9.tar.gz", hash = "sha256:1633aedeb6e773a338b8fb28b930812481c259b375a25f9395293d5b1e330c87", size = 196674, upload-time = "2025-12-09T04:51:41.181Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/fc/52/1a4aa263532396905c03c3c3d3fe5fdcb595c0e0d7d5916cf58c34da09f8/cnoe_agent_utils-0.3.10.tar.gz", hash = "sha256:76bbe65d9438bf550384bd4ace6dfdbeec285c9c4b2098657450a254d5e65575", size = 197097, upload-time = "2026-02-19T00:23:53.187Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/da/d8/6d48684db8dea35380ea24aae83591d0168a1e2ff3316d12c2970f8c7a49/cnoe_agent_utils-0.3.9-py3-none-any.whl", hash = "sha256:2997e50d9c5574b83a2c308a86f17fd85fb563fe897d17bbf852fb6d9135cd0a", size = 59533, upload-time = "2025-12-09T04:51:39.746Z" },
+    { url = "https://files.pythonhosted.org/packages/80/85/9149bdfa62a53d44dee7aaaac8fb29e5a53bafd0468887855483cbe8c667/cnoe_agent_utils-0.3.10-py3-none-any.whl", hash = "sha256:bea8e2a6edafe5e817661c8449f8510f4ad1f39ddcb17c2f556fecbcb97793e5", size = 59974, upload-time = "2026-02-19T00:23:51.634Z" },
 ]
 
 [[package]]
@@ -1634,7 +1634,7 @@ wheels = [
 
 [[package]]
 name = "langfuse"
-version = "3.10.5"
+version = "3.14.3"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "backoff" },
@@ -1648,9 +1648,9 @@ dependencies = [
     { name = "requests" },
     { name = "wrapt" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/69/21/dff0434290512484436bfa108e36f0adc3457eb4117767de70e76a411cac/langfuse-3.10.5.tar.gz", hash = "sha256:14eb767663f7e7480cd1cd1b3ca457022817c129e666efe97e5c80adb8c5aac0", size = 223142, upload-time = "2025-12-03T17:49:39.747Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/86/44/1da5d5fb5a07949cd5bd53cabef1dafc1af272792f51277e6226eb96ceaa/langfuse-3.14.3.tar.gz", hash = "sha256:6d1529ae88d6f2ab74e255bb79537ae37aa1a576a1ec78f4643a7a6a00502f12", size = 235121, upload-time = "2026-02-17T17:43:25.903Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/64/6f/dc15775f82d38da62cd2015110f5802bb175a9ee731a4533fe2a0cdf75b6/langfuse-3.10.5-py3-none-any.whl", hash = "sha256:0223a64109a4293b9bd9b2e0e3229f53b75291cd96341e42cc3eba186973fcdb", size = 398888, upload-time = "2025-12-03T17:49:38.171Z" },
+    { url = "https://files.pythonhosted.org/packages/bd/cf/708c3aefa7687995eb4d3ae556e1adcaf1c4e99f5315810e9809c8cd9219/langfuse-3.14.3-py3-none-any.whl", hash = "sha256:e65f4168279dbc45b800021c59855a3268cf85d81e3275f7015441bf7f365bcb", size = 420438, upload-time = "2026-02-17T17:43:24.097Z" },
 ]
 
 [[package]]
