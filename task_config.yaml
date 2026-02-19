@@ -18,11 +18,13 @@
 #   JARVIS_WORKFLOWS_REPO    - Jarvis workflows repository with templates (org/repo)
 #   TERRAFORM_INFRA_REPO     - Terraform infrastructure repository (org/repo)
 #   ADMIN_REPO               - Admin repository for safe-settings (org/admin)
-#   GROUPS_AUTOMATION_REPO   - Repository for group management automation (org/repo)
-#   GROUPS_PATH              - Path to groups directory in the automation repo (e.g., groups)
-#   GROUPS_FILE_PATTERN      - File pattern for group files (e.g., *.yaml)
-#   DEFAULT_AWS_REGIONS      - Comma-separated list of allowed AWS regions
-#   EMAIL_DOMAIN             - Corporate email domain (e.g., company.com)
+#   GROUPS_AUTOMATION_REPO       - Repository for group management automation (org/repo)
+#   GROUPS_TEAMS_PATH            - Path prefix for teams directory in the automation repo (e.g., groups_yaml/teams)
+#   ORG_MEMBERSHIP_FILE_PATTERN  - File path pattern for org membership YAML, with {org_name} placeholder
+#                                  (e.g., groups_yaml/teams/platform-common/GHEC_{org_name}_login.yaml)
+#   DEFAULT_AWS_REGIONS          - Comma-separated list of allowed AWS regions
+#   EMAIL_DOMAIN                 - Corporate email domain (e.g., company.com)
+#   DEFAULT_GITHUB_ORG           - Default GitHub organization name
 #   JIRA_ASSIGNEE            - Default Jira ticket assignee email
 #   DEFAULT_VPC_NAME         - Default VPC name for AWS resources
 #   DEFAULT_AWS_ACCOUNT      - Default AWS account name
@@ -84,7 +86,7 @@ Create GitHub Repo:
         Collect the following information from the user and write to /request.txt:
         - repo_name (required): Repository name (the name you want to give to the repository)
         - project_name (required): Project associated with the repository - use field_values from /projects.txt (default: action-engine)
-        - org_name (required): Organization under which the repository will be created (default: cisco-eti, field_values: ["cisco-eti", "outshift-platform", "cisco-platform"])
+        - org_name (required): Organization under which the repository will be created (default: ${DEFAULT_GITHUB_ORG}, field_values: ${GITHUB_ORGS})
         - template (optional): Template repo to use, if applicable (default: None, field_values: ["None", "platform-demo", "sre-go-helloworld", "outshift-react-app", "repo-template"])
         - jira_issue_id (optional): JIRA issue ID if applicable
         
@@ -795,7 +797,7 @@ Deploy App to Common Cluster:
         Collect the following information from the user and write to /request.txt:
         - app_name (required): Name of the application to be deployed
         - project_name (required): Project associated with the application - use field_values from /projects.txt (default: action-engine)
-        - org_name (required): Organization under which the application will be deployed (default: cisco-eti, field_values: ["cisco-eti", "outshift-platform", "cisco-platform"])
+        - org_name (required): Organization under which the application will be deployed (default: ${DEFAULT_GITHUB_ORG}, field_values: ${GITHUB_ORGS})
         - app_deployment_repo (optional): Git repository name for deployment (defaults to "<APP_NAME>-deployment" if not specified)
         - app_namespace (optional): Kubernetes namespace for deployment (defaults to "<APP_NAME>-<ENVIRONMENT>" if not specified)
         - app_helm_chart_version (optional): Version of the Helm chart to use (e.g. 0.0.1, 1.2.3)
@@ -1175,40 +1177,46 @@ Get LLM Spend Activity:
 
 
 # =============================================================================
-# Group Management Operations (via GitHub Workflows)
+# Group Management Operations (via GitOps)
 # =============================================================================
-# Group management operations are implemented through GitHub workflows.
-# The GitHub subagent triggers these workflows.
+# Group membership is managed via YAML files in ${GROUPS_AUTOMATION_REPO}.
+# Groups are stored under ${GROUPS_TEAMS_PATH}/ as YAML files with a
+# "member_users" field. User IDs are email prefixes (strip @${EMAIL_DOMAIN}).
+# Changes are made via branch → file update → PR workflow.
 
 Add Users to Group:
   tasks:
     - display_text: "Collect group and user details"
       llm_prompt: >
         Collect the following information from the user and write to /request.txt:
-        - group_name (required): Name of the MyID group to which the users will be added
-        - user_emails (required): A comma-separated list of Cisco email addresses of the users to be added
+        - group_name (required): Name of the group to add users to.
+          Suggest running "List Groups" if the user doesn't know the name.
+        - user_emails (required): Comma-separated list of email addresses of users to add
         
         user_email is auto-filled from the authenticated session — do NOT include it in the form.
         requested_by will be set from the authenticated user's email automatically.
         
-        If user doesn't know the group name, suggest running "List Groups" first.
         Format as key=value on each line. Write to /request.txt.
       subagent: "caipe"
 
-    - display_text: "Trigger group update workflow"
+    - display_text: "Add users to group via PR"
       llm_prompt: >
-        Read /request.txt to get group_name, user_emails, requested_by.
-        Trigger the group update workflow (add-users-to-group) in ${GROUPS_AUTOMATION_REPO}
-        with the following parameters:
-        - GROUP_NAME: {group_name}
-        - USER_EMAILS: {user_emails}
-        - REQUESTED_BY: {requested_by}
+        Read /request.txt to get group_name and user_emails.
         
-        Write the workflow run URL to /group_result.txt
+        In the ${GROUPS_AUTOMATION_REPO} repository, groups are YAML files under
+        ${GROUPS_TEAMS_PATH}/. Each file has a "member_users" list of user IDs.
+        User IDs are the email prefix (strip @${EMAIL_DOMAIN} from emails).
         
-        Display to user:
-        - Workflow run URL for tracking
-        - Note: A PR will be created that needs approval before changes take effect
+        Steps:
+        1. Browse ${GROUPS_TEAMS_PATH}/ to find the YAML file matching group_name
+           (match by directory name or filename). Read its contents and note its SHA.
+        2. Create a branch named update-{group_name}-{timestamp}.
+        3. Add the new user IDs to member_users (sorted alphabetically, no duplicates).
+           If all users already exist, inform the user and stop.
+        4. Commit the updated file to the branch.
+        5. Open a PR to main with the list of added users in the body.
+        
+        Display the PR URL and note that changes take effect after PR approval and merge.
       subagent: "github"
 
 
@@ -1217,8 +1225,8 @@ Invite Users to GitHub Org:
     - display_text: "Collect invitation details"
       llm_prompt: >
         Collect the following information from the user and write to /request.txt:
-        - org_name (required): GitHub organization to which the users will be invited (default: cisco-eti, field_values: ["cisco-eti", "outshift-platform", "cisco-platform"])
-        - user_emails (required): A comma-separated list of Cisco email addresses of the users to be invited
+        - org_name (required): GitHub organization to invite users to (default: ${DEFAULT_GITHUB_ORG}, field_values: ${GITHUB_ORGS})
+        - user_emails (required): Comma-separated list of email addresses of users to invite
         
         user_email is auto-filled from the authenticated session — do NOT include it in the form.
         requested_by will be set from the authenticated user's email automatically.
@@ -1226,21 +1234,30 @@ Invite Users to GitHub Org:
         Format as key=value on each line. Write to /request.txt.
       subagent: "caipe"
 
-    - display_text: "Trigger GitHub org invitation workflow"
+    - display_text: "Update org membership and send invitations"
       llm_prompt: >
-        Read /request.txt to get org_name, user_emails, requested_by.
-        Trigger the GitHub org invitation workflow (invite-users-to-github-org) in ${GROUPS_AUTOMATION_REPO}
-        with the following parameters:
-        - ORG_NAME: {org_name}
-        - USER_EMAILS: {user_emails}
-        - REQUESTED_BY: {requested_by}
+        Read /request.txt to get org_name and user_emails.
         
-        Write the workflow run URL to /invite_result.txt
+        In the ${GROUPS_AUTOMATION_REPO} repository, org membership is tracked via YAML
+        files. The file for a given org is at the path pattern:
+          ${ORG_MEMBERSHIP_FILE_PATTERN}
+        (substitute {org_name} with the actual org name).
         
-        Display to user:
-        - Workflow run URL for tracking
-        - Users will receive GitHub org invitations via email
-        - A PR will be created to add users to the org's group
+        User IDs are the email prefix (strip @${EMAIL_DOMAIN} from emails).
+        
+        Steps:
+        1. Read the org membership file. If not found, inform the user the org
+           is unsupported (supported orgs: ${GITHUB_ORGS}) and stop.
+        2. Create a branch named update-{org_name}-{timestamp}.
+        3. Add new user IDs to member_users (sorted alphabetically, no duplicates).
+           If all users already exist, inform the user and stop.
+        4. Commit the updated file to the branch.
+        5. Open a PR to main with the list of added users in the body.
+        6. Send direct GitHub org invitations using invite_user_to_org for each
+           email address. Track success/failure for each (422 = already invited).
+        
+        Display: invitation results per user, PR URL, and note that the PR keeps
+        the groups repo in sync alongside the direct invitations.
       subagent: "github"
 
 
@@ -1249,22 +1266,21 @@ List Groups:
     - display_text: "Collect filter criteria"
       llm_prompt: >
         Collect the following information from the user and write to /request.txt:
-        - filter_prefix (optional): Filter groups by prefix or team name
+        - filter_prefix (optional): Filter groups by prefix or team name. Use "ALL" to list all.
         - limit (optional): Maximum number of groups to return (default: 50)
         
         Format as key=value on each line. Write to /request.txt.
       subagent: "caipe"
 
-    - display_text: "List available groups from repository"
+    - display_text: "List available groups"
       llm_prompt: >
         Read /request.txt to get filter_prefix and limit.
-        List the contents of ${GROUPS_PATH} directory in ${GROUPS_AUTOMATION_REPO}.
         
-        If filter_prefix is provided, filter the results to match the prefix.
-        Limit results to {limit} entries.
+        List the directory tree under ${GROUPS_TEAMS_PATH}/ in ${GROUPS_AUTOMATION_REPO}.
+        Each subdirectory is a team, and each .yaml file within is a group.
         
-        Write results to /groups_result.txt with group names.
-        Display formatted list to user.
+        Filter by filter_prefix if provided (case-insensitive), limit to {limit} results.
+        Display a formatted list of team names and group filenames.
       subagent: "github"
 
 
@@ -1273,7 +1289,7 @@ Find Users in Groups:
     - display_text: "Collect user emails"
       llm_prompt: >
         Collect the following information from the user and write to /request.txt:
-        - user_emails (required): Comma-separated list of corporate email addresses to search
+        - user_emails (required): Comma-separated list of email addresses to search
         
         Format as key=value on each line. Write to /request.txt.
       subagent: "caipe"
@@ -1281,12 +1297,13 @@ Find Users in Groups:
     - display_text: "Search for user group memberships"
       llm_prompt: >
         Read /request.txt to get user_emails.
-        For each user, search for their email in the groups automation repo (${GROUPS_AUTOMATION_REPO})
-        within files matching ${GROUPS_FILE_PATTERN}.
         
-        Extract the group names from the file paths where matches are found.
-        Compile a list of which groups each user belongs to.
+        Convert emails to user IDs by stripping @${EMAIL_DOMAIN}.
         
-        Write results to /memberships_result.txt showing each user and their groups.
-        Display formatted results to user.
+        For each user ID, search for it in ${GROUPS_AUTOMATION_REPO} under
+        ${GROUPS_TEAMS_PATH}/ using code search. The path structure is
+        ${GROUPS_TEAMS_PATH}/{team_name}/{group_name}.yaml.
+        
+        Display which groups each user belongs to, with links to the files
+        in ${GROUPS_AUTOMATION_REPO}.
       subagent: "github"

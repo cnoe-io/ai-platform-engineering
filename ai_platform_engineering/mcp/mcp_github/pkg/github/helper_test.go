@@ -114,6 +114,7 @@ const (
 	GetAdvisoriesByGhsaID                   = "GET /advisories/{ghsa_id}"
 	GetReposSecurityAdvisoriesByOwnerByRepo = "GET /repos/{owner}/{repo}/security-advisories"
 	GetOrgsSecurityAdvisoriesByOrg          = "GET /orgs/{org}/security-advisories"
+	PostOrgsInvitationsByOrg                = "POST /orgs/{org}/invitations"
 
 	// Actions endpoints
 	GetReposActionsWorkflowsByOwnerByRepo                        = "GET /repos/{owner}/{repo}/actions/workflows"

@@ -69,6 +69,7 @@ var (
 	ToolsetMetadataOrgs = inventory.ToolsetMetadata{
 		ID:          "orgs",
 		Description: "GitHub Organization related tools",
+		Default:     true,
 		Icon:        "organization",
 	}
 	ToolsetMetadataActions = inventory.ToolsetMetadata{
@@ -202,6 +203,7 @@ func AllTools(t translations.TranslationHelperFunc) []inventory.ServerTool {
 
 		// Organization tools
 		SearchOrgs(t),
+		InviteUserToOrg(t),
 
 		// Pull request tools
 		PullRequestRead(t),
