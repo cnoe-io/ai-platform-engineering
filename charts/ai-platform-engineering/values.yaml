@@ -378,6 +378,8 @@ caipe-ui:
     # Header link URLs (leave empty/commented to hide)
     # DOCS_URL: "https://your-docs-site.com"
     # SOURCE_URL: "https://github.com/your-org/your-repo"
+    # Enable Prometheus metrics
+    # PROMETHEUS_URL: "http://prometheus-server.monitoring.svc.cluster.local:9090"
   # External Secrets configuration for sensitive data (OIDC credentials, NextAuth secret, MongoDB credentials)
   externalSecrets:
     enabled: false  # Set to true to enable external secrets

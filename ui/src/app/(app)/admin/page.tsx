@@ -11,6 +11,8 @@ import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { CAIPESpinner } from "@/components/ui/caipe-spinner";
 import { SimpleLineChart } from "@/components/admin/SimpleLineChart";
+import { MetricsTab } from "@/components/admin/MetricsTab";
+import { HealthTab } from "@/components/admin/HealthTab";
 import { CreateTeamDialog } from "@/components/admin/CreateTeamDialog";
 import { TeamDetailsDialog } from "@/components/admin/TeamDetailsDialog";
 import { apiClient } from "@/lib/api-client";
@@ -323,7 +325,7 @@ function AdminPage() {
 
             {/* Tabbed Content */}
             <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
-              <TabsList className="grid w-full grid-cols-4">
+              <TabsList className="grid w-full grid-cols-5">
                 <TabsTrigger value="users" className="gap-2">
                   <Users className="h-4 w-4" />
                   Users
@@ -336,9 +338,13 @@ function AdminPage() {
                   <TrendingUp className="h-4 w-4" />
                   Statistics
                 </TabsTrigger>
+                <TabsTrigger value="metrics" className="gap-2">
+                  <Activity className="h-4 w-4" />
+                  Metrics
+                </TabsTrigger>
                 <TabsTrigger value="health" className="gap-2">
                   <Database className="h-4 w-4" />
-                  System Health
+                  Health
                 </TabsTrigger>
               </TabsList>
 
@@ -882,51 +888,14 @@ function AdminPage() {
                 )}
               </TabsContent>
 
-              {/* System Health Tab */}
+              {/* Agent Metrics Tab (Prometheus) */}
+              <TabsContent value="metrics" className="space-y-4">
+                <MetricsTab />
+              </TabsContent>
+
+              {/* System Health Tab (live Prometheus + static services) */}
               <TabsContent value="health" className="space-y-4">
-                <Card>
-                  <CardHeader>
-                    <CardTitle>System Health</CardTitle>
-                    <CardDescription>Monitor system status and performance</CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="space-y-4">
-                      <div className="flex items-center justify-between p-4 bg-muted/50 rounded-lg">
-                        <div>
-                          <p className="text-sm font-medium">MongoDB Status</p>
-                          <p className="text-xs text-muted-foreground">Database connection</p>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <div className="h-2 w-2 rounded-full bg-green-500"></div>
-                          <span className="text-sm">Connected</span>
-                        </div>
-                      </div>
-
-                      <div className="flex items-center justify-between p-4 bg-muted/50 rounded-lg">
-                        <div>
-                          <p className="text-sm font-medium">Authentication</p>
-                          <p className="text-xs text-muted-foreground">OIDC SSO</p>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <div className="h-2 w-2 rounded-full bg-green-500"></div>
-                          <span className="text-sm">Active</span>
-                        </div>
-                      </div>
-
-                      <div className="flex items-center justify-between p-4 bg-muted/50 rounded-lg">
-                        <div>
-                          <p className="text-sm font-medium">RAG Server</p>
-                          <p className="text-xs text-muted-foreground">Knowledge base operations</p>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <div className="h-2 w-2 rounded-full bg-green-500"></div>
-                          <span className="text-sm">Operational</span>
-                        </div>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-
+                <HealthTab />
               </TabsContent>
             </Tabs>
           </div>

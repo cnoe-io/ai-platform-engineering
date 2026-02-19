@@ -146,6 +146,24 @@ function env(name: string): string | undefined {
 }
 
 /**
+ * Server-only config values that must NEVER be sent to the browser.
+ * Access via getServerOnlyConfig().
+ */
+export interface ServerOnlyConfig {
+  prometheusUrl: string | null;
+}
+
+let _serverOnlyConfig: ServerOnlyConfig | null = null;
+
+export function getServerOnlyConfig(): ServerOnlyConfig {
+  if (_serverOnlyConfig) return _serverOnlyConfig;
+  _serverOnlyConfig = {
+    prometheusUrl: env('PROMETHEUS_URL') || null,
+  };
+  return _serverOnlyConfig;
+}
+
+/**
  * Build the full Config from server-side process.env.
  *
  * MUST only be called on the server (Node.js runtime).
