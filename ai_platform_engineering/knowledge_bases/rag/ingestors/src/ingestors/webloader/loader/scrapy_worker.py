@@ -170,8 +170,9 @@ class WorkerSpider(Spider):
 
     if self.crawl_mode == "sitemap":
       # For sitemap mode, first try to fetch the sitemap
-      parsed = urlparse(self.start_url)
-      base_url = f"{parsed.scheme}://{parsed.netloc}"
+      # Use the full start_url (including path) to find sitemap in subdirectories
+      # For example: https://example.com/docs/ -> https://example.com/docs/sitemap.xml
+      base_url = self.start_url.rstrip("/")
 
       # Try sitemap.xml first
       yield Request(
