@@ -798,7 +798,7 @@ Deploy App to Common Cluster:
         - org_name (required): Organization under which the application will be deployed (default: cisco-eti, field_values: ["cisco-eti", "outshift-platform", "cisco-platform"])
         - app_deployment_repo (optional): Git repository name for deployment (defaults to "<APP_NAME>-deployment" if not specified)
         - app_namespace (optional): Kubernetes namespace for deployment (defaults to "<APP_NAME>-<ENVIRONMENT>" if not specified)
-        - app_helm_chart_version (required): Version of the Helm chart to use (e.g. 0.0.1, 1.2.3)
+        - app_helm_chart_version (optional): Version of the Helm chart to use (e.g. 0.0.1, 1.2.3)
         - environment (optional): Deployment environment (default: dev, field_values: ["dev", "demo", "test", "staging", "prod"])
         - deployment_env (optional): Deployment variant (default: a, field_values: ["a", "b", "c", "d"])
         - auto_approve (optional): Whether to auto-merge to git (default: true, field_values: ["true", "false"])
