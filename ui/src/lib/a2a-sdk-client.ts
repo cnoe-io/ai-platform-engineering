@@ -586,8 +586,10 @@ export class A2ASDKClient {
       }
     }
 
-    // Determine if this is a final result
-    const isFinalResult = artifactName === "final_result" || artifactName === "partial_result";
+    // Determine if this is a final result.
+    // "complete_result" is sent by the backend when a single sub-agent completes
+    // (dedup logic skips sending a separate "final_result" in that case).
+    const isFinalResult = artifactName === "final_result" || artifactName === "partial_result" || artifactName === "complete_result";
     const shouldAppend = event.append !== false;
 
     console.log(`[A2A SDK] #${eventNum} ARTIFACT: ${artifactName} append=${shouldAppend} content=${textContent.length} chars agent=${sourceAgent || 'none'} requireUserInput=${requireUserInput || false}`);
@@ -682,7 +684,7 @@ function getArtifactColor(artifactName: string): string {
   if (artifactName.includes("tool_notification_start")) return "a2a-tool-start";
   if (artifactName.includes("tool_notification_end")) return "a2a-tool-end";
   if (artifactName.includes("execution_plan")) return "a2a-plan";
-  if (artifactName === "final_result" || artifactName === "partial_result") return "a2a-result";
+  if (artifactName === "final_result" || artifactName === "partial_result" || artifactName === "complete_result") return "a2a-result";
   if (artifactName === "streaming_result") return "a2a-streaming";
   return "a2a-default";
 }
@@ -694,7 +696,7 @@ function getArtifactIcon(artifactName: string): string {
   if (artifactName.includes("tool_notification_start")) return "Play";
   if (artifactName.includes("tool_notification_end")) return "CheckCircle";
   if (artifactName.includes("execution_plan")) return "ListTodo";
-  if (artifactName === "final_result" || artifactName === "partial_result") return "FileText";
+  if (artifactName === "final_result" || artifactName === "partial_result" || artifactName === "complete_result") return "FileText";
   if (artifactName === "streaming_result") return "Activity";
   return "Box";
 }

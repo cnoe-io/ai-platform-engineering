@@ -7,6 +7,7 @@ from common.models.rag import DataSourceInfo, DocumentMetadata
 from common.models.server import DocumentIngestRequest, IngestorPingRequest, ExploreDataEntityRequest
 from common.job_manager import JobStatus, JobInfo
 from common.models.graph import Entity
+from common.constants import MIN_RELOAD_INTERVAL
 from langchain_core.documents import Document
 import common.utils as utils
 import dotenv
@@ -778,8 +779,19 @@ class IngestorBuilder:
           logger.debug(f"Datasource {ds.datasource_id} has no last_updated, needs immediate sync")
           return (0, True)
 
+        # Get per-datasource reload interval from metadata, fall back to global sync_interval
+        ds_reload_interval = self._sync_interval
+        if ds.metadata:
+          stored_interval = ds.metadata.get("reload_interval")
+          if stored_interval is not None:
+            ds_reload_interval = stored_interval
+            # Enforce minimum reload interval
+            if ds_reload_interval < MIN_RELOAD_INTERVAL:
+              logger.warning(f"Datasource {ds.datasource_id} has reload_interval {ds_reload_interval}s below minimum {MIN_RELOAD_INTERVAL}s, using minimum")
+              ds_reload_interval = MIN_RELOAD_INTERVAL
+
         time_since_update = current_time - ds.last_updated
-        time_until_reload = self._sync_interval - time_since_update
+        time_until_reload = ds_reload_interval - time_since_update
 
         if time_until_reload <= 0:
           # This datasource is overdue, sync immediately
@@ -789,7 +801,7 @@ class IngestorBuilder:
         # Track the earliest reload time
         if time_until_reload < min_time_until_reload:
           min_time_until_reload = time_until_reload
-          logger.debug(f"Datasource {ds.datasource_id} will need reload in {time_until_reload}s")
+          logger.debug(f"Datasource {ds.datasource_id} will need reload in {time_until_reload}s (interval: {ds_reload_interval}s)")
 
       # Add a small minimum to avoid too-frequent checks (e.g., 1 minute)
       MIN_SLEEP_TIME = 60  # 1 minute minimum

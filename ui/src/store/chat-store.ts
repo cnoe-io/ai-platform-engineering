@@ -83,6 +83,13 @@ const MESSAGE_LOAD_COOLDOWN_MS = 5000; // 5 second cooldown between automatic sy
 const eventCountSinceLastSave = new Map<string, number>();
 const PERIODIC_SAVE_EVENT_THRESHOLD = 20; // Save every 20 events during streaming (reduced from 50 for better crash recovery)
 
+// Track conversations that have a pending save (streaming just completed, save
+// is scheduled but not yet flushed to MongoDB). During this window, MongoDB
+// contains stale intermediate content — loadMessagesFromServer must NOT
+// overwrite the correct in-memory state with that stale data.
+const pendingSaveTimestamps = new Map<string, number>();
+const PENDING_SAVE_GRACE_MS = 5000; // 5 second grace period after streaming ends
+
 // Serialize A2A event for MongoDB storage (strip circular refs and large raw data)
 function serializeA2AEvent(event: A2AEvent): Record<string, unknown> {
   return {
@@ -304,11 +311,21 @@ const storeImplementation = (set: any, get: any) => ({
         if (!state) {
           // Reset periodic save counter for this conversation
           eventCountSinceLastSave.delete(conversationId);
+          // Mark save as pending — prevents loadMessagesFromServer from
+          // overwriting the correct in-memory state with stale MongoDB data
+          // before this save completes.
+          pendingSaveTimestamps.set(conversationId, Date.now());
           // Use setTimeout to let the final message update settle before saving
           setTimeout(() => {
-            get().saveMessagesToServer(conversationId).catch((error) => {
-              console.error('[ChatStore] Background save failed:', error);
-            });
+            get().saveMessagesToServer(conversationId)
+              .then(() => {
+                pendingSaveTimestamps.delete(conversationId);
+                console.log(`[ChatStore] Post-stream save completed for: ${conversationId.substring(0, 8)}`);
+              })
+              .catch((error) => {
+                pendingSaveTimestamps.delete(conversationId);
+                console.error('[ChatStore] Background save failed:', error);
+              });
           }, 500);
         }
       },
@@ -341,10 +358,17 @@ const storeImplementation = (set: any, get: any) => ({
           // Reset periodic save counter and save to MongoDB after cancel —
           // previously skipped because cancel bypassed setConversationStreaming(null).
           eventCountSinceLastSave.delete(conversationId);
+          pendingSaveTimestamps.set(conversationId, Date.now());
           setTimeout(() => {
-            get().saveMessagesToServer(conversationId).catch((error) => {
-              console.error('[ChatStore] Save after cancel failed:', error);
-            });
+            get().saveMessagesToServer(conversationId)
+              .then(() => {
+                pendingSaveTimestamps.delete(conversationId);
+                console.log(`[ChatStore] Post-cancel save completed for: ${conversationId.substring(0, 8)}`);
+              })
+              .catch((error) => {
+                pendingSaveTimestamps.delete(conversationId);
+                console.error('[ChatStore] Save after cancel failed:', error);
+              });
           }, 500);
         }
       },
@@ -393,7 +417,7 @@ const storeImplementation = (set: any, get: any) => ({
           if (count >= PERIODIC_SAVE_EVENT_THRESHOLD) {
             eventCountSinceLastSave.set(convId, 0);
             console.log(`[ChatStore] Periodic save triggered after ${PERIODIC_SAVE_EVENT_THRESHOLD} events for: ${convId}`);
-            get().saveMessagesToServer(convId).catch((error) => {
+            get().saveMessagesToServer(convId, { skipNonFinal: true }).catch((error) => {
               console.error('[ChatStore] Periodic save failed:', error);
             });
           }
@@ -733,7 +757,13 @@ const storeImplementation = (set: any, get: any) => ({
       // multiple times safely — periodic saves during streaming AND the final
       // save after streaming completes all go through the same code path.
       // No localStorage cache, no "saved vs stale" tracking needed.
-      saveMessagesToServer: async (conversationId: string) => {
+      //
+      // Options:
+      //   skipNonFinal: When true, skip saving assistant messages that don't have
+      //     isFinal=true. Used by periodic saves during streaming to avoid writing
+      //     stale intermediate content to MongoDB. The final save (after streaming
+      //     ends) omits this flag so the correct final content is written.
+      saveMessagesToServer: async (conversationId: string, options?: { skipNonFinal?: boolean }) => {
         const storageMode = getStorageMode();
         if (storageMode !== 'mongodb') return;
 
@@ -760,6 +790,17 @@ const storeImplementation = (set: any, get: any) => ({
         let savedCount = 0;
         for (let i = 0; i < conv.messages.length; i++) {
           const msg = conv.messages[i];
+
+          // PERIODIC SAVE GUARD: Skip non-final assistant messages during
+          // periodic saves. These messages contain intermediate streaming
+          // content that would overwrite (poison) MongoDB. The correct final
+          // content is written only by the post-stream save (which omits
+          // skipNonFinal), ensuring MongoDB always ends up with the right data.
+          if (options?.skipNonFinal && msg.role === 'assistant' && !msg.isFinal) {
+            console.log(`[ChatStore] Periodic save: skipping non-final assistant message ${msg.id.substring(0, 8)} (intermediate streaming content)`);
+            continue;
+          }
+
           try {
             // Determine A2A events for this message:
             // 1. If the message already has per-message events, use those
@@ -932,6 +973,24 @@ const storeImplementation = (set: any, get: any) => ({
           return;
         }
 
+        // CRITICAL: Skip if a post-streaming save is pending.
+        // When streaming ends, the correct final content is in the Zustand store
+        // but not yet saved to MongoDB. If we fetch from MongoDB now, we'd
+        // overwrite the correct in-memory state with stale intermediate content.
+        // Only force=true (manual reload) can bypass this guard.
+        if (!force) {
+          const savePendingSince = pendingSaveTimestamps.get(conversationId);
+          if (savePendingSince) {
+            const elapsed = Date.now() - savePendingSince;
+            if (elapsed < PENDING_SAVE_GRACE_MS) {
+              console.log(`[ChatStore] Skipping load — save pending for ${conversationId.substring(0, 8)} (${elapsed}ms ago, grace ${PENDING_SAVE_GRACE_MS}ms)`);
+              return;
+            }
+            // Grace period expired but flag wasn't cleared (save may have failed silently)
+            pendingSaveTimestamps.delete(conversationId);
+          }
+        }
+
         // Skip if recently loaded (within cooldown) unless force=true (manual reload)
         if (!force && loadState?.lastLoadedAt) {
           const elapsed = Date.now() - loadState.lastLoadedAt;
@@ -1068,19 +1127,46 @@ const storeImplementation = (set: any, get: any) => ({
               ),
             }));
           } else {
-            // Not streaming — MongoDB is the sole source of truth.
-            // Replace local state entirely with what came from MongoDB.
-            set((state: ChatState) => ({
-              conversations: state.conversations.map((c: Conversation) =>
-                c.id === conversationId
-                  ? {
-                      ...c,
-                      messages,
-                      a2aEvents: lastTurnEvents,
-                    }
-                  : c
-              ),
-            }));
+            // Not streaming — MongoDB is the source of truth, but we must
+            // guard against a race where periodic saves wrote stale intermediate
+            // content.  If a local message is already marked isFinal=true but
+            // MongoDB still has isFinal=false (periodic save hadn't been
+            // overwritten by the final save yet), keep the local version to
+            // prevent the UI from regressing to stale content.
+            set((state: ChatState) => {
+              const localConv = state.conversations.find((c: Conversation) => c.id === conversationId);
+              const localMsgMap = new Map<string, ChatMessage>();
+              if (localConv) {
+                for (const m of localConv.messages) {
+                  localMsgMap.set(m.id, m);
+                }
+              }
+
+              const mergedMessages = messages.map((serverMsg: ChatMessage) => {
+                const localMsg = localMsgMap.get(serverMsg.id);
+                // Preserve local final content when MongoDB still has non-final
+                // (stale periodic-save data). Once MongoDB catches up (final save
+                // completes), isFinal will be true on both sides and we'll use
+                // the server version normally.
+                if (localMsg?.isFinal && !serverMsg.isFinal) {
+                  console.log(`[ChatStore] Preserving local final message ${serverMsg.id.substring(0, 8)} (MongoDB has stale non-final version)`);
+                  return localMsg;
+                }
+                return serverMsg;
+              });
+
+              return {
+                conversations: state.conversations.map((c: Conversation) =>
+                  c.id === conversationId
+                    ? {
+                        ...c,
+                        messages: mergedMessages,
+                        a2aEvents: lastTurnEvents,
+                      }
+                    : c
+                ),
+              };
+            });
 
             console.log(`[ChatStore] Loaded ${messages.length} messages with ${lastTurnEvents.length} events from MongoDB for: ${conversationId}`);
           }

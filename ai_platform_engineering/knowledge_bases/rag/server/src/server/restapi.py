@@ -631,7 +631,7 @@ async def ingest_url(url_request: UrlIngestRequest, user: UserContext = Depends(
     url_request.description = f"Web content from {url_request.url}"
 
   # Create datasource
-  # Metadata schema for source_type="web": {"url_ingest_request": UrlIngestRequest}
+  # Metadata schema for source_type="web": {"url_ingest_request": UrlIngestRequest, "reload_interval": int | None}
   datasource_info = DataSourceInfo(
     datasource_id=datasource_id,
     ingestor_id=generate_ingestor_id(WEBLOADER_INGESTOR_NAME, WEBLOADER_INGESTOR_TYPE),
@@ -640,7 +640,10 @@ async def ingest_url(url_request: UrlIngestRequest, user: UserContext = Depends(
     last_updated=int(time.time()),
     default_chunk_size=url_request.settings.chunk_size,
     default_chunk_overlap=url_request.settings.chunk_overlap,
-    metadata={"url_ingest_request": url_request.model_dump()},
+    metadata={
+      "url_ingest_request": url_request.model_dump(),
+      "reload_interval": url_request.reload_interval,  # Top-level for easy access by IngestorBuilder
+    },
   )
 
   await metadata_storage.store_datasource_info(datasource_info)

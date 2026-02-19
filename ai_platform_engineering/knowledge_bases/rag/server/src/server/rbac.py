@@ -671,11 +671,9 @@ async def require_authenticated_user(request: Request, auth_manager: AuthManager
   use get_user_or_anonymous() instead.
 
   Authentication flow:
-  1. Check if request is from trusted network (if enabled)
-  2. Extract Bearer token from Authorization header
-  3. Validate JWT against configured OIDC providers
-  4. Extract email and groups from token claims
-  5. Determine role from group membership
+  1. If Bearer token present, validate JWT and extract user context
+  2. If no token, check if request is from trusted network (if enabled)
+  3. Otherwise raise 401
 
   Args:
       request: FastAPI request object
@@ -687,7 +685,19 @@ async def require_authenticated_user(request: Request, auth_manager: AuthManager
   Raises:
       HTTPException(401): If authentication fails or is missing
   """
-  # Check for trusted network access first (if enabled)
+  # If an Authorization header is present, always authenticate via JWT
+  auth_header = request.headers.get("Authorization")
+  if auth_header:
+    if not auth_header.startswith("Bearer "):
+      raise HTTPException(status_code=401, detail="Invalid Authorization header format. Expected 'Bearer <token>'.")
+
+    user = await _authenticate_from_token(request, auth_manager)
+    if user:
+      return user
+
+    raise HTTPException(status_code=401, detail="Invalid or expired token.")
+
+  # No Authorization header — fall back to trusted network (if enabled)
   if is_trusted_request(request):
     # Extract optional ingestor identification headers
     ingestor_type = request.headers.get("X-Ingestor-Type")
@@ -702,19 +712,8 @@ async def require_authenticated_user(request: Request, auth_manager: AuthManager
 
     return UserContext(email=email, groups=[], role=TRUSTED_NETWORK_DEFAULT_ROLE, is_authenticated=False)
 
-  # Try to authenticate from token
-  user = await _authenticate_from_token(request, auth_manager)
-  if user:
-    return user
-
-  # No valid authentication - raise 401
-  auth_header = request.headers.get("Authorization")
-  if not auth_header:
-    raise HTTPException(status_code=401, detail="Missing Authorization header. Please provide a valid Bearer token.")
-  elif not auth_header.startswith("Bearer "):
-    raise HTTPException(status_code=401, detail="Invalid Authorization header format. Expected 'Bearer <token>'.")
-  else:
-    raise HTTPException(status_code=401, detail="Invalid or expired token.")
+  # No token and not trusted network
+  raise HTTPException(status_code=401, detail="Missing Authorization header. Please provide a valid Bearer token.")
 
 
 async def get_user_or_anonymous(request: Request, auth_manager: AuthManager = Depends(get_auth_manager)) -> UserContext:
@@ -728,10 +727,9 @@ async def get_user_or_anonymous(request: Request, auth_manager: AuthManager = De
   For endpoints that require authentication, use require_authenticated_user() instead.
 
   Authentication flow:
-  1. Check if request is from trusted network (if enabled)
-  2. Try to extract Bearer token from Authorization header
-  3. If token exists and valid, return authenticated user
-  4. If no token or invalid token, return anonymous user
+  1. If Bearer token present, validate JWT and return authenticated user
+  2. If no token, check if request is from trusted network (if enabled)
+  3. Otherwise return anonymous user
 
   Returns:
   - Authenticated user with email, role, groups if valid token provided
@@ -745,8 +743,15 @@ async def get_user_or_anonymous(request: Request, auth_manager: AuthManager = De
   Returns:
       UserContext with authentication status (authenticated or anonymous)
   """
-  # Check for trusted network access first (if enabled)
-  if is_trusted_request(request):
+  # If an Authorization header is present, always authenticate via JWT
+  auth_header = request.headers.get("Authorization")
+  if auth_header:
+    user = await _authenticate_from_token(request, auth_manager)
+    if user:
+      return user
+
+  # No Authorization header or invalid token — fall back to trusted network (if enabled)
+  if not auth_header and is_trusted_request(request):
     # Extract optional ingestor identification headers
     ingestor_type = request.headers.get("X-Ingestor-Type")
     ingestor_name = request.headers.get("X-Ingestor-Name")
@@ -760,12 +765,7 @@ async def get_user_or_anonymous(request: Request, auth_manager: AuthManager = De
 
     return UserContext(email=email, groups=[], role=TRUSTED_NETWORK_DEFAULT_ROLE, is_authenticated=False)
 
-  # Try to authenticate from token
-  user = await _authenticate_from_token(request, auth_manager)
-  if user:
-    return user
-
-  # No authentication provided - return anonymous user
+  # No valid authentication — return anonymous user
   logger.debug("No valid authentication, returning anonymous user")
   return UserContext(
     email="anonymous",
