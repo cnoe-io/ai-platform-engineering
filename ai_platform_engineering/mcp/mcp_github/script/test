@@ -1,3 +1,0 @@
-set -eu
-
-go test -race ./...

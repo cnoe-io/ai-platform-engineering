@@ -336,7 +336,7 @@ Use this as the reference point for all date calculations. When users say "today
         try:
             tools = await client.get_tools()
         except Exception as e:
-            logger.warning(f"{agent_name}: Failed to load MCP tools: {e}")
+            logger.warning(f"{agent_name}: Failed to load MCP tools: {e}", exc_info=True)
             return self.get_additional_tools() or []
         
         # Allow subclasses to filter tools

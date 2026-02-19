@@ -112,16 +112,16 @@ class GitHubAgent(BaseLangGraphAgent):
         mcp_dir = self._get_github_mcp_server_dir()
         logger.info("GitHub MCP: go run from %s", mcp_dir)
 
+        env = {"GITHUB_PERSONAL_ACCESS_TOKEN": token}
+        for key in ("HOME", "PATH", "GOPATH", "GOMODCACHE", "GOCACHE", "TMPDIR"):
+            val = os.environ.get(key)
+            if val:
+                env[key] = val
+
         return {
             "command": go_bin,
             "args": ["run", "./cmd/github-mcp-server", "stdio"],
-            "env": {
-                "GITHUB_PERSONAL_ACCESS_TOKEN": token,
-                "HOME": os.environ.get("HOME", ""),
-                "PATH": os.environ.get("PATH", ""),
-                "GOPATH": os.environ.get("GOPATH", ""),
-                "GOMODCACHE": os.environ.get("GOMODCACHE", ""),
-            },
+            "env": env,
             "transport": "stdio",
             "cwd": mcp_dir,
         }

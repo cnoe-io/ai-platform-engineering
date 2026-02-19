@@ -810,7 +810,7 @@ Deploy App to Common Cluster:
         - app_helm_chart_version (optional): Version of the Helm chart to use
         - environment (optional): Deployment environment (default: dev)
         - deployment_env (optional): Deployment variant (default: a)
-        - auto_approve (optional): Whether to auto-merge to git (default: true)
+        - auto_approve (optional): Whether to auto-merge to git (default: true, field_values: ["true", "false"])
         - jira_issue_id (optional): JIRA issue ID if applicable
         - user_email (required): User email
         

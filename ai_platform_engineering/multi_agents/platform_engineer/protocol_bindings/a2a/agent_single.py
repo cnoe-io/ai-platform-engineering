@@ -41,6 +41,21 @@ except ImportError:
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
+
+def _sort_field_values(args: dict) -> dict:
+    """Sort field_values alphabetically in HITL form args before sending to the UI."""
+    try:
+        fields = (args or {}).get("metadata", {}).get("input_fields")
+        if fields and isinstance(fields, list):
+            for field in fields:
+                vals = field.get("field_values") if isinstance(field, dict) else None
+                if vals and isinstance(vals, list):
+                    field["field_values"] = sorted(vals, key=lambda s: s.casefold() if isinstance(s, str) else str(s))
+    except Exception:
+        pass
+    return args
+
+
 class AIPlatformEngineerA2ABinding:
   """
   AI Platform Engineer Multi-Agent System (MAS) for platform engineering tasks.
@@ -484,7 +499,7 @@ class AIPlatformEngineerA2ABinding:
                           # Just pass them through directly
                           tool_calls.append({
                               "name": name,
-                              "args": args,
+                              "args": _sort_field_values(args),
                               "id": getattr(intr, "id", None),
                           })
                           logging.info(f"[Interrupt] Parsed action request: name={name}, has_metadata={bool(args.get('metadata') if isinstance(args, dict) else False)}, args_keys={list(args.keys()) if isinstance(args, dict) else 'not dict'}")
@@ -1351,7 +1366,7 @@ class AIPlatformEngineerA2ABinding:
                           args = action_req.get("arguments", {}) or action_req.get("args", {})
                           tool_calls.append({
                               "name": name,
-                              "args": args,
+                              "args": _sort_field_values(args),
                               "id": action_req.get("id"),
                           })
                           logging.info(f"[Interrupt from exception] Parsed: name={name}, has_metadata={bool(args.get('metadata') if isinstance(args, dict) else False)}")
@@ -1457,7 +1472,7 @@ class AIPlatformEngineerA2ABinding:
                           args = action_req.get("arguments", {}) or action_req.get("args", {})
                           tool_calls.append({
                               "name": name,
-                              "args": args,
+                              "args": _sort_field_values(args),
                               "id": action_req.get("id"),
                           })
                           logging.info(f"[Fallback Interrupt] Parsed: name={name}, has_metadata={bool(args.get('metadata') if isinstance(args, dict) else False)}")
@@ -1754,7 +1769,7 @@ class AIPlatformEngineerA2ABinding:
                               args = action_req.get("arguments", {}) or action_req.get("args", {})
                               tool_calls.append({
                                   "name": name,
-                                  "args": args,
+                                  "args": _sort_field_values(args),
                                   "id": action_req.get("id"),
                               })
                               logging.info(f"[Fallback Interrupt] Parsed: name={name}, has_metadata={bool(args.get('metadata') if isinstance(args, dict) else False)}")
@@ -1783,9 +1798,17 @@ class AIPlatformEngineerA2ABinding:
                   else:
                       logging.warning(f"[Fallback Interrupt] Could not extract interrupt value from: {fallback_ex}")
               else:
-                  # Re-raise non-interrupt exceptions
-                  logging.error(f"Fallback streaming failed with non-interrupt exception: {fallback_ex}")
-                  raise
+                  # For deterministic task workflows the graph may have
+                  # completed internally (via DeterministicTaskMiddleware
+                  # Commands) even though the streaming layer hit an error
+                  # (e.g. "NoneType < int" from remaining_steps).
+                  # Instead of crashing, log the error and fall through to
+                  # the catch-all state sync so the UI still gets the final
+                  # execution plan.
+                  logging.error(
+                      f"Fallback streaming failed with non-interrupt exception: {fallback_ex}",
+                      exc_info=True,
+                  )
 
       # ── Catch-all: sync execution plan with final graph state ──
       # Command-based state updates (from DeterministicTaskMiddleware) may not
