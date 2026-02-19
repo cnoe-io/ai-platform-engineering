@@ -162,7 +162,7 @@ dependencies:
       - backstage-agent-forge
   # CAIPE UI
   - name: caipe-ui
-    version: 0.2.19 # Do NOT bump this. It will be updated automatically using the PR or release workflow
+    version: 0.2.19-rc.helm.1 # Do NOT bump this. It will be updated automatically using the PR or release workflow
     tags:
       - caipe-ui
     condition: global.caipeUi.enabled
