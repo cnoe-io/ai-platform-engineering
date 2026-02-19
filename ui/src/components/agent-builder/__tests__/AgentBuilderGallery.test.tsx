@@ -127,7 +127,6 @@ function renderGallery(props: Partial<React.ComponentProps<typeof AgentBuilderGa
       onRunQuickStart={jest.fn()}
       onEditConfig={jest.fn()}
       onCreateNew={jest.fn()}
-      onImportYaml={jest.fn()}
       {...props}
     />
   );
@@ -251,7 +250,6 @@ describe("AgentBuilderGallery — flag transition (disabled → enabled)", () =>
         onRunQuickStart={jest.fn()}
         onEditConfig={jest.fn()}
         onCreateNew={jest.fn()}
-        onImportYaml={jest.fn()}
       />
     );
 
@@ -267,7 +265,6 @@ describe("AgentBuilderGallery — flag transition (disabled → enabled)", () =>
         onRunQuickStart={jest.fn()}
         onEditConfig={jest.fn()}
         onCreateNew={jest.fn()}
-        onImportYaml={jest.fn()}
       />
     );
 

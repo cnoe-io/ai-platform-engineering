@@ -351,9 +351,19 @@ caipe-ui:
           - path: /
             pathType: Prefix
     tls: []
+  volumes:
+    - name: skill-templates
+      configMap:
+        name: skill-templates
+  volumeMounts:
+    - name: skill-templates
+      mountPath: /app/data/skills
+      readOnly: true
   env:
     # CAIPE Supervisor URL - automatically configured to use the supervisor-agent service
     A2A_BASE_URL: "http://ai-platform-engineering-supervisor-agent:8000"
+    # Skills template directory (mounted from ConfigMap)
+    SKILLS_DIR: "/app/data/skills"
   # ConfigMap for non-sensitive configuration
   config:
     # Feature flags

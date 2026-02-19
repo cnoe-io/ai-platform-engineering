@@ -12,6 +12,15 @@
 export type WorkflowDifficulty = "beginner" | "intermediate" | "advanced";
 
 /**
+ * Visibility level for skills/agent configs
+ *
+ * - "private":  Only the owner can see and use this skill
+ * - "team":     Owner + members of shared_with_teams can see it
+ * - "global":   All authenticated users can see it
+ */
+export type SkillVisibility = "private" | "team" | "global";
+
+/**
  * Input field for user forms (used in quick-start templates)
  */
 export interface WorkflowInputField {
@@ -128,6 +137,12 @@ export interface AgentConfig {
   thumbnail?: string;
   /** Custom input form for placeholder-based prompts */
   input_form?: WorkflowInputForm;
+  /** Raw SKILL.md markdown content for skills built with the Skills Builder */
+  skill_content?: string;
+  /** Visibility level: private (owner only), team (shared teams), global (everyone) */
+  visibility?: SkillVisibility;
+  /** Team IDs this skill is shared with (when visibility is "team") */
+  shared_with_teams?: string[];
 }
 
 /**
@@ -144,6 +159,12 @@ export interface CreateAgentConfigInput {
   difficulty?: WorkflowDifficulty;
   thumbnail?: string;
   input_form?: WorkflowInputForm;
+  /** Raw SKILL.md markdown content */
+  skill_content?: string;
+  /** Visibility level: private (default), team, or global */
+  visibility?: SkillVisibility;
+  /** Team IDs to share with (when visibility is "team") */
+  shared_with_teams?: string[];
 }
 
 /**
@@ -160,6 +181,12 @@ export interface UpdateAgentConfigInput {
   difficulty?: WorkflowDifficulty;
   thumbnail?: string;
   input_form?: WorkflowInputForm;
+  /** Raw SKILL.md markdown content */
+  skill_content?: string;
+  /** Visibility level: private, team, or global */
+  visibility?: SkillVisibility;
+  /** Team IDs to share with (when visibility is "team") */
+  shared_with_teams?: string[];
 }
 
 /**

@@ -10,6 +10,7 @@ import type {
   AgentConfig,
   CreateAgentConfigInput,
   UpdateAgentConfigInput,
+  SkillVisibility,
 } from "@/types/agent-config";
 import { BUILTIN_QUICK_START_TEMPLATES } from "@/types/agent-config";
 
@@ -33,6 +34,24 @@ const STORAGE_TYPE = isMongoDBConfigured ? "mongodb" : "none";
  */
 function isUserAdmin(user: { email: string; role?: string }): boolean {
   return user.role === "admin";
+}
+
+const VALID_VISIBILITIES: SkillVisibility[] = ["private", "team", "global"];
+
+/**
+ * Resolve all team IDs that a user belongs to.
+ */
+async function getUserTeamIds(userEmail: string): Promise<string[]> {
+  try {
+    const teams = await getCollection("teams");
+    const userTeams = await teams
+      .find({ "members.user_id": userEmail })
+      .project({ _id: 1 })
+      .toArray();
+    return userTeams.map((t) => t._id.toString());
+  } catch {
+    return [];
+  }
 }
 
 /**
@@ -146,18 +165,22 @@ async function deleteAgentConfigFromMongoDB(
 
 async function getAgentConfigsFromMongoDB(ownerEmail: string): Promise<AgentConfig[]> {
   const collection = await getCollection<AgentConfig>("agent_configs");
-  
-  // Return both system configs and user's own configs
+  const userTeamIds = await getUserTeamIds(ownerEmail);
+
   const configs = await collection
     .find({
       $or: [
         { is_system: true },
         { owner_id: ownerEmail },
+        { visibility: "global" },
+        ...(userTeamIds.length > 0
+          ? [{ visibility: "team", shared_with_teams: { $in: userTeamIds } }]
+          : []),
       ],
     })
-    .sort({ is_system: -1, created_at: -1 }) // System configs first, then by date
+    .sort({ is_system: -1, created_at: -1 })
     .toArray();
-  
+
   return configs;
 }
 
@@ -166,16 +189,20 @@ async function getAgentConfigByIdFromMongoDB(
   ownerEmail: string
 ): Promise<AgentConfig | null> {
   const collection = await getCollection<AgentConfig>("agent_configs");
-  
-  // Can access system configs or own configs
+  const userTeamIds = await getUserTeamIds(ownerEmail);
+
   const config = await collection.findOne({
     id,
     $or: [
       { is_system: true },
       { owner_id: ownerEmail },
+      { visibility: "global" },
+      ...(userTeamIds.length > 0
+        ? [{ visibility: "team", shared_with_teams: { $in: userTeamIds } }]
+        : []),
     ],
   });
-  
+
   return config;
 }
 
@@ -200,6 +227,15 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
       }
     }
 
+    // Validate visibility
+    const visibility: SkillVisibility = body.visibility || "private";
+    if (!VALID_VISIBILITIES.includes(visibility)) {
+      throw new ApiError(`Invalid visibility: ${visibility}. Must be one of: ${VALID_VISIBILITIES.join(", ")}`, 400);
+    }
+    if (visibility === "team" && (!body.shared_with_teams || body.shared_with_teams.length === 0)) {
+      throw new ApiError("At least one team must be selected when visibility is 'team'", 400);
+    }
+
     // Generate ID
     const id = `agent-config-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
     const now = new Date();
@@ -211,14 +247,16 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
       category: body.category,
       tasks: body.tasks,
       owner_id: user.email,
-      is_system: false, // User-created configs are never system configs
+      is_system: false,
       created_at: now,
       updated_at: now,
       metadata: body.metadata,
+      visibility,
+      shared_with_teams: visibility === "team" ? body.shared_with_teams : undefined,
     };
 
     await saveAgentConfigToMongoDB(config);
-    console.log(`[AgentConfig] Created agent config "${body.name}" by ${user.email}`);
+    console.log(`[AgentConfig] Created agent config "${body.name}" by ${user.email} (visibility: ${visibility})`);
 
     return successResponse({
       id,
@@ -290,6 +328,19 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
     // Validate that at least one field is provided
     if (Object.keys(body).length === 0) {
       throw new ApiError("At least one field must be provided for update", 400);
+    }
+
+    // Validate visibility if provided
+    if (body.visibility !== undefined) {
+      if (!VALID_VISIBILITIES.includes(body.visibility)) {
+        throw new ApiError(`Invalid visibility: ${body.visibility}. Must be one of: ${VALID_VISIBILITIES.join(", ")}`, 400);
+      }
+      if (body.visibility === "team" && (!body.shared_with_teams || body.shared_with_teams.length === 0)) {
+        throw new ApiError("At least one team must be selected when visibility is 'team'", 400);
+      }
+      if (body.visibility !== "team") {
+        body.shared_with_teams = undefined;
+      }
     }
 
     // Validate tasks if provided

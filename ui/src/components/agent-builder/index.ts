@@ -5,7 +5,7 @@ export { AgentBuilderGallery } from "./AgentBuilderGallery";
 export {
   AgentBuilderEditor,
   AgentBuilderEditorDialog,
-  YamlImportDialog,
 } from "./AgentBuilderEditor";
+export { SkillsBuilderEditor } from "./SkillsBuilderEditor";
 export { AgentBuilderRunner } from "./AgentBuilderRunner";
 export { WorkflowHistoryView } from "./WorkflowHistoryView";

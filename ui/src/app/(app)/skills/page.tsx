@@ -4,9 +4,8 @@ import React, { useState, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   AgentBuilderGallery,
-  AgentBuilderEditorDialog,
   AgentBuilderRunner,
-  YamlImportDialog,
+  SkillsBuilderEditor,
 } from "@/components/agent-builder";
 import { AuthGuard } from "@/components/auth-guard";
 import { getConfig } from "@/lib/config";
@@ -20,7 +19,6 @@ export default function AgentBuilderPage() {
   const [selectedConfig, setSelectedConfig] = useState<AgentConfig | null>(null);
   const [editingConfig, setEditingConfig] = useState<AgentConfig | undefined>(undefined);
   const [isEditorOpen, setIsEditorOpen] = useState(false);
-  const [isYamlImportOpen, setIsYamlImportOpen] = useState(false);
   const [cameFromHistory, setCameFromHistory] = useState(false);
 
   const handleSelectConfig = (config: AgentConfig, fromHistory: boolean = false) => {
@@ -29,9 +27,7 @@ export default function AgentBuilderPage() {
     setCameFromHistory(fromHistory);
   };
 
-  // Handle quick-start execution - run inline with AgentBuilderRunner
   const handleRunQuickStart = useCallback((prompt: string, configName?: string) => {
-    // Create a temporary config for the quick-start prompt
     const tempConfig: AgentConfig = {
       id: `quick-start-${Date.now()}`,
       name: configName || "Quick Start",
@@ -65,10 +61,6 @@ export default function AgentBuilderPage() {
     setIsEditorOpen(true);
   };
 
-  const handleImportYaml = () => {
-    setIsYamlImportOpen(true);
-  };
-
   const handleBackToGallery = () => {
     setViewMode("gallery");
     setSelectedConfig(null);
@@ -78,10 +70,6 @@ export default function AgentBuilderPage() {
   const handleEditorSuccess = () => {
     setIsEditorOpen(false);
     setEditingConfig(undefined);
-  };
-
-  const handleYamlImportSuccess = () => {
-    setIsYamlImportOpen(false);
   };
 
   return (
@@ -102,7 +90,6 @@ export default function AgentBuilderPage() {
                   onRunQuickStart={workflowRunnerEnabled ? handleRunQuickStart : undefined}
                   onEditConfig={handleEditConfig}
                   onCreateNew={handleCreateNew}
-                  onImportYaml={handleImportYaml}
                 />
               </motion.div>
             )}
@@ -125,19 +112,12 @@ export default function AgentBuilderPage() {
           </AnimatePresence>
         </div>
 
-        {/* Editor Dialog */}
-        <AgentBuilderEditorDialog
+        {/* Skills Builder Editor (Full-Screen Overlay) */}
+        <SkillsBuilderEditor
           open={isEditorOpen}
           onOpenChange={setIsEditorOpen}
           onSuccess={handleEditorSuccess}
           existingConfig={editingConfig}
-        />
-
-        {/* YAML Import Dialog */}
-        <YamlImportDialog
-          open={isYamlImportOpen}
-          onOpenChange={setIsYamlImportOpen}
-          onSuccess={handleYamlImportSuccess}
         />
       </div>
     </AuthGuard>

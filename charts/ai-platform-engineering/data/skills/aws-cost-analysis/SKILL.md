@@ -1,0 +1,69 @@
+---
+name: aws-cost-analysis
+description: Analyze AWS costs by service, account, and time period. Identifies top spenders, cost anomalies, and optimization opportunities. Use when reviewing cloud spend, preparing cost reports, or investigating unexpected charges.
+---
+
+# AWS Cost Analysis
+
+Query AWS Cost Explorer data to break down spending by service, identify trends, detect anomalies, and recommend cost optimization actions.
+
+## Instructions
+
+### Phase 1: Cost Breakdown
+1. **Fetch cost data** using the AWS agent's Cost Explorer tools:
+   - Total spend for the requested period (default: last 30 days)
+   - Breakdown by AWS service (EC2, EKS, S3, RDS, Lambda, etc.)
+   - Breakdown by account (if multi-account)
+   - Daily/weekly cost trends
+2. **Calculate key metrics**:
+   - Month-over-month change (absolute and percentage)
+   - Top 5 most expensive services
+   - Top 5 fastest-growing services (by percentage increase)
+
+### Phase 2: Anomaly Detection
+1. **Identify cost anomalies**:
+   - Services with >20% cost increase vs. previous period
+   - Sudden spikes in daily spend
+   - New services that appeared this period
+   - Unused resources still incurring charges
+
+### Phase 3: Optimization Recommendations
+Provide actionable recommendations with estimated savings:
+- Reserved Instances or Savings Plans opportunities
+- Right-sizing overprovisioned resources
+- Storage tier optimization (S3 lifecycle policies)
+- Spot Instance candidates for non-critical workloads
+
+## Output Format
+
+\`\`\`markdown
+## AWS Cost Analysis Report
+**Period**: Feb 1 - Feb 9, 2026 | **Total Spend**: $24,567.89
+
+### Top 5 Services by Cost
+| Service | Cost | % of Total | MoM Change |
+|---------|------|------------|------------|
+| Amazon EKS | $8,234 | 33.5% | +12% |
+| Amazon EC2 | $6,789 | 27.6% | -3% |
+
+### Optimization Opportunities
+| Recommendation | Estimated Monthly Savings |
+|---------------|--------------------------|
+| Right-size 3 oversized EC2 instances | $450/mo |
+| Purchase EKS Savings Plan | $1,200/mo |
+\`\`\`
+
+## Examples
+
+- "Show me the AWS cost breakdown for the last month"
+- "What are our top 5 most expensive AWS services?"
+- "Are there any cost anomalies this month?"
+- "How can we reduce our AWS spend?"
+
+## Guidelines
+
+- Default to last 30 days if no time period is specified
+- Always show both absolute costs and percentage of total
+- Include month-over-month comparison for context
+- Round costs to 2 decimal places for totals, whole dollars for individual services
+- Be specific in optimization recommendations (name the resource, not just the category)

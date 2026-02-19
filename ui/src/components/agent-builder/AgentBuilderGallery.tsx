@@ -18,7 +18,6 @@ import {
   Play,
   Edit,
   Trash2,
-  Upload,
   ChevronRight,
   Sparkles,
   Zap,
@@ -37,6 +36,9 @@ import {
   MessageSquare,
   Star,
   History,
+  Lock,
+  Globe,
+  UsersRound,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -55,7 +57,25 @@ interface AgentBuilderGalleryProps {
   onRunQuickStart?: (prompt: string, configName?: string) => void;
   onEditConfig?: (config: AgentConfig) => void;
   onCreateNew?: () => void;
-  onImportYaml?: () => void;
+}
+
+const VISIBILITY_BADGE_CONFIG: Record<string, { icon: React.ElementType; label: string; className: string }> = {
+  team: { icon: UsersRound, label: "Team", className: "bg-blue-500/10 text-blue-600 border-blue-500/20" },
+  global: { icon: Globe, label: "Global", className: "bg-green-500/10 text-green-600 border-green-500/20" },
+  private: { icon: Lock, label: "Private", className: "bg-muted text-muted-foreground border-border/50" },
+};
+
+function VisibilityBadge({ config }: { config: AgentConfig }) {
+  if (config.is_system || !config.visibility || config.visibility === "private") return null;
+  const badge = VISIBILITY_BADGE_CONFIG[config.visibility];
+  if (!badge) return null;
+  const VIcon = badge.icon;
+  return (
+    <Badge variant="outline" className={cn("text-[10px] px-1.5 py-0 gap-0.5", badge.className)}>
+      <VIcon className="h-2.5 w-2.5" />
+      {badge.label}
+    </Badge>
+  );
 }
 
 // Icon mapping for thumbnails
@@ -128,7 +148,6 @@ export function AgentBuilderGallery({
   onRunQuickStart,
   onEditConfig,
   onCreateNew,
-  onImportYaml,
 }: AgentBuilderGalleryProps) {
   const {
     configs,
@@ -388,10 +407,6 @@ export function AgentBuilderGallery({
             </div>
 
             <div className="flex items-center gap-2">
-              <Button variant="outline" size="sm" onClick={onImportYaml} className="gap-2">
-                <Upload className="h-4 w-4" />
-                Import YAML
-              </Button>
               <Button size="sm" onClick={onCreateNew} className="gap-2 gradient-primary text-white">
                 <Plus className="h-4 w-4" />
                 Skills Builder
@@ -500,6 +515,7 @@ export function AgentBuilderGallery({
                           ) : (
                             <Badge variant="outline" className="text-[10px] px-1.5 py-0">{config.tasks.length} steps</Badge>
                           )}
+                          <VisibilityBadge config={config} />
                         </div>
                       </div>
 
@@ -576,6 +592,7 @@ export function AgentBuilderGallery({
                           {config.metadata?.expected_agents?.slice(0, 2).map(agent => (
                             <Badge key={agent} variant="secondary" className="text-[10px] px-1.5 py-0">{agent}</Badge>
                           ))}
+                          <VisibilityBadge config={config} />
                         </div>
                       </div>
 
@@ -655,9 +672,12 @@ export function AgentBuilderGallery({
                         <div className={cn("p-2.5 rounded-xl bg-gradient-to-br", gradientClass)}>
                           <Icon className="h-5 w-5 text-white" />
                         </div>
-                        <Badge variant="outline" className={cn("text-xs", getDifficultyColor(config.difficulty))}>
-                          {config.difficulty || "beginner"}
-                        </Badge>
+                        <div className="flex items-center gap-1">
+                          <VisibilityBadge config={config} />
+                          <Badge variant="outline" className={cn("text-xs", getDifficultyColor(config.difficulty))}>
+                            {config.difficulty || "beginner"}
+                          </Badge>
+                        </div>
                       </div>
                       <h3 className="font-medium mb-1 group-hover:text-primary transition-colors">{config.name}</h3>
                       <p className="text-sm text-muted-foreground line-clamp-2 mb-3">{config.description}</p>
@@ -750,6 +770,7 @@ export function AgentBuilderGallery({
                       <div className="flex items-center gap-2 text-xs text-muted-foreground">
                         <Workflow className="h-3.5 w-3.5" />
                         <span>{config.tasks.length} steps</span>
+                        <VisibilityBadge config={config} />
                       </div>
 
                       {/* Action buttons grouped together - bottom-right on hover */}
