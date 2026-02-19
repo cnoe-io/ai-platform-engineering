@@ -43,6 +43,7 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { CAIPESpinner } from "@/components/ui/caipe-spinner";
 import { cn } from "@/lib/utils";
+import { getConfig } from "@/lib/config";
 import { useAgentConfigStore } from "@/store/agent-config-store";
 import { useChatStore } from "@/store/chat-store";
 import { useAdminRole } from "@/hooks/use-admin-role";
@@ -142,6 +143,7 @@ export function AgentBuilderGallery({
   const { isAdmin } = useAdminRole();
   const router = useRouter();
   const { createConversation, setPendingMessage } = useChatStore();
+  const workflowRunnerEnabled = getConfig('workflowRunnerEnabled');
 
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategory, setSelectedCategory] = useState<string>("All");
@@ -718,8 +720,8 @@ export function AgentBuilderGallery({
             </div>
           )}
 
-          {/* Multi-Step Workflows */}
-          {viewMode !== "quick-start" && workflowConfigs.length > 0 && (
+          {/* Multi-Step Workflows — only shown when workflow runner is enabled */}
+          {workflowRunnerEnabled && viewMode !== "quick-start" && workflowConfigs.length > 0 && (
             <div className="mb-8">
               <div className="flex items-center gap-2 mb-4">
                 <Workflow className="h-5 w-5 text-primary" />
@@ -905,14 +907,16 @@ export function AgentBuilderGallery({
                   <MessageSquare className="h-4 w-4" />
                   Run in Chat
                 </Button>
-                <Button
-                  onClick={handleFormSubmit}
-                  className="gradient-primary text-white gap-2"
-                  disabled={!editablePrompt.trim()}
-                >
-                  <Play className="h-4 w-4" />
-                  Run Workflow
-                </Button>
+                {workflowRunnerEnabled && (
+                  <Button
+                    onClick={handleFormSubmit}
+                    className="gradient-primary text-white gap-2"
+                    disabled={!editablePrompt.trim()}
+                  >
+                    <Play className="h-4 w-4" />
+                    Run Workflow
+                  </Button>
+                )}
               </div>
             </motion.div>
           </motion.div>

@@ -64,6 +64,9 @@ CONFLUENCE_INGESTOR_REDIS_QUEUE = "ingestor:confluence:requests"
 CONFLUENCE_INGESTOR_TYPE = "confluence"
 CONFLUENCE_INGESTOR_NAME = "default_confluence"
 
+# Default reload interval for datasources without an explicit reload_interval in metadata (in seconds)
+DEFAULT_RELOAD_INTERVAL = 86400  # 24 hours
+
 # Minimum reload interval for datasources (in seconds)
 # Prevents excessive resource usage from too-frequent reloads
 MIN_RELOAD_INTERVAL = 60

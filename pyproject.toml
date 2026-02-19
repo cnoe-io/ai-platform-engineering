@@ -46,6 +46,10 @@ indent-width = 2
 select = ["E", "F"]
 ignore = ["F403"]
 
+[tool.ruff.lint.per-file-ignores]
+"ai_platform_engineering/knowledge_bases/rag/ingestors/src/ingestors/webloader/loader/scrapy_worker.py" = ["E402"]
+"ai_platform_engineering/knowledge_bases/rag/ingestors/src/ingestors/webloader/loader/worker_pool.py" = ["E402"]
+
 
 
 

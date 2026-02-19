@@ -20,7 +20,7 @@ from common.ingestor import IngestorBuilder, Client
 from common.models.rag import DataSourceInfo
 from common.models.server import IngestorRequest, UrlIngestRequest, WebIngestorCommand, UrlReloadRequest, ScrapySettings, CrawlMode
 from common.job_manager import JobStatus, JobManager
-from common.constants import WEBLOADER_INGESTOR_REDIS_QUEUE, WEBLOADER_INGESTOR_NAME, WEBLOADER_INGESTOR_TYPE, MIN_RELOAD_INTERVAL
+from common.constants import WEBLOADER_INGESTOR_REDIS_QUEUE, WEBLOADER_INGESTOR_NAME, WEBLOADER_INGESTOR_TYPE, DEFAULT_RELOAD_INTERVAL, MIN_RELOAD_INTERVAL
 from common.utils import get_logger, generate_datasource_id_from_url
 
 from loader.scrapy_loader import ScrapyLoader
@@ -33,7 +33,6 @@ REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379")
 
 # Webloader configuration
 CHECK_INTERVAL = int(os.getenv("WEBLOADER_CHECK_INTERVAL", "600"))  # How often to check if any datasources need reloading (default: 10 mins)
-DEFAULT_RELOAD_INTERVAL = 86400  # 24 hours - fallback for old datasources without reload_interval
 MAX_INGESTION_TASKS = int(os.getenv("WEBLOADER_MAX_INGESTION_TASKS", "5"))  # Max concurrent ingestion tasks
 
 redis_client = Redis.from_url(REDIS_URL, decode_responses=True)
