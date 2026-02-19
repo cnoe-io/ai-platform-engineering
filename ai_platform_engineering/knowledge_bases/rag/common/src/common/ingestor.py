@@ -887,10 +887,18 @@ class IngestorBuilder:
             logger.info("EXIT_AFTER_FIRST_SYNC is set and no datasources need updating. Exiting without sync.")
             return
 
+          # Enforce minimum sleep to prevent tight loops from misconfiguration
+          MIN_LOOP_SLEEP = 600  # 10 minute floor
           if sleep_time > 0:
             # No datasources need syncing yet, sleep until next one is due
             logger.info(f"Sleeping for {sleep_time}s before next sync")
             await asyncio.sleep(sleep_time)
+          elif self._last_sync_time is not None:
+            time_since_last_sync = int(time.time()) - self._last_sync_time
+            if time_since_last_sync < MIN_LOOP_SLEEP:
+              backoff = MIN_LOOP_SLEEP - time_since_last_sync
+              logger.warning(f"Sync returned sleep_time=0 but last sync was only {time_since_last_sync}s ago, backing off {backoff}s to prevent tight loop")
+              await asyncio.sleep(backoff)
 
           # Now run the sync (either immediately if overdue, or after sleeping)
           logger.info("Running sync cycle...")
