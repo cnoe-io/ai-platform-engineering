@@ -55,6 +55,10 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle }: ChatP
     metadata: UserInputMetadata;
   } | null>(null);
 
+  // Track message IDs where the user explicitly dismissed the input form,
+  // so we don't re-show it after the restore effect runs.
+  const dismissedInputForMessageRef = useRef<Set<string>>(new Set());
+
   // Auto-scroll state
   const [isUserScrolledUp, setIsUserScrolledUp] = useState(false);
   const [showScrollButton, setShowScrollButton] = useState(false);
@@ -218,6 +222,71 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle }: ChatP
       });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeConversationId, conversation?.messages?.length]);
+
+  // ═══════════════════════════════════════════════════════════════
+  // RESTORE PENDING USER INPUT FORM after page refresh / navigation.
+  // During live streaming, pendingUserInput is set when a UserInputMetaData
+  // artifact arrives.  That state is ephemeral — lost on refresh.  Here we
+  // reconstruct it from the persisted A2A events so the form re-appears.
+  // ═══════════════════════════════════════════════════════════════
+  useEffect(() => {
+    // Clear dismissed-form tracking when switching conversations
+    dismissedInputForMessageRef.current.clear();
+    setPendingUserInput(null);
+  }, [activeConversationId]);
+
+  useEffect(() => {
+    if (pendingUserInput || isThisConversationStreaming) return;
+    if (!conversation || conversation.messages.length === 0) return;
+
+    const messages = conversation.messages;
+    const lastMsg = messages[messages.length - 1];
+
+    // Only restore if the last message is from the assistant (user hasn't replied yet)
+    if (lastMsg.role !== "assistant") return;
+
+    // Don't restore if user explicitly dismissed the form for this message
+    if (dismissedInputForMessageRef.current.has(lastMsg.id)) return;
+
+    // Gather events from both conversation-level and message-level sources
+    const eventsToCheck = [
+      ...(conversation.a2aEvents || []),
+      ...(lastMsg.events || []),
+    ];
+
+    for (const event of eventsToCheck) {
+      if (event.artifact?.name !== "UserInputMetaData") continue;
+
+      let metadata: UserInputMetadata | null = null;
+
+      // Extract from DataPart (primary format)
+      if (event.artifact?.parts) {
+        for (const part of event.artifact.parts) {
+          if (part.kind === "data" && part.data) {
+            metadata = part.data as UserInputMetadata;
+            break;
+          }
+        }
+      }
+
+      // Fallback: artifact.metadata.metadata (legacy format)
+      if (!metadata && event.artifact?.metadata) {
+        const artMeta = event.artifact.metadata as Record<string, unknown>;
+        if (artMeta.metadata && typeof artMeta.metadata === "object") {
+          metadata = artMeta.metadata as UserInputMetadata;
+        }
+      }
+
+      if (metadata?.input_fields && metadata.input_fields.length > 0) {
+        console.log(
+          `[ChatPanel] 📝 Restoring pending user input form from persisted events (${metadata.input_fields.length} fields)`
+        );
+        setPendingUserInput({ messageId: lastMsg.id, metadata });
+        return;
+      }
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeConversationId, conversation?.messages?.length, isThisConversationStreaming]);
 
   const handleCopy = async (content: string, id: string) => {
     await navigator.clipboard.writeText(content);
@@ -852,7 +921,12 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle }: ChatP
                 description={pendingUserInput.metadata.input_description}
                 inputFields={pendingUserInput.metadata.input_fields}
                 onSubmit={handleUserInputSubmit}
-                onCancel={() => setPendingUserInput(null)}
+                onCancel={() => {
+                  if (pendingUserInput) {
+                    dismissedInputForMessageRef.current.add(pendingUserInput.messageId);
+                  }
+                  setPendingUserInput(null);
+                }}
                 disabled={isThisConversationStreaming}
               />
             )}
