@@ -147,14 +147,12 @@ class GitHubAgent(BaseLangGraphAgent):
         return _prompt_config.tool_processing_message
 
     def get_additional_tools(self) -> list:
-        """Provide gh CLI as a fallback tool.
+        """Provide gh CLI as a fallback tool when MCP STDIO fails.
 
-        The base class calls this when MCP STDIO fails to start (e.g. Go
-        not installed, missing source directory).  When MCP loads
-        successfully the base class does NOT call this method from
-        ``_load_mcp_tools``; only ``create_subagent_def`` adds these on
-        top, which is acceptable — the LLM will prefer the richer MCP
-        tools over the generic gh CLI wrapper.
+        Only used when MCP tools fail to load (Go not installed, source
+        directory missing, process crash, etc.).  ``create_subagent_def``
+        calls ``_load_mcp_tools(include_fallback=False)`` and only adds
+        these fallback tools when MCP returned nothing.
         """
         tools = []
         gh_tool = get_gh_cli_tool()

@@ -553,13 +553,20 @@ async def create_subagent_def(agent_instance, name: str, description: str, promp
     Returns:
         SubAgent dict with name, description, system_prompt, tools, middleware
     """
-    # Load MCP tools from the agent
-    tools = await agent_instance._load_mcp_tools({})
+    # Load MCP tools – pass include_fallback=False so _load_mcp_tools returns
+    # an empty list on failure instead of silently substituting gh_cli_execute.
+    tools = await agent_instance._load_mcp_tools({}, include_fallback=False)
     
-    # Get additional tools from subclass
-    additional_tools = agent_instance.get_additional_tools()
-    if additional_tools:
-        tools.extend(additional_tools)
+    if tools:
+        logger.info(f"{name}: {len(tools)} MCP tools loaded, skipping fallback tools")
+    else:
+        # MCP tools failed to load – add fallback tools (e.g. gh_cli_execute)
+        additional_tools = agent_instance.get_additional_tools()
+        if additional_tools:
+            logger.warning(f"{name}: MCP tools unavailable, adding {len(additional_tools)} fallback tool(s)")
+            tools.extend(additional_tools)
+        else:
+            logger.warning(f"{name}: MCP tools unavailable and no fallback tools available")
     
     # Add utility tools available to all subagents
     # - tool_result_to_file: Save tool output to filesystem for downstream agents

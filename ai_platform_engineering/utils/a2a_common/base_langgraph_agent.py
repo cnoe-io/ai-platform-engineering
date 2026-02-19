@@ -225,7 +225,7 @@ Use this as the reference point for all date calculations. When users say "today
         """
         return []
 
-    async def _load_mcp_tools(self, args: dict) -> list:
+    async def _load_mcp_tools(self, args: dict, include_fallback: bool = True) -> list:
         """
         Load MCP tools for this agent.
         
@@ -233,12 +233,20 @@ Use this as the reference point for all date calculations. When users say "today
         
         Args:
             args: Dictionary with optional 'thread_id' for tool wrapping
+            include_fallback: When True (default), return get_additional_tools() on MCP
+                failure for backward compatibility.  When False, return an empty list
+                so the caller can decide whether to add fallbacks.
             
         Returns:
             List of tools loaded from MCP
         """
         agent_name = self.get_agent_name()
         mcp_mode = os.getenv("MCP_MODE", "stdio")
+        
+        def _fallback() -> list:
+            if include_fallback:
+                return self.get_additional_tools() or []
+            return []
         
         # Compute default server path based on agent's module location
         # This finds the MCP server relative to the agent's protocol_bindings/a2a_server/agent.py
@@ -272,7 +280,7 @@ Use this as the reference point for all date calculations. When users say "today
         # If MCP not available, just return additional tools
         if not MCP_AVAILABLE:
             logger.warning(f"{agent_name}: MCP not available, using only additional tools")
-            return self.get_additional_tools() or []
+            return _fallback()
         
         client = None
         
@@ -311,7 +319,7 @@ Use this as the reference point for all date calculations. When users say "today
             
             if not server_path or not os.path.exists(server_path):
                 logger.warning(f"{agent_name}: MCP server path not found: {server_path}")
-                return self.get_additional_tools() or []
+                return _fallback()
             
             try:
                 mcp_config = self.get_mcp_config(server_path)
@@ -326,18 +334,18 @@ Use this as the reference point for all date calculations. When users say "today
                     })
             except (ValueError, NotImplementedError) as e:
                 logger.error(f"{agent_name}: Cannot load MCP config: {e}")
-                return self.get_additional_tools() or []
+                return _fallback()
         
         if not client:
             logger.warning(f"{agent_name}: No MCP client configured")
-            return self.get_additional_tools() or []
+            return _fallback()
         
         # Get tools from MCP client
         try:
             tools = await client.get_tools()
         except Exception as e:
             logger.warning(f"{agent_name}: Failed to load MCP tools: {e}", exc_info=True)
-            return self.get_additional_tools() or []
+            return _fallback()
         
         # Allow subclasses to filter tools
         tools = self._filter_mcp_tools(tools)

@@ -256,7 +256,10 @@ class AIPlatformEngineerA2ABinding:
           "failed": "❌",
       }
       lines = []
-      for todo_id in sorted(self._previous_todos.keys(), key=lambda x: (int(x) if str(x).isdigit() else x)):
+      for todo_id in sorted(
+          (k for k in self._previous_todos.keys() if k is not None),
+          key=lambda x: (int(x) if str(x).isdigit() else float('inf')),
+      ):
           entry = self._previous_todos[todo_id]
           icon = status_icons.get(entry["status"], "⏳")
           content = entry["content"]

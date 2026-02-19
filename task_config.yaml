@@ -84,8 +84,8 @@ Create GitHub Repo:
         Collect the following information from the user and write to /request.txt:
         - repo_name (required): Repository name (the name you want to give to the repository)
         - project_name (required): Project associated with the repository - use field_values from /projects.txt (default: action-engine)
-        - org_name (required): Organization under which the repository will be created (default: cisco-eti)
-        - template (optional): Template repo to use, if applicable (default: None)
+        - org_name (required): Organization under which the repository will be created (default: cisco-eti, field_values: ["cisco-eti", "outshift-platform", "cisco-platform"])
+        - template (optional): Template repo to use, if applicable (default: None, field_values: ["None", "platform-demo", "sre-go-helloworld", "outshift-react-app", "repo-template"])
         - jira_issue_id (optional): JIRA issue ID if applicable
         
         user_email is auto-filled from the authenticated session — do NOT include it in the form.
@@ -124,14 +124,8 @@ Create GitHub Repo:
       llm_prompt: >
         Fetch the safe-settings template from the jarvis-workflows repo.
         
-        Parse the JARVIS_WORKFLOWS_REPO env var (format: owner/repo) to extract owner and repo.
-        For example, if JARVIS_WORKFLOWS_REPO=myorg/workflows:
-          - owner: myorg
-          - repo: workflows
-        
         Use the get_file_contents tool with:
-          - owner: {extracted owner from ${JARVIS_WORKFLOWS_REPO}}
-          - repo: {extracted repo from ${JARVIS_WORKFLOWS_REPO}}
+          - owner and repo: parse "${JARVIS_WORKFLOWS_REPO}" by splitting on "/" (first part is owner, second is repo)
           - path: templates/github_repo_creation/safe-settings-repo-template.yml
         
         Save the file content to /template.yml in the filesystem.
@@ -199,7 +193,7 @@ Create GitHub Repo:
         If jira_issue_id is NOT set, create a new Jira ticket in the OPENSD project with:
         - Summary: "Repository creation request: {repo_name}"
         - Description: Include repo_url, admin_pr_url, and requester email
-        - Assign to ${JIRA_ASSIGNEE}
+        - Assign to ${JIRA_ASSIGNEE} (search for this email first to get their Jira account ID, then use the account ID in the assignee field)
         - Transition to "Acknowledge" to indicate work has started
         
         Note: Available transitions are "Blocked", "Acknowledge", and "Close Ticket".
@@ -266,11 +260,11 @@ Create EC2 Instance:
       llm_prompt: >
         Collect the following information from the user and write to /request.txt:
         - resource_name (required): Instance name (lowercase, less than 20 characters)
-        - aws_account (required): AWS account name (outshift-common-dev, eti-ci, cisco-research)
-        - instance_type (required): EC2 instance size (t2.micro, t3.micro, t3a.large, m6a.large, t3a.xlarge, m6a.xlarge, m6a.2xlarge)
-        - vpc_name (required): VPC name (outshift-sandbox-vms, cisco-research-vpc)
-        - ami_type (required): Operating system (UBUNTU, AMAZON_LINUX, WINDOWS)
-        - region (required): AWS region (us-east-2, us-west-2)
+        - aws_account (required): AWS account name (field_values: ["outshift-common-dev", "eti-ci", "cisco-research"])
+        - instance_type (required): EC2 instance size (field_values: ["t2.micro", "t3.micro", "t3a.large", "m6a.large", "t3a.xlarge", "m6a.xlarge", "m6a.2xlarge"])
+        - vpc_name (required): VPC name (field_values: ["outshift-sandbox-vms", "cisco-research-vpc"])
+        - ami_type (required): Operating system (field_values: ["UBUNTU", "AMAZON_LINUX", "WINDOWS"])
+        - region (required): AWS region (field_values: ["us-east-2", "us-west-2"])
         - jira_issue_id (optional): JIRA issue ID if applicable
         
         user_email is auto-filled from the authenticated session — do NOT include it in the form.
@@ -283,10 +277,8 @@ Create EC2 Instance:
       llm_prompt: >
         Fetch the EC2 terraform template from the workflows templates repo.
         
-        Parse the JARVIS_WORKFLOWS_REPO env var (format: owner/repo) to extract owner and repo.
         Use the get_file_contents tool with:
-          - owner: {extracted owner from ${JARVIS_WORKFLOWS_REPO}}
-          - repo: {extracted repo from ${JARVIS_WORKFLOWS_REPO}}
+          - owner and repo: parse "${JARVIS_WORKFLOWS_REPO}" by splitting on "/" (first part is owner, second is repo)
           - path: templates/ec2_creation/ec2.tf
         
         Save the file content to /ec2_template.tf in the filesystem.
@@ -343,7 +335,7 @@ Create EC2 Instance:
         Read /branch_info.txt to get branch_name.
         Read /processed_ec2.tf to get the processed terraform content.
         
-        Parse ${TERRAFORM_INFRA_REPO} (format: owner/repo) to extract owner and repo.
+        The terraform-infra repo is "${TERRAFORM_INFRA_REPO}" — split on "/" to get owner and repo.
         
         Create a new file in the terraform-infra repo:
         - Path: generated_iac/ec2/{resource_name}/ec2.tf
@@ -401,7 +393,7 @@ Create EC2 Instance:
             Terraform PR: {pr_url}
             
             This request was submitted via Jarvis self-service.
-        - Assign to ${JIRA_ASSIGNEE}
+        - Assign to ${JIRA_ASSIGNEE} (search for this email first to get their Jira account ID, then use the account ID in the assignee field)
         - Transition to "Acknowledge" to indicate work has started
         
         Note: Available transitions are "Blocked", "Acknowledge", and "Close Ticket".
@@ -420,6 +412,7 @@ Create EC2 Instance:
         
         Send a notification to the Webex room using the post_message tool with:
         - room_id: ${WEBEX_ROOM_ID}
+        - text: "EC2 Instance Request: {resource_name} by {user_email} - PR: {pr_url} - Jira: {jira_url}"
         - markdown: |
             ## 🖥️ EC2 Instance Request Submitted
             
@@ -441,10 +434,10 @@ Create EKS Cluster:
       llm_prompt: >
         Collect the following information from the user and write to /request.txt:
         - cluster_name (required): Name of the EKS cluster (lowercase, less than 19 characters)
-        - instance_type (required): Instance type for cluster nodes (default: m7a.large)
-        - k8s_version (required): Kubernetes version to use
-        - region (required): AWS region (default: us-east-2)
-        - aws_account (required): AWS account name (default: outshift-common-dev)
+        - instance_type (required): Instance type for cluster nodes (default: m7a.large, field_values: ["m7a.large", "m7a.xlarge"])
+        - k8s_version (required): Kubernetes version to use (field_values: ["1.31"])
+        - region (required): AWS region (default: us-east-2, field_values: ["us-east-2", "us-west-2"])
+        - aws_account (required): AWS account name (default: outshift-common-dev, field_values: ["outshift-common-dev", "eti-ci", "cisco-research"])
         - jira_issue_id (optional): JIRA issue ID if applicable
         
         user_email is auto-filled from the authenticated session — do NOT include it in the form.
@@ -457,10 +450,8 @@ Create EKS Cluster:
       llm_prompt: >
         Fetch the EKS terraform template from the workflows templates repo.
         
-        Parse the JARVIS_WORKFLOWS_REPO env var (format: owner/repo) to extract owner and repo.
         Use the get_file_contents tool with:
-          - owner: {extracted owner from ${JARVIS_WORKFLOWS_REPO}}
-          - repo: {extracted repo from ${JARVIS_WORKFLOWS_REPO}}
+          - owner and repo: parse "${JARVIS_WORKFLOWS_REPO}" by splitting on "/" (first part is owner, second is repo)
           - path: templates/ephemeral_eks_cluster/eks.tf
         
         Save the file content to /eks_template.tf in the filesystem.
@@ -516,7 +507,7 @@ Create EKS Cluster:
         Read /branch_info.txt to get branch_name.
         Read /processed_eks.tf to get the processed terraform content.
         
-        Parse ${TERRAFORM_INFRA_REPO} (format: owner/repo) to extract owner and repo.
+        The terraform-infra repo is "${TERRAFORM_INFRA_REPO}" — split on "/" to get owner and repo.
         
         Create a new file in the terraform-infra repo:
         - Path: generated_iac/ephemeral-eks-clusters/{cluster_name}/eks.tf
@@ -577,7 +568,7 @@ Create EKS Cluster:
             
             This request was submitted via Jarvis self-service.
             Note: Cluster provisioning takes 15-20 minutes after PR merge.
-        - Assign to ${JIRA_ASSIGNEE}
+        - Assign to ${JIRA_ASSIGNEE} (search for this email first to get their Jira account ID, then use the account ID in the assignee field)
         - Transition to "Acknowledge" to indicate work has started
         
         Note: Available transitions are "Blocked", "Acknowledge", and "Close Ticket".
@@ -596,6 +587,7 @@ Create EKS Cluster:
         
         Send a notification to the Webex room using the post_message tool with:
         - room_id: ${WEBEX_ROOM_ID}
+        - text: "EKS Cluster Request: {cluster_name} by {user_email} - PR: {pr_url} - Jira: {jira_url}"
         - markdown: |
             ## ☸️ EKS Cluster Request Submitted
             
@@ -618,10 +610,10 @@ Create S3 Bucket:
       llm_prompt: >
         Collect the following information from the user and write to /request.txt:
         - resource_name (required): S3 bucket name (must be lowercase, less than 63 characters)
-        - aws_account (required): AWS account name (default: outshift-common-dev)
-        - region (required): AWS region (default: us-east-2)
-        - data_classification (required): Data classification of the bucket (default: Cisco Restricted)
-        - data_taxonomy (required): Data taxonomy of the bucket (default: Administrative Data)
+        - aws_account (required): AWS account name (default: outshift-common-dev, field_values: ["outshift-common-dev", "outshift-common-staging", "outshift-common-prod", "cisco-research"])
+        - region (required): AWS region (default: us-east-2, field_values: ["us-east-2", "us-west-2"])
+        - data_classification (required): Data classification of the bucket (default: Cisco Restricted, field_values: ["Cisco Restricted", "Cisco Highly Confidential", "Cisco Confidential", "Cisco Public"])
+        - data_taxonomy (required): Data taxonomy of the bucket (default: Administrative Data, field_values: ["Administrative Data", "Customer Data", "Entrusted Data", "Financing Data", "Support Data", "Telemetry Data", "Cisco Operations Data", "Cisco Strategic Data", "Human Resources Data"])
         
         user_email is auto-filled from the authenticated session — do NOT include it in the form.
         
@@ -633,10 +625,8 @@ Create S3 Bucket:
       llm_prompt: >
         Fetch the S3 terraform template from the workflows templates repo.
         
-        Parse the JARVIS_WORKFLOWS_REPO env var (format: owner/repo) to extract owner and repo.
         Use the get_file_contents tool with:
-          - owner: {extracted owner from ${JARVIS_WORKFLOWS_REPO}}
-          - repo: {extracted repo from ${JARVIS_WORKFLOWS_REPO}}
+          - owner and repo: parse "${JARVIS_WORKFLOWS_REPO}" by splitting on "/" (first part is owner, second is repo)
           - path: templates/s3_creation/s3.tf
         
         Save the file content to /s3_template.tf in the filesystem.
@@ -691,7 +681,7 @@ Create S3 Bucket:
         Read /branch_info.txt to get branch_name.
         Read /processed_s3.tf to get the processed terraform content.
         
-        Parse ${TERRAFORM_INFRA_REPO} (format: owner/repo) to extract owner and repo.
+        The terraform-infra repo is "${TERRAFORM_INFRA_REPO}" — split on "/" to get owner and repo.
         
         Create a new file in the terraform-infra repo:
         - Path: generated_iac/s3/{resource_name}/s3.tf
@@ -745,7 +735,7 @@ Create S3 Bucket:
             Terraform PR: {pr_url}
             
             This request was submitted via Jarvis self-service.
-        - Assign to ${JIRA_ASSIGNEE}
+        - Assign to ${JIRA_ASSIGNEE} (search for this email first to get their Jira account ID, then use the account ID in the assignee field)
         - Transition to "Acknowledge" to indicate work has started
         
         Note: Available transitions are "Blocked", "Acknowledge", and "Close Ticket".
@@ -764,6 +754,7 @@ Create S3 Bucket:
         
         Send a notification to the Webex room using the post_message tool with:
         - room_id: ${WEBEX_ROOM_ID}
+        - text: "S3 Bucket Request: {resource_name} by {user_email} - PR: {pr_url} - Jira: {jira_url}"
         - markdown: |
             ## 🪣 S3 Bucket Request Submitted
             
@@ -804,20 +795,21 @@ Deploy App to Common Cluster:
         Collect the following information from the user and write to /request.txt:
         - app_name (required): Name of the application to be deployed
         - project_name (required): Project associated with the application - use field_values from /projects.txt (default: action-engine)
-        - org_name (required): Organization under which the application will be deployed (default: cisco-eti)
+        - org_name (required): Organization under which the application will be deployed (default: cisco-eti, field_values: ["cisco-eti", "outshift-platform", "cisco-platform"])
         - app_deployment_repo (optional): Git repository name for deployment (defaults to "<APP_NAME>-deployment" if not specified)
         - app_namespace (optional): Kubernetes namespace for deployment (defaults to "<APP_NAME>-<ENVIRONMENT>" if not specified)
-        - app_helm_chart_version (optional): Version of the Helm chart to use
-        - environment (optional): Deployment environment (default: dev)
-        - deployment_env (optional): Deployment variant (default: a)
+        - app_helm_chart_version (required): Version of the Helm chart to use (e.g. 0.0.1, 1.2.3)
+        - environment (optional): Deployment environment (default: dev, field_values: ["dev", "demo", "test", "staging", "prod"])
+        - deployment_env (optional): Deployment variant (default: a, field_values: ["a", "b", "c", "d"])
         - auto_approve (optional): Whether to auto-merge to git (default: true, field_values: ["true", "false"])
         - jira_issue_id (optional): JIRA issue ID if applicable
-        - user_email (required): User email
+        
+        user_email is auto-filled from the authenticated session — do NOT include it in the form.
         
         Format as key=value on each line. Write to /request.txt.
       subagent: "caipe"
 
-    # Step 2: Check if deployment repo exists
+    # Step 3: Check if deployment repo exists
     - display_text: "Check if deployment repo exists"
       llm_prompt: >
         Read /request.txt to get app_name, app_deployment_repo, org_name.
@@ -825,37 +817,48 @@ Deploy App to Common Cluster:
         If app_deployment_repo is not set, use "{app_name}-deployment" as the repo name.
         
         Check if the repository {org_name}/{app_deployment_repo} already exists.
+        If it exists, also check if the default branch (main) has any commits
+        by listing branches or fetching the default branch ref.
         
         Write result to /repo_check.txt:
-        - repo_exists=true (if repo exists)
-        - repo_exists=false (if repo does not exist)
+        - repo_exists=true/false
+        - repo_empty=true (if repo exists but has no commits/branches)
+        - repo_empty=false (if repo has commits)
         - deployment_repo={app_deployment_repo}
       subagent: "github"
 
-    # Step 3: Create deployment repo if needed
+    # Step 4: Create deployment repo if needed
     - display_text: "Create deployment repo if needed"
       llm_prompt: >
         Read /request.txt to get app_name, org_name.
-        Read /repo_check.txt to get repo_exists, deployment_repo.
+        Read /repo_check.txt to get repo_exists, repo_empty, deployment_repo.
         
         If repo_exists=false:
         - Create a new private repository {org_name}/{deployment_repo}
         - Initialize with a README describing it as an ArgoCD deployment repo for {app_name}
         
+        If repo_exists=true AND repo_empty=true:
+        - The repo exists but has no commits. Initialize it by creating a
+          README.md file on the main branch describing it as an ArgoCD
+          deployment repo for {app_name}. Use create_or_update_file to push
+          the initial commit.
+        
+        If repo_exists=true AND repo_empty=false:
+        - Skip creation; the repo is ready.
+        
         Write result to /repo_create.txt:
-        - repo_created=true (if created)
-        - repo_created=false (if skipped because it already exists)
+        - repo_created=true (if newly created)
+        - repo_created=false (if already existed)
         - repo_url=https://github.com/{org_name}/{deployment_repo}
       subagent: "github"
 
-    # Step 4: Fetch ArgoCD templates
+    # Step 5: Fetch ArgoCD templates
     - display_text: "Fetch ArgoCD deployment templates"
       llm_prompt: >
         Fetch the ArgoCD deployment templates from the workflows templates repo.
+        The repo is "${JARVIS_WORKFLOWS_REPO}" — split on "/" to get owner and repo.
         
-        Parse the JARVIS_WORKFLOWS_REPO env var (format: owner/repo) to extract owner and repo.
-        
-        Fetch the following template files:
+        Use get_file_contents to fetch each of the following template files:
         1. templates/create_argocd_deployment/application/values.yaml -> /argocd_templates/values.yaml
         2. templates/create_argocd_deployment/application/config.json -> /argocd_templates/config.json
         3. templates/create_argocd_deployment/applicationset/applicationset.yaml -> /argocd_templates/applicationset.yaml
@@ -866,7 +869,7 @@ Deploy App to Common Cluster:
         Write "templates_fetched=true" to /template_status.txt
       subagent: "github"
 
-    # Step 5: Process templates with user values
+    # Step 6: Process templates with user values
     - display_text: "Process ArgoCD templates with user values"
       llm_prompt: >
         Read /request.txt to get all user values.
@@ -899,7 +902,7 @@ Deploy App to Common Cluster:
         Write "templates_processed=true" to /process_status.txt
       subagent: "github"
 
-    # Step 6: Create branch in deployment repo
+    # Step 7: Create branch in deployment repo
     - display_text: "Create branch in deployment repo"
       llm_prompt: >
         Read /request.txt to get app_name.
@@ -914,7 +917,7 @@ Deploy App to Common Cluster:
         - branch_name=deploy-{app_name}-{suffix}
       subagent: "github"
 
-    # Step 7: Push ArgoCD manifests to deployment repo
+    # Step 8: Push ArgoCD manifests to deployment repo
     - display_text: "Push ArgoCD manifests to deployment repo"
       llm_prompt: >
         Read /request.txt to get app_name, environment, org_name.
@@ -947,10 +950,10 @@ Deploy App to Common Cluster:
         Write "files_pushed=true" to /push_status.txt
       subagent: "github"
 
-    # Step 8: Create PR in deployment repo
+    # Step 9: Create PR in deployment repo
     - display_text: "Create PR for ArgoCD deployment"
       llm_prompt: >
-        Read /request.txt to get app_name, environment, user_email, org_name.
+        Read /request.txt to get app_name, environment, user_email, org_name, auto_approve.
         Read /repo_check.txt to get deployment_repo.
         Read /branch_info.txt to get branch_name.
         
@@ -963,6 +966,7 @@ Deploy App to Common Cluster:
             **Application:** {app_name}
             **Environment:** {environment}
             **Requested By:** {user_email}
+            **Auto Approve:** {auto_approve}
             
             This PR adds ArgoCD deployment manifests via Jarvis self-service automation.
             
@@ -981,16 +985,43 @@ Deploy App to Common Cluster:
         - pr_number={PR_NUMBER}
       subagent: "github"
 
-    # Step 9: Create or update Jira ticket for tracking
+    # Step 10: Auto-merge PR if auto_approve is true
+    - display_text: "Auto-merge PR if approved"
+      llm_prompt: >
+        Read /request.txt to get auto_approve.
+        Read /deployment_pr_result.txt to get pr_url.
+        
+        If auto_approve=true:
+        1. Wait for all status checks to pass on the PR.
+           Use the wait tool to pause for 10 seconds between checks, for up to 3 minutes total.
+           All checks must pass before merging.
+        
+        2. If checks pass, merge the PR using squash merge and delete the branch.
+        
+        Write result to /merge_result.txt:
+        - auto_approve={auto_approve}
+        - pr_merged=true (if auto_approve=true and merge succeeded)
+        - pr_merged=false (if auto_approve=false, or if merge failed)
+        - merge_error=[error message if failed]
+        
+        If auto_approve=false, write:
+        - auto_approve=false
+        - pr_merged=false
+        - Note: PR requires manual review and approval
+      subagent: "github"
+
+    # Step 11: Create or update Jira ticket for tracking
     - display_text: "Create or update Jira ticket for deployment"
       llm_prompt: >
         Read /request.txt to get app_name, environment, user_email, and jira_issue_id (if set).
         Read /deployment_pr_result.txt to get pr_url.
         Read /repo_create.txt to get repo_created, repo_url.
+        Read /merge_result.txt to get pr_merged, auto_approve.
         
         If jira_issue_id is set in /request.txt, use the existing ticket:
-        1. Add a comment to {jira_issue_id} with app name, environment, deployment PR, and repo URL
-        2. Transition to "Acknowledge" to indicate work has started
+        1. Add a comment to {jira_issue_id} with app name, environment, deployment PR, repo URL, and merge status
+        2. If pr_merged=true, transition to "Close Ticket"
+        3. If pr_merged=false, transition to "Acknowledge" to indicate work has started
         
         If jira_issue_id is NOT set, create a new Jira ticket in the OPENSD project with:
         - Summary: "ArgoCD deployment request: {app_name} to {environment}"
@@ -1004,10 +1035,12 @@ Deploy App to Common Cluster:
             Deployment PR: {pr_url}
             Deployment Repo: {repo_url}
             New Repo Created: {repo_created}
+            PR Auto-Merged: {pr_merged}
             
             This request was submitted via Jarvis self-service.
-        - Assign to ${JIRA_ASSIGNEE}
-        - Transition to "Acknowledge" to indicate work has started
+        - Assign to ${JIRA_ASSIGNEE} (search for this email first to get their Jira account ID, then use the account ID in the assignee field)
+        - If pr_merged=true, transition to "Close Ticket"
+        - If pr_merged=false, transition to "Acknowledge" to indicate work has started (pending manual review)
         
         Note: Available transitions are "Blocked", "Acknowledge", and "Close Ticket".
         
@@ -1016,16 +1049,18 @@ Deploy App to Common Cluster:
         - jira_url={ticket URL}
       subagent: "jira"
 
-    # Step 13: Send Webex notification
+    # Step 12: Send Webex notification
     - display_text: "Send Webex notification"
       llm_prompt: >
         Read /request.txt to get app_name, environment, user_email.
-        Read /argocd_pr_result.txt to get pr_url.
+        Read /deployment_pr_result.txt to get pr_url.
         Read /repo_create.txt to get repo_url.
         Read /jira_result.txt to get jira_url.
+        Read /merge_result.txt to get pr_merged, auto_approve.
         
         Send a notification to the Webex room using the post_message tool with:
         - room_id: ${WEBEX_ROOM_ID}
+        - text: "ArgoCD Deployment: {app_name} to {environment} by {user_email} - PR: {pr_url} - Jira: {jira_url} - Merged: {pr_merged}"
         - markdown: |
             ## 🚀 ArgoCD Deployment Request Submitted
             
@@ -1036,8 +1071,10 @@ Deploy App to Common Cluster:
             📋 **Deployment PR:** {pr_url}
             📦 **Deployment Repo:** {repo_url}
             🎫 **Jira Ticket:** {jira_url}
+            ✅ **PR Auto-Merged:** {pr_merged}
             
-            Please review and approve the PR to deploy the application.
+            If PR was auto-merged, ArgoCD will begin syncing shortly.
+            If not, please review and approve the PR to deploy the application.
       subagent: "webex"
 
 
@@ -1180,7 +1217,7 @@ Invite Users to GitHub Org:
     - display_text: "Collect invitation details"
       llm_prompt: >
         Collect the following information from the user and write to /request.txt:
-        - org_name (required): GitHub organization to which the users will be invited (default: cisco-eti)
+        - org_name (required): GitHub organization to which the users will be invited (default: cisco-eti, field_values: ["cisco-eti", "outshift-platform", "cisco-platform"])
         - user_emails (required): A comma-separated list of Cisco email addresses of the users to be invited
         
         user_email is auto-filled from the authenticated session — do NOT include it in the form.
