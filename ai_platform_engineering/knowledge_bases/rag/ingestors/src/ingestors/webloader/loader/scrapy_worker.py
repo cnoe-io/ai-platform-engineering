@@ -16,6 +16,7 @@ from scrapy.utils.reactor import install_reactor
 install_reactor("twisted.internet.asyncioreactor.AsyncioSelectorReactor")
 
 import hashlib
+import logging
 import re
 import sys
 import time
@@ -118,6 +119,15 @@ class WorkerSpider(Spider):
     self.batch_number = 0
     self.documents_in_current_batch: List[dict] = []
 
+  @property
+  def job_id(self) -> str:
+    """Shortcut to job_id for logging."""
+    return self.crawl_request.job_id
+
+  def _log(self, level: int, msg: str):
+    """Log a message with job_id prefix."""
+    self.logger.log(level, f"[{self.job_id}] {msg}")
+
   def _build_request_meta(self, **extra_meta) -> dict:
     """
     Build request meta dict with Playwright settings if JS rendering is enabled.
@@ -165,7 +175,7 @@ class WorkerSpider(Spider):
     """Generate initial request(s) based on crawl mode."""
     # Send initial progress message for JS rendering
     if self.crawl_request.render_javascript:
-      self.logger.info("JavaScript rendering enabled - starting Chromium browser")
+      self._log(logging.INFO, "JavaScript rendering enabled - starting Chromium browser")
       progress = CrawlProgress(
         job_id=self.crawl_request.job_id,
         pages_crawled=0,
@@ -212,16 +222,16 @@ class WorkerSpider(Spider):
     # We do NOT auto-follow if sitemap just contains URLs pointing elsewhere
     if response.url != response.request.url:
       self.effective_domain = urlparse(response.url).netloc
-      self.logger.info(f"Sitemap redirected to {response.url}, effective domain: {self.effective_domain}")
+      self._log(logging.INFO, f"Sitemap redirected to {response.url}, effective domain: {self.effective_domain}")
     else:
       self.effective_domain = urlparse(response.url).netloc
-      self.logger.info(f"Sitemap loaded from {response.url}, effective domain: {self.effective_domain}")
+      self._log(logging.INFO, f"Sitemap loaded from {response.url}, effective domain: {self.effective_domain}")
 
     # Extract URLs from sitemap
     urls = re.findall(r"<loc>(.*?)</loc>", response.text)
     self.urls_found_in_sitemap = len(urls)
 
-    self.logger.info(f"Found {len(urls)} URLs in sitemap")
+    self._log(logging.INFO, f"Found {len(urls)} URLs in sitemap")
 
     # Track how many URLs we'll actually crawl
     urls_to_crawl = []
@@ -233,7 +243,7 @@ class WorkerSpider(Spider):
     # Set total for progress tracking
     self.total_pages_to_crawl = len(urls_to_crawl)
 
-    self.logger.info(f"Queued {len(urls_to_crawl)} URLs for crawling. Filtered: {self.urls_filtered_external} external, {self.urls_filtered_pattern} by pattern, {self.urls_filtered_max_pages} over max pages limit")
+    self._log(logging.INFO, f"Queued {len(urls_to_crawl)} URLs for crawling. Filtered: {self.urls_filtered_external} external, {self.urls_filtered_pattern} by pattern, {self.urls_filtered_max_pages} over max pages limit")
 
     # Check if all URLs were filtered as external - likely a domain mismatch
     if urls and not urls_to_crawl and self.urls_filtered_external > 0 and not self.follow_external:
@@ -266,14 +276,14 @@ class WorkerSpider(Spider):
 
     error_detail = self._get_failure_reason(failure)
     error_msg = f"Sitemap fetch failed ({error_detail}): {failure.request.url}"
-    self.logger.warning(error_msg)
+    self._log(logging.WARNING, error_msg)
     if len(self.errors) < self.max_errors:
       self.errors.append(error_msg)
 
     # If we haven't tried root sitemap yet and there's a subdirectory, try root
     if has_subdirectory and not is_root_fallback:
       root_sitemap_url = f"{root_base}/sitemap.xml"
-      self.logger.info(f"Trying root sitemap: {root_sitemap_url}")
+      self._log(logging.INFO, f"Trying root sitemap: {root_sitemap_url}")
       self.sitemap_urls_checked.append(root_sitemap_url)
       yield Request(
         root_sitemap_url,
@@ -291,7 +301,7 @@ class WorkerSpider(Spider):
       # Start with subdirectory robots.txt if applicable
       if has_subdirectory:
         robots_url = f"{subdirectory_base}/robots.txt"
-        self.logger.info(f"Trying subdirectory robots.txt: {robots_url}")
+        self._log(logging.INFO, f"Trying subdirectory robots.txt: {robots_url}")
         self.robots_urls_checked.append(robots_url)
         yield Request(
           robots_url,
@@ -306,7 +316,7 @@ class WorkerSpider(Spider):
       else:
         # No subdirectory, try root robots.txt directly
         robots_url = f"{root_base}/robots.txt"
-        self.logger.info(f"Trying robots.txt: {robots_url}")
+        self._log(logging.INFO, f"Trying robots.txt: {robots_url}")
         self.robots_urls_checked.append(robots_url)
         yield Request(
           robots_url,
@@ -324,7 +334,7 @@ class WorkerSpider(Spider):
     sitemaps = re.findall(r"Sitemap:\s*(\S+)", response.text, re.IGNORECASE)
 
     if sitemaps:
-      self.logger.info(f"Found {len(sitemaps)} sitemap(s) in robots.txt: {sitemaps}")
+      self._log(logging.INFO, f"Found {len(sitemaps)} sitemap(s) in robots.txt: {sitemaps}")
       for sitemap_url in sitemaps:
         self.sitemap_urls_checked.append(sitemap_url)
         yield Request(
@@ -343,7 +353,7 @@ class WorkerSpider(Spider):
       if not is_root_fallback and root_base != subdirectory_base:
         # Try root robots.txt
         robots_url = f"{root_base}/robots.txt"
-        self.logger.info(f"No sitemap in subdirectory robots.txt, trying root: {robots_url}")
+        self._log(logging.INFO, f"No sitemap in subdirectory robots.txt, trying root: {robots_url}")
         self.robots_urls_checked.append(robots_url)
         yield Request(
           robots_url,
@@ -371,14 +381,14 @@ class WorkerSpider(Spider):
 
     error_detail = self._get_failure_reason(failure)
     error_msg = f"robots.txt fetch failed ({error_detail}): {failure.request.url}"
-    self.logger.warning(error_msg)
+    self._log(logging.WARNING, error_msg)
     if len(self.errors) < self.max_errors:
       self.errors.append(error_msg)
 
     if not is_root_fallback and root_base != subdirectory_base:
       # Try root robots.txt
       robots_url = f"{root_base}/robots.txt"
-      self.logger.info(f"Trying root robots.txt: {robots_url}")
+      self._log(logging.INFO, f"Trying root robots.txt: {robots_url}")
       self.robots_urls_checked.append(robots_url)
       yield Request(
         robots_url,
@@ -398,7 +408,7 @@ class WorkerSpider(Spider):
     """Handle failure when fetching a sitemap URL found in robots.txt."""
     error_detail = self._get_failure_reason(failure)
     error_msg = f"Sitemap from robots.txt failed ({error_detail}): {failure.request.url}"
-    self.logger.error(error_msg)
+    self._log(logging.ERROR, error_msg)
     if len(self.errors) < self.max_errors:
       self.errors.append(error_msg)
     # This sitemap URL was explicitly listed in robots.txt but failed
@@ -418,7 +428,7 @@ class WorkerSpider(Spider):
       checked_urls.append(f"robots.txt checked: {', '.join(self.robots_urls_checked)}")
 
     full_error = f"Sitemap discovery failed: {reason}. {' | '.join(checked_urls)}"
-    self.logger.error(full_error)
+    self._log(logging.ERROR, full_error)
     if len(self.errors) < self.max_errors:
       self.errors.append(full_error)
 
@@ -432,7 +442,7 @@ class WorkerSpider(Spider):
 
     # Check if crawl was cancelled
     if self._cancelled:
-      self.logger.debug(f"Skipping {response.url} - crawl cancelled")
+      self._log(logging.DEBUG, f"Skipping {response.url} - crawl cancelled")
       return
 
     # Check limits
@@ -451,12 +461,12 @@ class WorkerSpider(Spider):
       start_domain = urlparse(self.start_url).netloc
       if response_domain != start_domain:
         self.effective_domain = response_domain
-        self.logger.info(f"Detected redirect: {start_domain} -> {response_domain}, updating effective domain")
+        self._log(logging.INFO, f"Detected redirect: {start_domain} -> {response_domain}, updating effective domain")
 
     # Handle non-200 responses
     if response.status != 200:
       error_msg = f"Ignoring non-200 response ({response.status}): {response.url}"
-      self.logger.warning(error_msg)
+      self._log(logging.WARNING, error_msg)
       self.pages_failed += 1
       if len(self.errors) < self.max_errors:
         self.errors.append(error_msg)
@@ -500,15 +510,15 @@ class WorkerSpider(Spider):
         # Flush batch if it's full
         self._maybe_flush_document_batch()
 
-        self.logger.debug(f"Parsed page {self.pages_crawled}: {response.url}")
+        self._log(logging.DEBUG, f"Parsed page {self.pages_crawled}: {response.url}")
       else:
         # Skip pages with no meaningful content (redirects, images, etc.)
         # This is not an error, just nothing to extract
-        self.logger.debug(f"Skipped page with no content: {response.url}")
+        self._log(logging.DEBUG, f"Skipped page with no content: {response.url}")
 
     except Exception as e:
       error_msg = f"Error parsing {response.url}: {e}"
-      self.logger.error(error_msg)
+      self._log(logging.ERROR, error_msg)
       self.pages_failed += 1
       # Collect error messages for reporting
       if len(self.errors) < self.max_errors:
@@ -532,7 +542,7 @@ class WorkerSpider(Spider):
     error_detail = self._get_failure_reason(failure)
     error_msg = f"{error_detail}: {url}"
 
-    self.logger.error(error_msg)
+    self._log(logging.ERROR, error_msg)
     self.pages_failed += 1
     # Collect error messages for reporting
     if len(self.errors) < self.max_errors:
@@ -594,7 +604,7 @@ class WorkerSpider(Spider):
           self.urls_filtered_external += 1
           # Log the first few for debugging
           if self.urls_filtered_external <= 3:
-            self.logger.debug(f"Filtered external URL: {url} (domain {url_domain} != {allowed_domain})")
+            self._log(logging.DEBUG, f"Filtered external URL: {url} (domain {url_domain} != {allowed_domain})")
         return False
 
     # Check allowed patterns
@@ -670,7 +680,7 @@ class WorkerSpider(Spider):
     Called by worker_main when a CANCEL_CRAWL message is received.
     The spider will stop processing new pages and close gracefully.
     """
-    self.logger.info(f"Crawl cancelled for job {self.crawl_request.job_id}")
+    self._log(logging.INFO, f"Crawl cancelled for job {self.job_id}")
     self._cancelled = True
     # Flush any pending documents
     self._flush_document_batch(is_final=True)
@@ -698,7 +708,7 @@ class WorkerSpider(Spider):
       is_final_batch=is_final,
     )
     self.result_queue.put(WorkerMessage.crawl_documents(docs).to_dict())
-    self.logger.info(f"Sent document batch {self.batch_number} with {len(self.documents_in_current_batch)} documents (final={is_final})")
+    self._log(logging.INFO, f"Sent document batch {self.batch_number} with {len(self.documents_in_current_batch)} documents (final={is_final})")
 
     # Clear the batch
     self.documents_in_current_batch = []
@@ -748,7 +758,7 @@ class WorkerSpider(Spider):
     )
 
     self.result_queue.put(WorkerMessage.crawl_result(result).to_dict())
-    self.logger.info(f"Spider closed: {reason}, crawled {self.pages_crawled} pages in {elapsed:.1f}s")
+    self._log(logging.INFO, f"Spider closed: {reason}, crawled {self.pages_crawled} pages in {elapsed:.1f}s")
 
   def _build_failure_message(self) -> str:
     """Build a detailed message explaining why the crawl failed."""
