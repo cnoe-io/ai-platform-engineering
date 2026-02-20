@@ -99,6 +99,7 @@ class WorkerSpider(Spider):
     # Track sitemap discovery attempts for error reporting
     self.sitemap_urls_checked: list[str] = []
     self.robots_urls_checked: list[str] = []
+    self.sitemap_url_used: str | None = None  # The sitemap that was successfully loaded
 
     # Progress tracking
     self.total_pages_to_crawl: int | None = None  # Known total (from sitemap)
@@ -205,6 +206,7 @@ class WorkerSpider(Spider):
     """Parse sitemap.xml and yield requests for each URL."""
     # Update effective domain based on where we actually landed (handles redirects)
     self.effective_domain = urlparse(response.url).netloc
+    self.sitemap_url_used = response.url
     self.logger.info(f"Sitemap loaded from {response.url}, effective domain: {self.effective_domain}")
 
     # Extract URLs from sitemap
@@ -717,6 +719,8 @@ class WorkerSpider(Spider):
       urls_filtered_external=self.urls_filtered_external,
       urls_filtered_pattern=self.urls_filtered_pattern,
       urls_filtered_max_pages=self.urls_filtered_max_pages,
+      # Include sitemap discovery info
+      sitemap_url_used=self.sitemap_url_used,
     )
 
     self.result_queue.put(WorkerMessage.crawl_result(result).to_dict())
