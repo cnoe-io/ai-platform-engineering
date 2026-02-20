@@ -205,27 +205,22 @@ class WorkerSpider(Spider):
   def parse_sitemap(self, response: Response):
     """Parse sitemap.xml and yield requests for each URL."""
     self.sitemap_url_used = response.url
-    sitemap_domain = urlparse(response.url).netloc
+
+    # Only update effective_domain if we were redirected (302/301)
+    # This handles cases like example.com -> www.example.com
+    # We do NOT auto-follow if sitemap just contains URLs pointing elsewhere
+    if response.url != response.request.url:
+      self.effective_domain = urlparse(response.url).netloc
+      self.logger.info(f"Sitemap redirected to {response.url}, effective domain: {self.effective_domain}")
+    else:
+      self.effective_domain = urlparse(response.url).netloc
+      self.logger.info(f"Sitemap loaded from {response.url}, effective domain: {self.effective_domain}")
 
     # Extract URLs from sitemap
     urls = re.findall(r"<loc>(.*?)</loc>", response.text)
     self.urls_found_in_sitemap = len(urls)
 
-    self.logger.info(f"Found {len(urls)} URLs in sitemap at {response.url}")
-
-    # Detect if sitemap URLs point to a different domain (canonical domain scenario)
-    # e.g., sitemap at eticloud.io contains URLs pointing to outshift.io
-    if urls:
-      first_url_domain = urlparse(urls[0]).netloc
-      if first_url_domain and first_url_domain != sitemap_domain:
-        self.logger.info(f"Sitemap URLs use different domain: {first_url_domain} (sitemap hosted at {sitemap_domain})")
-        self.effective_domain = first_url_domain
-      else:
-        self.effective_domain = sitemap_domain
-    else:
-      self.effective_domain = sitemap_domain
-
-    self.logger.info(f"Effective domain for crawling: {self.effective_domain}")
+    self.logger.info(f"Found {len(urls)} URLs in sitemap")
 
     # Track how many URLs we'll actually crawl
     urls_to_crawl = []
@@ -238,6 +233,18 @@ class WorkerSpider(Spider):
     self.total_pages_to_crawl = len(urls_to_crawl)
 
     self.logger.info(f"Queued {len(urls_to_crawl)} URLs for crawling. Filtered: {self.urls_filtered_external} external, {self.urls_filtered_pattern} by pattern, {self.urls_filtered_max_pages} over max pages limit")
+
+    # Check if all URLs were filtered as external - likely a domain mismatch
+    if urls and not urls_to_crawl and self.urls_filtered_external > 0 and not self.follow_external:
+      # Find what domain the sitemap URLs actually point to
+      sample_domains = set()
+      for url in urls[:5]:
+        domain = urlparse(url).netloc
+        if domain:
+          sample_domains.add(domain)
+
+      domains_str = ", ".join(sorted(sample_domains))
+      raise CloseSpider(f"Sitemap contains URLs pointing to different domain(s): {domains_str}. Your datasource is configured for {self.effective_domain}. Either update your datasource URL to use the correct domain, or set follow_external_links=true to crawl external domains.")
 
     # Yield requests
     for url in urls_to_crawl:
