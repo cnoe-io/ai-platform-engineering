@@ -1450,7 +1450,7 @@ ${skillContent}`;
       className={inline ? "h-full bg-background flex flex-col" : "fixed inset-0 z-50 bg-background flex flex-col"}
     >
       {/* ─── Top Bar ──────────────────────────────────────────────── */}
-      <header className="shrink-0 flex items-center gap-3 px-4 py-2 border-b border-border/50 bg-background/95 backdrop-blur-sm">
+      <header className="shrink-0 relative z-[9999] flex items-center gap-3 px-4 py-2 border-b border-border/50 bg-background/95 backdrop-blur-sm">
         <div className="flex items-center gap-2.5 flex-1 min-w-0">
           <div className="w-8 h-8 rounded-lg gradient-primary-br flex items-center justify-center shadow-lg shadow-primary/20">
             <Sparkles className="h-4 w-4 text-white" />
