@@ -14,6 +14,7 @@ tags:
   agent-pagerduty: false
   agent-slack: false
   agent-splunk: false
+  agent-weather: false
   agent-webex: false
   rag-stack: false
 
@@ -109,6 +110,27 @@ supervisor-agent:
     SKIP_AGENT_CONNECTIVITY_CHECK: "false"
     AGENT_CONNECTIVITY_ENABLE_BACKGROUND: "true"
     USE_STRUCTURED_RESPONSE: "false" # Set to "true" to enforce agent to always use structured response format as the final output
+    # Self-service task configuration (used by task_config.yaml env var substitution)
+    GITHUB_ORGS: ""
+    DEFAULT_GITHUB_ORG: ""
+    ADMIN_REPO: ""
+    JARVIS_WORKFLOWS_REPO: ""
+    TERRAFORM_INFRA_REPO: ""
+    GROUPS_AUTOMATION_REPO: ""
+    GROUPS_TEAMS_PATH: ""
+    ORG_MEMBERSHIP_FILE_PATTERN: ""
+    EMAIL_DOMAIN: ""
+    JIRA_ASSIGNEE: ""
+    DEFAULT_VPC_NAME: ""
+    DEFAULT_AWS_ACCOUNT: ""
+    DEFAULT_APPLICATION_NAME: ""
+    DATA_CLASSIFICATION: ""
+    DATA_TAXONOMY: ""
+    TF_STATE_BUCKET_NONPROD: ""
+    TF_STATE_BUCKET_SANDBOX: ""
+    TF_STATE_BUCKET_PROD: ""
+    DEFAULT_CLUSTER_NAME: ""
+    DEFAULT_CLUSTER_ADDRESS: ""
   multiAgentConfig:
     protocol: "a2a"
     port: "8000"
@@ -298,6 +320,20 @@ agent-webex:
       tag: ""
       pullPolicy: "Always"
     mode: "http" # Options: stdio, http
+    port: 8000
+
+agent-weather:
+  nameOverride: "agent-weather"
+  remoteAgent: true
+  image:
+    repository: "ghcr.io/cnoe-io/agent-weather"
+    pullPolicy: "Always"
+  mcp:
+    image:
+      repository: "ghcr.io/cnoe-io/mcp-weather"
+      tag: ""
+      pullPolicy: "Always"
+    mode: "http"
     port: 8000
 
 agent-komodor:

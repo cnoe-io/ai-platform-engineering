@@ -4,10 +4,12 @@
 """Custom tools for GitHub Agent including gh CLI execution and git operations."""
 
 import asyncio
+import contextvars
 import logging
 import os
 import re
 import shlex
+import threading
 from typing import Any, Optional
 
 from langchain_core.tools import BaseTool
@@ -19,6 +21,31 @@ from ai_platform_engineering.utils.github_app_token_provider import get_github_t
 from ai_platform_engineering.utils.token_sanitizer import sanitize_output
 
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Self-service mode context variable — set by DeterministicTaskMiddleware
+# ---------------------------------------------------------------------------
+self_service_mode_ctx: contextvars.ContextVar[bool] = contextvars.ContextVar(
+    'self_service_mode', default=False
+)
+
+_thread_local = threading.local()
+
+
+def set_self_service_mode(value: bool) -> None:
+    """Set self-service mode flag for current thread/context."""
+    self_service_mode_ctx.set(value)
+    _thread_local.self_service_mode = value
+
+
+def is_self_service_mode() -> bool:
+    """Check if we're running in self-service mode."""
+    try:
+        if self_service_mode_ctx.get():
+            return True
+    except LookupError:
+        pass
+    return getattr(_thread_local, 'self_service_mode', False)
 
 
 # Dangerous commands that should be blocked by default
@@ -262,4 +289,8 @@ __all__ = [
     'get_gh_cli_tool',
     # Generic git tool (from utils)
     'git',
+    # Self-service mode (used by DeterministicTaskMiddleware)
+    'self_service_mode_ctx',
+    'set_self_service_mode',
+    'is_self_service_mode',
 ]

@@ -106,24 +106,30 @@ export function ContextPanel({
   }, [isStreaming, conversation]);
 
   // Parse execution plan tasks from A2A events (per-conversation)
-  // When streaming ends, mark all tasks as completed
+  // Only force-complete tasks when the agent has truly finished (final_result),
+  // NOT when the stream pauses for HITL (UserInputMetaData).
+  const hasFinalResult = useMemo(() => {
+    return conversationEvents.some(e => e.artifact?.name === "final_result");
+  }, [conversationEvents]);
+
   const executionTasks = useMemo(() => {
     const tasks = parseExecutionTasks(conversationEvents);
-    console.log(`[A2A-DEBUG] 📋 ContextPanel.executionTasks: parsed ${tasks.length} tasks from ${conversationEvents.length} events, isStreaming=${isActuallyStreaming}`, tasks.map(t => ({
+    console.log(`[A2A-DEBUG] 📋 ContextPanel.executionTasks: parsed ${tasks.length} tasks from ${conversationEvents.length} events, isStreaming=${isActuallyStreaming}, hasFinalResult=${hasFinalResult}`, tasks.map(t => ({
       id: t.id,
       agent: t.agent,
       description: t.description?.substring(0, 50),
       status: t.status,
     })));
-    // If streaming has ended and we have tasks, mark remaining as completed
-    if (!isActuallyStreaming && tasks.length > 0) {
+    // Only force-mark as completed when the agent finished (final_result received).
+    // During HITL pauses the stream ends but work is not done yet.
+    if (!isActuallyStreaming && hasFinalResult && tasks.length > 0) {
       return tasks.map(task => ({
         ...task,
         status: task.status === "failed" ? "failed" : "completed" as const,
       }));
     }
     return tasks;
-  }, [conversationEvents, isActuallyStreaming]);
+  }, [conversationEvents, isActuallyStreaming, hasFinalResult]);
 
   // Parse tool calls - show running during streaming, completed after
   const { activeToolCalls, completedToolCalls } = useMemo(() => {
@@ -532,7 +538,8 @@ function parseExecutionTasks(events: A2AEvent[]): ExecutionTask[] {
 
         let status: ExecutionTask["status"] = "pending";
         if (statusEmoji === "✅") status = "completed";
-        else if (statusEmoji === "🔄" || statusEmoji === "⏳") status = "in_progress";
+        else if (statusEmoji === "🔄") status = "in_progress";
+        else if (statusEmoji === "⏳") status = "pending";
         else if (statusEmoji === "❌") status = "failed";
 
         tasksMap.set(taskId, {

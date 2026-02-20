@@ -193,6 +193,8 @@ jobs:
             # Check if chart exists in main
             if git show origin/main:charts/rag-stack/Chart.yaml &>/dev/null; then
               RAG_STACK_BASE=$(git show origin/main:charts/rag-stack/Chart.yaml | grep "^version:" | awk '{print $2}')
+              # Strip any pre-release suffix (e.g. 0.2.19-rc.helm.2 -> 0.2.19)
+              RAG_STACK_BASE="${RAG_STACK_BASE%%-*}"
               IFS='.' read -r MAJOR MINOR PATCH <<< "$RAG_STACK_BASE"
               NEXT_PATCH=$((PATCH + 1))
               RAG_STACK_VERSION="${MAJOR}.${MINOR}.${NEXT_PATCH}-${CLEAN_BRANCH}-${COMMIT_COUNT}"
@@ -210,6 +212,8 @@ jobs:
             # Check if chart exists in main
             if git show origin/main:charts/ai-platform-engineering/Chart.yaml &>/dev/null; then
               AI_PLATFORM_BASE=$(git show origin/main:charts/ai-platform-engineering/Chart.yaml | grep "^version:" | awk '{print $2}')
+              # Strip any pre-release suffix (e.g. 0.2.19-rc.helm.2 -> 0.2.19)
+              AI_PLATFORM_BASE="${AI_PLATFORM_BASE%%-*}"
               IFS='.' read -r MAJOR MINOR PATCH <<< "$AI_PLATFORM_BASE"
               NEXT_PATCH=$((PATCH + 1))
               AI_PLATFORM_VERSION="${MAJOR}.${MINOR}.${NEXT_PATCH}-${CLEAN_BRANCH}-${COMMIT_COUNT}"

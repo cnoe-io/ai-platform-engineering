@@ -50,7 +50,8 @@ RUN BUILD_DATE_VALUE="${BUILD_DATE}"; \
     cat public/version.json
 
 # Build Next.js standalone application without baking in NEXT_PUBLIC_* vars
-# These will be injected at runtime by PublicEnvScript server component
+# These will be injected at runtime by entrypoint.sh (Layer 1) and
+# PublicEnvScript server component (Layer 2)
 RUN npm run build
 
 # ---------- Stage 3: Production runtime ----------
@@ -65,12 +66,13 @@ RUN addgroup --system --gid 1001 nodejs && \
     adduser --system --uid 1001 nextjs
 
 # Copy built standalone application
-COPY --from=build /app/public ./public
+# public/ must be chown'd so entrypoint.sh can write env-config.js at runtime
+COPY --from=build --chown=nextjs:nodejs /app/public ./public
 COPY --from=build --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=build --chown=nextjs:nodejs /app/.next/static ./.next/static
 
 # Copy version info
-COPY --from=build /app/public/version.json ./public/version.json
+COPY --from=build --chown=nextjs:nodejs /app/public/version.json ./public/version.json
 
 # Copy entrypoint script
 COPY --chown=nextjs:nodejs build/entrypoint.sh /app/entrypoint.sh
@@ -83,15 +85,8 @@ EXPOSE 3000
 ENV PORT=3000
 ENV HOSTNAME="0.0.0.0"
 
-# Runtime environment variables (served to client via GET /api/config):
-# No NEXT_PUBLIC_ prefix needed. Set plain env vars on the container.
-# The server reads process.env at request time and serves config via API.
-# Common variables:
-#   A2A_BASE_URL - CAIPE supervisor endpoint
-#   SSO_ENABLED - Enable SSO authentication ("true"/"false")
-#   RAG_ENABLED - Enable RAG knowledge bases ("true"/"false")
-#   MONGODB_URI + MONGODB_DATABASE - Enable MongoDB persistence
-#   APP_NAME - Application name (e.g. "Grid")
-#   LOGO_URL - Logo path (e.g. "/grid-neon-logo.svg")
-# NEXT_PUBLIC_* names are still accepted for backward compatibility.
+# Runtime environment variables are injected via two layers:
+# 1. entrypoint.sh generates /app/public/env-config.js at container start
+# 2. Server component reads process.env at request time via API
+# Both NEXT_PUBLIC_* and plain env vars are supported.
 CMD ["/app/entrypoint.sh"]

@@ -111,7 +111,8 @@ class A2ARemoteAgentConnectTool(BaseTool):
           self._skill_id = self._agent_card.skills[0].id
 
         logger.info(f"Successfully fetched public agent card for {self._remote_agent_card}.")
-        if _public_card.supportsAuthenticatedExtendedCard and self._access_token:
+        supports_extended = getattr(_public_card, 'supports_authenticated_extended_card', None) or getattr(_public_card, 'supportsAuthenticatedExtendedCard', None)
+        if supports_extended and self._access_token:
           try:
             _extended_card = await resolver.get_agent_card(
                 relative_card_path='/agent/authenticatedExtendedCard',
@@ -128,6 +129,16 @@ class A2ARemoteAgentConnectTool(BaseTool):
             exc_info=True)
         raise RuntimeError(
             f"Could not fetch remote agent card from {base_url}") from e
+
+    # Override the agent card's url with the base_url we used to fetch it.
+    # Remote agents often advertise url=http://0.0.0.0:PORT which is only
+    # valid inside the remote container.  Using base_url (e.g.
+    # http://agent-weather:8000) ensures requests reach the correct host.
+    if not isinstance(self._remote_agent_card, AgentCard) and self._agent_card.url != self._remote_agent_card:
+      logger.info(
+          f"Overriding agent card url '{self._agent_card.url}' → '{self._remote_agent_card}'"
+      )
+      self._agent_card.url = self._remote_agent_card
 
     logger.info(f"Agent Card: {self._agent_card}")
     self._client = A2AClient(

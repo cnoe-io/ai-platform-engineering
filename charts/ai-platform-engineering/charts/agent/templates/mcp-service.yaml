@@ -1,4 +1,4 @@
-{{- if include "agent.createMcpHttpServer" . | eq "true" }}
+{{- if and (or (ne (default "multi-agent" .Values.global.deploymentMode) "single-node") .Values.remoteAgent) (include "agent.createMcpHttpServer" . | eq "true") }}
 apiVersion: v1
 kind: Service
 metadata:

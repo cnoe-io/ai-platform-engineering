@@ -11,6 +11,7 @@ with other agents (ArgoCD, Komodor, etc.).
 import logging
 import os
 import re
+import shutil
 from typing import Dict, Any, Literal, AsyncIterable
 from dotenv import load_dotenv
 from pydantic import BaseModel
@@ -19,7 +20,7 @@ from ai_platform_engineering.utils.a2a_common.base_langgraph_agent import BaseLa
 from ai_platform_engineering.utils.github_app_token_provider import get_github_token, is_github_app_mode
 from ai_platform_engineering.utils.subagent_prompts import load_subagent_prompt_config
 from ai_platform_engineering.utils.token_sanitizer import sanitize_output
-from agent_github.tools import get_gh_cli_tool
+from ai_platform_engineering.agents.github.agent_github.tools import get_gh_cli_tool
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +52,10 @@ class GitHubAgent(BaseLangGraphAgent):
         1. GitHub App (recommended): Set GITHUB_APP_ID, GITHUB_APP_PRIVATE_KEY,
            and GITHUB_APP_INSTALLATION_ID for auto-refreshing tokens.
         2. PAT (fallback): Set GITHUB_PERSONAL_ACCESS_TOKEN for static token auth.
+
+        MCP server: Uses github-mcp-server via ``go run`` over STDIO.
+        Source lives at ``ai_platform_engineering/mcp/mcp_github/``.
+        Override with ``GITHUB_MCP_SERVER_DIR`` env var if needed.
         """
         self._use_app_auth = is_github_app_mode()
         if self._use_app_auth:
@@ -61,7 +66,6 @@ class GitHubAgent(BaseLangGraphAgent):
                 logger.warning("No GitHub auth configured. Set GITHUB_APP_ID + GITHUB_APP_PRIVATE_KEY + "
                                "GITHUB_APP_INSTALLATION_ID for App auth, or GITHUB_PERSONAL_ACCESS_TOKEN for PAT auth.")
 
-        # Call parent constructor (no parameters needed)
         super().__init__()
 
     def get_agent_name(self) -> str:
@@ -69,43 +73,58 @@ class GitHubAgent(BaseLangGraphAgent):
         return "github"
 
     def get_mcp_http_config(self) -> Dict[str, Any] | None:
+        """Not used — GitHub MCP runs as a local STDIO process."""
+        return None
+
+    def _get_github_mcp_server_dir(self) -> str:
+        """Resolve the github-mcp-server Go project directory.
+
+        Lookup order:
+        1. ``GITHUB_MCP_SERVER_DIR`` environment variable (explicit override)
+        2. ``ai_platform_engineering/mcp/mcp_github/`` relative to the
+           project root — works in Docker (``/app``) and local dev alike.
         """
-        Provide custom HTTP MCP configuration for GitHub Copilot API.
+        explicit = os.getenv("GITHUB_MCP_SERVER_DIR")
+        if explicit:
+            return explicit
+        # Derive project root from this file's location:
+        #   agents/github/agent_github/protocol_bindings/a2a_server/agent.py
+        #   → up 6 dirs → ai_platform_engineering/
+        ai_pkg_dir = os.path.dirname(os.path.abspath(__file__))
+        for _ in range(5):
+            ai_pkg_dir = os.path.dirname(ai_pkg_dir)
+        return os.path.join(ai_pkg_dir, "mcp", "mcp_github")
 
-        Uses get_github_token() which automatically handles:
-        - GitHub App tokens (auto-refreshed before each MCP session)
-        - PAT tokens (static, from environment)
+    def get_mcp_config(self, server_path: str | None = None) -> Dict[str, Any]:
+        """Configure STDIO transport via ``go run`` against the local source.
 
-        Returns:
-            Dictionary with GitHub Copilot API configuration
+        Set ``GITHUB_MCP_SERVER_DIR`` to override the default project
+        location (``~/outshift/github-mcp-server``).
         """
         token = get_github_token()
         if not token:
-            logger.error(
-                "Cannot configure GitHub MCP: no GitHub auth configured. "
-                "Set GITHUB_APP_ID + GITHUB_APP_PRIVATE_KEY + GITHUB_APP_INSTALLATION_ID "
-                "for App auth, or GITHUB_PERSONAL_ACCESS_TOKEN for PAT auth."
+            raise ValueError(
+                "No GitHub token configured. "
+                "Set GITHUB_PERSONAL_ACCESS_TOKEN or configure GitHub App auth."
             )
-            return None
+
+        go_bin = shutil.which("go") or "go"
+        mcp_dir = self._get_github_mcp_server_dir()
+        logger.info("GitHub MCP: go run from %s", mcp_dir)
+
+        env = {"GITHUB_PERSONAL_ACCESS_TOKEN": token}
+        for key in ("HOME", "PATH", "GOPATH", "GOMODCACHE", "GOCACHE", "TMPDIR"):
+            val = os.environ.get(key)
+            if val:
+                env[key] = val
 
         return {
-                    "url": "https://api.githubcopilot.com/mcp",
-                    "headers": {
-                      "Authorization": f"Bearer {token}",
-                    },
-                  }
-
-    def get_mcp_config(self, server_path: str | None = None) -> Dict[str, Any]:
-        """
-        Not used for GitHub agent (HTTP mode only).
-
-        This method is required by the base class but not used since we
-        override get_mcp_http_config() for HTTP-only operation.
-        """
-        raise NotImplementedError(
-            "GitHub agent uses HTTP mode only. "
-            "Use get_mcp_http_config() instead."
-        )
+            "command": go_bin,
+            "args": ["run", "./cmd/github-mcp-server", "stdio"],
+            "env": env,
+            "transport": "stdio",
+            "cwd": mcp_dir,
+        }
 
     def get_system_instruction(self) -> str:
         """Return the system instruction for the agent."""
@@ -128,23 +147,18 @@ class GitHubAgent(BaseLangGraphAgent):
         return _prompt_config.tool_processing_message
 
     def get_additional_tools(self) -> list:
-        """
-        Provide additional custom tools for GitHub agent.
+        """Provide gh CLI as a fallback tool when MCP STDIO fails.
 
-        Returns gh CLI tool for operations not covered by GitHub Copilot MCP,
-        such as fetching workflow run logs.
-
-        Returns:
-            List containing gh CLI tool if enabled
+        Only used when MCP tools fail to load (Go not installed, source
+        directory missing, process crash, etc.).  ``create_subagent_def``
+        calls ``_load_mcp_tools(include_fallback=False)`` and only adds
+        these fallback tools when MCP returned nothing.
         """
         tools = []
-
-        # Add gh CLI tool for workflow logs and other operations
         gh_tool = get_gh_cli_tool()
         if gh_tool:
             tools.append(gh_tool)
-            logger.info("GitHub agent: Added gh CLI tool (gh_cli_execute)")
-
+            logger.info("GitHub agent: gh CLI tool available as fallback")
         return tools
 
     def _wrap_mcp_tools(self, tools: list, context_id: str) -> list:
