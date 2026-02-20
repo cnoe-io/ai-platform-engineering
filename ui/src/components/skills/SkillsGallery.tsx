@@ -70,7 +70,7 @@ import { useAdminRole } from "@/hooks/use-admin-role";
 import type { AgentConfig, AgentConfigCategory, WorkflowDifficulty } from "@/types/agent-config";
 import { generateInputFormFromPrompt } from "@/types/agent-config";
 
-interface AgentBuilderGalleryProps {
+interface SkillsGalleryProps {
   onSelectConfig?: (config: AgentConfig, fromHistory?: boolean) => void;
   onRunQuickStart?: (prompt: string, configName?: string) => void;
   onEditConfig?: (config: AgentConfig) => void;
@@ -150,12 +150,12 @@ const getDifficultyColor = (difficulty?: WorkflowDifficulty) => {
   }
 };
 
-export function AgentBuilderGallery({
+export function SkillsGallery({
   onSelectConfig,
   onRunQuickStart,
   onEditConfig,
   onCreateNew,
-}: AgentBuilderGalleryProps) {
+}: SkillsGalleryProps) {
   const {
     configs,
     isLoading,
@@ -194,9 +194,9 @@ export function AgentBuilderGallery({
 
         // Only update if the prompt has changed (to avoid infinite loop)
         if (latestPrompt !== currentPrompt) {
-          console.log(`[AgentBuilderGallery] Config updated in store, refreshing dialog:`, latestConfig.id);
-          console.log(`[AgentBuilderGallery] Old prompt:`, currentPrompt);
-          console.log(`[AgentBuilderGallery] New prompt:`, latestPrompt);
+          console.log(`[SkillsGallery] Config updated in store, refreshing dialog:`, latestConfig.id);
+          console.log(`[SkillsGallery] Old prompt:`, currentPrompt);
+          console.log(`[SkillsGallery] New prompt:`, latestPrompt);
 
           // Update activeFormConfig with latest data
           setActiveFormConfig({ ...latestConfig, input_form: activeFormConfig.input_form });

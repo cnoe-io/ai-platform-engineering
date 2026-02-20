@@ -52,7 +52,7 @@ import type {
   WorkflowDifficulty,
 } from "@/types/agent-config";
 
-interface AgentBuilderEditorProps {
+interface SkillsEditorProps {
   existingConfig?: AgentConfig;
   onSuccess?: () => void;
   onCancel?: () => void;
@@ -145,11 +145,11 @@ const emptyTask: AgentConfigTask = {
   subagent: "caipe",
 };
 
-export function AgentBuilderEditor({
+export function SkillsEditor({
   existingConfig,
   onSuccess,
   onCancel,
-}: AgentBuilderEditorProps) {
+}: SkillsEditorProps) {
   const isEditMode = !!existingConfig;
   const { createConfig, updateConfig } = useAgentConfigStore();
   const { isAdmin } = useAdminRole();
@@ -361,9 +361,9 @@ export function AgentBuilderEditor({
         }];
       }
       
-      console.log(`[AgentBuilderEditor] Tasks state before save:`, tasks);
-      console.log(`[AgentBuilderEditor] Tasks to save:`, tasksToSave);
-      console.log(`[AgentBuilderEditor] First task llm_prompt:`, tasksToSave[0]?.llm_prompt);
+      console.log(`[SkillsEditor] Tasks state before save:`, tasks);
+      console.log(`[SkillsEditor] Tasks to save:`, tasksToSave);
+      console.log(`[SkillsEditor] First task llm_prompt:`, tasksToSave[0]?.llm_prompt);
       
       const configData: CreateAgentConfigInput = {
         name: formData.name.trim(),
@@ -380,11 +380,11 @@ export function AgentBuilderEditor({
       };
 
       if (isEditMode && existingConfig) {
-        console.log(`[AgentBuilderEditor] Updating config ${existingConfig.id}:`, configData);
+        console.log(`[SkillsEditor] Updating config ${existingConfig.id}:`, configData);
         await updateConfig(existingConfig.id, configData);
-        console.log(`[AgentBuilderEditor] Update completed successfully`);
+        console.log(`[SkillsEditor] Update completed successfully`);
       } else {
-        console.log(`[AgentBuilderEditor] Creating new config:`, configData);
+        console.log(`[SkillsEditor] Creating new config:`, configData);
         await createConfig(configData);
       }
 
@@ -932,21 +932,21 @@ export function AgentBuilderEditor({
 }
 
 /**
- * AgentBuilderEditorDialog - Wraps AgentBuilderEditor in a Dialog
+ * SkillsEditorDialog - Wraps SkillsEditor in a Dialog
  */
-interface AgentBuilderEditorDialogProps {
+interface SkillsEditorDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSuccess?: () => void;
   existingConfig?: AgentConfig;
 }
 
-export function AgentBuilderEditorDialog({
+export function SkillsEditorDialog({
   open,
   onOpenChange,
   onSuccess,
   existingConfig,
-}: AgentBuilderEditorDialogProps) {
+}: SkillsEditorDialogProps) {
   const handleSuccess = () => {
     if (onSuccess) {
       onSuccess();
@@ -985,7 +985,7 @@ export function AgentBuilderEditorDialog({
           className="flex-1 overflow-y-auto px-6 pb-6"
           style={{ minHeight: 0 }}
         >
-          <AgentBuilderEditor
+          <SkillsEditor
             onSuccess={handleSuccess}
             onCancel={() => onOpenChange(false)}
             existingConfig={existingConfig}

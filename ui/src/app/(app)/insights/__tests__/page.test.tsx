@@ -16,7 +16,7 @@
  * - Feedback: shows empty state when no feedback given
  * - Skill usage: renders skill categories with run counts and success rates
  * - Skill usage: shows empty state with Browse Agent Skills button
- * - Navigation: Browse Agent Skills navigates to /agent-builder
+ * - Navigation: Browse Agent Skills navigates to /skills
  * - AuthGuard: wraps page in AuthGuard component
  */
 
@@ -549,7 +549,7 @@ describe('Insights Page', () => {
       })
     })
 
-    it('navigates to agent-builder when Browse Agent Skills is clicked', async () => {
+    it('navigates to skills when Browse Agent Skills is clicked', async () => {
       mockFetchSuccess(makeInsightsData({ skill_usage: [] }))
 
       render(<Insights />)
@@ -559,7 +559,7 @@ describe('Insights Page', () => {
       })
 
       fireEvent.click(screen.getByText('Browse Agent Skills'))
-      expect(mockPush).toHaveBeenCalledWith('/agent-builder')
+      expect(mockPush).toHaveBeenCalledWith('/skills')
     })
 
     it('uses singular "run" when count is 1', async () => {

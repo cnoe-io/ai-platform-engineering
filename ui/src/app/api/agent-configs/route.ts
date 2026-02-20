@@ -174,7 +174,7 @@ async function getAgentConfigsFromMongoDB(ownerEmail: string): Promise<AgentConf
         { owner_id: ownerEmail },
         { visibility: "global" },
         ...(userTeamIds.length > 0
-          ? [{ visibility: "team", shared_with_teams: { $in: userTeamIds } }]
+          ? [{ visibility: "team" as const, shared_with_teams: { $in: userTeamIds } }]
           : []),
       ],
     })
@@ -198,7 +198,7 @@ async function getAgentConfigByIdFromMongoDB(
       { owner_id: ownerEmail },
       { visibility: "global" },
       ...(userTeamIds.length > 0
-        ? [{ visibility: "team", shared_with_teams: { $in: userTeamIds } }]
+        ? [{ visibility: "team" as const, shared_with_teams: { $in: userTeamIds } }]
         : []),
     ],
   });

@@ -4,16 +4,16 @@ import React, { useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import {
-  AgentBuilderGallery,
-  AgentBuilderRunner,
-} from "@/components/agent-builder";
+  SkillsGallery,
+  SkillsRunner,
+} from "@/components/skills";
 import { AuthGuard } from "@/components/auth-guard";
 import { getConfig } from "@/lib/config";
 import type { AgentConfig } from "@/types/agent-config";
 
 type ViewMode = "gallery" | "runner";
 
-export default function AgentBuilderPage() {
+export default function SkillsPage() {
   const router = useRouter();
   const workflowRunnerEnabled = getConfig('workflowRunnerEnabled');
   const [viewMode, setViewMode] = useState<ViewMode>("gallery");
@@ -77,7 +77,7 @@ export default function AgentBuilderPage() {
                 exit={{ opacity: 0, x: -20 }}
                 className="h-full"
               >
-                <AgentBuilderGallery
+                <SkillsGallery
                   onSelectConfig={handleSelectConfig}
                   onRunQuickStart={workflowRunnerEnabled ? handleRunSkill : undefined}
                   onEditConfig={handleEditConfig}
@@ -94,7 +94,7 @@ export default function AgentBuilderPage() {
                 exit={{ opacity: 0, x: 20 }}
                 className="h-full"
               >
-                <AgentBuilderRunner
+                <SkillsRunner
                   config={selectedConfig}
                   onBack={handleBackToGallery}
                   cameFromHistory={cameFromHistory}

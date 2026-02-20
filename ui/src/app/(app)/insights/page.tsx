@@ -482,7 +482,7 @@ function InsightsPage() {
                   No skill runs yet. Run an Agent Skill to see your usage here.
                 </p>
                 <button
-                  onClick={() => router.push("/agent-builder")}
+                  onClick={() => router.push("/skills")}
                   className="mt-2 px-4 py-1.5 text-xs rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
                 >
                   Browse Agent Skills

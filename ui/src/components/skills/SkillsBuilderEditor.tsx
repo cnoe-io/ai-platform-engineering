@@ -844,7 +844,7 @@ export function SkillsBuilderEditor({
   const { isAdmin } = useAdminRole();
   const { toast } = useToast();
 
-  // Auth for A2A calls (same pattern as AgentBuilderRunner)
+  // Auth for A2A calls (same pattern as SkillsRunner)
   const { data: session } = useSession();
   const ssoEnabled = getConfig("ssoEnabled");
   const accessToken = ssoEnabled ? session?.accessToken : undefined;

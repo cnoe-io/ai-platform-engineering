@@ -1,5 +1,5 @@
 /**
- * Tests for AgentBuilderGallery component.
+ * Tests for SkillsGallery component.
  *
  * Covers:
  *  - WORKFLOW_RUNNER_ENABLED feature flag gating
@@ -19,7 +19,7 @@
 
 import React from "react";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
-import { AgentBuilderGallery } from "../AgentBuilderGallery";
+import { SkillsGallery } from "../SkillsGallery";
 import type { AgentConfig } from "@/types/agent-config";
 
 // ---------------------------------------------------------------------------
@@ -152,9 +152,9 @@ function mockConfigs() {
 // Helpers
 // ---------------------------------------------------------------------------
 
-function renderGallery(props: Partial<React.ComponentProps<typeof AgentBuilderGallery>> = {}) {
+function renderGallery(props: Partial<React.ComponentProps<typeof SkillsGallery>> = {}) {
   return render(
-    <AgentBuilderGallery
+    <SkillsGallery
       onSelectConfig={jest.fn()}
       onRunQuickStart={jest.fn()}
       onEditConfig={jest.fn()}
@@ -184,7 +184,7 @@ beforeEach(() => {
 // Tests
 // ---------------------------------------------------------------------------
 
-describe("AgentBuilderGallery — WORKFLOW_RUNNER_ENABLED=false (default)", () => {
+describe("SkillsGallery — WORKFLOW_RUNNER_ENABLED=false (default)", () => {
   beforeEach(() => {
     mockWorkflowRunnerEnabled = false;
     _configs = [makeQuickStart(), makeWorkflow()];
@@ -237,7 +237,7 @@ describe("AgentBuilderGallery — WORKFLOW_RUNNER_ENABLED=false (default)", () =
   });
 });
 
-describe("AgentBuilderGallery — WORKFLOW_RUNNER_ENABLED=true", () => {
+describe("SkillsGallery — WORKFLOW_RUNNER_ENABLED=true", () => {
   beforeEach(() => {
     mockWorkflowRunnerEnabled = true;
     _configs = [makeQuickStart(), makeWorkflow()];
@@ -288,12 +288,12 @@ describe("AgentBuilderGallery — WORKFLOW_RUNNER_ENABLED=true", () => {
   });
 });
 
-describe("AgentBuilderGallery — flag transition (disabled → enabled)", () => {
+describe("SkillsGallery — flag transition (disabled → enabled)", () => {
   it("reflects flag changes without remounting", () => {
     mockWorkflowRunnerEnabled = false;
     _configs = [makeQuickStart()];
     const { rerender, queryByRole } = render(
-      <AgentBuilderGallery
+      <SkillsGallery
         onSelectConfig={jest.fn()}
         onRunQuickStart={jest.fn()}
         onEditConfig={jest.fn()}
@@ -308,7 +308,7 @@ describe("AgentBuilderGallery — flag transition (disabled → enabled)", () =>
     // Simulate flag flip
     mockWorkflowRunnerEnabled = true;
     rerender(
-      <AgentBuilderGallery
+      <SkillsGallery
         onSelectConfig={jest.fn()}
         onRunQuickStart={jest.fn()}
         onEditConfig={jest.fn()}
@@ -320,7 +320,7 @@ describe("AgentBuilderGallery — flag transition (disabled → enabled)", () =>
   });
 });
 
-describe("AgentBuilderGallery — Multi-Step section only with workflow configs", () => {
+describe("SkillsGallery — Multi-Step section only with workflow configs", () => {
   it("does NOT render Multi-Step section even when enabled if there are no workflow configs", () => {
     mockWorkflowRunnerEnabled = true;
     _configs = [makeQuickStart()]; // no multi-step configs
@@ -344,7 +344,7 @@ describe("AgentBuilderGallery — Multi-Step section only with workflow configs"
 // Search & filter
 // ---------------------------------------------------------------------------
 
-describe("AgentBuilderGallery — search and filter", () => {
+describe("SkillsGallery — search and filter", () => {
   beforeEach(() => {
     mockWorkflowRunnerEnabled = false;
     _configs = [
@@ -397,7 +397,7 @@ describe("AgentBuilderGallery — search and filter", () => {
 // updateEditablePrompt – variable substitution
 // ---------------------------------------------------------------------------
 
-describe("AgentBuilderGallery — variable substitution in run modal", () => {
+describe("SkillsGallery — variable substitution in run modal", () => {
   beforeEach(() => {
     mockWorkflowRunnerEnabled = false;
     _configs = [{
@@ -450,7 +450,7 @@ describe("AgentBuilderGallery — variable substitution in run modal", () => {
 // Delete flow
 // ---------------------------------------------------------------------------
 
-describe("AgentBuilderGallery — delete", () => {
+describe("SkillsGallery — delete", () => {
   beforeEach(() => {
     mockWorkflowRunnerEnabled = false;
     mockDeleteConfig.mockClear();
@@ -491,7 +491,7 @@ describe("AgentBuilderGallery — delete", () => {
 // Skills Builder button
 // ---------------------------------------------------------------------------
 
-describe("AgentBuilderGallery — Skills Builder button", () => {
+describe("SkillsGallery — Skills Builder button", () => {
   beforeEach(() => {
     mockWorkflowRunnerEnabled = false;
     _configs = [makeQuickStart()];
@@ -512,7 +512,7 @@ describe("AgentBuilderGallery — Skills Builder button", () => {
 // canModifyConfig logic (via UI – edit/delete visibility)
 // ---------------------------------------------------------------------------
 
-describe("AgentBuilderGallery — canModifyConfig", () => {
+describe("SkillsGallery — canModifyConfig", () => {
   it("shows edit/delete buttons for non-system configs", () => {
     _configs = [{
       ...makeQuickStart("user-skill"),
@@ -551,7 +551,7 @@ describe("AgentBuilderGallery — canModifyConfig", () => {
 // Run in Chat flow
 // ---------------------------------------------------------------------------
 
-describe("AgentBuilderGallery — Run in Chat", () => {
+describe("SkillsGallery — Run in Chat", () => {
   beforeEach(() => {
     _configs = [{
       ...makeQuickStart("qs-chat"),
@@ -626,7 +626,7 @@ describe("AgentBuilderGallery — Run in Chat", () => {
 // View mode switching
 // ---------------------------------------------------------------------------
 
-describe("AgentBuilderGallery — view mode", () => {
+describe("SkillsGallery — view mode", () => {
   const mySkill: AgentConfig = {
     ...makeQuickStart("my-1"),
     name: "My Personal Skill",
@@ -698,7 +698,7 @@ describe("AgentBuilderGallery — view mode", () => {
 // Favorites
 // ---------------------------------------------------------------------------
 
-describe("AgentBuilderGallery — favorites", () => {
+describe("SkillsGallery — favorites", () => {
   const favSkill: AgentConfig = {
     ...makeQuickStart("fav-1"),
     name: "Favorite Skill",
@@ -746,7 +746,7 @@ describe("AgentBuilderGallery — favorites", () => {
 // Loading and error states
 // ---------------------------------------------------------------------------
 
-describe("AgentBuilderGallery — loading/error", () => {
+describe("SkillsGallery — loading/error", () => {
   it("renders spinner when isLoading=true", () => {
     mockIsLoading = true;
     _configs = [];
@@ -783,7 +783,7 @@ describe("AgentBuilderGallery — loading/error", () => {
 // Empty states
 // ---------------------------------------------------------------------------
 
-describe("AgentBuilderGallery — empty states", () => {
+describe("SkillsGallery — empty states", () => {
   it("shows 'No skills match your search' when search yields no results", async () => {
     _configs = [makeQuickStart()];
 
@@ -819,7 +819,7 @@ describe("AgentBuilderGallery — empty states", () => {
 // Editable prompt and disabled buttons
 // ---------------------------------------------------------------------------
 
-describe("AgentBuilderGallery — editable prompt", () => {
+describe("SkillsGallery — editable prompt", () => {
   beforeEach(() => {
     _configs = [{
       ...makeQuickStart("qs-prompt"),
@@ -857,7 +857,7 @@ describe("AgentBuilderGallery — editable prompt", () => {
 // Modal interactions
 // ---------------------------------------------------------------------------
 
-describe("AgentBuilderGallery — modal interactions", () => {
+describe("SkillsGallery — modal interactions", () => {
   beforeEach(() => {
     _configs = [{
       ...makeQuickStart("qs-modal"),
@@ -894,7 +894,7 @@ describe("AgentBuilderGallery — modal interactions", () => {
 // Edit config callback
 // ---------------------------------------------------------------------------
 
-describe("AgentBuilderGallery — edit callback", () => {
+describe("SkillsGallery — edit callback", () => {
   it("calls onEditConfig for user-owned config when edit button is clicked", () => {
     const userConfig = {
       ...makeQuickStart("edit-1"),
@@ -933,7 +933,7 @@ describe("AgentBuilderGallery — edit callback", () => {
 // onSelectConfig for workflow cards
 // ---------------------------------------------------------------------------
 
-describe("AgentBuilderGallery — onSelectConfig for workflows", () => {
+describe("SkillsGallery — onSelectConfig for workflows", () => {
   it("clicking a workflow card calls onSelectConfig when flag is on", () => {
     mockWorkflowRunnerEnabled = true;
     _configs = [makeWorkflow("wf-select")];

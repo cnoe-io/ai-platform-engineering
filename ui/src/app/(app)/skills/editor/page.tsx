@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { SkillsBuilderEditor } from "@/components/agent-builder";
+import { SkillsBuilderEditor } from "@/components/skills";
 import { useAgentConfigStore } from "@/store/agent-config-store";
 import { AuthGuard } from "@/components/auth-guard";
 import { CAIPESpinner } from "@/components/ui/caipe-spinner";
