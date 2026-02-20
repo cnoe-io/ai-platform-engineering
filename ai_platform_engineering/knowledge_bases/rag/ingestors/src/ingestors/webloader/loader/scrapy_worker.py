@@ -27,6 +27,7 @@ from urllib.parse import urlparse, urljoin
 from twisted.internet import reactor
 from scrapy import Spider, Request
 from scrapy.crawler import CrawlerRunner
+from scrapy.exceptions import CloseSpider
 from scrapy.http import Response
 from scrapy.utils.log import configure_logging
 
@@ -717,8 +718,12 @@ class WorkerSpider(Spider):
       fatal_error = "Crawl was cancelled"
     elif self.pages_crawled == 0:
       status = CrawlStatus.FAILED
-      # Build detailed error message explaining why no pages were crawled
-      fatal_error = self._build_failure_message()
+      # Use CloseSpider reason if it's a meaningful message (not just "finished")
+      # Otherwise build a detailed error message
+      if reason and reason not in ("finished", "shutdown"):
+        fatal_error = str(reason)
+      else:
+        fatal_error = self._build_failure_message()
     elif self.pages_failed > 0:
       status = CrawlStatus.PARTIAL
     else:
