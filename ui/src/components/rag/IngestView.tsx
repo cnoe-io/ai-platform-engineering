@@ -201,7 +201,7 @@ export default function IngestView() {
   const [downloadDelay, setDownloadDelay] = useState(0.05)
   const [concurrentRequests, setConcurrentRequests] = useState(30)
   const [respectRobotsTxt, setRespectRobotsTxt] = useState(true)
-  const [followExternalLinks, setFollowExternalLinks] = useState(false)
+  const [followExternalLinks, setFollowExternalLinks] = useState(true)  // Default true since crawlMode defaults to sitemap
   const [allowedUrlPatterns, setAllowedUrlPatterns] = useState('')
   const [deniedUrlPatterns, setDeniedUrlPatterns] = useState('')
   const [chunkSize, setChunkSize] = useState(10000)
@@ -697,7 +697,12 @@ export default function IngestView() {
                     ].map((mode) => (
                       <button
                         key={mode.value}
-                        onClick={() => setCrawlMode(mode.value as 'single' | 'sitemap' | 'recursive')}
+                        onClick={() => {
+                          setCrawlMode(mode.value as 'single' | 'sitemap' | 'recursive')
+                          // Auto-enable follow_external_links for sitemap mode since sitemaps
+                          // often contain URLs pointing to a canonical domain
+                          setFollowExternalLinks(mode.value === 'sitemap')
+                        }}
                         className={`px-3 py-1 text-xs rounded-full transition-colors ${
                           crawlMode === mode.value
                             ? 'bg-primary text-primary-foreground'
