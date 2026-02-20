@@ -2,6 +2,8 @@
 # Common constants used across the application
 # ============================================================================
 
+import os
+
 # =============================
 # Graph database constants
 # =============================
@@ -64,12 +66,34 @@ CONFLUENCE_INGESTOR_REDIS_QUEUE = "ingestor:confluence:requests"
 CONFLUENCE_INGESTOR_TYPE = "confluence"
 CONFLUENCE_INGESTOR_NAME = "default_confluence"
 
+# =============================
+# Sync scheduling constants
+# =============================
+# These control how often the sync loop checks for datasources that need reloading.
+# The actual sleep time is calculated based on datasource schedules, then clamped to [MIN, MAX].
+
+# Minimum sleep between sync loop iterations (in seconds)
+# Prevents excessive CPU usage from too-frequent checks
+MIN_SYNC_INTERVAL = int(os.getenv("MIN_SYNC_INTERVAL", "60"))
+
+# Maximum sleep between sync loop iterations (in seconds)
+# Ensures new datasources are detected within this time window
+# This fixes the issue where new datasources with short intervals were delayed
+# by existing datasources with long intervals
+MAX_SYNC_INTERVAL = int(os.getenv("MAX_SYNC_INTERVAL", "600"))
+
+# =============================
+# Datasource reload constants
+# =============================
+# These control per-datasource reload intervals (how often a datasource's content is re-ingested).
+
 # Default reload interval for datasources without an explicit reload_interval in metadata (in seconds)
-DEFAULT_RELOAD_INTERVAL = 86400  # 24 hours
+DEFAULT_DATASOURCE_RELOAD_INTERVAL = 86400  # 24 hours
 
 # Minimum reload interval for datasources (in seconds)
 # Prevents excessive resource usage from too-frequent reloads
-MIN_RELOAD_INTERVAL = 60
+# User-specified intervals below this are clamped to this value
+MIN_DATASOURCE_RELOAD_INTERVAL = 60
 
 
 # Redis key prefix for userinfo cache (fetched from OIDC userinfo endpoint)

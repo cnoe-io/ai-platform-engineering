@@ -20,7 +20,13 @@ from common.ingestor import IngestorBuilder, Client
 from common.models.rag import DataSourceInfo
 from common.models.server import IngestorRequest, UrlIngestRequest, WebIngestorCommand, UrlReloadRequest, ScrapySettings, CrawlMode
 from common.job_manager import JobStatus, JobManager
-from common.constants import WEBLOADER_INGESTOR_REDIS_QUEUE, WEBLOADER_INGESTOR_NAME, WEBLOADER_INGESTOR_TYPE, DEFAULT_RELOAD_INTERVAL, MIN_RELOAD_INTERVAL
+from common.constants import (
+  WEBLOADER_INGESTOR_REDIS_QUEUE,
+  WEBLOADER_INGESTOR_NAME,
+  WEBLOADER_INGESTOR_TYPE,
+  DEFAULT_DATASOURCE_RELOAD_INTERVAL,
+  MIN_DATASOURCE_RELOAD_INTERVAL,
+)
 from common.utils import get_logger, generate_datasource_id_from_url
 
 from loader.scrapy_loader import ScrapyLoader
@@ -32,7 +38,6 @@ logger = get_logger(__name__)
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379")
 
 # Webloader configuration
-CHECK_INTERVAL = int(os.getenv("WEBLOADER_CHECK_INTERVAL", "600"))  # How often to check if any datasources need reloading (default: 10 mins)
 MAX_INGESTION_TASKS = int(os.getenv("WEBLOADER_MAX_INGESTION_TASKS", "5"))  # Max concurrent ingestion tasks
 
 redis_client = Redis.from_url(REDIS_URL, decode_responses=True)
@@ -370,15 +375,15 @@ async def periodic_reload(client: Client):
     for datasource_info in datasources:
       try:
         # Get per-datasource reload interval from metadata, fall back to default for old datasources
-        ds_reload_interval = DEFAULT_RELOAD_INTERVAL
+        ds_reload_interval = DEFAULT_DATASOURCE_RELOAD_INTERVAL
         if datasource_info.metadata:
           stored_interval = datasource_info.metadata.get("reload_interval")
           if stored_interval is not None:
             ds_reload_interval = stored_interval
             # Enforce minimum reload interval
-            if ds_reload_interval < MIN_RELOAD_INTERVAL:
-              logger.warning(f"Datasource {datasource_info.datasource_id} has reload_interval {ds_reload_interval}s below minimum {MIN_RELOAD_INTERVAL}s, using minimum")
-              ds_reload_interval = MIN_RELOAD_INTERVAL
+            if ds_reload_interval < MIN_DATASOURCE_RELOAD_INTERVAL:
+              logger.warning(f"Datasource {datasource_info.datasource_id} has reload_interval {ds_reload_interval}s below minimum {MIN_DATASOURCE_RELOAD_INTERVAL}s, using minimum")
+              ds_reload_interval = MIN_DATASOURCE_RELOAD_INTERVAL
 
         # Check if datasource is due for reload
         if datasource_info.last_updated is not None:
@@ -388,7 +393,16 @@ async def periodic_reload(client: Client):
             skipped_count += 1
             continue
 
-        # Datasource is due for reload (or has never been updated)
+        # Check if there's already a job in progress for this datasource
+        existing_jobs = await job_manager.get_jobs_by_datasource(datasource_info.datasource_id)
+        if existing_jobs:
+          in_progress_jobs = [j for j in existing_jobs if j.status in (JobStatus.IN_PROGRESS, JobStatus.PENDING)]
+          if in_progress_jobs:
+            logger.info(f"Skipping datasource {datasource_info.datasource_id}: job {in_progress_jobs[0].job_id} already in progress")
+            skipped_count += 1
+            continue
+
+        # Datasource is due for reload (or has never been updated) and no job in progress
         logger.info(f"Reloading datasource {datasource_info.datasource_id} (interval: {ds_reload_interval}s)")
         await reload_datasource(client, job_manager, datasource_info)
         reloaded_count += 1
@@ -410,8 +424,8 @@ if __name__ == "__main__":
 
     # Build and run the ingestor with standard asyncio
     # No Twisted reactor needed - Scrapy runs in subprocess workers
-    # Note: .every(CHECK_INTERVAL) sets how often to check if datasources need reloading
-    IngestorBuilder().name(WEBLOADER_INGESTOR_NAME).type(WEBLOADER_INGESTOR_TYPE).description("Default ingestor for websites and sitemaps").metadata({}).sync_with_fn(periodic_reload).with_startup(redis_listener).every(CHECK_INTERVAL).run()
+    # Note: Sync scheduling is controlled by MIN_SYNC_INTERVAL and MAX_SYNC_INTERVAL env vars
+    IngestorBuilder().name(WEBLOADER_INGESTOR_NAME).type(WEBLOADER_INGESTOR_TYPE).description("Default ingestor for websites and sitemaps").metadata({}).sync_with_fn(periodic_reload).with_startup(redis_listener).run()
 
   except KeyboardInterrupt:
     logger.info("Webloader ingestor interrupted by user")
