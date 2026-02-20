@@ -50,12 +50,15 @@ export default function SkillEditorPage() {
 
   return (
     <AuthGuard>
-      <SkillsBuilderEditor
-        open
-        onOpenChange={(open) => { if (!open) handleClose(); }}
-        onSuccess={handleSuccess}
-        existingConfig={existingConfig}
-      />
+      <div className="h-[calc(100vh-4rem)] overflow-hidden">
+        <SkillsBuilderEditor
+          open
+          inline
+          onOpenChange={(open) => { if (!open) handleClose(); }}
+          onSuccess={handleSuccess}
+          existingConfig={existingConfig}
+        />
+      </div>
     </AuthGuard>
   );
 }

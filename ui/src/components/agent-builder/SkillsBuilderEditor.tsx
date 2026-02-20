@@ -813,6 +813,8 @@ interface SkillsBuilderEditorProps {
   onOpenChange: (open: boolean) => void;
   onSuccess?: () => void;
   existingConfig?: AgentConfig;
+  /** Render inline within the page instead of as a full-screen portal overlay */
+  inline?: boolean;
 }
 
 export function SkillsBuilderEditor({
@@ -820,6 +822,7 @@ export function SkillsBuilderEditor({
   onOpenChange,
   onSuccess,
   existingConfig,
+  inline = false,
 }: SkillsBuilderEditorProps) {
   const isEditMode = !!existingConfig;
   const { createConfig, updateConfig } = useAgentConfigStore();
@@ -1016,9 +1019,10 @@ export function SkillsBuilderEditor({
   }, [open, existingConfig]);
 
   useEffect(() => {
+    if (inline) return;
     if (open) document.body.style.overflow = "hidden";
     return () => { document.body.style.overflow = ""; };
-  }, [open]);
+  }, [open, inline]);
 
   const handleInputChange = (field: string, value: string) => {
     setFormData(prev => ({ ...prev, [field]: value }));
@@ -1417,7 +1421,7 @@ ${skillContent}`;
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      className="fixed inset-0 z-50 bg-background flex flex-col"
+      className={inline ? "h-full bg-background flex flex-col" : "fixed inset-0 z-50 bg-background flex flex-col"}
     >
       {/* ─── Top Bar ──────────────────────────────────────────────── */}
       <header className="shrink-0 flex items-center gap-3 px-4 py-2 border-b border-border/50 bg-background/95 backdrop-blur-sm">
@@ -2124,6 +2128,10 @@ ${skillContent}`;
       </footer>
     </motion.div>
   );
+
+  if (inline) {
+    return <AnimatePresence>{open && overlay}</AnimatePresence>;
+  }
 
   return createPortal(
     <AnimatePresence>{open && overlay}</AnimatePresence>,
