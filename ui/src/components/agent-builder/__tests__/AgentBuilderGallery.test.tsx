@@ -66,6 +66,23 @@ jest.mock("next/navigation", () => ({
   useRouter: () => ({ push: jest.fn() }),
 }));
 
+jest.mock("next-auth/react", () => ({
+  useSession: () => ({ data: { user: { email: "test@example.com" } }, status: "authenticated" }),
+}));
+
+jest.mock("framer-motion", () => ({
+  motion: {
+    div: React.forwardRef(({ children, ...rest }: any, ref: any) => (
+      <div ref={ref} {...rest}>{children}</div>
+    )),
+  },
+  AnimatePresence: ({ children }: any) => <>{children}</>,
+}));
+
+jest.mock("@/components/ui/caipe-spinner", () => ({
+  CAIPESpinner: ({ message }: any) => <div data-testid="spinner">{message}</div>,
+}));
+
 // ---------------------------------------------------------------------------
 // Test data helpers
 // ---------------------------------------------------------------------------
@@ -223,7 +240,7 @@ describe("AgentBuilderGallery — WORKFLOW_RUNNER_ENABLED=true", () => {
   it("displays the workflow card name in the Multi-Step Workflows section", () => {
     renderGallery();
 
-    expect(screen.getByText("Multi-Step Deploy Workflow")).toBeInTheDocument();
+    expect(screen.getAllByText("Multi-Step Deploy Workflow").length).toBeGreaterThan(0);
   });
 
   it("calls onRunQuickStart when Run Workflow is clicked", () => {
@@ -289,5 +306,193 @@ describe("AgentBuilderGallery — Multi-Step section only with workflow configs"
     renderGallery();
 
     expect(screen.queryByText("Multi-Step Workflows")).not.toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Search & filter
+// ---------------------------------------------------------------------------
+
+describe("AgentBuilderGallery — search and filter", () => {
+  beforeEach(() => {
+    mockWorkflowRunnerEnabled = false;
+    _configs = [
+      makeQuickStart("qs-1"),
+      { ...makeQuickStart("qs-devops"), name: "DevOps Health Check", description: "Check cluster health", category: "DevOps" },
+      { ...makeQuickStart("qs-cloud"), name: "Cost Explorer", description: "Analyze AWS costs", category: "Cloud" },
+    ] as AgentConfig[];
+  });
+
+  it("filters configs by search query matching name", () => {
+    renderGallery();
+
+    const searchInput = screen.getByPlaceholderText(/search by name/i);
+    fireEvent.change(searchInput, { target: { value: "DevOps" } });
+
+    expect(screen.getByText("DevOps Health Check")).toBeInTheDocument();
+    expect(screen.queryByText("Cost Explorer")).not.toBeInTheDocument();
+  });
+
+  it("filters configs by search query matching description", () => {
+    renderGallery();
+
+    const searchInput = screen.getByPlaceholderText(/search by name/i);
+    fireEvent.change(searchInput, { target: { value: "AWS costs" } });
+
+    expect(screen.getByText("Cost Explorer")).toBeInTheDocument();
+    expect(screen.queryByText("DevOps Health Check")).not.toBeInTheDocument();
+  });
+
+  it("shows all configs when search query is empty", () => {
+    renderGallery();
+
+    expect(screen.getByText("Incident Correlation & Root Cause Analysis")).toBeInTheDocument();
+    expect(screen.getByText("DevOps Health Check")).toBeInTheDocument();
+    expect(screen.getByText("Cost Explorer")).toBeInTheDocument();
+  });
+
+  it("filters by category button", () => {
+    renderGallery();
+
+    const cloudBtn = screen.getByRole("button", { name: "Cloud" });
+    fireEvent.click(cloudBtn);
+
+    expect(screen.getByText("Cost Explorer")).toBeInTheDocument();
+    expect(screen.queryByText("DevOps Health Check")).not.toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// updateEditablePrompt – variable substitution
+// ---------------------------------------------------------------------------
+
+describe("AgentBuilderGallery — variable substitution in run modal", () => {
+  beforeEach(() => {
+    mockWorkflowRunnerEnabled = false;
+    _configs = [{
+      ...makeQuickStart("qs-vars"),
+      name: "Deploy Helper",
+      tasks: [{
+        display_text: "Deploy",
+        llm_prompt: "Deploy {{app_name}} to {{cluster}}",
+        subagent: "caipe",
+      }],
+      input_form: {
+        title: "Deploy Helper",
+        fields: [
+          { name: "app_name", label: "App Name", type: "text" as const, required: true, placeholder: "Enter app name" },
+          { name: "cluster", label: "Cluster", type: "text" as const, required: true, placeholder: "Enter cluster" },
+        ],
+      },
+    }] as AgentConfig[];
+  });
+
+  it("replaces {{variables}} in the prompt when form fields are filled", () => {
+    renderGallery();
+
+    fireEvent.click(screen.getByText("Deploy Helper"));
+
+    const appInput = screen.getByPlaceholderText(/enter app name/i);
+    fireEvent.change(appInput, { target: { value: "my-service" } });
+
+    const clusterInput = screen.getByPlaceholderText(/enter cluster/i);
+    fireEvent.change(clusterInput, { target: { value: "prod-us" } });
+
+    const promptArea = screen.getByPlaceholderText(/enter your prompt/i) as HTMLTextAreaElement;
+    expect(promptArea.value).toBe("Deploy my-service to prod-us");
+  });
+
+  it("shows validation error for required empty field on submit", () => {
+    renderGallery();
+
+    fireEvent.click(screen.getByText("Deploy Helper"));
+
+    const runBtn = screen.getByRole("button", { name: /run in chat/i });
+    fireEvent.click(runBtn);
+
+    expect(screen.getByText(/app name is required/i)).toBeInTheDocument();
+    expect(screen.getByText(/cluster is required/i)).toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Delete flow
+// ---------------------------------------------------------------------------
+
+describe("AgentBuilderGallery — delete", () => {
+  beforeEach(() => {
+    mockWorkflowRunnerEnabled = false;
+    mockDeleteConfig.mockClear();
+    _configs = [{
+      ...makeQuickStart("qs-del"),
+      is_system: false,
+      owner_id: "test@example.com",
+    }] as AgentConfig[];
+    jest.spyOn(window, "confirm").mockReturnValue(true);
+  });
+
+  afterEach(() => {
+    (window.confirm as jest.Mock).mockRestore();
+  });
+
+  it("calls deleteConfig when user confirms deletion", async () => {
+    renderGallery();
+
+    const deleteButtons = screen.getAllByTitle("Delete template");
+    fireEvent.click(deleteButtons[0]);
+
+    expect(mockDeleteConfig).toHaveBeenCalledWith("qs-del");
+  });
+
+  it("does NOT call deleteConfig when user cancels", () => {
+    (window.confirm as jest.Mock).mockReturnValue(false);
+
+    renderGallery();
+
+    const deleteButtons = screen.getAllByTitle("Delete template");
+    fireEvent.click(deleteButtons[0]);
+
+    expect(mockDeleteConfig).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Skills Builder button
+// ---------------------------------------------------------------------------
+
+describe("AgentBuilderGallery — Skills Builder button", () => {
+  beforeEach(() => {
+    mockWorkflowRunnerEnabled = false;
+    _configs = [makeQuickStart()];
+  });
+
+  it("calls onCreateNew when Skills Builder button is clicked", () => {
+    const onCreateNew = jest.fn();
+    renderGallery({ onCreateNew });
+
+    const btn = screen.getByRole("button", { name: /skills builder/i });
+    fireEvent.click(btn);
+
+    expect(onCreateNew).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// canModifyConfig logic (via UI – edit/delete visibility)
+// ---------------------------------------------------------------------------
+
+describe("AgentBuilderGallery — canModifyConfig", () => {
+  it("shows edit/delete buttons for non-system configs", () => {
+    mockWorkflowRunnerEnabled = false;
+    _configs = [{
+      ...makeQuickStart("user-skill"),
+      is_system: false,
+      owner_id: "test@example.com",
+    }] as AgentConfig[];
+
+    renderGallery();
+
+    expect(screen.getAllByTitle("Edit template").length).toBeGreaterThan(0);
+    expect(screen.getAllByTitle("Delete template").length).toBeGreaterThan(0);
   });
 });
