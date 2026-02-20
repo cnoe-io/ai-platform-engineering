@@ -11,8 +11,6 @@ import {
   AlertCircle,
   Upload,
   FileCode,
-  ChevronRight,
-  ChevronLeft,
   Eye,
   EyeOff,
   BookOpen,
@@ -20,6 +18,7 @@ import {
   Zap,
   GitBranch,
   GitPullRequest,
+  GitMerge,
   Server,
   Cloud,
   Rocket,
@@ -32,14 +31,42 @@ import {
   Key,
   Workflow,
   Bug,
-  Clock,
+  Container,
+  Terminal,
+  Network,
+  Activity,
+  MonitorCheck,
+  RefreshCcw,
+  CircleDot,
+  Layers,
+  PackageCheck,
+  Gauge,
+  ScrollText,
+  Webhook,
+  Cpu,
+  HardDrive,
+  Wrench,
+  ExternalLink,
   PanelLeftClose,
   PanelLeftOpen,
   Import,
   Lock,
   Globe,
   UsersRound,
+  ChevronDown,
+  ChevronUp,
+  GripVertical,
+  Check,
+  ChevronsUpDown,
+  Plus,
+  Braces,
+  Variable,
+  WandSparkles,
+  Square,
+  Undo2,
+  Redo2,
 } from "lucide-react";
+import { useSession } from "next-auth/react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -48,17 +75,46 @@ import { cn } from "@/lib/utils";
 import { useToast } from "@/components/ui/toast";
 import { useAgentConfigStore } from "@/store/agent-config-store";
 import { useAdminRole } from "@/hooks/use-admin-role";
+import { getConfig } from "@/lib/config";
+import { A2ASDKClient } from "@/lib/a2a-sdk-client";
 import { parseSkillMd, createBlankSkillMd } from "@/lib/skill-md-parser";
 import { fetchSkillTemplates, getAllTemplateTags } from "@/skills";
-import type {
-  AgentConfig,
-  AgentConfigCategory,
-  CreateAgentConfigInput,
-  WorkflowDifficulty,
-  SkillVisibility,
+import { Panel, Group as PanelGroup, Separator } from "react-resizable-panels";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
+import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
+import {
+  extractPromptVariables,
+  type AgentConfig,
+  type AgentConfigCategory,
+  type CreateAgentConfigInput,
+  type WorkflowDifficulty,
+  type SkillVisibility,
 } from "@/types/agent-config";
 import type { Team } from "@/types/teams";
 import type { SkillTemplate } from "@/skills";
+
+// Lazy-load CodeMirror to avoid SSR issues
+const CodeMirrorEditor = React.lazy(() => import("@uiw/react-codemirror"));
+
+// Dynamically build the {{variable}} highlighting extension
+async function createVariableHighlightExtension() {
+  const { ViewPlugin, Decoration, MatchDecorator } = await import("@codemirror/view");
+  const deco = Decoration.mark({ class: "cm-template-variable" });
+  const decorator = new MatchDecorator({
+    regexp: /\{\{[^}]+\}\}/g,
+    decoration: () => deco,
+  });
+  return ViewPlugin.fromClass(
+    class {
+      decorations: any;
+      constructor(view: any) { this.decorations = decorator.createDeco(view); }
+      update(update: any) { this.decorations = decorator.updateDeco(update, this.decorations); }
+    },
+    { decorations: (v: any) => v.decorations }
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -77,23 +133,51 @@ const DIFFICULTIES: { id: WorkflowDifficulty; label: string }[] = [
   { id: "advanced", label: "Advanced" },
 ];
 
-const THUMBNAIL_OPTIONS = [
-  "Zap", "GitBranch", "GitPullRequest", "Server", "Cloud", "Rocket",
-  "Shield", "Database", "BarChart", "Users", "AlertTriangle", "CheckCircle",
-  "Settings", "Key", "Workflow", "Bug", "Clock",
+const ICON_CATEGORIES: { label: string; icons: string[] }[] = [
+  {
+    label: "DevOps & CI/CD",
+    icons: ["Container", "Rocket", "Workflow", "PackageCheck", "RefreshCcw", "Layers"],
+  },
+  {
+    label: "Infrastructure",
+    icons: ["Server", "Cloud", "Database", "Network", "HardDrive", "Cpu"],
+  },
+  {
+    label: "Monitoring & Ops",
+    icons: ["Activity", "MonitorCheck", "Gauge", "AlertTriangle", "Bug", "ScrollText"],
+  },
+  {
+    label: "Git & Code",
+    icons: ["GitBranch", "GitPullRequest", "GitMerge", "FileCode", "Terminal", "Webhook"],
+  },
+  {
+    label: "General",
+    icons: ["Zap", "Shield", "BarChart", "Users", "Settings", "Key", "CheckCircle", "Wrench", "CircleDot"],
+  },
 ];
 
+const THUMBNAIL_OPTIONS = ICON_CATEGORIES.flatMap(cat => cat.icons);
+
 const ICON_MAP: Record<string, React.ElementType> = {
-  Zap, GitBranch, GitPullRequest, Server, Cloud, Rocket, Shield, Database,
-  BarChart, Users, AlertTriangle, CheckCircle, Settings, Key, Workflow, Bug, Clock,
+  Zap, GitBranch, GitPullRequest, GitMerge, Server, Cloud, Rocket, Shield,
+  Database, BarChart, Users, AlertTriangle, CheckCircle, Settings, Key,
+  Workflow, Bug, Container, Terminal, Network, Activity, FileCode,
+  MonitorCheck, RefreshCcw, CircleDot, Layers, PackageCheck, Gauge,
+  ScrollText, Webhook, Cpu, HardDrive, Wrench,
 };
 
 const ICON_LABELS: Record<string, string> = {
-  Zap: "Lightning", GitBranch: "Git Branch", GitPullRequest: "Pull Request",
-  Server: "Server", Cloud: "Cloud", Rocket: "Rocket", Shield: "Security",
-  Database: "Database", BarChart: "Analytics", Users: "Team",
-  AlertTriangle: "Warning", CheckCircle: "Success", Settings: "Settings",
-  Key: "Access Key", Workflow: "Workflow", Bug: "Bug Fix", Clock: "Scheduled",
+  Container: "Kubernetes", Rocket: "Deploy", Workflow: "Pipeline",
+  PackageCheck: "Helm", RefreshCcw: "ArgoCD", Layers: "Stack",
+  Server: "Server", Cloud: "Cloud", Database: "Database",
+  Network: "Network", HardDrive: "Storage", Cpu: "Compute",
+  Activity: "Monitoring", MonitorCheck: "Health", Gauge: "Metrics",
+  AlertTriangle: "Alert", Bug: "Debug", ScrollText: "Logs",
+  GitBranch: "Git Branch", GitPullRequest: "Pull Request", GitMerge: "Merge",
+  FileCode: "Code", Terminal: "CLI", Webhook: "Webhook",
+  Zap: "Lightning", Shield: "Security", BarChart: "Analytics",
+  Users: "Team", Settings: "Config", Key: "Access Key",
+  CheckCircle: "Success", Wrench: "Tools", CircleDot: "Target",
 };
 
 const VISIBILITY_OPTIONS: { id: SkillVisibility; label: string; icon: React.ElementType; description: string }[] = [
@@ -122,6 +206,89 @@ const CATEGORY_TAG_SUGGESTIONS: Record<string, string[]> = {
 // ---------------------------------------------------------------------------
 // Subcomponents
 // ---------------------------------------------------------------------------
+
+function IconPicker({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const btnRef = useRef<HTMLButtonElement>(null);
+  const [pos, setPos] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
+
+  const handleToggle = () => {
+    if (!open && btnRef.current) {
+      const rect = btnRef.current.getBoundingClientRect();
+      setPos({ top: rect.bottom + 4, left: rect.left });
+    }
+    setOpen(!open);
+  };
+
+  useEffect(() => {
+    if (!open) return;
+    const handleClick = (e: MouseEvent) => {
+      if (btnRef.current?.contains(e.target as Node)) return;
+      const portal = document.getElementById("icon-picker-portal");
+      if (portal?.contains(e.target as Node)) return;
+      setOpen(false);
+    };
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [open]);
+
+  const IconComp = ICON_MAP[value];
+
+  const popover = (
+    <div
+      id="icon-picker-portal"
+      style={{ position: "fixed", top: pos.top, left: pos.left, zIndex: 9999 }}
+      className="w-[340px] rounded-lg border border-border bg-popover shadow-lg p-2 animate-in fade-in-0 zoom-in-95 duration-100"
+    >
+      <div className="max-h-[280px] overflow-y-auto space-y-2 pr-1">
+        {ICON_CATEGORIES.map(cat => (
+          <div key={cat.label}>
+            <span className="text-[10px] uppercase tracking-wider text-muted-foreground/60 font-medium px-0.5">{cat.label}</span>
+            <div className="grid grid-cols-6 gap-1 mt-1">
+              {cat.icons.map(iconName => {
+                const IC = ICON_MAP[iconName];
+                const isSelected = value === iconName;
+                return (
+                  <button
+                    key={iconName}
+                    type="button"
+                    onClick={() => { onChange(iconName); setOpen(false); }}
+                    title={ICON_LABELS[iconName]}
+                    className={cn(
+                      "flex flex-col items-center justify-center gap-0.5 p-1.5 rounded-md border transition-all",
+                      isSelected
+                        ? "bg-primary/15 border-primary/40 text-primary ring-1 ring-primary/20"
+                        : "bg-transparent border-transparent hover:bg-muted/60 text-muted-foreground hover:text-foreground"
+                    )}
+                  >
+                    {IC && <IC className="h-4 w-4" />}
+                    <span className="text-[9px] leading-none truncate w-full text-center">{ICON_LABELS[iconName]}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+
+  return (
+    <div className="shrink-0">
+      <button
+        ref={btnRef}
+        type="button"
+        onClick={handleToggle}
+        className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md border border-border/50 bg-muted/30 hover:bg-muted/50 transition-colors"
+      >
+        {IconComp && <IconComp className="h-4 w-4 text-primary" />}
+        <span className="text-xs text-muted-foreground">{ICON_LABELS[value]}</span>
+        <ChevronDown className={cn("h-3 w-3 text-muted-foreground transition-transform", open && "rotate-180")} />
+      </button>
+      {open && createPortal(popover, document.body)}
+    </div>
+  );
+}
 
 interface TagInputProps {
   tags: string[];
@@ -165,17 +332,13 @@ function TagInput({ tags, onChange, suggestions = [] }: TagInputProps) {
   };
 
   return (
-    <div className="space-y-2">
-      <div className="flex flex-wrap items-center gap-1.5 p-2 min-h-[38px] rounded-md border border-input bg-background">
+    <div className="relative">
+      <div className="flex flex-wrap items-center gap-1 px-2 py-1 min-h-[32px] rounded-md border border-input bg-background">
         {tags.map(tag => (
-          <Badge key={tag} variant="secondary" className="gap-1 text-xs">
+          <Badge key={tag} variant="secondary" className="gap-0.5 text-xs h-5 px-1.5">
             {tag}
-            <button
-              type="button"
-              onClick={() => removeTag(tag)}
-              className="ml-0.5 hover:text-destructive"
-            >
-              <X className="h-3 w-3" />
+            <button type="button" onClick={() => removeTag(tag)} className="ml-0.5 hover:text-destructive">
+              <X className="h-2.5 w-2.5" />
             </button>
           </Badge>
         ))}
@@ -183,19 +346,16 @@ function TagInput({ tags, onChange, suggestions = [] }: TagInputProps) {
           ref={inputRef}
           type="text"
           value={inputValue}
-          onChange={(e) => {
-            setInputValue(e.target.value);
-            setShowSuggestions(true);
-          }}
+          onChange={(e) => { setInputValue(e.target.value); setShowSuggestions(true); }}
           onFocus={() => setShowSuggestions(true)}
           onBlur={() => setTimeout(() => setShowSuggestions(false), 200)}
           onKeyDown={handleKeyDown}
           placeholder={tags.length === 0 ? "Add tags..." : ""}
-          className="flex-1 min-w-[100px] bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+          className="flex-1 min-w-[80px] bg-transparent text-xs outline-none placeholder:text-muted-foreground"
         />
       </div>
       {showSuggestions && filteredSuggestions.length > 0 && (
-        <div className="flex flex-wrap gap-1">
+        <div className="absolute z-10 mt-1 flex flex-wrap gap-1 p-1.5 bg-popover border border-border rounded-md shadow-md max-w-full">
           {filteredSuggestions.slice(0, 8).map(s => (
             <button
               key={s}
@@ -213,7 +373,226 @@ function TagInput({ tags, onChange, suggestions = [] }: TagInputProps) {
 }
 
 // ---------------------------------------------------------------------------
-// Import SKILL.md Dialog (inline within the overlay)
+// Category Picker (custom dropdown)
+// ---------------------------------------------------------------------------
+
+interface CategoryPickerProps {
+  value: string;
+  onChange: (value: string) => void;
+}
+
+function CategoryPicker({ value, onChange }: CategoryPickerProps) {
+  const [isOpen, setIsOpen] = useState(false);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const [menuPos, setMenuPos] = useState<{ top: number; left: number; maxH?: number }>({ top: 0, left: 0 });
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (
+        triggerRef.current && !triggerRef.current.contains(e.target as Node) &&
+        menuRef.current && !menuRef.current.contains(e.target as Node)
+      ) {
+        setIsOpen(false);
+      }
+    };
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setIsOpen(false);
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    document.addEventListener("keydown", handleEscape);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+      document.removeEventListener("keydown", handleEscape);
+    };
+  }, [isOpen]);
+
+  const MAX_MENU_H = 280;
+
+  const handleToggle = () => {
+    if (!isOpen && triggerRef.current) {
+      const rect = triggerRef.current.getBoundingClientRect();
+      const spaceBelow = window.innerHeight - rect.bottom - 8;
+      const spaceAbove = rect.top - 8;
+      const openAbove = spaceBelow < MAX_MENU_H && spaceAbove > spaceBelow;
+      const top = openAbove ? Math.max(8, rect.top - Math.min(MAX_MENU_H, spaceAbove)) : rect.bottom + 4;
+      const maxH = openAbove ? Math.min(MAX_MENU_H, spaceAbove) : Math.min(MAX_MENU_H, spaceBelow);
+      setMenuPos({ top, left: rect.left, maxH });
+    }
+    setIsOpen(!isOpen);
+  };
+
+  return (
+    <>
+      <button
+        ref={triggerRef}
+        type="button"
+        onClick={handleToggle}
+        className={cn(
+          "flex items-center justify-between gap-2 h-7 px-2.5 min-w-[160px] text-xs rounded-md border transition-colors",
+          "bg-background text-foreground hover:bg-muted/50",
+          isOpen ? "border-primary/50 ring-1 ring-primary/20" : "border-input"
+        )}
+      >
+        <span className="truncate">{value}</span>
+        <ChevronsUpDown className="h-3 w-3 text-muted-foreground shrink-0" />
+      </button>
+
+      {isOpen && createPortal(
+        <div
+          ref={menuRef}
+          className="fixed w-[200px] py-1 rounded-lg border border-border bg-popover shadow-xl shadow-black/20 animate-in fade-in-0 zoom-in-95 duration-100 overflow-y-auto"
+          style={{ top: menuPos.top, left: menuPos.left, maxHeight: menuPos.maxH ?? MAX_MENU_H, zIndex: 9999 }}
+        >
+          {CATEGORIES.map(cat => {
+            const isSelected = value === cat;
+            return (
+              <button
+                key={cat}
+                type="button"
+                onClick={() => { onChange(cat); setIsOpen(false); }}
+                className={cn(
+                  "flex items-center gap-2 w-full px-2.5 py-1.5 text-xs transition-colors text-left",
+                  isSelected
+                    ? "bg-primary/10 text-primary"
+                    : "text-foreground hover:bg-muted/50"
+                )}
+              >
+                <Check className={cn("h-3 w-3 shrink-0", isSelected ? "opacity-100" : "opacity-0")} />
+                <span>{cat}</span>
+              </button>
+            );
+          })}
+        </div>,
+        document.body
+      )}
+    </>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Insert Variable Popover
+// ---------------------------------------------------------------------------
+
+interface InsertVariablePopoverProps {
+  onInsert: (varName: string) => void;
+}
+
+function InsertVariablePopover({ onInsert }: InsertVariablePopoverProps) {
+  const [isOpen, setIsOpen] = useState(false);
+  const [varName, setVarName] = useState("");
+  const containerRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setIsOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [isOpen]);
+
+  useEffect(() => {
+    if (isOpen) setTimeout(() => inputRef.current?.focus(), 50);
+  }, [isOpen]);
+
+  const handleInsert = () => {
+    const name = varName.trim().replace(/\s+/g, "_");
+    if (!name) return;
+    onInsert(name);
+    setVarName("");
+    setIsOpen(false);
+  };
+
+  const COMMON_VARS = [
+    "pr_url", "repo_name", "branch_name", "app_name",
+    "cluster_name", "namespace", "time_range", "jira_project",
+  ];
+
+  return (
+    <div ref={containerRef} className="relative">
+      <button
+        type="button"
+        onClick={() => setIsOpen(!isOpen)}
+        className={cn(
+          "flex items-center gap-1 h-6 px-2 text-xs rounded border transition-colors",
+          isOpen
+            ? "bg-primary/10 border-primary/30 text-primary"
+            : "bg-muted/30 border-border/50 hover:bg-muted/50 text-muted-foreground hover:text-foreground"
+        )}
+      >
+        <Braces className="h-2.5 w-2.5" />
+        <Plus className="h-2.5 w-2.5" />
+        Variable
+      </button>
+
+      <AnimatePresence>
+        {isOpen && (
+          <motion.div
+            initial={{ opacity: 0, y: -4, scale: 0.98 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -4, scale: 0.98 }}
+            transition={{ duration: 0.12 }}
+            className="absolute z-50 mt-1 right-0 w-[240px] p-2.5 rounded-lg border border-border bg-popover shadow-xl shadow-black/20 space-y-2"
+          >
+            <div>
+              <label className="text-xs font-medium text-muted-foreground mb-1 block">
+                Variable name
+              </label>
+              <div className="flex gap-1">
+                <input
+                  ref={inputRef}
+                  type="text"
+                  value={varName}
+                  onChange={(e) => setVarName(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") handleInsert(); }}
+                  placeholder="e.g. repo_name"
+                  className="flex-1 h-6 px-2 text-xs rounded border border-input bg-background text-foreground placeholder:text-muted-foreground outline-none focus:ring-1 focus:ring-primary/30 font-mono"
+                />
+                <button
+                  type="button"
+                  onClick={handleInsert}
+                  disabled={!varName.trim()}
+                  className="h-6 px-2 text-xs rounded bg-primary/10 border border-primary/30 text-primary hover:bg-primary/20 transition-colors disabled:opacity-40"
+                >
+                  Insert
+                </button>
+              </div>
+              <p className="text-xs text-muted-foreground mt-1">
+                Inserts <code className="text-primary/80">{`{{${varName.trim().replace(/\s+/g, "_") || "name"}}}`}</code> at cursor
+              </p>
+            </div>
+
+            <div className="border-t border-border/50 pt-1.5">
+              <label className="text-xs font-medium text-muted-foreground mb-1 block uppercase tracking-wider">
+                Common
+              </label>
+              <div className="flex flex-wrap gap-1">
+                {COMMON_VARS.map(v => (
+                  <button
+                    key={v}
+                    type="button"
+                    onClick={() => { onInsert(v); setIsOpen(false); }}
+                    className="text-xs px-1.5 py-0.5 rounded bg-muted/40 border border-border/50 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors font-mono"
+                  >
+                    {`{{${v}}}`}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Import SKILL.md Panel
 // ---------------------------------------------------------------------------
 
 interface ImportSkillMdPanelProps {
@@ -250,7 +629,7 @@ function ImportSkillMdPanel({ onImport, onClose }: ImportSkillMdPanelProps) {
             </div>
             <div>
               <h3 className="text-sm font-semibold">Import SKILL.md</h3>
-              <p className="text-xs text-muted-foreground">Upload or paste a SKILL.md file to populate the editor</p>
+              <p className="text-xs text-muted-foreground">Upload or paste a SKILL.md file</p>
             </div>
           </div>
           <Button variant="ghost" size="icon" onClick={onClose} className="h-8 w-8">
@@ -259,26 +638,24 @@ function ImportSkillMdPanel({ onImport, onClose }: ImportSkillMdPanelProps) {
         </div>
 
         <div>
-          <label className="text-xs font-medium mb-1.5 block">Upload File</label>
-          <Input type="file" accept=".md,.markdown" onChange={handleFileUpload} className="cursor-pointer h-9 text-sm" />
+          <label className="text-xs font-medium mb-1 block">Upload File</label>
+          <Input type="file" accept=".md,.markdown" onChange={handleFileUpload} className="cursor-pointer h-8 text-xs" />
         </div>
 
         <div className="relative">
-          <div className="absolute inset-0 flex items-center">
-            <span className="w-full border-t" />
-          </div>
+          <div className="absolute inset-0 flex items-center"><span className="w-full border-t" /></div>
           <div className="relative flex justify-center text-xs uppercase">
-            <span className="bg-background px-2 text-muted-foreground">Or paste content</span>
+            <span className="bg-background px-2 text-muted-foreground">Or paste</span>
           </div>
         </div>
 
         <textarea
           value={content}
           onChange={(e) => setContent(e.target.value)}
-          placeholder={"---\nname: my-skill\ndescription: ...\n---\n\n# My Skill\n\n## Instructions\n..."}
-          rows={8}
+          placeholder={"---\nname: my-skill\ndescription: ...\n---\n\n# My Skill\n..."}
+          rows={6}
           className={cn(
-            "w-full px-3 py-2 text-sm rounded-md border border-input bg-background resize-none font-mono",
+            "w-full px-3 py-2 text-xs rounded-md border border-input bg-background resize-none font-mono",
             "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           )}
         />
@@ -297,6 +674,133 @@ function ImportSkillMdPanel({ onImport, onClose }: ImportSkillMdPanelProps) {
         </div>
       </div>
     </motion.div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Rich Markdown Preview
+// ---------------------------------------------------------------------------
+
+function MarkdownPreview({ content }: { content: string }) {
+  const body = useMemo(() => {
+    const match = content.match(/^---[\s\S]*?---\s*/);
+    return match ? content.slice(match[0].length) : content;
+  }, [content]);
+
+  return (
+    <div className="max-w-none space-y-0">
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        components={{
+          h1: ({ children }) => (
+            <h1 className="text-xl font-bold text-foreground border-b border-border/40 pb-2 mb-4 mt-0">{children}</h1>
+          ),
+          h2: ({ children }) => (
+            <h2 className="text-base font-semibold text-foreground mt-6 mb-3 flex items-center gap-2">
+              <span className="w-1 h-4 rounded-full bg-primary/60 shrink-0" />
+              {children}
+            </h2>
+          ),
+          h3: ({ children }) => (
+            <h3 className="text-sm font-semibold text-foreground mt-5 mb-2">{children}</h3>
+          ),
+          h4: ({ children }) => (
+            <h4 className="text-sm font-medium text-foreground mt-4 mb-1.5">{children}</h4>
+          ),
+          p: ({ children }) => (
+            <p className="text-[15px] text-muted-foreground leading-relaxed mb-3">{children}</p>
+          ),
+          strong: ({ children }) => (
+            <strong className="font-semibold text-foreground">{children}</strong>
+          ),
+          em: ({ children }) => (
+            <em className="italic text-muted-foreground">{children}</em>
+          ),
+          a: ({ href, children }) => (
+            <a href={href} className="text-primary underline underline-offset-2 hover:text-primary/80" target="_blank" rel="noopener noreferrer">{children}</a>
+          ),
+          ul: ({ children }) => (
+            <ul className="space-y-1.5 mb-4 ml-1">{children}</ul>
+          ),
+          ol: ({ children }) => (
+            <ol className="space-y-1.5 mb-4 ml-1 list-decimal list-inside">{children}</ol>
+          ),
+          li: ({ children }) => (
+            <li className="text-[15px] text-muted-foreground leading-relaxed flex items-start gap-2">
+              <span className="mt-2.5 w-1 h-1 rounded-full bg-muted-foreground/40 shrink-0" />
+              <span className="flex-1">{children}</span>
+            </li>
+          ),
+          blockquote: ({ children }) => (
+            <blockquote className="border-l-2 border-primary/30 pl-4 my-4 text-[15px] text-muted-foreground italic">{children}</blockquote>
+          ),
+          hr: () => <hr className="border-border/40 my-5" />,
+          table: ({ children }) => (
+            <div className="overflow-x-auto mb-4 rounded-md border border-border/40">
+              <table className="w-full text-sm">{children}</table>
+            </div>
+          ),
+          thead: ({ children }) => (
+            <thead className="bg-muted/30 border-b border-border/40">{children}</thead>
+          ),
+          tbody: ({ children }) => <tbody className="divide-y divide-border/30">{children}</tbody>,
+          tr: ({ children }) => <tr className="hover:bg-muted/10 transition-colors">{children}</tr>,
+          th: ({ children }) => (
+            <th className="px-3 py-2 text-left text-sm font-medium text-foreground">{children}</th>
+          ),
+          td: ({ children }) => (
+            <td className="px-3 py-2 text-sm text-muted-foreground">{children}</td>
+          ),
+          pre: ({ children }) => (
+            <div className="mb-4 rounded-lg overflow-hidden">{children}</div>
+          ),
+          code(props) {
+            const { children, className, ...rest } = props;
+            const match = /language-(\w+)/.exec(className || "");
+            const codeString = String(children).replace(/\n$/, "");
+            if (match) {
+              return (
+                <SyntaxHighlighter
+                  style={oneDark}
+                  language={match[1]}
+                  PreTag="div"
+                  customStyle={{ borderRadius: "0.5rem", fontSize: "0.8125rem", margin: 0, padding: "0.75rem" }}
+                >
+                  {codeString}
+                </SyntaxHighlighter>
+              );
+            }
+            return (
+              <code className="text-primary bg-muted/50 px-1.5 py-0.5 rounded text-sm font-mono" {...rest}>
+                {children}
+              </code>
+            );
+          },
+        }}
+      >
+        {body}
+      </ReactMarkdown>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Resize Handle
+// ---------------------------------------------------------------------------
+
+function ResizeHandle({ className }: { className?: string }) {
+  return (
+    <Separator
+      className={cn(
+        "group relative flex items-center justify-center w-2 hover:w-3 transition-all",
+        "before:absolute before:inset-y-0 before:w-px before:bg-border/50 group-hover:before:bg-primary/30 before:transition-colors",
+        className
+      )}
+    >
+      <div className="opacity-0 group-hover:opacity-100 transition-opacity">
+        <GripVertical className="h-4 w-4 text-muted-foreground/50" />
+      </div>
+    </Separator>
   );
 }
 
@@ -322,7 +826,13 @@ export function SkillsBuilderEditor({
   const { isAdmin } = useAdminRole();
   const { toast } = useToast();
 
-  // Skill templates loaded from API (filesystem-backed)
+  // Auth for A2A calls (same pattern as AgentBuilderRunner)
+  const { data: session } = useSession();
+  const ssoEnabled = getConfig("ssoEnabled");
+  const accessToken = ssoEnabled ? session?.accessToken : undefined;
+  const caipeEndpoint = getConfig("caipeUrl");
+
+  // Skill templates loaded from API
   const [skillTemplates, setSkillTemplates] = useState<SkillTemplate[]>([]);
   const [templatesLoading, setTemplatesLoading] = useState(false);
 
@@ -330,8 +840,9 @@ export function SkillsBuilderEditor({
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [previewOpen, setPreviewOpen] = useState(true);
   const [showImportPanel, setShowImportPanel] = useState(false);
+  const [metadataExpanded, setMetadataExpanded] = useState(true);
 
-  // Template reference in sidebar
+  // Template reference
   const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null);
 
   // Form state
@@ -347,7 +858,7 @@ export function SkillsBuilderEditor({
     existingConfig?.skill_content || createBlankSkillMd()
   );
 
-  // Visibility / sharing state
+  // Visibility / sharing
   const [visibility, setVisibility] = useState<SkillVisibility>(
     existingConfig?.visibility || "private"
   );
@@ -362,22 +873,107 @@ export function SkillsBuilderEditor({
   const [submitStatus, setSubmitStatus] = useState<"idle" | "success" | "error">("idle");
   const [errors, setErrors] = useState<Record<string, string>>({});
 
-  // Load templates from API when editor opens
+  // Editor undo/redo history
+  const undoStackRef = useRef<string[]>([]);
+  const redoStackRef = useRef<string[]>([]);
+  const [undoAvailable, setUndoAvailable] = useState(false);
+  const [redoAvailable, setRedoAvailable] = useState(false);
+
+  const pushUndoSnapshot = useCallback((content: string) => {
+    const stack = undoStackRef.current;
+    if (stack[stack.length - 1] === content) return;
+    stack.push(content);
+    if (stack.length > 50) stack.shift();
+    setUndoAvailable(stack.length > 0);
+    redoStackRef.current = [];
+    setRedoAvailable(false);
+  }, []);
+
+  const handleUndo = useCallback(() => {
+    const stack = undoStackRef.current;
+    if (stack.length === 0) return;
+    const prev = stack.pop()!;
+    redoStackRef.current.push(skillContent);
+    setSkillContent(prev);
+    setUndoAvailable(stack.length > 0);
+    setRedoAvailable(true);
+  }, [skillContent]);
+
+  const handleRedo = useCallback(() => {
+    const stack = redoStackRef.current;
+    if (stack.length === 0) return;
+    const next = stack.pop()!;
+    undoStackRef.current.push(skillContent);
+    setSkillContent(next);
+    setUndoAvailable(true);
+    setRedoAvailable(stack.length > 0);
+  }, [skillContent]);
+
+  // AI skill generation state
+  const [aiStatus, setAiStatus] = useState<"idle" | "generating" | "enhancing">("idle");
+  const [aiGenerateInput, setAiGenerateInput] = useState("");
+  const [showAiGenerateInput, setShowAiGenerateInput] = useState(false);
+  const [aiEnhanceInput, setAiEnhanceInput] = useState("");
+  const [showAiEnhanceInput, setShowAiEnhanceInput] = useState(false);
+  const [showAiDebug, setShowAiDebug] = useState(false);
+  const [aiDebugLog, setAiDebugLog] = useState<string[]>([]);
+  const aiDebugEndRef = useRef<HTMLDivElement | null>(null);
+  const aiClientRef = useRef<A2ASDKClient | null>(null);
+  const aiContentSnapshotRef = useRef<string>("");
+
+  // CodeMirror extensions (lazily loaded) and editor ref
+  const [cmExtensions, setCmExtensions] = useState<any[]>([]);
+  const cmRef = useRef<any>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    Promise.all([
+      import("@codemirror/lang-markdown"),
+      import("@codemirror/language-data"),
+      createVariableHighlightExtension(),
+    ]).then(([mdMod, langDataMod, varHighlight]) => {
+      if (!cancelled) {
+        setCmExtensions([
+          mdMod.markdown({ codeLanguages: langDataMod.languages }),
+          varHighlight,
+        ]);
+      }
+    });
+    return () => { cancelled = true; };
+  }, [open]);
+
+  // Auto-scroll debug console to bottom on new entries
+  useEffect(() => {
+    aiDebugEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [aiDebugLog]);
+
+  // Detected {{variables}} from editor content
+  const detectedVariables = useMemo(() => {
+    return extractPromptVariables(skillContent);
+  }, [skillContent]);
+
+  // Insert text at cursor position in CodeMirror
+  const insertAtCursor = useCallback((text: string) => {
+    const view = cmRef.current?.view;
+    if (!view) return;
+    const { from } = view.state.selection.main;
+    view.dispatch({ changes: { from, insert: text } });
+    view.focus();
+  }, []);
+
+  // Load templates
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
     setTemplatesLoading(true);
     fetchSkillTemplates()
-      .then((templates) => {
-        if (!cancelled) setSkillTemplates(templates);
-      })
-      .finally(() => {
-        if (!cancelled) setTemplatesLoading(false);
-      });
+      .then((templates) => { if (!cancelled) setSkillTemplates(templates); })
+      .finally(() => { if (!cancelled) setTemplatesLoading(false); });
     return () => { cancelled = true; };
   }, [open]);
 
-  // Fetch teams when visibility is set to "team"
+  // Fetch teams when visibility = "team"
   useEffect(() => {
     if (visibility !== "team" || availableTeams.length > 0) return;
     let cancelled = false;
@@ -393,14 +989,13 @@ export function SkillsBuilderEditor({
     return () => { cancelled = true; };
   }, [visibility, availableTeams.length]);
 
-  // Computed tag suggestions
   const allExistingTags = useMemo(() => getAllTemplateTags(), [skillTemplates]);
   const categorySuggestions = useMemo(() => {
     const catTags = CATEGORY_TAG_SUGGESTIONS[formData.category] || [];
     return [...new Set([...catTags, ...allExistingTags])];
   }, [formData.category, allExistingTags]);
 
-  // Reset state when opening/closing or switching configs
+  // Reset state
   useEffect(() => {
     if (open) {
       setFormData({
@@ -420,11 +1015,8 @@ export function SkillsBuilderEditor({
     }
   }, [open, existingConfig]);
 
-  // Prevent body scroll when overlay is open
   useEffect(() => {
-    if (open) {
-      document.body.style.overflow = "hidden";
-    }
+    if (open) document.body.style.overflow = "hidden";
     return () => { document.body.style.overflow = ""; };
   }, [open]);
 
@@ -435,8 +1027,8 @@ export function SkillsBuilderEditor({
     }
   };
 
-  // Load a template into the editor
   const handleLoadTemplate = (template: SkillTemplate) => {
+    pushUndoSnapshot(skillContent);
     setSkillContent(template.content);
     setFormData(prev => ({
       ...prev,
@@ -448,9 +1040,9 @@ export function SkillsBuilderEditor({
     setTags(template.tags);
   };
 
-  // Import from SKILL.md content
   const handleImportSkillMd = (content: string) => {
     try {
+      pushUndoSnapshot(skillContent);
       const parsed = parseSkillMd(content);
       setSkillContent(content);
       if (parsed.name) {
@@ -478,16 +1070,282 @@ export function SkillsBuilderEditor({
     return Object.keys(newErrors).length === 0;
   };
 
+  // ---------------------------------------------------------------------------
+  // AI Skill Generation / Enhancement via CAIPE A2A backend
+  // ---------------------------------------------------------------------------
+
+  const SKILL_FORMAT_SPEC = `IMPORTANT: This is a CREATIVE WRITING task. Do NOT use any tools, do NOT call any agents, do NOT write files, do NOT create TODO lists. Simply respond with plain text directly.
+
+You are a SKILL.md author. Output ONLY a valid SKILL.md file with no preamble, no explanation, and no markdown code fences wrapping the entire output. Do NOT ask clarifying questions. Do NOT request additional information. Just generate the best SKILL.md you can from the given description.
+
+The SKILL.md format follows the Anthropic skills specification:
+- Starts with YAML frontmatter delimited by --- lines
+- frontmatter MUST contain "name" (kebab-case) and "description" (one-line summary)
+- After frontmatter: a markdown body with H1 title matching the skill name
+- Must include ## Instructions section with step-by-step phases
+- Should include ## Output Format, ## Examples, and ## Guidelines sections
+- May use {{variable_name}} placeholders for user-provided values
+
+Example SKILL.md structure:
+---
+name: example-skill
+description: Brief description of what this skill does
+---
+
+# Example Skill
+
+Brief introduction paragraph.
+
+## Instructions
+
+### Phase 1: First Step
+1. Do something
+2. Do something else
+
+### Phase 2: Second Step
+1. Another step
+
+## Output Format
+Describe the expected output format here.
+
+## Examples
+- "Example query 1"
+- "Example query 2"
+
+## Guidelines
+- Guideline 1
+- Guideline 2
+`;
+
+  const extractSkillMdFromResponse = (response: string): string => {
+    const fmMatch = response.match(/(---\s*\n[\s\S]*?\n---[\s\S]*)/);
+    if (fmMatch) return fmMatch[1].trim();
+    return response.trim();
+  };
+
+  const appendDebugLog = (line: string) => {
+    setAiDebugLog((prev) => [...prev, `[${new Date().toLocaleTimeString()}] ${line}`]);
+  };
+
+  const MAX_INPUT_REQUIRED_RETRIES = 3;
+
+  const sendAiRequest = async (prompt: string): Promise<string> => {
+    if (!caipeEndpoint) {
+      throw new Error("CAIPE backend URL is not configured");
+    }
+
+    appendDebugLog(`Connecting to ${caipeEndpoint}...`);
+
+    const client = new A2ASDKClient({
+      endpoint: caipeEndpoint,
+      accessToken: accessToken as string | undefined,
+      userEmail: session?.user?.email ?? undefined,
+    });
+    aiClientRef.current = client;
+
+    let finalContent = "";
+    let contextId: string | undefined;
+    let currentPrompt = prompt;
+    let retries = 0;
+
+    while (retries <= MAX_INPUT_REQUIRED_RETRIES) {
+      const stream = client.sendMessageStream(currentPrompt, contextId);
+      if (retries === 0) {
+        appendDebugLog("Stream opened, waiting for events...");
+      } else {
+        appendDebugLog(`Auto-replying to input-required (attempt ${retries})...`);
+      }
+
+      let gotInputRequired = false;
+      let streamingAccum = "";
+
+      for await (const event of stream) {
+        const label = event.artifactName || event.type || "event";
+        const preview = event.displayContent
+          ? event.displayContent.slice(0, 120).replace(/\n/g, "\\n")
+          : "(no content)";
+        appendDebugLog(`← ${label}${event.isFinal ? " [final]" : ""}${event.requireUserInput ? " [input-required]" : ""}: ${preview}`);
+
+        if (event.contextId) contextId = event.contextId;
+
+        if (event.requireUserInput) {
+          gotInputRequired = true;
+          appendDebugLog("Backend requested user input — auto-responding to continue...");
+        }
+
+        const name = event.artifactName || "";
+
+        if (name === "final_result" || name === "complete_result") {
+          if (event.displayContent) finalContent = event.displayContent;
+        } else if (name === "streaming_result" && event.type === "artifact") {
+          if (event.displayContent) {
+            if (event.shouldAppend) {
+              streamingAccum += event.displayContent;
+            } else {
+              streamingAccum = event.displayContent;
+            }
+          }
+        }
+      }
+
+      if (!finalContent && streamingAccum) {
+        finalContent = streamingAccum;
+      }
+
+      if (!gotInputRequired) break;
+
+      retries++;
+      if (retries > MAX_INPUT_REQUIRED_RETRIES) {
+        appendDebugLog("Max auto-reply retries reached. Using best content so far.");
+        break;
+      }
+
+      currentPrompt = "Please proceed with the task. Do not ask any questions. Generate the SKILL.md content now.";
+    }
+
+    appendDebugLog("Stream complete.");
+    aiClientRef.current = null;
+    return finalContent;
+  };
+
+  const handleAiGenerate = async () => {
+    const description = aiGenerateInput.trim();
+    if (!description) return;
+
+    pushUndoSnapshot(skillContent);
+    aiContentSnapshotRef.current = skillContent;
+    setAiStatus("generating");
+    setShowAiGenerateInput(false);
+    setAiDebugLog([]);
+    setShowAiDebug(false);
+
+    try {
+      const formContext = [
+        formData.name.trim() && `Skill name: ${formData.name.trim()}`,
+        formData.description.trim() && `Skill description: ${formData.description.trim()}`,
+      ].filter(Boolean).join("\n");
+
+      const prompt = `${SKILL_FORMAT_SPEC}
+
+Now create a SKILL.md for the following skill. Remember: respond with ONLY the SKILL.md text. No tools, no file writes, no TODO lists.
+
+${formContext ? `${formContext}\n` : ""}User request: ${description}`;
+
+      const result = await sendAiRequest(prompt);
+      if (!result) throw new Error("Empty response from AI");
+
+      const extracted = extractSkillMdFromResponse(result);
+      setSkillContent(extracted);
+
+      try {
+        const parsed = parseSkillMd(extracted);
+        if (parsed.name) {
+          setFormData(prev => ({
+            ...prev,
+            name: parsed.title || parsed.name,
+            description: parsed.description || prev.description,
+          }));
+        }
+      } catch {
+        // frontmatter parse failed, content still set
+      }
+
+      setAiGenerateInput("");
+      toast("Skill generated by AI", "success");
+    } catch (error: any) {
+      if (error?.name === "AbortError") {
+        setSkillContent(aiContentSnapshotRef.current);
+        toast("AI generation cancelled", "info");
+      } else {
+        toast(`Failed to generate skill: ${error.message || "Unknown error"}`, "error", 5000);
+      }
+    } finally {
+      setAiStatus("idle");
+    }
+  };
+
+  const ENHANCE_PRESETS = [
+    { label: "Rewrite", instruction: "Rewrite this SKILL.md from scratch while preserving the same purpose and intent. Improve structure, clarity, and completeness." },
+    { label: "Make Concise", instruction: "Make this SKILL.md more concise. Remove redundancy, tighten language, and keep only essential details while preserving all key information." },
+    { label: "Add Examples", instruction: "Add more practical, real-world examples to this SKILL.md. Include diverse use cases and edge cases." },
+    { label: "Clarify", instruction: "Improve the clarity of this SKILL.md. Simplify complex instructions, fix ambiguous wording, and ensure each step is easy to follow." },
+    { label: "Add Detail", instruction: "Add more detail to the instructions, guidelines, and output format sections. Make each phase more comprehensive." },
+  ];
+
+  const handleAiEnhance = async (instruction?: string) => {
+    if (!skillContent.trim()) return;
+
+    pushUndoSnapshot(skillContent);
+    aiContentSnapshotRef.current = skillContent;
+    setAiStatus("enhancing");
+    setShowAiEnhanceInput(false);
+    setAiDebugLog([]);
+    setShowAiDebug(false);
+
+    const enhanceDirective = instruction?.trim()
+      || "Improve and enhance this SKILL.md. Make the instructions more detailed and structured, add better examples, improve the guidelines, and ensure it follows best practices.";
+
+    try {
+      const formContext = [
+        formData.name.trim() && `Skill name: ${formData.name.trim()}`,
+        formData.description.trim() && `Skill description: ${formData.description.trim()}`,
+      ].filter(Boolean).join("\n");
+
+      const prompt = `${SKILL_FORMAT_SPEC}
+
+${enhanceDirective}
+
+Keep the same intent and core purpose. Remember: respond with ONLY the improved SKILL.md text. No tools, no file writes, no TODO lists.
+
+${formContext ? `Context from form:\n${formContext}\n\n` : ""}Current SKILL.md:
+${skillContent}`;
+
+      const result = await sendAiRequest(prompt);
+      if (!result) throw new Error("Empty response from AI");
+
+      const extracted = extractSkillMdFromResponse(result);
+      setSkillContent(extracted);
+
+      try {
+        const parsed = parseSkillMd(extracted);
+        if (parsed.name) {
+          setFormData(prev => ({
+            ...prev,
+            name: parsed.title || parsed.name,
+            description: parsed.description || prev.description,
+          }));
+        }
+      } catch {
+        // frontmatter parse failed, content still set
+      }
+
+      setAiEnhanceInput("");
+      toast("Skill enhanced by AI", "success");
+    } catch (error: any) {
+      if (error?.name === "AbortError") {
+        setSkillContent(aiContentSnapshotRef.current);
+        toast("AI enhancement cancelled", "info");
+      } else {
+        toast(`Failed to enhance skill: ${error.message || "Unknown error"}`, "error", 5000);
+      }
+    } finally {
+      setAiStatus("idle");
+    }
+  };
+
+  const handleAiCancel = () => {
+    aiClientRef.current = null;
+    setSkillContent(aiContentSnapshotRef.current);
+    setAiStatus("idle");
+    toast("AI operation cancelled", "info");
+  };
+
   const handleSubmit = async () => {
     if (isEditMode && existingConfig?.is_system && !isAdmin) {
       toast("Only administrators can edit system templates.", "warning", 5000);
       return;
     }
-    if (!validateForm()) {
-      const msgs = Object.values(errors).map(m => `• ${m}`).join("\n");
-      if (msgs) toast(`Please fix:\n\n${msgs}`, "error", 5000);
-      return;
-    }
+    if (!validateForm()) return;
 
     setIsSubmitting(true);
     setSubmitStatus("idle");
@@ -522,7 +1380,7 @@ export function SkillsBuilderEditor({
       }
 
       setSubmitStatus("success");
-      toast(isEditMode ? "Skill updated successfully!" : "Skill created successfully!", "success");
+      toast(isEditMode ? "Skill updated!" : "Skill created!", "success");
 
       if (onSuccess) {
         setTimeout(() => { onSuccess(); onOpenChange(false); }, 1200);
@@ -536,16 +1394,12 @@ export function SkillsBuilderEditor({
     }
   };
 
-  // Live preview of parsed SKILL.md
+  // Parsed preview for frontmatter display
   const parsedPreview = useMemo(() => {
-    try {
-      return parseSkillMd(skillContent);
-    } catch {
-      return null;
-    }
+    try { return parseSkillMd(skillContent); } catch { return null; }
   }, [skillContent]);
 
-  // Keyboard shortcut: Escape to close
+  // Escape to close
   useEffect(() => {
     if (!open) return;
     const handler = (e: KeyboardEvent) => {
@@ -557,9 +1411,6 @@ export function SkillsBuilderEditor({
 
   if (!open) return null;
 
-  const selectedTemplate = selectedTemplateId
-    ? skillTemplates.find(t => t.id === selectedTemplateId)
-    : null;
 
   const overlay = (
     <motion.div
@@ -569,98 +1420,249 @@ export function SkillsBuilderEditor({
       className="fixed inset-0 z-50 bg-background flex flex-col"
     >
       {/* ─── Top Bar ──────────────────────────────────────────────── */}
-      <header className="shrink-0 flex items-center gap-3 px-4 py-3 border-b border-border/50 bg-background/95 backdrop-blur-sm">
-        <div className="flex items-center gap-3 flex-1 min-w-0">
-          <div className="w-9 h-9 rounded-xl gradient-primary-br flex items-center justify-center shadow-lg shadow-primary/20">
-            <Sparkles className="h-4.5 w-4.5 text-white" />
+      <header className="shrink-0 flex items-center gap-3 px-4 py-2 border-b border-border/50 bg-background/95 backdrop-blur-sm">
+        <div className="flex items-center gap-2.5 flex-1 min-w-0">
+          <div className="w-8 h-8 rounded-lg gradient-primary-br flex items-center justify-center shadow-lg shadow-primary/20">
+            <Sparkles className="h-4 w-4 text-white" />
           </div>
           <div className="min-w-0">
-            <h1 className="text-lg font-bold gradient-text truncate">
+            <h1 className="text-sm font-bold gradient-text truncate">
               {isEditMode ? "Edit Skill" : "Skills Builder"}
             </h1>
-            <p className="text-xs text-muted-foreground">
-              {isEditMode ? "Update your skill definition" : "Create a new skill from a SKILL.md template"}
-            </p>
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
-          {/* Template Picker */}
-          <div className="relative group">
-            <Button
-              variant="outline"
-              size="sm"
-              className="gap-1.5 text-xs"
-              onClick={() => setSidebarOpen(!sidebarOpen)}
-            >
-              {sidebarOpen ? <PanelLeftClose className="h-3.5 w-3.5" /> : <PanelLeftOpen className="h-3.5 w-3.5" />}
-              Templates
-            </Button>
-          </div>
-
-          {/* Import SKILL.md */}
-          <Button
-            variant="outline"
-            size="sm"
-            className="gap-1.5 text-xs"
-            onClick={() => setShowImportPanel(!showImportPanel)}
-          >
-            <Upload className="h-3.5 w-3.5" />
-            Import SKILL.md
+        <div className="flex items-center gap-1.5">
+          <Button variant="outline" size="sm" className="gap-1 text-xs h-7 px-2" onClick={() => setSidebarOpen(!sidebarOpen)}>
+            {sidebarOpen ? <PanelLeftClose className="h-3 w-3" /> : <PanelLeftOpen className="h-3 w-3" />}
+            Templates
           </Button>
-
-          {/* Preview toggle */}
-          <Button
-            variant="outline"
-            size="sm"
-            className="gap-1.5 text-xs"
-            onClick={() => setPreviewOpen(!previewOpen)}
-          >
-            {previewOpen ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+          <Button variant="outline" size="sm" className="gap-1 text-xs h-7 px-2" onClick={() => setShowImportPanel(!showImportPanel)}>
+            <Upload className="h-3 w-3" />
+            Import
+          </Button>
+          <Button variant="outline" size="sm" className="gap-1 text-xs h-7 px-2" onClick={() => setPreviewOpen(!previewOpen)}>
+            {previewOpen ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
             Preview
           </Button>
-
-          {/* Close */}
-          <Button variant="ghost" size="icon" onClick={() => onOpenChange(false)} className="h-8 w-8">
+          <div className="w-px h-5 bg-border/50 mx-1" />
+          <Button variant="ghost" size="icon" onClick={() => onOpenChange(false)} className="h-7 w-7">
             <X className="h-4 w-4" />
           </Button>
         </div>
       </header>
 
-      {/* ─── Import Panel (slides down) ──────────────────────────── */}
+      {/* ─── Import Panel ─────────────────────────────────────────── */}
       <div className="relative">
         <AnimatePresence>
           {showImportPanel && (
-            <ImportSkillMdPanel
-              onImport={handleImportSkillMd}
-              onClose={() => setShowImportPanel(false)}
-            />
+            <ImportSkillMdPanel onImport={handleImportSkillMd} onClose={() => setShowImportPanel(false)} />
           )}
         </AnimatePresence>
       </div>
 
-      {/* ─── Body: 3-panel layout ────────────────────────────────── */}
+      {/* ─── Collapsible Metadata Strip ───────────────────────────── */}
+      <div className="shrink-0 border-b border-border/30 bg-muted/20">
+        <button
+          type="button"
+          onClick={() => setMetadataExpanded(!metadataExpanded)}
+          className="w-full flex items-center justify-between px-4 py-1.5 hover:bg-muted/30 transition-colors"
+        >
+          <span className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+            <BookOpen className="h-3 w-3" />
+            Skill Details
+            {formData.name && (
+              <Badge variant="outline" className="text-xs h-5 ml-2">{formData.name}</Badge>
+            )}
+          </span>
+          {metadataExpanded ? <ChevronUp className="h-3 w-3 text-muted-foreground" /> : <ChevronDown className="h-3 w-3 text-muted-foreground" />}
+        </button>
+
+        <AnimatePresence>
+          {metadataExpanded && (
+            <motion.div
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: "auto", opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              transition={{ duration: 0.15 }}
+              className="overflow-hidden"
+            >
+              <div className="px-4 pb-3 space-y-2.5">
+                {/* System warning */}
+                {existingConfig?.is_system && !isAdmin && (
+                  <div className="flex items-center gap-2 p-2 bg-amber-500/10 border border-amber-500/30 rounded-md text-xs">
+                    <AlertCircle className="h-3.5 w-3.5 text-amber-500 shrink-0" />
+                    <span className="text-amber-500 font-medium">System Template - Read Only</span>
+                  </div>
+                )}
+
+                {/* Row 1: Name + Description + Tags */}
+                <div className="grid grid-cols-[1fr_1.5fr_1fr] gap-3">
+                  <div>
+                    <label className="text-xs font-medium text-muted-foreground mb-1 block uppercase tracking-wider">
+                      Name <span className="text-red-400">*</span>
+                    </label>
+                    <Input
+                      value={formData.name}
+                      onChange={(e) => handleInputChange("name", e.target.value)}
+                      placeholder="e.g., Review a Specific PR"
+                      className={cn("h-8 text-sm", errors.name && "border-red-500")}
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium text-muted-foreground mb-1 block uppercase tracking-wider">
+                      Description
+                    </label>
+                    <Input
+                      value={formData.description}
+                      onChange={(e) => handleInputChange("description", e.target.value)}
+                      placeholder="Brief description of what this skill does..."
+                      className="h-8 text-sm"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium text-muted-foreground mb-1 block uppercase tracking-wider">
+                      Tags
+                    </label>
+                    <TagInput tags={tags} onChange={setTags} suggestions={categorySuggestions} />
+                  </div>
+                </div>
+
+                {/* Row 2: Visibility + Category + Difficulty + Icon (compact) */}
+                <div className="flex items-end gap-4">
+                  {/* Visibility */}
+                  <div className="shrink-0">
+                    <label className="text-xs font-medium text-muted-foreground mb-1 block uppercase tracking-wider">
+                      Visibility
+                    </label>
+                    <div className="flex gap-1">
+                      {VISIBILITY_OPTIONS.map(opt => {
+                        const VIcon = opt.icon;
+                        const isActive = visibility === opt.id;
+                        return (
+                          <button
+                            key={opt.id}
+                            type="button"
+                            onClick={() => { setVisibility(opt.id); if (opt.id !== "team") setSelectedTeamIds([]); }}
+                            className={cn(
+                              "flex items-center gap-1.5 px-2 py-1 rounded-md border transition-colors text-xs",
+                              isActive
+                                ? "bg-primary/10 border-primary/30 text-primary"
+                                : "bg-muted/30 border-border/50 hover:bg-muted/50 text-muted-foreground"
+                            )}
+                          >
+                            <VIcon className="h-3 w-3" />
+                            <span>{opt.label}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                    {visibility === "team" && (
+                      <div className="mt-1.5 flex flex-wrap gap-1">
+                        {teamsLoading ? (
+                          <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                            <Loader2 className="h-3 w-3 animate-spin" /> Loading...
+                          </span>
+                        ) : availableTeams.length === 0 ? (
+                          <span className="text-xs text-muted-foreground">No teams available</span>
+                        ) : (
+                          availableTeams.map(team => {
+                            const isSelected = selectedTeamIds.includes(team._id);
+                            return (
+                              <button
+                                key={team._id}
+                                type="button"
+                                onClick={() => {
+                                  setSelectedTeamIds(prev =>
+                                    isSelected ? prev.filter(id => id !== team._id) : [...prev, team._id]
+                                  );
+                                }}
+                                className={cn(
+                                  "flex items-center gap-1 px-1.5 py-0.5 rounded-full border transition-colors text-xs",
+                                  isSelected
+                                    ? "bg-primary/10 border-primary/30 text-primary"
+                                    : "bg-muted/30 border-border/50 hover:bg-muted/50 text-muted-foreground"
+                                )}
+                              >
+                                <UsersRound className="h-2.5 w-2.5" />
+                                {team.name}
+                              </button>
+                            );
+                          })
+                        )}
+                        {errors.teams && <span className="text-xs text-red-400 block w-full">{errors.teams}</span>}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Category */}
+                  <div className="shrink-0">
+                    <label className="text-xs font-medium text-muted-foreground mb-1 block uppercase tracking-wider">
+                      Category <span className="text-red-400">*</span>
+                    </label>
+                    <CategoryPicker
+                      value={formData.category}
+                      onChange={(cat) => handleInputChange("category", cat)}
+                    />
+                  </div>
+
+                  {/* Complexity */}
+                  <div className="shrink-0">
+                    <label className="text-xs font-medium text-muted-foreground mb-1 block uppercase tracking-wider">
+                      Complexity
+                    </label>
+                    <div className="flex gap-1">
+                      {DIFFICULTIES.map(diff => (
+                        <button
+                          key={diff.id}
+                          type="button"
+                          onClick={() => handleInputChange("difficulty", diff.id)}
+                          className={cn(
+                            "px-2 py-1 rounded-md border transition-colors text-xs",
+                            formData.difficulty === diff.id
+                              ? "bg-primary/10 border-primary/30 text-primary"
+                              : "bg-muted/30 border-border/50 hover:bg-muted/50 text-muted-foreground"
+                          )}
+                        >
+                          {diff.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Icon picker (portal popover) */}
+                  <IconPicker
+                    value={formData.thumbnail}
+                    onChange={(iconName) => handleInputChange("thumbnail", iconName)}
+                  />
+                </div>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
+
+      {/* ─── Main Content: Template Sidebar | Editor | Preview ──── */}
       <div className="flex-1 flex min-h-0 overflow-hidden">
 
-        {/* ── Left Sidebar: Template Browser ──────────────────────── */}
+        {/* Left Sidebar: Template Browser */}
         <AnimatePresence>
           {sidebarOpen && (
             <motion.aside
               initial={{ width: 0, opacity: 0 }}
-              animate={{ width: 300, opacity: 1 }}
+              animate={{ width: 260, opacity: 1 }}
               exit={{ width: 0, opacity: 0 }}
               transition={{ duration: 0.2 }}
               className="shrink-0 border-r border-border/50 flex flex-col overflow-hidden"
             >
-              <div className="px-3 py-2.5 border-b border-border/50">
+              <div className="px-3 py-2 border-b border-border/50">
                 <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
                   Skill Templates
                 </h2>
-                <p className="text-xs text-muted-foreground mt-0.5">Click to use as starting point</p>
               </div>
               <ScrollArea className="flex-1">
-                <div className="p-2 space-y-1">
-                  {/* Blank Template */}
+                <div className="p-1.5 space-y-0.5">
+                  {/* Blank */}
                   <button
                     type="button"
                     onClick={() => {
@@ -670,13 +1672,12 @@ export function SkillsBuilderEditor({
                       setSelectedTemplateId(null);
                     }}
                     className={cn(
-                      "w-full text-left p-2.5 rounded-lg transition-colors",
-                      "hover:bg-muted/50 border border-transparent",
+                      "w-full text-left p-2 rounded-md transition-colors hover:bg-muted/50 border border-transparent",
                       !selectedTemplateId && "bg-muted/30 border-border/50"
                     )}
                   >
                     <div className="flex items-center gap-2">
-                      <FileCode className="h-4 w-4 text-muted-foreground shrink-0" />
+                      <FileCode className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
                       <div className="min-w-0">
                         <p className="text-sm font-medium truncate">Blank Skill</p>
                         <p className="text-xs text-muted-foreground truncate">Start from scratch</p>
@@ -684,13 +1685,13 @@ export function SkillsBuilderEditor({
                     </div>
                   </button>
 
-                  {/* Built-in Templates (loaded from filesystem via API) */}
                   {templatesLoading && (
-                    <div className="flex items-center gap-2 p-2.5 text-muted-foreground">
-                      <Loader2 className="h-4 w-4 animate-spin" />
+                    <div className="flex items-center gap-2 p-2 text-muted-foreground">
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
                       <span className="text-xs">Loading templates...</span>
                     </div>
                   )}
+
                   {skillTemplates.map(template => {
                     const TemplateIcon = ICON_MAP[template.icon] || Zap;
                     const isSelected = selectedTemplateId === template.id;
@@ -698,13 +1699,9 @@ export function SkillsBuilderEditor({
                       <button
                         key={template.id}
                         type="button"
-                        onClick={() => {
-                          setSelectedTemplateId(template.id);
-                          handleLoadTemplate(template);
-                        }}
+                        onClick={() => { setSelectedTemplateId(template.id); handleLoadTemplate(template); }}
                         className={cn(
-                          "w-full text-left p-2.5 rounded-lg transition-colors",
-                          "hover:bg-muted/50 border border-transparent",
+                          "w-full text-left p-2 rounded-md transition-colors hover:bg-muted/50 border border-transparent",
                           isSelected && "bg-primary/10 border-primary/30"
                         )}
                       >
@@ -712,14 +1709,7 @@ export function SkillsBuilderEditor({
                           <TemplateIcon className={cn("h-4 w-4 shrink-0", isSelected ? "text-primary" : "text-muted-foreground")} />
                           <div className="min-w-0 flex-1">
                             <p className="text-sm font-medium truncate">{template.title}</p>
-                            <p className="text-xs text-muted-foreground line-clamp-2">{template.description}</p>
-                            <div className="flex flex-wrap gap-1 mt-1">
-                              {template.tags.slice(0, 3).map(tag => (
-                                <span key={tag} className="text-[10px] px-1.5 py-0.5 rounded-full bg-muted/50 text-muted-foreground">
-                                  {tag}
-                                </span>
-                              ))}
-                            </div>
+                            <p className="text-xs text-muted-foreground line-clamp-1">{template.description}</p>
                           </div>
                         </div>
                       </button>
@@ -728,409 +1718,406 @@ export function SkillsBuilderEditor({
                 </div>
               </ScrollArea>
 
-              {/* Sidebar reference panel: show selected template content */}
-              {selectedTemplate && (
-                <div className="border-t border-border/50 max-h-[200px]">
-                  <ScrollArea className="h-full">
-                    <div className="p-3">
-                      <div className="flex items-center justify-between mb-2">
-                        <h3 className="text-xs font-semibold text-muted-foreground uppercase">Reference</h3>
-                        <Badge variant="outline" className="text-[10px]">{selectedTemplate.category}</Badge>
+            </motion.aside>
+          )}
+        </AnimatePresence>
+
+        {/* Editor + Preview (resizable panels) */}
+        <PanelGroup orientation="horizontal" className="flex-1">
+          {/* Editor Panel */}
+          <Panel defaultSize={previewOpen ? 55 : 100} minSize={30}>
+            <div className="h-full flex flex-col">
+              {/* Editor toolbar */}
+              <div className="shrink-0 flex items-center justify-between px-3 py-1.5 border-b border-border/30 bg-muted/10">
+                <span className="flex items-center gap-1.5 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                  <FileCode className="h-3 w-3" />
+                  SKILL.md Editor
+                </span>
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground"
+                    disabled={!undoAvailable || aiStatus !== "idle"}
+                    onClick={handleUndo}
+                    title="Undo (Ctrl+Z)"
+                  >
+                    <Undo2 className="h-3.5 w-3.5" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground"
+                    disabled={!redoAvailable || aiStatus !== "idle"}
+                    onClick={handleRedo}
+                    title="Redo (Ctrl+Y)"
+                  >
+                    <Redo2 className="h-3.5 w-3.5" />
+                  </Button>
+                  <div className="w-px h-4 bg-border/50 mx-0.5" />
+                  <div className="relative">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="gap-1 text-xs h-7 px-2 border-primary/30 text-primary hover:bg-primary/10"
+                      disabled={aiStatus !== "idle"}
+                      onClick={() => { setShowAiGenerateInput(!showAiGenerateInput); setShowAiEnhanceInput(false); }}
+                    >
+                      <Sparkles className="h-3 w-3" />
+                      AI Generate
+                    </Button>
+                    <AnimatePresence>
+                      {showAiGenerateInput && (
+                        <motion.div
+                          initial={{ opacity: 0, y: -4, scale: 0.95 }}
+                          animate={{ opacity: 1, y: 0, scale: 1 }}
+                          exit={{ opacity: 0, y: -4, scale: 0.95 }}
+                          transition={{ duration: 0.15 }}
+                          className="absolute top-full right-0 mt-1 z-50 w-80 p-3 rounded-lg border border-border/50 bg-background shadow-xl"
+                        >
+                          <label className="text-xs font-medium text-muted-foreground mb-1.5 block">
+                            Describe the skill you want to create
+                          </label>
+                          <Input
+                            autoFocus
+                            value={aiGenerateInput}
+                            onChange={(e) => setAiGenerateInput(e.target.value)}
+                            onKeyDown={(e) => { if (e.key === "Enter" && aiGenerateInput.trim()) handleAiGenerate(); if (e.key === "Escape") setShowAiGenerateInput(false); }}
+                            placeholder="e.g., Investigate PagerDuty incidents and correlate with ArgoCD deployments"
+                            className="h-8 text-sm mb-2"
+                          />
+                          <div className="flex justify-end gap-1.5">
+                            <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => setShowAiGenerateInput(false)}>
+                              Cancel
+                            </Button>
+                            <Button
+                              size="sm"
+                              className="h-7 text-xs gap-1 gradient-primary text-white"
+                              disabled={!aiGenerateInput.trim()}
+                              onClick={handleAiGenerate}
+                            >
+                              <Sparkles className="h-3 w-3" />
+                              Generate
+                            </Button>
+                          </div>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </div>
+                  <div className="relative">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="gap-1 text-xs h-7 px-2 border-primary/30 text-primary hover:bg-primary/10"
+                      disabled={aiStatus !== "idle" || !skillContent.trim()}
+                      onClick={() => { setShowAiEnhanceInput(!showAiEnhanceInput); setShowAiGenerateInput(false); }}
+                      title="Enhance the current skill with AI"
+                    >
+                      <WandSparkles className="h-3 w-3" />
+                      AI Enhance
+                    </Button>
+                    <AnimatePresence>
+                      {showAiEnhanceInput && (
+                        <motion.div
+                          initial={{ opacity: 0, y: -4, scale: 0.95 }}
+                          animate={{ opacity: 1, y: 0, scale: 1 }}
+                          exit={{ opacity: 0, y: -4, scale: 0.95 }}
+                          transition={{ duration: 0.15 }}
+                          className="absolute top-full right-0 mt-1 z-50 w-80 p-3 rounded-lg border border-border/50 bg-background shadow-xl"
+                        >
+                          <label className="text-xs font-medium text-muted-foreground mb-2 block">
+                            How should the skill be enhanced?
+                          </label>
+                          <div className="flex flex-wrap gap-1.5 mb-2">
+                            {ENHANCE_PRESETS.map((preset) => (
+                              <button
+                                key={preset.label}
+                                type="button"
+                                className="px-2 py-0.5 text-xs rounded-full border border-primary/30 text-primary bg-primary/5 hover:bg-primary/15 transition-colors"
+                                onClick={() => { handleAiEnhance(preset.instruction); }}
+                              >
+                                {preset.label}
+                              </button>
+                            ))}
+                          </div>
+                          <Input
+                            autoFocus
+                            value={aiEnhanceInput}
+                            onChange={(e) => setAiEnhanceInput(e.target.value)}
+                            onKeyDown={(e) => { if (e.key === "Enter" && aiEnhanceInput.trim()) handleAiEnhance(aiEnhanceInput); if (e.key === "Escape") setShowAiEnhanceInput(false); }}
+                            placeholder="Or describe your own enhancement..."
+                            className="h-8 text-sm mb-2"
+                          />
+                          <div className="flex justify-end gap-1.5">
+                            <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => setShowAiEnhanceInput(false)}>
+                              Cancel
+                            </Button>
+                            <Button
+                              size="sm"
+                              className="h-7 text-xs gap-1 gradient-primary text-white"
+                              disabled={!aiEnhanceInput.trim()}
+                              onClick={() => handleAiEnhance(aiEnhanceInput)}
+                            >
+                              <WandSparkles className="h-3 w-3" />
+                              Enhance
+                            </Button>
+                          </div>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </div>
+                  <span className="text-border">|</span>
+                  <a
+                    href="https://github.com/anthropics/skills"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-1 text-xs text-muted-foreground/60 hover:text-primary transition-colors"
+                  >
+                    Anthropic SKILL.md Format
+                    <ExternalLink className="h-3 w-3" />
+                  </a>
+                  <span className="text-border">|</span>
+                  <InsertVariablePopover onInsert={(name) => insertAtCursor(`{{${name}}}`)} />
+                </div>
+              </div>
+
+              {/* Detected variables strip */}
+              {detectedVariables.length > 0 && (
+                <div className="shrink-0 flex items-center gap-1.5 px-3 py-1 border-b border-border/20 bg-primary/[0.03]">
+                  <Variable className="h-3 w-3 text-primary/60 shrink-0" />
+                  <span className="text-xs text-muted-foreground shrink-0">
+                    {detectedVariables.length} variable{detectedVariables.length !== 1 ? "s" : ""} detected:
+                  </span>
+                  <div className="flex items-center gap-1 flex-wrap">
+                    {detectedVariables.map(v => (
+                      <span
+                        key={v.name}
+                        className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-primary/10 border border-primary/20 text-xs font-mono text-primary"
+                      >
+                        <Braces className="h-2.5 w-2.5 opacity-60" />
+                        {v.name}
+                      </span>
+                    ))}
+                  </div>
+                  <span className="text-xs text-muted-foreground/60 ml-auto shrink-0">
+                    Users will be prompted to fill these
+                  </span>
+                </div>
+              )}
+
+              {/* CodeMirror editor with AI overlay */}
+              <div className="flex-1 min-h-0 overflow-hidden relative">
+                <React.Suspense
+                  fallback={
+                    <div className="flex items-center justify-center h-full text-muted-foreground">
+                      <Loader2 className="h-5 w-5 animate-spin mr-2" />
+                      <span className="text-sm">Loading editor...</span>
+                    </div>
+                  }
+                >
+                  <CodeMirrorEditor
+                    ref={cmRef}
+                    value={skillContent}
+                    onChange={(val: string) => setSkillContent(val)}
+                    extensions={cmExtensions}
+                    theme="dark"
+                    height="100%"
+                    style={{ height: "100%", fontSize: "15px" }}
+                    basicSetup={{
+                      lineNumbers: true,
+                      foldGutter: true,
+                      highlightActiveLine: true,
+                      bracketMatching: true,
+                      autocompletion: false,
+                      indentOnInput: true,
+                    }}
+                  />
+                </React.Suspense>
+
+                {/* AI progress overlay */}
+                <AnimatePresence>
+                  {aiStatus !== "idle" && (
+                    <motion.div
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      exit={{ opacity: 0 }}
+                      transition={{ duration: 0.2 }}
+                      className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-background/80 backdrop-blur-sm"
+                    >
+                      <div className={cn("space-y-4 text-center transition-all duration-200", showAiDebug ? "w-[480px]" : "w-64")}>
+                        <div className="relative mx-auto w-10 h-10 rounded-full gradient-primary-br flex items-center justify-center shadow-lg shadow-primary/30">
+                          {aiStatus === "generating" ? (
+                            <Sparkles className="h-5 w-5 text-white animate-pulse" />
+                          ) : (
+                            <WandSparkles className="h-5 w-5 text-white animate-pulse" />
+                          )}
+                        </div>
+                        <p className="text-sm font-medium text-foreground">
+                          {aiStatus === "generating" ? "AI is writing your skill..." : "AI is enhancing your skill..."}
+                        </p>
+                        <div className="w-full h-1.5 bg-muted rounded-full overflow-hidden">
+                          <motion.div
+                            className="h-full bg-gradient-to-r from-primary via-primary/60 to-primary rounded-full"
+                            initial={{ x: "-100%" }}
+                            animate={{ x: "100%" }}
+                            transition={{ repeat: Infinity, duration: 1.5, ease: "easeInOut" }}
+                            style={{ width: "50%" }}
+                          />
+                        </div>
+                        <div className="flex items-center justify-center gap-2">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="gap-1 text-xs h-7"
+                            onClick={handleAiCancel}
+                          >
+                            <Square className="h-3 w-3" />
+                            Cancel
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="gap-1 text-xs h-7 text-muted-foreground"
+                            onClick={() => setShowAiDebug(!showAiDebug)}
+                          >
+                            <Terminal className="h-3 w-3" />
+                            {showAiDebug ? "Hide" : "Show"} Details
+                            {showAiDebug ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+                          </Button>
+                        </div>
+
+                        {/* Collapsible A2A debug console */}
+                        <AnimatePresence>
+                          {showAiDebug && (
+                            <motion.div
+                              initial={{ height: 0, opacity: 0 }}
+                              animate={{ height: "auto", opacity: 1 }}
+                              exit={{ height: 0, opacity: 0 }}
+                              transition={{ duration: 0.2 }}
+                              className="overflow-hidden"
+                            >
+                              <div
+                                data-testid="ai-debug-console"
+                                className="mt-2 rounded-lg border border-border/50 bg-zinc-950 text-left overflow-hidden"
+                              >
+                                <div className="flex items-center gap-1.5 px-3 py-1.5 border-b border-border/30 bg-zinc-900">
+                                  <Terminal className="h-3 w-3 text-green-400" />
+                                  <span className="text-xs font-mono text-green-400">A2A Stream</span>
+                                  <span className="ml-auto text-xs font-mono text-muted-foreground">
+                                    {aiDebugLog.length} event{aiDebugLog.length !== 1 ? "s" : ""}
+                                  </span>
+                                </div>
+                                <div className="max-h-48 overflow-y-auto p-2 font-mono text-xs leading-relaxed">
+                                  {aiDebugLog.length === 0 ? (
+                                    <p className="text-muted-foreground/50 italic">Waiting for events...</p>
+                                  ) : (
+                                    aiDebugLog.map((line, i) => (
+                                      <p key={i} className="text-green-300/80 break-all">
+                                        {line}
+                                      </p>
+                                    ))
+                                  )}
+                                  <div ref={aiDebugEndRef} />
+                                </div>
+                              </div>
+                            </motion.div>
+                          )}
+                        </AnimatePresence>
                       </div>
-                      <pre className="text-[11px] text-muted-foreground whitespace-pre-wrap font-mono leading-relaxed break-words">
-                        {selectedTemplate.content.slice(0, 500)}
-                        {selectedTemplate.content.length > 500 && "..."}
-                      </pre>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
+              {errors.skillContent && (
+                <div className="shrink-0 px-3 py-1 bg-red-500/10 border-t border-red-500/30">
+                  <p className="text-xs text-red-400">{errors.skillContent}</p>
+                </div>
+              )}
+            </div>
+          </Panel>
+
+          {/* Preview Panel */}
+          {previewOpen && (
+            <>
+              <ResizeHandle />
+              <Panel defaultSize={45} minSize={20}>
+                <div className="h-full flex flex-col">
+                  <div className="shrink-0 flex items-center justify-between px-3 py-1.5 border-b border-border/30 bg-muted/10">
+                    <span className="flex items-center gap-1.5 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                      <Eye className="h-3 w-3" />
+                      Live Preview
+                    </span>
+                    {parsedPreview?.name && (
+                      <Badge variant="outline" className="text-xs h-5">{parsedPreview.name}</Badge>
+                    )}
+                  </div>
+                  <ScrollArea className="flex-1">
+                    <div className="p-4">
+                      {parsedPreview ? (
+                        <div className="space-y-4">
+                          {/* Frontmatter badge strip */}
+                          {(parsedPreview.name || parsedPreview.description) && (
+                            <div className="p-3 rounded-lg bg-muted/20 border border-border/40 space-y-1.5">
+                              {parsedPreview.name && (
+                                <p className="text-xs font-mono text-muted-foreground">
+                                  <span className="text-primary/60">name:</span> {parsedPreview.name}
+                                </p>
+                              )}
+                              {parsedPreview.description && (
+                                <p className="text-xs font-mono text-muted-foreground line-clamp-2">
+                                  <span className="text-primary/60">description:</span> {parsedPreview.description}
+                                </p>
+                              )}
+                            </div>
+                          )}
+
+                          {/* Rich markdown rendering */}
+                          <MarkdownPreview content={skillContent} />
+                        </div>
+                      ) : (
+                        <div className="text-center py-12 text-muted-foreground">
+                          <Eye className="h-8 w-8 mx-auto mb-2 opacity-30" />
+                          <p className="text-sm">Start typing to see a preview</p>
+                        </div>
+                      )}
                     </div>
                   </ScrollArea>
                 </div>
-              )}
-            </motion.aside>
+              </Panel>
+            </>
           )}
-        </AnimatePresence>
-
-        {/* ── Main Editor ─────────────────────────────────────────── */}
-        <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-          <ScrollArea className="flex-1">
-            <div className="p-6 max-w-4xl mx-auto space-y-6">
-
-              {/* System config warning */}
-              {existingConfig?.is_system && !isAdmin && (
-                <div className="flex items-center gap-3 p-4 bg-amber-500/10 border border-amber-500/30 rounded-lg">
-                  <AlertCircle className="h-5 w-5 text-amber-500 shrink-0" />
-                  <div className="flex-1 text-sm">
-                    <p className="font-medium text-amber-500">System Template - Read Only</p>
-                    <p className="text-amber-600/80 text-xs mt-1">Only administrators can edit system templates.</p>
-                  </div>
-                </div>
-              )}
-
-              {/* ── Metadata Section ──────────────────────────────── */}
-              <section className="space-y-4">
-                <h2 className="text-sm font-semibold text-foreground flex items-center gap-2">
-                  <BookOpen className="h-4 w-4 text-primary" />
-                  Skill Details
-                </h2>
-
-                {/* Name */}
-                <div>
-                  <label className="text-xs font-medium text-foreground mb-1.5 block">
-                    Skill Name <span className="text-red-400">*</span>
-                  </label>
-                  <Input
-                    value={formData.name}
-                    onChange={(e) => handleInputChange("name", e.target.value)}
-                    placeholder="e.g., Review a Specific PR"
-                    className={cn("h-9 text-sm", errors.name && "border-red-500")}
-                  />
-                  {errors.name && <p className="text-xs text-red-400 mt-1">{errors.name}</p>}
-                </div>
-
-                {/* Description */}
-                <div>
-                  <label className="text-xs font-medium text-foreground mb-1.5 block">Description</label>
-                  <textarea
-                    value={formData.description}
-                    onChange={(e) => handleInputChange("description", e.target.value)}
-                    placeholder="Brief description of what this skill does and when to use it..."
-                    rows={2}
-                    className={cn(
-                      "w-full px-3 py-2 text-sm rounded-md border border-input bg-background resize-none",
-                      "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                    )}
-                  />
-                </div>
-
-                {/* Tags */}
-                <div>
-                  <label className="text-xs font-medium text-foreground mb-1.5 block">Tags</label>
-                  <TagInput tags={tags} onChange={setTags} suggestions={categorySuggestions} />
-                </div>
-
-                {/* Visibility */}
-                <div>
-                  <label className="text-xs font-medium text-foreground mb-1.5 block">Visibility</label>
-                  <div className="flex gap-2">
-                    {VISIBILITY_OPTIONS.map(opt => {
-                      const VIcon = opt.icon;
-                      const isActive = visibility === opt.id;
-                      return (
-                        <button
-                          key={opt.id}
-                          type="button"
-                          onClick={() => {
-                            setVisibility(opt.id);
-                            if (opt.id !== "team") setSelectedTeamIds([]);
-                          }}
-                          className={cn(
-                            "flex items-center gap-2 px-3 py-2 rounded-md border transition-colors text-xs",
-                            isActive
-                              ? "bg-primary/10 border-primary/30 text-primary"
-                              : "bg-muted/30 border-border/50 hover:bg-muted/50 text-muted-foreground"
-                          )}
-                        >
-                          <VIcon className="h-3.5 w-3.5" />
-                          <span>{opt.label}</span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                  <p className="text-[11px] text-muted-foreground mt-1">
-                    {VISIBILITY_OPTIONS.find(o => o.id === visibility)?.description}
-                  </p>
-
-                  {/* Team selector (shown when visibility is "team") */}
-                  {visibility === "team" && (
-                    <div className="mt-3 space-y-2">
-                      <label className="text-xs font-medium text-foreground block">Share with teams</label>
-                      {teamsLoading ? (
-                        <div className="flex items-center gap-2 text-muted-foreground text-xs py-2">
-                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                          Loading teams...
-                        </div>
-                      ) : availableTeams.length === 0 ? (
-                        <p className="text-xs text-muted-foreground py-2">
-                          No teams available. Ask an admin to create teams first.
-                        </p>
-                      ) : (
-                        <div className="flex flex-wrap gap-2">
-                          {availableTeams.map(team => {
-                            const isSelected = selectedTeamIds.includes(team._id);
-                            return (
-                              <button
-                                key={team._id}
-                                type="button"
-                                onClick={() => {
-                                  setSelectedTeamIds(prev =>
-                                    isSelected
-                                      ? prev.filter(id => id !== team._id)
-                                      : [...prev, team._id]
-                                  );
-                                }}
-                                className={cn(
-                                  "flex items-center gap-1.5 px-2.5 py-1.5 rounded-full border transition-colors text-xs",
-                                  isSelected
-                                    ? "bg-primary/10 border-primary/30 text-primary"
-                                    : "bg-muted/30 border-border/50 hover:bg-muted/50 text-muted-foreground"
-                                )}
-                              >
-                                <UsersRound className="h-3 w-3" />
-                                {team.name}
-                                {isSelected && <X className="h-3 w-3 ml-0.5" />}
-                              </button>
-                            );
-                          })}
-                        </div>
-                      )}
-                      {errors.teams && <p className="text-xs text-red-400">{errors.teams}</p>}
-                    </div>
-                  )}
-                </div>
-
-                {/* Category + Difficulty (side by side) */}
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                  {/* Category */}
-                  <div>
-                    <label className="text-xs font-medium text-foreground mb-1.5 block">
-                      Category <span className="text-red-400">*</span>
-                    </label>
-                    <div className="grid grid-cols-2 gap-1.5 max-h-48 overflow-y-auto">
-                      {CATEGORIES.map(cat => (
-                        <label
-                          key={cat}
-                          className={cn(
-                            "flex items-center gap-2 p-2 rounded-md border cursor-pointer transition-colors text-xs",
-                            formData.category === cat
-                              ? "bg-primary/10 border-primary/30"
-                              : "bg-muted/30 border-border/50 hover:bg-muted/50"
-                          )}
-                        >
-                          <input
-                            type="radio"
-                            name="category"
-                            value={cat}
-                            checked={formData.category === cat}
-                            onChange={(e) => handleInputChange("category", e.target.value)}
-                            className="h-3 w-3"
-                          />
-                          <span>{cat}</span>
-                        </label>
-                      ))}
-                    </div>
-                    {errors.category && <p className="text-xs text-red-400 mt-1">{errors.category}</p>}
-                  </div>
-
-                  {/* Difficulty + Icon */}
-                  <div className="space-y-4">
-                    <div>
-                      <label className="text-xs font-medium text-foreground mb-1.5 block">Difficulty</label>
-                      <div className="flex gap-2">
-                        {DIFFICULTIES.map(diff => (
-                          <label
-                            key={diff.id}
-                            className={cn(
-                              "flex items-center gap-2 px-3 py-2 rounded-md border cursor-pointer transition-colors",
-                              formData.difficulty === diff.id
-                                ? "bg-primary/10 border-primary/30"
-                                : "bg-muted/30 border-border/50 hover:bg-muted/50"
-                            )}
-                          >
-                            <input
-                              type="radio"
-                              name="difficulty"
-                              value={diff.id}
-                              checked={formData.difficulty === diff.id}
-                              onChange={(e) => handleInputChange("difficulty", e.target.value)}
-                              className="h-3 w-3"
-                            />
-                            <span className="text-xs">{diff.label}</span>
-                          </label>
-                        ))}
-                      </div>
-                    </div>
-
-                    {/* Icon */}
-                    <div>
-                      <label className="text-xs font-medium text-foreground mb-1.5 block">Icon</label>
-                      <div className="flex flex-wrap gap-2">
-                        {THUMBNAIL_OPTIONS.map(iconName => {
-                          const IconComponent = ICON_MAP[iconName];
-                          return (
-                            <label
-                              key={iconName}
-                              className={cn(
-                                "flex flex-col items-center gap-1 p-2 rounded-lg border cursor-pointer transition-all hover:scale-105",
-                                formData.thumbnail === iconName
-                                  ? "bg-primary/10 border-primary shadow-sm"
-                                  : "bg-muted/30 border-border/50 hover:bg-muted/50"
-                              )}
-                              title={ICON_LABELS[iconName]}
-                            >
-                              <input
-                                type="radio"
-                                name="thumbnail"
-                                value={iconName}
-                                checked={formData.thumbnail === iconName}
-                                onChange={(e) => handleInputChange("thumbnail", e.target.value)}
-                                className="sr-only"
-                              />
-                              {IconComponent && (
-                                <IconComponent className={cn(
-                                  "h-4 w-4",
-                                  formData.thumbnail === iconName ? "text-primary" : "text-muted-foreground"
-                                )} />
-                              )}
-                              <span className="text-[9px] text-muted-foreground leading-none text-center max-w-[50px]">
-                                {ICON_LABELS[iconName]}
-                              </span>
-                            </label>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </section>
-
-              {/* ── Skill Content Editor ──────────────────────────── */}
-              <section className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <h2 className="text-sm font-semibold text-foreground flex items-center gap-2">
-                    <FileCode className="h-4 w-4 text-primary" />
-                    Skill Content (SKILL.md) <span className="text-red-400">*</span>
-                  </h2>
-                  <p className="text-xs text-muted-foreground">
-                    Use {"{{variable}}"} for user inputs
-                  </p>
-                </div>
-
-                <textarea
-                  value={skillContent}
-                  onChange={(e) => setSkillContent(e.target.value)}
-                  rows={24}
-                  spellCheck={false}
-                  className={cn(
-                    "w-full px-4 py-3 text-sm rounded-lg border bg-background resize-y font-mono leading-relaxed",
-                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                    errors.skillContent ? "border-red-500" : "border-input"
-                  )}
-                />
-                {errors.skillContent && (
-                  <p className="text-xs text-red-400">{errors.skillContent}</p>
-                )}
-              </section>
-            </div>
-          </ScrollArea>
-        </div>
-
-        {/* ── Right Panel: Live Preview ───────────────────────────── */}
-        <AnimatePresence>
-          {previewOpen && (
-            <motion.aside
-              initial={{ width: 0, opacity: 0 }}
-              animate={{ width: 380, opacity: 1 }}
-              exit={{ width: 0, opacity: 0 }}
-              transition={{ duration: 0.2 }}
-              className="shrink-0 border-l border-border/50 flex flex-col overflow-hidden"
-            >
-              <div className="px-3 py-2.5 border-b border-border/50">
-                <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                  Live Preview
-                </h2>
-              </div>
-              <ScrollArea className="flex-1">
-                <div className="p-4 space-y-4">
-                  {parsedPreview ? (
-                    <>
-                      {/* Frontmatter */}
-                      <div className="p-3 rounded-lg bg-muted/30 border border-border/50">
-                        <p className="text-xs font-mono text-muted-foreground mb-1">name: {parsedPreview.name || "—"}</p>
-                        <p className="text-xs font-mono text-muted-foreground line-clamp-3">
-                          description: {parsedPreview.description || "—"}
-                        </p>
-                      </div>
-
-                      {/* Title */}
-                      <h3 className="text-lg font-bold text-foreground">{parsedPreview.title}</h3>
-
-                      {/* Sections from body */}
-                      {Array.from(parsedPreview.sections.entries()).map(([heading, sectionContent]) => (
-                        <div key={heading}>
-                          <h4 className="text-xs font-semibold text-primary uppercase mb-1">{heading}</h4>
-                          <pre className="text-xs text-muted-foreground whitespace-pre-wrap font-mono leading-relaxed">
-                            {sectionContent.slice(0, 600)}
-                            {sectionContent.length > 600 && "\n..."}
-                          </pre>
-                        </div>
-                      ))}
-
-                      {parsedPreview.sections.size === 0 && parsedPreview.body && (
-                        <div>
-                          <h4 className="text-xs font-semibold text-primary uppercase mb-1">Body</h4>
-                          <pre className="text-xs text-muted-foreground whitespace-pre-wrap font-mono leading-relaxed">
-                            {parsedPreview.body.slice(0, 1000)}
-                            {parsedPreview.body.length > 1000 && "\n..."}
-                          </pre>
-                        </div>
-                      )}
-                    </>
-                  ) : (
-                    <div className="text-center py-12 text-muted-foreground">
-                      <Eye className="h-8 w-8 mx-auto mb-2 opacity-30" />
-                      <p className="text-sm">Start typing to see a preview</p>
-                    </div>
-                  )}
-                </div>
-              </ScrollArea>
-            </motion.aside>
-          )}
-        </AnimatePresence>
+        </PanelGroup>
       </div>
 
       {/* ─── Bottom Bar ──────────────────────────────────────────── */}
-      <footer className="shrink-0 flex items-center justify-between px-6 py-3 border-t border-border/50 bg-background/95 backdrop-blur-sm">
+      <footer className="shrink-0 flex items-center justify-between px-4 py-2 border-t border-border/50 bg-background/95 backdrop-blur-sm">
         <div className="flex items-center gap-3">
           {submitStatus === "success" && (
-            <motion.div
-              initial={{ opacity: 0, x: -10 }}
-              animate={{ opacity: 1, x: 0 }}
-              className="flex items-center gap-1.5 text-sm text-green-400"
-            >
-              <CheckCircle className="h-4 w-4" />
-              Saved!
+            <motion.div initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} className="flex items-center gap-1.5 text-xs text-green-400">
+              <CheckCircle className="h-3.5 w-3.5" /> Saved!
             </motion.div>
           )}
           {submitStatus === "error" && (
-            <motion.div
-              initial={{ opacity: 0, x: -10 }}
-              animate={{ opacity: 1, x: 0 }}
-              className="flex items-center gap-1.5 text-sm text-red-400"
-            >
-              <AlertCircle className="h-4 w-4" />
-              Save failed
+            <motion.div initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} className="flex items-center gap-1.5 text-xs text-red-400">
+              <AlertCircle className="h-3.5 w-3.5" /> Save failed
             </motion.div>
           )}
         </div>
 
-        <div className="flex items-center gap-3">
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" size="sm" className="h-8" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
           <Button
+            size="sm"
             onClick={handleSubmit}
             disabled={isSubmitting || (existingConfig?.is_system && !isAdmin)}
-            className="gap-2 gradient-primary hover:opacity-90 text-white min-w-[140px]"
+            className="gap-1.5 gradient-primary hover:opacity-90 text-white min-w-[120px] h-8"
           >
             {isSubmitting ? (
-              <>
-                <Loader2 className="h-4 w-4 animate-spin" />
-                {isEditMode ? "Updating..." : "Saving..."}
-              </>
+              <><Loader2 className="h-3.5 w-3.5 animate-spin" /> {isEditMode ? "Updating..." : "Saving..."}</>
             ) : (
-              <>
-                <Save className="h-4 w-4" />
-                {isEditMode ? "Update Skill" : "Save Skill"}
-              </>
+              <><Save className="h-3.5 w-3.5" /> {isEditMode ? "Update Skill" : "Save Skill"}</>
             )}
           </Button>
         </div>
@@ -1143,3 +2130,4 @@ export function SkillsBuilderEditor({
     document.body
   );
 }
+
