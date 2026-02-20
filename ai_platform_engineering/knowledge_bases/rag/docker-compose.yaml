@@ -179,6 +179,12 @@ services:
         LOG_LEVEL: ${LOG_LEVEL:-INFO}
         EXIT_AFTER_FIRST_SYNC: ${EXIT_AFTER_FIRST_SYNC:-false}
         MAX_DOCUMENTS_PER_INGEST: ${MAX_DOCUMENTS_PER_INGEST:-1000}
+        # Ingestor OAuth2 client credentials (optional - uses trusted network if not set)
+        INGESTOR_OIDC_ISSUER: ${INGESTOR_OIDC_ISSUER:-}
+        INGESTOR_OIDC_CLIENT_ID: ${INGESTOR_OIDC_CLIENT_ID:-}
+        INGESTOR_OIDC_CLIENT_SECRET: ${INGESTOR_OIDC_CLIENT_SECRET:-}
+        INGESTOR_OIDC_DISCOVERY_URL: ${INGESTOR_OIDC_DISCOVERY_URL:-}
+        INGESTOR_OIDC_SCOPE: ${INGESTOR_OIDC_SCOPE:-}
     restart: no
     build:
       context: .
@@ -204,6 +210,12 @@ services:
         LOG_LEVEL: ${LOG_LEVEL:-INFO}
         EXIT_AFTER_FIRST_SYNC: ${EXIT_AFTER_FIRST_SYNC:-false}
         MAX_DOCUMENTS_PER_INGEST: ${MAX_DOCUMENTS_PER_INGEST:-1000}
+        # Ingestor OAuth2 client credentials (optional - uses trusted network if not set)
+        INGESTOR_OIDC_ISSUER: ${INGESTOR_OIDC_ISSUER:-}
+        INGESTOR_OIDC_CLIENT_ID: ${INGESTOR_OIDC_CLIENT_ID:-}
+        INGESTOR_OIDC_CLIENT_SECRET: ${INGESTOR_OIDC_CLIENT_SECRET:-}
+        INGESTOR_OIDC_DISCOVERY_URL: ${INGESTOR_OIDC_DISCOVERY_URL:-}
+        INGESTOR_OIDC_SCOPE: ${INGESTOR_OIDC_SCOPE:-}
     restart: no
     volumes:
       - ${HOME}/.aws:/home/app/.aws:ro
@@ -233,6 +245,12 @@ services:
         LOG_LEVEL: ${LOG_LEVEL:-INFO}
         EXIT_AFTER_FIRST_SYNC: ${EXIT_AFTER_FIRST_SYNC:-false}
         MAX_DOCUMENTS_PER_INGEST: ${MAX_DOCUMENTS_PER_INGEST:-1000}
+        # Ingestor OAuth2 client credentials (optional - uses trusted network if not set)
+        INGESTOR_OIDC_ISSUER: ${INGESTOR_OIDC_ISSUER:-}
+        INGESTOR_OIDC_CLIENT_ID: ${INGESTOR_OIDC_CLIENT_ID:-}
+        INGESTOR_OIDC_CLIENT_SECRET: ${INGESTOR_OIDC_CLIENT_SECRET:-}
+        INGESTOR_OIDC_DISCOVERY_URL: ${INGESTOR_OIDC_DISCOVERY_URL:-}
+        INGESTOR_OIDC_SCOPE: ${INGESTOR_OIDC_SCOPE:-}
     restart: no
     volumes:
       - ~/.kube/config:/home/app/.kube/config:ro
@@ -256,6 +274,12 @@ services:
         LOG_LEVEL: ${LOG_LEVEL:-INFO}
         EXIT_AFTER_FIRST_SYNC: ${EXIT_AFTER_FIRST_SYNC:-false}
         MAX_DOCUMENTS_PER_INGEST: ${MAX_DOCUMENTS_PER_INGEST:-1000}
+        # Ingestor OAuth2 client credentials (optional - uses trusted network if not set)
+        INGESTOR_OIDC_ISSUER: ${INGESTOR_OIDC_ISSUER:-}
+        INGESTOR_OIDC_CLIENT_ID: ${INGESTOR_OIDC_CLIENT_ID:-}
+        INGESTOR_OIDC_CLIENT_SECRET: ${INGESTOR_OIDC_CLIENT_SECRET:-}
+        INGESTOR_OIDC_DISCOVERY_URL: ${INGESTOR_OIDC_DISCOVERY_URL:-}
+        INGESTOR_OIDC_SCOPE: ${INGESTOR_OIDC_SCOPE:-}
     restart: no
     build:
       context: .
@@ -276,6 +300,12 @@ services:
         LOG_LEVEL: ${LOG_LEVEL:-INFO}
         EXIT_AFTER_FIRST_SYNC: ${EXIT_AFTER_FIRST_SYNC:-false}
         MAX_DOCUMENTS_PER_INGEST: ${MAX_DOCUMENTS_PER_INGEST:-1000}
+        # Ingestor OAuth2 client credentials (optional - uses trusted network if not set)
+        INGESTOR_OIDC_ISSUER: ${INGESTOR_OIDC_ISSUER:-}
+        INGESTOR_OIDC_CLIENT_ID: ${INGESTOR_OIDC_CLIENT_ID:-}
+        INGESTOR_OIDC_CLIENT_SECRET: ${INGESTOR_OIDC_CLIENT_SECRET:-}
+        INGESTOR_OIDC_DISCOVERY_URL: ${INGESTOR_OIDC_DISCOVERY_URL:-}
+        INGESTOR_OIDC_SCOPE: ${INGESTOR_OIDC_SCOPE:-}
     restart: no
     build:
       context: .
@@ -297,6 +327,12 @@ services:
         LOG_LEVEL: ${LOG_LEVEL:-INFO}
         EXIT_AFTER_FIRST_SYNC: ${EXIT_AFTER_FIRST_SYNC:-false}
         MAX_DOCUMENTS_PER_INGEST: ${MAX_DOCUMENTS_PER_INGEST:-1000}
+        # Ingestor OAuth2 client credentials (optional - uses trusted network if not set)
+        INGESTOR_OIDC_ISSUER: ${INGESTOR_OIDC_ISSUER:-}
+        INGESTOR_OIDC_CLIENT_ID: ${INGESTOR_OIDC_CLIENT_ID:-}
+        INGESTOR_OIDC_CLIENT_SECRET: ${INGESTOR_OIDC_CLIENT_SECRET:-}
+        INGESTOR_OIDC_DISCOVERY_URL: ${INGESTOR_OIDC_DISCOVERY_URL:-}
+        INGESTOR_OIDC_SCOPE: ${INGESTOR_OIDC_SCOPE:-}
     restart: no
     build:
       context: .
@@ -327,6 +363,12 @@ services:
         LOG_LEVEL: ${LOG_LEVEL:-INFO}
         EXIT_AFTER_FIRST_SYNC: ${EXIT_AFTER_FIRST_SYNC:-false}
         MAX_DOCUMENTS_PER_INGEST: ${MAX_DOCUMENTS_PER_INGEST:-1000}
+        # Ingestor OAuth2 client credentials (optional - uses trusted network if not set)
+        INGESTOR_OIDC_ISSUER: ${INGESTOR_OIDC_ISSUER:-}
+        INGESTOR_OIDC_CLIENT_ID: ${INGESTOR_OIDC_CLIENT_ID:-}
+        INGESTOR_OIDC_CLIENT_SECRET: ${INGESTOR_OIDC_CLIENT_SECRET:-}
+        INGESTOR_OIDC_DISCOVERY_URL: ${INGESTOR_OIDC_DISCOVERY_URL:-}
+        INGESTOR_OIDC_SCOPE: ${INGESTOR_OIDC_SCOPE:-}
     restart: no
     # volumes:
       # Mount your GitHub App private key file (adjust path as needed)
