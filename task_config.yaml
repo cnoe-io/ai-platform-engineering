@@ -73,7 +73,8 @@ Create GitHub Repo:
         - param_fields=["metadata.name"]
         
         Extract the metadata.name from each item in the results.
-        Write the project names (one per line) to /projects.txt
+        Sort the project names alphabetically (case-insensitive).
+        Write the sorted project names (one per line) to /projects.txt
         
         This list will be used as dropdown options in the input form.
       subagent: "backstage"
@@ -784,7 +785,8 @@ Deploy App to Common Cluster:
         - param_fields=["metadata.name"]
         
         Extract the metadata.name from each item in the results.
-        Write the project names (one per line) to /projects.txt
+        Sort the project names alphabetically (case-insensitive).
+        Write the sorted project names (one per line) to /projects.txt
         
         This list will be used as dropdown options in the input form.
       subagent: "backstage"

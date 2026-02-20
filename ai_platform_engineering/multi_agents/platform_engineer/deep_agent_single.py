@@ -212,10 +212,6 @@ def create_caipe_agent_response_tool():
         if not input_fields:
             return "ERROR: No input_fields provided. You must specify input_fields with field_name, field_description, and required properties."
 
-        for field in input_fields:
-            if field.field_values:
-                field.field_values = sorted(field.field_values, key=str.casefold)
-        
         # Separate fields by required status
         required_fields = [f for f in input_fields if f.required]
         optional_fields = [f for f in input_fields if not f.required]
