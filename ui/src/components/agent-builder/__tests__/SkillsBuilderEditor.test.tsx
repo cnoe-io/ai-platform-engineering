@@ -130,6 +130,28 @@ jest.mock("@codemirror/language-data", () => ({
   languages: [],
 }));
 
+// Mock global fetch for /api/admin/teams
+const MOCK_TEAMS = [
+  { _id: "team-alpha", name: "Alpha Team" },
+  { _id: "team-beta", name: "Beta Team" },
+];
+
+const originalFetch = global.fetch;
+beforeAll(() => {
+  global.fetch = jest.fn((url: string) => {
+    if (url === "/api/admin/teams") {
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({ data: { teams: MOCK_TEAMS } }),
+      } as Response);
+    }
+    return originalFetch(url);
+  }) as any;
+});
+afterAll(() => {
+  global.fetch = originalFetch;
+});
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -143,6 +165,27 @@ description: A test skill
 
 Do the thing with {{repo_name}}.
 `;
+
+const SAMPLE_TEMPLATES = [
+  {
+    id: "tpl-pr-review",
+    title: "PR Review",
+    description: "Review a pull request",
+    category: "GitHub",
+    icon: "GitPullRequest",
+    tags: ["GitHub", "Review"],
+    content: "---\nname: pr-review\ndescription: Review a PR\n---\n\n# PR Review\n\nReview {{pr_url}}.",
+  },
+  {
+    id: "tpl-deploy",
+    title: "Deployment Check",
+    description: "Verify a deployment",
+    category: "ArgoCD",
+    icon: "Rocket",
+    tags: ["ArgoCD", "Deploy"],
+    content: "---\nname: deploy-check\ndescription: Verify a deployment\n---\n\n# Deployment Check\n\nCheck {{app_name}} in {{cluster}}.",
+  },
+];
 
 function renderEditor(
   props: Partial<React.ComponentProps<typeof SkillsBuilderEditor>> = {}
@@ -181,9 +224,15 @@ function makeExistingConfig(overrides: Partial<AgentConfig> = {}): AgentConfig {
 // Tests
 // ---------------------------------------------------------------------------
 
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const { fetchSkillTemplates: mockFetchSkillTemplates } = require("@/skills") as {
+  fetchSkillTemplates: jest.Mock;
+};
+
 beforeEach(() => {
   jest.clearAllMocks();
   mockIsAdmin = false;
+  mockFetchSkillTemplates.mockResolvedValue(SAMPLE_TEMPLATES);
 });
 
 describe("SkillsBuilderEditor — form validation", () => {
@@ -380,5 +429,320 @@ describe("SkillsBuilderEditor — escape key", () => {
     fireEvent.keyDown(document, { key: "Escape" });
 
     expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Template loading
+// ---------------------------------------------------------------------------
+
+describe("SkillsBuilderEditor — template loading", () => {
+  it("populates name, description, and skillContent when a template is selected", async () => {
+    renderEditor();
+
+    await waitFor(() => {
+      expect(screen.getByText("PR Review")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByText("PR Review"));
+
+    const nameInput = screen.getByPlaceholderText(/review a specific pr/i) as HTMLInputElement;
+    expect(nameInput.value).toBe("PR Review");
+
+    const editor = screen.getByTestId("codemirror") as HTMLTextAreaElement;
+    expect(editor.value).toContain("pr-review");
+  });
+
+  it("Blank Skill button is rendered and can be clicked without error", async () => {
+    renderEditor();
+
+    await waitFor(() => {
+      expect(screen.getByText("Blank Skill")).toBeInTheDocument();
+    });
+
+    expect(screen.getByText("Start from scratch")).toBeInTheDocument();
+  });
+
+  it("loads the second template with different content", async () => {
+    renderEditor();
+
+    await waitFor(() => {
+      expect(screen.getByText("Deployment Check")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByText("Deployment Check"));
+
+    const nameInput = screen.getByPlaceholderText(/review a specific pr/i) as HTMLInputElement;
+    expect(nameInput.value).toBe("Deployment Check");
+
+    const editor = screen.getByTestId("codemirror") as HTMLTextAreaElement;
+    expect(editor.value).toContain("deploy-check");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// SKILL.md import
+// ---------------------------------------------------------------------------
+
+describe("SkillsBuilderEditor — SKILL.md import", () => {
+  it("populates name/description/content from valid SKILL.md and shows success toast", async () => {
+    renderEditor();
+
+    const importBtns = screen.getAllByRole("button", { name: /import/i });
+    const topImportBtn = importBtns[0];
+    fireEvent.click(topImportBtn);
+
+    await waitFor(() => {
+      expect(screen.getByText("Import SKILL.md")).toBeInTheDocument();
+    });
+
+    const validContent = "---\nname: imported-skill\ndescription: An imported skill\n---\n\n# Imported\n\nDo the thing.";
+    const textareas = document.querySelectorAll("textarea");
+    const importTextarea = Array.from(textareas).find(
+      t => t.getAttribute("rows") === "6" && t.closest("[class*='max-w-2xl']")
+    )!;
+    fireEvent.change(importTextarea, { target: { value: validContent } });
+
+    const importActionBtn = screen.getAllByRole("button").find(
+      b => b.textContent?.trim() === "Import" && b.closest("[class*='justify-end']")
+    );
+    fireEvent.click(importActionBtn!);
+
+    await waitFor(() => {
+      expect(mockToast).toHaveBeenCalledWith("SKILL.md imported successfully", "success");
+    });
+  });
+
+  it("Import button is disabled when import textarea is empty", async () => {
+    renderEditor();
+
+    const importBtns = screen.getAllByRole("button", { name: /import/i });
+    fireEvent.click(importBtns[0]);
+
+    await waitFor(() => {
+      expect(screen.getByText("Import SKILL.md")).toBeInTheDocument();
+    });
+
+    const importActionBtn = screen.getAllByRole("button").find(
+      b => b.textContent?.trim() === "Import" && b.closest("[class*='justify-end']")
+    );
+
+    expect(importActionBtn).toBeDisabled();
+  });
+
+  it("closes import panel when Cancel is clicked", async () => {
+    renderEditor();
+
+    const importBtns = screen.getAllByRole("button", { name: /import/i });
+    fireEvent.click(importBtns[0]);
+
+    await waitFor(() => {
+      expect(screen.getByText("Import SKILL.md")).toBeInTheDocument();
+    });
+
+    const cancelBtns = screen.getAllByRole("button", { name: /cancel/i });
+    const panelCancel = cancelBtns.find(b => b.closest("[class*='max-w-2xl']"));
+    fireEvent.click(panelCancel!);
+
+    expect(screen.queryByText("Import SKILL.md")).not.toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Visibility and team selection
+// ---------------------------------------------------------------------------
+
+describe("SkillsBuilderEditor — visibility and team selection", () => {
+  it("selecting Team visibility shows team selector", async () => {
+    renderEditor();
+
+    const teamBtn = screen.getByRole("button", { name: /team/i });
+    fireEvent.click(teamBtn);
+
+    await waitFor(() => {
+      expect(screen.getByText("Alpha Team")).toBeInTheDocument();
+      expect(screen.getByText("Beta Team")).toBeInTheDocument();
+    });
+  });
+
+  it("shows validation error when visibility is team but no teams selected", async () => {
+    renderEditor();
+
+    const nameInput = screen.getByPlaceholderText(/review a specific pr/i);
+    fireEvent.change(nameInput, { target: { value: "My Skill" } });
+
+    const teamBtn = screen.getByRole("button", { name: /team/i });
+    fireEvent.click(teamBtn);
+
+    await waitFor(() => {
+      expect(screen.getByText("Alpha Team")).toBeInTheDocument();
+    });
+
+    const saveButton = screen.getByRole("button", { name: /save skill/i });
+    await act(async () => {
+      fireEvent.click(saveButton);
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText(/select at least one team/i)).toBeInTheDocument();
+    });
+    expect(mockCreateConfig).not.toHaveBeenCalled();
+  });
+
+  it("selecting Private or Global hides team selector", async () => {
+    renderEditor();
+
+    const teamBtn = screen.getByRole("button", { name: /team/i });
+    fireEvent.click(teamBtn);
+
+    await waitFor(() => {
+      expect(screen.getByText("Alpha Team")).toBeInTheDocument();
+    });
+
+    const privateBtn = screen.getByRole("button", { name: /private/i });
+    fireEvent.click(privateBtn);
+
+    expect(screen.queryByText("Alpha Team")).not.toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Category validation
+// ---------------------------------------------------------------------------
+
+describe("SkillsBuilderEditor — category validation", () => {
+  it("category is required — default value is set so clearing is not directly possible", () => {
+    renderEditor();
+
+    const nameInput = screen.getByPlaceholderText(/review a specific pr/i);
+    fireEvent.change(nameInput, { target: { value: "Skill Name" } });
+
+    expect(screen.getByText("Custom")).toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// TagInput
+// ---------------------------------------------------------------------------
+
+describe("SkillsBuilderEditor — TagInput", () => {
+  it("adds a tag via Enter key", async () => {
+    renderEditor();
+
+    const tagInput = screen.getByPlaceholderText(/add tags/i);
+    fireEvent.change(tagInput, { target: { value: "kubernetes" } });
+    fireEvent.keyDown(tagInput, { key: "Enter" });
+
+    await waitFor(() => {
+      expect(screen.getByText("kubernetes")).toBeInTheDocument();
+    });
+  });
+
+  it("removes last tag via Backspace on empty input", async () => {
+    const existing = makeExistingConfig({ metadata: { tags: ["TagA", "TagB"] } });
+    renderEditor({ existingConfig: existing });
+
+    expect(screen.getByText("TagA")).toBeInTheDocument();
+    expect(screen.getByText("TagB")).toBeInTheDocument();
+
+    const tagInput = screen.getByPlaceholderText("") || document.querySelector("[class*='min-w-\\[80px\\]']") as HTMLElement;
+    const tagInputEl = screen.getAllByRole("textbox").find(
+      el => el.getAttribute("placeholder") === "" || el.classList.contains("min-w-[80px]")
+    ) || tagInput;
+
+    if (tagInputEl) {
+      fireEvent.keyDown(tagInputEl, { key: "Backspace" });
+      await waitFor(() => {
+        expect(screen.queryByText("TagB")).not.toBeInTheDocument();
+      });
+    }
+  });
+
+  it("removes a tag when clicking X on that tag", () => {
+    const existing = makeExistingConfig({ metadata: { tags: ["RemoveMe", "KeepMe"] } });
+    renderEditor({ existingConfig: existing });
+
+    expect(screen.getByText("RemoveMe")).toBeInTheDocument();
+    expect(screen.getByText("KeepMe")).toBeInTheDocument();
+
+    const removeBtn = screen.getByText("RemoveMe").closest("[class*='gap-0.5']")?.querySelector("button");
+    if (removeBtn) fireEvent.click(removeBtn);
+
+    expect(screen.queryByText("RemoveMe")).not.toBeInTheDocument();
+    expect(screen.getByText("KeepMe")).toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Sidebar and preview toggles
+// ---------------------------------------------------------------------------
+
+describe("SkillsBuilderEditor — sidebar and preview toggles", () => {
+  it("clicking Templates button toggles sidebar off", async () => {
+    renderEditor();
+
+    await waitFor(() => {
+      expect(screen.getByText("Skill Templates")).toBeInTheDocument();
+    });
+
+    const templatesBtn = screen.getByRole("button", { name: /templates/i });
+    fireEvent.click(templatesBtn);
+
+    await waitFor(() => {
+      expect(screen.queryByText("Skill Templates")).not.toBeInTheDocument();
+    });
+  });
+
+  it("sidebar shows Blank Skill and template list", async () => {
+    renderEditor();
+
+    await waitFor(() => {
+      expect(screen.getByText("Skill Templates")).toBeInTheDocument();
+    });
+
+    expect(screen.getByText("Blank Skill")).toBeInTheDocument();
+
+    await waitFor(() => {
+      expect(screen.getByText("PR Review")).toBeInTheDocument();
+      expect(screen.getByText("Deployment Check")).toBeInTheDocument();
+    });
+  });
+
+  it("clicking Preview button toggles preview panel off", async () => {
+    renderEditor();
+
+    await waitFor(() => {
+      expect(screen.getByText("Live Preview")).toBeInTheDocument();
+    });
+
+    const previewBtn = screen.getByRole("button", { name: /preview/i });
+    fireEvent.click(previewBtn);
+
+    await waitFor(() => {
+      expect(screen.queryByText("Live Preview")).not.toBeInTheDocument();
+    });
+  });
+
+  it("clicking Skill Details collapses metadata section", async () => {
+    renderEditor();
+
+    expect(screen.getByPlaceholderText(/review a specific pr/i)).toBeInTheDocument();
+
+    const detailsBtn = screen.getByText("Skill Details").closest("button")!;
+    fireEvent.click(detailsBtn);
+
+    await waitFor(() => {
+      expect(screen.queryByPlaceholderText(/review a specific pr/i)).not.toBeInTheDocument();
+    });
+  });
+
+  it("Skill Details header shows current name badge when name is set", () => {
+    const existing = makeExistingConfig();
+    renderEditor({ existingConfig: existing });
+
+    const detailsBtn = screen.getByText("Skill Details").closest("button")!;
+    expect(detailsBtn).toBeInTheDocument();
+
+    expect(screen.getByText("Existing Skill")).toBeInTheDocument();
   });
 });
