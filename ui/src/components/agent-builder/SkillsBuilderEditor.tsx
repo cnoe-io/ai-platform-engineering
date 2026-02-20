@@ -936,7 +936,7 @@ export function SkillsBuilderEditor({
   const [showAiDebug, setShowAiDebug] = useState(false);
   const [aiDebugLog, setAiDebugLog] = useState<string[]>([]);
   const [aiPromptSent, setAiPromptSent] = useState("");
-  const [showPromptSection, setShowPromptSection] = useState(false);
+  const [showPromptSection, setShowPromptSection] = useState(true);
   const aiDebugEndRef = useRef<HTMLDivElement | null>(null);
   const aiClientRef = useRef<A2ASDKClient | null>(null);
   const aiContentSnapshotRef = useRef<string>("");
@@ -1264,7 +1264,6 @@ Now create a SKILL.md for the following skill. Remember: respond with ONLY the S
 ${formContext ? `${formContext}\n` : ""}User request: ${description}`;
 
       setAiPromptSent(prompt);
-      setShowPromptSection(false);
 
       const result = await sendAiRequest(prompt);
       if (!result) throw new Error("Empty response from AI");
@@ -1336,7 +1335,6 @@ ${formContext ? `Context from form:\n${formContext}\n\n` : ""}Current SKILL.md:
 ${skillContent}`;
 
       setAiPromptSent(prompt);
-      setShowPromptSection(false);
 
       const result = await sendAiRequest(prompt);
       if (!result) throw new Error("Empty response from AI");
@@ -1991,9 +1989,9 @@ ${skillContent}`;
                       animate={{ opacity: 1 }}
                       exit={{ opacity: 0 }}
                       transition={{ duration: 0.2 }}
-                      className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-background/80 backdrop-blur-sm"
+                      className="absolute inset-0 z-10 flex items-center justify-center bg-background/80 backdrop-blur-sm p-6"
                     >
-                      <div className={cn("space-y-4 text-center transition-all duration-200", showAiDebug ? "w-[640px] max-w-[90vw]" : "w-64")}>
+                      <div className={cn("space-y-4 text-center transition-all duration-200 mx-auto", showAiDebug ? "w-full max-w-3xl" : "w-64")}>
                         <div className="relative mx-auto w-10 h-10 rounded-full gradient-primary-br flex items-center justify-center shadow-lg shadow-primary/30">
                           {aiStatus === "generating" ? (
                             <Sparkles className="h-5 w-5 text-white animate-pulse" />
