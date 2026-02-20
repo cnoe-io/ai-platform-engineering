@@ -94,7 +94,7 @@ class UrlIngestRequest(BaseModel):
   url: str = Field(..., description="URL to ingest")
   description: str = Field("", description="Description for this data source")
   settings: ScrapySettings = Field(default_factory=lambda: ScrapySettings(), description="Scraping configuration (crawl mode, JS rendering, rate limiting, etc.)")
-  reload_interval: Optional[int] = Field(None, description="Auto-reload interval in seconds. If not specified, uses global WEBLOADER_RELOAD_INTERVAL (default 24h). Minimum: 60 seconds.")
+  reload_interval: Optional[int] = Field(None, description="Auto-reload interval in seconds. If not specified, uses global DEFAULT_DATASOURCE_RELOAD_INTERVAL (default 24h). Minimum: 300 seconds (5 minutes).")
 
   # DEPRECATED fields - will be removed in a future version.
   # Use 'settings' object instead.

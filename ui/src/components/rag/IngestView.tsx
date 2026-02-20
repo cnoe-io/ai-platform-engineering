@@ -1038,15 +1038,15 @@ export default function IngestView() {
                               <div className="mt-2">
                                 <Input
                                   type="number"
-                                  min={60}
+                                  min={300}
                                   step={60}
                                   value={reloadInterval}
-                                  onChange={(e) => setReloadInterval(Math.max(60, Number(e.target.value)))}
+                                  onChange={(e) => setReloadInterval(Math.max(300, Number(e.target.value)))}
                                   className="w-full"
-                                  placeholder="Interval in seconds (min: 60)"
+                                  placeholder="Interval in seconds (min: 300)"
                                 />
                                 <p className="mt-1 text-xs text-muted-foreground">
-                                  Custom interval in seconds (minimum: 60)
+                                  Custom interval in seconds (minimum: 300 / 5 minutes)
                                 </p>
                               </div>
                             )}

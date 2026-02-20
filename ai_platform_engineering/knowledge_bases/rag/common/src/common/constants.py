@@ -79,7 +79,7 @@ DEFAULT_DATASOURCE_RELOAD_INTERVAL = 86400  # 24 hours
 # Minimum reload interval for datasources (in seconds)
 # Prevents excessive resource usage from too-frequent reloads
 # User-specified intervals below this are clamped to this value
-MIN_DATASOURCE_RELOAD_INTERVAL = 60
+MIN_DATASOURCE_RELOAD_INTERVAL = 300  # 5 minutes
 
 # Minimum sync interval for ingestors (in seconds)
 # Prevents excessive CPU/network usage from too-frequent sync loops
