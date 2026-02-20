@@ -114,21 +114,21 @@ jest.mock("@uiw/react-codemirror", () => {
     );
   });
   return { __esModule: true, default: MockCodeMirror };
-});
+}, { virtual: true });
 
 jest.mock("@codemirror/view", () => ({
   ViewPlugin: { fromClass: jest.fn(() => ({})) },
   Decoration: { mark: jest.fn(() => ({})) },
   MatchDecorator: jest.fn(),
-}));
+}), { virtual: true });
 
 jest.mock("@codemirror/lang-markdown", () => ({
   markdown: jest.fn(() => ({})),
-}));
+}), { virtual: true });
 
 jest.mock("@codemirror/language-data", () => ({
   languages: [],
-}));
+}), { virtual: true });
 
 // Mock global fetch for /api/admin/teams
 const MOCK_TEAMS = [

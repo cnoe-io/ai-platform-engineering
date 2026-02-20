@@ -658,8 +658,9 @@ describe("AgentBuilderGallery — view mode", () => {
   it("My Skills view shows only user-owned non-system configs", () => {
     renderGallery();
 
-    const mySkillsBtn = screen.getByRole("button", { name: /my skills/i });
-    fireEvent.click(mySkillsBtn);
+    const allButtons = screen.getAllByRole("button");
+    const mySkillsBtn = allButtons.find(b => b.textContent?.includes("My Skills"));
+    fireEvent.click(mySkillsBtn!);
 
     expect(screen.getByText("My Personal Skill")).toBeInTheDocument();
     expect(screen.queryByText("Global System Skill")).not.toBeInTheDocument();
@@ -669,8 +670,9 @@ describe("AgentBuilderGallery — view mode", () => {
   it("Global view shows configs where visibility=global or is_system", () => {
     renderGallery();
 
-    const globalBtn = screen.getByRole("button", { name: /^global$/i });
-    fireEvent.click(globalBtn);
+    const allButtons = screen.getAllByRole("button");
+    const globalBtn = allButtons.find(b => b.textContent?.trim() === "Global");
+    fireEvent.click(globalBtn!);
 
     expect(screen.getByText("Global System Skill")).toBeInTheDocument();
     expect(screen.queryByText("My Personal Skill")).not.toBeInTheDocument();
@@ -683,8 +685,9 @@ describe("AgentBuilderGallery — view mode", () => {
 
     renderGallery();
 
-    const multiStepBtn = screen.getByRole("button", { name: /multi-step/i });
-    fireEvent.click(multiStepBtn);
+    const allButtons = screen.getAllByRole("button");
+    const multiStepBtn = allButtons.find(b => b.textContent?.includes("Multi-Step"));
+    fireEvent.click(multiStepBtn!);
 
     expect(screen.getByText("Multi-Step Deploy Workflow")).toBeInTheDocument();
     expect(screen.queryByText("My Personal Skill")).not.toBeInTheDocument();
@@ -781,7 +784,7 @@ describe("AgentBuilderGallery — loading/error", () => {
 // ---------------------------------------------------------------------------
 
 describe("AgentBuilderGallery — empty states", () => {
-  it("shows 'No skills match your search' when search yields no results", () => {
+  it("shows 'No skills match your search' when search yields no results", async () => {
     _configs = [makeQuickStart()];
 
     renderGallery();
@@ -789,20 +792,25 @@ describe("AgentBuilderGallery — empty states", () => {
     const searchInput = screen.getByPlaceholderText(/search by name/i);
     fireEvent.change(searchInput, { target: { value: "nonexistent-xyz" } });
 
-    expect(screen.getByText("No skills match your search")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByText("No skills match your search")).toBeInTheDocument();
+    });
   });
 
-  it("My Skills empty state shows 'Create your first skill' with Skills Builder button", () => {
+  it("My Skills empty state shows 'Create your first skill' with Skills Builder button", async () => {
     _configs = [makeQuickStart()];
     const onCreateNew = jest.fn();
 
     renderGallery({ onCreateNew });
 
-    const mySkillsBtn = screen.getByRole("button", { name: /my skills/i });
-    fireEvent.click(mySkillsBtn);
+    const allButtons = screen.getAllByRole("button");
+    const mySkillsBtn = allButtons.find(b => b.textContent?.includes("My Skills"));
+    fireEvent.click(mySkillsBtn!);
 
-    expect(screen.getByText(/create your first skill/i)).toBeInTheDocument();
-    const builderBtn = screen.getAllByRole("button", { name: /skills builder/i });
+    await waitFor(() => {
+      expect(screen.getByText(/create your first skill/i)).toBeInTheDocument();
+    });
+    const builderBtn = screen.getAllByRole("button").filter(b => /skills builder/i.test(b.textContent || ""));
     expect(builderBtn.length).toBeGreaterThan(0);
   });
 });
