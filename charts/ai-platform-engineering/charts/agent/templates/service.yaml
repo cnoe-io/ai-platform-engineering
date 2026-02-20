@@ -1,4 +1,4 @@
-{{- if ne (default "multi-agent" .Values.global.deploymentMode) "single-node" }}
+{{- if or (ne (default "multi-agent" .Values.global.deploymentMode) "single-node") .Values.remoteAgent }}
 apiVersion: v1
 kind: Service
 metadata:

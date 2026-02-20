@@ -324,6 +324,7 @@ agent-webex:
 
 agent-weather:
   nameOverride: "agent-weather"
+  remoteAgent: true
   image:
     repository: "ghcr.io/cnoe-io/agent-weather"
     pullPolicy: "Always"

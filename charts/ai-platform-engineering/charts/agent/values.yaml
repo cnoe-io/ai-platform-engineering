@@ -5,6 +5,9 @@ agentExports:
   data:
     enabled: true
 
+# When true, deploy this agent even in single-node mode (for remote A2A agents)
+remoteAgent: false
+
 # Custom prompt config (overrides the default from data/ files if set)
 customPromptConfig: ""
 
