@@ -61,26 +61,12 @@ REDIS_GRAPH_RELATION_HEURISTICS_PREFIX = "graph_relation_heuristics:"
 WEBLOADER_INGESTOR_REDIS_QUEUE = "ingestor:webloader:requests"
 WEBLOADER_INGESTOR_TYPE = "webloader"
 WEBLOADER_INGESTOR_NAME = "default_webloader"
+# How often webloader checks if datasources need reloading (in seconds)
+WEBLOADER_CHECK_INTERVAL = int(os.getenv("WEBLOADER_CHECK_INTERVAL", "600"))  # 10 minutes
 
 CONFLUENCE_INGESTOR_REDIS_QUEUE = "ingestor:confluence:requests"
 CONFLUENCE_INGESTOR_TYPE = "confluence"
 CONFLUENCE_INGESTOR_NAME = "default_confluence"
-
-# =============================
-# Sync scheduling constants
-# =============================
-# These control how often the sync loop checks for datasources that need reloading.
-# The actual sleep time is calculated based on datasource schedules, then clamped to [MIN, MAX].
-
-# Minimum sleep between sync loop iterations (in seconds)
-# Prevents excessive CPU usage from too-frequent checks
-MIN_SYNC_INTERVAL = int(os.getenv("MIN_SYNC_INTERVAL", "60"))
-
-# Maximum sleep between sync loop iterations (in seconds)
-# Ensures new datasources are detected within this time window
-# This fixes the issue where new datasources with short intervals were delayed
-# by existing datasources with long intervals
-MAX_SYNC_INTERVAL = int(os.getenv("MAX_SYNC_INTERVAL", "600"))
 
 # =============================
 # Datasource reload constants
@@ -94,6 +80,11 @@ DEFAULT_DATASOURCE_RELOAD_INTERVAL = 86400  # 24 hours
 # Prevents excessive resource usage from too-frequent reloads
 # User-specified intervals below this are clamped to this value
 MIN_DATASOURCE_RELOAD_INTERVAL = 60
+
+# Minimum sync interval for ingestors (in seconds)
+# Prevents excessive CPU/network usage from too-frequent sync loops
+# Values passed to .every() below this are clamped up to this value
+MIN_SYNC_INTERVAL = 60
 
 
 # Redis key prefix for userinfo cache (fetched from OIDC userinfo endpoint)

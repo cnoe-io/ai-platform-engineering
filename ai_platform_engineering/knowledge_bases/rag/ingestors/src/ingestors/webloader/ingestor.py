@@ -24,6 +24,7 @@ from common.constants import (
   WEBLOADER_INGESTOR_REDIS_QUEUE,
   WEBLOADER_INGESTOR_NAME,
   WEBLOADER_INGESTOR_TYPE,
+  WEBLOADER_CHECK_INTERVAL,
   DEFAULT_DATASOURCE_RELOAD_INTERVAL,
   MIN_DATASOURCE_RELOAD_INTERVAL,
 )
@@ -424,8 +425,9 @@ if __name__ == "__main__":
 
     # Build and run the ingestor with standard asyncio
     # No Twisted reactor needed - Scrapy runs in subprocess workers
-    # Note: Sync scheduling is controlled by MIN_SYNC_INTERVAL and MAX_SYNC_INTERVAL env vars
-    IngestorBuilder().name(WEBLOADER_INGESTOR_NAME).type(WEBLOADER_INGESTOR_TYPE).description("Default ingestor for websites and sitemaps").metadata({}).sync_with_fn(periodic_reload).with_startup(redis_listener).run()
+    # Runs periodic_reload every WEBLOADER_CHECK_INTERVAL seconds (default 10 min)
+    # periodic_reload checks each datasource's reload_interval to decide what to sync
+    IngestorBuilder().name(WEBLOADER_INGESTOR_NAME).type(WEBLOADER_INGESTOR_TYPE).description("Default ingestor for websites and sitemaps").metadata({}).sync_with_fn(periodic_reload).with_startup(redis_listener).every(WEBLOADER_CHECK_INTERVAL).run()
 
   except KeyboardInterrupt:
     logger.info("Webloader ingestor interrupted by user")

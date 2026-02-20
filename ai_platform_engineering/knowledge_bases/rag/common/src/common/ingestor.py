@@ -7,12 +7,7 @@ from common.models.rag import DataSourceInfo, DocumentMetadata
 from common.models.server import DocumentIngestRequest, IngestorPingRequest, ExploreDataEntityRequest
 from common.job_manager import JobStatus, JobInfo
 from common.models.graph import Entity
-from common.constants import (
-  DEFAULT_DATASOURCE_RELOAD_INTERVAL,
-  MIN_DATASOURCE_RELOAD_INTERVAL,
-  MIN_SYNC_INTERVAL,
-  MAX_SYNC_INTERVAL,
-)
+from common.constants import MIN_SYNC_INTERVAL
 from langchain_core.documents import Document
 import common.utils as utils
 import dotenv
@@ -632,32 +627,53 @@ class Client:
 
 class IngestorBuilder:
   """
-    Builder pattern for creating and running ingestors with minimal boilerplate
-    
-    Example usage:
-        def my_sync_function(client):
-            # Create datasource
-            datasource = DataSourceInfo(
-                datasource_id="my-datasource",
-                ingestor_id=client.ingestor_id or "",
-                description="Sample data",
-                source_type="documents",
-                last_updated=int(time.time())
-            )
-            client.upsert_datasource(datasource)
-            
-            # Ingest entities
-            entities = [Entity(entity_id="1", entity_type="Document", properties={"title": "Test"})]
-            client.ingest_entities("my-datasource", entities)
-        
-        # Run ingestor
-        ingestor_builder()\\
-            .name("my-ingestor")\\
-            .type("test")\\
-            .sync_with(my_sync_function)\\
-            .every(60)\\
-            .run()
-    """
+  Builder pattern for creating and running ingestors with minimal boilerplate.
+  
+  The builder handles:
+  - Client initialization and lifecycle
+  - Periodic scheduling (when to wake up)
+  - Running optional startup functions concurrently
+  
+  The sync function you provide handles:
+  - What to sync (which datasources, entities, etc.)
+  - Any filtering logic (e.g., only sync stale datasources)
+  
+  Scheduling modes:
+  - Single-run: Don't call .every(), or call .every(-1). Runs sync once and exits.
+  - Periodic: Call .every(seconds) with seconds >= 60. Runs sync, sleeps, repeats.
+  
+  Example usage:
+      def my_sync_function(client):
+          # Create datasource
+          datasource = DataSourceInfo(
+              datasource_id="my-datasource",
+              ingestor_id=client.ingestor_id or "",
+              description="Sample data",
+              source_type="documents",
+              last_updated=int(time.time())
+          )
+          client.upsert_datasource(datasource)
+          
+          # Ingest entities
+          entities = [Entity(entity_id="1", entity_type="Document", properties={"title": "Test"})]
+          client.ingest_entities("my-datasource", entities)
+      
+      # Run ingestor periodically (every 10 minutes)
+      IngestorBuilder()\\
+          .name("my-ingestor")\\
+          .type("test")\\
+          .sync_with_fn(my_sync_function)\\
+          .every(600)\\
+          .run()
+      
+      # Run ingestor once and exit
+      IngestorBuilder()\\
+          .name("my-ingestor")\\
+          .type("test")\\
+          .sync_with_fn(my_sync_function)\\
+          .every(-1)\\
+          .run()
+  """
 
   def __init__(self):
     self._name: Optional[str] = None
@@ -666,9 +682,8 @@ class IngestorBuilder:
     self._metadata: Dict[str, Any] = {}
     self._sync_function: Optional[Callable] = None
     self._startup_function: Optional[Callable] = None
-    self._sync_interval = 0  # User-specified sync interval (how often data should be refreshed)
+    self._sync_interval = 0  # User-specified sync interval (how often to run sync function)
     self._init_delay = 0  # Optional init delay
-    self._last_sync_time: Optional[int] = None  # Track last sync completion time
 
   def name(self, name: str) -> "IngestorBuilder":
     """Set the ingestor name"""
@@ -697,12 +712,26 @@ class IngestorBuilder:
 
   def every(self, seconds: int) -> "IngestorBuilder":
     """
-    Set the sync interval in seconds (how often data should be refreshed).
+    Set the sync interval in seconds.
 
-    The builder will automatically check datasources and determine when the next
-    sync should occur based on their last_updated timestamps.
+    The ingestor will:
+    - Run sync function immediately on startup
+    - Sleep for `seconds`
+    - Repeat
+
+    If not called (or called with seconds < 0), the ingestor runs once and exits.
+
+    Note: Values below MIN_SYNC_INTERVAL (60s) are clamped up to prevent excessive syncing.
     """
-    self._sync_interval = seconds
+    if seconds < 0:
+      # Negative values = single-run mode
+      self._sync_interval = seconds
+    elif seconds < MIN_SYNC_INTERVAL:
+      # Clamp small positive values (including 0) to minimum
+      logger.warning(f"Sync interval {seconds}s is below minimum {MIN_SYNC_INTERVAL}s, using {MIN_SYNC_INTERVAL}s")
+      self._sync_interval = MIN_SYNC_INTERVAL
+    else:
+      self._sync_interval = seconds
     return self
 
   def with_init_delay(self, seconds: int) -> "IngestorBuilder":
@@ -741,73 +770,6 @@ class IngestorBuilder:
     else:
       asyncio.run(self._run_ingestor())
 
-  async def _calculate_next_sync_time(self, client: Client) -> tuple[int, bool]:
-    """
-    Calculate how long to sleep before next sync by checking datasource timestamps
-    and last sync time.
-
-    Returns:
-        tuple[int, bool]: (seconds to sleep, has_datasources)
-    """
-    try:
-      current_time = int(time.time())
-
-      # Fetch all datasources for this ingestor
-      datasources = await client.list_datasources(ingestor_id=client.ingestor_id)
-
-      if not datasources:
-        # No datasources yet - check again after MAX_SYNC_INTERVAL
-        # This ensures we detect new datasources promptly
-        logger.info(f"No datasources found, next check in {MAX_SYNC_INTERVAL}s")
-        return (MAX_SYNC_INTERVAL, False)
-
-      # Find the earliest datasource that will need reloading
-      min_time_until_reload = DEFAULT_DATASOURCE_RELOAD_INTERVAL
-
-      for ds in datasources:
-        if ds.last_updated is None:
-          # Datasource never updated, needs immediate reload
-          logger.debug(f"Datasource {ds.datasource_id} has no last_updated, needs immediate sync")
-          return (0, True)
-
-        # Get per-datasource reload interval from metadata, fall back to DEFAULT_DATASOURCE_RELOAD_INTERVAL (24h)
-        ds_reload_interval = DEFAULT_DATASOURCE_RELOAD_INTERVAL
-        if ds.metadata:
-          stored_interval = ds.metadata.get("reload_interval")
-          if stored_interval is not None:
-            ds_reload_interval = stored_interval
-            # Enforce minimum reload interval
-            if ds_reload_interval < MIN_DATASOURCE_RELOAD_INTERVAL:
-              logger.warning(f"Datasource {ds.datasource_id} has reload_interval {ds_reload_interval}s below minimum {MIN_DATASOURCE_RELOAD_INTERVAL}s, using minimum")
-              ds_reload_interval = MIN_DATASOURCE_RELOAD_INTERVAL
-
-        time_since_update = current_time - ds.last_updated
-        time_until_reload = ds_reload_interval - time_since_update
-
-        if time_until_reload <= 0:
-          # This datasource is overdue, sync immediately
-          logger.debug(f"Datasource {ds.datasource_id} is overdue (last updated {time_since_update}s ago), needs immediate sync")
-          return (0, True)
-
-        # Track the earliest reload time
-        if time_until_reload < min_time_until_reload:
-          min_time_until_reload = time_until_reload
-          logger.debug(f"Datasource {ds.datasource_id} will need reload in {time_until_reload}s (interval: {ds_reload_interval}s)")
-
-      # Clamp sleep time to [MIN_SYNC_INTERVAL, MAX_SYNC_INTERVAL]
-      # This ensures:
-      # - We don't check too frequently (MIN protects CPU)
-      # - We don't sleep too long (MAX ensures new datasources are detected promptly)
-      sleep_time = max(MIN_SYNC_INTERVAL, min(int(min_time_until_reload), MAX_SYNC_INTERVAL))
-
-      logger.info(f"Next sync in {sleep_time}s (calculated: {int(min_time_until_reload)}s, clamped to [{MIN_SYNC_INTERVAL}, {MAX_SYNC_INTERVAL}])")
-      return (sleep_time, True)
-
-    except Exception as e:
-      # If we can't calculate, fall back to MAX_SYNC_INTERVAL
-      logger.warning(f"Error calculating next sync time: {e}, using MAX_SYNC_INTERVAL ({MAX_SYNC_INTERVAL}s)")
-      return (MAX_SYNC_INTERVAL, False)
-
   async def _run_ingestor(self):
     """Internal method to run the ingestor with proper async handling"""
     # Type checking - these should never be None due to assertions in run()
@@ -820,7 +782,7 @@ class IngestorBuilder:
     # Check if we should exit after first sync (for debugging and job mode)
     exit_after_first_sync = os.getenv("EXIT_AFTER_FIRST_SYNC", "false").lower() in ("true", "1", "yes")
 
-    logger.info(f"Starting ingestor: {self._name} (type: {self._type}, sync_bounds: [{MIN_SYNC_INTERVAL}, {MAX_SYNC_INTERVAL}]s, init_delay: {self._init_delay}s, exit_after_first_sync: {exit_after_first_sync})")
+    logger.info(f"Starting ingestor: {self._name} (type: {self._type}, sync_interval: {self._sync_interval}s, init_delay: {self._init_delay}s, exit_after_first_sync: {exit_after_first_sync})")
 
     # Create and initialize RAG client
     client = Client(self._name, self._type, self._description, self._metadata)
@@ -854,55 +816,37 @@ class IngestorBuilder:
         logger.info("Startup function running concurrently")
 
       if self._sync_interval <= 0:
-        # Single run mode
+        # Single run mode: run sync once and exit
         logger.info("Running single sync cycle...")
 
-        # Call user's sync function with client (original signature)
         if asyncio.iscoroutinefunction(self._sync_function):
           await self._sync_function(client)
         else:
           self._sync_function(client)
 
-        # Track sync completion time
-        self._last_sync_time = int(time.time())
-        logger.info(f"Single sync cycle completed at {self._last_sync_time}")
+        logger.info("Single sync cycle completed")
         return
       else:
-        # Periodic mode with smart scheduling based on datasource timestamps
+        # Periodic mode: run sync, sleep, repeat
+        logger.info(f"Starting periodic sync with interval {self._sync_interval}s")
         while True:
-          # Calculate when next sync should happen based on datasource timestamps
-          # Returns sleep time already clamped to [MIN_SYNC_INTERVAL, MAX_SYNC_INTERVAL]
-          sleep_time, has_datasources = await self._calculate_next_sync_time(client)
-
-          # EXIT_AFTER_FIRST_SYNC logic:
-          # - If there are datasources but none need updating (sleep_time > 0) → exit without syncing
-          # - If there are no datasources → run sync first, then exit
-          if exit_after_first_sync and has_datasources and sleep_time > 0:
-            logger.info("EXIT_AFTER_FIRST_SYNC is set and no datasources need updating. Exiting without sync.")
-            return
-
-          # Sleep until next sync is due (already clamped, so always safe)
-          if sleep_time > 0:
-            logger.info(f"Sleeping for {sleep_time}s before next sync")
-            await asyncio.sleep(sleep_time)
-
-          # Now run the sync
           logger.info("Running sync cycle...")
 
-          # Call user's sync function (original signature - no changes needed!)
           if asyncio.iscoroutinefunction(self._sync_function):
             await self._sync_function(client)
           else:
             self._sync_function(client)
 
-          # Track sync completion time
-          self._last_sync_time = int(time.time())
-          logger.info(f"Sync cycle completed at {self._last_sync_time}")
+          logger.info("Sync cycle completed")
 
           # Exit after first sync if environment variable is set
           if exit_after_first_sync:
             logger.info("EXIT_AFTER_FIRST_SYNC is set. Exiting after first sync.")
             return
+
+          # Sleep before next sync
+          logger.info(f"Sleeping for {self._sync_interval}s before next sync")
+          await asyncio.sleep(self._sync_interval)
 
     except KeyboardInterrupt:
       logger.info("Received interrupt signal, shutting down...")
