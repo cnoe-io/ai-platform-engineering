@@ -1550,6 +1550,16 @@ ${skillContent}`;
             <Upload className="h-3 w-3" />
             Import
           </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-1 text-xs h-7 px-2"
+            onClick={handleDownloadSkillMd}
+            disabled={!skillContent.trim()}
+          >
+            <Download className="h-3 w-3" />
+            Download
+          </Button>
           <Button variant="outline" size="sm" className="gap-1 text-xs h-7 px-2" onClick={() => setPreviewOpen(!previewOpen)}>
             {previewOpen ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
             Preview
@@ -1784,16 +1794,6 @@ ${skillContent}`;
                     title="Redo (Ctrl+Y)"
                   >
                     <Redo2 className="h-3.5 w-3.5" />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground"
-                    onClick={handleDownloadSkillMd}
-                    disabled={!skillContent.trim()}
-                    title="Download SKILL.md"
-                  >
-                    <Download className="h-3.5 w-3.5" />
                   </Button>
                   <div className="w-px h-4 bg-border/50 mx-0.5" />
                   <div className="relative">
