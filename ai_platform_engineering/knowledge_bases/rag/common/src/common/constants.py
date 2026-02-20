@@ -62,7 +62,7 @@ WEBLOADER_INGESTOR_REDIS_QUEUE = "ingestor:webloader:requests"
 WEBLOADER_INGESTOR_TYPE = "webloader"
 WEBLOADER_INGESTOR_NAME = "default_webloader"
 # How often webloader checks if datasources need reloading (in seconds)
-WEBLOADER_CHECK_INTERVAL = int(os.getenv("WEBLOADER_CHECK_INTERVAL", "600"))  # 10 minutes
+WEBLOADER_CHECK_INTERVAL = int(os.getenv("WEBLOADER_CHECK_INTERVAL", "300"))  # 5 minutes
 
 CONFLUENCE_INGESTOR_REDIS_QUEUE = "ingestor:confluence:requests"
 CONFLUENCE_INGESTOR_TYPE = "confluence"
