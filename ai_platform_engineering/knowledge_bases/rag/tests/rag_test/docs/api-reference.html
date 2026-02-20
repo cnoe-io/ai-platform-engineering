@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Acme API Reference Documentation">
+    <title>API Reference - Acme Corp Docs</title>
+</head>
+<body>
+    <h1>Acme API Reference</h1>
+    
+    <p>Complete API reference for all Acme Corporation services.</p>
+    
+    <h2>Authentication</h2>
+    <p>All API requests require authentication using an API key. Include your key in the Authorization header:</p>
+    <pre><code>Authorization: Bearer your-api-key</code></pre>
+    
+    <h2>Base URL</h2>
+    <p>All API endpoints are relative to: <code>https://api.acme-corp.com/v1</code></p>
+    
+    <h2>Endpoints</h2>
+    
+    <h3>Widgets</h3>
+    <table border="1">
+        <tr>
+            <th>Method</th>
+            <th>Endpoint</th>
+            <th>Description</th>
+        </tr>
+        <tr>
+            <td>GET</td>
+            <td>/widgets</td>
+            <td>List all widgets</td>
+        </tr>
+        <tr>
+            <td>POST</td>
+            <td>/widgets</td>
+            <td>Create a new widget</td>
+        </tr>
+        <tr>
+            <td>GET</td>
+            <td>/widgets/{id}</td>
+            <td>Get a specific widget</td>
+        </tr>
+        <tr>
+            <td>DELETE</td>
+            <td>/widgets/{id}</td>
+            <td>Delete a widget</td>
+        </tr>
+    </table>
+    
+    <h3>DataFlow</h3>
+    <table border="1">
+        <tr>
+            <th>Method</th>
+            <th>Endpoint</th>
+            <th>Description</th>
+        </tr>
+        <tr>
+            <td>GET</td>
+            <td>/dataflow/streams</td>
+            <td>List all data streams</td>
+        </tr>
+        <tr>
+            <td>POST</td>
+            <td>/dataflow/streams</td>
+            <td>Create a new stream</td>
+        </tr>
+    </table>
+    
+    <h2>Rate Limits</h2>
+    <p>API requests are limited to 1000 requests per minute per API key.</p>
+</body>
+</html>

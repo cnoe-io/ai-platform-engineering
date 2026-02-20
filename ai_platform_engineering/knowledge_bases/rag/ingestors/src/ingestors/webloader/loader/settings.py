@@ -61,6 +61,8 @@ def build_scrapy_settings(settings: ScrapySettings) -> Dict[str, Any]:
     "COOKIES_ENABLED": False,
     # Logging
     "LOG_LEVEL": "INFO",
+    # Disable telnet console (logs password on startup)
+    "TELNETCONSOLE_ENABLED": False,
     # Don't filter duplicate requests (we handle this ourselves)
     "DUPEFILTER_DEBUG": True,
     # Memory management

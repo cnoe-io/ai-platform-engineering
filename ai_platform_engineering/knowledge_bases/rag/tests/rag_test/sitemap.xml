@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+    <!-- Local pages -->
     <url>
         <loc>http://test-website/</loc>
         <lastmod>2024-10-21</lastmod>
@@ -35,5 +36,24 @@
         <lastmod>2024-10-21</lastmod>
         <changefreq>weekly</changefreq>
         <priority>0.8</priority>
+    </url>
+    <!-- External links for testing follow_external_links behavior -->
+    <url>
+        <loc>https://www.cisco.com/</loc>
+        <lastmod>2024-10-21</lastmod>
+        <changefreq>weekly</changefreq>
+        <priority>0.5</priority>
+    </url>
+    <url>
+        <loc>https://www.splunk.com/</loc>
+        <lastmod>2024-10-21</lastmod>
+        <changefreq>weekly</changefreq>
+        <priority>0.5</priority>
+    </url>
+    <url>
+        <loc>https://caipe.io/</loc>
+        <lastmod>2024-10-21</lastmod>
+        <changefreq>weekly</changefreq>
+        <priority>0.5</priority>
     </url>
 </urlset>
