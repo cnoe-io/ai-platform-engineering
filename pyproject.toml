@@ -1,6 +1,6 @@
 [project]
 name = "ai-platform-engineering"
-version = "0.2.19"
+version = "0.2.20"
 description = "Multi-Agent Collaboration & Workflow Automation - AI agents collaborating across tools and teams to deliver high quality results"
 authors = [
   {name = "CNOE Contributors"}
