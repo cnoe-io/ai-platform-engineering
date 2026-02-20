@@ -1,22 +1,62 @@
-## 0.2.19 (2026-02-18)
+## 0.2.20 (2026-02-20)
 
-## 0.2.18-rc.3 (2026-02-18)
+## 0.2.19-rc.6 (2026-02-20)
+
+### Feat
+
+- **ui**: auto-enable follow_external_links when sitemap mode is selected
+- **ui**: show follow_external_links option for sitemap crawl mode
+- **webloader**: show sitemap URL in job success message
+- **ui**: add support to UI's admin page for prometheus metrics dashboard (#826)
 
 ### Fix
 
-- **supervisor**: send supervisor synthesis as final_result in single sub-agent scenario (#809)
+- **webloader**: don't append /sitemap.xml when URL already points to a sitemap
+- **webloader**: disable Scrapy telnet console
+- **webloader**: propagate CloseSpider reason to job error message
+- **webloader**: fail with clear error when sitemap URLs point to different domain
+- **webloader**: detect canonical domain from sitemap URLs
+- **webloader**: add robust sitemap discovery with fallback chain
+- **webloader**: fix sitemap discovery for subdirectory paths
 
-## 0.2.18-rc.2 (2026-02-18)
+### Refactor
+
+- **webloader**: add job_id prefix to all spider log messages
+
+## 0.2.19-rc.5 (2026-02-19)
+
+## 0.2.19-rc.4 (2026-02-19)
+
+### Feat
+
+- **ui**: add WORKFLOW_RUNNER_ENABLED feature flag (#823)
+
+### Fix
+
+- **rag**: resolve web-ingestor tight loop caused by reload interval mismatch (#817)
+- **ui**: show amber RAG Disconnected badge when only RAG is offline (#821)
+- persist user input on the UI after refresh or page return
+
+## 0.2.19-rc.3 (2026-02-19)
+
+### Fix
+
+- **rag**: prioritize JWT auth over trusted network (#815)
+
+## 0.2.19-rc.2 (2026-02-19)
+
+## 0.2.19-rc.1 (2026-02-19)
+
+### Fix
+
+- **confluence-ingestor**: accept CONFLUENCE_API_TOKEN as fallback for CONFLUENCE_TOKEN (#814)
+
+## 0.2.19 (2026-02-18)
 
 ### Feat
 
 - **ui**: add reload interval UI and help popup for RAG ingest
 - **rag**: add per-datasource reload interval for webloader
-
-## 0.2.18-rc.1 (2026-02-17)
-
-### Feat
-
 - **ui**: support comma-separated OIDC_GROUP_CLAIM values
 - **ui**: remove X-Identity-Token header from RAG proxy
 - **rag**: implement tiered groups resolution with Redis caching
@@ -24,6 +64,7 @@
 
 ### Fix
 
+- **supervisor**: send supervisor synthesis as final_result in single sub-agent scenario (#809)
 - **rag**: fix lint issues in rbac.py
 
 ### Refactor

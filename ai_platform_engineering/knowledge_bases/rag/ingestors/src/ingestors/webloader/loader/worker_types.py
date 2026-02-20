@@ -122,6 +122,9 @@ class CrawlResult:
   urls_filtered_pattern: int = 0
   urls_filtered_max_pages: int = 0
 
+  # Sitemap discovery info
+  sitemap_url_used: str | None = None  # The sitemap URL that was successfully loaded
+
 
 @dataclass
 class WorkerMessage:

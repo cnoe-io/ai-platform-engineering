@@ -361,10 +361,16 @@ class ScrapyLoader:
         message=f"Crawled {result.pages_crawled} pages with {result.pages_failed} errors",
       )
     else:
+      # Build success message, include sitemap URL if one was used
+      if result.sitemap_url_used:
+        message = f"Crawled {result.pages_crawled} pages from {result.sitemap_url_used} in {result.elapsed_seconds:.1f}s"
+      else:
+        message = f"Successfully crawled {result.pages_crawled} pages in {result.elapsed_seconds:.1f}s"
+
       await self.job_manager.upsert_job(
         job_id=job_id,
         status=JobStatus.COMPLETED,
-        message=f"Successfully crawled {result.pages_crawled} pages in {result.elapsed_seconds:.1f}s",
+        message=message,
       )
 
 
