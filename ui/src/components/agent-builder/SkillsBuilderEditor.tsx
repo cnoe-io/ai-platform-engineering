@@ -935,6 +935,8 @@ export function SkillsBuilderEditor({
   const [showAiEnhanceInput, setShowAiEnhanceInput] = useState(false);
   const [showAiDebug, setShowAiDebug] = useState(false);
   const [aiDebugLog, setAiDebugLog] = useState<string[]>([]);
+  const [aiPromptSent, setAiPromptSent] = useState("");
+  const [showPromptSection, setShowPromptSection] = useState(false);
   const aiDebugEndRef = useRef<HTMLDivElement | null>(null);
   const aiClientRef = useRef<A2ASDKClient | null>(null);
   const aiContentSnapshotRef = useRef<string>("");
@@ -1261,6 +1263,9 @@ Now create a SKILL.md for the following skill. Remember: respond with ONLY the S
 
 ${formContext ? `${formContext}\n` : ""}User request: ${description}`;
 
+      setAiPromptSent(prompt);
+      setShowPromptSection(false);
+
       const result = await sendAiRequest(prompt);
       if (!result) throw new Error("Empty response from AI");
 
@@ -1329,6 +1334,9 @@ Keep the same intent and core purpose. Remember: respond with ONLY the improved 
 
 ${formContext ? `Context from form:\n${formContext}\n\n` : ""}Current SKILL.md:
 ${skillContent}`;
+
+      setAiPromptSent(prompt);
+      setShowPromptSection(false);
 
       const result = await sendAiRequest(prompt);
       if (!result) throw new Error("Empty response from AI");
@@ -1985,7 +1993,7 @@ ${skillContent}`;
                       transition={{ duration: 0.2 }}
                       className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-background/80 backdrop-blur-sm"
                     >
-                      <div className={cn("space-y-4 text-center transition-all duration-200", showAiDebug ? "w-[480px]" : "w-64")}>
+                      <div className={cn("space-y-4 text-center transition-all duration-200", showAiDebug ? "w-[640px] max-w-[90vw]" : "w-64")}>
                         <div className="relative mx-auto w-10 h-10 rounded-full gradient-primary-br flex items-center justify-center shadow-lg shadow-primary/30">
                           {aiStatus === "generating" ? (
                             <Sparkles className="h-5 w-5 text-white animate-pulse" />
@@ -2027,7 +2035,7 @@ ${skillContent}`;
                           </Button>
                         </div>
 
-                        {/* Collapsible A2A debug console */}
+                        {/* Collapsible debug panel: prompt + A2A stream */}
                         <AnimatePresence>
                           {showAiDebug && (
                             <motion.div
@@ -2035,11 +2043,45 @@ ${skillContent}`;
                               animate={{ height: "auto", opacity: 1 }}
                               exit={{ height: 0, opacity: 0 }}
                               transition={{ duration: 0.2 }}
-                              className="overflow-hidden"
+                              className="overflow-hidden space-y-2"
                             >
+                              {/* Prompt Sent section */}
+                              {aiPromptSent && (
+                                <div className="rounded-lg border border-border/50 bg-zinc-950 text-left overflow-hidden">
+                                  <button
+                                    type="button"
+                                    className="w-full flex items-center gap-1.5 px-3 py-1.5 border-b border-border/30 bg-zinc-900 hover:bg-zinc-800 transition-colors"
+                                    onClick={() => setShowPromptSection(!showPromptSection)}
+                                  >
+                                    <BookOpen className="h-3 w-3 text-blue-400" />
+                                    <span className="text-xs font-mono text-blue-400">Prompt Sent</span>
+                                    <span className="ml-auto text-xs font-mono text-muted-foreground">
+                                      {showPromptSection ? "▲" : "▼"}
+                                    </span>
+                                  </button>
+                                  <AnimatePresence>
+                                    {showPromptSection && (
+                                      <motion.div
+                                        initial={{ height: 0 }}
+                                        animate={{ height: "auto" }}
+                                        exit={{ height: 0 }}
+                                        className="overflow-hidden"
+                                      >
+                                        <div className="max-h-48 overflow-y-auto p-2">
+                                          <pre className="font-mono text-xs leading-relaxed text-blue-300/80 whitespace-pre-wrap break-words">
+                                            {aiPromptSent}
+                                          </pre>
+                                        </div>
+                                      </motion.div>
+                                    )}
+                                  </AnimatePresence>
+                                </div>
+                              )}
+
+                              {/* A2A Stream console */}
                               <div
                                 data-testid="ai-debug-console"
-                                className="mt-2 rounded-lg border border-border/50 bg-zinc-950 text-left overflow-hidden"
+                                className="rounded-lg border border-border/50 bg-zinc-950 text-left overflow-hidden"
                               >
                                 <div className="flex items-center gap-1.5 px-3 py-1.5 border-b border-border/30 bg-zinc-900">
                                   <Terminal className="h-3 w-3 text-green-400" />
