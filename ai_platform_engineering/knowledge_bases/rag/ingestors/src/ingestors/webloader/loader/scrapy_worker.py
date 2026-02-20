@@ -204,16 +204,28 @@ class WorkerSpider(Spider):
 
   def parse_sitemap(self, response: Response):
     """Parse sitemap.xml and yield requests for each URL."""
-    # Update effective domain based on where we actually landed (handles redirects)
-    self.effective_domain = urlparse(response.url).netloc
     self.sitemap_url_used = response.url
-    self.logger.info(f"Sitemap loaded from {response.url}, effective domain: {self.effective_domain}")
+    sitemap_domain = urlparse(response.url).netloc
 
     # Extract URLs from sitemap
     urls = re.findall(r"<loc>(.*?)</loc>", response.text)
     self.urls_found_in_sitemap = len(urls)
 
-    self.logger.info(f"Found {len(urls)} URLs in sitemap")
+    self.logger.info(f"Found {len(urls)} URLs in sitemap at {response.url}")
+
+    # Detect if sitemap URLs point to a different domain (canonical domain scenario)
+    # e.g., sitemap at eticloud.io contains URLs pointing to outshift.io
+    if urls:
+      first_url_domain = urlparse(urls[0]).netloc
+      if first_url_domain and first_url_domain != sitemap_domain:
+        self.logger.info(f"Sitemap URLs use different domain: {first_url_domain} (sitemap hosted at {sitemap_domain})")
+        self.effective_domain = first_url_domain
+      else:
+        self.effective_domain = sitemap_domain
+    else:
+      self.effective_domain = sitemap_domain
+
+    self.logger.info(f"Effective domain for crawling: {self.effective_domain}")
 
     # Track how many URLs we'll actually crawl
     urls_to_crawl = []
