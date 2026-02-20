@@ -29,6 +29,7 @@ export interface WorkflowInputField {
   placeholder: string;
   type: "text" | "url" | "number";
   required?: boolean;
+  defaultValue?: string;
   helperText?: string;
 }
 
@@ -253,40 +254,46 @@ export interface PromptVariable {
 
 /**
  * Helper function to extract variables from an LLM prompt
- * Supports both {variable_name} and {{variable_name}} formats
+ * Supports formats:
+ *   {variable_name}          — required, no default
+ *   {{variable_name}}        — required, no default
+ *   {{variable_name:default}} — optional, pre-filled with "default"
  */
 export function extractPromptVariables(prompt: string): PromptVariable[] {
-  // Match both {var} and {{var}} formats
   const singleBracePattern = /\{([a-zA-Z_][a-zA-Z0-9_]*)\}/g;
+  // Capture inner content which may contain "name:default"
   const doubleBracePattern = /\{\{([^}]+)\}\}/g;
   
   const variables: PromptVariable[] = [];
   const seen = new Set<string>();
   
-  // Extract single brace variables
   let match;
   while ((match = singleBracePattern.exec(prompt)) !== null) {
     const name = match[1];
     if (!seen.has(name)) {
       seen.add(name);
-      variables.push({
-        name,
-        required: true,
-        description: undefined,
-      });
+      variables.push({ name, required: true });
     }
   }
   
-  // Extract double brace variables (use case format)
   while ((match = doubleBracePattern.exec(prompt)) !== null) {
-    const name = match[1].trim();
-    if (name && !seen.has(name)) {
-      seen.add(name);
-      variables.push({
-        name,
-        required: true,
-        description: undefined,
-      });
+    const inner = match[1].trim();
+    if (!inner) continue;
+
+    const colonIdx = inner.indexOf(":");
+    if (colonIdx !== -1) {
+      const name = inner.substring(0, colonIdx).trim();
+      const defaultValue = inner.substring(colonIdx + 1).trim();
+      if (name && !seen.has(name)) {
+        seen.add(name);
+        variables.push({ name, required: false, defaultValue });
+      }
+    } else {
+      const name = inner;
+      if (!seen.has(name)) {
+        seen.add(name);
+        variables.push({ name, required: true });
+      }
     }
   }
   
@@ -330,9 +337,12 @@ export function generateInputFormFromPrompt(
     return {
       name: variable.name,
       label,
-      placeholder: `Enter ${label.toLowerCase()}`,
+      placeholder: variable.defaultValue
+        ? `Default: ${variable.defaultValue}`
+        : `Enter ${label.toLowerCase()}`,
       type,
       required: variable.required,
+      defaultValue: variable.defaultValue,
     };
   });
   

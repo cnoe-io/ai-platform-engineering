@@ -481,6 +481,7 @@ interface InsertVariablePopoverProps {
 function InsertVariablePopover({ onInsert }: InsertVariablePopoverProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [varName, setVarName] = useState("");
+  const [varDefault, setVarDefault] = useState("");
   const containerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -502,8 +503,10 @@ function InsertVariablePopover({ onInsert }: InsertVariablePopoverProps) {
   const handleInsert = () => {
     const name = varName.trim().replace(/\s+/g, "_");
     if (!name) return;
-    onInsert(name);
+    const defaultVal = varDefault.trim();
+    onInsert(defaultVal ? `${name}:${defaultVal}` : name);
     setVarName("");
+    setVarDefault("");
     setIsOpen(false);
   };
 
@@ -561,8 +564,21 @@ function InsertVariablePopover({ onInsert }: InsertVariablePopoverProps) {
                   Insert
                 </button>
               </div>
+              <div className="mt-1.5">
+                <label className="text-xs font-medium text-muted-foreground mb-1 block">
+                  Default value <span className="text-muted-foreground/50">(optional)</span>
+                </label>
+                <input
+                  type="text"
+                  value={varDefault}
+                  onChange={(e) => setVarDefault(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") handleInsert(); }}
+                  placeholder="e.g. 50"
+                  className="w-full h-6 px-2 text-xs rounded border border-input bg-background text-foreground placeholder:text-muted-foreground outline-none focus:ring-1 focus:ring-primary/30 font-mono"
+                />
+              </div>
               <p className="text-xs text-muted-foreground mt-1">
-                Inserts <code className="text-primary/80">{`{{${varName.trim().replace(/\s+/g, "_") || "name"}}}`}</code> at cursor
+                Inserts <code className="text-primary/80">{`{{${varName.trim().replace(/\s+/g, "_") || "name"}${varDefault.trim() ? `:${varDefault.trim()}` : ""}}}`}</code> at cursor
               </p>
             </div>
 
@@ -1939,15 +1955,23 @@ ${skillContent}`;
                     {detectedVariables.map(v => (
                       <span
                         key={v.name}
-                        className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-primary/10 border border-primary/20 text-xs font-mono text-primary"
+                        className={cn(
+                          "inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-xs font-mono",
+                          v.defaultValue
+                            ? "bg-muted/40 border border-border/40 text-muted-foreground"
+                            : "bg-primary/10 border border-primary/20 text-primary"
+                        )}
                       >
                         <Braces className="h-2.5 w-2.5 opacity-60" />
                         {v.name}
+                        {v.defaultValue && (
+                          <span className="opacity-50">={v.defaultValue}</span>
+                        )}
                       </span>
                     ))}
                   </div>
                   <span className="text-xs text-muted-foreground/60 ml-auto shrink-0">
-                    Users will be prompted to fill these
+                    {detectedVariables.some(v => v.defaultValue) ? "Variables with defaults are optional" : "Users will be prompted to fill these"}
                   </span>
                 </div>
               )}
