@@ -195,8 +195,13 @@ class WorkerSpider(Spider):
       # Determine if we have a subdirectory path
       has_subdirectory = parsed.path and parsed.path.rstrip("/") != ""
 
-      # Try subdirectory sitemap.xml first (if there's a path)
-      sitemap_url = f"{subdirectory_base}/sitemap.xml"
+      # Check if user provided a direct sitemap URL
+      if self.start_url.endswith("sitemap.xml") or self.start_url.endswith("sitemap.xml.gz"):
+        sitemap_url = self.start_url
+      else:
+        # Try subdirectory sitemap.xml first (if there's a path)
+        sitemap_url = f"{subdirectory_base}/sitemap.xml"
+
       self.sitemap_urls_checked.append(sitemap_url)
       yield Request(
         sitemap_url,
