@@ -74,6 +74,7 @@ Visit [http://localhost:3000](http://localhost:3000)
 |----------|---------------|------------------|-------------|
 | `CAIPE_URL` | `http://localhost:8000` | `http://caipe-supervisor:8000` | URL of the CAIPE supervisor A2A endpoint |
 | `NEXT_PUBLIC_CAIPE_URL` | Same as `CAIPE_URL` | Same as `CAIPE_URL` | Client-side accessible version (auto-set) |
+| `PROMETHEUS_URL` | — | `http://prometheus:9090` | Prometheus server URL for the Admin Metrics & Health tabs (server-only, never sent to browser) |
 
 ### Configuration Priority
 
