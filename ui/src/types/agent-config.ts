@@ -661,3 +661,51 @@ export const BUILTIN_QUICK_START_TEMPLATES: AgentConfig[] = [
     },
   },
 ];
+
+// ---------------------------------------------------------------------------
+// Skill Metrics Types
+// ---------------------------------------------------------------------------
+
+export interface SkillRunStats {
+  skill_id: string;
+  skill_name: string;
+  total_runs: number;
+  completed: number;
+  failed: number;
+  success_rate: number;
+  last_run: string | null;
+  avg_duration_ms: number | null;
+}
+
+export interface SkillMetricsPersonal {
+  total_skills: number;
+  by_visibility: { private: number; team: number; global: number };
+  by_category: Array<{ category: string; count: number }>;
+  recent_skills: Array<{
+    id: string;
+    name: string;
+    visibility: SkillVisibility;
+    category: string;
+    created_at: string;
+  }>;
+  run_stats: SkillRunStats[];
+  daily_created: Array<{ date: string; count: number }>;
+}
+
+export interface SkillMetricsAdmin {
+  total_skills: number;
+  system_skills: number;
+  user_skills: number;
+  by_visibility: { private: number; team: number; global: number };
+  by_category: Array<{ category: string; count: number }>;
+  top_creators: Array<{ email: string; count: number }>;
+  daily_created: Array<{ date: string; count: number }>;
+  top_skills_by_runs: SkillRunStats[];
+  overall_run_stats: {
+    total_runs: number;
+    completed: number;
+    failed: number;
+    success_rate: number;
+    avg_duration_ms: number | null;
+  };
+}

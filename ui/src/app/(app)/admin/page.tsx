@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from "react";
 import { useSession } from "next-auth/react";
 import { motion } from "framer-motion";
-import { Users, MessageSquare, TrendingUp, Activity, Database, Share2, ShieldCheck, ShieldOff, UserPlus, Trash2, UsersIcon, Loader2, Bot, ThumbsUp, ThumbsDown, Clock, Zap, CheckCircle2, AlertCircle } from "lucide-react";
+import { Users, MessageSquare, TrendingUp, Activity, Database, Share2, ShieldCheck, ShieldOff, UserPlus, Trash2, UsersIcon, Loader2, Bot, ThumbsUp, ThumbsDown, Clock, Zap, CheckCircle2, AlertCircle, Layers } from "lucide-react";
 import { AuthGuard } from "@/components/auth-guard";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -13,10 +13,18 @@ import { CAIPESpinner } from "@/components/ui/caipe-spinner";
 import { SimpleLineChart } from "@/components/admin/SimpleLineChart";
 import { MetricsTab } from "@/components/admin/MetricsTab";
 import { HealthTab } from "@/components/admin/HealthTab";
+import {
+  VisibilityBreakdown,
+  CategoryBreakdown,
+  RunStatsTable,
+  OverallRunStatsCard,
+  TopCreatorsCard,
+} from "@/components/admin/SkillMetricsCards";
 import { CreateTeamDialog } from "@/components/admin/CreateTeamDialog";
 import { TeamDetailsDialog } from "@/components/admin/TeamDetailsDialog";
 import { apiClient } from "@/lib/api-client";
 import type { Team as TeamType } from "@/types/teams";
+import type { SkillMetricsAdmin } from "@/types/agent-config";
 
 interface AdminStats {
   overview: {
@@ -91,6 +99,7 @@ interface Team {
 function AdminPage() {
   const { status } = useSession();
   const [stats, setStats] = useState<AdminStats | null>(null);
+  const [skillStats, setSkillStats] = useState<SkillMetricsAdmin | null>(null);
   const [users, setUsers] = useState<UserInfo[]>([]);
   const [teams, setTeams] = useState<Team[]>([]);
   const [loading, setLoading] = useState(true);
@@ -115,11 +124,12 @@ function AdminPage() {
     setError(null);
 
     try {
-      // Fetch stats, users, and teams in parallel
-      const [statsRes, usersRes, teamsRes] = await Promise.all([
+      // Fetch stats, users, teams, and skill metrics in parallel
+      const [statsRes, usersRes, teamsRes, skillStatsRes] = await Promise.all([
         fetch('/api/admin/stats'),
         fetch('/api/admin/users'),
         fetch('/api/admin/teams').catch(() => null),
+        fetch('/api/admin/stats/skills').catch(() => null),
       ]);
 
       // Check for auth errors first (401/403)
@@ -154,6 +164,13 @@ function AdminPage() {
 
       if (teamsResponse.success) {
         setTeams(teamsResponse.data.teams || []);
+      }
+
+      if (skillStatsRes?.ok) {
+        const skillStatsResponse = await skillStatsRes.json().catch(() => ({ success: false }));
+        if (skillStatsResponse.success) {
+          setSkillStats(skillStatsResponse.data);
+        }
       }
     } catch (err: any) {
       console.error('[Admin] Failed to load data:', err);
@@ -334,6 +351,10 @@ function AdminPage() {
                   <UsersIcon className="h-4 w-4" />
                   Teams
                 </TabsTrigger>
+                <TabsTrigger value="skills" className="gap-2">
+                  <Layers className="h-4 w-4" />
+                  Skills
+                </TabsTrigger>
                 <TabsTrigger value="stats" className="gap-2">
                   <TrendingUp className="h-4 w-4" />
                   Statistics
@@ -505,6 +526,137 @@ function AdminPage() {
                     )}
                   </CardContent>
                 </Card>
+              </TabsContent>
+
+              {/* Skills Tab */}
+              <TabsContent value="skills" className="space-y-4">
+                {skillStats ? (
+                  <>
+                    {/* Overview Cards */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                      <Card>
+                        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                          <CardTitle className="text-sm font-medium">Total Skills</CardTitle>
+                          <Layers className="h-4 w-4 text-muted-foreground" />
+                        </CardHeader>
+                        <CardContent>
+                          <div className="text-2xl font-bold">{skillStats.total_skills}</div>
+                          <p className="text-xs text-muted-foreground mt-1">
+                            {skillStats.system_skills} system, {skillStats.user_skills} user-created
+                          </p>
+                        </CardContent>
+                      </Card>
+                      <Card>
+                        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                          <CardTitle className="text-sm font-medium">User Skills</CardTitle>
+                          <Users className="h-4 w-4 text-muted-foreground" />
+                        </CardHeader>
+                        <CardContent>
+                          <div className="text-2xl font-bold">{skillStats.user_skills}</div>
+                          <p className="text-xs text-muted-foreground mt-1">
+                            by {skillStats.top_creators.length} creator{skillStats.top_creators.length !== 1 ? "s" : ""}
+                          </p>
+                        </CardContent>
+                      </Card>
+                      <Card>
+                        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                          <CardTitle className="text-sm font-medium">Total Runs</CardTitle>
+                          <Zap className="h-4 w-4 text-muted-foreground" />
+                        </CardHeader>
+                        <CardContent>
+                          <div className="text-2xl font-bold">{skillStats.overall_run_stats.total_runs}</div>
+                          <p className="text-xs text-muted-foreground mt-1">
+                            {skillStats.overall_run_stats.success_rate}% success rate
+                          </p>
+                        </CardContent>
+                      </Card>
+                      <Card>
+                        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                          <CardTitle className="text-sm font-medium">Categories</CardTitle>
+                          <Activity className="h-4 w-4 text-muted-foreground" />
+                        </CardHeader>
+                        <CardContent>
+                          <div className="text-2xl font-bold">{skillStats.by_category.length}</div>
+                          <p className="text-xs text-muted-foreground mt-1">
+                            unique categories
+                          </p>
+                        </CardContent>
+                      </Card>
+                    </div>
+
+                    {/* Visibility + Category Breakdown */}
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                      <Card>
+                        <CardHeader>
+                          <CardTitle className="text-base">Visibility Breakdown</CardTitle>
+                          <CardDescription>User-created skills by sharing scope</CardDescription>
+                        </CardHeader>
+                        <CardContent>
+                          <VisibilityBreakdown
+                            byVisibility={skillStats.by_visibility}
+                            total={skillStats.user_skills}
+                          />
+                        </CardContent>
+                      </Card>
+
+                      <Card>
+                        <CardHeader>
+                          <CardTitle className="text-base">Skills by Category</CardTitle>
+                          <CardDescription>Distribution across categories</CardDescription>
+                        </CardHeader>
+                        <CardContent>
+                          <CategoryBreakdown byCategory={skillStats.by_category} />
+                        </CardContent>
+                      </Card>
+                    </div>
+
+                    {/* Creation Timeline */}
+                    {skillStats.daily_created.length > 0 && (
+                      <Card>
+                        <CardHeader>
+                          <CardTitle>Skills Created (Last 30 Days)</CardTitle>
+                          <CardDescription>New user-created skills per day</CardDescription>
+                        </CardHeader>
+                        <CardContent>
+                          <SimpleLineChart
+                            data={skillStats.daily_created.map((d) => ({
+                              label: new Date(d.date).toLocaleDateString("en-US", {
+                                month: "short",
+                                day: "numeric",
+                              }),
+                              value: d.count,
+                            }))}
+                            height={200}
+                            color="rgb(139, 92, 246)"
+                          />
+                        </CardContent>
+                      </Card>
+                    )}
+
+                    {/* Top Creators + Run Performance */}
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                      <TopCreatorsCard creators={skillStats.top_creators} />
+                      <OverallRunStatsCard stats={skillStats.overall_run_stats} />
+                    </div>
+
+                    {/* Top Skills by Runs */}
+                    <RunStatsTable
+                      runStats={skillStats.top_skills_by_runs}
+                      title="Top Skills by Usage"
+                      description="Most frequently executed skills across the platform"
+                    />
+                  </>
+                ) : (
+                  <Card>
+                    <CardContent className="pt-6 text-center py-12">
+                      <Layers className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+                      <h3 className="text-lg font-semibold mb-2">No Skill Data</h3>
+                      <p className="text-muted-foreground">
+                        Skill metrics will appear once users start creating skills.
+                      </p>
+                    </CardContent>
+                  </Card>
+                )}
               </TabsContent>
 
               {/* Usage Statistics Tab */}
