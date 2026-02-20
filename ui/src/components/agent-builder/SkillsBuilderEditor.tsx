@@ -63,6 +63,7 @@ import {
   Square,
   Undo2,
   Redo2,
+  Download,
 } from "lucide-react";
 import { useSession } from "next-auth/react";
 import { Button } from "@/components/ui/button";
@@ -911,6 +912,21 @@ export function SkillsBuilderEditor({
     setRedoAvailable(stack.length > 0);
   }, [skillContent]);
 
+  const handleDownloadSkillMd = useCallback(() => {
+    const fileName = formData.name
+      ? `${formData.name.toLowerCase().replace(/\s+/g, "-")}-SKILL.md`
+      : "SKILL.md";
+    const blob = new Blob([skillContent], { type: "text/markdown;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = fileName;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }, [skillContent, formData.name]);
+
   // AI skill generation state
   const [aiStatus, setAiStatus] = useState<"idle" | "generating" | "enhancing">("idle");
   const [aiGenerateInput, setAiGenerateInput] = useState("");
@@ -1465,7 +1481,7 @@ ${skillContent}`;
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: -4 }}
                   transition={{ duration: 0.12 }}
-                  className="absolute right-0 top-full mt-1 w-72 max-h-80 overflow-y-auto rounded-lg border border-border bg-popover shadow-xl shadow-black/20 z-50"
+                  className="absolute right-0 top-full mt-1 w-72 max-h-80 overflow-y-auto rounded-lg border border-border bg-popover shadow-xl shadow-black/20 z-[9999]"
                 >
                   <div className="p-1.5 space-y-0.5">
                     <button
@@ -1768,6 +1784,16 @@ ${skillContent}`;
                     title="Redo (Ctrl+Y)"
                   >
                     <Redo2 className="h-3.5 w-3.5" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground"
+                    onClick={handleDownloadSkillMd}
+                    disabled={!skillContent.trim()}
+                    title="Download SKILL.md"
+                  >
+                    <Download className="h-3.5 w-3.5" />
                   </Button>
                   <div className="w-px h-4 bg-border/50 mx-0.5" />
                   <div className="relative">
