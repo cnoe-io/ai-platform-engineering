@@ -47,8 +47,6 @@ import {
   HardDrive,
   Wrench,
   ExternalLink,
-  PanelLeftClose,
-  PanelLeftOpen,
   Import,
   Lock,
   Globe,
@@ -840,10 +838,11 @@ export function SkillsBuilderEditor({
   const [templatesLoading, setTemplatesLoading] = useState(false);
 
   // Panel visibility
-  const [sidebarOpen, setSidebarOpen] = useState(true);
   const [previewOpen, setPreviewOpen] = useState(true);
   const [showImportPanel, setShowImportPanel] = useState(false);
   const [metadataExpanded, setMetadataExpanded] = useState(true);
+  const [showTemplateMenu, setShowTemplateMenu] = useState(false);
+  const templateMenuRef = useRef<HTMLDivElement>(null);
 
   // Template reference
   const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null);
@@ -1023,6 +1022,17 @@ export function SkillsBuilderEditor({
     if (open) document.body.style.overflow = "hidden";
     return () => { document.body.style.overflow = ""; };
   }, [open, inline]);
+
+  useEffect(() => {
+    if (!showTemplateMenu) return;
+    const handler = (e: MouseEvent) => {
+      if (templateMenuRef.current && !templateMenuRef.current.contains(e.target as Node)) {
+        setShowTemplateMenu(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [showTemplateMenu]);
 
   const handleInputChange = (field: string, value: string) => {
     setFormData(prev => ({ ...prev, [field]: value }));
@@ -1437,10 +1447,89 @@ ${skillContent}`;
         </div>
 
         <div className="flex items-center gap-1.5">
-          <Button variant="outline" size="sm" className="gap-1 text-xs h-7 px-2" onClick={() => setSidebarOpen(!sidebarOpen)}>
-            {sidebarOpen ? <PanelLeftClose className="h-3 w-3" /> : <PanelLeftOpen className="h-3 w-3" />}
-            Templates
-          </Button>
+          <div className="relative" ref={templateMenuRef}>
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-1 text-xs h-7 px-2"
+              onClick={() => setShowTemplateMenu(!showTemplateMenu)}
+            >
+              <BookOpen className="h-3 w-3" />
+              Load Template
+              <ChevronDown className={cn("h-3 w-3 transition-transform", showTemplateMenu && "rotate-180")} />
+            </Button>
+            <AnimatePresence>
+              {showTemplateMenu && (
+                <motion.div
+                  initial={{ opacity: 0, y: -4 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -4 }}
+                  transition={{ duration: 0.12 }}
+                  className="absolute right-0 top-full mt-1 w-72 max-h-80 overflow-y-auto rounded-lg border border-border bg-popover shadow-xl shadow-black/20 z-50"
+                >
+                  <div className="p-1.5 space-y-0.5">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSkillContent(createBlankSkillMd());
+                        setFormData(prev => ({ ...prev, name: "", description: "" }));
+                        setTags([]);
+                        setSelectedTemplateId(null);
+                        setShowTemplateMenu(false);
+                      }}
+                      className={cn(
+                        "w-full text-left p-2 rounded-md transition-colors hover:bg-muted/50 border border-transparent",
+                        !selectedTemplateId && "bg-muted/30 border-border/50"
+                      )}
+                    >
+                      <div className="flex items-center gap-2">
+                        <FileCode className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium truncate">Blank Skill</p>
+                          <p className="text-xs text-muted-foreground truncate">Start from scratch</p>
+                        </div>
+                      </div>
+                    </button>
+
+                    {templatesLoading && (
+                      <div className="flex items-center gap-2 p-2 text-muted-foreground">
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        <span className="text-xs">Loading templates...</span>
+                      </div>
+                    )}
+
+                    {skillTemplates.map(template => {
+                      const TemplateIcon = ICON_MAP[template.icon] || Zap;
+                      const isSelected = selectedTemplateId === template.id;
+                      return (
+                        <button
+                          key={template.id}
+                          type="button"
+                          onClick={() => {
+                            setSelectedTemplateId(template.id);
+                            handleLoadTemplate(template);
+                            setShowTemplateMenu(false);
+                          }}
+                          className={cn(
+                            "w-full text-left p-2 rounded-md transition-colors hover:bg-muted/50 border border-transparent",
+                            isSelected && "bg-primary/10 border-primary/30"
+                          )}
+                        >
+                          <div className="flex items-center gap-2">
+                            <TemplateIcon className={cn("h-4 w-4 shrink-0", isSelected ? "text-primary" : "text-muted-foreground")} />
+                            <div className="min-w-0 flex-1">
+                              <p className="text-sm font-medium truncate">{template.title}</p>
+                              <p className="text-xs text-muted-foreground line-clamp-1">{template.description}</p>
+                            </div>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
           <Button variant="outline" size="sm" className="gap-1 text-xs h-7 px-2" onClick={() => setShowImportPanel(!showImportPanel)}>
             <Upload className="h-3 w-3" />
             Import
@@ -1646,86 +1735,8 @@ ${skillContent}`;
         </AnimatePresence>
       </div>
 
-      {/* ─── Main Content: Template Sidebar | Editor | Preview ──── */}
+      {/* ─── Main Content: Editor | Preview ──────────────────────── */}
       <div className="flex-1 flex min-h-0 overflow-hidden">
-
-        {/* Left Sidebar: Template Browser */}
-        <AnimatePresence>
-          {sidebarOpen && (
-            <motion.aside
-              initial={{ width: 0, opacity: 0 }}
-              animate={{ width: 260, opacity: 1 }}
-              exit={{ width: 0, opacity: 0 }}
-              transition={{ duration: 0.2 }}
-              className="shrink-0 border-r border-border/50 flex flex-col overflow-hidden"
-            >
-              <div className="px-3 py-2 border-b border-border/50">
-                <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                  Skill Templates
-                </h2>
-              </div>
-              <ScrollArea className="flex-1">
-                <div className="p-1.5 space-y-0.5">
-                  {/* Blank */}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setSkillContent(createBlankSkillMd());
-                      setFormData(prev => ({ ...prev, name: "", description: "" }));
-                      setTags([]);
-                      setSelectedTemplateId(null);
-                    }}
-                    className={cn(
-                      "w-full text-left p-2 rounded-md transition-colors hover:bg-muted/50 border border-transparent",
-                      !selectedTemplateId && "bg-muted/30 border-border/50"
-                    )}
-                  >
-                    <div className="flex items-center gap-2">
-                      <FileCode className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-                      <div className="min-w-0">
-                        <p className="text-sm font-medium truncate">Blank Skill</p>
-                        <p className="text-xs text-muted-foreground truncate">Start from scratch</p>
-                      </div>
-                    </div>
-                  </button>
-
-                  {templatesLoading && (
-                    <div className="flex items-center gap-2 p-2 text-muted-foreground">
-                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                      <span className="text-xs">Loading templates...</span>
-                    </div>
-                  )}
-
-                  {skillTemplates.map(template => {
-                    const TemplateIcon = ICON_MAP[template.icon] || Zap;
-                    const isSelected = selectedTemplateId === template.id;
-                    return (
-                      <button
-                        key={template.id}
-                        type="button"
-                        onClick={() => { setSelectedTemplateId(template.id); handleLoadTemplate(template); }}
-                        className={cn(
-                          "w-full text-left p-2 rounded-md transition-colors hover:bg-muted/50 border border-transparent",
-                          isSelected && "bg-primary/10 border-primary/30"
-                        )}
-                      >
-                        <div className="flex items-center gap-2">
-                          <TemplateIcon className={cn("h-4 w-4 shrink-0", isSelected ? "text-primary" : "text-muted-foreground")} />
-                          <div className="min-w-0 flex-1">
-                            <p className="text-sm font-medium truncate">{template.title}</p>
-                            <p className="text-xs text-muted-foreground line-clamp-1">{template.description}</p>
-                          </div>
-                        </div>
-                      </button>
-                    );
-                  })}
-                </div>
-              </ScrollArea>
-
-            </motion.aside>
-          )}
-        </AnimatePresence>
-
         {/* Editor + Preview (resizable panels) */}
         <PanelGroup orientation="horizontal" className="flex-1">
           {/* Editor Panel */}

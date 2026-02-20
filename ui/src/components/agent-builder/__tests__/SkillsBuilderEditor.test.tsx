@@ -459,6 +459,8 @@ describe("SkillsBuilderEditor — template loading", () => {
   it("populates name, description, and skillContent when a template is selected", async () => {
     renderEditor();
 
+    fireEvent.click(screen.getByRole("button", { name: /load template/i }));
+
     await waitFor(() => {
       expect(screen.getByText("PR Review")).toBeInTheDocument();
     });
@@ -472,18 +474,21 @@ describe("SkillsBuilderEditor — template loading", () => {
     expect(editor.value).toContain("pr-review");
   });
 
-  it("Blank Skill button is rendered and can be clicked without error", async () => {
+  it("Load Template menu shows Blank Skill and template list", async () => {
     renderEditor();
+
+    fireEvent.click(screen.getByRole("button", { name: /load template/i }));
 
     await waitFor(() => {
       expect(screen.getByText("Blank Skill")).toBeInTheDocument();
+      expect(screen.getByText("Start from scratch")).toBeInTheDocument();
     });
-
-    expect(screen.getByText("Start from scratch")).toBeInTheDocument();
   });
 
   it("loads the second template with different content", async () => {
     renderEditor();
+
+    fireEvent.click(screen.getByRole("button", { name: /load template/i }));
 
     await waitFor(() => {
       expect(screen.getByText("Deployment Check")).toBeInTheDocument();
@@ -696,34 +701,38 @@ describe("SkillsBuilderEditor — TagInput", () => {
 // Sidebar and preview toggles
 // ---------------------------------------------------------------------------
 
-describe("SkillsBuilderEditor — sidebar and preview toggles", () => {
-  it("clicking Templates button toggles sidebar off", async () => {
+describe("SkillsBuilderEditor — template menu and preview toggles", () => {
+  it("clicking Load Template button opens dropdown with templates", async () => {
     renderEditor();
 
-    await waitFor(() => {
-      expect(screen.getByText("Skill Templates")).toBeInTheDocument();
-    });
+    expect(screen.queryByText("Blank Skill")).not.toBeInTheDocument();
 
-    const templatesBtn = screen.getByRole("button", { name: /templates/i });
-    fireEvent.click(templatesBtn);
+    const loadBtn = screen.getByRole("button", { name: /load template/i });
+    fireEvent.click(loadBtn);
 
     await waitFor(() => {
-      expect(screen.queryByText("Skill Templates")).not.toBeInTheDocument();
+      expect(screen.getByText("Blank Skill")).toBeInTheDocument();
     });
-  });
-
-  it("sidebar shows Blank Skill and template list", async () => {
-    renderEditor();
-
-    await waitFor(() => {
-      expect(screen.getByText("Skill Templates")).toBeInTheDocument();
-    });
-
-    expect(screen.getByText("Blank Skill")).toBeInTheDocument();
 
     await waitFor(() => {
       expect(screen.getByText("PR Review")).toBeInTheDocument();
       expect(screen.getByText("Deployment Check")).toBeInTheDocument();
+    });
+  });
+
+  it("clicking a template in the menu loads it and closes menu", async () => {
+    renderEditor();
+
+    fireEvent.click(screen.getByRole("button", { name: /load template/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText("PR Review")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByText("PR Review"));
+
+    await waitFor(() => {
+      expect(screen.queryByText("Deployment Check")).not.toBeInTheDocument();
     });
   });
 
