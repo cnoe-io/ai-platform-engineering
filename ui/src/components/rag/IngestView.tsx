@@ -882,7 +882,7 @@ export default function IngestView() {
                                 Respect robots.txt
                               </span>
                             </label>
-                            {crawlMode === 'recursive' && (
+                            {(crawlMode === 'recursive' || crawlMode === 'sitemap') && (
                               <label className="flex items-center gap-2 cursor-pointer">
                                 <input
                                   type="checkbox"
