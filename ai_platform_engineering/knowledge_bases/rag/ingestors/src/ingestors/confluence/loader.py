@@ -402,6 +402,7 @@ class ConfluenceLoader:
                         all_documents = []
 
                 # Update progress
+                await self.job_manager.increment_document_count(job_id, 1)
                 await self.job_manager.increment_progress(job_id)
                 await self.job_manager.upsert_job(
                     job_id, message=f"Processed page: {page.get('title', page_id)}"
