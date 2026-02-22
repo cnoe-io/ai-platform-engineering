@@ -13,7 +13,6 @@ import {
   Database,
   Shield,
 } from "lucide-react";
-import { ThemeToggle } from "@/components/theme-toggle";
 import { UserMenu } from "@/components/user-menu";
 import { SettingsPanel } from "@/components/settings-panel";
 import { Button } from "@/components/ui/button";
@@ -462,10 +461,9 @@ export function AppHeader() {
           </Popover>
         </div>
 
-        {/* UI Personalization, Theme, Links & User */}
+        {/* Personalization, Links & User */}
         <div className="flex items-center gap-1 border-l border-border pl-3">
           <SettingsPanel />
-          <ThemeToggle />
           {config.docsUrl && (
             <Button variant="ghost" size="icon" className="h-8 w-8" asChild>
               <a

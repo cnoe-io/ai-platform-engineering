@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { X, Type, Palette, Monitor, Check, Cloud, CloudOff } from "lucide-react";
+import { X, Type, Palette, Monitor, Check, Cloud, CloudOff, ChevronDown } from "lucide-react";
 import { useTheme } from "next-themes";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -516,20 +516,22 @@ export function SettingsPanel() {
       </AnimatePresence>
   );
 
+  const currentTheme = themes.find((t) => t.id === theme) || themes[0];
+
   return (
     <>
-      {/* UI Personalization Button */}
       <Button
         variant="ghost"
-        size="icon"
-        className="h-8 w-8"
+        size="sm"
+        className="gap-1.5 text-xs h-8"
         onClick={() => setOpen(true)}
         title="UI Personalization"
       >
-        <Palette className="h-4 w-4" />
+        <Palette className="h-3.5 w-3.5" />
+        <span className="hidden sm:inline">{currentTheme.label}</span>
+        <ChevronDown className="h-3 w-3" />
       </Button>
 
-      {/* Render modal in portal to ensure it's above everything */}
       {typeof document !== "undefined" && createPortal(modalContent, document.body)}
     </>
   );

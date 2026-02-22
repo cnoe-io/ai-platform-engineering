@@ -140,10 +140,6 @@ jest.mock('@/components/ui/popover', () => ({
   }),
 }))
 
-jest.mock('@/components/theme-toggle', () => ({
-  ThemeToggle: () => <div data-testid="theme-toggle" />,
-}))
-
 jest.mock('@/components/user-menu', () => ({
   UserMenu: () => <div data-testid="user-menu" />,
 }))
@@ -271,11 +267,6 @@ describe('AppHeader — nav tabs', () => {
     it('renders UserMenu', () => {
       render(<AppHeader />)
       expect(screen.getByTestId('user-menu')).toBeInTheDocument()
-    })
-
-    it('renders ThemeToggle', () => {
-      render(<AppHeader />)
-      expect(screen.getByTestId('theme-toggle')).toBeInTheDocument()
     })
 
     it('renders SettingsPanel', () => {
