@@ -55,6 +55,17 @@ jest.mock('react-dom', () => ({
   createPortal: (node: any) => node,
 }));
 
+// Mock config — defaults can be overridden per test via mockConfigValues
+let mockConfigValues: Record<string, any> = {
+  defaultFontSize: 'medium',
+  defaultFontFamily: 'inter',
+  defaultTheme: 'dark',
+  defaultGradientTheme: 'default',
+};
+jest.mock('@/lib/config', () => ({
+  getConfig: (key: string) => mockConfigValues[key],
+}));
+
 // ============================================================================
 // Helpers
 // ============================================================================
@@ -88,6 +99,12 @@ function resetMocks() {
   mockTheme = 'dark';
   mockGetSettings.mockReset();
   mockUpdatePreferences.mockReset();
+  mockConfigValues = {
+    defaultFontSize: 'medium',
+    defaultFontFamily: 'inter',
+    defaultTheme: 'dark',
+    defaultGradientTheme: 'default',
+  };
   // Default: server unavailable (localStorage-only mode)
   mockGetSettings.mockRejectedValue(new Error('Not configured'));
   mockUpdatePreferences.mockResolvedValue({});
@@ -521,6 +538,121 @@ describe('SettingsPanel', () => {
       // localStorage should still have the value despite server failure
       expect(localStorageMock.setItem).toHaveBeenCalledWith('caipe-font-size', 'large');
       expect(document.body.getAttribute('data-font-size')).toBe('large');
+    });
+  });
+
+  // --------------------------------------------------------------------------
+  // Environment-Driven Defaults
+  // --------------------------------------------------------------------------
+
+  describe('Environment-Driven Defaults', () => {
+    it('uses env-configured font size when no localStorage value exists', async () => {
+      mockConfigValues.defaultFontSize = 'large';
+
+      await act(async () => {
+        render(<SettingsPanel />);
+      });
+
+      expect(document.body.getAttribute('data-font-size')).toBe('large');
+    });
+
+    it('uses env-configured font family when no localStorage value exists', async () => {
+      mockConfigValues.defaultFontFamily = 'ibm-plex';
+
+      await act(async () => {
+        render(<SettingsPanel />);
+      });
+
+      expect(document.body.getAttribute('data-font-family')).toBe('ibm-plex');
+    });
+
+    it('uses env-configured gradient theme when no localStorage value exists', async () => {
+      mockConfigValues.defaultGradientTheme = 'ocean';
+
+      await act(async () => {
+        render(<SettingsPanel />);
+      });
+
+      expect(document.documentElement.getAttribute('data-gradient-theme')).toBe('ocean');
+    });
+
+    it('applies all env-configured defaults together', async () => {
+      mockConfigValues.defaultFontSize = 'x-large';
+      mockConfigValues.defaultFontFamily = 'source-sans';
+      mockConfigValues.defaultGradientTheme = 'sunset';
+
+      await act(async () => {
+        render(<SettingsPanel />);
+      });
+
+      expect(document.body.getAttribute('data-font-size')).toBe('x-large');
+      expect(document.body.getAttribute('data-font-family')).toBe('source-sans');
+      expect(document.documentElement.getAttribute('data-gradient-theme')).toBe('sunset');
+    });
+
+    it('localStorage takes precedence over env-configured defaults', async () => {
+      mockConfigValues.defaultFontSize = 'large';
+      mockConfigValues.defaultFontFamily = 'ibm-plex';
+      mockConfigValues.defaultGradientTheme = 'ocean';
+
+      localStorageMock.setItem('caipe-font-size', 'small');
+      localStorageMock.setItem('caipe-font-family', 'system');
+      localStorageMock.setItem('caipe-gradient-theme', 'sunset');
+
+      await act(async () => {
+        render(<SettingsPanel />);
+      });
+
+      expect(document.body.getAttribute('data-font-size')).toBe('small');
+      expect(document.body.getAttribute('data-font-family')).toBe('system');
+      expect(document.documentElement.getAttribute('data-gradient-theme')).toBe('sunset');
+    });
+
+    it('server preferences take precedence over env-configured defaults', async () => {
+      mockConfigValues.defaultFontSize = 'large';
+      mockConfigValues.defaultFontFamily = 'ibm-plex';
+      mockConfigValues.defaultGradientTheme = 'ocean';
+
+      mockGetSettings.mockResolvedValue({
+        preferences: {
+          font_size: 'small',
+          font_family: 'source-sans',
+          gradient_theme: 'minimal',
+          theme: 'tokyo',
+        },
+      });
+
+      await act(async () => {
+        render(<SettingsPanel />);
+      });
+
+      await act(async () => {
+        jest.runAllTimers();
+      });
+
+      await waitFor(() => {
+        expect(document.body.getAttribute('data-font-size')).toBe('small');
+        expect(document.body.getAttribute('data-font-family')).toBe('source-sans');
+        expect(document.documentElement.getAttribute('data-gradient-theme')).toBe('minimal');
+      });
+
+      expect(mockSetTheme).toHaveBeenCalledWith('tokyo');
+    });
+
+    it('shows correct selection in panel when env default is active', async () => {
+      mockConfigValues.defaultFontSize = 'x-large';
+
+      await act(async () => {
+        render(<SettingsPanel />);
+      });
+
+      await act(async () => {
+        fireEvent.click(screen.getByTitle('UI Personalization'));
+      });
+
+      // The "Extra Large" option should be the active one (has check icon)
+      const xlButton = screen.getByText('Extra Large').closest('button');
+      expect(xlButton?.className).toContain('border-primary');
     });
   });
 });

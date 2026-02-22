@@ -90,6 +90,14 @@ export interface Config {
    * Set WORKFLOW_RUNNER_ENABLED=true to enable.
    */
   workflowRunnerEnabled: boolean;
+  /** Default font size for new users: "small" | "medium" | "large" | "x-large" */
+  defaultFontSize: string;
+  /** Default font family for new users: "inter" | "source-sans" | "ibm-plex" | "system" */
+  defaultFontFamily: string;
+  /** Default color theme: "light" | "dark" | "midnight" | "nord" | "tokyo" | "cyberpunk" | "tron" | "matrix" */
+  defaultTheme: string;
+  /** Default gradient theme: "default" | "minimal" | "professional" | "ocean" | "sunset" */
+  defaultGradientTheme: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -103,6 +111,15 @@ const DEFAULT_LOGO_URL = '/logo.svg';
 const DEFAULT_GRADIENT_FROM = 'hsl(173,80%,40%)';
 const DEFAULT_GRADIENT_TO = 'hsl(270,75%,60%)';
 const DEFAULT_SUPPORT_EMAIL = 'support@example.com';
+const DEFAULT_FONT_SIZE = 'medium';
+const DEFAULT_FONT_FAMILY = 'inter';
+const DEFAULT_THEME = 'dark';
+const DEFAULT_GRADIENT_THEME = 'default';
+
+const VALID_FONT_SIZES = ['small', 'medium', 'large', 'x-large'];
+const VALID_FONT_FAMILIES = ['inter', 'source-sans', 'ibm-plex', 'system'];
+const VALID_THEMES = ['light', 'dark', 'midnight', 'nord', 'tokyo', 'cyberpunk', 'tron', 'matrix'];
+const VALID_GRADIENT_THEMES = ['default', 'minimal', 'professional', 'ocean', 'sunset'];
 
 /** Default config used as client fallback before the layout script executes. */
 const DEFAULT_CONFIG: Config = {
@@ -131,6 +148,10 @@ const DEFAULT_CONFIG: Config = {
   docsUrl: null,
   sourceUrl: null,
   workflowRunnerEnabled: false,
+  defaultFontSize: DEFAULT_FONT_SIZE,
+  defaultFontFamily: DEFAULT_FONT_FAMILY,
+  defaultTheme: DEFAULT_THEME,
+  defaultGradientTheme: DEFAULT_GRADIENT_THEME,
 };
 
 // ---------------------------------------------------------------------------
@@ -161,6 +182,11 @@ export function getServerOnlyConfig(): ServerOnlyConfig {
     prometheusUrl: env('PROMETHEUS_URL') || null,
   };
   return _serverOnlyConfig;
+}
+
+/** Return value if it's in the allowed list, otherwise return fallback. */
+function validated(value: string | undefined, allowed: string[], fallback: string): string {
+  return value && allowed.includes(value) ? value : fallback;
 }
 
 /**
@@ -225,6 +251,10 @@ export function getServerConfig(): Config {
     docsUrl: env('DOCS_URL') || null,
     sourceUrl: env('SOURCE_URL') || null,
     workflowRunnerEnabled,
+    defaultFontSize: validated(env('DEFAULT_FONT_SIZE'), VALID_FONT_SIZES, DEFAULT_FONT_SIZE),
+    defaultFontFamily: validated(env('DEFAULT_FONT_FAMILY'), VALID_FONT_FAMILIES, DEFAULT_FONT_FAMILY),
+    defaultTheme: validated(env('DEFAULT_THEME'), VALID_THEMES, DEFAULT_THEME),
+    defaultGradientTheme: validated(env('DEFAULT_GRADIENT_THEME'), VALID_GRADIENT_THEMES, DEFAULT_GRADIENT_THEME),
   };
 }
 

@@ -312,6 +312,11 @@ const sidebars: SidebarsConfig = {
         },
         {
           type: 'doc',
+          id: 'ui/customization',
+          label: 'Customization & Branding',
+        },
+        {
+          type: 'doc',
           id: 'ui/development',
           label: 'Development Guide',
         },

@@ -52,6 +52,24 @@ const themes = [
     icon: Palette,
     description: "Vibrant purple-blue inspired by Tokyo",
   },
+  {
+    value: "cyberpunk",
+    label: "Cyberpunk",
+    icon: Palette,
+    description: "Neon pink and cyan, dystopian vibes",
+  },
+  {
+    value: "tron",
+    label: "Tron",
+    icon: Palette,
+    description: "Digital frontier, glowing cyan on black",
+  },
+  {
+    value: "matrix",
+    label: "Matrix",
+    icon: Palette,
+    description: "Green phosphor rain, digital downpour",
+  },
 ];
 
 export function ThemeToggle() {
@@ -193,7 +211,7 @@ export function ThemeQuickToggle() {
     );
   }
 
-  const isDark = resolvedTheme === "dark" || resolvedTheme?.includes("night") || resolvedTheme === "midnight" || resolvedTheme === "nord";
+  const isDark = resolvedTheme === "dark" || resolvedTheme?.includes("night") || resolvedTheme === "midnight" || resolvedTheme === "nord" || resolvedTheme === "cyberpunk" || resolvedTheme === "tron" || resolvedTheme === "matrix";
 
   return (
     <Button

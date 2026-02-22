@@ -8,6 +8,7 @@ import { useTheme } from "next-themes";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { apiClient } from "@/lib/api-client";
+import { getConfig } from "@/lib/config";
 
 // Font size options
 const fontSizes = [
@@ -32,6 +33,9 @@ const themes = [
   { id: "midnight", label: "Midnight", description: "Pure black (OLED)" },
   { id: "nord", label: "Nord", description: "Arctic cool" },
   { id: "tokyo", label: "Tokyo Night", description: "Vibrant purple" },
+  { id: "cyberpunk", label: "Cyberpunk", description: "Neon pink & cyan" },
+  { id: "tron", label: "Tron", description: "Digital cyan glow" },
+  { id: "matrix", label: "Matrix", description: "Green phosphor rain" },
 ] as const;
 
 // Gradient theme options
@@ -88,9 +92,14 @@ type SyncStatus = 'idle' | 'syncing' | 'synced' | 'error';
 export function SettingsPanel() {
   const [open, setOpen] = useState(false);
   const { theme, setTheme } = useTheme();
-  const [fontSize, setFontSize] = useState<FontSize>("medium");
-  const [fontFamily, setFontFamily] = useState<FontFamily>("inter");
-  const [gradientTheme, setGradientTheme] = useState<GradientTheme>("default");
+
+  const configFontSize = getConfig('defaultFontSize') as FontSize;
+  const configFontFamily = getConfig('defaultFontFamily') as FontFamily;
+  const configGradientTheme = getConfig('defaultGradientTheme') as GradientTheme;
+
+  const [fontSize, setFontSize] = useState<FontSize>(configFontSize);
+  const [fontFamily, setFontFamily] = useState<FontFamily>(configFontFamily);
+  const [gradientTheme, setGradientTheme] = useState<GradientTheme>(configGradientTheme);
   const [mounted, setMounted] = useState(false);
   const [syncStatus, setSyncStatus] = useState<SyncStatus>('idle');
   const syncTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -147,25 +156,22 @@ export function SettingsPanel() {
   useEffect(() => {
     setMounted(true);
 
-    // Immediately apply from localStorage (fast)
     const savedFontSize = localStorage.getItem("caipe-font-size") as FontSize | null;
     const savedFontFamily = localStorage.getItem("caipe-font-family") as FontFamily | null;
     const savedGradientTheme = localStorage.getItem("caipe-gradient-theme") as GradientTheme | null;
 
-    if (savedFontSize) {
-      setFontSize(savedFontSize);
-      document.body.setAttribute("data-font-size", savedFontSize);
-    }
-    if (savedFontFamily) {
-      setFontFamily(savedFontFamily);
-      document.body.setAttribute("data-font-family", savedFontFamily);
-    }
-    if (savedGradientTheme) {
-      setGradientTheme(savedGradientTheme);
-      applyGradientTheme(savedGradientTheme);
-    } else {
-      applyGradientTheme("default");
-    }
+    const effectiveFontSize = savedFontSize || configFontSize;
+    const effectiveFontFamily = savedFontFamily || configFontFamily;
+    const effectiveGradientTheme = savedGradientTheme || configGradientTheme;
+
+    setFontSize(effectiveFontSize);
+    document.body.setAttribute("data-font-size", effectiveFontSize);
+
+    setFontFamily(effectiveFontFamily);
+    document.body.setAttribute("data-font-family", effectiveFontFamily);
+
+    setGradientTheme(effectiveGradientTheme);
+    applyGradientTheme(effectiveGradientTheme);
 
     // Then try to load from server (may override localStorage with cross-device prefs)
     apiClient.getSettings()
@@ -385,7 +391,10 @@ export function SettingsPanel() {
                               option.id === "dark" && "bg-[#0a0b0f] border-[#1e2028]",
                               option.id === "midnight" && "bg-black border-gray-800",
                               option.id === "nord" && "bg-[#2e3440] border-[#3b4252]",
-                              option.id === "tokyo" && "bg-[#1a1b26] border-[#24283b]"
+                              option.id === "tokyo" && "bg-[#1a1b26] border-[#24283b]",
+                              option.id === "cyberpunk" && "bg-[#120818] border-[#ff3399]",
+                              option.id === "tron" && "bg-[#080f12] border-[#00ccff]",
+                              option.id === "matrix" && "bg-[#081208] border-[#00e600]"
                             )}
                           />
                           <div>
