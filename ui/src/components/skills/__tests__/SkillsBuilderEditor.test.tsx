@@ -1211,7 +1211,7 @@ describe("SkillsBuilderEditor — AI progress overlay", () => {
     });
 
     const cancelOverlayBtn = screen.getAllByRole("button", { name: /cancel/i }).find(
-      (b) => b.textContent?.includes("Cancel") && b.closest(".absolute")
+      (b) => b.textContent?.includes("Cancel") && b.closest(".fixed")
     );
     fireEvent.click(cancelOverlayBtn!);
 
@@ -1634,5 +1634,809 @@ describe("SkillsBuilderEditor — input-required auto-reply", () => {
 
     // 1 initial + 3 retries = 4 total calls
     expect(mockSendMessageStream).toHaveBeenCalledTimes(4);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Allowed Tools (Experimental)
+// ---------------------------------------------------------------------------
+describe("SkillsBuilderEditor — Allowed Tools (Experimental)", () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  function expandToolsSection() {
+    const toolsLabel = screen.getByText("Tools");
+    const toolsBtn = toolsLabel.closest("div")?.querySelector("button");
+    fireEvent.click(toolsBtn!);
+  }
+
+  it("renders the Allowed Tools button with EXP badge in skill details row", () => {
+    renderEditor();
+    expect(screen.getByText("Tools")).toBeInTheDocument();
+    expect(screen.getByText("All")).toBeInTheDocument();
+    expect(screen.getByText("EXP")).toBeInTheDocument();
+  });
+
+  it("expands Allowed Tools section when clicked, showing built-in tool categories", async () => {
+    renderEditor();
+    expandToolsSection();
+
+    await waitFor(() => {
+      expect(screen.getByText("Sub-agents")).toBeInTheDocument();
+      expect(screen.getByText("Command-line")).toBeInTheDocument();
+      expect(screen.getByText("File I/O")).toBeInTheDocument();
+      expect(screen.getByText("Workspace")).toBeInTheDocument();
+      expect(screen.getByText("Utility")).toBeInTheDocument();
+    });
+  });
+
+  it("shows built-in tool chips that can be toggled on and off", async () => {
+    renderEditor();
+    expandToolsSection();
+
+    await waitFor(() => {
+      expect(screen.getByText("github")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByText("github").closest("button")!);
+    await waitFor(() => {
+      expect(screen.getByText("github").closest("button")!.className).toContain("bg-primary/10");
+    });
+
+    fireEvent.click(screen.getByText("github").closest("button")!);
+    await waitFor(() => {
+      expect(screen.getByText("github").closest("button")!.className).not.toContain("bg-primary/10");
+    });
+  });
+
+  it("allows adding an MCP tool URI and displays it as a removable chip", async () => {
+    renderEditor();
+    expandToolsSection();
+
+    await waitFor(() => {
+      expect(screen.getByPlaceholderText("mcp://domain/server")).toBeInTheDocument();
+    });
+
+    const mcpInput = screen.getByPlaceholderText("mcp://domain/server");
+    fireEvent.change(mcpInput, { target: { value: "mcp://my-org/rag-server" } });
+    fireEvent.keyDown(screen.getByPlaceholderText("mcp://domain/server"), { key: "Enter" });
+
+    await waitFor(() => {
+      expect(screen.getByText("mcp://my-org/rag-server")).toBeInTheDocument();
+    });
+  });
+
+  it("allows adding MCP tool via Enter key", async () => {
+    renderEditor();
+    expandToolsSection();
+
+    await waitFor(() => {
+      expect(screen.getByPlaceholderText("mcp://domain/server")).toBeInTheDocument();
+    });
+
+    fireEvent.change(screen.getByPlaceholderText("mcp://domain/server"), {
+      target: { value: "mcp://test/server" },
+    });
+
+    await waitFor(() => {
+      expect(
+        (screen.getByPlaceholderText("mcp://domain/server") as HTMLInputElement).value
+      ).toBe("mcp://test/server");
+    });
+
+    fireEvent.keyDown(screen.getByPlaceholderText("mcp://domain/server"), { key: "Enter" });
+
+    await waitFor(() => {
+      expect(screen.getByText("mcp://test/server")).toBeInTheDocument();
+    });
+  });
+
+  it("prevents duplicate MCP tools from being added", async () => {
+    renderEditor();
+    expandToolsSection();
+
+    await waitFor(() => {
+      expect(screen.getByPlaceholderText("mcp://domain/server")).toBeInTheDocument();
+    });
+
+    fireEvent.change(screen.getByPlaceholderText("mcp://domain/server"), {
+      target: { value: "mcp://dup/server" },
+    });
+    fireEvent.keyDown(screen.getByPlaceholderText("mcp://domain/server"), { key: "Enter" });
+
+    await waitFor(() => {
+      expect(screen.getByText("mcp://dup/server")).toBeInTheDocument();
+    });
+
+    fireEvent.change(screen.getByPlaceholderText("mcp://domain/server"), {
+      target: { value: "mcp://dup/server" },
+    });
+    fireEvent.keyDown(screen.getByPlaceholderText("mcp://domain/server"), { key: "Enter" });
+
+    const chips = screen.getAllByText("mcp://dup/server");
+    expect(chips).toHaveLength(1);
+  });
+
+  it("shows tool count in button when tools are selected", async () => {
+    renderEditor();
+    expandToolsSection();
+
+    await waitFor(() => {
+      expect(screen.getByText("github")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByText("github"));
+    fireEvent.click(screen.getByText("git"));
+
+    expect(screen.getByText("2")).toBeInTheDocument();
+    expect(screen.getByText(/tools?$/)).toBeInTheDocument();
+  });
+
+  it("includes allowed_tools in the save payload", async () => {
+    renderEditor();
+
+    const textboxes = screen.getAllByRole("textbox");
+    const nameInput = textboxes.find(
+      (el) => (el as HTMLInputElement).placeholder?.includes("Review a Specific PR")
+    );
+    fireEvent.change(nameInput!, { target: { value: "My Skill" } });
+
+    expandToolsSection();
+    await waitFor(() => {
+      expect(screen.getByText("github")).toBeInTheDocument();
+    });
+    fireEvent.click(screen.getByText("github"));
+    fireEvent.click(screen.getByText("argocd"));
+
+    fireEvent.click(screen.getByRole("button", { name: /save skill/i }));
+
+    await waitFor(() => {
+      expect(mockCreateConfig).toHaveBeenCalledTimes(1);
+    });
+
+    const payload = mockCreateConfig.mock.calls[0][0];
+    expect(payload.metadata.allowed_tools).toEqual(
+      expect.arrayContaining(["github", "argocd"])
+    );
+    expect(payload.metadata.allowed_tools).toHaveLength(2);
+  });
+
+  it("initializes allowed tools from existingConfig", async () => {
+    const existingConfig: AgentConfig = {
+      id: "cfg-tools",
+      name: "Tools Skill",
+      category: "DevOps",
+      tasks: [{ display_text: "Test", llm_prompt: "Do something", subagent: "caipe" }],
+      owner_id: "user@test.com",
+      is_system: false,
+      created_at: new Date(),
+      updated_at: new Date(),
+      skill_content: VALID_SKILL_CONTENT,
+      is_quick_start: true,
+      metadata: {
+        allowed_tools: ["github", "jira", "mcp://my-org/custom"],
+      },
+    };
+
+    renderEditor({ existingConfig });
+    expandToolsSection();
+
+    await waitFor(() => {
+      expect(screen.getByText("github").closest("button")).toHaveClass("bg-primary/10");
+      expect(screen.getByText("jira").closest("button")).toHaveClass("bg-primary/10");
+    });
+
+    expect(screen.getByText("mcp://my-org/custom")).toBeInTheDocument();
+  });
+
+  it("does not include allowed_tools in payload when none selected", async () => {
+    renderEditor();
+
+    const textboxes = screen.getAllByRole("textbox");
+    const nameInput = textboxes.find(
+      (el) => (el as HTMLInputElement).placeholder?.includes("Review a Specific PR")
+    );
+    fireEvent.change(nameInput!, { target: { value: "Clean Skill" } });
+
+    fireEvent.click(screen.getByRole("button", { name: /save skill/i }));
+
+    await waitFor(() => {
+      expect(mockCreateConfig).toHaveBeenCalledTimes(1);
+    });
+
+    const payload = mockCreateConfig.mock.calls[0][0];
+    expect(payload.metadata.allowed_tools).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Allowed Tools — Side Sheet UX
+// ---------------------------------------------------------------------------
+describe("SkillsBuilderEditor — Allowed Tools Side Sheet UX", () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  function openToolsSheet() {
+    const toolsLabel = screen.getByText("Tools");
+    const toolsBtn = toolsLabel.closest("div")?.querySelector("button");
+    fireEvent.click(toolsBtn!);
+  }
+
+  it("opens the side sheet with header, EXPERIMENTAL badge, and Done button", async () => {
+    renderEditor();
+    openToolsSheet();
+
+    await waitFor(() => {
+      expect(screen.getByText("Allowed Tools")).toBeInTheDocument();
+      expect(screen.getByText("EXPERIMENTAL")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /done/i })).toBeInTheDocument();
+    });
+  });
+
+  it("closes the sheet when Done is clicked", async () => {
+    renderEditor();
+    openToolsSheet();
+
+    await waitFor(() => {
+      expect(screen.getByText("Allowed Tools")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /done/i }));
+
+    await waitFor(() => {
+      expect(screen.queryByText("Allowed Tools")).not.toBeInTheDocument();
+    });
+  });
+
+  it("shows Clear all button that removes all selected tools", async () => {
+    renderEditor();
+    openToolsSheet();
+
+    await waitFor(() => {
+      expect(screen.getByText("github")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByText("github"));
+    fireEvent.click(screen.getByText("git"));
+
+    expect(screen.getByText("2")).toBeInTheDocument();
+
+    const clearBtn = screen.getByRole("button", { name: /clear all/i });
+    expect(clearBtn).not.toBeDisabled();
+    fireEvent.click(clearBtn);
+
+    await waitFor(() => {
+      expect(screen.getByText("All")).toBeInTheDocument();
+    });
+  });
+
+  it("disables Clear all when no tools are selected", async () => {
+    renderEditor();
+    openToolsSheet();
+
+    await waitFor(() => {
+      expect(screen.getByText("Allowed Tools")).toBeInTheDocument();
+    });
+
+    const clearBtn = screen.getByRole("button", { name: /clear all/i });
+    expect(clearBtn).toBeDisabled();
+  });
+
+  it("shows Custom Sub-agents / Tools section with input", async () => {
+    renderEditor();
+    openToolsSheet();
+
+    await waitFor(() => {
+      expect(screen.getByText("Custom Sub-agents / Tools")).toBeInTheDocument();
+      expect(screen.getByPlaceholderText("e.g. my_custom_agent, pdf_tools")).toBeInTheDocument();
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Allowed Tools — Custom Tools
+// ---------------------------------------------------------------------------
+describe("SkillsBuilderEditor — Custom Tools", () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  function openToolsSheet() {
+    const toolsLabel = screen.getByText("Tools");
+    const toolsBtn = toolsLabel.closest("div")?.querySelector("button");
+    fireEvent.click(toolsBtn!);
+  }
+
+  it("adds a custom tool via Enter key and shows it as a chip", async () => {
+    renderEditor();
+    openToolsSheet();
+
+    await waitFor(() => {
+      expect(screen.getByPlaceholderText("e.g. my_custom_agent, pdf_tools")).toBeInTheDocument();
+    });
+
+    fireEvent.change(screen.getByPlaceholderText("e.g. my_custom_agent, pdf_tools"), {
+      target: { value: "my_custom_agent" },
+    });
+
+    await waitFor(() => {
+      expect(
+        (screen.getByPlaceholderText("e.g. my_custom_agent, pdf_tools") as HTMLInputElement).value
+      ).toBe("my_custom_agent");
+    });
+
+    fireEvent.keyDown(screen.getByPlaceholderText("e.g. my_custom_agent, pdf_tools"), { key: "Enter" });
+
+    await waitFor(() => {
+      expect(screen.getByText("my_custom_agent")).toBeInTheDocument();
+    });
+  });
+
+  it("removes a custom tool chip when X is clicked", async () => {
+    renderEditor();
+    openToolsSheet();
+
+    await waitFor(() => {
+      expect(screen.getByPlaceholderText("e.g. my_custom_agent, pdf_tools")).toBeInTheDocument();
+    });
+
+    fireEvent.change(screen.getByPlaceholderText("e.g. my_custom_agent, pdf_tools"), {
+      target: { value: "removable_tool" },
+    });
+    await waitFor(() => {
+      expect(
+        (screen.getByPlaceholderText("e.g. my_custom_agent, pdf_tools") as HTMLInputElement).value
+      ).toBe("removable_tool");
+    });
+    fireEvent.keyDown(screen.getByPlaceholderText("e.g. my_custom_agent, pdf_tools"), { key: "Enter" });
+
+    await waitFor(() => {
+      expect(screen.getByText("removable_tool")).toBeInTheDocument();
+    });
+
+    const chip = screen.getByText("removable_tool").closest("span")!;
+    const removeBtn = chip.querySelector("button")!;
+    fireEvent.click(removeBtn);
+
+    await waitFor(() => {
+      expect(screen.queryByText("removable_tool")).not.toBeInTheDocument();
+    });
+  });
+
+  it("prevents duplicate custom tools", async () => {
+    renderEditor();
+    openToolsSheet();
+
+    await waitFor(() => {
+      expect(screen.getByPlaceholderText("e.g. my_custom_agent, pdf_tools")).toBeInTheDocument();
+    });
+
+    fireEvent.change(screen.getByPlaceholderText("e.g. my_custom_agent, pdf_tools"), {
+      target: { value: "unique_tool" },
+    });
+    await waitFor(() => {
+      expect(
+        (screen.getByPlaceholderText("e.g. my_custom_agent, pdf_tools") as HTMLInputElement).value
+      ).toBe("unique_tool");
+    });
+    fireEvent.keyDown(screen.getByPlaceholderText("e.g. my_custom_agent, pdf_tools"), { key: "Enter" });
+
+    await waitFor(() => {
+      expect(screen.getByText("unique_tool")).toBeInTheDocument();
+    });
+
+    fireEvent.change(screen.getByPlaceholderText("e.g. my_custom_agent, pdf_tools"), {
+      target: { value: "unique_tool" },
+    });
+    await waitFor(() => {
+      expect(
+        (screen.getByPlaceholderText("e.g. my_custom_agent, pdf_tools") as HTMLInputElement).value
+      ).toBe("unique_tool");
+    });
+    fireEvent.keyDown(screen.getByPlaceholderText("e.g. my_custom_agent, pdf_tools"), { key: "Enter" });
+
+    expect(screen.getAllByText("unique_tool")).toHaveLength(1);
+  });
+
+  it("clears custom input field after adding a tool", async () => {
+    renderEditor();
+    openToolsSheet();
+
+    await waitFor(() => {
+      expect(screen.getByPlaceholderText("e.g. my_custom_agent, pdf_tools")).toBeInTheDocument();
+    });
+
+    fireEvent.change(screen.getByPlaceholderText("e.g. my_custom_agent, pdf_tools"), {
+      target: { value: "some_tool" },
+    });
+    await waitFor(() => {
+      expect(
+        (screen.getByPlaceholderText("e.g. my_custom_agent, pdf_tools") as HTMLInputElement).value
+      ).toBe("some_tool");
+    });
+    fireEvent.keyDown(screen.getByPlaceholderText("e.g. my_custom_agent, pdf_tools"), { key: "Enter" });
+
+    await waitFor(() => {
+      expect(screen.getByText("some_tool")).toBeInTheDocument();
+    });
+
+    expect((screen.getByPlaceholderText("e.g. my_custom_agent, pdf_tools") as HTMLInputElement).value).toBe("");
+  });
+
+  it("includes custom tools in save payload alongside built-in tools", async () => {
+    renderEditor();
+
+    const textboxes = screen.getAllByRole("textbox");
+    const nameInput = textboxes.find(
+      (el) => (el as HTMLInputElement).placeholder?.includes("Review a Specific PR")
+    );
+    fireEvent.change(nameInput!, { target: { value: "Custom Tool Skill" } });
+
+    openToolsSheet();
+    await waitFor(() => {
+      expect(screen.getByText("github")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByText("github"));
+
+    fireEvent.change(screen.getByPlaceholderText("e.g. my_custom_agent, pdf_tools"), {
+      target: { value: "pdf_tools" },
+    });
+    await waitFor(() => {
+      expect(
+        (screen.getByPlaceholderText("e.g. my_custom_agent, pdf_tools") as HTMLInputElement).value
+      ).toBe("pdf_tools");
+    });
+    fireEvent.keyDown(screen.getByPlaceholderText("e.g. my_custom_agent, pdf_tools"), { key: "Enter" });
+
+    await waitFor(() => {
+      expect(screen.getByText("pdf_tools")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /save skill/i }));
+
+    await waitFor(() => {
+      expect(mockCreateConfig).toHaveBeenCalledTimes(1);
+    });
+
+    const payload = mockCreateConfig.mock.calls[0][0];
+    expect(payload.metadata.allowed_tools).toEqual(
+      expect.arrayContaining(["github", "pdf_tools"])
+    );
+  });
+
+  it("includes custom tools in skill_content frontmatter", async () => {
+    renderEditor();
+
+    const textboxes = screen.getAllByRole("textbox");
+    const nameInput = textboxes.find(
+      (el) => (el as HTMLInputElement).placeholder?.includes("Review a Specific PR")
+    );
+    fireEvent.change(nameInput!, { target: { value: "Frontmatter Custom Skill" } });
+
+    openToolsSheet();
+    await waitFor(() => {
+      expect(screen.getByPlaceholderText("e.g. my_custom_agent, pdf_tools")).toBeInTheDocument();
+    });
+
+    fireEvent.change(screen.getByPlaceholderText("e.g. my_custom_agent, pdf_tools"), {
+      target: { value: "my_agent" },
+    });
+    await waitFor(() => {
+      expect(
+        (screen.getByPlaceholderText("e.g. my_custom_agent, pdf_tools") as HTMLInputElement).value
+      ).toBe("my_agent");
+    });
+    fireEvent.keyDown(screen.getByPlaceholderText("e.g. my_custom_agent, pdf_tools"), { key: "Enter" });
+
+    await waitFor(() => {
+      expect(screen.getByText("my_agent")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /save skill/i }));
+
+    await waitFor(() => {
+      expect(mockCreateConfig).toHaveBeenCalledTimes(1);
+    });
+
+    const payload = mockCreateConfig.mock.calls[0][0];
+    expect(payload.skill_content).toContain("allowed-tools:");
+    expect(payload.skill_content).toContain("my_agent");
+  });
+
+  it("initializes custom tools from existing config with mixed tool types", async () => {
+    const config = makeExistingConfig({
+      skill_content: `---
+name: mixed-tools
+description: Mixed tool types.
+allowed-tools: github, pdf_tools, my_custom_agent, mcp://my-org/rag
+---
+
+# Mixed Tools
+
+Use various tools.`,
+    });
+    renderEditor({ existingConfig: config });
+    openToolsSheet();
+
+    await waitFor(() => {
+      expect(screen.getByText("Sub-agents")).toBeInTheDocument();
+    });
+
+    const githubChip = screen.getAllByRole("button").find(b => b.textContent?.trim() === "github");
+    expect(githubChip!.className).toContain("bg-primary/10");
+
+    expect(screen.getByText("pdf_tools")).toBeInTheDocument();
+    expect(screen.getByText("my_custom_agent")).toBeInTheDocument();
+    expect(screen.getByText("mcp://my-org/rag")).toBeInTheDocument();
+  });
+
+  it("counts custom tools, built-in tools, and MCP tools together in trigger badge", async () => {
+    renderEditor();
+    openToolsSheet();
+
+    await waitFor(() => {
+      expect(screen.getByText("github")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByText("github"));
+
+    fireEvent.change(screen.getByPlaceholderText("e.g. my_custom_agent, pdf_tools"), {
+      target: { value: "custom1" },
+    });
+    await waitFor(() => {
+      expect(
+        (screen.getByPlaceholderText("e.g. my_custom_agent, pdf_tools") as HTMLInputElement).value
+      ).toBe("custom1");
+    });
+    fireEvent.keyDown(screen.getByPlaceholderText("e.g. my_custom_agent, pdf_tools"), { key: "Enter" });
+
+    await waitFor(() => {
+      expect(screen.getByText("custom1")).toBeInTheDocument();
+    });
+
+    fireEvent.change(screen.getByPlaceholderText("mcp://domain/server"), {
+      target: { value: "mcp://test/srv" },
+    });
+    await waitFor(() => {
+      expect(
+        (screen.getByPlaceholderText("mcp://domain/server") as HTMLInputElement).value
+      ).toBe("mcp://test/srv");
+    });
+    fireEvent.keyDown(screen.getByPlaceholderText("mcp://domain/server"), { key: "Enter" });
+
+    await waitFor(() => {
+      expect(screen.getByText("mcp://test/srv")).toBeInTheDocument();
+    });
+
+    expect(screen.getByText("3")).toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Unsaved Changes — In-App Discard Confirmation
+// ---------------------------------------------------------------------------
+describe("SkillsBuilderEditor — unsaved changes discard confirmation", () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  function makeDirty() {
+    const textboxes = screen.getAllByRole("textbox");
+    const nameInput = textboxes.find(
+      (el) => (el as HTMLInputElement).placeholder?.includes("Review a Specific PR")
+    );
+    fireEvent.change(nameInput!, { target: { value: "Dirty Skill" } });
+  }
+
+  it("shows discard confirmation bar when closing with unsaved changes via X button", async () => {
+    const onOpenChange = jest.fn();
+    renderEditor({ onOpenChange });
+
+    makeDirty();
+
+    const closeButton = screen.getAllByRole("button").find(
+      (b) => b.querySelector(".lucide-x") && b.closest("header")
+    );
+    fireEvent.click(closeButton!);
+
+    await waitFor(() => {
+      expect(screen.getByText("You have unsaved changes that will be lost.")).toBeInTheDocument();
+    });
+    expect(screen.getByRole("button", { name: /keep editing/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /discard changes/i })).toBeInTheDocument();
+    expect(onOpenChange).not.toHaveBeenCalled();
+  });
+
+  it("shows discard confirmation bar when pressing Escape with unsaved changes", async () => {
+    const onOpenChange = jest.fn();
+    renderEditor({ onOpenChange });
+
+    makeDirty();
+    fireEvent.keyDown(document, { key: "Escape" });
+
+    await waitFor(() => {
+      expect(screen.getByText("You have unsaved changes that will be lost.")).toBeInTheDocument();
+    });
+    expect(onOpenChange).not.toHaveBeenCalled();
+  });
+
+  it("shows discard confirmation bar when clicking Cancel with unsaved changes", async () => {
+    const onOpenChange = jest.fn();
+    renderEditor({ onOpenChange });
+
+    makeDirty();
+    fireEvent.click(screen.getByRole("button", { name: /^cancel$/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText("You have unsaved changes that will be lost.")).toBeInTheDocument();
+    });
+    expect(onOpenChange).not.toHaveBeenCalled();
+  });
+
+  it("clicking 'Discard Changes' closes the editor", async () => {
+    const onOpenChange = jest.fn();
+    renderEditor({ onOpenChange });
+
+    makeDirty();
+    fireEvent.keyDown(document, { key: "Escape" });
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /discard changes/i })).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /discard changes/i }));
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+
+  it("clicking 'Keep Editing' dismisses the bar and keeps the editor open", async () => {
+    const onOpenChange = jest.fn();
+    renderEditor({ onOpenChange });
+
+    makeDirty();
+    fireEvent.keyDown(document, { key: "Escape" });
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /keep editing/i })).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /keep editing/i }));
+
+    await waitFor(() => {
+      expect(screen.queryByText("You have unsaved changes that will be lost.")).not.toBeInTheDocument();
+    });
+    expect(onOpenChange).not.toHaveBeenCalled();
+  });
+
+  it("does not show discard bar when closing without changes", () => {
+    const onOpenChange = jest.fn();
+    renderEditor({ onOpenChange });
+
+    fireEvent.keyDown(document, { key: "Escape" });
+
+    expect(screen.queryByText("You have unsaved changes that will be lost.")).not.toBeInTheDocument();
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+
+  it("does not show discard bar after a successful save", async () => {
+    const onOpenChange = jest.fn();
+    renderEditor({ onOpenChange });
+
+    makeDirty();
+    fireEvent.click(screen.getByRole("button", { name: /save skill/i }));
+
+    await waitFor(() => {
+      expect(mockToast).toHaveBeenCalledWith("Skill created!", "success");
+    });
+
+    fireEvent.keyDown(document, { key: "Escape" });
+
+    expect(screen.queryByText("You have unsaved changes that will be lost.")).not.toBeInTheDocument();
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Allowed Tools — Frontmatter Sync
+// ---------------------------------------------------------------------------
+describe("SkillsBuilderEditor — allowed-tools frontmatter sync", () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it("initializes tools from skill_content frontmatter over metadata", async () => {
+    const config = makeExistingConfig({
+      skill_content: `---
+name: pdf-processor
+description: Extract text from PDFs.
+allowed-tools: github, argocd, mcp://my-org/rag
+---
+
+# PDF Processor
+
+Process documents.`,
+      metadata: { allowed_tools: ["jira"] },
+    });
+    renderEditor({ existingConfig: config });
+
+    const toolsLabel = screen.getByText("Tools");
+    const toolsBtn = toolsLabel.closest("div")?.querySelector("button");
+    fireEvent.click(toolsBtn!);
+
+    await waitFor(() => {
+      expect(screen.getByText("Sub-agents")).toBeInTheDocument();
+    });
+
+    const allButtons = screen.getAllByRole("button");
+    const githubChip = allButtons.find(b => b.textContent?.trim() === "github");
+    expect(githubChip).toBeDefined();
+    expect(githubChip!.className).toContain("bg-primary/10");
+
+    const argocdChip = allButtons.find(b => b.textContent?.trim() === "argocd");
+    expect(argocdChip).toBeDefined();
+    expect(argocdChip!.className).toContain("bg-primary/10");
+
+    expect(screen.getByText("mcp://my-org/rag")).toBeInTheDocument();
+  });
+
+  it("saves allowed_tools from frontmatter to metadata in payload", async () => {
+    const config = makeExistingConfig({
+      skill_content: `---
+name: test-skill
+description: A test skill.
+allowed-tools: github, argocd
+---
+
+# Test Skill
+
+Do something.`,
+    });
+    renderEditor({ existingConfig: config });
+
+    fireEvent.click(screen.getByRole("button", { name: /update skill/i }));
+
+    await waitFor(() => {
+      expect(mockUpdateConfig).toHaveBeenCalledTimes(1);
+    });
+
+    const payload = mockUpdateConfig.mock.calls[0][1];
+    expect(payload.metadata.allowed_tools).toEqual(
+      expect.arrayContaining(["github", "argocd"])
+    );
+  });
+
+  it("includes allowed-tools in skill_content when saved with tools selected via UI", async () => {
+    renderEditor();
+
+    const textboxes = screen.getAllByRole("textbox");
+    const nameInput = textboxes.find(
+      (el) => (el as HTMLInputElement).placeholder?.includes("Review a Specific PR")
+    );
+    fireEvent.change(nameInput!, { target: { value: "Tool Skill" } });
+
+    const toolsLabel = screen.getByText("Tools");
+    const toolsBtn = toolsLabel.closest("div")?.querySelector("button");
+    fireEvent.click(toolsBtn!);
+
+    await waitFor(() => {
+      expect(screen.getByText("Sub-agents")).toBeInTheDocument();
+    });
+
+    const githubChip = screen.getAllByRole("button").find(
+      (b) => b.textContent?.trim() === "github"
+    );
+    fireEvent.click(githubChip!);
+
+    fireEvent.click(screen.getByRole("button", { name: /save skill/i }));
+
+    await waitFor(() => {
+      expect(mockCreateConfig).toHaveBeenCalledTimes(1);
+    });
+
+    const payload = mockCreateConfig.mock.calls[0][0];
+    expect(payload.skill_content).toContain("allowed-tools:");
+    expect(payload.skill_content).toContain("github");
   });
 });

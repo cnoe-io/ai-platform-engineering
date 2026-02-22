@@ -101,6 +101,8 @@ export interface AgentConfigMetadata {
   tags?: string[];
   /** Expected agents/integrations used (for display) */
   expected_agents?: string[];
+  /** (Experimental) Tool allowlist for this skill -- not enforced by backend yet */
+  allowed_tools?: string[];
 }
 
 /**

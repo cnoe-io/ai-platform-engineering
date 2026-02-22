@@ -19,6 +19,7 @@ import {
   createBlankSkillMd,
   parseFrontmatter,
   splitSections,
+  updateAllowedToolsInFrontmatter,
 } from "../skill-md-parser";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -924,5 +925,225 @@ ${sections}`;
 
     expect(result.sections.size).toBe(50);
     expect(elapsed).toBeLessThan(100);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// allowed-tools frontmatter support
+// ─────────────────────────────────────────────────────────────────────────────
+describe("parseSkillMd — allowed-tools", () => {
+  it("should parse allowed-tools from frontmatter as a string array", () => {
+    const content = `---
+name: pdf-processor
+description: Extract text and tables from PDF files.
+allowed-tools: Read, Write, pdf_tools.py
+---
+
+# PDF Processor
+
+Process PDF documents.`;
+
+    const result = parseSkillMd(content);
+    expect(result.allowedTools).toEqual(["Read", "Write", "pdf_tools.py"]);
+  });
+
+  it("should handle a single tool", () => {
+    const content = `---
+name: simple
+description: Simple skill.
+allowed-tools: Read
+---
+
+# Simple`;
+
+    const result = parseSkillMd(content);
+    expect(result.allowedTools).toEqual(["Read"]);
+  });
+
+  it("should handle MCP tool URIs", () => {
+    const content = `---
+name: mcp-skill
+description: Uses MCP tools.
+allowed-tools: github, mcp://my-org/rag-server, Read
+---
+
+# MCP Skill`;
+
+    const result = parseSkillMd(content);
+    expect(result.allowedTools).toEqual(["github", "mcp://my-org/rag-server", "Read"]);
+  });
+
+  it("should return empty array when no allowed-tools field", () => {
+    const content = `---
+name: basic
+description: Basic skill.
+---
+
+# Basic Skill`;
+
+    const result = parseSkillMd(content);
+    expect(result.allowedTools).toEqual([]);
+  });
+
+  it("should handle empty allowed-tools value", () => {
+    const content = `---
+name: empty-tools
+description: No tools.
+allowed-tools: 
+---
+
+# Empty Tools`;
+
+    const result = parseSkillMd(content);
+    expect(result.allowedTools).toEqual([]);
+  });
+
+  it("should trim whitespace from tool names", () => {
+    const content = `---
+name: spaced
+description: Spaced tools.
+allowed-tools:   Read ,  Write  , Edit  
+---
+
+# Spaced`;
+
+    const result = parseSkillMd(content);
+    expect(result.allowedTools).toEqual(["Read", "Write", "Edit"]);
+  });
+});
+
+describe("generateSkillMd — allowed-tools", () => {
+  it("should include allowed-tools in frontmatter when provided", () => {
+    const result = generateSkillMd({
+      name: "pdf-processor",
+      description: "Extract text from PDFs.",
+      body: "# PDF Processor\n\nProcess documents.",
+      allowedTools: ["Read", "Write", "pdf_tools.py"],
+    });
+
+    expect(result).toContain("allowed-tools: Read, Write, pdf_tools.py");
+  });
+
+  it("should omit allowed-tools when empty array", () => {
+    const result = generateSkillMd({
+      name: "no-tools",
+      description: "No tools.",
+      body: "# No Tools",
+      allowedTools: [],
+    });
+
+    expect(result).not.toContain("allowed-tools");
+  });
+
+  it("should omit allowed-tools when undefined", () => {
+    const result = generateSkillMd({
+      name: "no-tools",
+      description: "No tools.",
+      body: "# No Tools",
+    });
+
+    expect(result).not.toContain("allowed-tools");
+  });
+
+  it("should round-trip allowed-tools through parse and generate", () => {
+    const original = {
+      name: "round-trip",
+      description: "Round-trip test.",
+      body: "# Round Trip\n\nBody text.",
+      allowedTools: ["github", "mcp://org/server", "Read"],
+    };
+
+    const generated = generateSkillMd(original);
+    const parsed = parseSkillMd(generated);
+
+    expect(parsed.name).toBe(original.name);
+    expect(parsed.description).toBe(original.description);
+    expect(parsed.allowedTools).toEqual(original.allowedTools);
+    expect(parsed.body).toBe(original.body);
+  });
+
+  it("should place allowed-tools after description in frontmatter", () => {
+    const result = generateSkillMd({
+      name: "ordered",
+      description: "Ordered fields.",
+      body: "# Ordered",
+      allowedTools: ["Read"],
+    });
+
+    const lines = result.split("\n");
+    expect(lines[0]).toBe("---");
+    expect(lines[1]).toBe("name: ordered");
+    expect(lines[2]).toBe("description: Ordered fields.");
+    expect(lines[3]).toBe("allowed-tools: Read");
+    expect(lines[4]).toBe("---");
+  });
+});
+
+describe("updateAllowedToolsInFrontmatter", () => {
+  const base = `---
+name: test-skill
+description: A test skill.
+---
+
+# Test Skill
+
+Do something.
+`;
+
+  it("should add allowed-tools to frontmatter that has none", () => {
+    const updated = updateAllowedToolsInFrontmatter(base, ["Read", "Write"]);
+    const parsed = parseSkillMd(updated);
+    expect(parsed.allowedTools).toEqual(["Read", "Write"]);
+    expect(parsed.name).toBe("test-skill");
+    expect(parsed.body).toContain("# Test Skill");
+  });
+
+  it("should replace existing allowed-tools", () => {
+    const withTools = `---
+name: test-skill
+description: A test skill.
+allowed-tools: Read, Write
+---
+
+# Test Skill
+
+Do something.
+`;
+    const updated = updateAllowedToolsInFrontmatter(withTools, ["github", "argocd"]);
+    const parsed = parseSkillMd(updated);
+    expect(parsed.allowedTools).toEqual(["github", "argocd"]);
+  });
+
+  it("should remove allowed-tools line when given empty array", () => {
+    const withTools = `---
+name: test-skill
+description: A test skill.
+allowed-tools: Read, Write
+---
+
+# Test Skill
+`;
+    const updated = updateAllowedToolsInFrontmatter(withTools, []);
+    expect(updated).not.toContain("allowed-tools");
+    const parsed = parseSkillMd(updated);
+    expect(parsed.allowedTools).toEqual([]);
+    expect(parsed.name).toBe("test-skill");
+  });
+
+  it("should not alter content when empty tools and no existing field", () => {
+    const result = updateAllowedToolsInFrontmatter(base, []);
+    expect(result).toBe(base);
+  });
+
+  it("should return content unchanged when no frontmatter exists", () => {
+    const noFm = "# No Frontmatter\n\nJust markdown.";
+    const result = updateAllowedToolsInFrontmatter(noFm, ["Read"]);
+    expect(result).toBe(noFm);
+  });
+
+  it("should preserve body content exactly", () => {
+    const updated = updateAllowedToolsInFrontmatter(base, ["Read"]);
+    const parsed = parseSkillMd(updated);
+    expect(parsed.body).toBe("# Test Skill\n\nDo something.");
   });
 });

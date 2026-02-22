@@ -947,3 +947,153 @@ describe("SkillsGallery — onSelectConfig for workflows", () => {
     expect(onSelectConfig).toHaveBeenCalledWith(expect.objectContaining({ id: "wf-select" }));
   });
 });
+
+// ---------------------------------------------------------------------------
+// Variable defaults — {{variable:default}} support
+// ---------------------------------------------------------------------------
+
+describe("SkillsGallery — variable defaults ({{name:default}} syntax)", () => {
+  beforeEach(() => {
+    mockWorkflowRunnerEnabled = false;
+    _configs = [{
+      ...makeQuickStart("qs-defaults"),
+      name: "Default Vars Skill",
+      tasks: [{
+        display_text: "Run defaults",
+        llm_prompt: "Deploy {{app_name:my-service}} to {{cluster:prod-us}} with {{replicas:3}}",
+        subagent: "caipe",
+      }],
+      input_form: {
+        title: "Default Vars Skill",
+        fields: [
+          { name: "app_name", label: "App Name", type: "text" as const, required: false, placeholder: "Default: my-service", defaultValue: "my-service" },
+          { name: "cluster", label: "Cluster", type: "text" as const, required: false, placeholder: "Default: prod-us", defaultValue: "prod-us" },
+          { name: "replicas", label: "Replicas", type: "number" as const, required: false, placeholder: "Default: 3", defaultValue: "3" },
+        ],
+      },
+    }] as AgentConfig[];
+  });
+
+  it("pre-fills form fields with default values", () => {
+    renderGallery();
+
+    fireEvent.click(screen.getByText("Default Vars Skill"));
+
+    const appInput = screen.getByPlaceholderText(/default: my-service/i) as HTMLInputElement;
+    expect(appInput.value).toBe("my-service");
+
+    const clusterInput = screen.getByPlaceholderText(/default: prod-us/i) as HTMLInputElement;
+    expect(clusterInput.value).toBe("prod-us");
+
+    const replicasInput = screen.getByPlaceholderText(/default: 3/i) as HTMLInputElement;
+    expect(replicasInput.value).toBe("3");
+  });
+
+  it("pre-substitutes defaults into the editable prompt", () => {
+    renderGallery();
+
+    fireEvent.click(screen.getByText("Default Vars Skill"));
+
+    const promptArea = screen.getByPlaceholderText(/enter your prompt/i) as HTMLTextAreaElement;
+    expect(promptArea.value).toBe("Deploy my-service to prod-us with 3");
+  });
+
+  it("allows overriding default values and updates prompt", () => {
+    renderGallery();
+
+    fireEvent.click(screen.getByText("Default Vars Skill"));
+
+    const appInput = screen.getByPlaceholderText(/default: my-service/i);
+    fireEvent.change(appInput, { target: { value: "new-service" } });
+
+    const promptArea = screen.getByPlaceholderText(/enter your prompt/i) as HTMLTextAreaElement;
+    expect(promptArea.value).toContain("new-service");
+  });
+
+  it("does not show validation error for optional (default) fields when empty", () => {
+    // Clear the default value to simulate user clearing
+    _configs = [{
+      ...makeQuickStart("qs-optional"),
+      name: "Optional Vars Skill",
+      tasks: [{
+        display_text: "Run",
+        llm_prompt: "Deploy {required_app} to {{cluster:prod}}",
+        subagent: "caipe",
+      }],
+      input_form: {
+        title: "Optional Vars",
+        fields: [
+          { name: "required_app", label: "Required App", type: "text" as const, required: true, placeholder: "Enter required app" },
+          { name: "cluster", label: "Cluster", type: "text" as const, required: false, placeholder: "Default: prod", defaultValue: "prod" },
+        ],
+      },
+    }] as AgentConfig[];
+
+    renderGallery();
+
+    fireEvent.click(screen.getByText("Optional Vars Skill"));
+
+    // Clear the optional field
+    const clusterInput = screen.getByPlaceholderText(/default: prod/i);
+    fireEvent.change(clusterInput, { target: { value: "" } });
+
+    // Try to submit — only the required field should error
+    const runBtn = screen.getByRole("button", { name: /run in chat/i });
+    fireEvent.click(runBtn);
+
+    expect(screen.getByText(/required app is required/i)).toBeInTheDocument();
+    expect(screen.queryByText(/cluster is required/i)).not.toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Auto-generated input form (no explicit input_form, parsed from prompt)
+// ---------------------------------------------------------------------------
+
+describe("SkillsGallery — auto-generated form from prompt variables", () => {
+  beforeEach(() => {
+    mockWorkflowRunnerEnabled = false;
+    _configs = [{
+      ...makeQuickStart("qs-auto"),
+      name: "Auto Form Skill",
+      tasks: [{
+        display_text: "Auto",
+        llm_prompt: "Check the status of {{service_url}} on {{port_number:8080}}",
+        subagent: "caipe",
+      }],
+      // No input_form — should be auto-generated from prompt variables
+    }] as AgentConfig[];
+  });
+
+  it("auto-generates form fields from prompt variables", () => {
+    renderGallery();
+
+    fireEvent.click(screen.getByText("Auto Form Skill"));
+
+    // Should detect service_url (required) and port_number (optional with default)
+    expect(screen.getByText(/service url/i)).toBeInTheDocument();
+    expect(screen.getByText(/port number/i)).toBeInTheDocument();
+  });
+
+  it("infers URL type for variable with 'url' in name", () => {
+    renderGallery();
+
+    fireEvent.click(screen.getByText("Auto Form Skill"));
+
+    // The service_url field should be of type url
+    const urlInput = screen.getByPlaceholderText(/enter service url/i);
+    expect(urlInput).toBeInTheDocument();
+    expect(urlInput).toHaveAttribute("type", "url");
+  });
+
+  it("infers number type for variable with 'number' in name", () => {
+    renderGallery();
+
+    fireEvent.click(screen.getByText("Auto Form Skill"));
+
+    // port_number should have type number
+    const numInput = screen.getByPlaceholderText(/default: 8080/i);
+    expect(numInput).toBeInTheDocument();
+    expect(numInput).toHaveAttribute("type", "number");
+  });
+});

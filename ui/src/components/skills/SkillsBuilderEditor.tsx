@@ -64,6 +64,8 @@ import {
   Undo2,
   Redo2,
   Download,
+  FlaskConical,
+  Plug,
 } from "lucide-react";
 import { useSession } from "next-auth/react";
 import { Button } from "@/components/ui/button";
@@ -76,7 +78,7 @@ import { useAgentConfigStore } from "@/store/agent-config-store";
 import { useAdminRole } from "@/hooks/use-admin-role";
 import { getConfig } from "@/lib/config";
 import { A2ASDKClient } from "@/lib/a2a-sdk-client";
-import { parseSkillMd, createBlankSkillMd } from "@/lib/skill-md-parser";
+import { parseSkillMd, createBlankSkillMd, updateAllowedToolsInFrontmatter } from "@/lib/skill-md-parser";
 import { fetchSkillTemplates, getAllTemplateTags } from "@/skills";
 import { Panel, Group as PanelGroup, Separator } from "react-resizable-panels";
 import ReactMarkdown from "react-markdown";
@@ -202,6 +204,14 @@ const CATEGORY_TAG_SUGGESTIONS: Record<string, string[]> = {
   Custom: [],
 };
 
+const BUILTIN_TOOL_CATEGORIES: { label: string; tools: string[] }[] = [
+  { label: "Sub-agents", tools: ["github", "gitlab", "argocd", "aws", "jira", "rag", "confluence"] },
+  { label: "Command-line", tools: ["git", "curl", "wget", "grep", "glob_find", "jq", "yq"] },
+  { label: "File I/O", tools: ["read_file", "write_file", "append_file", "list_files"] },
+  { label: "Workspace", tools: ["write_workspace_file", "read_workspace_file", "list_workspace_files", "clear_workspace"] },
+  { label: "Utility", tools: ["reflect_on_output", "format_markdown", "fetch_url", "get_current_date"] },
+];
+
 // ---------------------------------------------------------------------------
 // Subcomponents
 // ---------------------------------------------------------------------------
@@ -287,6 +297,256 @@ function IconPicker({ value, onChange }: { value: string; onChange: (v: string) 
       {open && createPortal(popover, document.body)}
     </div>
   );
+}
+
+// ---------------------------------------------------------------------------
+// AllowedToolsSheet — right-side drawer for selecting allowed tools
+// ---------------------------------------------------------------------------
+interface AllowedToolsSheetProps {
+  open: boolean;
+  onClose: () => void;
+  allowedTools: string[];
+  setAllowedTools: React.Dispatch<React.SetStateAction<string[]>>;
+}
+
+const BUILTIN_TOOL_NAMES = new Set(BUILTIN_TOOL_CATEGORIES.flatMap(c => c.tools));
+
+function AllowedToolsSheet({ open, onClose, allowedTools, setAllowedTools }: AllowedToolsSheetProps) {
+  const [mcpInput, setMcpInput] = useState("");
+  const [customInput, setCustomInput] = useState("");
+
+  useEffect(() => {
+    if (!open) return;
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", handleKey);
+    return () => document.removeEventListener("keydown", handleKey);
+  }, [open, onClose]);
+
+  const addMcpTool = useCallback(() => {
+    const uri = mcpInput.trim();
+    if (uri && !allowedTools.includes(uri)) {
+      setAllowedTools(prev => [...prev, uri]);
+    }
+    setMcpInput("");
+  }, [mcpInput, allowedTools, setAllowedTools]);
+
+  const addCustomTool = useCallback(() => {
+    const name = customInput.trim();
+    if (name && !allowedTools.includes(name)) {
+      setAllowedTools(prev => [...prev, name]);
+    }
+    setCustomInput("");
+  }, [customInput, allowedTools, setAllowedTools]);
+
+  const mcpTools = allowedTools.filter(t => t.includes("://"));
+  const customTools = allowedTools.filter(t => !t.includes("://") && !BUILTIN_TOOL_NAMES.has(t));
+
+  const sheet = (
+    <AnimatePresence>
+      {open && (
+        <>
+          {/* Backdrop */}
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.15 }}
+            className="fixed inset-0 z-[10000] bg-black/30"
+            onClick={onClose}
+          />
+          {/* Sheet */}
+          <motion.div
+            initial={{ x: "100%" }}
+            animate={{ x: 0 }}
+            exit={{ x: "100%" }}
+            transition={{ type: "spring", damping: 30, stiffness: 300 }}
+            className="fixed right-0 top-0 h-full w-[580px] z-[10001] bg-background border-l border-border shadow-2xl flex flex-col"
+          >
+            {/* Header */}
+            <div className="shrink-0 flex items-center justify-between px-5 py-4 border-b border-border/50">
+              <div className="flex items-center gap-2.5">
+                <Wrench className="h-4 w-4 text-primary" />
+                <h2 className="text-sm font-semibold">Allowed Tools</h2>
+                <Badge className="text-[9px] h-4 px-1.5 bg-amber-500/15 text-amber-600 border border-amber-500/30 hover:bg-amber-500/15">
+                  <FlaskConical className="h-2.5 w-2.5 mr-0.5" />
+                  EXPERIMENTAL
+                </Badge>
+              </div>
+              <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={onClose}>
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+
+            {/* Body */}
+            <ScrollArea className="flex-1 min-h-0">
+              <div className="px-5 py-4 space-y-5">
+                <p className="text-xs text-muted-foreground/70 leading-relaxed">
+                  Restrict which tools the agent may use when running this skill.
+                  Leave empty to allow all tools.
+                </p>
+
+                {/* Built-in tool categories */}
+                {BUILTIN_TOOL_CATEGORIES.map(cat => (
+                  <div key={cat.label}>
+                    <span className="text-[10px] uppercase tracking-wider text-muted-foreground/60 font-semibold">
+                      {cat.label}
+                    </span>
+                    <div className="flex flex-wrap gap-1.5 mt-1.5">
+                      {cat.tools.map(tool => {
+                        const isSelected = allowedTools.includes(tool);
+                        return (
+                          <button
+                            key={tool}
+                            type="button"
+                            onClick={() =>
+                              setAllowedTools(prev =>
+                                isSelected ? prev.filter(t => t !== tool) : [...prev, tool]
+                              )
+                            }
+                            className={cn(
+                              "inline-flex items-center gap-1 px-2.5 py-1 rounded-md border text-xs font-mono transition-colors",
+                              isSelected
+                                ? "bg-primary/10 border-primary/30 text-primary"
+                                : "bg-muted/20 border-border/40 text-muted-foreground hover:bg-muted/40"
+                            )}
+                          >
+                            {isSelected && <Check className="h-3 w-3" />}
+                            {tool}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
+
+                {/* Custom Tools */}
+                <div>
+                  <span className="text-[10px] uppercase tracking-wider text-muted-foreground/60 font-semibold">
+                    Custom Sub-agents / Tools
+                  </span>
+                  <div className="flex items-center gap-1.5 mt-1.5">
+                    <div className="relative flex-1">
+                      <Plus className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground/50" />
+                      <Input
+                        value={customInput}
+                        onChange={(e) => setCustomInput(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") { e.preventDefault(); addCustomTool(); }
+                        }}
+                        placeholder="e.g. my_custom_agent, pdf_tools"
+                        className="h-8 text-xs font-mono pl-8"
+                      />
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-8 text-xs gap-1 px-3"
+                      disabled={!customInput.trim()}
+                      onClick={addCustomTool}
+                    >
+                      <Plus className="h-3 w-3" />
+                      Add
+                    </Button>
+                  </div>
+
+                  {customTools.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5 mt-2">
+                      {customTools.map(name => (
+                        <span
+                          key={name}
+                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md border border-primary/20 bg-primary/5 text-xs font-mono text-primary"
+                        >
+                          {name}
+                          <button
+                            type="button"
+                            onClick={() => setAllowedTools(prev => prev.filter(t => t !== name))}
+                            className="ml-0.5 hover:text-red-500 transition-colors"
+                          >
+                            <X className="h-3 w-3" />
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* MCP Tools */}
+                <div>
+                  <span className="text-[10px] uppercase tracking-wider text-muted-foreground/60 font-semibold">
+                    MCP Tools
+                  </span>
+                  <div className="flex items-center gap-1.5 mt-1.5">
+                    <div className="relative flex-1">
+                      <Plug className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground/50" />
+                      <Input
+                        value={mcpInput}
+                        onChange={(e) => setMcpInput(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") { e.preventDefault(); addMcpTool(); }
+                        }}
+                        placeholder="mcp://domain/server"
+                        className="h-8 text-xs font-mono pl-8"
+                      />
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-8 text-xs gap-1 px-3"
+                      disabled={!mcpInput.trim()}
+                      onClick={addMcpTool}
+                    >
+                      <Plus className="h-3 w-3" />
+                      Add
+                    </Button>
+                  </div>
+
+                  {mcpTools.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5 mt-2">
+                      {mcpTools.map(uri => (
+                        <span
+                          key={uri}
+                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md border border-primary/20 bg-primary/5 text-xs font-mono text-primary"
+                        >
+                          <Plug className="h-3 w-3 opacity-60" />
+                          {uri}
+                          <button
+                            type="button"
+                            onClick={() => setAllowedTools(prev => prev.filter(t => t !== uri))}
+                            className="ml-0.5 hover:text-red-500 transition-colors"
+                          >
+                            <X className="h-3 w-3" />
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </ScrollArea>
+
+            {/* Footer */}
+            <div className="shrink-0 flex items-center justify-between px-5 py-3 border-t border-border/50 bg-muted/10">
+              <button
+                type="button"
+                onClick={() => setAllowedTools([])}
+                disabled={allowedTools.length === 0}
+                className="text-xs text-muted-foreground hover:text-red-500 transition-colors disabled:opacity-30 disabled:pointer-events-none"
+              >
+                Clear all
+              </button>
+              <Button size="sm" className="h-8 text-xs px-4" onClick={onClose}>
+                Done
+              </Button>
+            </div>
+          </motion.div>
+        </>
+      )}
+    </AnimatePresence>
+  );
+
+  return createPortal(sheet, document.body);
 }
 
 interface TagInputProps {
@@ -887,6 +1147,73 @@ export function SkillsBuilderEditor({
   const [availableTeams, setAvailableTeams] = useState<Team[]>([]);
   const [teamsLoading, setTeamsLoading] = useState(false);
 
+  // Allowed tools (experimental) — frontmatter is source of truth, metadata is fallback
+  const [allowedTools, setAllowedTools] = useState<string[]>(() => {
+    if (existingConfig?.skill_content) {
+      const parsed = parseSkillMd(existingConfig.skill_content);
+      if (parsed.allowedTools.length > 0) return parsed.allowedTools;
+    }
+    return existingConfig?.metadata?.allowed_tools || [];
+  });
+  const [allowedToolsExpanded, setAllowedToolsExpanded] = useState(false);
+
+  // Dirty-state tracking: snapshot initial values to detect unsaved changes
+  const initialSnapshotRef = useRef({
+    name: existingConfig?.name || "",
+    description: existingConfig?.description || "",
+    category: existingConfig?.category || "Custom",
+    difficulty: existingConfig?.difficulty || ("beginner" as WorkflowDifficulty),
+    thumbnail: existingConfig?.thumbnail || "Zap",
+    tags: existingConfig?.metadata?.tags || [],
+    skillContent: existingConfig?.skill_content || createBlankSkillMd(),
+    visibility: existingConfig?.visibility || "private",
+    selectedTeamIds: existingConfig?.shared_with_teams || [],
+    allowedTools: (() => {
+      if (existingConfig?.skill_content) {
+        const p = parseSkillMd(existingConfig.skill_content);
+        if (p.allowedTools.length > 0) return p.allowedTools;
+      }
+      return existingConfig?.metadata?.allowed_tools || [];
+    })(),
+  });
+  const [saved, setSaved] = useState(false);
+
+  const isDirty = useMemo(() => {
+    if (saved) return false;
+    const s = initialSnapshotRef.current;
+    return (
+      formData.name !== s.name ||
+      formData.description !== s.description ||
+      formData.category !== s.category ||
+      formData.difficulty !== s.difficulty ||
+      formData.thumbnail !== s.thumbnail ||
+      skillContent !== s.skillContent ||
+      visibility !== s.visibility ||
+      JSON.stringify(tags) !== JSON.stringify(s.tags) ||
+      JSON.stringify(selectedTeamIds) !== JSON.stringify(s.selectedTeamIds) ||
+      JSON.stringify(allowedTools) !== JSON.stringify(s.allowedTools)
+    );
+  }, [formData, skillContent, visibility, tags, selectedTeamIds, allowedTools, saved]);
+
+  const [showDiscardConfirm, setShowDiscardConfirm] = useState(false);
+
+  const guardedClose = useCallback(() => {
+    if (isDirty) {
+      setShowDiscardConfirm(true);
+      return;
+    }
+    onOpenChange(false);
+  }, [isDirty, onOpenChange]);
+
+  const confirmDiscard = useCallback(() => {
+    setShowDiscardConfirm(false);
+    onOpenChange(false);
+  }, [onOpenChange]);
+
+  const cancelDiscard = useCallback(() => {
+    setShowDiscardConfirm(false);
+  }, []);
+
   // Submission state
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitStatus, setSubmitStatus] = useState<"idle" | "success" | "error">("idle");
@@ -908,25 +1235,44 @@ export function SkillsBuilderEditor({
     setRedoAvailable(false);
   }, []);
 
+  // Sync allowedTools → skillContent frontmatter when tools change via UI
+  const toolSyncRef = useRef(false);
+  useEffect(() => {
+    if (toolSyncRef.current) {
+      toolSyncRef.current = false;
+      return;
+    }
+    setSkillContent((prev) => updateAllowedToolsInFrontmatter(prev, allowedTools));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [allowedTools]);
+
+  // Set skillContent and sync allowedTools from frontmatter (for code editor, template load, AI, undo/redo, import)
+  const setSkillContentAndSyncTools = useCallback((newContent: string) => {
+    setSkillContent(newContent);
+    const parsed = parseSkillMd(newContent);
+    toolSyncRef.current = true;
+    setAllowedTools(parsed.allowedTools);
+  }, []);
+
   const handleUndo = useCallback(() => {
     const stack = undoStackRef.current;
     if (stack.length === 0) return;
     const prev = stack.pop()!;
     redoStackRef.current.push(skillContent);
-    setSkillContent(prev);
+    setSkillContentAndSyncTools(prev);
     setUndoAvailable(stack.length > 0);
     setRedoAvailable(true);
-  }, [skillContent]);
+  }, [skillContent, setSkillContentAndSyncTools]);
 
   const handleRedo = useCallback(() => {
     const stack = redoStackRef.current;
     if (stack.length === 0) return;
     const next = stack.pop()!;
     undoStackRef.current.push(skillContent);
-    setSkillContent(next);
+    setSkillContentAndSyncTools(next);
     setUndoAvailable(true);
     setRedoAvailable(stack.length > 0);
-  }, [skillContent]);
+  }, [skillContent, setSkillContentAndSyncTools]);
 
   const handleDownloadSkillMd = useCallback(() => {
     const fileName = formData.name
@@ -1045,9 +1391,18 @@ export function SkillsBuilderEditor({
       setSkillContent(existingConfig?.skill_content || createBlankSkillMd());
       setVisibility(existingConfig?.visibility || "private");
       setSelectedTeamIds(existingConfig?.shared_with_teams || []);
+      setAllowedTools(() => {
+        if (existingConfig?.skill_content) {
+          const p = parseSkillMd(existingConfig.skill_content);
+          if (p.allowedTools.length > 0) return p.allowedTools;
+        }
+        return existingConfig?.metadata?.allowed_tools || [];
+      });
       setSubmitStatus("idle");
       setErrors({});
       setShowImportPanel(false);
+      setShowDiscardConfirm(false);
+      setSaved(false);
     }
   }, [open, existingConfig]);
 
@@ -1077,7 +1432,7 @@ export function SkillsBuilderEditor({
 
   const handleLoadTemplate = (template: SkillTemplate) => {
     pushUndoSnapshot(skillContent);
-    setSkillContent(template.content);
+    setSkillContentAndSyncTools(template.content);
     setFormData(prev => ({
       ...prev,
       name: template.title,
@@ -1092,7 +1447,7 @@ export function SkillsBuilderEditor({
     try {
       pushUndoSnapshot(skillContent);
       const parsed = parseSkillMd(content);
-      setSkillContent(content);
+      setSkillContentAndSyncTools(content);
       if (parsed.name) {
         setFormData(prev => ({
           ...prev,
@@ -1285,7 +1640,7 @@ ${formContext ? `${formContext}\n` : ""}User request: ${description}`;
       if (!result) throw new Error("Empty response from AI");
 
       const extracted = extractSkillMdFromResponse(result);
-      setSkillContent(extracted);
+      setSkillContentAndSyncTools(extracted);
 
       try {
         const parsed = parseSkillMd(extracted);
@@ -1304,7 +1659,7 @@ ${formContext ? `${formContext}\n` : ""}User request: ${description}`;
       toast("Skill generated by AI", "success");
     } catch (error: any) {
       if (error?.name === "AbortError") {
-        setSkillContent(aiContentSnapshotRef.current);
+        setSkillContentAndSyncTools(aiContentSnapshotRef.current);
         toast("AI generation cancelled", "info");
       } else {
         toast(`Failed to generate skill: ${error.message || "Unknown error"}`, "error", 5000);
@@ -1356,7 +1711,7 @@ ${skillContent}`;
       if (!result) throw new Error("Empty response from AI");
 
       const extracted = extractSkillMdFromResponse(result);
-      setSkillContent(extracted);
+      setSkillContentAndSyncTools(extracted);
 
       try {
         const parsed = parseSkillMd(extracted);
@@ -1375,7 +1730,7 @@ ${skillContent}`;
       toast("Skill enhanced by AI", "success");
     } catch (error: any) {
       if (error?.name === "AbortError") {
-        setSkillContent(aiContentSnapshotRef.current);
+        setSkillContentAndSyncTools(aiContentSnapshotRef.current);
         toast("AI enhancement cancelled", "info");
       } else {
         toast(`Failed to enhance skill: ${error.message || "Unknown error"}`, "error", 5000);
@@ -1387,7 +1742,7 @@ ${skillContent}`;
 
   const handleAiCancel = () => {
     aiClientRef.current = null;
-    setSkillContent(aiContentSnapshotRef.current);
+    setSkillContentAndSyncTools(aiContentSnapshotRef.current);
     setAiStatus("idle");
     toast("AI operation cancelled", "info");
   };
@@ -1420,6 +1775,7 @@ ${skillContent}`;
         skill_content: skillContent,
         metadata: {
           tags: tags.length > 0 ? tags : undefined,
+          allowed_tools: allowedTools.length > 0 ? allowedTools : undefined,
         },
         visibility,
         shared_with_teams: visibility === "team" ? selectedTeamIds : undefined,
@@ -1432,6 +1788,7 @@ ${skillContent}`;
       }
 
       setSubmitStatus("success");
+      setSaved(true);
       toast(isEditMode ? "Skill updated!" : "Skill created!", "success");
 
       if (onSuccess) {
@@ -1455,11 +1812,11 @@ ${skillContent}`;
   useEffect(() => {
     if (!open) return;
     const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onOpenChange(false);
+      if (e.key === "Escape") guardedClose();
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [open, onOpenChange]);
+  }, [open, guardedClose]);
 
   if (!open) return null;
 
@@ -1509,7 +1866,7 @@ ${skillContent}`;
                     <button
                       type="button"
                       onClick={() => {
-                        setSkillContent(createBlankSkillMd());
+                        setSkillContentAndSyncTools(createBlankSkillMd());
                         setFormData(prev => ({ ...prev, name: "", description: "" }));
                         setTags([]);
                         setSelectedTemplateId(null);
@@ -1587,11 +1944,51 @@ ${skillContent}`;
             Preview
           </Button>
           <div className="w-px h-5 bg-border/50 mx-1" />
-          <Button variant="ghost" size="icon" onClick={() => onOpenChange(false)} className="h-7 w-7">
+          <Button variant="ghost" size="icon" onClick={guardedClose} className="h-7 w-7">
             <X className="h-4 w-4" />
           </Button>
         </div>
       </header>
+
+      {/* ─── Unsaved changes confirmation bar ──────────────────────── */}
+      <AnimatePresence>
+        {showDiscardConfirm && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.15 }}
+            className="overflow-hidden shrink-0"
+          >
+            <div className="flex items-center justify-between gap-3 px-4 py-2.5 bg-amber-500/10 border-b border-amber-500/30">
+              <div className="flex items-center gap-2 text-sm">
+                <AlertTriangle className="h-4 w-4 text-amber-500 shrink-0" />
+                <span className="text-amber-700 dark:text-amber-400 font-medium">
+                  You have unsaved changes that will be lost.
+                </span>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 text-xs"
+                  onClick={cancelDiscard}
+                >
+                  Keep Editing
+                </Button>
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  className="h-7 text-xs"
+                  onClick={confirmDiscard}
+                >
+                  Discard Changes
+                </Button>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* ─── Import Panel ─────────────────────────────────────────── */}
       <div className="relative">
@@ -1776,6 +2173,33 @@ ${skillContent}`;
                     value={formData.thumbnail}
                     onChange={(iconName) => handleInputChange("thumbnail", iconName)}
                   />
+
+                  {/* Allowed Tools trigger (opens side sheet) */}
+                  <div className="shrink-0">
+                    <label className="text-xs font-medium text-muted-foreground mb-1 block uppercase tracking-wider">
+                      Tools
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => setAllowedToolsExpanded(true)}
+                      className={cn(
+                        "flex items-center gap-1.5 px-2.5 py-1 rounded-md border transition-colors text-xs font-medium",
+                        allowedTools.length > 0
+                          ? "bg-primary/10 border-primary/30 text-primary"
+                          : "bg-muted/30 border-border/50 hover:bg-muted/50 text-muted-foreground"
+                      )}
+                    >
+                      <Wrench className="h-3 w-3" />
+                      {allowedTools.length > 0
+                        ? <><span>{allowedTools.length}</span> tool{allowedTools.length !== 1 ? "s" : ""}</>
+                        : "All"
+                      }
+                      <Badge className="text-[8px] h-3.5 px-1 bg-amber-500/15 text-amber-600 border border-amber-500/30 hover:bg-amber-500/15 ml-0.5">
+                        <FlaskConical className="h-2 w-2 mr-0.5" />
+                        EXP
+                      </Badge>
+                    </button>
+                  </div>
                 </div>
               </div>
             </motion.div>
@@ -1989,7 +2413,7 @@ ${skillContent}`;
                   <CodeMirrorEditor
                     ref={cmRef}
                     value={skillContent}
-                    onChange={(val: string) => setSkillContent(val)}
+                    onChange={(val: string) => setSkillContentAndSyncTools(val)}
                     extensions={cmExtensions}
                     theme="dark"
                     height="100%"
@@ -2013,7 +2437,7 @@ ${skillContent}`;
                       animate={{ opacity: 1 }}
                       exit={{ opacity: 0 }}
                       transition={{ duration: 0.2 }}
-                      className="absolute inset-0 z-10 flex items-center justify-center bg-background/80 backdrop-blur-sm p-6"
+                      className="fixed inset-0 z-[9999] flex items-center justify-center bg-background/80 backdrop-blur-sm p-6"
                     >
                       <div className={cn("space-y-4 text-center transition-all duration-200 mx-auto", showAiDebug ? "w-full max-w-3xl" : "w-64")}>
                         <div className="relative mx-auto w-10 h-10 rounded-full gradient-primary-br flex items-center justify-center shadow-lg shadow-primary/30">
@@ -2210,7 +2634,7 @@ ${skillContent}`;
         </div>
 
         <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" className="h-8" onClick={() => onOpenChange(false)}>
+          <Button variant="outline" size="sm" className="h-8" onClick={guardedClose}>
             Cancel
           </Button>
           <Button
@@ -2227,6 +2651,14 @@ ${skillContent}`;
           </Button>
         </div>
       </footer>
+
+      {/* Allowed Tools side sheet */}
+      <AllowedToolsSheet
+        open={allowedToolsExpanded}
+        onClose={() => setAllowedToolsExpanded(false)}
+        allowedTools={allowedTools}
+        setAllowedTools={setAllowedTools}
+      />
     </motion.div>
   );
 

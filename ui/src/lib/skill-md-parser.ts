@@ -4,10 +4,15 @@
  * Implements the Anthropic Agent Skills SKILL.md format:
  * https://github.com/anthropics/skills
  *
- * Format: YAML frontmatter (name + description) followed by freeform markdown body.
- * The frontmatter requires exactly two fields:
+ * Format: YAML frontmatter (name + description + optional allowed-tools)
+ * followed by freeform markdown body.
+ *
+ * Required frontmatter fields:
  *   - name: A unique identifier for the skill (lowercase, hyphens for spaces)
  *   - description: What the skill does and when to use it
+ *
+ * Optional frontmatter fields:
+ *   - allowed-tools: Comma-separated list of tools the agent may use
  *
  * The markdown body contains all instructions, examples, and guidelines.
  */
@@ -25,6 +30,8 @@ export interface ParsedSkillMd {
   sections: Map<string, string>;
   /** Full raw content including frontmatter */
   rawContent: string;
+  /** (Experimental) Tool allowlist parsed from frontmatter `allowed-tools` */
+  allowedTools: string[];
 }
 
 const FRONTMATTER_RE = /^---\s*\n([\s\S]*?)\n---\s*\n?/;
@@ -101,6 +108,11 @@ export function parseSkillMd(content: string): ParsedSkillMd {
 
   const sections = splitSections(body);
 
+  const allowedToolsRaw = frontmatter["allowed-tools"] || "";
+  const allowedTools = allowedToolsRaw
+    ? allowedToolsRaw.split(",").map((t) => t.trim()).filter(Boolean)
+    : [];
+
   return {
     name: frontmatter.name || "",
     description: frontmatter.description || "",
@@ -108,31 +120,72 @@ export function parseSkillMd(content: string): ParsedSkillMd {
     body: body.trim(),
     sections,
     rawContent: content,
+    allowedTools,
   };
 }
 
 /**
  * Generate a SKILL.md string following the Anthropic format.
  *
- * Only `name` and `description` go in frontmatter.
+ * `name` and `description` always go in frontmatter.
+ * `allowedTools` is written as `allowed-tools` when provided and non-empty.
  * Everything else is freeform markdown body.
  */
 export function generateSkillMd(data: {
   name: string;
   description: string;
   body: string;
+  allowedTools?: string[];
 }): string {
   const lines: string[] = [];
 
   lines.push("---");
   lines.push(`name: ${data.name}`);
   lines.push(`description: ${data.description}`);
+  if (data.allowedTools && data.allowedTools.length > 0) {
+    lines.push(`allowed-tools: ${data.allowedTools.join(", ")}`);
+  }
   lines.push("---");
   lines.push("");
   lines.push(data.body.trim());
   lines.push("");
 
   return lines.join("\n");
+}
+
+/**
+ * Update the `allowed-tools` frontmatter field in an existing SKILL.md string
+ * without altering the body or other frontmatter fields.
+ *
+ * If no frontmatter exists the content is returned unchanged.
+ */
+export function updateAllowedToolsInFrontmatter(
+  content: string,
+  allowedTools: string[],
+): string {
+  const fmMatch = content.match(FRONTMATTER_RE);
+  if (!fmMatch) return content;
+
+  const fmBlock = fmMatch[1];
+  const afterFm = content.slice(fmMatch[0].length);
+  const toolsLine = `allowed-tools: ${allowedTools.join(", ")}`;
+
+  const existingLineRe = /^allowed-tools:.*$/m;
+  let newFmBlock: string;
+
+  if (existingLineRe.test(fmBlock)) {
+    if (allowedTools.length === 0) {
+      newFmBlock = fmBlock.replace(/\n?allowed-tools:.*$/m, "");
+    } else {
+      newFmBlock = fmBlock.replace(existingLineRe, toolsLine);
+    }
+  } else if (allowedTools.length > 0) {
+    newFmBlock = fmBlock + "\n" + toolsLine;
+  } else {
+    return content;
+  }
+
+  return `---\n${newFmBlock.replace(/^\n+/, "")}\n---\n${afterFm}`;
 }
 
 /**
