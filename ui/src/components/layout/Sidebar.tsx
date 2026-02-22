@@ -30,6 +30,7 @@ import { UseCaseBuilderDialog } from "@/components/gallery/UseCaseBuilder";
 import { RecycleBinDialog } from "@/components/chat/RecycleBinDialog";
 import { ShareButton } from "@/components/chat/ShareButton";
 import { useToast } from "@/components/ui/toast";
+import { useSession } from "next-auth/react";
 import { getStorageMode, getStorageModeDisplay } from "@/lib/storage-config";
 import type { Conversation } from "@/types/a2a";
 
@@ -52,6 +53,7 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
     loadConversationsFromServer,
     loadMessagesFromServer,
   } = useChatStore();
+  const { data: session } = useSession();
   const [useCaseBuilderOpen, setUseCaseBuilderOpen] = useState(false);
   const storageMode = getStorageMode(); // Exclusive storage mode
   const [isPending, startTransition] = useTransition();
@@ -394,7 +396,7 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
                             <ShareButton
                               conversationId={conv.id}
                               conversationTitle={conv.title}
-                              isOwner={new Date(conv.createdAt) > new Date('2026-01-28')}
+                              isOwner={!conv.owner_id || conv.owner_id === session?.user?.email}
                             />
                           </div>
                           <TooltipProvider delayDuration={200}>

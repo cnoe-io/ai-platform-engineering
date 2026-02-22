@@ -7,6 +7,7 @@ import {
   withErrorHandler,
   paginatedResponse,
   getPaginationParams,
+  getUserTeamIds,
 } from '@/lib/api-middleware';
 import type { Conversation } from '@/types/mongodb';
 
@@ -17,10 +18,23 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
 
     const conversations = await getCollection<Conversation>('conversations');
 
-    // Find conversations shared with user (not owned by user)
+    // Resolve user's team memberships for team-shared conversations
+    const userTeamIds = await getUserTeamIds(user.email);
+
+    // Find conversations shared with user directly or via teams (not owned by user)
+    const sharedConditions: any[] = [
+      { 'sharing.shared_with': user.email },
+    ];
+
+    if (userTeamIds.length > 0) {
+      sharedConditions.push({
+        'sharing.shared_with_teams': { $in: userTeamIds },
+      });
+    }
+
     const query = {
       owner_id: { $ne: user.email },
-      'sharing.shared_with': user.email,
+      $or: sharedConditions,
     };
 
     const total = await conversations.countDocuments(query);

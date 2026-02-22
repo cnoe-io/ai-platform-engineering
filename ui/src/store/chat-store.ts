@@ -702,6 +702,7 @@ const storeImplementation = (set: any, get: any) => ({
               // Preserve messages/events for streaming OR already-loaded conversations
               messages: (isStreaming || hasLoadedMessages) && localConv ? localConv.messages : [],
               a2aEvents: (isStreaming || hasLoadedMessages) && localConv ? localConv.a2aEvents : [],
+              owner_id: conv.owner_id,
               sharing: conv.sharing,
             };
           });
