@@ -1566,8 +1566,69 @@ const ChatMessage = React.memo(function ChatMessage({
               )}
             >
               {isUser ? (
-                <div>
-                  <p className="whitespace-pre-wrap break-words text-sm selection:bg-white/30 selection:text-white" style={{ overflowWrap: 'anywhere' }}>{message.content}</p>
+                <div className="overflow-hidden break-words text-left" style={{ overflowWrap: 'anywhere' }}>
+                  <ReactMarkdown
+                    remarkPlugins={[remarkGfm]}
+                    components={{
+                      h1: ({ children }) => (
+                        <h1 className="text-base font-bold text-primary-foreground mb-2 mt-3 first:mt-0 pb-1 border-b border-white/20">{children}</h1>
+                      ),
+                      h2: ({ children }) => (
+                        <h2 className="text-sm font-semibold text-primary-foreground mb-1.5 mt-3 first:mt-0">{children}</h2>
+                      ),
+                      h3: ({ children }) => (
+                        <h3 className="text-sm font-semibold text-primary-foreground mb-1 mt-2 first:mt-0">{children}</h3>
+                      ),
+                      p: ({ children }) => (
+                        <p className="text-sm leading-relaxed text-primary-foreground/90 mb-1.5 last:mb-0">{children}</p>
+                      ),
+                      ul: ({ children }) => (
+                        <ul className="list-disc list-outside ml-5 mb-1.5 space-y-0.5 text-sm text-primary-foreground/90">{children}</ul>
+                      ),
+                      ol: ({ children }) => (
+                        <ol className="list-decimal list-outside ml-5 mb-1.5 space-y-0.5 text-sm text-primary-foreground/90">{children}</ol>
+                      ),
+                      li: ({ children }) => (
+                        <li className="leading-relaxed">{children}</li>
+                      ),
+                      strong: ({ children }) => (
+                        <strong className="font-semibold text-primary-foreground">{children}</strong>
+                      ),
+                      em: ({ children }) => (
+                        <em className="italic text-primary-foreground/90">{children}</em>
+                      ),
+                      code: ({ className, children, ...props }) => {
+                        const isBlock = /language-/.test(className || "") || String(children).includes("\n");
+                        if (isBlock) {
+                          return (
+                            <pre className="my-2 p-2.5 rounded-md bg-black/20 overflow-x-auto">
+                              <code className="text-xs font-mono text-primary-foreground/90 whitespace-pre-wrap break-words" {...props}>{children}</code>
+                            </pre>
+                          );
+                        }
+                        return (
+                          <code className="bg-black/20 text-primary-foreground px-1 py-0.5 rounded text-xs font-mono" {...props}>{children}</code>
+                        );
+                      },
+                      blockquote: ({ children }) => (
+                        <blockquote className="border-l-2 border-white/30 pl-3 my-2 italic text-primary-foreground/80">{children}</blockquote>
+                      ),
+                      a: ({ href, children }) => (
+                        <a href={href} target="_blank" rel="noopener noreferrer" className="underline text-primary-foreground hover:text-white">{children}</a>
+                      ),
+                      hr: () => <hr className="my-3 border-white/20" />,
+                      table: ({ children }) => (
+                        <div className="overflow-x-auto my-2 rounded border border-white/20">
+                          <table className="w-full text-xs">{children}</table>
+                        </div>
+                      ),
+                      thead: ({ children }) => <thead className="bg-black/10">{children}</thead>,
+                      th: ({ children }) => <th className="px-2 py-1 text-left font-semibold text-primary-foreground border-b border-white/20">{children}</th>,
+                      td: ({ children }) => <td className="px-2 py-1 border-b border-white/10 text-primary-foreground/90">{children}</td>,
+                    }}
+                  >
+                    {message.content}
+                  </ReactMarkdown>
                 </div>
               ) : (
                 <div className="prose-container overflow-hidden break-words overflow-wrap-anywhere">

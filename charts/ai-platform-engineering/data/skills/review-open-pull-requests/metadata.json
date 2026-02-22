@@ -1,0 +1,10 @@
+{
+  "title": "Review Open Pull Requests",
+  "category": "Development",
+  "icon": "GitBranch",
+  "tags": [
+    "GitHub",
+    "Code Review",
+    "CI/CD"
+  ]
+}

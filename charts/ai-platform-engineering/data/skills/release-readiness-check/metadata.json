@@ -1,0 +1,11 @@
+{
+  "title": "Release Readiness Check",
+  "category": "DevOps",
+  "icon": "Rocket",
+  "tags": [
+    "GitHub",
+    "ArgoCD",
+    "Jira",
+    "Multi-Agent"
+  ]
+}

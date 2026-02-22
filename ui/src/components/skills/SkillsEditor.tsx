@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useCallback } from "react";
+import React, { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Save,
@@ -10,7 +10,6 @@ import {
   Plus,
   Trash2,
   GripVertical,
-  Upload,
   FileCode,
   ChevronDown,
   ChevronUp,
@@ -53,7 +52,7 @@ import type {
   WorkflowDifficulty,
 } from "@/types/agent-config";
 
-interface AgentBuilderEditorProps {
+interface SkillsEditorProps {
   existingConfig?: AgentConfig;
   onSuccess?: () => void;
   onCancel?: () => void;
@@ -146,11 +145,11 @@ const emptyTask: AgentConfigTask = {
   subagent: "caipe",
 };
 
-export function AgentBuilderEditor({
+export function SkillsEditor({
   existingConfig,
   onSuccess,
   onCancel,
-}: AgentBuilderEditorProps) {
+}: SkillsEditorProps) {
   const isEditMode = !!existingConfig;
   const { createConfig, updateConfig } = useAgentConfigStore();
   const { isAdmin } = useAdminRole();
@@ -362,9 +361,9 @@ export function AgentBuilderEditor({
         }];
       }
       
-      console.log(`[AgentBuilderEditor] Tasks state before save:`, tasks);
-      console.log(`[AgentBuilderEditor] Tasks to save:`, tasksToSave);
-      console.log(`[AgentBuilderEditor] First task llm_prompt:`, tasksToSave[0]?.llm_prompt);
+      console.log(`[SkillsEditor] Tasks state before save:`, tasks);
+      console.log(`[SkillsEditor] Tasks to save:`, tasksToSave);
+      console.log(`[SkillsEditor] First task llm_prompt:`, tasksToSave[0]?.llm_prompt);
       
       const configData: CreateAgentConfigInput = {
         name: formData.name.trim(),
@@ -381,11 +380,11 @@ export function AgentBuilderEditor({
       };
 
       if (isEditMode && existingConfig) {
-        console.log(`[AgentBuilderEditor] Updating config ${existingConfig.id}:`, configData);
+        console.log(`[SkillsEditor] Updating config ${existingConfig.id}:`, configData);
         await updateConfig(existingConfig.id, configData);
-        console.log(`[AgentBuilderEditor] Update completed successfully`);
+        console.log(`[SkillsEditor] Update completed successfully`);
       } else {
-        console.log(`[AgentBuilderEditor] Creating new config:`, configData);
+        console.log(`[SkillsEditor] Creating new config:`, configData);
         await createConfig(configData);
       }
 
@@ -933,21 +932,21 @@ export function AgentBuilderEditor({
 }
 
 /**
- * AgentBuilderEditorDialog - Wraps AgentBuilderEditor in a Dialog
+ * SkillsEditorDialog - Wraps SkillsEditor in a Dialog
  */
-interface AgentBuilderEditorDialogProps {
+interface SkillsEditorDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSuccess?: () => void;
   existingConfig?: AgentConfig;
 }
 
-export function AgentBuilderEditorDialog({
+export function SkillsEditorDialog({
   open,
   onOpenChange,
   onSuccess,
   existingConfig,
-}: AgentBuilderEditorDialogProps) {
+}: SkillsEditorDialogProps) {
   const handleSuccess = () => {
     if (onSuccess) {
       onSuccess();
@@ -986,7 +985,7 @@ export function AgentBuilderEditorDialog({
           className="flex-1 overflow-y-auto px-6 pb-6"
           style={{ minHeight: 0 }}
         >
-          <AgentBuilderEditor
+          <SkillsEditor
             onSuccess={handleSuccess}
             onCancel={() => onOpenChange(false)}
             existingConfig={existingConfig}
@@ -997,173 +996,3 @@ export function AgentBuilderEditorDialog({
   );
 }
 
-/**
- * YamlImportDialog - Dialog for importing YAML configurations
- */
-interface YamlImportDialogProps {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  onSuccess?: () => void;
-}
-
-export function YamlImportDialog({
-  open,
-  onOpenChange,
-  onSuccess,
-}: YamlImportDialogProps) {
-  const { importFromYaml } = useAgentConfigStore();
-  const [yamlContent, setYamlContent] = useState("");
-  const [isImporting, setIsImporting] = useState(false);
-  const [importStatus, setImportStatus] = useState<"idle" | "success" | "error">("idle");
-  const [importError, setImportError] = useState<string | null>(null);
-  const [importedCount, setImportedCount] = useState(0);
-
-  const handleFileUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const content = event.target?.result as string;
-      setYamlContent(content);
-    };
-    reader.readAsText(file);
-  }, []);
-
-  const handleImport = async () => {
-    if (!yamlContent.trim()) return;
-
-    setIsImporting(true);
-    setImportStatus("idle");
-    setImportError(null);
-
-    try {
-      const ids = await importFromYaml(yamlContent);
-      setImportedCount(ids.length);
-      setImportStatus("success");
-
-      if (onSuccess) {
-        setTimeout(() => {
-          onSuccess();
-          onOpenChange(false);
-        }, 1500);
-      }
-    } catch (error: any) {
-      console.error("Failed to import YAML:", error);
-      setImportError(error.message);
-      setImportStatus("error");
-    } finally {
-      setIsImporting(false);
-    }
-  };
-
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl">
-        <DialogHeader>
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-orange-500 to-orange-700 flex items-center justify-center">
-              <Upload className="h-5 w-5 text-white" />
-            </div>
-            <div>
-              <DialogTitle>Import from YAML</DialogTitle>
-              <DialogDescription>
-                Import workflow configurations from a task_config.yaml file
-              </DialogDescription>
-            </div>
-          </div>
-        </DialogHeader>
-
-        <div className="space-y-4 py-4">
-          {/* File Upload */}
-          <div>
-            <label className="text-sm font-medium mb-2 block">
-              Upload YAML File
-            </label>
-            <Input
-              type="file"
-              accept=".yaml,.yml"
-              onChange={handleFileUpload}
-              className="cursor-pointer"
-            />
-          </div>
-
-          {/* Or paste */}
-          <div className="relative">
-            <div className="absolute inset-0 flex items-center">
-              <span className="w-full border-t" />
-            </div>
-            <div className="relative flex justify-center text-xs uppercase">
-              <span className="bg-background px-2 text-muted-foreground">
-                Or paste YAML content
-              </span>
-            </div>
-          </div>
-
-          {/* YAML Content */}
-          <textarea
-            value={yamlContent}
-            onChange={(e) => setYamlContent(e.target.value)}
-            placeholder="Paste your task_config.yaml content here..."
-            rows={12}
-            className={cn(
-              "w-full px-3 py-2 text-sm rounded-md border border-input bg-background resize-none font-mono",
-              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-            )}
-          />
-
-          {/* Status Messages */}
-          {importStatus === "success" && (
-            <motion.div
-              initial={{ opacity: 0, y: -10 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="flex items-center gap-2 p-3 rounded-md bg-green-500/15 border border-green-500/30"
-            >
-              <CheckCircle className="h-4 w-4 text-green-400" />
-              <p className="text-sm text-green-400">
-                Successfully imported {importedCount} workflow(s)!
-              </p>
-            </motion.div>
-          )}
-
-          {importStatus === "error" && (
-            <motion.div
-              initial={{ opacity: 0, y: -10 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="flex items-center gap-2 p-3 rounded-md bg-red-500/15 border border-red-500/30"
-            >
-              <AlertCircle className="h-4 w-4 text-red-400" />
-              <p className="text-sm text-red-400">
-                {importError || "Failed to import YAML"}
-              </p>
-            </motion.div>
-          )}
-        </div>
-
-        {/* Actions */}
-        <div className="flex justify-end gap-3">
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
-            Cancel
-          </Button>
-          <Button
-            onClick={handleImport}
-            disabled={!yamlContent.trim() || isImporting}
-            className="gap-2 gradient-primary text-white"
-          >
-            {isImporting ? (
-              <>
-                <Loader2 className="h-4 w-4 animate-spin" />
-                Importing...
-              </>
-            ) : (
-              <>
-                <Upload className="h-4 w-4" />
-                Import
-              </>
-            )}
-          </Button>
-        </div>
-      </DialogContent>
-    </Dialog>
-  );
-}

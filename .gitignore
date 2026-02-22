@@ -243,6 +243,11 @@ ui/next-env.d.ts
 # Use case data storage (file-based)
 ui/data/
 data/
+# Skill templates in Helm chart data must be tracked
+!charts/ai-platform-engineering/data/
+charts/ai-platform-engineering/data/*
+!charts/ai-platform-engineering/data/skills/
+!charts/ai-platform-engineering/data/skills/**
 
 # TypeScript build cache
 *.tsbuildinfo

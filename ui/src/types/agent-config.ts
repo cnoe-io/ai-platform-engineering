@@ -12,6 +12,15 @@
 export type WorkflowDifficulty = "beginner" | "intermediate" | "advanced";
 
 /**
+ * Visibility level for skills/agent configs
+ *
+ * - "private":  Only the owner can see and use this skill
+ * - "team":     Owner + members of shared_with_teams can see it
+ * - "global":   All authenticated users can see it
+ */
+export type SkillVisibility = "private" | "team" | "global";
+
+/**
  * Input field for user forms (used in quick-start templates)
  */
 export interface WorkflowInputField {
@@ -20,6 +29,7 @@ export interface WorkflowInputField {
   placeholder: string;
   type: "text" | "url" | "number";
   required?: boolean;
+  defaultValue?: string;
   helperText?: string;
 }
 
@@ -91,6 +101,8 @@ export interface AgentConfigMetadata {
   tags?: string[];
   /** Expected agents/integrations used (for display) */
   expected_agents?: string[];
+  /** (Experimental) Tool allowlist for this skill -- not enforced by backend yet */
+  allowed_tools?: string[];
 }
 
 /**
@@ -128,6 +140,12 @@ export interface AgentConfig {
   thumbnail?: string;
   /** Custom input form for placeholder-based prompts */
   input_form?: WorkflowInputForm;
+  /** Raw SKILL.md markdown content for skills built with the Skills Builder */
+  skill_content?: string;
+  /** Visibility level: private (owner only), team (shared teams), global (everyone) */
+  visibility?: SkillVisibility;
+  /** Team IDs this skill is shared with (when visibility is "team") */
+  shared_with_teams?: string[];
 }
 
 /**
@@ -144,6 +162,12 @@ export interface CreateAgentConfigInput {
   difficulty?: WorkflowDifficulty;
   thumbnail?: string;
   input_form?: WorkflowInputForm;
+  /** Raw SKILL.md markdown content */
+  skill_content?: string;
+  /** Visibility level: private (default), team, or global */
+  visibility?: SkillVisibility;
+  /** Team IDs to share with (when visibility is "team") */
+  shared_with_teams?: string[];
 }
 
 /**
@@ -160,6 +184,12 @@ export interface UpdateAgentConfigInput {
   difficulty?: WorkflowDifficulty;
   thumbnail?: string;
   input_form?: WorkflowInputForm;
+  /** Raw SKILL.md markdown content */
+  skill_content?: string;
+  /** Visibility level: private, team, or global */
+  visibility?: SkillVisibility;
+  /** Team IDs to share with (when visibility is "team") */
+  shared_with_teams?: string[];
 }
 
 /**
@@ -226,40 +256,46 @@ export interface PromptVariable {
 
 /**
  * Helper function to extract variables from an LLM prompt
- * Supports both {variable_name} and {{variable_name}} formats
+ * Supports formats:
+ *   {variable_name}          — required, no default
+ *   {{variable_name}}        — required, no default
+ *   {{variable_name:default}} — optional, pre-filled with "default"
  */
 export function extractPromptVariables(prompt: string): PromptVariable[] {
-  // Match both {var} and {{var}} formats
   const singleBracePattern = /\{([a-zA-Z_][a-zA-Z0-9_]*)\}/g;
+  // Capture inner content which may contain "name:default"
   const doubleBracePattern = /\{\{([^}]+)\}\}/g;
   
   const variables: PromptVariable[] = [];
   const seen = new Set<string>();
   
-  // Extract single brace variables
   let match;
   while ((match = singleBracePattern.exec(prompt)) !== null) {
     const name = match[1];
     if (!seen.has(name)) {
       seen.add(name);
-      variables.push({
-        name,
-        required: true,
-        description: undefined,
-      });
+      variables.push({ name, required: true });
     }
   }
   
-  // Extract double brace variables (use case format)
   while ((match = doubleBracePattern.exec(prompt)) !== null) {
-    const name = match[1].trim();
-    if (name && !seen.has(name)) {
-      seen.add(name);
-      variables.push({
-        name,
-        required: true,
-        description: undefined,
-      });
+    const inner = match[1].trim();
+    if (!inner) continue;
+
+    const colonIdx = inner.indexOf(":");
+    if (colonIdx !== -1) {
+      const name = inner.substring(0, colonIdx).trim();
+      const defaultValue = inner.substring(colonIdx + 1).trim();
+      if (name && !seen.has(name)) {
+        seen.add(name);
+        variables.push({ name, required: false, defaultValue });
+      }
+    } else {
+      const name = inner;
+      if (!seen.has(name)) {
+        seen.add(name);
+        variables.push({ name, required: true });
+      }
     }
   }
   
@@ -303,9 +339,12 @@ export function generateInputFormFromPrompt(
     return {
       name: variable.name,
       label,
-      placeholder: `Enter ${label.toLowerCase()}`,
+      placeholder: variable.defaultValue
+        ? `Default: ${variable.defaultValue}`
+        : `Enter ${label.toLowerCase()}`,
       type,
       required: variable.required,
+      defaultValue: variable.defaultValue,
     };
   });
   
@@ -634,3 +673,51 @@ export const BUILTIN_QUICK_START_TEMPLATES: AgentConfig[] = [
     },
   },
 ];
+
+// ---------------------------------------------------------------------------
+// Skill Metrics Types
+// ---------------------------------------------------------------------------
+
+export interface SkillRunStats {
+  skill_id: string;
+  skill_name: string;
+  total_runs: number;
+  completed: number;
+  failed: number;
+  success_rate: number;
+  last_run: string | null;
+  avg_duration_ms: number | null;
+}
+
+export interface SkillMetricsPersonal {
+  total_skills: number;
+  by_visibility: { private: number; team: number; global: number };
+  by_category: Array<{ category: string; count: number }>;
+  recent_skills: Array<{
+    id: string;
+    name: string;
+    visibility: SkillVisibility;
+    category: string;
+    created_at: string;
+  }>;
+  run_stats: SkillRunStats[];
+  daily_created: Array<{ date: string; count: number }>;
+}
+
+export interface SkillMetricsAdmin {
+  total_skills: number;
+  system_skills: number;
+  user_skills: number;
+  by_visibility: { private: number; team: number; global: number };
+  by_category: Array<{ category: string; count: number }>;
+  top_creators: Array<{ email: string; count: number }>;
+  daily_created: Array<{ date: string; count: number }>;
+  top_skills_by_runs: SkillRunStats[];
+  overall_run_stats: {
+    total_runs: number;
+    completed: number;
+    failed: number;
+    success_rate: number;
+    avg_duration_ms: number | null;
+  };
+}

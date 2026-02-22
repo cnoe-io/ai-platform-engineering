@@ -16,7 +16,7 @@
  * - Feedback: shows empty state when no feedback given
  * - Skill usage: renders skill categories with run counts and success rates
  * - Skill usage: shows empty state with Browse Agent Skills button
- * - Navigation: Browse Agent Skills navigates to /agent-builder
+ * - Navigation: Browse Agent Skills navigates to /skills
  * - AuthGuard: wraps page in AuthGuard component
  */
 
@@ -75,6 +75,12 @@ jest.mock('@/components/admin/SimpleLineChart', () => ({
       {data?.length} data points
     </div>
   ),
+}))
+
+jest.mock('@/components/admin/SkillMetricsCards', () => ({
+  VisibilityBreakdown: () => <div data-testid="visibility-breakdown" />,
+  CategoryBreakdown: () => <div data-testid="category-breakdown" />,
+  RunStatsTable: () => <div data-testid="run-stats-table" />,
 }))
 
 jest.mock('@/components/ui/caipe-spinner', () => ({
@@ -162,19 +168,42 @@ function makeInsightsData(overrides: Record<string, any> = {}) {
   }
 }
 
+const emptySkillMetrics = {
+  total_skills: 0,
+  by_visibility: { private: 0, team: 0, global: 0 },
+  by_category: [],
+  recent_skills: [],
+  run_stats: [],
+  daily_created: [],
+}
+
 function mockFetchSuccess(data = makeInsightsData()) {
-  ;(global.fetch as jest.Mock).mockResolvedValueOnce({
-    ok: true,
-    status: 200,
-    json: async () => ({ success: true, data }),
+  ;(global.fetch as jest.Mock).mockImplementation((url: string) => {
+    if (url === '/api/users/me/insights/skills') {
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: async () => ({ success: true, data: emptySkillMetrics }),
+      })
+    }
+    return Promise.resolve({
+      ok: true,
+      status: 200,
+      json: async () => ({ success: true, data }),
+    })
   })
 }
 
 function mockFetchError(status = 500, statusText = 'Internal Server Error') {
-  ;(global.fetch as jest.Mock).mockResolvedValueOnce({
-    ok: false,
-    status,
-    statusText,
+  ;(global.fetch as jest.Mock).mockImplementation((url: string) => {
+    if (url === '/api/users/me/insights/skills') {
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: async () => ({ success: true, data: emptySkillMetrics }),
+      })
+    }
+    return Promise.resolve({ ok: false, status, statusText })
   })
 }
 
@@ -192,9 +221,7 @@ describe('Insights Page', () => {
 
   describe('AuthGuard wrapper', () => {
     it('wraps the page content in AuthGuard', () => {
-      ;(global.fetch as jest.Mock).mockResolvedValue({
-        ok: true, status: 200, json: async () => ({ success: true, data: makeInsightsData() }),
-      })
+      mockFetchSuccess()
       render(<Insights />)
       expect(screen.getByTestId('auth-guard')).toBeInTheDocument()
     })
@@ -242,8 +269,7 @@ describe('Insights Page', () => {
 
   describe('Loading state', () => {
     it('shows loading spinner while fetching data', () => {
-      // Don't resolve the fetch yet
-      ;(global.fetch as jest.Mock).mockReturnValue(new Promise(() => {}))
+      ;(global.fetch as jest.Mock).mockImplementation(() => new Promise(() => {}))
 
       render(<Insights />)
 
@@ -275,10 +301,19 @@ describe('Insights Page', () => {
     })
 
     it('shows error when API returns success=false', async () => {
-      ;(global.fetch as jest.Mock).mockResolvedValueOnce({
-        ok: true,
-        status: 200,
-        json: async () => ({ success: false, error: 'Database error' }),
+      ;(global.fetch as jest.Mock).mockImplementation((url: string) => {
+        if (url === '/api/users/me/insights/skills') {
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            json: async () => ({ success: true, data: emptySkillMetrics }),
+          })
+        }
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => ({ success: false, error: 'Database error' }),
+        })
       })
 
       render(<Insights />)
@@ -514,7 +549,7 @@ describe('Insights Page', () => {
       })
     })
 
-    it('navigates to agent-builder when Browse Agent Skills is clicked', async () => {
+    it('navigates to skills when Browse Agent Skills is clicked', async () => {
       mockFetchSuccess(makeInsightsData({ skill_usage: [] }))
 
       render(<Insights />)
@@ -524,7 +559,7 @@ describe('Insights Page', () => {
       })
 
       fireEvent.click(screen.getByText('Browse Agent Skills'))
-      expect(mockPush).toHaveBeenCalledWith('/agent-builder')
+      expect(mockPush).toHaveBeenCalledWith('/skills')
     })
 
     it('uses singular "run" when count is 1', async () => {

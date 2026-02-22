@@ -1,0 +1,10 @@
+{
+  "title": "Cluster Resource Health",
+  "category": "Infrastructure",
+  "icon": "Database",
+  "tags": [
+    "AWS",
+    "Kubernetes",
+    "Monitoring"
+  ]
+}

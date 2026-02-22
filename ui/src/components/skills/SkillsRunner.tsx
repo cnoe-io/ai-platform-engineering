@@ -45,7 +45,7 @@ import { useWorkflowRunStore } from "@/store/workflow-run-store";
 import { WorkflowHistoryView } from "./WorkflowHistoryView";
 import { getMarkdownComponents } from "@/lib/markdown-components";
 
-interface AgentBuilderRunnerProps {
+interface SkillsRunnerProps {
   config: AgentConfig;
   onBack?: () => void;
   onComplete?: (result: string) => void;
@@ -697,14 +697,14 @@ function ResultOrInputForm({
 }
 
 /**
- * AgentBuilderRunner - Main execution component with real A2A streaming
+ * SkillsRunner - Main execution component with real A2A streaming
  */
-export function AgentBuilderRunner({
+export function SkillsRunner({
   config,
   onBack,
   onComplete,
   cameFromHistory = false,
-}: AgentBuilderRunnerProps) {
+}: SkillsRunnerProps) {
   // Workflow state
   const [status, setStatus] = useState<
     "idle" | "running" | "completed" | "failed" | "cancelled"
@@ -904,7 +904,7 @@ export function AgentBuilderRunner({
 
       // Handle structured user input request (from request_user_input tool)
       if (event.requireUserInput && event.metadata?.input_fields) {
-        console.log("[AgentBuilderRunner] 📝 Received structured user input request");
+        console.log("[SkillsRunner] 📝 Received structured user input request");
         const fields = event.metadata.input_fields;
         
         // Convert backend field format to DetectedInputField format
@@ -942,7 +942,7 @@ export function AgentBuilderRunner({
             );
             const runningCount = prev.filter(t => t.status === "running").length;
             if (runningCount > 0) {
-              console.log(`[AgentBuilderRunner] ✅ Marking ${runningCount} remaining tool(s) as completed (final_result received)`);
+              console.log(`[SkillsRunner] ✅ Marking ${runningCount} remaining tool(s) as completed (final_result received)`);
             }
             return updated;
           });
@@ -951,7 +951,7 @@ export function AgentBuilderRunner({
           // (Need to use refs to get current state values to avoid closure issues)
           const saveExecutionArtifacts = async () => {
             if (!runIdRef.current || !startTimeRef.current) {
-              console.warn("[AgentBuilderRunner] ⚠️ No runId or startTime available to save final result");
+              console.warn("[SkillsRunner] ⚠️ No runId or startTime available to save final result");
               return;
             }
             
@@ -972,7 +972,7 @@ export function AgentBuilderRunner({
                   : tool
               );
               
-              console.log(`[AgentBuilderRunner] 💾 Saving execution artifacts for run ${runIdRef.current}`, {
+              console.log(`[SkillsRunner] 💾 Saving execution artifacts for run ${runIdRef.current}`, {
                 stepsCount: currentSteps.length,
                 toolCallsCount: finalToolCalls.length,
                 contentLength: content.length
@@ -1007,13 +1007,13 @@ export function AgentBuilderRunner({
                 },
               });
               
-              console.log(`[AgentBuilderRunner] ✅ Successfully saved execution artifacts for run ${runIdRef.current}`);
+              console.log(`[SkillsRunner] ✅ Successfully saved execution artifacts for run ${runIdRef.current}`);
               
               // Mark as saved so we don't duplicate on stream end
               workflowSavedRef.current = true;
             } catch (error) {
-              console.error("[AgentBuilderRunner] ❌ Failed to save execution artifacts:", error);
-              console.error("[AgentBuilderRunner] Error details:", {
+              console.error("[SkillsRunner] ❌ Failed to save execution artifacts:", error);
+              console.error("[SkillsRunner] Error details:", {
                 runId: runIdRef.current,
                 error: error instanceof Error ? error.message : String(error),
                 stack: error instanceof Error ? error.stack : undefined
@@ -1084,9 +1084,9 @@ export function AgentBuilderRunner({
       runIdRef.current = runId;
       startTimeRef.current = startTime;
       
-      console.log(`[AgentBuilderRunner] Created workflow run: ${runId}`);
+      console.log(`[SkillsRunner] Created workflow run: ${runId}`);
     } catch (error) {
-      console.error("[AgentBuilderRunner] Failed to create workflow run:", error);
+      console.error("[SkillsRunner] Failed to create workflow run:", error);
       // Continue anyway - history is not critical
       runIdRef.current = null;
       startTimeRef.current = null;
@@ -1113,13 +1113,13 @@ export function AgentBuilderRunner({
         : config.name;
     }
 
-    console.log(`[AgentBuilderRunner] Starting workflow: "${prompt.substring(0, 100)}..."`);
+    console.log(`[SkillsRunner] Starting workflow: "${prompt.substring(0, 100)}..."`);
 
     try {
       // Stream events from supervisor
       for await (const event of client.sendMessageStream(prompt)) {
         if (abortedRef.current) {
-          console.log("[AgentBuilderRunner] Workflow aborted");
+          console.log("[SkillsRunner] Workflow aborted");
           break;
         }
 
@@ -1127,7 +1127,7 @@ export function AgentBuilderRunner({
 
         // Check for completion
         if (event.type === "status" && event.isFinal) {
-          console.log("[AgentBuilderRunner] Workflow complete (final status)");
+          console.log("[SkillsRunner] Workflow complete (final status)");
           if (!finalResult) {
             // If no final result yet, mark as completed with streaming content
             setStatus("completed");
@@ -1142,7 +1142,7 @@ export function AgentBuilderRunner({
               );
               const runningCount = prev.filter(t => t.status === "running").length;
               if (runningCount > 0) {
-                console.log(`[AgentBuilderRunner] ✅ Marking ${runningCount} remaining tool(s) as completed (final status received)`);
+                console.log(`[SkillsRunner] ✅ Marking ${runningCount} remaining tool(s) as completed (final status received)`);
               }
               return updated;
             });
@@ -1166,7 +1166,7 @@ export function AgentBuilderRunner({
           );
           const runningCount = prev.filter(t => t.status === "running").length;
           if (runningCount > 0) {
-            console.log(`[AgentBuilderRunner] ✅ Marking ${runningCount} remaining tool(s) as completed`);
+            console.log(`[SkillsRunner] ✅ Marking ${runningCount} remaining tool(s) as completed`);
           }
           return updated;
         });
@@ -1193,7 +1193,7 @@ export function AgentBuilderRunner({
                 : tool
             );
             
-            console.log(`[AgentBuilderRunner] 💾 Finalizing workflow run ${runId}`, {
+            console.log(`[SkillsRunner] 💾 Finalizing workflow run ${runId}`, {
               finalResult: currentFinalResult?.substring(0, 100),
               streamingContent: currentStreamingContent?.substring(0, 100),
               resultLength: resultSummary.length,
@@ -1231,11 +1231,11 @@ export function AgentBuilderRunner({
               },
             });
             
-            console.log(`[AgentBuilderRunner] ✅ Successfully updated workflow run ${runId} with full execution artifacts`);
+            console.log(`[SkillsRunner] ✅ Successfully updated workflow run ${runId} with full execution artifacts`);
             workflowSavedRef.current = true;
           } catch (error) {
-            console.error("[AgentBuilderRunner] ❌ Failed to update workflow run:", error);
-            console.error("[AgentBuilderRunner] Error details:", {
+            console.error("[SkillsRunner] ❌ Failed to update workflow run:", error);
+            console.error("[SkillsRunner] Error details:", {
               runId,
               error: error instanceof Error ? error.message : String(error),
               stack: error instanceof Error ? error.stack : undefined
@@ -1247,13 +1247,13 @@ export function AgentBuilderRunner({
             setIsSavingWorkflow(false);
           }
         } else if (workflowSavedRef.current) {
-          console.log(`[AgentBuilderRunner] ⏭️ Skipping duplicate save - workflow ${runId} already saved`);
+          console.log(`[SkillsRunner] ⏭️ Skipping duplicate save - workflow ${runId} already saved`);
         } else {
-          console.warn("[AgentBuilderRunner] ⚠️ No runId available to update completion status");
+          console.warn("[SkillsRunner] ⚠️ No runId available to update completion status");
         }
       }
     } catch (err) {
-      console.error("[AgentBuilderRunner] Error:", err);
+      console.error("[SkillsRunner] Error:", err);
       if (!abortedRef.current) {
         const errorMessage = (err as Error).message || "Workflow execution failed";
         setError(errorMessage);
@@ -1269,7 +1269,7 @@ export function AgentBuilderRunner({
           );
           const runningCount = prev.filter(t => t.status === "running").length;
           if (runningCount > 0) {
-            console.log(`[AgentBuilderRunner] ⚠️ Marking ${runningCount} remaining tool(s) as completed (workflow failed)`);
+            console.log(`[SkillsRunner] ⚠️ Marking ${runningCount} remaining tool(s) as completed (workflow failed)`);
           }
           return updated;
         });
@@ -1288,9 +1288,9 @@ export function AgentBuilderRunner({
               steps_completed: currentSteps.filter(s => s.status === "completed").length,
               steps_total: currentSteps.length,
             });
-            console.log(`[AgentBuilderRunner] Updated workflow run ${runId} as failed`);
+            console.log(`[SkillsRunner] Updated workflow run ${runId} as failed`);
           } catch (error) {
-            console.error("[AgentBuilderRunner] Failed to update workflow run:", error);
+            console.error("[SkillsRunner] Failed to update workflow run:", error);
           }
         }
       }
@@ -1320,7 +1320,7 @@ export function AgentBuilderRunner({
       );
       const runningCount = prev.filter(t => t.status === "running").length;
       if (runningCount > 0) {
-        console.log(`[AgentBuilderRunner] ⚠️ Marking ${runningCount} remaining tool(s) as completed (workflow cancelled)`);
+        console.log(`[SkillsRunner] ⚠️ Marking ${runningCount} remaining tool(s) as completed (workflow cancelled)`);
       }
       return updated;
     });
@@ -1334,9 +1334,9 @@ export function AgentBuilderRunner({
           steps_completed: steps.filter(s => s.status === "completed").length,
           steps_total: steps.length,
         });
-        console.log(`[AgentBuilderRunner] Updated workflow run ${currentRunId} as cancelled`);
+        console.log(`[SkillsRunner] Updated workflow run ${currentRunId} as cancelled`);
       } catch (error) {
-        console.error("[AgentBuilderRunner] Failed to update workflow run:", error);
+        console.error("[SkillsRunner] Failed to update workflow run:", error);
       }
     }
   }, [currentRunId, steps, updateRun]);
@@ -1370,7 +1370,7 @@ export function AgentBuilderRunner({
   useEffect(() => {
     if (!hasAutoStarted.current) {
       hasAutoStarted.current = true;
-      console.log("[AgentBuilderRunner] Auto-starting workflow on mount");
+      console.log("[SkillsRunner] Auto-starting workflow on mount");
       // Small delay to ensure UI is ready
       setTimeout(() => handleStart(), 100);
     }
@@ -1389,7 +1389,7 @@ export function AgentBuilderRunner({
         const hasFinalResult = finalResultRef.current || streamingContentRef.current;
         
         if (runId && startTime && !alreadySaved && hasFinalResult) {
-          console.log(`[AgentBuilderRunner] 🔄 Component unmounting - finalizing workflow ${runId}`);
+          console.log(`[SkillsRunner] 🔄 Component unmounting - finalizing workflow ${runId}`);
           
           try {
             const endTime = new Date();
@@ -1444,10 +1444,10 @@ export function AgentBuilderRunner({
               keepalive: true, // CRITICAL: Keeps request alive even after page unload
             });
             
-            console.log(`[AgentBuilderRunner] ✅ Finalized workflow ${runId} on unmount (keepalive)`);
+            console.log(`[SkillsRunner] ✅ Finalized workflow ${runId} on unmount (keepalive)`);
           } catch (error) {
-            console.error("[AgentBuilderRunner] ❌ Failed to finalize workflow on unmount:", error);
-            console.error("[AgentBuilderRunner] Error details:", {
+            console.error("[SkillsRunner] ❌ Failed to finalize workflow on unmount:", error);
+            console.error("[SkillsRunner] Error details:", {
               runId,
               error: error instanceof Error ? error.message : String(error)
             });
@@ -1471,7 +1471,7 @@ export function AgentBuilderRunner({
       .map(([key, value]) => `${key.replace(/_/g, " ")}: ${value}`)
       .join("\n");
     
-    console.log("[AgentBuilderRunner] Submitting user input:", formattedResponse);
+    console.log("[SkillsRunner] Submitting user input:", formattedResponse);
     
     // Reset state for continuation
     setFinalResult("");
@@ -1493,7 +1493,7 @@ export function AgentBuilderRunner({
       // Send the user's input as a follow-up message
       for await (const event of client.sendMessageStream(formattedResponse)) {
         if (abortedRef.current) {
-          console.log("[AgentBuilderRunner] Workflow aborted");
+          console.log("[SkillsRunner] Workflow aborted");
           break;
         }
         
@@ -1501,7 +1501,7 @@ export function AgentBuilderRunner({
         
         // Check for completion
         if (event.type === "status" && event.isFinal) {
-          console.log("[AgentBuilderRunner] Workflow complete (final status)");
+          console.log("[SkillsRunner] Workflow complete (final status)");
           setStatus("completed");
           setIsThinking(false);
           break;
@@ -1514,7 +1514,7 @@ export function AgentBuilderRunner({
         setIsThinking(false);
       }
     } catch (err) {
-      console.error("[AgentBuilderRunner] Error:", err);
+      console.error("[SkillsRunner] Error:", err);
       if (!abortedRef.current) {
         setError((err as Error).message || "Failed to submit input");
         setStatus("failed");
