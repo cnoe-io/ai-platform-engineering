@@ -80,6 +80,30 @@ const gradientThemes = [
     to: "hsl(340,70%,55%)",
     preview: "from-orange-500 to-pink-500"
   },
+  {
+    id: "cyberpunk",
+    label: "Cyberpunk (Pink → Cyan)",
+    description: "Neon-soaked, high-contrast",
+    from: "hsl(330,100%,50%)",
+    to: "hsl(180,100%,50%)",
+    preview: "from-[hsl(330,100%,50%)] to-[hsl(180,100%,50%)]"
+  },
+  {
+    id: "tron",
+    label: "Tron (Cyan → Blue)",
+    description: "Electric glow, digital frontier",
+    from: "hsl(190,100%,50%)",
+    to: "hsl(210,80%,40%)",
+    preview: "from-[hsl(190,100%,50%)] to-[hsl(210,80%,40%)]"
+  },
+  {
+    id: "matrix",
+    label: "Matrix (Green → Dark Green)",
+    description: "Phosphor glow, digital rain",
+    from: "hsl(120,100%,45%)",
+    to: "hsl(140,60%,25%)",
+    preview: "from-[hsl(120,100%,45%)] to-[hsl(140,60%,25%)]"
+  },
 ] as const;
 
 type FontSize = typeof fontSizes[number]["id"];

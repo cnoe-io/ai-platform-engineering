@@ -412,7 +412,7 @@ describe('getServerConfig', () => {
       expect(getServerConfig().defaultGradientTheme).toBe('default');
     });
 
-    it.each(['default', 'minimal', 'professional', 'ocean', 'sunset'] as const)(
+    it.each(['default', 'minimal', 'professional', 'ocean', 'sunset', 'cyberpunk', 'tron', 'matrix'] as const)(
       'should accept valid value "%s"',
       (gradient) => {
         process.env.DEFAULT_GRADIENT_THEME = gradient;

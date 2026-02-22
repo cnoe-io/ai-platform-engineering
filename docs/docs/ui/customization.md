@@ -147,7 +147,7 @@ Available themes:
 
 | Variable | Default | Allowed Values | Description |
 |----------|---------|----------------|-------------|
-| `DEFAULT_GRADIENT_THEME` | `default` | `default`, `minimal`, `professional`, `ocean`, `sunset` | Default gradient style for new users |
+| `DEFAULT_GRADIENT_THEME` | `default` | `default`, `minimal`, `professional`, `ocean`, `sunset`, `cyberpunk`, `tron`, `matrix` | Default gradient style for new users |
 
 Available gradient themes:
 
@@ -158,6 +158,9 @@ Available gradient themes:
 | `professional` | Blue → Navy | Corporate, trustworthy |
 | `ocean` | Cyan → Blue | Cool, calming |
 | `sunset` | Orange → Pink | Warm, energetic |
+| `cyberpunk` | Pink → Cyan | Neon-soaked, high-contrast |
+| `tron` | Cyan → Blue | Electric glow, digital frontier |
+| `matrix` | Green → Dark Green | Phosphor glow, digital rain |
 
 :::info
 The gradient theme selected by the user in the UI Personalization panel overrides both the `DEFAULT_GRADIENT_THEME` and the `GRADIENT_FROM`/`GRADIENT_TO` env vars. The env-level gradient colors only apply when no gradient theme is active.
