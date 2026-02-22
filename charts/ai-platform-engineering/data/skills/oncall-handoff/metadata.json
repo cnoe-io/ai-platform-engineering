@@ -1,0 +1,11 @@
+{
+  "title": "On-Call Handoff",
+  "category": "Operations",
+  "icon": "Users",
+  "tags": [
+    "PagerDuty",
+    "Jira",
+    "ArgoCD",
+    "Multi-Agent"
+  ]
+}

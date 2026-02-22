@@ -1,0 +1,10 @@
+{
+  "title": "Review a Specific PR",
+  "category": "Development",
+  "icon": "GitPullRequest",
+  "tags": [
+    "GitHub",
+    "Code Review",
+    "PR Analysis"
+  ]
+}

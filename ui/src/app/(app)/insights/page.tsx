@@ -26,9 +26,15 @@ import { AuthGuard } from "@/components/auth-guard";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { SimpleLineChart } from "@/components/admin/SimpleLineChart";
+import {
+  VisibilityBreakdown,
+  CategoryBreakdown,
+  RunStatsTable,
+} from "@/components/admin/SkillMetricsCards";
 import { CAIPESpinner } from "@/components/ui/caipe-spinner";
 import { cn } from "@/lib/utils";
 import { getStorageMode } from "@/lib/storage-config";
+import type { SkillMetricsPersonal } from "@/types/agent-config";
 
 // ─── Types ───────────────────────────────────────────────────────
 interface SkillUsageEntry {
@@ -117,6 +123,7 @@ function InsightsPage() {
   const { status } = useSession();
   const router = useRouter();
   const [data, setData] = useState<InsightsData | null>(null);
+  const [skillMetrics, setSkillMetrics] = useState<SkillMetricsPersonal | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -131,7 +138,10 @@ function InsightsPage() {
       try {
         setLoading(true);
         setError(null);
-        const res = await fetch("/api/users/me/insights");
+        const [res, skillsRes] = await Promise.all([
+          fetch("/api/users/me/insights"),
+          fetch("/api/users/me/insights/skills").catch(() => null),
+        ]);
         if (!res.ok) {
           if (res.status === 401) {
             setError("Please sign in to view insights.");
@@ -144,6 +154,11 @@ function InsightsPage() {
           setData(json.data);
         } else {
           throw new Error(json.error || "Unknown error");
+        }
+
+        if (skillsRes?.ok) {
+          const skillsJson = await skillsRes.json();
+          if (skillsJson.success) setSkillMetrics(skillsJson.data);
         }
       } catch (err: any) {
         setError(err.message);
@@ -467,7 +482,7 @@ function InsightsPage() {
                   No skill runs yet. Run an Agent Skill to see your usage here.
                 </p>
                 <button
-                  onClick={() => router.push("/agent-builder")}
+                  onClick={() => router.push("/skills")}
                   className="mt-2 px-4 py-1.5 text-xs rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
                 >
                   Browse Agent Skills
@@ -542,6 +557,80 @@ function InsightsPage() {
             )}
           </CardContent>
         </Card>
+
+        {/* Skills Portfolio */}
+        {skillMetrics && skillMetrics.total_skills > 0 && (
+          <>
+            <motion.div
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="flex items-center gap-3 pt-2"
+            >
+              <div className="p-2 rounded-xl bg-primary/10">
+                <Layers className="h-5 w-5 text-primary" />
+              </div>
+              <div>
+                <h2 className="text-lg font-bold">Skills Portfolio</h2>
+                <p className="text-sm text-muted-foreground">
+                  You&apos;ve created {skillMetrics.total_skills} skill{skillMetrics.total_skills !== 1 ? "s" : ""}
+                </p>
+              </div>
+            </motion.div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base">Visibility Breakdown</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <VisibilityBreakdown
+                    byVisibility={skillMetrics.by_visibility}
+                    total={skillMetrics.total_skills}
+                  />
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base">Skills by Category</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <CategoryBreakdown byCategory={skillMetrics.by_category} />
+                </CardContent>
+              </Card>
+            </div>
+
+            {skillMetrics.daily_created.length > 0 && (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <BarChart3 className="h-5 w-5" />
+                    Skills Created (Last 30 Days)
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <SimpleLineChart
+                    data={skillMetrics.daily_created.map((d) => ({
+                      label: new Date(d.date).toLocaleDateString("en-US", {
+                        month: "short",
+                        day: "numeric",
+                      }),
+                      value: d.count,
+                    }))}
+                    height={200}
+                    color="rgb(139, 92, 246)"
+                  />
+                </CardContent>
+              </Card>
+            )}
+
+            <RunStatsTable
+              runStats={skillMetrics.run_stats}
+              title="Your Skill Execution Stats"
+              description="Run history for skills you created"
+            />
+          </>
+        )}
       </div>
     </ScrollArea>
   );

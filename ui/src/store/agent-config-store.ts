@@ -35,7 +35,6 @@ interface AgentConfigState {
   selectConfig: (id: string | null) => void;
   getConfigById: (id: string) => AgentConfig | undefined;
   getConfigsByCategory: (category: AgentConfigCategory | string) => AgentConfig[];
-  importFromYaml: (yamlContent: string) => Promise<string[]>;
   refreshConfigs: () => Promise<void>;
   seedTemplates: () => Promise<void>;
   toggleFavorite: (id: string) => Promise<void>;
@@ -417,75 +416,6 @@ export const useAgentConfigStore = create<AgentConfigState>()((set, get) => ({
 
   getConfigsByCategory: (category) => {
     return get().configs.filter((c) => c.category === category);
-  },
-
-  importFromYaml: async (yamlContent) => {
-    // Dynamic import of yaml parser
-    const { parse } = await import("yaml");
-    
-    try {
-      const parsed = parse(yamlContent);
-      const createdIds: string[] = [];
-      
-      // Parse the task_config.yaml format
-      for (const [name, value] of Object.entries(parsed)) {
-        if (typeof value !== "object" || !value || !("tasks" in value)) {
-          console.warn(`[AgentConfigStore] Skipping invalid entry: ${name}`);
-          continue;
-        }
-        
-        const configValue = value as { tasks: Array<{ display_text: string; llm_prompt: string; subagent: string }> };
-        
-        // Infer category from name
-        let category: AgentConfigCategory | string = "Custom";
-        const nameLower = name.toLowerCase();
-        if (nameLower.includes("github") || nameLower.includes("repo")) {
-          category = "GitHub Operations";
-        } else if (nameLower.includes("aws") || nameLower.includes("ec2") || nameLower.includes("eks") || nameLower.includes("s3")) {
-          category = "AWS Operations";
-        } else if (nameLower.includes("argocd") || nameLower.includes("deploy")) {
-          category = "ArgoCD Operations";
-        } else if (nameLower.includes("llm") || nameLower.includes("api key") || nameLower.includes("aigateway") || nameLower.includes("spend")) {
-          category = "AI Gateway Operations";
-        } else if (nameLower.includes("group") || nameLower.includes("user") || nameLower.includes("invite")) {
-          category = "Group Management";
-        }
-        
-        // Extract env vars from prompts
-        const envVarPattern = /\$\{([A-Z_][A-Z0-9_]*)\}/g;
-        const envVars = new Set<string>();
-        configValue.tasks.forEach((task) => {
-          let match;
-          while ((match = envVarPattern.exec(task.llm_prompt)) !== null) {
-            envVars.add(match[1]);
-          }
-        });
-        
-        const configInput: CreateAgentConfigInput = {
-          name,
-          description: `Multi-step workflow for: ${name}`,
-          category,
-          tasks: configValue.tasks.map((task) => ({
-            display_text: task.display_text,
-            llm_prompt: task.llm_prompt,
-            subagent: task.subagent,
-          })),
-          metadata: {
-            env_vars_required: Array.from(envVars),
-            schema_version: "1.0",
-          },
-        };
-        
-        const id = await get().createConfig(configInput);
-        createdIds.push(id);
-      }
-      
-      console.log(`[AgentConfigStore] Imported ${createdIds.length} configs from YAML`);
-      return createdIds;
-    } catch (error: any) {
-      console.error("[AgentConfigStore] Failed to import YAML:", error);
-      throw new Error(`Failed to parse YAML: ${error.message}`);
-    }
   },
 
   refreshConfigs: async () => {

@@ -2,12 +2,15 @@
 
 import React, { useEffect, useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
+import { useSession } from "next-auth/react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Search,
   Plus,
   Workflow,
   GitBranch,
+  GitPullRequest,
+  GitMerge,
   Cloud,
   Rocket,
   Key,
@@ -18,7 +21,6 @@ import {
   Play,
   Edit,
   Trash2,
-  Upload,
   ChevronRight,
   Sparkles,
   Zap,
@@ -27,16 +29,34 @@ import {
   BarChart,
   Shield,
   Database,
-  Clock,
   AlertTriangle,
   CheckCircle,
-  GitPullRequest,
+  Container,
+  Terminal,
+  Network,
+  Activity,
+  FileCode,
+  MonitorCheck,
+  RefreshCcw,
+  CircleDot,
+  Layers,
+  PackageCheck,
+  Gauge,
+  ScrollText,
+  Webhook,
+  Cpu,
+  HardDrive,
+  Wrench,
   ArrowRight,
   X,
   ExternalLink,
   MessageSquare,
   Star,
   History,
+  Lock,
+  Globe,
+  UsersRound,
+  User,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -50,33 +70,40 @@ import { useAdminRole } from "@/hooks/use-admin-role";
 import type { AgentConfig, AgentConfigCategory, WorkflowDifficulty } from "@/types/agent-config";
 import { generateInputFormFromPrompt } from "@/types/agent-config";
 
-interface AgentBuilderGalleryProps {
+interface SkillsGalleryProps {
   onSelectConfig?: (config: AgentConfig, fromHistory?: boolean) => void;
   onRunQuickStart?: (prompt: string, configName?: string) => void;
   onEditConfig?: (config: AgentConfig) => void;
   onCreateNew?: () => void;
-  onImportYaml?: () => void;
+}
+
+const VISIBILITY_BADGE_CONFIG: Record<string, { icon: React.ElementType; label: string; className: string }> = {
+  system: { icon: Shield, label: "System", className: "bg-purple-500/10 text-purple-500 border-purple-500/20" },
+  team: { icon: UsersRound, label: "Team", className: "bg-blue-500/10 text-blue-600 border-blue-500/20" },
+  global: { icon: Globe, label: "Global", className: "bg-green-500/10 text-green-600 border-green-500/20" },
+  private: { icon: Lock, label: "Private", className: "bg-muted text-muted-foreground border-border/50" },
+};
+
+function VisibilityBadge({ config }: { config: AgentConfig }) {
+  const key = config.is_system ? "system" : (config.visibility || "private");
+  const badge = VISIBILITY_BADGE_CONFIG[key];
+  if (!badge) return null;
+  const VIcon = badge.icon;
+  return (
+    <Badge variant="outline" className={cn("text-xs px-1.5 py-0 gap-0.5", badge.className)}>
+      <VIcon className="h-3 w-3" />
+      {badge.label}
+    </Badge>
+  );
 }
 
 // Icon mapping for thumbnails
 const ICON_MAP: Record<string, React.ElementType> = {
-  GitBranch,
-  GitPullRequest,
-  Server,
-  Bug,
-  BarChart,
-  Shield,
-  Cloud,
-  Rocket,
-  Zap,
-  Database,
-  Settings,
-  Users,
-  Clock,
-  AlertTriangle,
-  CheckCircle,
-  Key,
-  Workflow,
+  Zap, GitBranch, GitPullRequest, GitMerge, Server, Cloud, Rocket, Shield,
+  Database, BarChart, Users, AlertTriangle, CheckCircle, Settings, Key,
+  Workflow, Bug, Container, Terminal, Network, Activity, FileCode,
+  MonitorCheck, RefreshCcw, CircleDot, Layers, PackageCheck, Gauge,
+  ScrollText, Webhook, Cpu, HardDrive, Wrench,
 };
 
 // Category colors
@@ -123,13 +150,12 @@ const getDifficultyColor = (difficulty?: WorkflowDifficulty) => {
   }
 };
 
-export function AgentBuilderGallery({
+export function SkillsGallery({
   onSelectConfig,
   onRunQuickStart,
   onEditConfig,
   onCreateNew,
-  onImportYaml,
-}: AgentBuilderGalleryProps) {
+}: SkillsGalleryProps) {
   const {
     configs,
     isLoading,
@@ -141,6 +167,7 @@ export function AgentBuilderGallery({
     getFavoriteConfigs
   } = useAgentConfigStore();
   const { isAdmin } = useAdminRole();
+  const { data: session } = useSession();
   const router = useRouter();
   const { createConversation, setPendingMessage } = useChatStore();
   const workflowRunnerEnabled = getConfig('workflowRunnerEnabled');
@@ -148,9 +175,9 @@ export function AgentBuilderGallery({
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategory, setSelectedCategory] = useState<string>("All");
   const [deletingId, setDeletingId] = useState<string | null>(null);
-  const [viewMode, setViewMode] = useState<"all" | "quick-start" | "workflows">("all");
+  const [viewMode, setViewMode] = useState<"all" | "workflows" | "my-skills" | "team" | "global">("all");
 
-  // Input form state for quick-start with placeholders
+  // Input form state for skill run modal
   const [activeFormConfig, setActiveFormConfig] = useState<AgentConfig | null>(null);
   const [formValues, setFormValues] = useState<Record<string, string>>({});
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
@@ -167,9 +194,9 @@ export function AgentBuilderGallery({
 
         // Only update if the prompt has changed (to avoid infinite loop)
         if (latestPrompt !== currentPrompt) {
-          console.log(`[AgentBuilderGallery] Config updated in store, refreshing dialog:`, latestConfig.id);
-          console.log(`[AgentBuilderGallery] Old prompt:`, currentPrompt);
-          console.log(`[AgentBuilderGallery] New prompt:`, latestPrompt);
+          console.log(`[SkillsGallery] Config updated in store, refreshing dialog:`, latestConfig.id);
+          console.log(`[SkillsGallery] Old prompt:`, currentPrompt);
+          console.log(`[SkillsGallery] New prompt:`, latestPrompt);
 
           // Update activeFormConfig with latest data
           setActiveFormConfig({ ...latestConfig, input_form: activeFormConfig.input_form });
@@ -209,37 +236,42 @@ export function AgentBuilderGallery({
     });
   }, [configs]);
 
+  const currentUserEmail = session?.user?.email ?? "";
+
   // Filter configs based on search, category, and view mode
   const filteredConfigs = useMemo(() => {
     return allConfigs.filter((config) => {
+      const q = searchQuery.toLowerCase();
       const matchesSearch =
         searchQuery === "" ||
-        config.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        config.description?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        config.metadata?.tags?.some(tag => tag.toLowerCase().includes(searchQuery.toLowerCase()));
+        config.name.toLowerCase().includes(q) ||
+        config.description?.toLowerCase().includes(q) ||
+        config.category?.toLowerCase().includes(q) ||
+        config.metadata?.tags?.some(tag => tag.toLowerCase().includes(q));
 
       const matchesCategory =
         selectedCategory === "All" || config.category === selectedCategory;
 
       const matchesViewMode =
         viewMode === "all" ||
-        (viewMode === "quick-start" && config.is_quick_start) ||
-        (viewMode === "workflows" && !config.is_quick_start);
+        (viewMode === "workflows" && !config.is_quick_start) ||
+        (viewMode === "my-skills" && !config.is_system && config.owner_id === currentUserEmail) ||
+        (viewMode === "team" && config.visibility === "team") ||
+        (viewMode === "global" && (config.visibility === "global" || config.is_system));
 
       return matchesSearch && matchesCategory && matchesViewMode;
     });
-  }, [allConfigs, searchQuery, selectedCategory, viewMode]);
+  }, [allConfigs, searchQuery, selectedCategory, viewMode, currentUserEmail]);
 
-  // Separate quick-start and multi-step workflows
-  const quickStartConfigs = filteredConfigs.filter(c => c.is_quick_start);
   const workflowConfigs = filteredConfigs.filter(c => !c.is_quick_start);
+  const skillConfigs = filteredConfigs;
 
-  // Featured quick-starts (shown in a separate section)
-  const featuredIds = ["qs-deploy-status", "qs-incident-analysis", "qs-release-readiness"];
-  const featuredConfigs = quickStartConfigs.filter(c => featuredIds.includes(c.id));
+  const mySkillsCount = useMemo(() =>
+    allConfigs.filter(c => !c.is_system && c.owner_id === currentUserEmail).length,
+    [allConfigs, currentUserEmail]
+  );
 
-  // Non-featured quick-starts (exclude featured ones to avoid duplicate keys)
-  const nonFeaturedQuickStartConfigs = quickStartConfigs.filter(c => !featuredIds.includes(c.id));
+  const isFilteredView = viewMode === "my-skills" || viewMode === "team" || viewMode === "global";
 
   const handleDelete = async (config: AgentConfig, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -263,28 +295,34 @@ export function AgentBuilderGallery({
   };
 
   const handleConfigClick = (config: AgentConfig) => {
-    if (config.is_quick_start) {
-      // Always show modal for quick-starts to allow editing
+    if (config.is_quick_start || !workflowRunnerEnabled) {
       const inputForm = config.input_form || generateInputFormFromPrompt(config.tasks[0]?.llm_prompt || "", config.name);
       const basePrompt = config.tasks[0]?.llm_prompt || "";
 
-      console.log(`[AgentBuilderGallery] Opening quick-start: ${config.name}`);
-      console.log(`[AgentBuilderGallery] Prompt from config:`, basePrompt);
-      console.log(`[AgentBuilderGallery] Full config:`, config);
-
       setActiveFormConfig({ ...config, input_form: inputForm || undefined });
-      setEditablePrompt(basePrompt);
 
       if (inputForm && inputForm.fields.length > 0) {
         const initialValues: Record<string, string> = {};
-        inputForm.fields.forEach(f => { initialValues[f.name] = ""; });
+        inputForm.fields.forEach(f => { initialValues[f.name] = f.defaultValue || ""; });
         setFormValues(initialValues);
+
+        // Pre-substitute defaults into the prompt
+        let promptWithDefaults = basePrompt;
+        Object.entries(initialValues).forEach(([key, value]) => {
+          if (value.trim()) {
+            const ek = key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+            promptWithDefaults = promptWithDefaults.replace(new RegExp(`\\{\\{\\s*${ek}\\s*:[^}]*\\}\\}`, "g"), value.trim());
+            promptWithDefaults = promptWithDefaults.replace(new RegExp(`\\{\\{\\s*${ek}\\s*\\}\\}`, "g"), value.trim());
+            promptWithDefaults = promptWithDefaults.replace(new RegExp(`\\{${ek}\\}`, "g"), value.trim());
+          }
+        });
+        setEditablePrompt(promptWithDefaults);
       } else {
         setFormValues({});
+        setEditablePrompt(basePrompt);
       }
       setFormErrors({});
     } else {
-      // Multi-step workflow - go to runner
       onSelectConfig?.(config);
     }
   };
@@ -297,6 +335,8 @@ export function AgentBuilderGallery({
     Object.entries(newFormValues).forEach(([key, value]) => {
       if (value.trim()) {
         const escapedKey = key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        // Match {{key:default}}, {{key}}, and {key}
+        prompt = prompt.replace(new RegExp(`\\{\\{\\s*${escapedKey}\\s*:[^}]*\\}\\}`, "g"), value.trim());
         prompt = prompt.replace(new RegExp(`\\{\\{\\s*${escapedKey}\\s*\\}\\}`, "g"), value.trim());
         prompt = prompt.replace(new RegExp(`\\{${escapedKey}\\}`, "g"), value.trim());
       }
@@ -388,10 +428,6 @@ export function AgentBuilderGallery({
             </div>
 
             <div className="flex items-center gap-2">
-              <Button variant="outline" size="sm" onClick={onImportYaml} className="gap-2">
-                <Upload className="h-4 w-4" />
-                Import YAML
-              </Button>
               <Button size="sm" onClick={onCreateNew} className="gap-2 gradient-primary text-white">
                 <Plus className="h-4 w-4" />
                 Skills Builder
@@ -412,30 +448,46 @@ export function AgentBuilderGallery({
           {/* View Mode & Categories */}
           <div className="flex items-center gap-4 mt-4">
             <div className="flex items-center bg-muted/50 rounded-full p-1">
-              {(["all", "quick-start", "workflows"] as const).map(mode => (
+              {(["all", "my-skills", "team", "global", ...(workflowRunnerEnabled ? ["workflows" as const] : [])] as const).map(mode => {
+                const label =
+                  mode === "all" ? "All"
+                  : mode === "my-skills" ? `My Skills${mySkillsCount > 0 ? ` (${mySkillsCount})` : ""}`
+                  : mode === "team" ? "Team"
+                  : mode === "global" ? "Global"
+                  : "Multi-Step";
+                const icon =
+                  mode === "my-skills" ? <User className="h-3 w-3" />
+                  : mode === "team" ? <UsersRound className="h-3 w-3" />
+                  : mode === "global" ? <Globe className="h-3 w-3" />
+                  : null;
+                return (
+                  <Button
+                    key={mode}
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setViewMode(mode)}
+                    className={cn(
+                      "rounded-full text-xs gap-1",
+                      viewMode === mode && "bg-primary text-primary-foreground"
+                    )}
+                  >
+                    {icon}
+                    {label}
+                  </Button>
+                );
+              })}
+              {/* History button - only shown when workflow runner is enabled */}
+              {workflowRunnerEnabled && (
                 <Button
-                  key={mode}
                   variant="ghost"
                   size="sm"
-                  onClick={() => setViewMode(mode)}
-                  className={cn(
-                    "rounded-full text-xs gap-1",
-                    viewMode === mode && "bg-primary text-primary-foreground"
-                  )}
+                  onClick={() => router.push('/skills/history')}
+                  className="rounded-full text-xs gap-1"
                 >
-                  {mode === "all" ? "All" : mode === "quick-start" ? "Quick Start" : "Multi-Step"}
+                  <History className="h-3 w-3" />
+                  History
                 </Button>
-              ))}
-              {/* History button - navigates to dedicated page */}
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => router.push('/skills/history')}
-                className="rounded-full text-xs gap-1"
-              >
-                <History className="h-3 w-3" />
-                History
-              </Button>
+              )}
             </div>
 
             <div className="flex gap-2 flex-wrap">
@@ -466,7 +518,7 @@ export function AgentBuilderGallery({
       {!isLoading && (
         <div className="flex-1 overflow-y-auto">
           {/* Favorites Section */}
-          {getFavoriteConfigs().length > 0 && searchQuery === "" && selectedCategory === "All" && (
+          {getFavoriteConfigs().length > 0 && searchQuery === "" && selectedCategory === "All" && !isFilteredView && (
             <div className="mb-8 p-4 bg-gradient-to-br from-yellow-500/10 to-amber-500/10 rounded-xl border border-yellow-500/30">
               <div className="flex items-center gap-2 mb-4">
                 <Star className="h-5 w-5 text-yellow-500 fill-current" />
@@ -495,11 +547,14 @@ export function AgentBuilderGallery({
                       <div className="min-w-0 flex-1">
                         <p className="font-medium text-sm truncate pr-8">{config.name}</p>
                         <div className="flex items-center gap-1 mt-0.5">
-                          {config.is_quick_start ? (
-                            <Badge variant="outline" className="text-[10px] px-1.5 py-0">Quick Start</Badge>
+                          {!workflowRunnerEnabled ? (
+                            <Badge variant="outline" className="text-[10px] px-1.5 py-0"><MessageSquare className="h-2.5 w-2.5 mr-0.5" />Skill</Badge>
+                          ) : config.is_quick_start ? (
+                            <Badge variant="outline" className="text-[10px] px-1.5 py-0"><MessageSquare className="h-2.5 w-2.5 mr-0.5" />Skill</Badge>
                           ) : (
                             <Badge variant="outline" className="text-[10px] px-1.5 py-0">{config.tasks.length} steps</Badge>
                           )}
+                          <VisibilityBadge config={config} />
                         </div>
                       </div>
 
@@ -549,41 +604,63 @@ export function AgentBuilderGallery({
             </div>
           )}
 
-          {/* Featured Section */}
-          {viewMode !== "workflows" && searchQuery === "" && selectedCategory === "All" && featuredConfigs.length > 0 && (
-            <div className="mb-8 p-4 bg-muted/30 rounded-xl border border-border/50">
+          {/* Filtered view section — shown for my-skills, team, global */}
+          {isFilteredView && filteredConfigs.length > 0 && (
+            <div className="mb-8">
               <div className="flex items-center gap-2 mb-4">
-                <Rocket className="h-4 w-4 text-primary" />
-                <h2 className="font-semibold text-sm">Featured Quick Starts</h2>
+                {viewMode === "my-skills" && <User className="h-5 w-5 text-primary" />}
+                {viewMode === "team" && <UsersRound className="h-5 w-5 text-blue-500" />}
+                {viewMode === "global" && <Globe className="h-5 w-5 text-green-500" />}
+                <h2 className="text-lg font-medium">
+                  {viewMode === "my-skills" ? "My Skills" : viewMode === "team" ? "Team Skills" : "Global Skills"}
+                </h2>
+                <Badge variant="secondary">{filteredConfigs.length}</Badge>
               </div>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                {featuredConfigs.map(config => {
-                  const Icon = ICON_MAP[config.thumbnail || "Zap"] || Zap;
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                {filteredConfigs.map((config, index) => {
+                  const Icon = ICON_MAP[config.thumbnail || (config.is_quick_start ? "Zap" : "Workflow")] || Zap;
+                  const gradientClass = CATEGORY_COLORS[config.category] || CATEGORY_COLORS["Custom"];
+
                   return (
                     <motion.div
                       key={config.id}
-                      whileHover={{ scale: 1.02 }}
-                      whileTap={{ scale: 0.98 }}
+                      initial={{ opacity: 0, y: 20 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: index * 0.03 }}
+                      whileHover={{ y: -4 }}
                       onClick={() => handleConfigClick(config)}
-                      className="relative flex items-center gap-3 p-4 rounded-xl bg-card border border-border/50 hover:border-primary hover:shadow-lg transition-all text-left group cursor-pointer"
+                      className="group relative cursor-pointer p-4 rounded-xl border border-border/50 bg-card/50 hover:border-primary/30 hover:shadow-lg transition-all"
                     >
-                      <div className="p-2 rounded-lg gradient-primary-br shrink-0 group-hover:scale-110 transition-transform">
-                        <Icon className="h-4 w-4 text-white" />
+                      <div className="flex items-start justify-between mb-3">
+                        <div className={cn("p-2.5 rounded-xl bg-gradient-to-br", gradientClass)}>
+                          <Icon className="h-5 w-5 text-white" />
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <VisibilityBadge config={config} />
+                          <Badge variant="outline" className={cn("text-xs", getDifficultyColor(config.difficulty))}>
+                            {config.difficulty || "beginner"}
+                          </Badge>
+                        </div>
                       </div>
-                      <div className="min-w-0 flex-1">
-                        <p className="font-medium text-sm truncate pr-8">{config.name}</p>
-                        <div className="flex items-center gap-1 mt-0.5">
-                          {config.metadata?.expected_agents?.slice(0, 2).map(agent => (
-                            <Badge key={agent} variant="secondary" className="text-[10px] px-1.5 py-0">{agent}</Badge>
-                          ))}
+                      <h3 className="font-medium mb-1 group-hover:text-primary transition-colors">{config.name}</h3>
+                      <p className="text-sm text-muted-foreground line-clamp-2 mb-3">{config.description}</p>
+                      <div className="flex flex-wrap gap-1.5 mb-3">
+                        {config.metadata?.tags?.slice(0, 3).map(tag => (
+                          <Badge key={tag} variant="secondary" className="text-xs">{tag}</Badge>
+                        ))}
+                      </div>
+                      <div className="flex items-center justify-between pt-3 border-t border-border/50">
+                        <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                          {!workflowRunnerEnabled
+                            ? <Badge variant="outline" className="text-xs"><MessageSquare className="h-2.5 w-2.5 mr-0.5" />Skill</Badge>
+                            : config.is_quick_start
+                              ? <Badge variant="outline" className="text-xs"><MessageSquare className="h-2.5 w-2.5 mr-0.5" />Skill</Badge>
+                              : <Badge variant="outline" className="text-xs"><Workflow className="h-2.5 w-2.5 mr-0.5" />{config.tasks.length} steps</Badge>
+                          }
                         </div>
                       </div>
 
-                      {/* Arrow - hidden on hover */}
-                      <ArrowRight className="h-4 w-4 text-muted-foreground group-hover:opacity-0 transition-all shrink-0" />
-
-                      {/* Action buttons grouped - bottom-right on hover, replaces arrow */}
-                      <div className="absolute bottom-2 right-2 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity bg-card/95 backdrop-blur-sm rounded-lg p-0.5 border border-border/30 shadow-sm">
+                      <div className="absolute bottom-3 right-3 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity bg-card/95 backdrop-blur-sm rounded-lg p-0.5 border border-border/30 shadow-sm">
                         <Button
                           variant="ghost"
                           size="icon"
@@ -599,22 +676,12 @@ export function AgentBuilderGallery({
                         {canModifyConfig(config) && (
                           <>
                             <div className="h-4 w-px bg-border/50" />
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-7 w-7"
-                              onClick={(e) => { e.stopPropagation(); onEditConfig?.(config); }}
-                              title="Edit template"
-                            >
+                            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={(e) => { e.stopPropagation(); onEditConfig?.(config); }} title="Edit">
                               <Edit className="h-3.5 w-3.5" />
                             </Button>
                             <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-7 w-7 text-red-400 hover:text-red-500"
-                              onClick={(e) => handleDelete(config, e)}
-                              disabled={deletingId === config.id}
-                              title="Delete template"
+                              variant="ghost" size="icon" className="h-7 w-7 text-red-400 hover:text-red-500"
+                              onClick={(e) => handleDelete(config, e)} disabled={deletingId === config.id} title="Delete"
                             >
                               {deletingId === config.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
                             </Button>
@@ -628,16 +695,45 @@ export function AgentBuilderGallery({
             </div>
           )}
 
-          {/* Quick Start Templates */}
-          {viewMode !== "workflows" && nonFeaturedQuickStartConfigs.length > 0 && (
+          {/* Filtered view empty state */}
+          {isFilteredView && filteredConfigs.length === 0 && searchQuery === "" && (
+            <div className="flex flex-col items-center justify-center h-64 gap-4">
+              <div className="p-4 rounded-full bg-primary/10">
+                {viewMode === "my-skills" && <User className="h-8 w-8 text-primary" />}
+                {viewMode === "team" && <UsersRound className="h-8 w-8 text-blue-500" />}
+                {viewMode === "global" && <Globe className="h-8 w-8 text-green-500" />}
+              </div>
+              <div className="text-center">
+                <p className="text-lg font-medium mb-1">
+                  {viewMode === "my-skills" ? "No skills yet" : viewMode === "team" ? "No team skills" : "No global skills"}
+                </p>
+                <p className="text-sm text-muted-foreground mb-4">
+                  {viewMode === "my-skills"
+                    ? "Create your first skill to see it here"
+                    : viewMode === "team"
+                    ? "Skills shared with your teams will appear here"
+                    : "Globally shared skills will appear here"}
+                </p>
+                {viewMode === "my-skills" && (
+                  <Button onClick={onCreateNew} className="gap-2 gradient-primary text-white">
+                    <Plus className="h-4 w-4" />
+                    Skills Builder
+                  </Button>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Skills */}
+          {viewMode !== "workflows" && !isFilteredView && skillConfigs.length > 0 && (
             <div className="mb-8">
               <div className="flex items-center gap-2 mb-4">
-                <Zap className="h-5 w-5 text-primary" />
-                <h2 className="text-lg font-medium">Quick Start Templates</h2>
-                <Badge variant="secondary">{nonFeaturedQuickStartConfigs.length}</Badge>
+                <Sparkles className="h-5 w-5 text-primary" />
+                <h2 className="text-lg font-medium">Skills</h2>
+                <Badge variant="secondary">{skillConfigs.length}</Badge>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-                {nonFeaturedQuickStartConfigs.map((config, index) => {
+                {skillConfigs.map((config, index) => {
                   const Icon = ICON_MAP[config.thumbnail || "Zap"] || Zap;
                   const gradientClass = CATEGORY_COLORS[config.category] || CATEGORY_COLORS["Custom"];
 
@@ -655,9 +751,12 @@ export function AgentBuilderGallery({
                         <div className={cn("p-2.5 rounded-xl bg-gradient-to-br", gradientClass)}>
                           <Icon className="h-5 w-5 text-white" />
                         </div>
-                        <Badge variant="outline" className={cn("text-xs", getDifficultyColor(config.difficulty))}>
-                          {config.difficulty || "beginner"}
-                        </Badge>
+                        <div className="flex items-center gap-1">
+                          <VisibilityBadge config={config} />
+                          <Badge variant="outline" className={cn("text-xs", getDifficultyColor(config.difficulty))}>
+                            {config.difficulty || "beginner"}
+                          </Badge>
+                        </div>
                       </div>
                       <h3 className="font-medium mb-1 group-hover:text-primary transition-colors">{config.name}</h3>
                       <p className="text-sm text-muted-foreground line-clamp-2 mb-3">{config.description}</p>
@@ -721,7 +820,7 @@ export function AgentBuilderGallery({
           )}
 
           {/* Multi-Step Workflows — only shown when workflow runner is enabled */}
-          {workflowRunnerEnabled && viewMode !== "quick-start" && workflowConfigs.length > 0 && (
+          {workflowRunnerEnabled && !isFilteredView && workflowConfigs.length > 0 && (
             <div className="mb-8">
               <div className="flex items-center gap-2 mb-4">
                 <Workflow className="h-5 w-5 text-primary" />
@@ -748,8 +847,18 @@ export function AgentBuilderGallery({
                       <h3 className="font-medium mb-1 pr-16">{config.name}</h3>
                       <p className="text-sm text-muted-foreground line-clamp-2 mb-3">{config.description}</p>
                       <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                        <Workflow className="h-3.5 w-3.5" />
-                        <span>{config.tasks.length} steps</span>
+                        {workflowRunnerEnabled ? (
+                          <>
+                            <Workflow className="h-3.5 w-3.5" />
+                            <span>{config.tasks.length} steps</span>
+                          </>
+                        ) : (
+                          <>
+                            <MessageSquare className="h-3.5 w-3.5" />
+                            <span>Skill</span>
+                          </>
+                        )}
+                        <VisibilityBadge config={config} />
                       </div>
 
                       {/* Action buttons grouped together - bottom-right on hover */}
@@ -789,17 +898,17 @@ export function AgentBuilderGallery({
             </div>
           )}
 
-          {/* Empty State */}
-          {filteredConfigs.length === 0 && (
+          {/* Empty State (generic — for search with no results) */}
+          {filteredConfigs.length === 0 && !(isFilteredView && searchQuery === "") && (
             <div className="flex flex-col items-center justify-center h-64 gap-4">
               <Sparkles className="h-12 w-12 text-muted-foreground/50" />
-              <p className="text-muted-foreground">No templates match your search</p>
+              <p className="text-muted-foreground">No skills match your search</p>
             </div>
           )}
         </div>
       )}
 
-      {/* Quick Start Workflow Modal */}
+      {/* Skill Run Modal */}
       <AnimatePresence>
         {activeFormConfig && (
           <motion.div
@@ -900,8 +1009,8 @@ export function AgentBuilderGallery({
                 <Button variant="ghost" onClick={() => setActiveFormConfig(null)}>Cancel</Button>
                 <Button
                   onClick={handleRunInChat}
-                  variant="outline"
-                  className="gap-2"
+                  variant={workflowRunnerEnabled ? "outline" : "default"}
+                  className={cn("gap-2", !workflowRunnerEnabled && "gradient-primary text-white")}
                   disabled={!editablePrompt.trim()}
                 >
                   <MessageSquare className="h-4 w-4" />

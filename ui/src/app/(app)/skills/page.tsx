@@ -1,26 +1,23 @@
 "use client";
 
 import React, { useState, useCallback } from "react";
+import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import {
-  AgentBuilderGallery,
-  AgentBuilderEditorDialog,
-  AgentBuilderRunner,
-  YamlImportDialog,
-} from "@/components/agent-builder";
+  SkillsGallery,
+  SkillsRunner,
+} from "@/components/skills";
 import { AuthGuard } from "@/components/auth-guard";
 import { getConfig } from "@/lib/config";
 import type { AgentConfig } from "@/types/agent-config";
 
 type ViewMode = "gallery" | "runner";
 
-export default function AgentBuilderPage() {
+export default function SkillsPage() {
+  const router = useRouter();
   const workflowRunnerEnabled = getConfig('workflowRunnerEnabled');
   const [viewMode, setViewMode] = useState<ViewMode>("gallery");
   const [selectedConfig, setSelectedConfig] = useState<AgentConfig | null>(null);
-  const [editingConfig, setEditingConfig] = useState<AgentConfig | undefined>(undefined);
-  const [isEditorOpen, setIsEditorOpen] = useState(false);
-  const [isYamlImportOpen, setIsYamlImportOpen] = useState(false);
   const [cameFromHistory, setCameFromHistory] = useState(false);
 
   const handleSelectConfig = (config: AgentConfig, fromHistory: boolean = false) => {
@@ -29,12 +26,10 @@ export default function AgentBuilderPage() {
     setCameFromHistory(fromHistory);
   };
 
-  // Handle quick-start execution - run inline with AgentBuilderRunner
-  const handleRunQuickStart = useCallback((prompt: string, configName?: string) => {
-    // Create a temporary config for the quick-start prompt
+  const handleRunSkill = useCallback((prompt: string, configName?: string) => {
     const tempConfig: AgentConfig = {
-      id: `quick-start-${Date.now()}`,
-      name: configName || "Quick Start",
+      id: `skill-run-${Date.now()}`,
+      name: configName || "Skill",
       description: prompt.length > 100 ? prompt.substring(0, 100) + "..." : prompt,
       category: "Custom",
       owner_id: "system",
@@ -56,32 +51,17 @@ export default function AgentBuilderPage() {
   }, []);
 
   const handleEditConfig = (config: AgentConfig) => {
-    setEditingConfig(config);
-    setIsEditorOpen(true);
+    router.push(`/skills/editor?id=${encodeURIComponent(config.id)}`);
   };
 
   const handleCreateNew = () => {
-    setEditingConfig(undefined);
-    setIsEditorOpen(true);
-  };
-
-  const handleImportYaml = () => {
-    setIsYamlImportOpen(true);
+    router.push("/skills/editor");
   };
 
   const handleBackToGallery = () => {
     setViewMode("gallery");
     setSelectedConfig(null);
     setCameFromHistory(false);
-  };
-
-  const handleEditorSuccess = () => {
-    setIsEditorOpen(false);
-    setEditingConfig(undefined);
-  };
-
-  const handleYamlImportSuccess = () => {
-    setIsYamlImportOpen(false);
   };
 
   return (
@@ -97,12 +77,11 @@ export default function AgentBuilderPage() {
                 exit={{ opacity: 0, x: -20 }}
                 className="h-full"
               >
-                <AgentBuilderGallery
+                <SkillsGallery
                   onSelectConfig={handleSelectConfig}
-                  onRunQuickStart={workflowRunnerEnabled ? handleRunQuickStart : undefined}
+                  onRunQuickStart={workflowRunnerEnabled ? handleRunSkill : undefined}
                   onEditConfig={handleEditConfig}
                   onCreateNew={handleCreateNew}
-                  onImportYaml={handleImportYaml}
                 />
               </motion.div>
             )}
@@ -115,7 +94,7 @@ export default function AgentBuilderPage() {
                 exit={{ opacity: 0, x: 20 }}
                 className="h-full"
               >
-                <AgentBuilderRunner
+                <SkillsRunner
                   config={selectedConfig}
                   onBack={handleBackToGallery}
                   cameFromHistory={cameFromHistory}
@@ -124,21 +103,6 @@ export default function AgentBuilderPage() {
             )}
           </AnimatePresence>
         </div>
-
-        {/* Editor Dialog */}
-        <AgentBuilderEditorDialog
-          open={isEditorOpen}
-          onOpenChange={setIsEditorOpen}
-          onSuccess={handleEditorSuccess}
-          existingConfig={editingConfig}
-        />
-
-        {/* YAML Import Dialog */}
-        <YamlImportDialog
-          open={isYamlImportOpen}
-          onOpenChange={setIsYamlImportOpen}
-          onSuccess={handleYamlImportSuccess}
-        />
       </div>
     </AuthGuard>
   );

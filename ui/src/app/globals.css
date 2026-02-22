@@ -575,3 +575,13 @@ pre code.hljs {
   background-clip: text;
   -webkit-text-fill-color: transparent;
 }
+
+/* CodeMirror {{variable}} template highlighting */
+.cm-template-variable {
+  background: hsl(var(--primary) / 0.15);
+  border: 1px solid hsl(var(--primary) / 0.25);
+  border-radius: 3px;
+  padding: 0 1px;
+  color: hsl(var(--primary));
+  font-weight: 500;
+}
