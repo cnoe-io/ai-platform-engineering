@@ -5,6 +5,7 @@ import {
   withErrorHandler,
   successResponse,
   ApiError,
+  getUserTeamIds,
 } from "@/lib/api-middleware";
 import type {
   AgentConfig,
@@ -37,22 +38,6 @@ function isUserAdmin(user: { email: string; role?: string }): boolean {
 }
 
 const VALID_VISIBILITIES: SkillVisibility[] = ["private", "team", "global"];
-
-/**
- * Resolve all team IDs that a user belongs to.
- */
-async function getUserTeamIds(userEmail: string): Promise<string[]> {
-  try {
-    const teams = await getCollection("teams");
-    const userTeams = await teams
-      .find({ "members.user_id": userEmail })
-      .project({ _id: 1 })
-      .toArray();
-    return userTeams.map((t) => t._id.toString());
-  } catch {
-    return [];
-  }
-}
 
 /**
  * MongoDB storage functions

@@ -163,6 +163,8 @@ export interface Conversation {
   messages: ChatMessage[];
   /** A2A events for this conversation (for debug panel, tasks, output) */
   a2aEvents: A2AEvent[];
+  /** Owner email (only for MongoDB conversations) */
+  owner_id?: string;
   /** Sharing information (optional, only for MongoDB conversations) */
   sharing?: {
     is_public?: boolean;
