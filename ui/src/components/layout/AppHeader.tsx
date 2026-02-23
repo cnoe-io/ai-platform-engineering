@@ -37,7 +37,7 @@ import {
 export function AppHeader() {
   const pathname = usePathname();
   const { data: session } = useSession();
-  const { isAdmin } = useAdminRole();
+  const { isAdmin, canViewAdmin } = useAdminRole();
   const { isStreaming } = useChatStore();
 
   // Debug logging for admin tab
@@ -162,8 +162,8 @@ export function AppHeader() {
               Knowledge Bases
             </Link>
           )}
-          {/* Admin tab - only visible to admin users, disabled if MongoDB not configured */}
-          {isAdmin && (
+          {/* Admin tab - visible to all authenticated users (readonly), admins get full access */}
+          {canViewAdmin && (
             <TooltipProvider delayDuration={300}>
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -173,8 +173,10 @@ export function AppHeader() {
                       prefetch={true}
                       className={cn(
                         "flex items-center gap-1.5 px-4 py-1.5 rounded-full text-sm font-medium transition-all",
-                        activeTab === "admin"
+                        activeTab === "admin" && isAdmin
                           ? "bg-red-500 text-white shadow-sm"
+                          : activeTab === "admin"
+                          ? "bg-primary text-primary-foreground shadow-sm"
                           : "text-muted-foreground hover:text-foreground"
                       )}
                     >

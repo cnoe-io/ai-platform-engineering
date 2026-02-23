@@ -45,6 +45,8 @@ import {
   paginatedResponse,
   errorResponse,
   requireOwnership,
+  requireAdmin,
+  requireAdminView,
   getAuthenticatedUser,
   withAuth,
 } from '../api-middleware';
@@ -495,5 +497,62 @@ describe('withAuth', () => {
 
     await expect(withAuth(req, handler)).rejects.toThrow('Unauthorized');
     expect(handler).not.toHaveBeenCalled();
+  });
+});
+
+describe('requireAdmin', () => {
+  it('does not throw for admin session', () => {
+    expect(() => requireAdmin({ role: 'admin' })).not.toThrow();
+  });
+
+  it('throws ApiError 403 for user role', () => {
+    expect(() => requireAdmin({ role: 'user' })).toThrow(ApiError);
+    try {
+      requireAdmin({ role: 'user' });
+    } catch (e) {
+      expect((e as ApiError).statusCode).toBe(403);
+      expect((e as ApiError).message).toContain('Admin access required');
+    }
+  });
+
+  it('throws ApiError 403 for undefined role', () => {
+    expect(() => requireAdmin({})).toThrow(ApiError);
+    try {
+      requireAdmin({});
+    } catch (e) {
+      expect((e as ApiError).statusCode).toBe(403);
+    }
+  });
+
+  it('throws ApiError 403 for empty string role', () => {
+    expect(() => requireAdmin({ role: '' })).toThrow(ApiError);
+  });
+});
+
+describe('requireAdminView', () => {
+  it('does not throw for admin role (admin always has view access)', () => {
+    expect(() => requireAdminView({ role: 'admin' })).not.toThrow();
+  });
+
+  it('does not throw when canViewAdmin is true', () => {
+    expect(() => requireAdminView({ role: 'user', canViewAdmin: true })).not.toThrow();
+  });
+
+  it('throws ApiError 403 when canViewAdmin is false', () => {
+    expect(() => requireAdminView({ role: 'user', canViewAdmin: false })).toThrow(ApiError);
+    try {
+      requireAdminView({ role: 'user', canViewAdmin: false });
+    } catch (e) {
+      expect((e as ApiError).statusCode).toBe(403);
+      expect((e as ApiError).message).toContain('Admin view access required');
+    }
+  });
+
+  it('throws ApiError 403 when canViewAdmin is undefined', () => {
+    expect(() => requireAdminView({ role: 'user' })).toThrow(ApiError);
+  });
+
+  it('does not throw for admin role even if canViewAdmin is false', () => {
+    expect(() => requireAdminView({ role: 'admin', canViewAdmin: false })).not.toThrow();
   });
 });

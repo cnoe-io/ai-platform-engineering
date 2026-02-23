@@ -160,19 +160,44 @@ describe('GET /api/admin/stats — Authentication & Authorization', () => {
     expect(res.status).toBe(401);
   });
 
-  it('returns 403 when user is not admin via OIDC and not in MongoDB', async () => {
+  it('returns 403 when user lacks admin view group', async () => {
     mockGetServerSession.mockResolvedValue(userSession());
 
-    // getAuthenticatedUser will check MongoDB for admin fallback
     const usersCol = createMockCollection();
-    usersCol.findOne.mockResolvedValue(null); // No admin metadata
+    usersCol.findOne.mockResolvedValue(null);
     mockCollections['users'] = usersCol;
 
     const req = makeRequest('/api/admin/stats');
     const res = await GET(req);
     expect(res.status).toBe(403);
     const body = await res.json();
-    expect(body.error).toContain('Admin access required');
+    expect(body.error).toContain('Admin view access required');
+  });
+
+  it('allows non-admin users with view access to read stats (readonly)', async () => {
+    mockGetServerSession.mockResolvedValue({ ...userSession(), canViewAdmin: true });
+
+    const usersCol = createMockCollection();
+    usersCol.findOne.mockResolvedValue(null);
+    usersCol.countDocuments.mockResolvedValue(5);
+    usersCol.aggregate.mockReturnValue({ toArray: jest.fn().mockResolvedValue([]) });
+    mockCollections['users'] = usersCol;
+
+    const convCol = createMockCollection();
+    convCol.countDocuments.mockResolvedValue(10);
+    convCol.aggregate.mockReturnValue({ toArray: jest.fn().mockResolvedValue([]) });
+    mockCollections['conversations'] = convCol;
+
+    const msgCol = createMockCollection();
+    msgCol.countDocuments.mockResolvedValue(50);
+    msgCol.aggregate.mockReturnValue({ toArray: jest.fn().mockResolvedValue([]) });
+    mockCollections['messages'] = msgCol;
+
+    const req = makeRequest('/api/admin/stats');
+    const res = await GET(req);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.success).toBe(true);
   });
 
   it('grants access when user is admin via MongoDB fallback', async () => {

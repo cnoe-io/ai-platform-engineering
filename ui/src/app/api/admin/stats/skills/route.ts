@@ -6,7 +6,7 @@ import {
   withAuth,
   withErrorHandler,
   successResponse,
-  ApiError,
+  requireAdminView,
 } from '@/lib/api-middleware';
 import type { AgentConfig } from '@/types/agent-config';
 import type { WorkflowRun } from '@/types/workflow-run';
@@ -24,9 +24,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
   }
 
   return withAuth(request, async (_req, _user, session) => {
-    if (session.role !== 'admin') {
-      throw new ApiError('Admin access required', 403);
-    }
+    requireAdminView(session);
 
     const configs = await getCollection<AgentConfig>('agent_configs');
     const runs = await getCollection<WorkflowRun>('workflow_runs');

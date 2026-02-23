@@ -124,7 +124,7 @@ describe('GET /api/admin/users — Auth', () => {
     expect(res.status).toBe(401);
   });
 
-  it('returns 403 when user is not admin', async () => {
+  it('returns 403 when user lacks admin view group', async () => {
     mockGetServerSession.mockResolvedValue(userSession());
 
     const usersCol = createMockCollection();
@@ -134,6 +134,36 @@ describe('GET /api/admin/users — Auth', () => {
     const req = makeRequest('/api/admin/users');
     const res = await GET(req);
     expect(res.status).toBe(403);
+    const body = await res.json();
+    expect(body.error).toContain('Admin view access required');
+  });
+
+  it('allows non-admin users with view access to read user list (readonly)', async () => {
+    mockGetServerSession.mockResolvedValue({ ...userSession(), canViewAdmin: true });
+
+    const usersCol = createMockCollection();
+    usersCol.findOne.mockResolvedValue(null);
+    usersCol.find.mockReturnValue({
+      sort: jest.fn().mockReturnValue({
+        toArray: jest.fn().mockResolvedValue([]),
+      }),
+    });
+    mockCollections['users'] = usersCol;
+
+    const convCol = createMockCollection();
+    convCol.countDocuments.mockResolvedValue(0);
+    convCol.findOne.mockResolvedValue(null);
+    mockCollections['conversations'] = convCol;
+
+    const msgCol = createMockCollection();
+    msgCol.aggregate.mockReturnValue({ toArray: jest.fn().mockResolvedValue([]) });
+    mockCollections['messages'] = msgCol;
+
+    const req = makeRequest('/api/admin/users');
+    const res = await GET(req);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.success).toBe(true);
   });
 
   it('returns 503 when MongoDB is not configured', async () => {

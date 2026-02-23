@@ -8,6 +8,7 @@ import {
   withAuth,
   withErrorHandler,
   successResponse,
+  requireAdmin,
   ApiError,
   validateEmail,
 } from '@/lib/api-middleware';
@@ -42,9 +43,7 @@ export const POST = withErrorHandler(async (
   if (mongoCheck) return mongoCheck;
 
   return withAuth(request, async (req, user, session) => {
-    if (session.role !== 'admin') {
-      throw new ApiError('Admin access required', 403);
-    }
+    requireAdmin(session);
 
     const params = await context.params;
     const teamId = parseTeamId(params.id);
@@ -112,9 +111,7 @@ export const DELETE = withErrorHandler(async (
   if (mongoCheck) return mongoCheck;
 
   return withAuth(request, async (req, user, session) => {
-    if (session.role !== 'admin') {
-      throw new ApiError('Admin access required', 403);
-    }
+    requireAdmin(session);
 
     const params = await context.params;
     const teamId = parseTeamId(params.id);

@@ -3,6 +3,8 @@ import { getServerOnlyConfig } from '@/lib/config';
 import {
   withAuth,
   withErrorHandler,
+  requireAdmin,
+  requireAdminView,
   ApiError,
 } from '@/lib/api-middleware';
 
@@ -38,9 +40,7 @@ export const GET = withErrorHandler(async (request: NextRequest): Promise<NextRe
   }
 
   return withAuth(request, async (_req, _user, session) => {
-    if (session.role !== 'admin') {
-      throw new ApiError('Admin access required', 403);
-    }
+    requireAdminView(session);
 
     const { searchParams } = new URL(request.url);
     const query = searchParams.get('query');
@@ -116,10 +116,6 @@ export const POST = withErrorHandler(async (request: NextRequest): Promise<NextR
   }
 
   return withAuth(request, async (_req, _user, session) => {
-    if (session.role !== 'admin') {
-      throw new ApiError('Admin access required', 403);
-    }
-
     const body = await request.json();
     const queries: Array<{
       id: string;

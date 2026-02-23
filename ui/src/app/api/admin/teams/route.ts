@@ -7,6 +7,8 @@ import {
   withAuth,
   withErrorHandler,
   successResponse,
+  requireAdmin,
+  requireAdminView,
   ApiError,
 } from '@/lib/api-middleware';
 
@@ -30,10 +32,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
   }
 
   return withAuth(request, async (req, user, session) => {
-    // Check if user is admin
-    if (session.role !== 'admin') {
-      throw new ApiError('Admin access required', 403);
-    }
+    requireAdminView(session);
 
     const teams = await getCollection('teams');
     
@@ -63,10 +62,7 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
   }
 
   return withAuth(request, async (req, user, session) => {
-    // Check if user is admin
-    if (session.role !== 'admin') {
-      throw new ApiError('Admin access required', 403);
-    }
+    requireAdmin(session);
 
     const body: CreateTeamRequest = await request.json();
 

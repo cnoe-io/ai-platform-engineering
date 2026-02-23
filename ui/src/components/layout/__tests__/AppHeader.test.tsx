@@ -38,8 +38,9 @@ jest.mock('next/navigation', () => ({
 
 // Mock admin role hook
 let mockIsAdmin = false
+let mockCanViewAdmin = false
 jest.mock('@/hooks/use-admin-role', () => ({
-  useAdminRole: () => ({ isAdmin: mockIsAdmin }),
+  useAdminRole: () => ({ isAdmin: mockIsAdmin, canViewAdmin: mockCanViewAdmin }),
 }))
 
 // Mock chat store
@@ -174,6 +175,7 @@ describe('AppHeader — nav tabs', () => {
     mockStorageMode = 'mongodb'
     mockPathname = '/chat'
     mockIsAdmin = false
+    mockCanViewAdmin = false
     mockRagEnabled = false
     mockCaipeStatus = 'connected'
     mockRagStatus = 'connected'
@@ -236,18 +238,36 @@ describe('AppHeader — nav tabs', () => {
   describe('admin tab', () => {
     it('shows Admin tab for admin users', () => {
       mockIsAdmin = true
+      mockCanViewAdmin = true
       render(<AppHeader />)
       expect(screen.getByText('Admin')).toBeInTheDocument()
     })
 
-    it('does NOT show Admin tab for non-admin users', () => {
+    it('shows Admin tab for non-admin authenticated users (readonly)', () => {
       mockIsAdmin = false
+      mockCanViewAdmin = true
+      render(<AppHeader />)
+      expect(screen.getByText('Admin')).toBeInTheDocument()
+    })
+
+    it('does NOT show Admin tab for unauthenticated users', () => {
+      mockIsAdmin = false
+      mockCanViewAdmin = false
       render(<AppHeader />)
       expect(screen.queryByTestId('link-/admin')).not.toBeInTheDocument()
     })
 
-    it('Admin tab is clickable when MongoDB is configured', () => {
+    it('Admin tab is clickable when MongoDB is configured (admin user)', () => {
       mockIsAdmin = true
+      mockCanViewAdmin = true
+      mockStorageMode = 'mongodb'
+      render(<AppHeader />)
+      expect(screen.getByTestId('link-/admin')).toBeInTheDocument()
+    })
+
+    it('Admin tab is clickable when MongoDB is configured (non-admin user)', () => {
+      mockIsAdmin = false
+      mockCanViewAdmin = true
       mockStorageMode = 'mongodb'
       render(<AppHeader />)
       expect(screen.getByTestId('link-/admin')).toBeInTheDocument()
@@ -255,11 +275,32 @@ describe('AppHeader — nav tabs', () => {
 
     it('Admin tab is disabled when MongoDB is not configured', () => {
       mockIsAdmin = true
+      mockCanViewAdmin = true
       mockStorageMode = 'localStorage'
       render(<AppHeader />)
-      // Should show Admin text but NOT as a link
       expect(screen.getByText('Admin')).toBeInTheDocument()
       expect(screen.queryByTestId('link-/admin')).not.toBeInTheDocument()
+    })
+
+    it('Admin tab shows red styling when active for admin user', () => {
+      mockIsAdmin = true
+      mockCanViewAdmin = true
+      mockPathname = '/admin'
+      mockStorageMode = 'mongodb'
+      render(<AppHeader />)
+      const link = screen.getByTestId('link-/admin')
+      expect(link.className).toContain('bg-red-500')
+    })
+
+    it('Admin tab shows primary styling when active for non-admin user', () => {
+      mockIsAdmin = false
+      mockCanViewAdmin = true
+      mockPathname = '/admin'
+      mockStorageMode = 'mongodb'
+      render(<AppHeader />)
+      const link = screen.getByTestId('link-/admin')
+      expect(link.className).toContain('bg-primary')
+      expect(link.className).not.toContain('bg-red-500')
     })
   })
 
@@ -286,6 +327,7 @@ describe('AppHeader — connection status badge', () => {
     mockStorageMode = 'mongodb'
     mockPathname = '/chat'
     mockIsAdmin = false
+    mockCanViewAdmin = false
     mockRagEnabled = false
     mockCaipeStatus = 'connected'
     mockRagStatus = 'connected'
