@@ -11,6 +11,7 @@ import {
   paginatedResponse,
   validateRequired,
   getPaginationParams,
+  getUserTeamIds,
 } from '@/lib/api-middleware';
 import type { Conversation, CreateConversationRequest } from '@/types/mongodb';
 
@@ -36,12 +37,24 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
 
     const conversations = await getCollection<Conversation>('conversations');
 
-    // Build query — exclude soft-deleted conversations from normal listing
+    // Resolve user's team memberships for team-shared conversations
+    const userTeamIds = await getUserTeamIds(user.email);
+
+    // Build query — include conversations owned, shared directly, or shared via teams
+    const ownershipConditions: any[] = [
+      { owner_id: user.email },
+      { 'sharing.shared_with': user.email },
+    ];
+
+    if (userTeamIds.length > 0) {
+      ownershipConditions.push({
+        'sharing.shared_with_teams': { $in: userTeamIds },
+      });
+    }
+
+    // Exclude soft-deleted conversations from normal listing
     const query: any = {
-      $or: [
-        { owner_id: user.email },
-        { 'sharing.shared_with': user.email },
-      ],
+      $or: ownershipConditions,
       $and: [
         { $or: [{ deleted_at: null }, { deleted_at: { $exists: false } }] },
       ],

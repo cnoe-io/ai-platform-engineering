@@ -1,6 +1,26 @@
-## 0.2.20 (2026-02-20)
+## 0.2.21 (2026-02-23)
 
-## 0.2.19-rc.6 (2026-02-20)
+### Feat
+
+- **ui**: replace previewMode with configurable envBadge (#834)
+- **ui**: make admin dashboard read-only for non-admin authenticated users (#833)
+- **ui**: env-configurable personalization defaults, new themes, and unified settings menu (#832)
+
+### Fix
+
+- **ui**: team-shared conversations not appearing for team members (#831)
+
+## 0.2.20-rc.1 (2026-02-22)
+
+### Feat
+
+- **ui**: refactor Create Workflow into Skills Builder Editor with skills in helm chart (#829)
+
+### Fix
+
+- **confluence-ingestor**: track document_count per ingested page (#818)
+
+## 0.2.20 (2026-02-20)
 
 ### Feat
 
@@ -8,6 +28,7 @@
 - **ui**: show follow_external_links option for sitemap crawl mode
 - **webloader**: show sitemap URL in job success message
 - **ui**: add support to UI's admin page for prometheus metrics dashboard (#826)
+- **ui**: add WORKFLOW_RUNNER_ENABLED feature flag (#823)
 
 ### Fix
 
@@ -18,38 +39,15 @@
 - **webloader**: detect canonical domain from sitemap URLs
 - **webloader**: add robust sitemap discovery with fallback chain
 - **webloader**: fix sitemap discovery for subdirectory paths
+- **rag**: resolve web-ingestor tight loop caused by reload interval mismatch (#817)
+- **ui**: show amber RAG Disconnected badge when only RAG is offline (#821)
+- persist user input on the UI after refresh or page return
+- **rag**: prioritize JWT auth over trusted network (#815)
+- **confluence-ingestor**: accept CONFLUENCE_API_TOKEN as fallback for CONFLUENCE_TOKEN (#814)
 
 ### Refactor
 
 - **webloader**: add job_id prefix to all spider log messages
-
-## 0.2.19-rc.5 (2026-02-19)
-
-## 0.2.19-rc.4 (2026-02-19)
-
-### Feat
-
-- **ui**: add WORKFLOW_RUNNER_ENABLED feature flag (#823)
-
-### Fix
-
-- **rag**: resolve web-ingestor tight loop caused by reload interval mismatch (#817)
-- **ui**: show amber RAG Disconnected badge when only RAG is offline (#821)
-- persist user input on the UI after refresh or page return
-
-## 0.2.19-rc.3 (2026-02-19)
-
-### Fix
-
-- **rag**: prioritize JWT auth over trusted network (#815)
-
-## 0.2.19-rc.2 (2026-02-19)
-
-## 0.2.19-rc.1 (2026-02-19)
-
-### Fix
-
-- **confluence-ingestor**: accept CONFLUENCE_API_TOKEN as fallback for CONFLUENCE_TOKEN (#814)
 
 ## 0.2.19 (2026-02-18)
 

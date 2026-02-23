@@ -3,7 +3,7 @@
  * Tests OIDC configuration, token refresh, and group authorization
  */
 
-import { hasRequiredGroup } from '../auth-config'
+import { hasRequiredGroup, isAdminUser, canViewAdminDashboard } from '../auth-config'
 
 // Note: We don't test the full authOptions NextAuth config here
 // as it requires complex NextAuth mocking. Instead, we focus on
@@ -264,18 +264,29 @@ describe('auth-config', () => {
   })
 
   describe('extractGroups helper', () => {
-    // Testing the private extractGroups function behavior through integration tests
-
     it('should extract groups from various OIDC claim formats', () => {
-      // This would be tested indirectly through the JWT callback
-      // The function extracts groups from profile claims like:
-      // - memberOf: ['group1', 'group2']
-      // - groups: 'group1,group2'
-      // - roles: ['role1', 'role2']
-      // etc.
-
-      // We verify this behavior through the hasRequiredGroup tests above
       expect(true).toBe(true) // Placeholder - covered by JWT callback integration
+    })
+  })
+
+  describe('isAdminUser', () => {
+    it('returns false when OIDC_REQUIRED_ADMIN_GROUP is not set', () => {
+      // Default is empty string, so returns false
+      const groups = ['backstage-admins', 'backstage-access']
+      // Since env var is not set in test, it defaults to empty string
+      expect(isAdminUser([])).toBe(false)
+    })
+  })
+
+  describe('canViewAdminDashboard', () => {
+    it('returns true when OIDC_REQUIRED_ADMIN_VIEW_GROUP is not set (default)', () => {
+      // Default is empty string = all authenticated users can view
+      const groups = ['some-group']
+      expect(canViewAdminDashboard(groups)).toBe(true)
+    })
+
+    it('returns true even with empty groups when no view group configured', () => {
+      expect(canViewAdminDashboard([])).toBe(true)
     })
   })
 })

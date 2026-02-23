@@ -1,0 +1,11 @@
+{
+  "title": "Incident Investigation",
+  "category": "Operations",
+  "icon": "AlertTriangle",
+  "tags": [
+    "PagerDuty",
+    "Jira",
+    "ArgoCD",
+    "Multi-Agent"
+  ]
+}

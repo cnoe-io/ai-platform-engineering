@@ -161,13 +161,18 @@ config:
   LOGO_STYLE: "default"
   # SPINNER_COLOR: ""
   SHOW_POWERED_BY: "false"
-  PREVIEW_MODE: "false"
+  # Environment badge label shown next to the app name (e.g. "Dev", "Preview", "Staging", "Prod")
+  # Leave empty to hide. Backward-compat: PREVIEW_MODE=true still works.
+  ENV_BADGE: ""
   # Workflow runner: set to "true" to show Run Workflow button and Multi-Step Workflows section
   WORKFLOW_RUNNER_ENABLED: "false"
   # OIDC required group (non-sensitive)
   OIDC_REQUIRED_GROUP: "app-users"
   # OIDC admin group (non-sensitive)
   OIDC_REQUIRED_ADMIN_GROUP: "app-admins"
+  # OIDC admin view group for read-only admin dashboard access (non-sensitive)
+  # Leave empty to allow all authenticated users to view admin dashboard
+  OIDC_REQUIRED_ADMIN_VIEW_GROUP: ""
   # OIDC refresh token support
   OIDC_ENABLE_REFRESH_TOKEN: "true"
   # Support contact email

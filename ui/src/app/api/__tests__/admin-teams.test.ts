@@ -133,11 +133,30 @@ describe('GET /api/admin/teams', () => {
     expect(res.status).toBe(401);
   });
 
-  it('returns 403 when not admin', async () => {
+  it('returns 403 when user lacks admin view group', async () => {
     mockGetServerSession.mockResolvedValue(userSession());
     const req = makeRequest('/api/admin/teams');
     const res = await GET(req);
     expect(res.status).toBe(403);
+    const body = await res.json();
+    expect(body.error).toContain('Admin view access required');
+  });
+
+  it('allows non-admin users with view access to read teams (readonly)', async () => {
+    mockGetServerSession.mockResolvedValue({ ...userSession(), canViewAdmin: true });
+    const teamsCol = createMockCollection();
+    teamsCol.find.mockReturnValue({
+      sort: jest.fn().mockReturnValue({
+        toArray: jest.fn().mockResolvedValue([TEST_TEAM]),
+      }),
+    });
+    mockCollections['teams'] = teamsCol;
+
+    const req = makeRequest('/api/admin/teams');
+    const res = await GET(req);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.success).toBe(true);
   });
 
   it('returns teams list for admin', async () => {
@@ -274,11 +293,24 @@ describe('GET /api/admin/teams/[id]', () => {
     expect(res.status).toBe(401);
   });
 
-  it('returns 403 when not admin', async () => {
+  it('returns 403 when user lacks admin view group', async () => {
     mockGetServerSession.mockResolvedValue(userSession());
     const req = makeRequest(`/api/admin/teams/${TEST_TEAM_ID}`);
     const res = await GET(req, makeContext(TEST_TEAM_ID.toString()));
     expect(res.status).toBe(403);
+  });
+
+  it('allows non-admin users with view access to read team details (readonly)', async () => {
+    mockGetServerSession.mockResolvedValue({ ...userSession(), canViewAdmin: true });
+    const teamsCol = createMockCollection();
+    teamsCol.findOne.mockResolvedValue(TEST_TEAM);
+    mockCollections['teams'] = teamsCol;
+
+    const req = makeRequest(`/api/admin/teams/${TEST_TEAM_ID}`);
+    const res = await GET(req, makeContext(TEST_TEAM_ID.toString()));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.success).toBe(true);
   });
 
   it('returns 400 for invalid ID format', async () => {

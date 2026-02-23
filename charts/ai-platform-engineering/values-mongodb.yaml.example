@@ -108,11 +108,13 @@ caipe-ui:
     NEXT_PUBLIC_APP_NAME: "CAIPE"
     NEXT_PUBLIC_LOGO_URL: "/logo.svg"
     NEXT_PUBLIC_SHOW_POWERED_BY: "false"
-    NEXT_PUBLIC_PREVIEW_MODE: "false"
+    # Environment badge (e.g. "Dev", "Preview", "Staging", "Prod"; empty = hidden)
+    NEXT_PUBLIC_ENV_BADGE: ""
 
     # OIDC configuration (non-sensitive)
     OIDC_REQUIRED_GROUP: "app-users"
     OIDC_REQUIRED_ADMIN_GROUP: "app-admins"
+    OIDC_REQUIRED_ADMIN_VIEW_GROUP: ""
     OIDC_ENABLE_REFRESH_TOKEN: "true"
 
     # Support email

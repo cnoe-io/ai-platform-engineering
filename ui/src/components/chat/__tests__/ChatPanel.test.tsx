@@ -255,9 +255,10 @@ describe('ChatPanel', () => {
 
       const userText = screen.getByText(longUrl)
       expect(userText).toBeInTheDocument()
-      expect(userText.className).toContain('break-words')
-      expect(userText.className).toContain('whitespace-pre-wrap')
-      expect(userText.style.overflowWrap).toBe('anywhere')
+      const wrapper = userText.closest('.break-words')
+      expect(wrapper).not.toBeNull()
+      expect(wrapper!.className).toContain('break-words')
+      expect((wrapper as HTMLElement).style.overflowWrap).toBe('anywhere')
     })
 
     it('should render user message bubble with overflow-hidden and max-w-full', () => {

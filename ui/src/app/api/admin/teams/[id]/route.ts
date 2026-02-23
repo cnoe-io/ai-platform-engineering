@@ -9,6 +9,8 @@ import {
   withAuth,
   withErrorHandler,
   successResponse,
+  requireAdmin,
+  requireAdminView,
   ApiError,
 } from '@/lib/api-middleware';
 import type { UpdateTeamRequest } from '@/types/teams';
@@ -43,9 +45,7 @@ export const GET = withErrorHandler(async (
   if (mongoCheck) return mongoCheck;
 
   return withAuth(request, async (req, user, session) => {
-    if (session.role !== 'admin') {
-      throw new ApiError('Admin access required', 403);
-    }
+    requireAdminView(session);
 
     const params = await context.params;
     const teamId = parseTeamId(params.id);
@@ -69,9 +69,7 @@ export const PATCH = withErrorHandler(async (
   if (mongoCheck) return mongoCheck;
 
   return withAuth(request, async (req, user, session) => {
-    if (session.role !== 'admin') {
-      throw new ApiError('Admin access required', 403);
-    }
+    requireAdmin(session);
 
     const params = await context.params;
     const teamId = parseTeamId(params.id);
@@ -123,9 +121,7 @@ export const DELETE = withErrorHandler(async (
   if (mongoCheck) return mongoCheck;
 
   return withAuth(request, async (req, user, session) => {
-    if (session.role !== 'admin') {
-      throw new ApiError('Admin access required', 403);
-    }
+    requireAdmin(session);
 
     const params = await context.params;
     const teamId = parseTeamId(params.id);

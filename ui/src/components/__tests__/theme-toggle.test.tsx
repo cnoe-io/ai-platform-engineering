@@ -120,7 +120,7 @@ describe("ThemeToggle", () => {
     expect(screen.getByText("Theme Settings")).toBeInTheDocument();
   });
 
-  it("displays all 6 theme options", async () => {
+  it("displays all 9 theme options", async () => {
     render(<ThemeToggle />);
     await waitFor(() => {
       expect(screen.getByText("Dark")).toBeInTheDocument();
@@ -132,6 +132,9 @@ describe("ThemeToggle", () => {
     expect(screen.getByText("Midnight")).toBeInTheDocument();
     expect(screen.getByText("Nord")).toBeInTheDocument();
     expect(screen.getByText("Tokyo Night")).toBeInTheDocument();
+    expect(screen.getByText("Cyberpunk")).toBeInTheDocument();
+    expect(screen.getByText("Tron")).toBeInTheDocument();
+    expect(screen.getByText("Matrix")).toBeInTheDocument();
     expect(screen.getAllByText("Dark").length).toBeGreaterThanOrEqual(1);
   });
 
@@ -269,6 +272,36 @@ describe("ThemeQuickToggle", () => {
 
   it("handles nord as dark variant", async () => {
     mockResolvedTheme = "nord";
+    render(<ThemeQuickToggle />);
+    await waitFor(() => {
+      expect(screen.getByTestId("icon-sun")).toBeInTheDocument();
+    });
+    fireEvent.click(screen.getByTestId("icon-sun").closest("button")!);
+    expect(mockSetTheme).toHaveBeenCalledWith("light");
+  });
+
+  it("handles cyberpunk as dark variant", async () => {
+    mockResolvedTheme = "cyberpunk";
+    render(<ThemeQuickToggle />);
+    await waitFor(() => {
+      expect(screen.getByTestId("icon-sun")).toBeInTheDocument();
+    });
+    fireEvent.click(screen.getByTestId("icon-sun").closest("button")!);
+    expect(mockSetTheme).toHaveBeenCalledWith("light");
+  });
+
+  it("handles tron as dark variant", async () => {
+    mockResolvedTheme = "tron";
+    render(<ThemeQuickToggle />);
+    await waitFor(() => {
+      expect(screen.getByTestId("icon-sun")).toBeInTheDocument();
+    });
+    fireEvent.click(screen.getByTestId("icon-sun").closest("button")!);
+    expect(mockSetTheme).toHaveBeenCalledWith("light");
+  });
+
+  it("handles matrix as dark variant", async () => {
+    mockResolvedTheme = "matrix";
     render(<ThemeQuickToggle />);
     await waitFor(() => {
       expect(screen.getByTestId("icon-sun")).toBeInTheDocument();

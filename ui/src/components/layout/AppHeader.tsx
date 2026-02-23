@@ -13,7 +13,6 @@ import {
   Database,
   Shield,
 } from "lucide-react";
-import { ThemeToggle } from "@/components/theme-toggle";
 import { UserMenu } from "@/components/user-menu";
 import { SettingsPanel } from "@/components/settings-panel";
 import { Button } from "@/components/ui/button";
@@ -38,7 +37,7 @@ import {
 export function AppHeader() {
   const pathname = usePathname();
   const { data: session } = useSession();
-  const { isAdmin } = useAdminRole();
+  const { isAdmin, canViewAdmin } = useAdminRole();
   const { isStreaming } = useChatStore();
 
   // Debug logging for admin tab
@@ -113,9 +112,9 @@ export function AppHeader() {
             className={`h-8 w-auto ${getLogoFilterClass(config.logoStyle)}`}
           />
           <span className="font-bold text-base gradient-text">{config.appName}</span>
-          {config.previewMode && (
+          {config.envBadge && (
             <span className="px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider bg-amber-500/20 text-amber-500 border border-amber-500/30 rounded">
-              Preview
+              {config.envBadge}
             </span>
           )}
         </Link>
@@ -163,8 +162,8 @@ export function AppHeader() {
               Knowledge Bases
             </Link>
           )}
-          {/* Admin tab - only visible to admin users, disabled if MongoDB not configured */}
-          {isAdmin && (
+          {/* Admin tab - visible to all authenticated users (readonly), admins get full access */}
+          {canViewAdmin && (
             <TooltipProvider delayDuration={300}>
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -174,8 +173,10 @@ export function AppHeader() {
                       prefetch={true}
                       className={cn(
                         "flex items-center gap-1.5 px-4 py-1.5 rounded-full text-sm font-medium transition-all",
-                        activeTab === "admin"
+                        activeTab === "admin" && isAdmin
                           ? "bg-red-500 text-white shadow-sm"
+                          : activeTab === "admin"
+                          ? "bg-primary text-primary-foreground shadow-sm"
                           : "text-muted-foreground hover:text-foreground"
                       )}
                     >
@@ -462,10 +463,9 @@ export function AppHeader() {
           </Popover>
         </div>
 
-        {/* UI Personalization, Theme, Links & User */}
+        {/* Personalization, Links & User */}
         <div className="flex items-center gap-1 border-l border-border pl-3">
           <SettingsPanel />
-          <ThemeToggle />
           {config.docsUrl && (
             <Button variant="ghost" size="icon" className="h-8 w-8" asChild>
               <a

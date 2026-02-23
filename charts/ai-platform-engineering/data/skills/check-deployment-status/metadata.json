@@ -1,0 +1,10 @@
+{
+  "title": "Check Deployment Status",
+  "category": "DevOps",
+  "icon": "Server",
+  "tags": [
+    "ArgoCD",
+    "Kubernetes",
+    "Monitoring"
+  ]
+}

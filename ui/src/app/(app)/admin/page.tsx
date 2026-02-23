@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from "react";
 import { useSession } from "next-auth/react";
 import { motion } from "framer-motion";
-import { Users, MessageSquare, TrendingUp, Activity, Database, Share2, ShieldCheck, ShieldOff, UserPlus, Trash2, UsersIcon, Loader2, Bot, ThumbsUp, ThumbsDown, Clock, Zap, CheckCircle2, AlertCircle } from "lucide-react";
+import { Users, MessageSquare, TrendingUp, Activity, Database, Share2, ShieldCheck, ShieldOff, UserPlus, Trash2, UsersIcon, Loader2, Bot, ThumbsUp, ThumbsDown, Clock, Zap, CheckCircle2, AlertCircle, Layers, Eye } from "lucide-react";
 import { AuthGuard } from "@/components/auth-guard";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -13,10 +13,19 @@ import { CAIPESpinner } from "@/components/ui/caipe-spinner";
 import { SimpleLineChart } from "@/components/admin/SimpleLineChart";
 import { MetricsTab } from "@/components/admin/MetricsTab";
 import { HealthTab } from "@/components/admin/HealthTab";
+import {
+  VisibilityBreakdown,
+  CategoryBreakdown,
+  RunStatsTable,
+  OverallRunStatsCard,
+  TopCreatorsCard,
+} from "@/components/admin/SkillMetricsCards";
 import { CreateTeamDialog } from "@/components/admin/CreateTeamDialog";
 import { TeamDetailsDialog } from "@/components/admin/TeamDetailsDialog";
+import { useAdminRole } from "@/hooks/use-admin-role";
 import { apiClient } from "@/lib/api-client";
 import type { Team as TeamType } from "@/types/teams";
+import type { SkillMetricsAdmin } from "@/types/agent-config";
 
 interface AdminStats {
   overview: {
@@ -90,7 +99,9 @@ interface Team {
 
 function AdminPage() {
   const { status } = useSession();
+  const { isAdmin } = useAdminRole();
   const [stats, setStats] = useState<AdminStats | null>(null);
+  const [skillStats, setSkillStats] = useState<SkillMetricsAdmin | null>(null);
   const [users, setUsers] = useState<UserInfo[]>([]);
   const [teams, setTeams] = useState<Team[]>([]);
   const [loading, setLoading] = useState(true);
@@ -115,21 +126,16 @@ function AdminPage() {
     setError(null);
 
     try {
-      // Fetch stats, users, and teams in parallel
-      const [statsRes, usersRes, teamsRes] = await Promise.all([
+      // Fetch stats, users, teams, and skill metrics in parallel
+      const [statsRes, usersRes, teamsRes, skillStatsRes] = await Promise.all([
         fetch('/api/admin/stats'),
         fetch('/api/admin/users'),
         fetch('/api/admin/teams').catch(() => null),
+        fetch('/api/admin/stats/skills').catch(() => null),
       ]);
 
-      // Check for auth errors first (401/403)
       if (statsRes.status === 401 || usersRes.status === 401) {
         setError('Not authenticated. Please sign in via SSO first.');
-        setLoading(false);
-        return;
-      }
-      if (statsRes.status === 403 || usersRes.status === 403) {
-        setError('Admin access required. Your account must be a member of the OIDC admin group.');
         setLoading(false);
         return;
       }
@@ -154,6 +160,13 @@ function AdminPage() {
 
       if (teamsResponse.success) {
         setTeams(teamsResponse.data.teams || []);
+      }
+
+      if (skillStatsRes?.ok) {
+        const skillStatsResponse = await skillStatsRes.json().catch(() => ({ success: false }));
+        if (skillStatsResponse.success) {
+          setSkillStats(skillStatsResponse.data);
+        }
       }
     } catch (err: any) {
       console.error('[Admin] Failed to load data:', err);
@@ -260,9 +273,19 @@ function AdminPage() {
           <div className="p-6 space-y-6 max-w-7xl mx-auto">
             {/* Header */}
             <div className="space-y-2">
-              <h1 className="text-3xl font-bold">Admin Dashboard</h1>
+              <div className="flex items-center gap-3">
+                <h1 className="text-3xl font-bold">Admin Dashboard</h1>
+                {!isAdmin && (
+                  <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30">
+                    <Eye className="h-3.5 w-3.5" />
+                    Read-Only
+                  </span>
+                )}
+              </div>
               <p className="text-muted-foreground">
-                Manage users, teams, monitor usage, and track platform metrics
+                {isAdmin
+                  ? 'Manage users, teams, monitor usage, and track platform metrics'
+                  : 'View platform usage, users, teams, and metrics (read-only access)'}
               </p>
             </div>
 
@@ -325,7 +348,7 @@ function AdminPage() {
 
             {/* Tabbed Content */}
             <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
-              <TabsList className="grid w-full grid-cols-5">
+              <TabsList className="grid w-full grid-cols-6">
                 <TabsTrigger value="users" className="gap-2">
                   <Users className="h-4 w-4" />
                   Users
@@ -333,6 +356,10 @@ function AdminPage() {
                 <TabsTrigger value="teams" className="gap-2">
                   <UsersIcon className="h-4 w-4" />
                   Teams
+                </TabsTrigger>
+                <TabsTrigger value="skills" className="gap-2">
+                  <Layers className="h-4 w-4" />
+                  Skills
                 </TabsTrigger>
                 <TabsTrigger value="stats" className="gap-2">
                   <TrendingUp className="h-4 w-4" />
@@ -353,20 +380,22 @@ function AdminPage() {
                 <Card>
                   <CardHeader>
                     <CardTitle>User Management</CardTitle>
-                    <CardDescription>Manage user access, roles, and view activity</CardDescription>
+                    <CardDescription>
+                      {isAdmin ? 'Manage user access, roles, and view activity' : 'View user access, roles, and activity'}
+                    </CardDescription>
                   </CardHeader>
                   <CardContent>
                     <div className="space-y-2">
-                      <div className="grid grid-cols-6 gap-4 pb-2 border-b text-xs font-medium text-muted-foreground">
+                      <div className={`grid gap-4 pb-2 border-b text-xs font-medium text-muted-foreground ${isAdmin ? 'grid-cols-6' : 'grid-cols-5'}`}>
                         <div>Email</div>
                         <div>Name</div>
                         <div>Role</div>
                         <div>Activity</div>
                         <div>Stats</div>
-                        <div className="text-right">Actions</div>
+                        {isAdmin && <div className="text-right">Actions</div>}
                       </div>
                       {users.map((user) => (
-                        <div key={user.email} className="grid grid-cols-6 gap-4 py-2 text-sm hover:bg-muted/50 rounded px-2 items-center">
+                        <div key={user.email} className={`grid gap-4 py-2 text-sm hover:bg-muted/50 rounded px-2 items-center ${isAdmin ? 'grid-cols-6' : 'grid-cols-5'}`}>
                           <div className="truncate">{user.email}</div>
                           <div className="truncate">{user.name}</div>
                           <div>
@@ -384,31 +413,33 @@ function AdminPage() {
                           <div className="text-xs text-muted-foreground">
                             {user.stats.conversations} chats, {user.stats.messages} msgs
                           </div>
-                          <div className="flex justify-end gap-1">
-                            {user.role === 'user' ? (
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={() => handleRoleChange(user.email, 'admin')}
-                                disabled={updatingRole === user.email}
-                                className="h-7 text-xs gap-1"
-                              >
-                                <ShieldCheck className="h-3 w-3" />
-                                Make Admin
-                              </Button>
-                            ) : (
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={() => handleRoleChange(user.email, 'user')}
-                                disabled={updatingRole === user.email}
-                                className="h-7 text-xs gap-1"
-                              >
-                                <ShieldOff className="h-3 w-3" />
-                                Remove Admin
-                              </Button>
-                            )}
-                          </div>
+                          {isAdmin && (
+                            <div className="flex justify-end gap-1">
+                              {user.role === 'user' ? (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => handleRoleChange(user.email, 'admin')}
+                                  disabled={updatingRole === user.email}
+                                  className="h-7 text-xs gap-1"
+                                >
+                                  <ShieldCheck className="h-3 w-3" />
+                                  Make Admin
+                                </Button>
+                              ) : (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => handleRoleChange(user.email, 'user')}
+                                  disabled={updatingRole === user.email}
+                                  className="h-7 text-xs gap-1"
+                                >
+                                  <ShieldOff className="h-3 w-3" />
+                                  Remove Admin
+                                </Button>
+                              )}
+                            </div>
+                          )}
                         </div>
                       ))}
                     </div>
@@ -422,12 +453,16 @@ function AdminPage() {
                   <CardHeader className="flex flex-row items-center justify-between">
                     <div>
                       <CardTitle>Team Management</CardTitle>
-                      <CardDescription>Create and manage teams for collaboration and conversation sharing</CardDescription>
+                      <CardDescription>
+                        {isAdmin ? 'Create and manage teams for collaboration and conversation sharing' : 'View teams and their members'}
+                      </CardDescription>
                     </div>
-                    <Button className="gap-2" onClick={() => setCreateTeamDialogOpen(true)}>
-                      <UserPlus className="h-4 w-4" />
-                      Create Team
-                    </Button>
+                    {isAdmin && (
+                      <Button className="gap-2" onClick={() => setCreateTeamDialogOpen(true)}>
+                        <UserPlus className="h-4 w-4" />
+                        Create Team
+                      </Button>
+                    )}
                   </CardHeader>
                   <CardContent>
                     {teams.length === 0 ? (
@@ -435,12 +470,16 @@ function AdminPage() {
                         <UsersIcon className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
                         <h3 className="text-lg font-semibold mb-2">No Teams Yet</h3>
                         <p className="text-muted-foreground mb-4">
-                          Create teams to enable collaboration and conversation sharing
+                          {isAdmin
+                            ? 'Create teams to enable collaboration and conversation sharing'
+                            : 'No teams have been created yet'}
                         </p>
-                        <Button className="gap-2" onClick={() => setCreateTeamDialogOpen(true)}>
-                          <UserPlus className="h-4 w-4" />
-                          Create Your First Team
-                        </Button>
+                        {isAdmin && (
+                          <Button className="gap-2" onClick={() => setCreateTeamDialogOpen(true)}>
+                            <UserPlus className="h-4 w-4" />
+                            Create Your First Team
+                          </Button>
+                        )}
                       </div>
                     ) : (
                       <div className="space-y-4">
@@ -454,19 +493,21 @@ function AdminPage() {
                                     <CardDescription>{team.description}</CardDescription>
                                   )}
                                 </div>
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  className="text-destructive hover:text-destructive"
-                                  onClick={() => handleDeleteTeam(team)}
-                                  disabled={deletingTeam === team._id}
-                                >
-                                  {deletingTeam === team._id ? (
-                                    <Loader2 className="h-4 w-4 animate-spin" />
-                                  ) : (
-                                    <Trash2 className="h-4 w-4" />
-                                  )}
-                                </Button>
+                                {isAdmin && (
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="text-destructive hover:text-destructive"
+                                    onClick={() => handleDeleteTeam(team)}
+                                    disabled={deletingTeam === team._id}
+                                  >
+                                    {deletingTeam === team._id ? (
+                                      <Loader2 className="h-4 w-4 animate-spin" />
+                                    ) : (
+                                      <Trash2 className="h-4 w-4" />
+                                    )}
+                                  </Button>
+                                )}
                               </div>
                             </CardHeader>
                             <CardContent>
@@ -480,14 +521,16 @@ function AdminPage() {
                                   <span>{team.owner_id}</span>
                                 </div>
                                 <div className="flex gap-2 mt-4">
-                                  <Button
-                                    size="sm"
-                                    variant="outline"
-                                    className="flex-1"
-                                    onClick={() => openTeamDialog(team, "members")}
-                                  >
-                                    Manage Members
-                                  </Button>
+                                  {isAdmin && (
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      className="flex-1"
+                                      onClick={() => openTeamDialog(team, "members")}
+                                    >
+                                      Manage Members
+                                    </Button>
+                                  )}
                                   <Button
                                     size="sm"
                                     variant="outline"
@@ -505,6 +548,137 @@ function AdminPage() {
                     )}
                   </CardContent>
                 </Card>
+              </TabsContent>
+
+              {/* Skills Tab */}
+              <TabsContent value="skills" className="space-y-4">
+                {skillStats ? (
+                  <>
+                    {/* Overview Cards */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                      <Card>
+                        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                          <CardTitle className="text-sm font-medium">Total Skills</CardTitle>
+                          <Layers className="h-4 w-4 text-muted-foreground" />
+                        </CardHeader>
+                        <CardContent>
+                          <div className="text-2xl font-bold">{skillStats.total_skills}</div>
+                          <p className="text-xs text-muted-foreground mt-1">
+                            {skillStats.system_skills} system, {skillStats.user_skills} user-created
+                          </p>
+                        </CardContent>
+                      </Card>
+                      <Card>
+                        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                          <CardTitle className="text-sm font-medium">User Skills</CardTitle>
+                          <Users className="h-4 w-4 text-muted-foreground" />
+                        </CardHeader>
+                        <CardContent>
+                          <div className="text-2xl font-bold">{skillStats.user_skills}</div>
+                          <p className="text-xs text-muted-foreground mt-1">
+                            by {skillStats.top_creators.length} creator{skillStats.top_creators.length !== 1 ? "s" : ""}
+                          </p>
+                        </CardContent>
+                      </Card>
+                      <Card>
+                        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                          <CardTitle className="text-sm font-medium">Total Runs</CardTitle>
+                          <Zap className="h-4 w-4 text-muted-foreground" />
+                        </CardHeader>
+                        <CardContent>
+                          <div className="text-2xl font-bold">{skillStats.overall_run_stats.total_runs}</div>
+                          <p className="text-xs text-muted-foreground mt-1">
+                            {skillStats.overall_run_stats.success_rate}% success rate
+                          </p>
+                        </CardContent>
+                      </Card>
+                      <Card>
+                        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                          <CardTitle className="text-sm font-medium">Categories</CardTitle>
+                          <Activity className="h-4 w-4 text-muted-foreground" />
+                        </CardHeader>
+                        <CardContent>
+                          <div className="text-2xl font-bold">{skillStats.by_category.length}</div>
+                          <p className="text-xs text-muted-foreground mt-1">
+                            unique categories
+                          </p>
+                        </CardContent>
+                      </Card>
+                    </div>
+
+                    {/* Visibility + Category Breakdown */}
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                      <Card>
+                        <CardHeader>
+                          <CardTitle className="text-base">Visibility Breakdown</CardTitle>
+                          <CardDescription>User-created skills by sharing scope</CardDescription>
+                        </CardHeader>
+                        <CardContent>
+                          <VisibilityBreakdown
+                            byVisibility={skillStats.by_visibility}
+                            total={skillStats.user_skills}
+                          />
+                        </CardContent>
+                      </Card>
+
+                      <Card>
+                        <CardHeader>
+                          <CardTitle className="text-base">Skills by Category</CardTitle>
+                          <CardDescription>Distribution across categories</CardDescription>
+                        </CardHeader>
+                        <CardContent>
+                          <CategoryBreakdown byCategory={skillStats.by_category} />
+                        </CardContent>
+                      </Card>
+                    </div>
+
+                    {/* Creation Timeline */}
+                    {skillStats.daily_created.length > 0 && (
+                      <Card>
+                        <CardHeader>
+                          <CardTitle>Skills Created (Last 30 Days)</CardTitle>
+                          <CardDescription>New user-created skills per day</CardDescription>
+                        </CardHeader>
+                        <CardContent>
+                          <SimpleLineChart
+                            data={skillStats.daily_created.map((d) => ({
+                              label: new Date(d.date).toLocaleDateString("en-US", {
+                                month: "short",
+                                day: "numeric",
+                              }),
+                              value: d.count,
+                            }))}
+                            height={200}
+                            color="rgb(139, 92, 246)"
+                          />
+                        </CardContent>
+                      </Card>
+                    )}
+
+                    {/* Top Creators + Run Performance */}
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                      <TopCreatorsCard creators={skillStats.top_creators} />
+                      <OverallRunStatsCard stats={skillStats.overall_run_stats} />
+                    </div>
+
+                    {/* Top Skills by Runs */}
+                    <RunStatsTable
+                      runStats={skillStats.top_skills_by_runs}
+                      title="Top Skills by Usage"
+                      description="Most frequently executed skills across the platform"
+                    />
+                  </>
+                ) : (
+                  <Card>
+                    <CardContent className="pt-6 text-center py-12">
+                      <Layers className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+                      <h3 className="text-lg font-semibold mb-2">No Skill Data</h3>
+                      <p className="text-muted-foreground">
+                        Skill metrics will appear once users start creating skills.
+                      </p>
+                    </CardContent>
+                  </Card>
+                )}
               </TabsContent>
 
               {/* Usage Statistics Tab */}

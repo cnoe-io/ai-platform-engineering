@@ -217,6 +217,99 @@
   --gradient-end: 353 73% 68%;
 }
 
+/* ========================================
+   CYBERPUNK THEME
+   Neon-soaked, high-contrast, dystopian
+   ======================================== */
+[data-theme="cyberpunk"] {
+  --background: 270 30% 4%;
+  --foreground: 300 20% 92%;
+  --card: 270 30% 6%;
+  --card-foreground: 300 20% 92%;
+  --popover: 270 30% 8%;
+  --popover-foreground: 300 20% 92%;
+  --primary: 320 100% 60%;
+  --primary-foreground: 270 30% 4%;
+  --secondary: 270 30% 12%;
+  --secondary-foreground: 300 20% 92%;
+  --muted: 270 25% 14%;
+  --muted-foreground: 280 15% 55%;
+  --accent: 270 30% 14%;
+  --accent-foreground: 300 20% 92%;
+  --destructive: 0 85% 55%;
+  --destructive-foreground: 300 20% 92%;
+  --border: 270 25% 18%;
+  --input: 270 25% 12%;
+  --ring: 320 100% 60%;
+
+  /* Cyberpunk gradient — hot pink → electric cyan */
+  --gradient-start: 320 100% 60%;
+  --gradient-mid: 190 100% 50%;
+  --gradient-end: 55 100% 50%;
+}
+
+/* ========================================
+   TRON THEME
+   Digital frontier, glowing cyan on black
+   ======================================== */
+[data-theme="tron"] {
+  --background: 200 20% 3%;
+  --foreground: 190 60% 90%;
+  --card: 200 20% 5%;
+  --card-foreground: 190 60% 90%;
+  --popover: 200 20% 7%;
+  --popover-foreground: 190 60% 90%;
+  --primary: 190 100% 50%;
+  --primary-foreground: 200 20% 3%;
+  --secondary: 200 20% 10%;
+  --secondary-foreground: 190 60% 90%;
+  --muted: 200 18% 12%;
+  --muted-foreground: 200 15% 50%;
+  --accent: 200 20% 12%;
+  --accent-foreground: 190 60% 90%;
+  --destructive: 15 90% 55%;
+  --destructive-foreground: 190 60% 90%;
+  --border: 190 40% 15%;
+  --input: 200 18% 10%;
+  --ring: 190 100% 50%;
+
+  /* Tron gradient — electric cyan → white-blue */
+  --gradient-start: 190 100% 50%;
+  --gradient-mid: 200 80% 60%;
+  --gradient-end: 210 60% 70%;
+}
+
+/* ========================================
+   MATRIX THEME
+   Green phosphor on black, digital rain
+   ======================================== */
+[data-theme="matrix"] {
+  --background: 120 15% 3%;
+  --foreground: 120 40% 82%;
+  --card: 120 15% 5%;
+  --card-foreground: 120 40% 82%;
+  --popover: 120 15% 7%;
+  --popover-foreground: 120 40% 82%;
+  --primary: 120 100% 45%;
+  --primary-foreground: 120 15% 3%;
+  --secondary: 120 12% 10%;
+  --secondary-foreground: 120 40% 82%;
+  --muted: 120 10% 12%;
+  --muted-foreground: 120 15% 45%;
+  --accent: 120 12% 12%;
+  --accent-foreground: 120 40% 82%;
+  --destructive: 0 80% 50%;
+  --destructive-foreground: 120 40% 82%;
+  --border: 120 20% 15%;
+  --input: 120 10% 10%;
+  --ring: 120 100% 45%;
+
+  /* Matrix gradient — bright green → dark green */
+  --gradient-start: 120 100% 45%;
+  --gradient-mid: 140 80% 35%;
+  --gradient-end: 160 60% 30%;
+}
+
 @layer base {
   * {
     @apply border-border;
@@ -574,4 +667,14 @@ pre code.hljs {
   -webkit-background-clip: text;
   background-clip: text;
   -webkit-text-fill-color: transparent;
+}
+
+/* CodeMirror {{variable}} template highlighting */
+.cm-template-variable {
+  background: hsl(var(--primary) / 0.15);
+  border: 1px solid hsl(var(--primary) / 0.25);
+  border-radius: 3px;
+  padding: 0 1px;
+  color: hsl(var(--primary));
+  font-weight: 500;
 }

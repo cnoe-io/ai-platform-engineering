@@ -6,7 +6,7 @@ import {
   withAuth,
   withErrorHandler,
   successResponse,
-  ApiError,
+  requireAdminView,
 } from '@/lib/api-middleware';
 
 // GET /api/admin/stats
@@ -23,10 +23,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
   }
 
   return withAuth(request, async (req, user, session) => {
-    // Check if user is admin (from OIDC group)
-    if (session.role !== 'admin') {
-      throw new ApiError('Admin access required - must be member of admin group', 403);
-    }
+    requireAdminView(session);
 
     const users = await getCollection('users');
     const conversations = await getCollection('conversations');

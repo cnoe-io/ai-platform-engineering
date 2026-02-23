@@ -54,8 +54,8 @@ export interface Config {
   appName: string;
   /** Logo URL (relative or absolute) */
   logoUrl: string;
-  /** Whether the app is in preview/beta mode */
-  previewMode: boolean;
+  /** Environment badge label shown next to the app name (e.g. "Dev", "Preview", "Prod"). Empty string = hidden. */
+  envBadge: string;
   /** Gradient start color (CSS color value) */
   gradientFrom: string;
   /** Gradient end color (CSS color value) */
@@ -90,6 +90,14 @@ export interface Config {
    * Set WORKFLOW_RUNNER_ENABLED=true to enable.
    */
   workflowRunnerEnabled: boolean;
+  /** Default font size for new users: "small" | "medium" | "large" | "x-large" */
+  defaultFontSize: string;
+  /** Default font family for new users: "inter" | "source-sans" | "ibm-plex" | "system" */
+  defaultFontFamily: string;
+  /** Default color theme: "light" | "dark" | "midnight" | "nord" | "tokyo" | "cyberpunk" | "tron" | "matrix" */
+  defaultTheme: string;
+  /** Default gradient theme: "default" | "minimal" | "professional" | "ocean" | "sunset" | "cyberpunk" | "tron" | "matrix" */
+  defaultGradientTheme: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -103,6 +111,15 @@ const DEFAULT_LOGO_URL = '/logo.svg';
 const DEFAULT_GRADIENT_FROM = 'hsl(173,80%,40%)';
 const DEFAULT_GRADIENT_TO = 'hsl(270,75%,60%)';
 const DEFAULT_SUPPORT_EMAIL = 'support@example.com';
+const DEFAULT_FONT_SIZE = 'medium';
+const DEFAULT_FONT_FAMILY = 'inter';
+const DEFAULT_THEME = 'dark';
+const DEFAULT_GRADIENT_THEME = 'default';
+
+const VALID_FONT_SIZES = ['small', 'medium', 'large', 'x-large'];
+const VALID_FONT_FAMILIES = ['inter', 'source-sans', 'ibm-plex', 'system'];
+const VALID_THEMES = ['light', 'dark', 'midnight', 'nord', 'tokyo', 'cyberpunk', 'tron', 'matrix'];
+const VALID_GRADIENT_THEMES = ['default', 'minimal', 'professional', 'ocean', 'sunset', 'cyberpunk', 'tron', 'matrix'];
 
 /** Default config used as client fallback before the layout script executes. */
 const DEFAULT_CONFIG: Config = {
@@ -117,7 +134,7 @@ const DEFAULT_CONFIG: Config = {
   description: DEFAULT_DESCRIPTION,
   appName: DEFAULT_APP_NAME,
   logoUrl: DEFAULT_LOGO_URL,
-  previewMode: false,
+  envBadge: '',
   gradientFrom: DEFAULT_GRADIENT_FROM,
   gradientTo: DEFAULT_GRADIENT_TO,
   logoStyle: 'default',
@@ -131,6 +148,10 @@ const DEFAULT_CONFIG: Config = {
   docsUrl: null,
   sourceUrl: null,
   workflowRunnerEnabled: false,
+  defaultFontSize: DEFAULT_FONT_SIZE,
+  defaultFontFamily: DEFAULT_FONT_FAMILY,
+  defaultTheme: DEFAULT_THEME,
+  defaultGradientTheme: DEFAULT_GRADIENT_THEME,
 };
 
 // ---------------------------------------------------------------------------
@@ -163,6 +184,11 @@ export function getServerOnlyConfig(): ServerOnlyConfig {
   return _serverOnlyConfig;
 }
 
+/** Return value if it's in the allowed list, otherwise return fallback. */
+function validated(value: string | undefined, allowed: string[], fallback: string): string {
+  return value && allowed.includes(value) ? value : fallback;
+}
+
 /**
  * Build the full Config from server-side process.env.
  *
@@ -183,7 +209,8 @@ export function getServerConfig(): Config {
   const ragEnabled = env('RAG_ENABLED') !== 'false';
   const mongodbEnabled = !!(process.env.MONGODB_URI && process.env.MONGODB_DATABASE)
     || env('MONGODB_ENABLED') === 'true';
-  const previewMode = env('PREVIEW_MODE') === 'true';
+  const envBadge = env('ENV_BADGE')
+    || (env('PREVIEW_MODE') === 'true' ? 'Preview' : '');
   const allowDevAdminWhenSsoDisabled = env('ALLOW_DEV_ADMIN_WHEN_SSO_DISABLED') === 'true';
   const workflowRunnerEnabled = env('WORKFLOW_RUNNER_ENABLED') === 'true';
 
@@ -205,7 +232,7 @@ export function getServerConfig(): Config {
     description: env('DESCRIPTION') || DEFAULT_DESCRIPTION,
     appName: env('APP_NAME') || DEFAULT_APP_NAME,
     logoUrl: env('LOGO_URL') || DEFAULT_LOGO_URL,
-    previewMode,
+    envBadge,
     gradientFrom: env('GRADIENT_FROM') || DEFAULT_GRADIENT_FROM,
     gradientTo: env('GRADIENT_TO') || DEFAULT_GRADIENT_TO,
     logoStyle,
@@ -225,6 +252,10 @@ export function getServerConfig(): Config {
     docsUrl: env('DOCS_URL') || null,
     sourceUrl: env('SOURCE_URL') || null,
     workflowRunnerEnabled,
+    defaultFontSize: validated(env('DEFAULT_FONT_SIZE'), VALID_FONT_SIZES, DEFAULT_FONT_SIZE),
+    defaultFontFamily: validated(env('DEFAULT_FONT_FAMILY'), VALID_FONT_FAMILIES, DEFAULT_FONT_FAMILY),
+    defaultTheme: validated(env('DEFAULT_THEME'), VALID_THEMES, DEFAULT_THEME),
+    defaultGradientTheme: validated(env('DEFAULT_GRADIENT_THEME'), VALID_GRADIENT_THEMES, DEFAULT_GRADIENT_THEME),
   };
 }
 

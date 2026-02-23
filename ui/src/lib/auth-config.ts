@@ -37,6 +37,11 @@ export const REQUIRED_GROUP = process.env.OIDC_REQUIRED_GROUP || "backstage-acce
 // Required admin group for admin access
 export const REQUIRED_ADMIN_GROUP = process.env.OIDC_REQUIRED_ADMIN_GROUP || "";
 
+// Required group for read-only admin dashboard access
+// Users in this group can view admin data but cannot make changes
+// Leave empty to allow all authenticated users to view admin dashboard
+export const REQUIRED_ADMIN_VIEW_GROUP = process.env.OIDC_REQUIRED_ADMIN_VIEW_GROUP || "";
+
 // Default group claim names to check (in order of priority)
 // Note: Duo SSO uses "members" for full group list, "groups" for limited set
 const DEFAULT_GROUP_CLAIMS = ["members", "memberOf", "groups", "group", "roles", "cognito:groups"];
@@ -117,6 +122,18 @@ export function isAdminUser(groups: string[]): boolean {
     const groupLower = group.toLowerCase();
     const adminGroupLower = REQUIRED_ADMIN_GROUP.toLowerCase();
     return groupLower === adminGroupLower || groupLower.includes(`cn=${adminGroupLower}`);
+  });
+}
+
+// Helper to check if user can view admin dashboard (read-only)
+// If OIDC_REQUIRED_ADMIN_VIEW_GROUP is not set, all authenticated users can view
+export function canViewAdminDashboard(groups: string[]): boolean {
+  if (!REQUIRED_ADMIN_VIEW_GROUP) return true; // No view group configured = all authenticated users
+
+  return groups.some((group) => {
+    const groupLower = group.toLowerCase();
+    const viewGroupLower = REQUIRED_ADMIN_VIEW_GROUP.toLowerCase();
+    return groupLower === viewGroupLower || groupLower.includes(`cn=${viewGroupLower}`);
   });
 }
 
@@ -317,11 +334,14 @@ export const authOptions: NextAuthOptions = {
         // Storing 40+ groups causes 8KB session cookies and browser crashes
         token.isAuthorized = hasRequiredGroup(groups);
         token.role = isAdminUser(groups) ? 'admin' : 'user';
+        token.canViewAdmin = token.role === 'admin' || canViewAdminDashboard(groups);
 
         // Debug logging (groups array is NOT stored in token)
         console.log('[Auth JWT] User groups count:', groups.length);
         console.log('[Auth JWT] Required admin group:', REQUIRED_ADMIN_GROUP);
+        console.log('[Auth JWT] Required admin view group:', REQUIRED_ADMIN_VIEW_GROUP);
         console.log('[Auth JWT] User role:', token.role);
+        console.log('[Auth JWT] Can view admin:', token.canViewAdmin);
         console.log('[Auth JWT] Is authorized:', token.isAuthorized);
       }
 
@@ -397,6 +417,7 @@ export const authOptions: NextAuthOptions = {
       // Set role from token (OIDC group check only here)
       // MongoDB fallback check happens in API middleware (server-side only)
       session.role = (token.role as 'admin' | 'user') || 'user';
+      session.canViewAdmin = (token.canViewAdmin as boolean) ?? false;
 
       // If token refresh failed, mark session as invalid and DON'T include tokens
       if (token.error === "RefreshTokenExpired" || token.error === "RefreshTokenError") {
@@ -469,6 +490,7 @@ declare module "next-auth" {
     expiresAt?: number; // Access token expiry (Unix timestamp)
     refreshTokenExpiresAt?: number; // Refresh token expiry (Unix timestamp)
     role?: 'admin' | 'user';
+    canViewAdmin?: boolean; // Whether user can view admin dashboard (read-only)
   }
 }
 
@@ -484,5 +506,6 @@ declare module "next-auth/jwt" {
     // profile removed - not needed
     isAuthorized?: boolean;
     role?: 'admin' | 'user';
+    canViewAdmin?: boolean;
   }
 }

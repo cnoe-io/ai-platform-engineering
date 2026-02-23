@@ -6,6 +6,7 @@ import {
   withAuth,
   withErrorHandler,
   successResponse,
+  requireAdmin,
   ApiError,
 } from '@/lib/api-middleware';
 import type { User } from '@/types/mongodb';
@@ -31,10 +32,7 @@ export const PATCH = withErrorHandler(async (
   }
 
   return withAuth(request, async (req, user, session) => {
-    // Check if requesting user is admin
-    if (session.role !== 'admin') {
-      throw new ApiError('Admin access required - must be member of admin group', 403);
-    }
+    requireAdmin(session);
 
     const params = await context.params;
     const targetEmail = decodeURIComponent(params.email);

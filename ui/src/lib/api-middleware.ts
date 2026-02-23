@@ -58,7 +58,7 @@ export async function getAuthenticatedUser(request: NextRequest) {
     role,
   };
 
-  return { user, session: { ...session, role } };
+  return { user, session: { ...session, role, canViewAdmin: session.canViewAdmin ?? false } };
 }
 
 /**
@@ -75,6 +75,29 @@ export async function withAuth<T>(
 ): Promise<T> {
   const { user, session } = await getAuthenticatedUser(request);
   return handler(request, user, session);
+}
+
+/**
+ * Require admin role for write operations.
+ * Throws 403 if user is not admin.
+ */
+export function requireAdmin(session: { role?: string }): void {
+  if (session.role !== 'admin') {
+    throw new ApiError('Admin access required - must be member of admin group', 403);
+  }
+}
+
+/**
+ * Require admin view access for read-only admin endpoints.
+ * Checks session.canViewAdmin (set from OIDC_REQUIRED_ADMIN_VIEW_GROUP).
+ * Admin users always have view access.
+ * Throws 403 if user lacks the required group.
+ */
+export function requireAdminView(session: { role?: string; canViewAdmin?: boolean }): void {
+  if (session.role === 'admin') return;
+  if (session.canViewAdmin !== true) {
+    throw new ApiError('Admin view access required - must be member of admin view group', 403);
+  }
 }
 
 // ============================================================================
@@ -267,14 +290,32 @@ export function requireOwnership(ownerId: string, userId: string) {
 }
 
 /**
- * Check if user has access to a conversation (owner or shared with)
+ * Resolve all team IDs that a user belongs to.
+ * Looks up the teams collection for teams where the user is a member.
+ */
+export async function getUserTeamIds(userEmail: string): Promise<string[]> {
+  try {
+    const teams = await getCollection('teams');
+    const userTeams = await teams
+      .find({ 'members.user_id': userEmail })
+      .project({ _id: 1 })
+      .toArray();
+    return userTeams.map((t: any) => t._id.toString());
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Check if user has access to a conversation (owner, shared with directly,
+ * shared with one of their teams, or via sharing_access records).
  */
 export async function requireConversationAccess(
   conversationId: string,
   userId: string,
-  getCollection: (name: string) => Promise<any>
+  getCollectionFn: (name: string) => Promise<any>
 ) {
-  const conversations = await getCollection('conversations');
+  const conversations = await getCollectionFn('conversations');
   const conversation = await conversations.findOne({ _id: conversationId });
 
   if (!conversation) {
@@ -286,13 +327,27 @@ export async function requireConversationAccess(
     return conversation;
   }
 
-  // Check if conversation is shared with user
+  // Check if conversation is shared with user directly
   if (conversation.sharing?.shared_with?.includes(userId)) {
     return conversation;
   }
 
+  // Check if conversation is shared with one of the user's teams
+  const sharedTeams = conversation.sharing?.shared_with_teams;
+  if (sharedTeams && sharedTeams.length > 0) {
+    const userTeamIds = await getUserTeamIds(userId);
+    if (userTeamIds.length > 0) {
+      const hasTeamAccess = sharedTeams.some((teamId: string) =>
+        userTeamIds.includes(teamId)
+      );
+      if (hasTeamAccess) {
+        return conversation;
+      }
+    }
+  }
+
   // Check sharing_access collection
-  const sharingAccess = await getCollection('sharing_access');
+  const sharingAccess = await getCollectionFn('sharing_access');
   const access = await sharingAccess.findOne({
     conversation_id: conversationId,
     granted_to: userId,
