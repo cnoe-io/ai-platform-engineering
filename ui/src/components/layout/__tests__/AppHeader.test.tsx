@@ -95,14 +95,14 @@ jest.mock('@/lib/config', () => ({
     docsUrl: 'https://docs.example.com',
     githubUrl: 'https://github.com/example',
     ssoEnabled: true,
-    previewMode: false,
+    envBadge: '',
     get ragEnabled() { return mockRagEnabled },
   },
   getConfig: jest.fn((key: string) => {
     const configs: Record<string, any> = {
       appName: 'Test App',
       ssoEnabled: true,
-      previewMode: false,
+      envBadge: '',
       get ragEnabled() { return mockRagEnabled },
     }
     return configs[key]
@@ -301,6 +301,15 @@ describe('AppHeader — nav tabs', () => {
       const link = screen.getByTestId('link-/admin')
       expect(link.className).toContain('bg-primary')
       expect(link.className).not.toContain('bg-red-500')
+    })
+  })
+
+  describe('environment badge', () => {
+    it('does NOT show an environment badge when envBadge is empty', () => {
+      render(<AppHeader />)
+      expect(screen.queryByText('Preview')).not.toBeInTheDocument()
+      expect(screen.queryByText('Dev')).not.toBeInTheDocument()
+      expect(screen.queryByText('Prod')).not.toBeInTheDocument()
     })
   })
 

@@ -7,7 +7,7 @@
  * - Shows spinner
  * - Cancel button visibility and onCancel
  * - Powered by footer
- * - Preview badge
+ * - Environment badge
  */
 
 import React from "react";
@@ -23,7 +23,7 @@ let mockConfig: Record<string, unknown> = {
   logoUrl: "/logo.svg",
   logoStyle: "default" as const,
   showPoweredBy: false,
-  previewMode: false,
+  envBadge: '',
 };
 
 jest.mock("@/lib/config", () => ({
@@ -58,7 +58,7 @@ describe("LoadingScreen", () => {
       logoUrl: "/logo.svg",
       logoStyle: "default",
       showPoweredBy: false,
-      previewMode: false,
+      envBadge: '',
     };
   });
 
@@ -126,8 +126,34 @@ describe("LoadingScreen", () => {
     expect(screen.queryByText(/Powered by OSS/)).not.toBeInTheDocument();
   });
 
-  it("shows preview badge when previewMode=true", () => {
-    mockConfig = { ...mockConfig, previewMode: true };
+  it("shows environment badge when envBadge is set", () => {
+    mockConfig = { ...mockConfig, envBadge: 'Staging' };
+    render(<LoadingScreen />);
+    expect(screen.getByText("Staging")).toBeInTheDocument();
+  });
+
+  it("hides environment badge when envBadge is empty", () => {
+    mockConfig = { ...mockConfig, envBadge: '' };
+    render(<LoadingScreen />);
+    expect(screen.queryByText("Preview")).not.toBeInTheDocument();
+    expect(screen.queryByText("Dev")).not.toBeInTheDocument();
+    expect(screen.queryByText("Prod")).not.toBeInTheDocument();
+  });
+
+  it("renders arbitrary envBadge labels (e.g. 'Prod')", () => {
+    mockConfig = { ...mockConfig, envBadge: 'Prod' };
+    render(<LoadingScreen />);
+    expect(screen.getByText("Prod")).toBeInTheDocument();
+  });
+
+  it("renders 'Dev' badge label", () => {
+    mockConfig = { ...mockConfig, envBadge: 'Dev' };
+    render(<LoadingScreen />);
+    expect(screen.getByText("Dev")).toBeInTheDocument();
+  });
+
+  it("renders 'Preview' badge label (backward compat)", () => {
+    mockConfig = { ...mockConfig, envBadge: 'Preview' };
     render(<LoadingScreen />);
     expect(screen.getByText("Preview")).toBeInTheDocument();
   });
