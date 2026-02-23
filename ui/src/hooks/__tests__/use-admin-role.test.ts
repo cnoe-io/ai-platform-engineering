@@ -261,7 +261,7 @@ describe('useAdminRole', () => {
 });
 
 // ============================================================================
-// canViewAdmin tests — readonly access for all authenticated users
+// canViewAdmin tests — OIDC group-based readonly access
 // ============================================================================
 
 describe('useAdminRole — canViewAdmin', () => {
@@ -271,9 +271,9 @@ describe('useAdminRole — canViewAdmin', () => {
     (global.fetch as jest.Mock) = jest.fn();
   });
 
-  it('canViewAdmin=true for authenticated user (even non-admin)', async () => {
+  it('canViewAdmin=true when session.canViewAdmin is true (OIDC group match)', async () => {
     mockUseSession.mockReturnValue({
-      data: { role: 'user', user: { email: 'user@test.com' } },
+      data: { role: 'user', canViewAdmin: true, user: { email: 'user@test.com' } },
       status: 'authenticated',
     });
     (global.fetch as jest.Mock).mockResolvedValue({
@@ -291,9 +291,29 @@ describe('useAdminRole — canViewAdmin', () => {
     expect(result.current.isAdmin).toBe(false);
   });
 
-  it('canViewAdmin=true for admin user', async () => {
+  it('canViewAdmin=false when session.canViewAdmin is false (no OIDC group match)', async () => {
     mockUseSession.mockReturnValue({
-      data: { role: 'admin', user: { email: 'admin@test.com' } },
+      data: { role: 'user', canViewAdmin: false, user: { email: 'user@test.com' } },
+      status: 'authenticated',
+    });
+    (global.fetch as jest.Mock).mockResolvedValue({
+      ok: true,
+      json: async () => ({ role: 'user' }),
+    });
+
+    const { result } = renderHook(() => useAdminRole());
+
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false);
+    });
+
+    expect(result.current.canViewAdmin).toBe(false);
+    expect(result.current.isAdmin).toBe(false);
+  });
+
+  it('canViewAdmin=true for admin user (admin always has view access)', async () => {
+    mockUseSession.mockReturnValue({
+      data: { role: 'admin', canViewAdmin: true, user: { email: 'admin@test.com' } },
       status: 'authenticated',
     });
 
@@ -307,7 +327,7 @@ describe('useAdminRole — canViewAdmin', () => {
     expect(result.current.isAdmin).toBe(true);
   });
 
-  it('canViewAdmin=false for unauthenticated user (SSO enabled)', async () => {
+  it('canViewAdmin=false for unauthenticated user (no session)', async () => {
     mockUseSession.mockReturnValue({ data: null, status: 'unauthenticated' });
     mockGetConfig = { ssoEnabled: true, storageMode: 'mongodb' };
 
@@ -356,9 +376,9 @@ describe('useAdminRole — canViewAdmin', () => {
     expect(result.current.isAdmin).toBe(false);
   });
 
-  it('canViewAdmin=true during loading for authenticated session', () => {
+  it('canViewAdmin=true during loading when session has canViewAdmin', () => {
     mockUseSession.mockReturnValue({
-      data: { role: 'user', user: { email: 'user@test.com' } },
+      data: { role: 'user', canViewAdmin: true, user: { email: 'user@test.com' } },
       status: 'authenticated',
     });
     (global.fetch as jest.Mock).mockImplementation(
@@ -369,5 +389,24 @@ describe('useAdminRole — canViewAdmin', () => {
 
     expect(result.current.canViewAdmin).toBe(true);
     expect(result.current.loading).toBe(true);
+  });
+
+  it('canViewAdmin=false when session exists but canViewAdmin not set', async () => {
+    mockUseSession.mockReturnValue({
+      data: { role: 'user', user: { email: 'user@test.com' } },
+      status: 'authenticated',
+    });
+    (global.fetch as jest.Mock).mockResolvedValue({
+      ok: true,
+      json: async () => ({ role: 'user' }),
+    });
+
+    const { result } = renderHook(() => useAdminRole());
+
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false);
+    });
+
+    expect(result.current.canViewAdmin).toBe(false);
   });
 });

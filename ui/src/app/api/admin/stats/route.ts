@@ -6,6 +6,7 @@ import {
   withAuth,
   withErrorHandler,
   successResponse,
+  requireAdminView,
 } from '@/lib/api-middleware';
 
 // GET /api/admin/stats
@@ -22,6 +23,8 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
   }
 
   return withAuth(request, async (req, user, session) => {
+    requireAdminView(session);
+
     const users = await getCollection('users');
     const conversations = await getCollection('conversations');
     const messages = await getCollection('messages');

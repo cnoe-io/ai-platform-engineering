@@ -7,6 +7,7 @@ import {
   withAuth,
   withErrorHandler,
   successResponse,
+  requireAdminView,
 } from '@/lib/api-middleware';
 import type { User } from '@/types/mongodb';
 
@@ -24,6 +25,8 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
   }
 
   return withAuth(request, async (req, user, session) => {
+    requireAdminView(session);
+
     const users = await getCollection<User>('users');
     const conversations = await getCollection('conversations');
     const messages = await getCollection('messages');

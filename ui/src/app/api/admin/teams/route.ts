@@ -8,6 +8,7 @@ import {
   withErrorHandler,
   successResponse,
   requireAdmin,
+  requireAdminView,
   ApiError,
 } from '@/lib/api-middleware';
 
@@ -31,6 +32,8 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
   }
 
   return withAuth(request, async (req, user, session) => {
+    requireAdminView(session);
+
     const teams = await getCollection('teams');
     
     const allTeams = await teams

@@ -160,8 +160,22 @@ describe('GET /api/admin/stats — Authentication & Authorization', () => {
     expect(res.status).toBe(401);
   });
 
-  it('allows non-admin users to read stats (readonly access)', async () => {
+  it('returns 403 when user lacks admin view group', async () => {
     mockGetServerSession.mockResolvedValue(userSession());
+
+    const usersCol = createMockCollection();
+    usersCol.findOne.mockResolvedValue(null);
+    mockCollections['users'] = usersCol;
+
+    const req = makeRequest('/api/admin/stats');
+    const res = await GET(req);
+    expect(res.status).toBe(403);
+    const body = await res.json();
+    expect(body.error).toContain('Admin view access required');
+  });
+
+  it('allows non-admin users with view access to read stats (readonly)', async () => {
+    mockGetServerSession.mockResolvedValue({ ...userSession(), canViewAdmin: true });
 
     const usersCol = createMockCollection();
     usersCol.findOne.mockResolvedValue(null);

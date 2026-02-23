@@ -7,11 +7,13 @@ import { getConfig } from '@/lib/config';
  *
  * Returns:
  * - `isAdmin`: true when user belongs to OIDC admin group (read-write access)
- * - `canViewAdmin`: true for any authenticated user (read-only access to Admin page)
+ * - `canViewAdmin`: true when user belongs to OIDC admin view group (read-only)
+ *   or when OIDC_REQUIRED_ADMIN_VIEW_GROUP is not set (all authenticated users)
  * - `loading`: true while role check is in progress
  *
  * Access model:
- * - All authenticated users can view the Admin dashboard (read-only).
+ * - Users in OIDC_REQUIRED_ADMIN_VIEW_GROUP (or all authenticated users if unset)
+ *   can view the Admin dashboard read-only.
  * - Only OIDC admin group members can perform write operations
  *   (role changes, team CRUD, migrations).
  */
@@ -20,17 +22,18 @@ export function useAdminRole() {
   const [isAdmin, setIsAdmin] = useState(false);
   const [loading, setLoading] = useState(true);
 
-  const isAuthenticated = status === 'authenticated';
-  const canViewAdmin = isAuthenticated || (
+  const isDevAdmin = Boolean(
     !getConfig('ssoEnabled') &&
     getConfig('allowDevAdminWhenSsoDisabled') &&
     getConfig('storageMode') === 'mongodb'
   );
 
+  const canViewAdmin = (session?.canViewAdmin === true) || isDevAdmin;
+
   useEffect(() => {
     async function checkAdminRole() {
       if (!session) {
-        if (!getConfig('ssoEnabled') && getConfig('allowDevAdminWhenSsoDisabled') && getConfig('storageMode') === 'mongodb') {
+        if (isDevAdmin) {
           setIsAdmin(true);
         } else {
           setIsAdmin(false);

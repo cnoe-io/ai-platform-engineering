@@ -10,6 +10,7 @@ import {
   withErrorHandler,
   successResponse,
   requireAdmin,
+  requireAdminView,
   ApiError,
 } from '@/lib/api-middleware';
 import type { UpdateTeamRequest } from '@/types/teams';
@@ -44,6 +45,8 @@ export const GET = withErrorHandler(async (
   if (mongoCheck) return mongoCheck;
 
   return withAuth(request, async (req, user, session) => {
+    requireAdminView(session);
+
     const params = await context.params;
     const teamId = parseTeamId(params.id);
     const teams = await getCollection('teams');

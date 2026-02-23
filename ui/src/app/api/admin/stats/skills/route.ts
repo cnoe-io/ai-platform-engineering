@@ -6,6 +6,7 @@ import {
   withAuth,
   withErrorHandler,
   successResponse,
+  requireAdminView,
 } from '@/lib/api-middleware';
 import type { AgentConfig } from '@/types/agent-config';
 import type { WorkflowRun } from '@/types/workflow-run';
@@ -23,6 +24,8 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
   }
 
   return withAuth(request, async (_req, _user, session) => {
+    requireAdminView(session);
+
     const configs = await getCollection<AgentConfig>('agent_configs');
     const runs = await getCollection<WorkflowRun>('workflow_runs');
 

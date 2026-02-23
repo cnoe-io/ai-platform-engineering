@@ -4,6 +4,7 @@ import {
   withAuth,
   withErrorHandler,
   requireAdmin,
+  requireAdminView,
   ApiError,
 } from '@/lib/api-middleware';
 
@@ -39,6 +40,8 @@ export const GET = withErrorHandler(async (request: NextRequest): Promise<NextRe
   }
 
   return withAuth(request, async (_req, _user, session) => {
+    requireAdminView(session);
+
     const { searchParams } = new URL(request.url);
     const query = searchParams.get('query');
     if (!query) {

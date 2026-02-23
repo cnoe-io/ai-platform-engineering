@@ -58,7 +58,7 @@ export async function getAuthenticatedUser(request: NextRequest) {
     role,
   };
 
-  return { user, session: { ...session, role } };
+  return { user, session: { ...session, role, canViewAdmin: session.canViewAdmin ?? false } };
 }
 
 /**
@@ -84,6 +84,19 @@ export async function withAuth<T>(
 export function requireAdmin(session: { role?: string }): void {
   if (session.role !== 'admin') {
     throw new ApiError('Admin access required - must be member of admin group', 403);
+  }
+}
+
+/**
+ * Require admin view access for read-only admin endpoints.
+ * Checks session.canViewAdmin (set from OIDC_REQUIRED_ADMIN_VIEW_GROUP).
+ * Admin users always have view access.
+ * Throws 403 if user lacks the required group.
+ */
+export function requireAdminView(session: { role?: string; canViewAdmin?: boolean }): void {
+  if (session.role === 'admin') return;
+  if (session.canViewAdmin !== true) {
+    throw new ApiError('Admin view access required - must be member of admin view group', 403);
   }
 }
 
