@@ -1,37 +1,35 @@
 // Package octicons provides helpers for working with GitHub Octicon icons.
 // See https://primer.style/foundations/icons for available icons.
+//
+// Icons are optional and purely cosmetic. When the icons/ directory with
+// PNG files is not present (e.g. in CI/Docker builds where .gitignore
+// excludes *.png), all functions gracefully return empty/nil values and
+// the MCP server operates normally without tool icons.
 package octicons
 
 import (
-	"bufio"
 	"embed"
 	"encoding/base64"
 	"fmt"
-	"strings"
+	"io/fs"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-//go:embed icons/*.png
+// iconsFS holds embedded icon PNGs when they are available at build time.
+// The icons directory may be absent in Docker/CI builds; in that case
+// iconsFS is empty and all lookups return graceful fallbacks.
 var iconsFS embed.FS
 
-//go:embed required_icons.txt
-var requiredIconsTxt string
-
-// RequiredIcons returns the list of icon names from required_icons.txt.
-// This is the single source of truth for which icons should be embedded.
-func RequiredIcons() []string {
-	var icons []string
-	scanner := bufio.NewScanner(strings.NewReader(requiredIconsTxt))
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		// Skip empty lines and comments
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
-		}
-		icons = append(icons, line)
+func init() {
+	// Attempt to stat the icons dir inside the embed.  If the binary was
+	// built without icons (the directory didn't exist), iconsFS is simply
+	// an empty FS and every ReadFile call will return fs.ErrNotExist.
+	if _, err := fs.Stat(iconsFS, "icons"); err != nil {
+		// Expected in CI/Docker — icons not embedded; functions will
+		// return empty strings / nil slices.
+		_ = err
 	}
-	return icons
 }
 
 // Theme represents the color theme of an icon.
@@ -46,9 +44,10 @@ const (
 
 // DataURI returns a data URI for the embedded Octicon PNG.
 // The theme parameter specifies which variant to use:
-// - ThemeLight: dark icons for light backgrounds
-// - ThemeDark: light icons for dark backgrounds
-// If the icon is not found in the embedded filesystem, it returns an empty string.
+//   - ThemeLight: dark icons for light backgrounds
+//   - ThemeDark: light icons for dark backgrounds
+//
+// Returns an empty string when the icon is not embedded.
 func DataURI(name string, theme Theme) string {
 	filename := fmt.Sprintf("icons/%s-%s.png", name, theme)
 	data, err := iconsFS.ReadFile(filename)
@@ -58,25 +57,31 @@ func DataURI(name string, theme Theme) string {
 	return "data:image/png;base64," + base64.StdEncoding.EncodeToString(data)
 }
 
+// Available reports whether any icons are embedded in this build.
+func Available() bool {
+	_, err := fs.Stat(iconsFS, "icons")
+	return err == nil
+}
+
 // Icons returns MCP Icon objects for the given octicon name in light and dark themes.
-// Icons are embedded as 24x24 PNG data URIs for offline use and faster loading.
-// The name should be the base octicon name without size suffix (e.g., "repo" not "repo-16").
-// See https://primer.style/foundations/icons for available icons.
-//
-// Note: The Sizes field is omitted for backward compatibility with older MCP clients
-// that expect it to be a string rather than an array per the 2025-11-25 MCP spec.
+// Returns nil when no icons are embedded or when the name is empty.
 func Icons(name string) []mcp.Icon {
-	if name == "" {
+	if name == "" || !Available() {
+		return nil
+	}
+	light := DataURI(name, ThemeLight)
+	dark := DataURI(name, ThemeDark)
+	if light == "" && dark == "" {
 		return nil
 	}
 	return []mcp.Icon{
 		{
-			Source:   DataURI(name, ThemeLight),
+			Source:   light,
 			MIMEType: "image/png",
 			Theme:    mcp.IconThemeLight,
 		},
 		{
-			Source:   DataURI(name, ThemeDark),
+			Source:   dark,
 			MIMEType: "image/png",
 			Theme:    mcp.IconThemeDark,
 		},

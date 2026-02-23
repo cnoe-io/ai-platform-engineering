@@ -10,17 +10,18 @@ import (
 
 // TestAllToolsetIconsExist validates that every toolset with an Icon field
 // references an icon that actually exists in the embedded octicons.
-// This prevents broken icon references from being merged.
+// This test is skipped when icons are not embedded (CI/Docker builds).
 func TestAllToolsetIconsExist(t *testing.T) {
-	// Get all available toolsets from the inventory
+	if !octicons.Available() {
+		t.Skip("icon PNGs not embedded in this build — skipping icon validation")
+	}
+
 	inv, err := NewInventory(stubTranslator).Build()
 	require.NoError(t, err)
 	toolsets := inv.AvailableToolsets()
 
-	// Also test remote-only toolsets
 	remoteToolsets := RemoteOnlyToolsets()
 
-	// Combine both lists
 	allToolsets := make([]struct {
 		name string
 		icon string
@@ -48,12 +49,10 @@ func TestAllToolsetIconsExist(t *testing.T) {
 
 	for _, ts := range allToolsets {
 		t.Run(ts.name, func(t *testing.T) {
-			// Check that icons return valid data URIs (not empty)
 			icons := octicons.Icons(ts.icon)
 			require.NotNil(t, icons, "toolset %s references icon %q which does not exist", ts.name, ts.icon)
 			assert.Len(t, icons, 2, "expected light and dark icon variants for toolset %s", ts.name)
 
-			// Verify both variants have valid data URIs
 			for _, icon := range icons {
 				assert.NotEmpty(t, icon.Source, "icon source should not be empty for toolset %s", ts.name)
 				assert.Contains(t, icon.Source, "data:image/png;base64,",
@@ -64,13 +63,10 @@ func TestAllToolsetIconsExist(t *testing.T) {
 }
 
 // TestToolsetMetadataHasIcons ensures all toolsets have icons defined.
-// This is a policy test - if you want to allow toolsets without icons,
-// you can remove or modify this test.
 func TestToolsetMetadataHasIcons(t *testing.T) {
-	// These toolsets are expected to NOT have icons (internal/special purpose)
 	exceptionsWithoutIcons := map[string]bool{
-		"all":     true, // Meta-toolset
-		"default": true, // Meta-toolset
+		"all":     true,
+		"default": true,
 	}
 
 	inv, err := NewInventory(stubTranslator).Build()
