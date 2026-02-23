@@ -47,19 +47,6 @@ RESPONSE_FORMAT_TOOL_NAMES = frozenset({
 })
 
 
-def _sort_field_values(args: dict) -> dict:
-    """Sort field_values alphabetically in HITL form args before sending to the UI."""
-    try:
-        fields = (args or {}).get("metadata", {}).get("input_fields")
-        if fields and isinstance(fields, list):
-            for field in fields:
-                vals = field.get("field_values") if isinstance(field, dict) else None
-                if vals and isinstance(vals, list):
-                    field["field_values"] = sorted(vals, key=lambda s: s.casefold() if isinstance(s, str) else str(s))
-    except Exception:
-        pass
-    return args
-
 
 class AIPlatformEngineerA2ABinding:
   """
@@ -76,6 +63,7 @@ class AIPlatformEngineerA2ABinding:
       self._execution_plan_sent = False
       self._previous_todos: dict[int, dict] = {}  # Track todo states for notifications
       self._task_plan_entries: dict[str, dict] = {}  # Track task (subagent) calls for execution plan
+      self._in_self_service_workflow = False  # Suppress intermediate text during deterministic workflows
       self._initialized = False
   
   async def ensure_initialized(self) -> None:
@@ -366,6 +354,7 @@ class AIPlatformEngineerA2ABinding:
           self._execution_plan_sent = False
           self._previous_todos = {}
           self._task_plan_entries = {}
+          self._in_self_service_workflow = False
 
       # ========================================================================
       # PRE-FLIGHT CONTEXT CHECK: Proactively compress if approaching limit
@@ -510,7 +499,7 @@ class AIPlatformEngineerA2ABinding:
                           # Just pass them through directly
                           tool_calls.append({
                               "name": name,
-                              "args": _sort_field_values(args),
+                              "args": args,
                               "id": getattr(intr, "id", None),
                           })
                           logging.info(f"[Interrupt] Parsed action request: name={name}, has_metadata={bool(args.get('metadata') if isinstance(args, dict) else False)}, args_keys={list(args.keys()) if isinstance(args, dict) else 'not dict'}")
@@ -702,7 +691,7 @@ class AIPlatformEngineerA2ABinding:
                                           "from_response_format_tool": True,
                                       }
                                       logging.info(f"🎯 Structured response from updates stream: is_task_complete={tc_args.get('is_task_complete', True)}, {len(structured_content)} chars")
-                                      # Emit tool completion notification before structured response
+                                      self._in_self_service_workflow = False
                                       yield {
                                           "is_task_complete": False,
                                           "require_user_input": False,
@@ -812,6 +801,12 @@ class AIPlatformEngineerA2ABinding:
                           if tc_id:
                               pending_tool_calls[tc_id] = tool_name
 
+                          # invoke_self_service_task — enter self-service mode to suppress intermediate text
+                          if tool_name == "invoke_self_service_task":
+                              self._in_self_service_workflow = True
+                              logging.info("🔄 Self-service workflow detected — suppressing intermediate text streaming")
+                              continue
+
                           # write_todos — skip generic notification (handled by ToolMessage path)
                           if tool_name == "write_todos":
                               logging.debug("Skipping chunk notification for 'write_todos' (handled by ToolMessage path)")
@@ -877,6 +872,13 @@ class AIPlatformEngineerA2ABinding:
                   if content:
                       accumulated_ai_content.append(content)
 
+                  # During self-service workflows, suppress intermediate text
+                  # (execution plan updates and tool notifications are still emitted
+                  # via the write_todos and task handlers above)
+                  if content and self._in_self_service_workflow:
+                      logging.debug(f"Suppressed intermediate text ({len(content)} chars) during self-service workflow")
+                      continue
+
                   if content:  # Only yield if there's actual content
                       # Check for querying announcements and emit as tool_update events
                       import re
@@ -924,6 +926,12 @@ class AIPlatformEngineerA2ABinding:
                           logging.debug(f"Tracked tool call: {tool_call_id} -> {tool_name}")
 
                       logging.info(f"Tool call started: {tool_name}")
+
+                      # ── invoke_self_service_task: enter self-service mode ──
+                      if tool_name == "invoke_self_service_task":
+                          self._in_self_service_workflow = True
+                          logging.info("🔄 Self-service workflow detected (AIMessage) — suppressing intermediate text streaming")
+                          continue
 
                       # ── write_todos: emit per-task notifications + execution plan ──
                       if tool_name == "write_todos":
@@ -1045,7 +1053,7 @@ class AIPlatformEngineerA2ABinding:
                                       f"🎯 Structured response from AIMessage: {len(structured_content)} chars, "
                                       f"preview: {structured_content[:200]}{'...' if len(structured_content) > 200 else ''}"
                                   )
-                                  # Emit tool completion notification before structured response
+                                  self._in_self_service_workflow = False
                                   yield {
                                       "is_task_complete": False,
                                       "require_user_input": False,
@@ -1164,6 +1172,8 @@ class AIPlatformEngineerA2ABinding:
                                   pass
 
                           # Strategy 3: Parse key=value from repr-like string
+                          # Handles both single-quoted (Pydantic repr) and
+                          # double-quoted (LLM structured output) content values.
                           if not structured_content and tool_content:
                               import re as _re
                               tc_match = _re.search(r"is_task_complete=(\w+)", tool_content)
@@ -1172,9 +1182,17 @@ class AIPlatformEngineerA2ABinding:
                               ri_match = _re.search(r"require_user_input=(\w+)", tool_content)
                               if ri_match:
                                   need_input = ri_match.group(1).lower() == 'true'
-                              content_match = _re.search(r"content='(.*)'(?:\s+metadata=|\s*$)", tool_content, _re.DOTALL)
+                              content_match = _re.search(
+                                  r"""content=(['"])(.*)\1(?:\s+metadata=|\s*$)""",
+                                  tool_content, _re.DOTALL,
+                              )
                               if content_match:
-                                  structured_content = content_match.group(1).replace("\\n", "\n").replace("\\'", "'")
+                                  structured_content = (
+                                      content_match.group(2)
+                                      .replace("\\n", "\n")
+                                      .replace("\\'", "'")
+                                      .replace('\\"', '"')
+                                  )
 
                           response_format_result = {
                               "is_task_complete": task_complete,
@@ -1187,7 +1205,7 @@ class AIPlatformEngineerA2ABinding:
                                   f"🎯 Structured response from ToolMessage: {len(structured_content)} chars, "
                                   f"preview: {structured_content[:200]}{'...' if len(structured_content) > 200 else ''}"
                               )
-                              # Emit tool completion notification before structured response
+                              self._in_self_service_workflow = False
                               yield {
                                   "is_task_complete": False,
                                   "require_user_input": False,
@@ -1254,21 +1272,27 @@ class AIPlatformEngineerA2ABinding:
                             "content": f"🔍 {tool_name}...",
                       }
                   # Stream other tool content as a tool notification (not chat text)
+                  # During self-service workflows, suppress intermediate tool output —
+                  # the final structured response will contain a clean summary
                   elif tool_content and tool_content.strip():
-                      yield {
-                          "is_task_complete": False,
-                          "require_user_input": False,
-                          "content": tool_content + "\n",
-                          "tool_result": {
-                              "name": tool_name,
-                              "status": "output",
-                              "type": "tool_output"
+                      if self._in_self_service_workflow:
+                          logging.debug(f"Suppressed tool output ({tool_name}, {len(tool_content)} chars) during self-service workflow")
+                      else:
+                          yield {
+                              "is_task_complete": False,
+                              "require_user_input": False,
+                              "content": tool_content + "\n",
+                              "tool_result": {
+                                  "name": tool_name,
+                                  "status": "output",
+                                  "type": "tool_output"
+                              }
                           }
-                      }
 
                   # Stream completion notification (skip for write_todos and task —
                   # their lifecycle is handled via per-task notifications above)
-                  if tool_name not in ("write_todos", "task"):
+                  # Also skip during self-service workflows to avoid noisy notifications
+                  if tool_name not in ("write_todos", "task") and not self._in_self_service_workflow:
                       tool_name_formatted = (tool_name or "unknown").title()
                       yield {
                           "is_task_complete": False,
@@ -1607,7 +1631,7 @@ class AIPlatformEngineerA2ABinding:
                           args = action_req.get("arguments", {}) or action_req.get("args", {})
                           tool_calls.append({
                               "name": name,
-                              "args": _sort_field_values(args),
+                              "args": args,
                               "id": action_req.get("id"),
                           })
                           logging.info(f"[Interrupt from exception] Parsed: name={name}, has_metadata={bool(args.get('metadata') if isinstance(args, dict) else False)}")
@@ -1713,7 +1737,7 @@ class AIPlatformEngineerA2ABinding:
                           args = action_req.get("arguments", {}) or action_req.get("args", {})
                           tool_calls.append({
                               "name": name,
-                              "args": _sort_field_values(args),
+                              "args": args,
                               "id": action_req.get("id"),
                           })
                           logging.info(f"[Fallback Interrupt] Parsed: name={name}, has_metadata={bool(args.get('metadata') if isinstance(args, dict) else False)}")
@@ -2010,7 +2034,7 @@ class AIPlatformEngineerA2ABinding:
                               args = action_req.get("arguments", {}) or action_req.get("args", {})
                               tool_calls.append({
                                   "name": name,
-                                  "args": _sort_field_values(args),
+                                  "args": args,
                                   "id": action_req.get("id"),
                               })
                               logging.info(f"[Fallback Interrupt] Parsed: name={name}, has_metadata={bool(args.get('metadata') if isinstance(args, dict) else False)}")

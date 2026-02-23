@@ -246,8 +246,17 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle }: ChatP
     // Only restore if the last message is from the assistant (user hasn't replied yet)
     if (lastMsg.role !== "assistant") return;
 
+    // Don't restore if the last message is already final (task completed)
+    if (lastMsg.isFinal) return;
+
     // Don't restore if user explicitly dismissed the form for this message
     if (dismissedInputForMessageRef.current.has(lastMsg.id)) return;
+
+    // Don't restore if the conversation already has a final/complete result
+    const hasResult = (conversation.a2aEvents || []).some(
+      (e: A2AEvent) => e.artifact?.name === "final_result" || e.artifact?.name === "complete_result"
+    );
+    if (hasResult) return;
 
     // Gather events from both conversation-level and message-level sources
     const eventsToCheck = [
@@ -702,7 +711,6 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle }: ChatP
     const contextId = pendingUserInput.contextId || activeConversationId;
     dismissedInputForMessageRef.current.add(pendingUserInput.messageId);
     setPendingUserInput(null);
-    clearA2AEvents(activeConversationId);
 
     const client = new A2ASDKClient({ endpoint, accessToken });
 
@@ -743,9 +751,18 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle }: ChatP
         const storeEvent = toStoreEvent(event, `event-${eventCounter}-${Date.now()}`);
         addA2AEvent(storeEvent as Parameters<typeof addA2AEvent>[0], activeConversationId);
 
-        if (artifactName === "partial_result" || artifactName === "final_result") {
+        if (artifactName === "partial_result" || artifactName === "final_result" || artifactName === "complete_result") {
           if (newContent) {
             accumulatedText = newContent;
+            rawStreamContent += `\n\n[${artifactName}]\n${newContent}`;
+            hasReceivedCompleteResult = true;
+            updateMessage(activeConversationId, assistantMsgId, {
+              content: accumulatedText,
+              rawStreamContent,
+              isFinal: true,
+            });
+          } else if (accumulatedText.length > 0) {
+            rawStreamContent += `\n\n[${artifactName}] (using accumulated content)`;
             hasReceivedCompleteResult = true;
             updateMessage(activeConversationId, assistantMsgId, {
               content: accumulatedText,
@@ -760,19 +777,45 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle }: ChatP
           break;
         }
 
-        if (newContent && !hasReceivedCompleteResult) {
-          accumulatedText += newContent;
-          rawStreamContent += newContent;
-          updateMessage(activeConversationId, assistantMsgId, { content: accumulatedText, rawStreamContent });
+        if (!newContent) continue;
+
+        // Skip tool notifications and execution plans from chat text —
+        // they are shown in the Tasks panel via A2A events
+        const isToolOrPlanArtifact =
+          artifactName === "tool_notification_start" ||
+          artifactName === "tool_notification_end" ||
+          artifactName === "execution_plan_update" ||
+          artifactName === "execution_plan_status_update";
+
+        if (isToolOrPlanArtifact) {
+          continue;
         }
+
+        if (hasReceivedCompleteResult) continue;
+
+        if (event.shouldAppend === false) {
+          accumulatedText = newContent;
+        } else {
+          accumulatedText += newContent;
+        }
+        rawStreamContent += newContent;
+        updateMessage(activeConversationId, assistantMsgId, { content: accumulatedText, rawStreamContent });
       }
 
-      if (!hasReceivedCompleteResult && accumulatedText.length > 0) {
-        updateMessage(activeConversationId, assistantMsgId, {
-          content: accumulatedText,
-          rawStreamContent,
-          isFinal: true,
-        });
+      if (!hasReceivedCompleteResult) {
+        if (accumulatedText.length > 0) {
+          console.log(`[ChatPanel] HITL: no final/complete_result - using accumulated content (${accumulatedText.length} chars)`);
+          updateMessage(activeConversationId, assistantMsgId, {
+            content: accumulatedText,
+            rawStreamContent,
+            isFinal: true,
+          });
+        } else {
+          console.log(`[ChatPanel] HITL: stream ended with no content`);
+          updateMessage(activeConversationId, assistantMsgId, { rawStreamContent, isFinal: true });
+        }
+      } else {
+        updateMessage(activeConversationId, assistantMsgId, { rawStreamContent });
       }
       setConversationStreaming(activeConversationId, null);
     } catch (error) {
@@ -782,7 +825,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle }: ChatP
       setConversationStreaming(activeConversationId, null);
     }
   }, [pendingUserInput, activeConversationId, endpoint, accessToken, addMessage, updateMessage,
-      appendToMessage, addA2AEvent, clearA2AEvents, setConversationStreaming]);
+      appendToMessage, addA2AEvent, setConversationStreaming]);
 
   // Handle @mention detection
   const handleInputChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {

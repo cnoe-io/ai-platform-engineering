@@ -341,11 +341,39 @@ Use this as the reference point for all date calculations. When users say "today
             return _fallback()
         
         # Get tools from MCP client
+        # Some MCP servers (notably Go-based ones like github-mcp-server) send
+        # asynchronous notification messages right after initialization.  When
+        # the tool-listing session closes, the STDIO reader may try to forward
+        # those notifications through an already-closed channel, raising an
+        # ExceptionGroup containing BrokenResourceError.  The tools themselves
+        # have already been listed successfully at that point, so we recover
+        # them from the local variable that was populated before cleanup ran.
+        tools = None
         try:
             tools = await client.get_tools()
+        except ExceptionGroup:
+            # Tools may have been loaded before the session cleanup error.
+            # Fall through and try the manual approach below.
+            logger.info(
+                f"{agent_name}: Session cleanup raised ExceptionGroup "
+                "(common with Go MCP servers). Retrying with error suppression..."
+            )
         except Exception as e:
             logger.warning(f"{agent_name}: Failed to load MCP tools: {e}", exc_info=True)
             return _fallback()
+
+        if tools is None:
+            # Retry with manual session management + cleanup-error suppression.
+            try:
+                tools = await self._load_mcp_tools_with_cleanup_handling(
+                    client, agent_name
+                )
+            except Exception as e:
+                logger.warning(
+                    f"{agent_name}: Retry also failed to load MCP tools: {e}",
+                    exc_info=True,
+                )
+                return _fallback()
         
         # Allow subclasses to filter tools
         tools = self._filter_mcp_tools(tools)
@@ -360,6 +388,50 @@ Use this as the reference point for all date calculations. When users say "today
         
         logger.info(f"{agent_name}: Loaded {len(tools)} MCP tools")
         return tools
+
+    @staticmethod
+    async def _load_mcp_tools_with_cleanup_handling(
+        client: "MultiServerMCPClient", agent_name: str
+    ) -> list:
+        """Load MCP tools with graceful handling of session-cleanup errors.
+
+        Go-based MCP servers often emit MCP notification messages (e.g.
+        ``tools/list_changed``) right after initialization.  The STDIO
+        transport's background reader may try to forward those notifications
+        through an already-closed channel during session teardown, raising
+        ``ExceptionGroup(BrokenResourceError)``.
+
+        This method opens a session, lists and converts tools *inside* the
+        context manager, then suppresses the cleanup error so that the
+        already-loaded tools are not discarded.
+        """
+        from langchain_mcp_adapters.sessions import create_session
+        from langchain_mcp_adapters.tools import (
+            _list_all_tools,
+            convert_mcp_tool_to_langchain_tool,
+        )
+
+        loaded_tools: list = []
+        for name, connection in client.connections.items():
+            try:
+                async with create_session(connection) as session:
+                    await session.initialize()
+                    raw_tools = await _list_all_tools(session)
+                    loaded_tools.extend(
+                        convert_mcp_tool_to_langchain_tool(
+                            None, t, connection=connection, server_name=name
+                        )
+                        for t in raw_tools
+                    )
+            except ExceptionGroup:
+                if loaded_tools:
+                    logger.info(
+                        f"{agent_name}: {len(loaded_tools)} MCP tools loaded "
+                        "despite session cleanup error"
+                    )
+                else:
+                    raise
+        return loaded_tools
 
     def _chunk_large_output(self, output: Any, tool_name: str) -> Any:
         """

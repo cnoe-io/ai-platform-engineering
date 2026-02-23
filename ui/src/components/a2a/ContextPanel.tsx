@@ -199,7 +199,6 @@ export function ContextPanel({
                 onValueChange={(v) => {
                   const tab = v as "tasks" | "debug";
                   setActiveTab(tab);
-                  // Sync debug mode with tab selection
                   if (tab === "debug" && !debugMode) {
                     onDebugModeChange(true);
                   } else if (tab === "tasks" && debugMode) {
@@ -280,8 +279,8 @@ export function ContextPanel({
         <div className="flex-1 overflow-hidden">
           {activeTab === "tasks" ? (
           /* Tasks Tab - Execution Plan (Default) */
-          <ScrollArea className="h-full">
-            <div className="p-4 space-y-4">
+          <ScrollArea className="h-full [&>[data-radix-scroll-area-viewport]]:!overflow-x-hidden [&>[data-radix-scroll-area-viewport]>div]:!block [&>[data-radix-scroll-area-viewport]>div]:!min-w-0">
+            <div className="p-4 space-y-4 overflow-hidden">
               {/* ═══════════════════════════════════════════════════════
                   EXECUTION PLAN — Always visible during streaming.
                   Previously nested tool calls inside the execution plan
@@ -294,12 +293,12 @@ export function ContextPanel({
                 <>
                   {/* Progress Header */}
                   <div className="space-y-2 mb-4">
-                    <div className="flex items-center justify-between">
+                    <div className="flex items-center justify-between gap-2">
                       <div className="flex items-center gap-2 text-xs text-foreground">
-                        <ListTodo className="h-4 w-4 text-sky-400" />
-                        <span className="font-medium">Execution Plan</span>
+                        <ListTodo className="h-4 w-4 text-sky-400 shrink-0" />
+                        <span className="font-medium whitespace-nowrap">Execution Plan</span>
                       </div>
-                      <span className="text-xs font-medium text-foreground/80">
+                      <span className="text-xs font-medium text-foreground/80 whitespace-nowrap">
                         {executionTasks.filter(t => t.status === "completed").length}/{executionTasks.length} completed
                       </span>
                     </div>
@@ -326,12 +325,13 @@ export function ContextPanel({
                           animate={{ opacity: 1, x: 0 }}
                           transition={{ delay: idx * 0.05 }}
                           className={cn(
-                            "flex items-start gap-3 p-3 rounded-lg border transition-all cursor-pointer",
+                            "flex items-start gap-3 p-3 rounded-lg border transition-all cursor-pointer overflow-hidden",
                             task.status === "completed" && "bg-emerald-500/15 border-emerald-500/40",
                             task.status === "in_progress" && "bg-sky-500/15 border-sky-500/40",
                             task.status === "pending" && "bg-muted/30 border-border/50 hover:bg-muted/50",
                             task.status === "failed" && "bg-red-500/15 border-red-500/40"
                           )}
+                          title={task.description}
                         >
                           {/* Status Indicator */}
                           <div className="mt-0.5 w-4 h-4 flex items-center justify-center">
@@ -373,10 +373,10 @@ export function ContextPanel({
                           </div>
 
                           {/* Task Content */}
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2 mb-1.5">
+                          <div className="flex-1 min-w-0 overflow-hidden">
+                            <div className="flex items-center gap-2 mb-1.5 min-w-0">
                               <div className={cn(
-                                "transition-opacity",
+                                "transition-opacity shrink-0",
                                 task.status === "completed" && "opacity-50"
                               )}>
                                 <AgentLogo agent={task.agent} size="sm" />
@@ -386,24 +386,28 @@ export function ContextPanel({
                                 return (
                                   <span
                                     className={cn(
-                                      "text-[10px] font-semibold px-1.5 py-0.5 rounded transition-opacity text-foreground",
+                                      "text-[10px] font-semibold px-1.5 py-0.5 rounded transition-opacity text-foreground truncate",
                                       task.status === "completed" && "opacity-50"
                                     )}
                                     style={{
                                       backgroundColor: agentLogo ? `${agentLogo.color}30` : 'var(--muted)',
                                     }}
+                                    title={agentLogo?.displayName || task.agent}
                                   >
                                     {agentLogo?.displayName || task.agent}
                                   </span>
                                 );
                               })()}
                             </div>
-                            <p className={cn(
-                              "text-sm leading-relaxed",
-                              task.status === "completed" && "text-muted-foreground line-through decoration-2 opacity-60",
-                              task.status === "in_progress" && "text-foreground font-medium",
-                              task.status === "pending" && "text-foreground/80"
-                            )}>
+                            <p
+                              className={cn(
+                                "text-sm leading-relaxed line-clamp-2",
+                                task.status === "completed" && "text-muted-foreground line-through decoration-2 opacity-60",
+                                task.status === "in_progress" && "text-foreground font-medium",
+                                task.status === "pending" && "text-foreground/80"
+                              )}
+                              title={task.description}
+                            >
                               {task.description}
                             </p>
                           </div>
@@ -423,25 +427,26 @@ export function ContextPanel({
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: 10 }}
                   className={cn(
-                    "space-y-3",
+                    "space-y-3 min-w-0 overflow-hidden",
                     executionTasks.length > 0 && "mt-4 pt-4 border-t border-border/30"
                   )}
                 >
                   {/* Active Tool Calls */}
                   {activeToolCalls.length > 0 && (
-                    <div className="space-y-2">
+                    <div className="space-y-2 min-w-0">
                       <div className="flex items-center gap-2 text-xs" style={{ color: '#F59E0B' }}>
-                        <Loader2 className="h-3.5 w-3.5 animate-spin" style={{ filter: 'drop-shadow(0 0 3px rgba(245,158,11,0.4))' }} />
+                        <Loader2 className="h-3.5 w-3.5 animate-spin shrink-0" style={{ filter: 'drop-shadow(0 0 3px rgba(245,158,11,0.4))' }} />
                         <span className="font-semibold">Active Tool Calls</span>
                       </div>
-                      <div className="space-y-1.5">
+                      <div className="space-y-1.5 min-w-0">
                         {activeToolCalls.map((tool) => (
                           <div
                             key={tool.id}
-                            className="flex items-center gap-2 px-3 py-2 rounded-md bg-amber-500/15 border border-amber-500/30 text-sm"
+                            className="flex items-center gap-2 px-3 py-2 rounded-md bg-amber-500/15 border border-amber-500/30 text-sm overflow-hidden"
+                            title={`${tool.agent} → ${tool.tool}`}
                           >
                             <Loader2 className="h-3.5 w-3.5 animate-spin shrink-0" style={{ color: '#F59E0B' }} />
-                            <span className="text-foreground/90 truncate">
+                            <span className="flex-1 min-w-0 truncate text-foreground/90">
                               <span className="font-medium" style={{ color: '#F59E0B' }}>{tool.agent}</span>
                               <span className="text-foreground/60"> → </span>
                               <span>{tool.tool}</span>
@@ -454,19 +459,20 @@ export function ContextPanel({
 
                   {/* Completed Tool Calls */}
                   {completedToolCalls.length > 0 && (
-                    <div className="space-y-1.5">
+                    <div className="space-y-1.5 min-w-0">
                       <div className="flex items-center gap-2 text-xs" style={{ color: '#10B981' }}>
-                        <CheckCircle className="h-3.5 w-3.5" style={{ filter: 'drop-shadow(0 0 3px rgba(16,185,129,0.4))' }} />
+                        <CheckCircle className="h-3.5 w-3.5 shrink-0" style={{ filter: 'drop-shadow(0 0 3px rgba(16,185,129,0.4))' }} />
                         <span className="font-semibold">Completed ({completedToolCalls.length})</span>
                       </div>
-                      <div className="space-y-1">
+                      <div className="space-y-1 min-w-0">
                         {completedToolCalls.map((tool) => (
                           <div
                             key={tool.id}
-                            className="flex items-center gap-2 px-3 py-1.5 rounded-md bg-emerald-500/10 border border-emerald-500/30 text-sm"
+                            className="flex items-center gap-2 px-3 py-1.5 rounded-md bg-emerald-500/10 border border-emerald-500/30 text-sm overflow-hidden"
+                            title={`${tool.agent} → ${tool.tool}`}
                           >
                             <CheckCircle className="h-3 w-3 shrink-0" style={{ color: '#10B981' }} />
-                            <span className="text-foreground/70 truncate text-xs">
+                            <span className="flex-1 min-w-0 truncate text-foreground/70 text-xs">
                               <span className="font-medium text-foreground/80">{tool.agent}</span>
                               <span className="text-foreground/40"> → </span>
                               <span>{tool.tool}</span>
