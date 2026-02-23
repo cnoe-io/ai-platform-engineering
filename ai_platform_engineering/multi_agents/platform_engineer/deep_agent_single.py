@@ -146,6 +146,7 @@ from ai_platform_engineering.multi_agents.tools import (
     jq,
     yq,
 )
+from ai_platform_engineering.multi_agents.platform_engineer.response_format import PlatformEngineerResponse
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -158,6 +159,10 @@ ENABLE_RAG = os.getenv("ENABLE_RAG", "false").lower() in ("true", "1", "yes")
 RAG_SERVER_URL = os.getenv("RAG_SERVER_URL", "http://localhost:9446").strip("/")
 RAG_CONNECTIVITY_RETRIES = 5
 RAG_CONNECTIVITY_WAIT_SECONDS = 10
+
+# Structured Response Configuration
+# When enabled, LLM uses ResponseFormat tool for final answers instead of [FINAL ANSWER] marker
+USE_STRUCTURED_RESPONSE = os.getenv("USE_STRUCTURED_RESPONSE", "false").lower() == "true"
 
 # Remote A2A agents (run as separate containers, communicate via A2A protocol)
 ENABLE_WEATHER = os.getenv("ENABLE_WEATHER", "false").lower() in ("true", "1", "yes")
@@ -1061,7 +1066,7 @@ This format is required so the UI can display agent stickers next to each task.
         # - write_todos: From TodoListMiddleware
         # - task: From SubAgentMiddleware
         # - read_file, write_file, ls, grep, glob, edit_file: From FilesystemMiddleware
-        deep_agent = create_deep_agent(
+        deep_agent_kwargs = dict(
             tools=all_tools,
             system_prompt=system_prompt,
             subagents=subagent_defs,
@@ -1069,9 +1074,18 @@ This format is required so the UI can display agent stickers next to each task.
             middleware=[
                 PolicyMiddleware(agent_name="platform_engineer", agent_type="deep_agent"),
                 DeterministicTaskMiddleware(),
-                CallToolWithFileArgMiddleware(),  # Auto-substitute file paths with contents
+                CallToolWithFileArgMiddleware(),
             ],
         )
+
+        if USE_STRUCTURED_RESPONSE:
+            from langchain.agents.structured_output import ToolStrategy
+            deep_agent_kwargs["response_format"] = ToolStrategy(schema=PlatformEngineerResponse)
+            logger.info("✅ Structured response mode enabled (ToolStrategy + PlatformEngineerResponse)")
+        else:
+            logger.info("❌ Structured response mode disabled - using [FINAL ANSWER] marker")
+
+        deep_agent = create_deep_agent(**deep_agent_kwargs)
         
         # Attach checkpointer if not in dev mode
         if not os.getenv("LANGGRAPH_DEV"):

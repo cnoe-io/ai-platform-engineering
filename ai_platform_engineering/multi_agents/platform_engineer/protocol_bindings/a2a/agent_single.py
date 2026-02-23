@@ -17,6 +17,7 @@ from a2a.types import (
 )
 from ai_platform_engineering.multi_agents.platform_engineer.deep_agent_single import (
     AIPlatformEngineerMAS,
+    USE_STRUCTURED_RESPONSE,
 )
 from ai_platform_engineering.multi_agents.platform_engineer.prompts import (
     system_prompt
@@ -40,6 +41,10 @@ except ImportError:
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
+
+RESPONSE_FORMAT_TOOL_NAMES = frozenset({
+    'responseformat', 'platformengineerresponse',
+})
 
 
 def _sort_field_values(args: dict) -> dict:
@@ -422,6 +427,9 @@ class AIPlatformEngineerA2ABinding:
           # Format: {tool_name: response_content}
           accumulated_subagent_responses = {}
 
+          # Structured response tracking (ResponseFormat / PlatformEngineerResponse tool)
+          response_format_result = None
+
           # Check if token-by-token streaming is enabled (default: true)
           # When disabled, uses 'values' mode which waits for complete messages
           enable_streaming = os.getenv("ENABLE_STREAMING", "true").lower() == "true"
@@ -585,7 +593,9 @@ class AIPlatformEngineerA2ABinding:
                               messages_lists.append(node_msgs)
 
                   # ── Detect task (subagent) tool_calls from full AIMessages ──
-                  new_task_detected = False
+                  # Entries are ONLY created here or in the AIMessage handler (messages stream),
+                  # never from chunks, so they always have complete subagent_type/description.
+                  plan_dirty = False
                   for msgs in messages_lists:
                       for msg in msgs:
                           if not (isinstance(msg, AIMessage) and hasattr(msg, 'tool_calls') and msg.tool_calls):
@@ -594,7 +604,7 @@ class AIPlatformEngineerA2ABinding:
                               if tc.get("name") != "task":
                                   continue
                               tc_id = tc.get("id", "")
-                              if not tc_id or tc_id in self._task_plan_entries:
+                              if not tc_id:
                                   continue
                               tc_args = tc.get("args") or {}
                               subagent_type = tc_args.get("subagent_type", "general-purpose") if isinstance(tc_args, dict) else "general-purpose"
@@ -602,26 +612,25 @@ class AIPlatformEngineerA2ABinding:
                               display_desc = task_desc[:120].strip()
                               if len(task_desc) > 120:
                                   display_desc += "..."
-                              self._task_plan_entries[tc_id] = {
-                                  "subagent": subagent_type,
-                                  "description": display_desc,
-                                  "status": "in_progress",
-                              }
-                              new_task_detected = True
-                              logging.info(f"📋 Detected task from updates: [{subagent_type}] {display_desc}")
 
-                  # Emit plan for newly detected tasks.
-                  # When _previous_todos is populated (deterministic workflows),
-                  # use the todo plan (which includes ALL steps like CAIPE).
-                  # Otherwise fall back to the task-plan-only view.
-                  if new_task_detected:
+                              if tc_id not in self._task_plan_entries:
+                                  self._task_plan_entries[tc_id] = {
+                                      "subagent": subagent_type,
+                                      "description": display_desc,
+                                      "status": "in_progress",
+                                  }
+                                  plan_dirty = True
+                                  logging.info(f"📋 Detected task from updates: [{subagent_type}] {display_desc}")
+
+                  # Re-emit plan when new tasks detected or existing entries refined
+                  if plan_dirty:
                       if self._previous_todos:
                           plan_text = self._build_todo_plan_text()
                       else:
                           plan_text = self._build_task_plan_text()
                       artifact_name = "execution_plan_update" if not self._execution_plan_sent else "execution_plan_status_update"
                       self._execution_plan_sent = True
-                      logging.info(f"📋 Emitting {artifact_name} from task detection (todo-backed={bool(self._previous_todos)})")
+                      logging.info(f"📋 Emitting {artifact_name} from updates (entries={len(self._task_plan_entries)})")
                       yield {
                           "is_task_complete": False,
                           "require_user_input": False,
@@ -631,6 +640,80 @@ class AIPlatformEngineerA2ABinding:
                               "text": plan_text,
                           }
                       }
+
+                  # ── Detect task completion from ToolMessages in updates stream ──
+                  # The `task` tool returns a Command, so its ToolMessage is applied
+                  # via state update and does NOT stream through the messages path.
+                  # We must detect completion here instead.
+                  completion_dirty = False
+                  for msgs in messages_lists:
+                      for msg in msgs:
+                          if not isinstance(msg, ToolMessage):
+                              continue
+                          tc_id = msg.tool_call_id if hasattr(msg, 'tool_call_id') else None
+                          if tc_id and tc_id in self._task_plan_entries:
+                              if self._task_plan_entries[tc_id]["status"] != "completed":
+                                  self._task_plan_entries[tc_id]["status"] = "completed"
+                                  completion_dirty = True
+                                  logging.info(f"✅ Task completed (from updates stream): {tc_id}")
+
+                  if completion_dirty:
+                      plan_text = self._build_todo_plan_text() if self._previous_todos else self._build_task_plan_text()
+                      logging.info(f"📋 Emitting execution_plan_status_update: {sum(1 for e in self._task_plan_entries.values() if e['status'] == 'completed')}/{len(self._task_plan_entries)} tasks completed")
+                      yield {
+                          "is_task_complete": False,
+                          "require_user_input": False,
+                          "artifact": {
+                              "name": "execution_plan_status_update",
+                              "description": "Task completed",
+                              "text": plan_text,
+                          }
+                      }
+
+                  # ── Detect ResponseFormat tool_calls from updates stream ──
+                  # The updates stream has complete AIMessages with FULL args,
+                  # unlike the messages stream where chunks deliver args piecemeal.
+                  # Yield with from_response_format_tool so the executor uses this
+                  # content directly as the final result (replacing streamed text).
+                  if USE_STRUCTURED_RESPONSE and not response_format_result:
+                      for msgs in messages_lists:
+                          for msg in msgs:
+                              if not (isinstance(msg, AIMessage) and hasattr(msg, 'tool_calls') and msg.tool_calls):
+                                  continue
+                              for tc in msg.tool_calls:
+                                  tc_name = tc.get("name", "")
+                                  logging.info(f"Updates stream: checking tool_call name='{tc_name}' for ResponseFormat match")
+                                  if not tc_name or tc_name.lower() not in RESPONSE_FORMAT_TOOL_NAMES:
+                                      continue
+                                  tc_args = tc.get("args") or {}
+                                  if not isinstance(tc_args, dict):
+                                      continue
+                                  structured_content = (
+                                      tc_args.get("content", "")
+                                      or tc_args.get("message", "")
+                                      or tc_args.get("response", "")
+                                  )
+                                  if structured_content:
+                                      response_format_result = {
+                                          "is_task_complete": tc_args.get("is_task_complete", True),
+                                          "require_user_input": tc_args.get("require_user_input", False),
+                                          "content": structured_content,
+                                          "metadata": tc_args.get("metadata"),
+                                          "from_response_format_tool": True,
+                                      }
+                                      logging.info(f"🎯 Structured response from updates stream: is_task_complete={tc_args.get('is_task_complete', True)}, {len(structured_content)} chars")
+                                      # Emit tool completion notification before structured response
+                                      yield {
+                                          "is_task_complete": False,
+                                          "require_user_input": False,
+                                          "content": "✅ Supervisor: Response formatted\n",
+                                          "tool_result": {
+                                              "name": "ResponseFormat",
+                                              "status": "completed",
+                                              "type": "notification",
+                                          }
+                                      }
+                                      yield response_format_result
 
                   # ── Track todo transitions and re-emit execution plan ──
                   plan_changed = False
@@ -734,10 +817,28 @@ class AIPlatformEngineerA2ABinding:
                               logging.debug("Skipping chunk notification for 'write_todos' (handled by ToolMessage path)")
                               continue
 
-                          # task — note the tool_call_id for later (args are incomplete in chunks,
-                          # the full AIMessage with complete args arrives via the updates stream)
+                          # task — defer entry creation to updates/AIMessage handler
+                          # where full args (subagent_type, description) are available.
+                          # Chunks often have empty/partial args → phantom "Agent" entries.
                           if tool_name == "task":
-                              logging.debug(f"Noted task chunk tool_call_id={tool_call.get('id', '')}, will emit plan from updates stream")
+                              logging.debug(f"Noted task chunk tool_call_id={tc_id}, deferring plan entry to full AIMessage")
+                              continue
+
+                          # ResponseFormat / PlatformEngineerResponse — emit notification but
+                          # don't stream args as text (the actual content is handled separately
+                          # by the ResponseFormat handler in AIMessage/ToolMessage/updates).
+                          if USE_STRUCTURED_RESPONSE and tool_name.lower() in RESPONSE_FORMAT_TOOL_NAMES:
+                              logging.info(f"ResponseFormat chunk detected: tc_id={tc_id}, emitting tool notification")
+                              yield {
+                                  "is_task_complete": False,
+                                  "require_user_input": False,
+                                  "content": "📋 Supervisor: Formatting structured response...\n",
+                                  "tool_call": {
+                                      "name": "ResponseFormat",
+                                      "status": "started",
+                                      "type": "notification",
+                                  }
+                              }
                               continue
 
                           logging.debug(f"Tool call started (from AIMessageChunk): {tool_name}")
@@ -824,16 +925,21 @@ class AIPlatformEngineerA2ABinding:
 
                       logging.info(f"Tool call started: {tool_name}")
 
-                      # ── write_todos: emit per-task notifications ──
+                      # ── write_todos: emit per-task notifications + execution plan ──
                       if tool_name == "write_todos":
                           todos = tool_call.get("args", {}).get("todos", [])
+                          plan_changed = False
                           for todo in todos:
                               todo_id = todo.get("id")
                               new_status = todo.get("status", "pending")
                               old_status = self._previous_todos.get(todo_id, {}).get("status", "pending")
                               todo_content = todo.get("content", f"Step {todo_id}")
 
+                              if todo_id not in self._previous_todos:
+                                  plan_changed = True
+
                               if old_status != new_status:
+                                  plan_changed = True
                                   if new_status == "in_progress":
                                       logging.info(f"📋 Task started: {todo_content}")
                                       yield {
@@ -864,6 +970,24 @@ class AIPlatformEngineerA2ABinding:
                                   "status": new_status,
                                   "content": todo_content,
                               }
+
+                          # Emit execution plan from write_todos args directly
+                          # (don't rely on ToolMessage path — write_todos returns a
+                          # Command whose inner ToolMessage may not stream)
+                          if todos and (plan_changed or not self._execution_plan_sent):
+                              plan_text = self._build_todo_plan_text()
+                              artifact_name = "execution_plan_update" if not self._execution_plan_sent else "execution_plan_status_update"
+                              self._execution_plan_sent = True
+                              logging.info(f"📋 Emitting {artifact_name} from write_todos AIMessage ({len(todos)} todos)")
+                              yield {
+                                  "is_task_complete": False,
+                                  "require_user_input": False,
+                                  "artifact": {
+                                      "name": artifact_name,
+                                      "description": "Execution plan",
+                                      "text": plan_text,
+                                  }
+                              }
                           continue  # Skip generic notification for write_todos
 
                       # ── task: track subagent delegation and emit execution plan ──
@@ -875,7 +999,6 @@ class AIPlatformEngineerA2ABinding:
                           if len(task_desc) > 120:
                               display_desc += "..."
                           tc_id = tool_call.get("id", "")
-                          # Only emit if not already tracked from chunk path
                           if tc_id and tc_id not in self._task_plan_entries:
                               self._task_plan_entries[tc_id] = {
                                   "subagent": subagent_type,
@@ -895,13 +1018,45 @@ class AIPlatformEngineerA2ABinding:
                                       "text": plan_text,
                                   }
                               }
-                          elif tc_id and tc_id in self._task_plan_entries:
-                              # Update with full args (chunk might have had partial args)
-                              entry = self._task_plan_entries[tc_id]
-                              if subagent_type != "general-purpose":
-                                  entry["subagent"] = subagent_type
-                              if task_desc != "Processing task":
-                                  entry["description"] = display_desc
+                          continue
+
+                      # ── ResponseFormat / PlatformEngineerResponse ──
+                      if USE_STRUCTURED_RESPONSE and tool_name.lower() in RESPONSE_FORMAT_TOOL_NAMES:
+                          if not response_format_result:
+                              tool_args = tool_call.get("args", {}) or {}
+                              structured_content = (
+                                  tool_args.get("content", "")
+                                  or tool_args.get("message", "")
+                                  or tool_args.get("response", "")
+                              )
+                              logging.info(
+                                  f"🔍 AIMessage ResponseFormat: tool_args keys={list(tool_args.keys())}, "
+                                  f"content_len={len(structured_content) if structured_content else 0}"
+                              )
+                              if structured_content:
+                                  response_format_result = {
+                                      "is_task_complete": tool_args.get("is_task_complete", True),
+                                      "require_user_input": tool_args.get("require_user_input", False),
+                                      "content": structured_content,
+                                      "metadata": tool_args.get("metadata"),
+                                      "from_response_format_tool": True,
+                                  }
+                                  logging.info(
+                                      f"🎯 Structured response from AIMessage: {len(structured_content)} chars, "
+                                      f"preview: {structured_content[:200]}{'...' if len(structured_content) > 200 else ''}"
+                                  )
+                                  # Emit tool completion notification before structured response
+                                  yield {
+                                      "is_task_complete": False,
+                                      "require_user_input": False,
+                                      "content": "✅ Supervisor: Response formatted\n",
+                                      "tool_result": {
+                                          "name": "ResponseFormat",
+                                          "status": "completed",
+                                          "type": "notification",
+                                      }
+                                  }
+                                  yield response_format_result
                           continue
 
                       # ── All other tools: emit standard tool notification ──
@@ -970,6 +1125,84 @@ class AIPlatformEngineerA2ABinding:
                       'graph_raw_query_data', 'graph_raw_query_ontology'
                   }
 
+                  # ResponseFormat / PlatformEngineerResponse ToolMessage — extract structured result
+                  # This is the last-resort handler; prefer updates stream or AIMessage.
+                  if USE_STRUCTURED_RESPONSE and tool_name and tool_name.lower() in RESPONSE_FORMAT_TOOL_NAMES:
+                      if response_format_result:
+                          logging.info("✅ ResponseFormat ToolMessage: already handled via updates/AIMessage stream")
+                      else:
+                          logging.info(
+                              f"📥 ResponseFormat ToolMessage raw ({len(tool_content)} chars): "
+                              f"{tool_content[:300]}{'...' if len(tool_content) > 300 else ''}"
+                          )
+                          structured_content = None
+                          task_complete = True
+                          need_input = False
+
+                          # Strategy 1: JSON parse
+                          if tool_content:
+                              try:
+                                  tool_result = json.loads(tool_content)
+                                  structured_content = (
+                                      tool_result.get("content", "")
+                                      or tool_result.get("message", "")
+                                      or tool_result.get("response", "")
+                                  )
+                                  task_complete = tool_result.get("is_task_complete", True)
+                                  need_input = tool_result.get("require_user_input", False)
+                              except (json.JSONDecodeError, TypeError):
+                                  pass
+
+                          # Strategy 2: Pydantic model_validate_json
+                          if not structured_content and tool_content:
+                              try:
+                                  response_obj = PlatformEngineerResponse.model_validate_json(tool_content)
+                                  structured_content = response_obj.content
+                                  task_complete = response_obj.is_task_complete
+                                  need_input = response_obj.require_user_input
+                              except Exception:
+                                  pass
+
+                          # Strategy 3: Parse key=value from repr-like string
+                          if not structured_content and tool_content:
+                              import re as _re
+                              tc_match = _re.search(r"is_task_complete=(\w+)", tool_content)
+                              if tc_match:
+                                  task_complete = tc_match.group(1).lower() == 'true'
+                              ri_match = _re.search(r"require_user_input=(\w+)", tool_content)
+                              if ri_match:
+                                  need_input = ri_match.group(1).lower() == 'true'
+                              content_match = _re.search(r"content='(.*)'(?:\s+metadata=|\s*$)", tool_content, _re.DOTALL)
+                              if content_match:
+                                  structured_content = content_match.group(1).replace("\\n", "\n").replace("\\'", "'")
+
+                          response_format_result = {
+                              "is_task_complete": task_complete,
+                              "require_user_input": need_input,
+                              "content": structured_content or "",
+                              "from_response_format_tool": True,
+                          }
+                          if structured_content:
+                              logging.info(
+                                  f"🎯 Structured response from ToolMessage: {len(structured_content)} chars, "
+                                  f"preview: {structured_content[:200]}{'...' if len(structured_content) > 200 else ''}"
+                              )
+                              # Emit tool completion notification before structured response
+                              yield {
+                                  "is_task_complete": False,
+                                  "require_user_input": False,
+                                  "content": "✅ Supervisor: Response formatted\n",
+                                  "tool_result": {
+                                      "name": "ResponseFormat",
+                                      "status": "completed",
+                                      "type": "notification",
+                                  }
+                              }
+                              yield response_format_result
+                          else:
+                              logging.warning(f"ResponseFormat ToolMessage: extracted flags only (no content): is_task_complete={task_complete}")
+                      continue
+
                   # Mark task (subagent) completion in execution plan
                   if tool_name == "task" and tool_call_id and tool_call_id in self._task_plan_entries:
                       self._task_plan_entries[tool_call_id]["status"] = "completed"
@@ -1020,12 +1253,17 @@ class AIPlatformEngineerA2ABinding:
                             "require_user_input": False,
                             "content": f"🔍 {tool_name}...",
                       }
-                  # Stream other tool content normally (actual results for user)
+                  # Stream other tool content as a tool notification (not chat text)
                   elif tool_content and tool_content.strip():
                       yield {
                           "is_task_complete": False,
                           "require_user_input": False,
                           "content": tool_content + "\n",
+                          "tool_result": {
+                              "name": tool_name,
+                              "status": "output",
+                              "type": "tool_output"
+                          }
                       }
 
                   # Stream completion notification (skip for write_todos and task —
@@ -1852,10 +2090,19 @@ class AIPlatformEngineerA2ABinding:
           logging.warning(f"Post-stream plan sync failed: {plan_sync_err}")
 
       # After EITHER primary or fallback streaming completes, parse the final response to extract is_task_complete
-      logging.info(f"🔍 POST-STREAM PARSING: final_ai_message={final_ai_message is not None}, accumulated_chunks={len(accumulated_ai_content)}")
+      logging.info(f"🔍 POST-STREAM PARSING: final_ai_message={final_ai_message is not None}, accumulated_chunks={len(accumulated_ai_content)}, response_format_result={'yes' if response_format_result else 'no'}")
 
+      # If structured response was already extracted from ResponseFormat tool,
+      # use it directly — no need to re-parse accumulated text content
+      if response_format_result:
+          logging.info(f"✅ Using ResponseFormat result: is_task_complete={response_format_result.get('is_task_complete')}")
+          final_response = {
+              'is_task_complete': response_format_result.get('is_task_complete', True),
+              'require_user_input': response_format_result.get('require_user_input', False),
+              'content': '',  # Already emitted via the ResponseFormat handler
+          }
       # Try to use final_ai_message first, otherwise use accumulated content
-      if final_ai_message:
+      elif final_ai_message:
           logging.info("✅ Using final AIMessage for structured response parsing")
           # Extract content from AIMessage
           final_content = final_ai_message.content if hasattr(final_ai_message, 'content') else str(final_ai_message)

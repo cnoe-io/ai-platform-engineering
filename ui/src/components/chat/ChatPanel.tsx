@@ -651,10 +651,16 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle }: ChatP
     // Send message as-is (users can use @agent syntax naturally)
     const message = input.trim();
 
+    // Dismiss any pending input form when user types text directly
+    if (pendingUserInput) {
+      dismissedInputForMessageRef.current.add(pendingUserInput.messageId);
+      setPendingUserInput(null);
+    }
+
     setInput("");
 
     await submitMessage(message);
-  }, [input, submitMessage, isThisConversationStreaming, queuedMessages]);
+  }, [input, submitMessage, isThisConversationStreaming, queuedMessages, pendingUserInput]);
 
   // Auto-submit pending message from use case selection
   useEffect(() => {

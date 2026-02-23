@@ -827,14 +827,57 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                 # Normalize content
                 content = self._normalize_content(event.get('content', ''))
 
-                # 2. Task complete
+                # 2. ResponseFormat tool response (structured response mode)
+                #    The LLM called the structured response tool — this IS the
+                #    final user-facing answer. Use its content directly instead
+                #    of accumulated streaming text. Reuse the streaming artifact
+                #    ID so the UI replaces the intermediate narration.
+                if event.get('from_response_format_tool') and content:
+                    state.task_complete = True
+                    await self._ensure_execution_plan_completed(event_queue, task)
+
+                    metadata = event.get('metadata') or {}
+                    needs_user_input = (
+                        event.get('require_user_input')
+                        or (isinstance(metadata, dict) and metadata.get('user_input'))
+                    )
+                    if needs_user_input:
+                        state.user_input_required = True
+                        logger.info("ResponseFormat tool requires user input")
+                        await self._handle_user_input_required(content, task, event_queue)
+                        return
+
+                    logger.info(
+                        f"📤 ResponseFormat content preview ({len(content)} chars): "
+                        f"{content[:300]}{'...' if len(content) > 300 else ''}"
+                    )
+
+                    artifact = new_text_artifact(
+                        name='final_result',
+                        description='Complete result from Platform Engineer',
+                        text=content,
+                    )
+                    reused_id = False
+                    if state.streaming_artifact_id:
+                        artifact.artifact_id = state.streaming_artifact_id
+                        reused_id = True
+                    logger.info(
+                        f"📤 final_result artifact: id={artifact.artifact_id}, "
+                        f"reused_streaming_id={reused_id}, parts={len(artifact.parts)}"
+                    )
+                    await self._send_artifact(event_queue, task, artifact, append=False, last_chunk=True)
+                    await self._send_completion(event_queue, task)
+                    logger.info(f"Task {task.id} completed (ResponseFormat tool, {len(content)} chars).")
+                    return
+
+                # 3. Task complete
                 if event.get('is_task_complete'):
                     state.task_complete = True
                     await self._ensure_execution_plan_completed(event_queue, task)
                     await self._handle_task_complete(event, state, content, task, event_queue)
                     return
 
-                # 3. User input required
+                # 4. User input required
                 if event.get('require_user_input'):
                     state.user_input_required = True
                     await self._handle_user_input_required(content, task, event_queue)
