@@ -43,7 +43,7 @@ jest.mock('@/lib/config', () => ({
     description: 'Test description',
     logoUrl: '/logo.png',
     logoStyle: 'default',
-    previewMode: false,
+    envBadge: '',
     showPoweredBy: false,
   },
   getLogoFilterClass: jest.fn(() => ''),
@@ -128,6 +128,16 @@ describe('Login Page', () => {
     render(<LoginPage />)
 
     expect(screen.getByText(/sign in with sso/i)).toBeInTheDocument()
+  })
+
+  it('should not show environment badge when envBadge is empty', () => {
+    mockUseSession.mockReturnValue({ data: null, status: 'unauthenticated' } as any)
+
+    render(<LoginPage />)
+
+    expect(screen.queryByText('Preview')).not.toBeInTheDocument()
+    expect(screen.queryByText('Dev')).not.toBeInTheDocument()
+    expect(screen.queryByText('Prod')).not.toBeInTheDocument()
   })
 
   it('should show loading screen while session is loading', () => {

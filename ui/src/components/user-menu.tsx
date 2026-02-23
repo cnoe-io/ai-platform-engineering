@@ -687,7 +687,7 @@ export function UserMenu() {
                     <ConfigRow label="Description" value={config.description} />
                     <ConfigRow label="Logo URL" value={config.logoUrl} />
                     <ConfigRow label="Logo Style" value={config.logoStyle} />
-                    <ConfigRow label="Preview Mode" value={config.previewMode} />
+                    <ConfigRow label="Env Badge" value={config.envBadge || '(hidden)'} />
                     <ConfigRow label="Show Powered By" value={config.showPoweredBy} />
                     <ConfigRow label="Support Email" value={config.supportEmail} />
                   </div>

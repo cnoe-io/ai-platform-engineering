@@ -54,8 +54,8 @@ export interface Config {
   appName: string;
   /** Logo URL (relative or absolute) */
   logoUrl: string;
-  /** Whether the app is in preview/beta mode */
-  previewMode: boolean;
+  /** Environment badge label shown next to the app name (e.g. "Dev", "Preview", "Prod"). Empty string = hidden. */
+  envBadge: string;
   /** Gradient start color (CSS color value) */
   gradientFrom: string;
   /** Gradient end color (CSS color value) */
@@ -134,7 +134,7 @@ const DEFAULT_CONFIG: Config = {
   description: DEFAULT_DESCRIPTION,
   appName: DEFAULT_APP_NAME,
   logoUrl: DEFAULT_LOGO_URL,
-  previewMode: false,
+  envBadge: '',
   gradientFrom: DEFAULT_GRADIENT_FROM,
   gradientTo: DEFAULT_GRADIENT_TO,
   logoStyle: 'default',
@@ -209,7 +209,8 @@ export function getServerConfig(): Config {
   const ragEnabled = env('RAG_ENABLED') !== 'false';
   const mongodbEnabled = !!(process.env.MONGODB_URI && process.env.MONGODB_DATABASE)
     || env('MONGODB_ENABLED') === 'true';
-  const previewMode = env('PREVIEW_MODE') === 'true';
+  const envBadge = env('ENV_BADGE')
+    || (env('PREVIEW_MODE') === 'true' ? 'Preview' : '');
   const allowDevAdminWhenSsoDisabled = env('ALLOW_DEV_ADMIN_WHEN_SSO_DISABLED') === 'true';
   const workflowRunnerEnabled = env('WORKFLOW_RUNNER_ENABLED') === 'true';
 
@@ -231,7 +232,7 @@ export function getServerConfig(): Config {
     description: env('DESCRIPTION') || DEFAULT_DESCRIPTION,
     appName: env('APP_NAME') || DEFAULT_APP_NAME,
     logoUrl: env('LOGO_URL') || DEFAULT_LOGO_URL,
-    previewMode,
+    envBadge,
     gradientFrom: env('GRADIENT_FROM') || DEFAULT_GRADIENT_FROM,
     gradientTo: env('GRADIENT_TO') || DEFAULT_GRADIENT_TO,
     logoStyle,

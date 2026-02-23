@@ -167,9 +167,9 @@ function LoginContent() {
               </div>
               <div className="flex items-center justify-center gap-2">
                 <h1 className="text-2xl font-bold gradient-text">{config.appName}</h1>
-                {config.previewMode && (
+                {config.envBadge && (
                   <span className="px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider bg-amber-500/20 text-amber-500 border border-amber-500/30 rounded">
-                    Preview
+                    {config.envBadge}
                   </span>
                 )}
               </div>

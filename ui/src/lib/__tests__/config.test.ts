@@ -66,7 +66,7 @@ describe('getServerConfig', () => {
       // Clear ALL env vars that the config reads
       clearEnv(
         'A2A_BASE_URL', 'RAG_URL', 'SSO_ENABLED', 'RAG_ENABLED',
-        'MONGODB_ENABLED', 'PREVIEW_MODE',
+        'MONGODB_ENABLED', 'PREVIEW_MODE', 'ENV_BADGE',
         'ALLOW_DEV_ADMIN_WHEN_SSO_DISABLED', 'SHOW_POWERED_BY',
         'LOGO_STYLE', 'SPINNER_COLOR', 'TAGLINE', 'DESCRIPTION',
         'APP_NAME', 'LOGO_URL', 'GRADIENT_FROM', 'GRADIENT_TO',
@@ -95,7 +95,7 @@ describe('getServerConfig', () => {
       );
       expect(cfg.appName).toBe('CAIPE');
       expect(cfg.logoUrl).toBe('/logo.svg');
-      expect(cfg.previewMode).toBe(false);
+      expect(cfg.envBadge).toBe('');
       expect(cfg.gradientFrom).toBe('hsl(173,80%,40%)');
       expect(cfg.gradientTo).toBe('hsl(270,75%,60%)');
       expect(cfg.logoStyle).toBe('default');
@@ -119,7 +119,7 @@ describe('getServerConfig', () => {
       const expectedKeys: (keyof Config)[] = [
         'caipeUrl', 'ragUrl', 'isDev', 'isProd', 'ssoEnabled',
         'ragEnabled', 'mongodbEnabled',
-        'tagline', 'description', 'appName', 'logoUrl', 'previewMode',
+        'tagline', 'description', 'appName', 'logoUrl', 'envBadge',
         'gradientFrom', 'gradientTo', 'logoStyle', 'spinnerColor',
         'showPoweredBy', 'supportEmail', 'allowDevAdminWhenSsoDisabled',
         'storageMode', 'enabledIntegrationIcons', 'faviconUrl',
@@ -184,9 +184,44 @@ describe('getServerConfig', () => {
       expect(getServerConfig().description).toBe('A custom description for testing.');
     });
 
-    it('should read PREVIEW_MODE=true', () => {
+    it('should read ENV_BADGE', () => {
+      process.env.ENV_BADGE = 'Staging';
+      expect(getServerConfig().envBadge).toBe('Staging');
+    });
+
+    it('should fall back PREVIEW_MODE=true to envBadge "Preview"', () => {
       process.env.PREVIEW_MODE = 'true';
-      expect(getServerConfig().previewMode).toBe(true);
+      expect(getServerConfig().envBadge).toBe('Preview');
+    });
+
+    it('should prefer ENV_BADGE over PREVIEW_MODE when both are set', () => {
+      process.env.ENV_BADGE = 'Prod';
+      process.env.PREVIEW_MODE = 'true';
+      expect(getServerConfig().envBadge).toBe('Prod');
+    });
+
+    it('should return empty envBadge when PREVIEW_MODE=false and no ENV_BADGE', () => {
+      process.env.PREVIEW_MODE = 'false';
+      expect(getServerConfig().envBadge).toBe('');
+    });
+
+    it('should return empty envBadge when PREVIEW_MODE is unset and ENV_BADGE is unset', () => {
+      expect(getServerConfig().envBadge).toBe('');
+    });
+
+    it('should accept NEXT_PUBLIC_ENV_BADGE via env() fallback', () => {
+      process.env.NEXT_PUBLIC_ENV_BADGE = 'Dev';
+      expect(getServerConfig().envBadge).toBe('Dev');
+    });
+
+    it('should accept arbitrary envBadge labels', () => {
+      process.env.ENV_BADGE = 'QA';
+      expect(getServerConfig().envBadge).toBe('QA');
+    });
+
+    it('should accept NEXT_PUBLIC_PREVIEW_MODE=true as backward compat', () => {
+      process.env.NEXT_PUBLIC_PREVIEW_MODE = 'true';
+      expect(getServerConfig().envBadge).toBe('Preview');
     });
 
     it('should read ALLOW_DEV_ADMIN_WHEN_SSO_DISABLED=true', () => {
@@ -633,7 +668,7 @@ describe('getClientConfigScript (XSS safety)', () => {
     const expectedKeys: (keyof Config)[] = [
       'caipeUrl', 'ragUrl', 'isDev', 'isProd', 'ssoEnabled',
       'ragEnabled', 'mongodbEnabled',
-      'tagline', 'description', 'appName', 'logoUrl', 'previewMode',
+      'tagline', 'description', 'appName', 'logoUrl', 'envBadge',
       'gradientFrom', 'gradientTo', 'logoStyle', 'spinnerColor',
       'showPoweredBy', 'supportEmail', 'allowDevAdminWhenSsoDisabled',
       'storageMode', 'enabledIntegrationIcons', 'faviconUrl',
@@ -685,7 +720,7 @@ describe('client-side config (window.__APP_CONFIG__)', () => {
         description: 'Prod Description',
         appName: 'ProdApp',
         logoUrl: '/prod-logo.svg',
-        previewMode: false,
+        envBadge: '',
         gradientFrom: '#111',
         gradientTo: '#222',
         logoStyle: 'white',
@@ -722,7 +757,7 @@ describe('client-side config (window.__APP_CONFIG__)', () => {
         ssoEnabled: false, ragEnabled: true,
         mongodbEnabled: false,
         tagline: 'Dev', description: 'Dev', appName: 'DevApp',
-        logoUrl: '/logo.svg', previewMode: false,
+        logoUrl: '/logo.svg', envBadge: '',
         gradientFrom: '#000', gradientTo: '#fff',
         logoStyle: 'default', spinnerColor: null,
         showPoweredBy: true, supportEmail: 'dev@test.com',
@@ -755,7 +790,7 @@ describe('client-side config (window.__APP_CONFIG__)', () => {
         mongodbEnabled: true,
         tagline: 'Proxy Test', description: 'Test',
         appName: 'ProxyApp', logoUrl: '/proxy.svg',
-        previewMode: true, gradientFrom: '#aaa', gradientTo: '#bbb',
+        envBadge: 'Preview', gradientFrom: '#aaa', gradientTo: '#bbb',
         logoStyle: 'white', spinnerColor: '#ccc',
         showPoweredBy: false, supportEmail: 'proxy@test.com',
         allowDevAdminWhenSsoDisabled: false, storageMode: 'mongodb',
@@ -810,7 +845,7 @@ describe('getLogoFilterClass', () => {
       caipeUrl: '', ragUrl: '', isDev: false, isProd: false,
       ssoEnabled: false, ragEnabled: true, mongodbEnabled: false,
       tagline: '', description: '',
-      appName: '', logoUrl: '', previewMode: false,
+      appName: '', logoUrl: '', envBadge: '',
       gradientFrom: '', gradientTo: '', logoStyle: 'white',
       spinnerColor: null, showPoweredBy: true, supportEmail: '',
       allowDevAdminWhenSsoDisabled: false, storageMode: 'localStorage',
@@ -928,7 +963,7 @@ describe('edge cases', () => {
     it('should roundtrip all default config values', () => {
       clearEnv(
         'A2A_BASE_URL', 'RAG_URL', 'SSO_ENABLED', 'RAG_ENABLED',
-        'MONGODB_ENABLED', 'PREVIEW_MODE',
+        'MONGODB_ENABLED', 'PREVIEW_MODE', 'ENV_BADGE',
         'ALLOW_DEV_ADMIN_WHEN_SSO_DISABLED', 'SHOW_POWERED_BY',
         'LOGO_STYLE', 'SPINNER_COLOR', 'TAGLINE', 'DESCRIPTION',
         'APP_NAME', 'LOGO_URL', 'GRADIENT_FROM', 'GRADIENT_TO',
@@ -1021,7 +1056,7 @@ describe('end-to-end: layout injection → client read', () => {
     // Simulate a fresh deployment with no env vars at all
     clearEnv(
       'A2A_BASE_URL', 'RAG_URL', 'SSO_ENABLED', 'RAG_ENABLED',
-      'MONGODB_ENABLED', 'PREVIEW_MODE',
+      'MONGODB_ENABLED', 'PREVIEW_MODE', 'ENV_BADGE',
       'ALLOW_DEV_ADMIN_WHEN_SSO_DISABLED', 'SHOW_POWERED_BY',
       'LOGO_STYLE', 'SPINNER_COLOR', 'TAGLINE', 'DESCRIPTION',
       'APP_NAME', 'LOGO_URL', 'GRADIENT_FROM', 'GRADIENT_TO',
