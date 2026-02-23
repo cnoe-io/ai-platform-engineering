@@ -7,7 +7,6 @@ import {
   withAuth,
   withErrorHandler,
   successResponse,
-  ApiError,
 } from '@/lib/api-middleware';
 import type { User } from '@/types/mongodb';
 
@@ -25,11 +24,6 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
   }
 
   return withAuth(request, async (req, user, session) => {
-    // Check if user is admin (from OIDC group)
-    if (session.role !== 'admin') {
-      throw new ApiError('Admin access required - must be member of admin group', 403);
-    }
-
     const users = await getCollection<User>('users');
     const conversations = await getCollection('conversations');
     const messages = await getCollection('messages');

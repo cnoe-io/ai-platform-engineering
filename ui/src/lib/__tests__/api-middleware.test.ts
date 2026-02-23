@@ -45,6 +45,7 @@ import {
   paginatedResponse,
   errorResponse,
   requireOwnership,
+  requireAdmin,
   getAuthenticatedUser,
   withAuth,
 } from '../api-middleware';
@@ -495,5 +496,34 @@ describe('withAuth', () => {
 
     await expect(withAuth(req, handler)).rejects.toThrow('Unauthorized');
     expect(handler).not.toHaveBeenCalled();
+  });
+});
+
+describe('requireAdmin', () => {
+  it('does not throw for admin session', () => {
+    expect(() => requireAdmin({ role: 'admin' })).not.toThrow();
+  });
+
+  it('throws ApiError 403 for user role', () => {
+    expect(() => requireAdmin({ role: 'user' })).toThrow(ApiError);
+    try {
+      requireAdmin({ role: 'user' });
+    } catch (e) {
+      expect((e as ApiError).statusCode).toBe(403);
+      expect((e as ApiError).message).toContain('Admin access required');
+    }
+  });
+
+  it('throws ApiError 403 for undefined role', () => {
+    expect(() => requireAdmin({})).toThrow(ApiError);
+    try {
+      requireAdmin({});
+    } catch (e) {
+      expect((e as ApiError).statusCode).toBe(403);
+    }
+  });
+
+  it('throws ApiError 403 for empty string role', () => {
+    expect(() => requireAdmin({ role: '' })).toThrow(ApiError);
   });
 });

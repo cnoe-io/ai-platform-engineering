@@ -6,6 +6,7 @@ import {
   withAuth,
   withErrorHandler,
   successResponse,
+  requireAdmin,
   ApiError,
 } from '@/lib/api-middleware';
 
@@ -32,10 +33,7 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
   }
 
   return withAuth(request, async (req, user, session) => {
-    // Check if user is admin
-    if (session.role !== 'admin') {
-      throw new ApiError('Admin access required', 403);
-    }
+    requireAdmin(session);
 
     const body: MigrateRequest = await request.json();
 

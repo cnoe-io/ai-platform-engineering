@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from "react";
 import { useSession } from "next-auth/react";
 import { motion } from "framer-motion";
-import { Users, MessageSquare, TrendingUp, Activity, Database, Share2, ShieldCheck, ShieldOff, UserPlus, Trash2, UsersIcon, Loader2, Bot, ThumbsUp, ThumbsDown, Clock, Zap, CheckCircle2, AlertCircle, Layers } from "lucide-react";
+import { Users, MessageSquare, TrendingUp, Activity, Database, Share2, ShieldCheck, ShieldOff, UserPlus, Trash2, UsersIcon, Loader2, Bot, ThumbsUp, ThumbsDown, Clock, Zap, CheckCircle2, AlertCircle, Layers, Eye } from "lucide-react";
 import { AuthGuard } from "@/components/auth-guard";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -22,6 +22,7 @@ import {
 } from "@/components/admin/SkillMetricsCards";
 import { CreateTeamDialog } from "@/components/admin/CreateTeamDialog";
 import { TeamDetailsDialog } from "@/components/admin/TeamDetailsDialog";
+import { useAdminRole } from "@/hooks/use-admin-role";
 import { apiClient } from "@/lib/api-client";
 import type { Team as TeamType } from "@/types/teams";
 import type { SkillMetricsAdmin } from "@/types/agent-config";
@@ -98,6 +99,7 @@ interface Team {
 
 function AdminPage() {
   const { status } = useSession();
+  const { isAdmin } = useAdminRole();
   const [stats, setStats] = useState<AdminStats | null>(null);
   const [skillStats, setSkillStats] = useState<SkillMetricsAdmin | null>(null);
   const [users, setUsers] = useState<UserInfo[]>([]);
@@ -132,14 +134,8 @@ function AdminPage() {
         fetch('/api/admin/stats/skills').catch(() => null),
       ]);
 
-      // Check for auth errors first (401/403)
       if (statsRes.status === 401 || usersRes.status === 401) {
         setError('Not authenticated. Please sign in via SSO first.');
-        setLoading(false);
-        return;
-      }
-      if (statsRes.status === 403 || usersRes.status === 403) {
-        setError('Admin access required. Your account must be a member of the OIDC admin group.');
         setLoading(false);
         return;
       }
@@ -277,9 +273,19 @@ function AdminPage() {
           <div className="p-6 space-y-6 max-w-7xl mx-auto">
             {/* Header */}
             <div className="space-y-2">
-              <h1 className="text-3xl font-bold">Admin Dashboard</h1>
+              <div className="flex items-center gap-3">
+                <h1 className="text-3xl font-bold">Admin Dashboard</h1>
+                {!isAdmin && (
+                  <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30">
+                    <Eye className="h-3.5 w-3.5" />
+                    Read-Only
+                  </span>
+                )}
+              </div>
               <p className="text-muted-foreground">
-                Manage users, teams, monitor usage, and track platform metrics
+                {isAdmin
+                  ? 'Manage users, teams, monitor usage, and track platform metrics'
+                  : 'View platform usage, users, teams, and metrics (read-only access)'}
               </p>
             </div>
 
@@ -374,20 +380,22 @@ function AdminPage() {
                 <Card>
                   <CardHeader>
                     <CardTitle>User Management</CardTitle>
-                    <CardDescription>Manage user access, roles, and view activity</CardDescription>
+                    <CardDescription>
+                      {isAdmin ? 'Manage user access, roles, and view activity' : 'View user access, roles, and activity'}
+                    </CardDescription>
                   </CardHeader>
                   <CardContent>
                     <div className="space-y-2">
-                      <div className="grid grid-cols-6 gap-4 pb-2 border-b text-xs font-medium text-muted-foreground">
+                      <div className={`grid gap-4 pb-2 border-b text-xs font-medium text-muted-foreground ${isAdmin ? 'grid-cols-6' : 'grid-cols-5'}`}>
                         <div>Email</div>
                         <div>Name</div>
                         <div>Role</div>
                         <div>Activity</div>
                         <div>Stats</div>
-                        <div className="text-right">Actions</div>
+                        {isAdmin && <div className="text-right">Actions</div>}
                       </div>
                       {users.map((user) => (
-                        <div key={user.email} className="grid grid-cols-6 gap-4 py-2 text-sm hover:bg-muted/50 rounded px-2 items-center">
+                        <div key={user.email} className={`grid gap-4 py-2 text-sm hover:bg-muted/50 rounded px-2 items-center ${isAdmin ? 'grid-cols-6' : 'grid-cols-5'}`}>
                           <div className="truncate">{user.email}</div>
                           <div className="truncate">{user.name}</div>
                           <div>
@@ -405,31 +413,33 @@ function AdminPage() {
                           <div className="text-xs text-muted-foreground">
                             {user.stats.conversations} chats, {user.stats.messages} msgs
                           </div>
-                          <div className="flex justify-end gap-1">
-                            {user.role === 'user' ? (
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={() => handleRoleChange(user.email, 'admin')}
-                                disabled={updatingRole === user.email}
-                                className="h-7 text-xs gap-1"
-                              >
-                                <ShieldCheck className="h-3 w-3" />
-                                Make Admin
-                              </Button>
-                            ) : (
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={() => handleRoleChange(user.email, 'user')}
-                                disabled={updatingRole === user.email}
-                                className="h-7 text-xs gap-1"
-                              >
-                                <ShieldOff className="h-3 w-3" />
-                                Remove Admin
-                              </Button>
-                            )}
-                          </div>
+                          {isAdmin && (
+                            <div className="flex justify-end gap-1">
+                              {user.role === 'user' ? (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => handleRoleChange(user.email, 'admin')}
+                                  disabled={updatingRole === user.email}
+                                  className="h-7 text-xs gap-1"
+                                >
+                                  <ShieldCheck className="h-3 w-3" />
+                                  Make Admin
+                                </Button>
+                              ) : (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => handleRoleChange(user.email, 'user')}
+                                  disabled={updatingRole === user.email}
+                                  className="h-7 text-xs gap-1"
+                                >
+                                  <ShieldOff className="h-3 w-3" />
+                                  Remove Admin
+                                </Button>
+                              )}
+                            </div>
+                          )}
                         </div>
                       ))}
                     </div>
@@ -443,12 +453,16 @@ function AdminPage() {
                   <CardHeader className="flex flex-row items-center justify-between">
                     <div>
                       <CardTitle>Team Management</CardTitle>
-                      <CardDescription>Create and manage teams for collaboration and conversation sharing</CardDescription>
+                      <CardDescription>
+                        {isAdmin ? 'Create and manage teams for collaboration and conversation sharing' : 'View teams and their members'}
+                      </CardDescription>
                     </div>
-                    <Button className="gap-2" onClick={() => setCreateTeamDialogOpen(true)}>
-                      <UserPlus className="h-4 w-4" />
-                      Create Team
-                    </Button>
+                    {isAdmin && (
+                      <Button className="gap-2" onClick={() => setCreateTeamDialogOpen(true)}>
+                        <UserPlus className="h-4 w-4" />
+                        Create Team
+                      </Button>
+                    )}
                   </CardHeader>
                   <CardContent>
                     {teams.length === 0 ? (
@@ -456,12 +470,16 @@ function AdminPage() {
                         <UsersIcon className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
                         <h3 className="text-lg font-semibold mb-2">No Teams Yet</h3>
                         <p className="text-muted-foreground mb-4">
-                          Create teams to enable collaboration and conversation sharing
+                          {isAdmin
+                            ? 'Create teams to enable collaboration and conversation sharing'
+                            : 'No teams have been created yet'}
                         </p>
-                        <Button className="gap-2" onClick={() => setCreateTeamDialogOpen(true)}>
-                          <UserPlus className="h-4 w-4" />
-                          Create Your First Team
-                        </Button>
+                        {isAdmin && (
+                          <Button className="gap-2" onClick={() => setCreateTeamDialogOpen(true)}>
+                            <UserPlus className="h-4 w-4" />
+                            Create Your First Team
+                          </Button>
+                        )}
                       </div>
                     ) : (
                       <div className="space-y-4">
@@ -475,19 +493,21 @@ function AdminPage() {
                                     <CardDescription>{team.description}</CardDescription>
                                   )}
                                 </div>
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  className="text-destructive hover:text-destructive"
-                                  onClick={() => handleDeleteTeam(team)}
-                                  disabled={deletingTeam === team._id}
-                                >
-                                  {deletingTeam === team._id ? (
-                                    <Loader2 className="h-4 w-4 animate-spin" />
-                                  ) : (
-                                    <Trash2 className="h-4 w-4" />
-                                  )}
-                                </Button>
+                                {isAdmin && (
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="text-destructive hover:text-destructive"
+                                    onClick={() => handleDeleteTeam(team)}
+                                    disabled={deletingTeam === team._id}
+                                  >
+                                    {deletingTeam === team._id ? (
+                                      <Loader2 className="h-4 w-4 animate-spin" />
+                                    ) : (
+                                      <Trash2 className="h-4 w-4" />
+                                    )}
+                                  </Button>
+                                )}
                               </div>
                             </CardHeader>
                             <CardContent>
@@ -501,14 +521,16 @@ function AdminPage() {
                                   <span>{team.owner_id}</span>
                                 </div>
                                 <div className="flex gap-2 mt-4">
-                                  <Button
-                                    size="sm"
-                                    variant="outline"
-                                    className="flex-1"
-                                    onClick={() => openTeamDialog(team, "members")}
-                                  >
-                                    Manage Members
-                                  </Button>
+                                  {isAdmin && (
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      className="flex-1"
+                                      onClick={() => openTeamDialog(team, "members")}
+                                    >
+                                      Manage Members
+                                    </Button>
+                                  )}
                                   <Button
                                     size="sm"
                                     variant="outline"

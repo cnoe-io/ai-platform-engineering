@@ -77,6 +77,16 @@ export async function withAuth<T>(
   return handler(request, user, session);
 }
 
+/**
+ * Require admin role for write operations.
+ * Throws 403 if user is not admin.
+ */
+export function requireAdmin(session: { role?: string }): void {
+  if (session.role !== 'admin') {
+    throw new ApiError('Admin access required - must be member of admin group', 403);
+  }
+}
+
 // ============================================================================
 // Error Handling
 // ============================================================================
