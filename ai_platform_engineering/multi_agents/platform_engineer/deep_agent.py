@@ -68,7 +68,7 @@ RAG_CONNECTIVITY_WAIT_SECONDS = 10
 
 # Structured Response Configuration
 # When enabled, LLM uses ResponseFormat tool for final answers instead of [FINAL ANSWER] marker
-USE_STRUCTURED_RESPONSE = os.getenv("USE_STRUCTURED_RESPONSE", "false").lower() == "true"
+USE_STRUCTURED_RESPONSE = os.getenv("USE_STRUCTURED_RESPONSE", "true").lower() == "true"
 
 class AIPlatformEngineerMAS:
   def __init__(self):
