@@ -55,6 +55,17 @@ jest.mock('react-dom', () => ({
   createPortal: (node: any) => node,
 }));
 
+// Mock config — defaults can be overridden per test via mockConfigValues
+let mockConfigValues: Record<string, any> = {
+  defaultFontSize: 'medium',
+  defaultFontFamily: 'inter',
+  defaultTheme: 'dark',
+  defaultGradientTheme: 'default',
+};
+jest.mock('@/lib/config', () => ({
+  getConfig: (key: string) => mockConfigValues[key],
+}));
+
 // ============================================================================
 // Helpers
 // ============================================================================
@@ -88,6 +99,12 @@ function resetMocks() {
   mockTheme = 'dark';
   mockGetSettings.mockReset();
   mockUpdatePreferences.mockReset();
+  mockConfigValues = {
+    defaultFontSize: 'medium',
+    defaultFontFamily: 'inter',
+    defaultTheme: 'dark',
+    defaultGradientTheme: 'default',
+  };
   // Default: server unavailable (localStorage-only mode)
   mockGetSettings.mockRejectedValue(new Error('Not configured'));
   mockUpdatePreferences.mockResolvedValue({});
@@ -249,10 +266,10 @@ describe('SettingsPanel', () => {
 
       mockGetSettings.mockResolvedValue({
         preferences: {
-          font_size: 'giant', // not a valid option
-          font_family: 'comic-sans', // not a valid option
-          gradient_theme: 'rainbow', // not a valid option
-          theme: 'matrix', // not a valid option
+          font_size: 'giant',
+          font_family: 'comic-sans',
+          gradient_theme: 'rainbow',
+          theme: 'neon-dreams',
         },
       });
 
@@ -264,7 +281,6 @@ describe('SettingsPanel', () => {
         jest.runAllTimers();
       });
 
-      // Should keep the localStorage value since server values are invalid
       expect(document.body.getAttribute('data-font-size')).toBe('medium');
     });
   });
@@ -521,6 +537,442 @@ describe('SettingsPanel', () => {
       // localStorage should still have the value despite server failure
       expect(localStorageMock.setItem).toHaveBeenCalledWith('caipe-font-size', 'large');
       expect(document.body.getAttribute('data-font-size')).toBe('large');
+    });
+  });
+
+  // --------------------------------------------------------------------------
+  // Environment-Driven Defaults
+  // --------------------------------------------------------------------------
+
+  describe('Environment-Driven Defaults', () => {
+    it('uses env-configured font size when no localStorage value exists', async () => {
+      mockConfigValues.defaultFontSize = 'large';
+
+      await act(async () => {
+        render(<SettingsPanel />);
+      });
+
+      expect(document.body.getAttribute('data-font-size')).toBe('large');
+    });
+
+    it('uses env-configured font family when no localStorage value exists', async () => {
+      mockConfigValues.defaultFontFamily = 'ibm-plex';
+
+      await act(async () => {
+        render(<SettingsPanel />);
+      });
+
+      expect(document.body.getAttribute('data-font-family')).toBe('ibm-plex');
+    });
+
+    it('uses env-configured gradient theme when no localStorage value exists', async () => {
+      mockConfigValues.defaultGradientTheme = 'ocean';
+
+      await act(async () => {
+        render(<SettingsPanel />);
+      });
+
+      expect(document.documentElement.getAttribute('data-gradient-theme')).toBe('ocean');
+    });
+
+    it('applies all env-configured defaults together', async () => {
+      mockConfigValues.defaultFontSize = 'x-large';
+      mockConfigValues.defaultFontFamily = 'source-sans';
+      mockConfigValues.defaultGradientTheme = 'sunset';
+
+      await act(async () => {
+        render(<SettingsPanel />);
+      });
+
+      expect(document.body.getAttribute('data-font-size')).toBe('x-large');
+      expect(document.body.getAttribute('data-font-family')).toBe('source-sans');
+      expect(document.documentElement.getAttribute('data-gradient-theme')).toBe('sunset');
+    });
+
+    it('localStorage takes precedence over env-configured defaults', async () => {
+      mockConfigValues.defaultFontSize = 'large';
+      mockConfigValues.defaultFontFamily = 'ibm-plex';
+      mockConfigValues.defaultGradientTheme = 'ocean';
+
+      localStorageMock.setItem('caipe-font-size', 'small');
+      localStorageMock.setItem('caipe-font-family', 'system');
+      localStorageMock.setItem('caipe-gradient-theme', 'sunset');
+
+      await act(async () => {
+        render(<SettingsPanel />);
+      });
+
+      expect(document.body.getAttribute('data-font-size')).toBe('small');
+      expect(document.body.getAttribute('data-font-family')).toBe('system');
+      expect(document.documentElement.getAttribute('data-gradient-theme')).toBe('sunset');
+    });
+
+    it('server preferences take precedence over env-configured defaults', async () => {
+      mockConfigValues.defaultFontSize = 'large';
+      mockConfigValues.defaultFontFamily = 'ibm-plex';
+      mockConfigValues.defaultGradientTheme = 'ocean';
+
+      mockGetSettings.mockResolvedValue({
+        preferences: {
+          font_size: 'small',
+          font_family: 'source-sans',
+          gradient_theme: 'minimal',
+          theme: 'tokyo',
+        },
+      });
+
+      await act(async () => {
+        render(<SettingsPanel />);
+      });
+
+      await act(async () => {
+        jest.runAllTimers();
+      });
+
+      await waitFor(() => {
+        expect(document.body.getAttribute('data-font-size')).toBe('small');
+        expect(document.body.getAttribute('data-font-family')).toBe('source-sans');
+        expect(document.documentElement.getAttribute('data-gradient-theme')).toBe('minimal');
+      });
+
+      expect(mockSetTheme).toHaveBeenCalledWith('tokyo');
+    });
+
+    it('shows correct selection in panel when env default is active', async () => {
+      mockConfigValues.defaultFontSize = 'x-large';
+
+      await act(async () => {
+        render(<SettingsPanel />);
+      });
+
+      await act(async () => {
+        fireEvent.click(screen.getByTitle('UI Personalization'));
+      });
+
+      // The "Extra Large" option should be the active one (has check icon)
+      const xlButton = screen.getByText('Extra Large').closest('button');
+      expect(xlButton?.className).toContain('border-primary');
+    });
+  });
+
+  // --------------------------------------------------------------------------
+  // New Themes: Cyberpunk, Tron, Matrix
+  // --------------------------------------------------------------------------
+
+  describe('New Themes (Cyberpunk, Tron, Matrix)', () => {
+    it('renders all new theme options in the panel', async () => {
+      await act(async () => {
+        render(<SettingsPanel />);
+      });
+
+      await act(async () => {
+        fireEvent.click(screen.getByTitle('UI Personalization'));
+      });
+
+      expect(screen.getByText('Cyberpunk')).toBeInTheDocument();
+      expect(screen.getByText('Tron')).toBeInTheDocument();
+      expect(screen.getByText('Matrix')).toBeInTheDocument();
+    });
+
+    it('sets cyberpunk theme via next-themes and syncs to server', async () => {
+      mockUpdatePreferences.mockResolvedValue({});
+
+      await act(async () => {
+        render(<SettingsPanel />);
+      });
+
+      await act(async () => {
+        fireEvent.click(screen.getByTitle('UI Personalization'));
+      });
+
+      await act(async () => {
+        fireEvent.click(screen.getByText('Cyberpunk'));
+      });
+
+      expect(mockSetTheme).toHaveBeenCalledWith('cyberpunk');
+
+      await act(async () => {
+        jest.advanceTimersByTime(500);
+      });
+
+      expect(mockUpdatePreferences).toHaveBeenCalledWith({ theme: 'cyberpunk' });
+    });
+
+    it('sets tron theme via next-themes and syncs to server', async () => {
+      mockUpdatePreferences.mockResolvedValue({});
+
+      await act(async () => {
+        render(<SettingsPanel />);
+      });
+
+      await act(async () => {
+        fireEvent.click(screen.getByTitle('UI Personalization'));
+      });
+
+      await act(async () => {
+        fireEvent.click(screen.getByText('Tron'));
+      });
+
+      expect(mockSetTheme).toHaveBeenCalledWith('tron');
+
+      await act(async () => {
+        jest.advanceTimersByTime(500);
+      });
+
+      expect(mockUpdatePreferences).toHaveBeenCalledWith({ theme: 'tron' });
+    });
+
+    it('sets matrix theme via next-themes and syncs to server', async () => {
+      mockUpdatePreferences.mockResolvedValue({});
+
+      await act(async () => {
+        render(<SettingsPanel />);
+      });
+
+      await act(async () => {
+        fireEvent.click(screen.getByTitle('UI Personalization'));
+      });
+
+      await act(async () => {
+        fireEvent.click(screen.getByText('Matrix'));
+      });
+
+      expect(mockSetTheme).toHaveBeenCalledWith('matrix');
+
+      await act(async () => {
+        jest.advanceTimersByTime(500);
+      });
+
+      expect(mockUpdatePreferences).toHaveBeenCalledWith({ theme: 'matrix' });
+    });
+
+    it('accepts matrix as a valid server preference', async () => {
+      mockGetSettings.mockResolvedValue({
+        preferences: {
+          theme: 'matrix',
+          font_size: 'medium',
+          font_family: 'inter',
+          gradient_theme: 'default',
+        },
+      });
+
+      await act(async () => {
+        render(<SettingsPanel />);
+      });
+
+      await act(async () => {
+        jest.runAllTimers();
+      });
+
+      await waitFor(() => {
+        expect(mockSetTheme).toHaveBeenCalledWith('matrix');
+      });
+    });
+
+    it('accepts cyberpunk as a valid server preference', async () => {
+      mockGetSettings.mockResolvedValue({
+        preferences: {
+          theme: 'cyberpunk',
+          font_size: 'medium',
+          font_family: 'inter',
+          gradient_theme: 'default',
+        },
+      });
+
+      await act(async () => {
+        render(<SettingsPanel />);
+      });
+
+      await act(async () => {
+        jest.runAllTimers();
+      });
+
+      await waitFor(() => {
+        expect(mockSetTheme).toHaveBeenCalledWith('cyberpunk');
+      });
+    });
+  });
+
+  // --------------------------------------------------------------------------
+  // New Gradient Themes: Cyberpunk, Tron, Matrix
+  // --------------------------------------------------------------------------
+
+  describe('New Gradient Themes (Cyberpunk, Tron, Matrix)', () => {
+    it('renders all new gradient theme options in the panel', async () => {
+      await act(async () => {
+        render(<SettingsPanel />);
+      });
+
+      await act(async () => {
+        fireEvent.click(screen.getByTitle('UI Personalization'));
+      });
+
+      expect(screen.getByText('Cyberpunk (Pink → Cyan)')).toBeInTheDocument();
+      expect(screen.getByText('Tron (Cyan → Blue)')).toBeInTheDocument();
+      expect(screen.getByText('Matrix (Green → Dark Green)')).toBeInTheDocument();
+    });
+
+    it('applies cyberpunk gradient CSS vars and saves to localStorage', async () => {
+      await act(async () => {
+        render(<SettingsPanel />);
+      });
+
+      await act(async () => {
+        fireEvent.click(screen.getByTitle('UI Personalization'));
+      });
+
+      await act(async () => {
+        fireEvent.click(screen.getByText('Cyberpunk (Pink → Cyan)'));
+      });
+
+      expect(localStorageMock.setItem).toHaveBeenCalledWith('caipe-gradient-theme', 'cyberpunk');
+      expect(document.documentElement.getAttribute('data-gradient-theme')).toBe('cyberpunk');
+      expect(document.documentElement.style.getPropertyValue('--gradient-from')).toBe('hsl(330,100%,50%)');
+      expect(document.documentElement.style.getPropertyValue('--gradient-to')).toBe('hsl(180,100%,50%)');
+    });
+
+    it('applies tron gradient CSS vars and saves to localStorage', async () => {
+      await act(async () => {
+        render(<SettingsPanel />);
+      });
+
+      await act(async () => {
+        fireEvent.click(screen.getByTitle('UI Personalization'));
+      });
+
+      await act(async () => {
+        fireEvent.click(screen.getByText('Tron (Cyan → Blue)'));
+      });
+
+      expect(localStorageMock.setItem).toHaveBeenCalledWith('caipe-gradient-theme', 'tron');
+      expect(document.documentElement.getAttribute('data-gradient-theme')).toBe('tron');
+      expect(document.documentElement.style.getPropertyValue('--gradient-from')).toBe('hsl(190,100%,50%)');
+      expect(document.documentElement.style.getPropertyValue('--gradient-to')).toBe('hsl(210,80%,40%)');
+    });
+
+    it('applies matrix gradient CSS vars and saves to localStorage', async () => {
+      await act(async () => {
+        render(<SettingsPanel />);
+      });
+
+      await act(async () => {
+        fireEvent.click(screen.getByTitle('UI Personalization'));
+      });
+
+      await act(async () => {
+        fireEvent.click(screen.getByText('Matrix (Green → Dark Green)'));
+      });
+
+      expect(localStorageMock.setItem).toHaveBeenCalledWith('caipe-gradient-theme', 'matrix');
+      expect(document.documentElement.getAttribute('data-gradient-theme')).toBe('matrix');
+      expect(document.documentElement.style.getPropertyValue('--gradient-from')).toBe('hsl(120,100%,45%)');
+      expect(document.documentElement.style.getPropertyValue('--gradient-to')).toBe('hsl(140,60%,25%)');
+    });
+
+    it('syncs cyberpunk gradient theme to server', async () => {
+      mockUpdatePreferences.mockResolvedValue({});
+
+      await act(async () => {
+        render(<SettingsPanel />);
+      });
+
+      await act(async () => {
+        fireEvent.click(screen.getByTitle('UI Personalization'));
+      });
+
+      await act(async () => {
+        fireEvent.click(screen.getByText('Cyberpunk (Pink → Cyan)'));
+      });
+
+      await act(async () => {
+        jest.advanceTimersByTime(500);
+      });
+
+      expect(mockUpdatePreferences).toHaveBeenCalledWith({ gradient_theme: 'cyberpunk' });
+    });
+
+    it('loads new gradient themes from server preferences', async () => {
+      mockGetSettings.mockResolvedValue({
+        preferences: {
+          font_size: 'medium',
+          font_family: 'inter',
+          gradient_theme: 'matrix',
+          theme: 'dark',
+        },
+      });
+
+      await act(async () => {
+        render(<SettingsPanel />);
+      });
+
+      await act(async () => {
+        jest.runAllTimers();
+      });
+
+      await waitFor(() => {
+        expect(localStorageMock.setItem).toHaveBeenCalledWith('caipe-gradient-theme', 'matrix');
+        expect(document.documentElement.getAttribute('data-gradient-theme')).toBe('matrix');
+      });
+    });
+
+    it('uses env-configured new gradient theme when no localStorage value exists', async () => {
+      mockConfigValues.defaultGradientTheme = 'cyberpunk';
+
+      await act(async () => {
+        render(<SettingsPanel />);
+      });
+
+      expect(document.documentElement.getAttribute('data-gradient-theme')).toBe('cyberpunk');
+    });
+  });
+
+  // --------------------------------------------------------------------------
+  // Combined Button (shows current theme label)
+  // --------------------------------------------------------------------------
+
+  describe('Combined Personalization Button', () => {
+    it('displays current theme label on the button', async () => {
+      mockTheme = 'dark';
+
+      await act(async () => {
+        render(<SettingsPanel />);
+      });
+
+      const button = screen.getByTitle('UI Personalization');
+      expect(button.textContent).toContain('Dark');
+    });
+
+    it('shows Cyberpunk label when cyberpunk theme is active', async () => {
+      mockTheme = 'cyberpunk';
+
+      await act(async () => {
+        render(<SettingsPanel />);
+      });
+
+      const button = screen.getByTitle('UI Personalization');
+      expect(button.textContent).toContain('Cyberpunk');
+    });
+
+    it('shows Tron label when tron theme is active', async () => {
+      mockTheme = 'tron';
+
+      await act(async () => {
+        render(<SettingsPanel />);
+      });
+
+      const button = screen.getByTitle('UI Personalization');
+      expect(button.textContent).toContain('Tron');
+    });
+
+    it('shows Matrix label when matrix theme is active', async () => {
+      mockTheme = 'matrix';
+
+      await act(async () => {
+        render(<SettingsPanel />);
+      });
+
+      const button = screen.getByTitle('UI Personalization');
+      expect(button.textContent).toContain('Matrix');
     });
   });
 });

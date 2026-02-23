@@ -71,6 +71,8 @@ describe('getServerConfig', () => {
         'LOGO_STYLE', 'SPINNER_COLOR', 'TAGLINE', 'DESCRIPTION',
         'APP_NAME', 'LOGO_URL', 'GRADIENT_FROM', 'GRADIENT_TO',
         'SUPPORT_EMAIL',
+        'DEFAULT_FONT_SIZE', 'DEFAULT_FONT_FAMILY',
+        'DEFAULT_THEME', 'DEFAULT_GRADIENT_THEME',
       );
       delete process.env.MONGODB_URI;
       delete process.env.MONGODB_DATABASE;
@@ -104,6 +106,14 @@ describe('getServerConfig', () => {
       expect(cfg.storageMode).toBe('localStorage');
     });
 
+    it('should return default personalization values', () => {
+      const cfg = getServerConfig();
+      expect(cfg.defaultFontSize).toBe('medium');
+      expect(cfg.defaultFontFamily).toBe('inter');
+      expect(cfg.defaultTheme).toBe('dark');
+      expect(cfg.defaultGradientTheme).toBe('default');
+    });
+
     it('should have exactly the expected Config keys (no extras)', () => {
       const cfg = getServerConfig();
       const expectedKeys: (keyof Config)[] = [
@@ -114,6 +124,7 @@ describe('getServerConfig', () => {
         'showPoweredBy', 'supportEmail', 'allowDevAdminWhenSsoDisabled',
         'storageMode', 'enabledIntegrationIcons', 'faviconUrl',
         'docsUrl', 'sourceUrl', 'workflowRunnerEnabled',
+        'defaultFontSize', 'defaultFontFamily', 'defaultTheme', 'defaultGradientTheme',
       ];
       expect(Object.keys(cfg).sort()).toEqual(expectedKeys.sort());
     });
@@ -300,6 +311,123 @@ describe('getServerConfig', () => {
     it('should fall back to "default" for empty string', () => {
       process.env.LOGO_STYLE = '';
       expect(getServerConfig().logoStyle).toBe('default');
+    });
+  });
+
+  // ---------- Personalization defaults (env-configurable) ----------
+
+  describe('defaultFontSize', () => {
+    beforeEach(() => clearEnv('DEFAULT_FONT_SIZE'));
+
+    it('should default to "medium"', () => {
+      expect(getServerConfig().defaultFontSize).toBe('medium');
+    });
+
+    it.each(['small', 'medium', 'large', 'x-large'] as const)(
+      'should accept valid value "%s"',
+      (size) => {
+        process.env.DEFAULT_FONT_SIZE = size;
+        expect(getServerConfig().defaultFontSize).toBe(size);
+      },
+    );
+
+    it('should fall back to "medium" for invalid value', () => {
+      process.env.DEFAULT_FONT_SIZE = 'huge';
+      expect(getServerConfig().defaultFontSize).toBe('medium');
+    });
+
+    it('should fall back to "medium" for empty string', () => {
+      process.env.DEFAULT_FONT_SIZE = '';
+      expect(getServerConfig().defaultFontSize).toBe('medium');
+    });
+
+    it('should read NEXT_PUBLIC_ prefix as fallback', () => {
+      process.env.NEXT_PUBLIC_DEFAULT_FONT_SIZE = 'large';
+      expect(getServerConfig().defaultFontSize).toBe('large');
+    });
+
+    it('should prefer non-prefixed over NEXT_PUBLIC_', () => {
+      process.env.DEFAULT_FONT_SIZE = 'small';
+      process.env.NEXT_PUBLIC_DEFAULT_FONT_SIZE = 'x-large';
+      expect(getServerConfig().defaultFontSize).toBe('small');
+    });
+  });
+
+  describe('defaultFontFamily', () => {
+    beforeEach(() => clearEnv('DEFAULT_FONT_FAMILY'));
+
+    it('should default to "inter"', () => {
+      expect(getServerConfig().defaultFontFamily).toBe('inter');
+    });
+
+    it.each(['inter', 'source-sans', 'ibm-plex', 'system'] as const)(
+      'should accept valid value "%s"',
+      (family) => {
+        process.env.DEFAULT_FONT_FAMILY = family;
+        expect(getServerConfig().defaultFontFamily).toBe(family);
+      },
+    );
+
+    it('should fall back to "inter" for invalid value', () => {
+      process.env.DEFAULT_FONT_FAMILY = 'comic-sans';
+      expect(getServerConfig().defaultFontFamily).toBe('inter');
+    });
+
+    it('should fall back to "inter" for empty string', () => {
+      process.env.DEFAULT_FONT_FAMILY = '';
+      expect(getServerConfig().defaultFontFamily).toBe('inter');
+    });
+  });
+
+  describe('defaultTheme', () => {
+    beforeEach(() => clearEnv('DEFAULT_THEME'));
+
+    it('should default to "dark"', () => {
+      expect(getServerConfig().defaultTheme).toBe('dark');
+    });
+
+    it.each(['light', 'dark', 'midnight', 'nord', 'tokyo', 'cyberpunk', 'tron', 'matrix'] as const)(
+      'should accept valid value "%s"',
+      (theme) => {
+        process.env.DEFAULT_THEME = theme;
+        expect(getServerConfig().defaultTheme).toBe(theme);
+      },
+    );
+
+    it('should fall back to "dark" for invalid value', () => {
+      process.env.DEFAULT_THEME = 'neon-dreams';
+      expect(getServerConfig().defaultTheme).toBe('dark');
+    });
+
+    it('should fall back to "dark" for empty string', () => {
+      process.env.DEFAULT_THEME = '';
+      expect(getServerConfig().defaultTheme).toBe('dark');
+    });
+  });
+
+  describe('defaultGradientTheme', () => {
+    beforeEach(() => clearEnv('DEFAULT_GRADIENT_THEME'));
+
+    it('should default to "default"', () => {
+      expect(getServerConfig().defaultGradientTheme).toBe('default');
+    });
+
+    it.each(['default', 'minimal', 'professional', 'ocean', 'sunset', 'cyberpunk', 'tron', 'matrix'] as const)(
+      'should accept valid value "%s"',
+      (gradient) => {
+        process.env.DEFAULT_GRADIENT_THEME = gradient;
+        expect(getServerConfig().defaultGradientTheme).toBe(gradient);
+      },
+    );
+
+    it('should fall back to "default" for invalid value', () => {
+      process.env.DEFAULT_GRADIENT_THEME = 'rainbow';
+      expect(getServerConfig().defaultGradientTheme).toBe('default');
+    });
+
+    it('should fall back to "default" for empty string', () => {
+      process.env.DEFAULT_GRADIENT_THEME = '';
+      expect(getServerConfig().defaultGradientTheme).toBe('default');
     });
   });
 
@@ -510,6 +638,7 @@ describe('getClientConfigScript (XSS safety)', () => {
       'showPoweredBy', 'supportEmail', 'allowDevAdminWhenSsoDisabled',
       'storageMode', 'enabledIntegrationIcons', 'faviconUrl',
       'docsUrl', 'sourceUrl', 'workflowRunnerEnabled',
+      'defaultFontSize', 'defaultFontFamily', 'defaultTheme', 'defaultGradientTheme',
     ];
     expect(Object.keys(parsed).sort()).toEqual(expectedKeys.sort());
   });
@@ -565,6 +694,10 @@ describe('client-side config (window.__APP_CONFIG__)', () => {
         supportEmail: 'prod@example.com',
         allowDevAdminWhenSsoDisabled: false,
         storageMode: 'mongodb',
+        defaultFontSize: 'large',
+        defaultFontFamily: 'ibm-plex',
+        defaultTheme: 'nord',
+        defaultGradientTheme: 'ocean',
       });
 
       expect(getConfig('appName')).toBe('ProdApp');
@@ -574,6 +707,10 @@ describe('client-side config (window.__APP_CONFIG__)', () => {
       expect(getConfig('showPoweredBy')).toBe(false);
       expect(getConfig('spinnerColor')).toBe('#00ff00');
       expect(getConfig('isProd')).toBe(true);
+      expect(getConfig('defaultFontSize')).toBe('large');
+      expect(getConfig('defaultFontFamily')).toBe('ibm-plex');
+      expect(getConfig('defaultTheme')).toBe('nord');
+      expect(getConfig('defaultGradientTheme')).toBe('ocean');
     });
 
     it('should reflect changes when window.__APP_CONFIG__ is updated', () => {
@@ -590,6 +727,8 @@ describe('client-side config (window.__APP_CONFIG__)', () => {
         logoStyle: 'default', spinnerColor: null,
         showPoweredBy: true, supportEmail: 'dev@test.com',
         allowDevAdminWhenSsoDisabled: true, storageMode: 'localStorage',
+        defaultFontSize: 'medium', defaultFontFamily: 'inter',
+        defaultTheme: 'dark', defaultGradientTheme: 'default',
       });
 
       expect(getConfig('appName')).toBe('DevApp');
@@ -620,6 +759,8 @@ describe('client-side config (window.__APP_CONFIG__)', () => {
         logoStyle: 'white', spinnerColor: '#ccc',
         showPoweredBy: false, supportEmail: 'proxy@test.com',
         allowDevAdminWhenSsoDisabled: false, storageMode: 'mongodb',
+        defaultFontSize: 'small', defaultFontFamily: 'system',
+        defaultTheme: 'midnight', defaultGradientTheme: 'sunset',
       });
 
       // config is a Proxy in jsdom (window is defined)
@@ -673,6 +814,8 @@ describe('getLogoFilterClass', () => {
       gradientFrom: '', gradientTo: '', logoStyle: 'white',
       spinnerColor: null, showPoweredBy: true, supportEmail: '',
       allowDevAdminWhenSsoDisabled: false, storageMode: 'localStorage',
+      defaultFontSize: 'medium', defaultFontFamily: 'inter',
+      defaultTheme: 'dark', defaultGradientTheme: 'default',
     });
     expect(getLogoFilterClass()).toBe('brightness-0 invert');
   });
@@ -898,6 +1041,10 @@ describe('end-to-end: layout injection → client read', () => {
     expect(getConfig('storageMode')).toBe('localStorage');
     expect(getConfig('showPoweredBy')).toBe(true);
     expect(getConfig('logoStyle')).toBe('default');
+    expect(getConfig('defaultFontSize')).toBe('medium');
+    expect(getConfig('defaultFontFamily')).toBe('inter');
+    expect(getConfig('defaultTheme')).toBe('dark');
+    expect(getConfig('defaultGradientTheme')).toBe('default');
   });
 
   it('should handle the "full production" scenario', () => {
@@ -933,5 +1080,35 @@ describe('end-to-end: layout injection → client read', () => {
     expect(script).not.toContain('admin:secret');
     expect(script).not.toContain('cluster.mongodb.net');
     expect(script).not.toContain('grid-prod');
+  });
+
+  it('should handle customized personalization defaults', () => {
+    process.env.DEFAULT_FONT_SIZE = 'large';
+    process.env.DEFAULT_FONT_FAMILY = 'ibm-plex';
+    process.env.DEFAULT_THEME = 'nord';
+    process.env.DEFAULT_GRADIENT_THEME = 'professional';
+
+    const script = getClientConfigScript();
+    setWindowConfig(JSON.parse(script));
+
+    expect(getConfig('defaultFontSize')).toBe('large');
+    expect(getConfig('defaultFontFamily')).toBe('ibm-plex');
+    expect(getConfig('defaultTheme')).toBe('nord');
+    expect(getConfig('defaultGradientTheme')).toBe('professional');
+  });
+
+  it('should silently reject invalid personalization defaults', () => {
+    process.env.DEFAULT_FONT_SIZE = 'tiny';
+    process.env.DEFAULT_FONT_FAMILY = 'papyrus';
+    process.env.DEFAULT_THEME = 'solarized';
+    process.env.DEFAULT_GRADIENT_THEME = 'neon';
+
+    const script = getClientConfigScript();
+    setWindowConfig(JSON.parse(script));
+
+    expect(getConfig('defaultFontSize')).toBe('medium');
+    expect(getConfig('defaultFontFamily')).toBe('inter');
+    expect(getConfig('defaultTheme')).toBe('dark');
+    expect(getConfig('defaultGradientTheme')).toBe('default');
   });
 });

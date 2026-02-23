@@ -79,6 +79,8 @@ export default async function RootLayout({
   // not at build time when env vars are empty.
   await headers();
 
+  const cfg = getServerConfig();
+
   // Build the XSS-safe JSON for client-side config injection.
   // Only client-safe values are included (no secrets).
   const configScript = getClientConfigScript();
@@ -95,14 +97,16 @@ export default async function RootLayout({
       </head>
       <body
         className={`${inter.variable} ${sourceSans.variable} ${ibmPlex.variable} ${jetbrainsMono.variable} font-sans antialiased`}
+        data-font-size={cfg.defaultFontSize}
+        data-font-family={cfg.defaultFontFamily}
       >
         <AuthProvider>
           <ThemeProvider
             attribute="data-theme"
-            defaultTheme="dark"
+            defaultTheme={cfg.defaultTheme}
             enableSystem
             disableTransitionOnChange={false}
-            themes={["light", "dark", "midnight", "nord", "tokyo"]}
+            themes={["light", "dark", "midnight", "nord", "tokyo", "cyberpunk", "tron", "matrix"]}
           >
             <ToastProvider>
               <ThemeInjector />
