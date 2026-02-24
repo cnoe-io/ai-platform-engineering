@@ -109,10 +109,7 @@ supervisor-agent:
     EXTERNAL_URL: "http://localhost:8000"  # Agent url for the client. NOTE: this will be user applicaiton specific
     SKIP_AGENT_CONNECTIVITY_CHECK: "false"
     AGENT_CONNECTIVITY_ENABLE_BACKGROUND: "true"
-    USE_STRUCTURED_RESPONSE: "false" # Set to "true" to enforce agent to always use structured response format as the final output
-    # Self-service task configuration env vars are loaded from Vault via
-    # the llm-secret ExternalSecret (envFrom). Do NOT define them here as
-    # explicit env entries — they would override envFrom with empty strings.
+    USE_STRUCTURED_RESPONSE: "true" # Set to "true" to enforce agent to always use structured response format as the final output
   multiAgentConfig:
     protocol: "a2a"
     port: "8000"
