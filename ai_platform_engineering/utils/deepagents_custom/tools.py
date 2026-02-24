@@ -9,18 +9,9 @@ import logging
 from typing import Annotated
 
 from langchain_core.messages import AIMessage, ToolMessage
-from langchain_core.tools import tool, InjectedToolArg
+from langchain_core.tools import tool, InjectedToolCallId
+from langgraph.prebuilt import InjectedState
 from langgraph.types import Command
-
-try:
-    from langgraph.prebuilt.chat_agent_executor import InjectedState
-except ImportError:
-    from langchain_core.tools import InjectedToolArg as InjectedState
-
-try:
-    from langchain_core.tools import InjectedToolCallId
-except ImportError:
-    InjectedToolCallId = InjectedToolArg
 
 logger = logging.getLogger(__name__)
 
