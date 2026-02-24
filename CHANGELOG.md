@@ -1,3 +1,38 @@
+## 0.2.22 (2026-02-24)
+
+## 0.2.21-rc.4 (2026-02-24)
+
+### Feat
+
+- Support comma-separated OAUTH2_CLIENT_IDS for cid validation (#849)
+
+### Fix
+
+- **ui**: default canViewAdmin to true for pre-upgrade JWT sessions (#837)
+
+## 0.2.21-rc.3 (2026-02-24)
+
+### Feat
+
+- **rag**: add batch job status endpoint for efficient datasource polling (#845)
+
+### Fix
+
+- **docker-compose**: remove jarvis from all-agents profile (#848)
+
+## 0.2.21-rc.2 (2026-02-24)
+
+### Fix
+
+- get rid of ResponseFormat as sonnet sometimes uses this instead and breaks
+- make it work with newer claude models that do not support prefilling
+
+## 0.2.21-rc.1 (2026-02-24)
+
+### Feat
+
+- set USE_STRUCTURED_RESPONSE true by default (#840)
+
 ## 0.2.21 (2026-02-23)
 
 ### Feat
@@ -5,19 +40,11 @@
 - **ui**: replace previewMode with configurable envBadge (#834)
 - **ui**: make admin dashboard read-only for non-admin authenticated users (#833)
 - **ui**: env-configurable personalization defaults, new themes, and unified settings menu (#832)
-
-### Fix
-
-- **ui**: team-shared conversations not appearing for team members (#831)
-
-## 0.2.20-rc.1 (2026-02-22)
-
-### Feat
-
 - **ui**: refactor Create Workflow into Skills Builder Editor with skills in helm chart (#829)
 
 ### Fix
 
+- **ui**: team-shared conversations not appearing for team members (#831)
 - **confluence-ingestor**: track document_count per ingested page (#818)
 
 ## 0.2.20 (2026-02-20)
