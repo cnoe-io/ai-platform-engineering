@@ -201,14 +201,14 @@ class Metadata(BaseModel):
 
 class CAIPEAgentResponse(BaseModel):
     """Structured response format for CAIPE (Cisco AI Platform Engineering) user input collection."""
-    response: str = Field(description="A friendly summary of what information the user needs to provide and why. This is shown in the chat as a text message alongside the form.")
+    response: str = Field(default="", description="A friendly summary of what information the user needs to provide and why. This is shown in the chat as a text message alongside the form.")
     metadata: Metadata = Field(description="Metadata containing input fields. When requesting input, populate field_name/field_description/required. When returning values, populate the value field.")
 
 
 def create_caipe_agent_response_tool():
     """Create a tool from CAIPEAgentResponse schema for structured user input collection."""
     
-    def caipe_agent_response(response: str, metadata: Metadata) -> str:
+    def caipe_agent_response(metadata: Metadata, response: str = "") -> str:
         """Request user input when needed. Returns status based on input fields.
         
         This tool triggers a Human-in-the-Loop interrupt to collect user input via a form.
