@@ -23,6 +23,7 @@ export interface UserInputMetadata {
   input_title?: string;
   input_description?: string;
   input_fields?: InputField[];
+  response?: string;
 }
 
 interface MetadataInputFormProps {

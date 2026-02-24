@@ -201,13 +201,14 @@ class Metadata(BaseModel):
 
 class CAIPEAgentResponse(BaseModel):
     """Structured response format for CAIPE (Cisco AI Platform Engineering) user input collection."""
+    response: str = Field(description="A friendly summary of what information the user needs to provide and why. This is shown in the chat as a text message alongside the form.")
     metadata: Metadata = Field(description="Metadata containing input fields. When requesting input, populate field_name/field_description/required. When returning values, populate the value field.")
 
 
 def create_caipe_agent_response_tool():
     """Create a tool from CAIPEAgentResponse schema for structured user input collection."""
     
-    def caipe_agent_response(metadata: Metadata) -> str:
+    def caipe_agent_response(response: str, metadata: Metadata) -> str:
         """Request user input when needed. Returns status based on input fields.
         
         This tool triggers a Human-in-the-Loop interrupt to collect user input via a form.
@@ -269,21 +270,19 @@ CRITICAL RULES:
 2. After calling CAIPEAgentResponse, your task is COMPLETE - stop immediately
 3. Do NOT generate text asking for more input after the tool returns
 4. Include ALL required fields in a single CAIPEAgentResponse call
+5. Always provide a friendly `response` message that explains what you need from the user
 
 When collecting input:
 1. Determine what information is needed based on the workflow step
-2. Create input_fields with clear field_name, field_description, and required=True for mandatory fields
-3. Provide default_value when appropriate (e.g., common choices)
-4. Use field_values to provide dropdown options when there are limited valid choices
-
-Example fields for "Create GitHub Repo":
-- field_name: "repo_name", field_description: "Repository name (lowercase, no spaces)", required: True
-- field_name: "org_name", field_description: "GitHub organization", required: True, field_values: ["cisco-eti", "outshift-platform", "cisco-platform"]
-- field_name: "description", field_description: "Brief description of the repository", required: False
+2. Write a friendly `response` message summarizing what the user needs to provide (e.g., "To create your GitHub repository, I need a few details from you. Please fill in the form below.")
+3. Create input_fields with clear field_name, field_description, and required=True for mandatory fields
+4. Provide default_value when appropriate (e.g., common choices)
+5. Use field_values to provide dropdown options when there are limited valid choices
 
 Tools:
 CAIPEAgentResponse
 * Use this to request user input via a structured form
+* Always include a `response` field with a friendly message shown in the chat alongside the form
 * Populate metadata.input_fields with the fields you need
 * The tool will trigger a Human-in-the-Loop interrupt for user input
 

@@ -736,10 +736,12 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                         # Extract structured form metadata from CAIPEAgentResponse tool calls
                         # The frontend expects a UserInputMetaData artifact with input_fields
                         form_metadata = None
+                        form_response_text = None
                         for tc in msg.tool_calls:
                             tc_name = tc.get("name", "")
                             if tc_name == "CAIPEAgentResponse":
                                 tc_args = tc.get("args", {})
+                                form_response_text = tc_args.get("response")
                                 meta = tc_args.get("metadata", {})
                                 input_fields = meta.get("input_fields", [])
                                 if input_fields:
@@ -748,6 +750,7 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                                         "input_title": meta.get("input_title"),
                                         "input_description": meta.get("input_description"),
                                         "input_fields": input_fields,
+                                        "response": form_response_text,
                                     }
                                     break
 
@@ -759,6 +762,25 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                             data["additional_kwargs"] = ak
                             form_metadata = data
                             logger.warning(f"Task {task.id}: Could not extract input_fields from interrupt, using raw message data")
+
+                        # Send response text as a content message before the form
+                        if form_response_text:
+                            await self._safe_enqueue_event(
+                                event_queue,
+                                TaskStatusUpdateEvent(
+                                    status=TaskStatus(
+                                        state=TaskState.working,
+                                        message=new_agent_text_message(
+                                            form_response_text,
+                                            task.context_id,
+                                            task.id
+                                        ),
+                                    ),
+                                    final=False,
+                                    context_id=task.context_id,
+                                    task_id=task.id,
+                                )
+                            )
 
                         # Send as UserInputMetaData artifact (matching multi-agent executor format)
                         # This ensures the frontend receives the form before the stream ends
@@ -772,13 +794,14 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                         logger.info(f"Task {task.id} sent UserInputMetaData artifact with {len(form_metadata.get('input_fields', []))} fields.")
                         
                         # Then send the input-required status (final=True will end the stream)
+                        status_text = form_response_text or "Please provide the required information."
                         await self._safe_enqueue_event(
                             event_queue,
                             TaskStatusUpdateEvent(
                                 status=TaskStatus(
                                     state=TaskState.input_required,
                                     message=new_agent_text_message(
-                                        "Please provide the required information.",
+                                        status_text,
                                         task.context_id,
                                         task.id
                                     ),

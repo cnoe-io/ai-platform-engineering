@@ -510,19 +510,26 @@ class AIPlatformEngineerA2ABinding:
                       logging.warning("[Interrupt] No tool_calls extracted from interrupt, skipping")
                       continue
 
+                  # Extract response text from CAIPEAgentResponse args
+                  form_response = ""
+                  for tc in tool_calls:
+                      if tc.get("name") == "CAIPEAgentResponse":
+                          form_response = (tc.get("args") or {}).get("response", "")
+                          break
+
                   # Create synthetic AIMessage with tool_calls for form display
                   synth_msg = AIMessage(
-                      content="Please provide the required information.",
+                      content=form_response or "Please provide the required information.",
                       tool_calls=tool_calls,
                   )
-                  logging.info(f"[Interrupt] Yielding form with {len(tool_calls)} tool_calls")
+                  logging.info(f"[Interrupt] Yielding form with {len(tool_calls)} tool_calls, response={bool(form_response)}")
                   is_interrupt = True
                   yield {
                       "event_type": "interrupt",
                       "message": synth_msg,
                       "is_task_complete": False,
                       "require_user_input": True,
-                      "content": "",
+                      "content": form_response,
                       "agent_type": "caipe",
                       "node_name": "caipe",
                   }
@@ -1621,9 +1628,13 @@ class AIPlatformEngineerA2ABinding:
                           logging.warning(f"Failed to parse action_request: {parse_err}")
                   
                   if tool_calls:
-                      # Create synthetic AIMessage with tool_calls for form display
+                      form_response = ""
+                      for tc in tool_calls:
+                          if tc.get("name") == "CAIPEAgentResponse":
+                              form_response = (tc.get("args") or {}).get("response", "")
+                              break
                       synth_msg = AIMessage(
-                          content="Please provide the required information.",
+                          content=form_response or "Please provide the required information.",
                           tool_calls=tool_calls,
                       )
                       logging.info(f"[Interrupt from exception] Yielding form with {len(tool_calls)} tool_calls")
@@ -1632,7 +1643,7 @@ class AIPlatformEngineerA2ABinding:
                           "message": synth_msg,
                           "is_task_complete": False,
                           "require_user_input": True,
-                          "content": "",
+                          "content": form_response,
                           "agent_type": "caipe",
                           "node_name": "caipe",
                       }
@@ -1727,9 +1738,13 @@ class AIPlatformEngineerA2ABinding:
                           logging.warning(f"[Fallback Interrupt] Failed to parse action_request: {parse_err}")
                   
                   if tool_calls:
-                      # Create synthetic AIMessage with tool_calls for form display
+                      form_response = ""
+                      for tc in tool_calls:
+                          if tc.get("name") == "CAIPEAgentResponse":
+                              form_response = (tc.get("args") or {}).get("response", "")
+                              break
                       synth_msg = AIMessage(
-                          content="Please provide the required information.",
+                          content=form_response or "Please provide the required information.",
                           tool_calls=tool_calls,
                       )
                       logging.info(f"[Fallback Interrupt] Yielding form with {len(tool_calls)} tool_calls")
@@ -1738,7 +1753,7 @@ class AIPlatformEngineerA2ABinding:
                           "message": synth_msg,
                           "is_task_complete": False,
                           "require_user_input": True,
-                          "content": "",
+                          "content": form_response,
                           "agent_type": "caipe",
                           "node_name": "caipe",
                       }
@@ -2024,9 +2039,13 @@ class AIPlatformEngineerA2ABinding:
                               logging.warning(f"Failed to parse action_request in fallback: {parse_err}")
                       
                       if tool_calls:
-                          # Create synthetic AIMessage with tool_calls for form display
+                          form_response = ""
+                          for tc in tool_calls:
+                              if tc.get("name") == "CAIPEAgentResponse":
+                                  form_response = (tc.get("args") or {}).get("response", "")
+                                  break
                           synth_msg = AIMessage(
-                              content="Please provide the required information.",
+                              content=form_response or "Please provide the required information.",
                               tool_calls=tool_calls,
                           )
                           logging.info(f"[Fallback Interrupt] Yielding form with {len(tool_calls)} tool_calls")
@@ -2035,7 +2054,7 @@ class AIPlatformEngineerA2ABinding:
                               "message": synth_msg,
                               "is_task_complete": False,
                               "require_user_input": True,
-                              "content": "",
+                              "content": form_response,
                               "agent_type": "caipe",
                               "node_name": "caipe",
                           }

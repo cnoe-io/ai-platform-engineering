@@ -440,6 +440,10 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle }: ChatP
               metadata,
               contextId: event.contextId || convId,
             });
+            if (metadata.response) {
+              accumulatedText = metadata.response;
+              updateMessage(convId!, assistantMsgId, { content: accumulatedText });
+            }
           }
         }
 
