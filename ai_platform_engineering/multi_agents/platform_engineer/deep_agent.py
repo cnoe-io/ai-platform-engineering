@@ -11,7 +11,7 @@ import httpx
 import traceback
 import json
 
-from langchain_core.messages import AIMessage
+from langchain_core.messages import AIMessage, HumanMessage
 from langchain_core.tools import tool
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.checkpoint.memory import InMemorySaver
@@ -327,8 +327,7 @@ class AIPlatformEngineerMAS:
 
     logger.info("🎨 Creating deep agent with system prompt")
 
-    # Response format instruction tells the LLM how to use the ResponseFormat tool
-    # Only used when USE_STRUCTURED_RESPONSE is enabled
+    # Response format instruction tells the LLM how to use the ResponseFormat tool.
     if USE_STRUCTURED_RESPONSE:
       response_format_instruction = (
         "CRITICAL: You MUST call the ResponseFormat tool for EVERY response - including greetings, simple questions, and informational queries. "
@@ -341,20 +340,42 @@ class AIPlatformEngineerMAS:
         "When you need information from the user, set metadata.user_input to true and populate metadata.input_fields with the fields you need."
       )
     else:
-      # Unstructured mode: rely on [FINAL ANSWER] marker in prompt config
       response_format_instruction = None
 
-    # Build deep agent kwargs - only include response_format when structured mode is enabled
+    # Build deep agent kwargs
     deep_agent_kwargs = {
-      "tools": all_tools,  # A2A tools + RAG tools + reflect_on_output for validation
-      "instructions": system_prompt,  # System prompt enforces TODO-based execution workflow
-      "subagents": subagents,  # CustomSubAgents for proper task() delegation
+      "tools": all_tools,
+      "instructions": system_prompt,
+      "subagents": subagents,
       "model": base_model,
     }
 
-    # Add response_format only when structured response mode is enabled
     if USE_STRUCTURED_RESPONSE and response_format_instruction:
       deep_agent_kwargs["response_format"] = (response_format_instruction, PlatformEngineerResponse)
+
+      # Bedrock ConverseStream on newer Sonnet models rejects conversations ending
+      # with an assistant message ("does not support assistant message prefill").
+      # LangGraph's generate_structured_response node receives all messages from
+      # state — which always end with an AIMessage after the agent loop finishes.
+      # This post_model_hook injects a HumanMessage when the agent is done (no
+      # pending tool calls), so the generate_structured_response node sees messages
+      # ending with a user message instead. The v2 post_model_hook_router in
+      # LangGraph finds the last AIMessage for routing decisions regardless of our
+      # appended HumanMessage, so tool-call routing is unaffected.
+      def _bedrock_prefill_fix_hook(state):
+        messages = state.get("messages", [])
+        if not messages:
+          return {}
+        last_msg = messages[-1]
+        if isinstance(last_msg, AIMessage) and not getattr(last_msg, "tool_calls", None):
+          return {
+            "messages": [
+              HumanMessage(content="Now provide your final response using the structured output format.")
+            ]
+          }
+        return {}
+
+      deep_agent_kwargs["post_model_hook"] = _bedrock_prefill_fix_hook
 
     deep_agent = async_create_deep_agent(**deep_agent_kwargs)
 
