@@ -45,6 +45,7 @@ import {
   getIngestors,
   getJobStatus,
   getJobsByDataSource,
+  getJobsBatch,
   ingestUrl,
   deleteDataSource,
   deleteIngestor,
@@ -347,14 +348,39 @@ export default function IngestView() {
   }, [dataSources])
 
   useEffect(() => {
-    const interval = setInterval(() => {
-      Object.entries(dataSourceJobs).forEach(([datasourceId, jobs]) => {
-        jobs.forEach(job => {
-          if (job.status === 'in_progress' || job.status === 'pending') {
-            pollJob(datasourceId, job.job_id)
+    const interval = setInterval(async () => {
+      // Find all datasources that have active jobs (in_progress or pending)
+      const datasourcesWithActiveJobs = Object.entries(dataSourceJobs)
+        .filter(([_, jobs]) => 
+          jobs.some(job => job.status === 'in_progress' || job.status === 'pending')
+        )
+        .map(([datasourceId]) => datasourceId)
+
+      if (datasourcesWithActiveJobs.length === 0) {
+        return
+      }
+
+      try {
+        // Batch fetch ALL jobs for datasources with active jobs (no status filter)
+        // This allows us to see when jobs transition from in_progress to completed
+        const result = await getJobsBatch(datasourcesWithActiveJobs)
+        
+        // Update state with the fetched jobs
+        setDataSourceJobs(prev => {
+          const updated = { ...prev }
+          for (const datasourceId of datasourcesWithActiveJobs) {
+            const fetchedJobs = result.jobs[datasourceId] || []
+            if (fetchedJobs.length > 0) {
+              // Sort by created_at descending (newest first)
+              const sortedJobs = [...fetchedJobs].sort((a, b) => b.created_at - a.created_at)
+              updated[datasourceId] = sortedJobs
+            }
           }
+          return updated
         })
-      })
+      } catch (error) {
+        console.error('Error batch polling job statuses:', error)
+      }
     }, 2000)
 
     return () => clearInterval(interval)

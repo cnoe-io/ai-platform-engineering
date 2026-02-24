@@ -31,6 +31,7 @@ from common.models.server import (
   UrlReloadRequest,
   ConfluenceIngestRequest,
   ConfluenceReloadRequest,
+  JobsBatchRequest,
 )
 from common.models.rag import DataSourceInfo, IngestorInfo, valid_metadata_keys
 from common.models.rbac import Role, UserContext, UserInfoResponse
@@ -432,6 +433,39 @@ async def get_jobs_by_datasource(datasource_id: str, status_filter: Optional[Job
 
   logger.info(f"Returning {len(jobs)} jobs for datasource {datasource_id}")
   return jobs
+
+
+@app.post("/v1/jobs/batch")
+async def get_jobs_batch(request: JobsBatchRequest, user: UserContext = Depends(require_role(Role.READONLY))):
+  """Get jobs for multiple datasources in a single batch request.
+
+  This endpoint is optimized for polling job statuses across multiple datasources,
+  reducing the number of API calls and RBAC authentication overhead.
+  """
+  if not jobmanager:
+    raise HTTPException(status_code=500, detail="Server not initialized")
+
+  # Validate request
+  if len(request.datasource_ids) > 100:
+    raise HTTPException(status_code=400, detail="Cannot fetch jobs for more than 100 datasources at once")
+
+  # Convert status filter strings to JobStatus enum if provided
+  status_filter_enums = None
+  if request.status_filter:
+    try:
+      status_filter_enums = [JobStatus(s) for s in request.status_filter]
+    except ValueError as e:
+      raise HTTPException(status_code=400, detail=f"Invalid status filter: {e}")
+
+  # Fetch jobs in batch
+  jobs_by_datasource = await jobmanager.get_jobs_batch(datasource_ids=request.datasource_ids, status_filter=status_filter_enums)
+
+  # Count total jobs
+  total_jobs = sum(len(jobs) for jobs in jobs_by_datasource.values())
+
+  logger.debug(f"Returning {total_jobs} jobs for {len(request.datasource_ids)} datasources (batch)")
+
+  return {"jobs": jsonable_encoder(jobs_by_datasource), "total_jobs": total_jobs, "datasource_count": len(request.datasource_ids)}
 
 
 @app.post("/v1/job", status_code=status.HTTP_201_CREATED)

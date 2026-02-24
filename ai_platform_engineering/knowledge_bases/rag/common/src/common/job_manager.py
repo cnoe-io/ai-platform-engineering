@@ -1,5 +1,5 @@
 from enum import Enum
-from typing import List, Optional
+from typing import Dict, List, Optional
 import redis.asyncio as redis
 from common.utils import get_logger
 import time
@@ -412,6 +412,106 @@ class JobManager:
       return matching_jobs
 
     return None
+
+  async def get_jobs_batch(
+    self,
+    datasource_ids: List[str],
+    status_filter: Optional[List[JobStatus]] = None,
+  ) -> Dict[str, List[JobInfo]]:
+    """
+    Retrieves jobs for multiple datasources in a single batch operation.
+    Uses Redis pipelines for efficient fetching.
+
+    :param datasource_ids: List of datasource IDs to fetch jobs for.
+    :param status_filter: Optional list of statuses to filter by (e.g., [JobStatus.IN_PROGRESS, JobStatus.PENDING]).
+    :return: Dict mapping datasource_id to list of JobInfo objects.
+    """
+    if not datasource_ids:
+      return {}
+
+    result: Dict[str, List[JobInfo]] = {}
+
+    # Step 1: Fetch all job IDs for all datasources using pipeline
+    pipeline = self.redis_client.pipeline()
+    for datasource_id in datasource_ids:
+      index_key = self._get_datasource_index_key(datasource_id)
+      pipeline.smembers(index_key)
+
+    index_results = await pipeline.execute()
+
+    # Build a mapping of datasource_id -> job_ids and collect all unique job_ids
+    datasource_job_ids: Dict[str, List[str]] = {}
+    all_job_ids: List[str] = []
+
+    for i, datasource_id in enumerate(datasource_ids):
+      job_ids = index_results[i]
+      if job_ids:
+        decoded_ids = [jid.decode() if isinstance(jid, bytes) else jid for jid in job_ids]
+        datasource_job_ids[datasource_id] = decoded_ids
+        all_job_ids.extend(decoded_ids)
+      else:
+        datasource_job_ids[datasource_id] = []
+
+    if not all_job_ids:
+      # No jobs found for any datasource
+      return {ds_id: [] for ds_id in datasource_ids}
+
+    # Step 2: Fetch all job data and error messages using pipeline
+    # Remove duplicates while preserving ability to map back
+    unique_job_ids = list(set(all_job_ids))
+
+    pipeline = self.redis_client.pipeline()
+    for job_id in unique_job_ids:
+      job_key = self._get_job_key(job_id)
+      pipeline.hgetall(job_key)
+      pipeline.lrange(self._get_error_msgs_key(job_id), 0, -1)
+
+    job_results = await pipeline.execute()
+
+    # Parse job data into JobInfo objects, keyed by job_id
+    job_info_map: Dict[str, JobInfo] = {}
+    for i, job_id in enumerate(unique_job_ids):
+      hash_data = job_results[i * 2]
+      error_msgs = job_results[i * 2 + 1]
+
+      if not hash_data:
+        continue
+
+      # Convert hash data to JobInfo (same logic as get_job)
+      job_dict = {
+        "job_id": hash_data.get(b"job_id", b"").decode() if isinstance(hash_data.get(b"job_id"), bytes) else hash_data.get("job_id", ""),
+        "status": hash_data.get(b"status", b"").decode() if isinstance(hash_data.get(b"status"), bytes) else hash_data.get("status", ""),
+        "message": hash_data.get(b"message", b"").decode() if isinstance(hash_data.get(b"message"), bytes) else hash_data.get("message") if hash_data.get("message") or hash_data.get(b"message") else None,
+        "created_at": int(hash_data.get(b"created_at", b"0").decode() if isinstance(hash_data.get(b"created_at"), bytes) else hash_data.get("created_at", "0")),
+        "completed_at": int(hash_data.get(b"completed_at", b"0").decode() if isinstance(hash_data.get(b"completed_at"), bytes) else hash_data.get("completed_at", "0")) if hash_data.get("completed_at") or hash_data.get(b"completed_at") else None,
+        "total": int(hash_data.get(b"total", b"0").decode() if isinstance(hash_data.get(b"total"), bytes) else hash_data.get("total", "0")) if hash_data.get("total") or hash_data.get(b"total") else None,
+        "progress_counter": int(hash_data.get(b"progress_counter", b"0").decode() if isinstance(hash_data.get(b"progress_counter"), bytes) else hash_data.get("progress_counter", "0")),
+        "failed_counter": int(hash_data.get(b"failed_counter", b"0").decode() if isinstance(hash_data.get(b"failed_counter"), bytes) else hash_data.get("failed_counter", "0")),
+        "datasource_id": hash_data.get(b"datasource_id", b"").decode() if isinstance(hash_data.get(b"datasource_id"), bytes) else hash_data.get("datasource_id") if hash_data.get("datasource_id") or hash_data.get(b"datasource_id") else None,
+        "document_count": int(hash_data.get(b"document_count", b"0").decode() if isinstance(hash_data.get(b"document_count"), bytes) else hash_data.get("document_count", "0")),
+        "chunk_count": int(hash_data.get(b"chunk_count", b"0").decode() if isinstance(hash_data.get(b"chunk_count"), bytes) else hash_data.get("chunk_count", "0")),
+        "error_msgs": [msg.decode() if isinstance(msg, bytes) else msg for msg in error_msgs] if error_msgs else [],
+      }
+
+      try:
+        job_info = JobInfo(**job_dict)
+
+        # Apply status filter if provided
+        if status_filter is None or job_info.status in status_filter:
+          job_info_map[job_id] = job_info
+      except Exception as e:
+        logger.warning(f"Failed to parse job {job_id}: {e}")
+        continue
+
+    # Step 3: Group jobs by datasource_id and sort
+    for datasource_id in datasource_ids:
+      job_ids_for_ds = datasource_job_ids.get(datasource_id, [])
+      jobs_for_ds = [job_info_map[jid] for jid in job_ids_for_ds if jid in job_info_map]
+      # Sort by created_at descending (most recent first)
+      jobs_for_ds.sort(key=lambda j: j.created_at, reverse=True)
+      result[datasource_id] = jobs_for_ds
+
+    return result
 
   async def delete_job(self, job_id: str) -> bool:
     """
