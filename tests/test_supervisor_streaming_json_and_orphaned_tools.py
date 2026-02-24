@@ -419,3 +419,453 @@ class TestPreflightContextCheckNullQuery:
             query=query,
         )
         assert result.query_tokens == len(query) // 4
+
+
+# ---------------------------------------------------------------------------
+# 6. _extract_tool_call_ids — edge cases
+# ---------------------------------------------------------------------------
+
+class TestExtractToolCallIdsEdgeCases:
+    """Edge-case coverage for _extract_tool_call_ids."""
+
+    def _extract(self, msg):
+        from ai_platform_engineering.utils.a2a_common.langmem_utils import _extract_tool_call_ids
+        return _extract_tool_call_ids(msg)
+
+    def test_camel_case_toolUse_key(self):
+        """Bedrock may use 'toolUse' (camelCase) in additional_kwargs."""
+        msg = AIMessage(
+            content="",
+            additional_kwargs={
+                "toolUse": [{"id": "tooluse_camel", "name": "x", "input": {}}]
+            },
+        )
+        assert "tooluse_camel" in self._extract(msg)
+
+    def test_toolUseId_key_variant(self):
+        """Some Bedrock payloads use 'toolUseId' instead of 'id'."""
+        msg = AIMessage(
+            content="",
+            additional_kwargs={
+                "tool_use": [{"toolUseId": "tooluse_alt_key", "name": "x", "input": {}}]
+            },
+        )
+        assert "tooluse_alt_key" in self._extract(msg)
+
+    def test_single_dict_not_list(self):
+        """additional_kwargs.tool_use may be a single dict, not a list."""
+        msg = AIMessage(
+            content="",
+            additional_kwargs={
+                "tool_use": {"id": "tooluse_single", "name": "x", "input": {}}
+            },
+        )
+        assert "tooluse_single" in self._extract(msg)
+
+    def test_mixed_content_blocks(self):
+        """Content list with both text and tool_use blocks."""
+        msg = AIMessage(
+            content=[
+                {"type": "text", "text": "thinking..."},
+                {"type": "tool_use", "id": "tooluse_mixed", "name": "x", "input": {}},
+                {"type": "text", "text": "more thinking"},
+            ],
+        )
+        ids = self._extract(msg)
+        assert ids == {"tooluse_mixed"}
+
+    def test_malformed_content_block_missing_id(self):
+        """Content block with type=tool_use but no id key is silently skipped."""
+        msg = AIMessage(
+            content=[
+                {"type": "tool_use", "name": "x", "input": {}},
+            ],
+        )
+        assert self._extract(msg) == set()
+
+    def test_empty_tool_calls_list(self):
+        """AIMessage with tool_calls=[] returns empty set."""
+        msg = AIMessage(content="hello", tool_calls=[])
+        assert self._extract(msg) == set()
+
+    def test_string_content_blocks_skipped(self):
+        """String elements in content list are silently skipped."""
+        msg = AIMessage(
+            content=["plain text", {"type": "text", "text": "hello"}, {"type": "tool_use", "id": "tooluse_ok", "name": "x", "input": {}}],
+        )
+        assert self._extract(msg) == {"tooluse_ok"}
+
+
+# ---------------------------------------------------------------------------
+# 7. _repair_orphaned_tool_calls — edge cases
+# ---------------------------------------------------------------------------
+
+class TestRepairOrphanedToolCallsEdgeCases:
+    """Edge-case coverage for _repair_orphaned_tool_calls."""
+
+    def _make_binding(self):
+        with patch(
+            "ai_platform_engineering.multi_agents.platform_engineer.deep_agent.LLMFactory"
+        ) as mock_llm_factory:
+            mock_llm_factory.return_value.get_llm.return_value = MagicMock()
+            from ai_platform_engineering.multi_agents.platform_engineer.protocol_bindings.a2a.agent import (
+                AIPlatformEngineerA2ABinding,
+            )
+            binding = AIPlatformEngineerA2ABinding.__new__(AIPlatformEngineerA2ABinding)
+            binding.graph = MagicMock()
+            return binding
+
+    @pytest.mark.asyncio
+    async def test_empty_state_values_none(self):
+        """state.values is None — should return without raising."""
+        binding = self._make_binding()
+        state = MagicMock()
+        state.values = None
+        binding.graph.aget_state = AsyncMock(return_value=state)
+        binding.graph.aupdate_state = AsyncMock()
+
+        await binding._repair_orphaned_tool_calls({"configurable": {"thread_id": "t1"}})
+        binding.graph.aupdate_state.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_state_is_none(self):
+        """aget_state returns None — should return without raising."""
+        binding = self._make_binding()
+        binding.graph.aget_state = AsyncMock(return_value=None)
+        binding.graph.aupdate_state = AsyncMock()
+
+        await binding._repair_orphaned_tool_calls({"configurable": {"thread_id": "t1"}})
+        binding.graph.aupdate_state.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_empty_messages_list(self):
+        """Empty messages list — should return without raising."""
+        binding = self._make_binding()
+        state = MagicMock()
+        state.values = {"messages": []}
+        binding.graph.aget_state = AsyncMock(return_value=state)
+        binding.graph.aupdate_state = AsyncMock()
+
+        await binding._repair_orphaned_tool_calls({"configurable": {"thread_id": "t1"}})
+        binding.graph.aupdate_state.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_multiple_orphans_all_removed(self):
+        """Multiple orphaned AIMessages should all be removed."""
+        binding = self._make_binding()
+        msg1 = _make_ai_message_with_tool_calls("tooluse_a", msg_id="msg-a")
+        msg2 = _make_ai_message_with_additional_kwargs("tooluse_b", msg_id="msg-b")
+        messages = [HumanMessage(content="hi"), msg1, msg2]
+
+        state = MagicMock()
+        state.values = {"messages": messages}
+        binding.graph.aget_state = AsyncMock(return_value=state)
+        binding.graph.aupdate_state = AsyncMock()
+
+        await binding._repair_orphaned_tool_calls({"configurable": {"thread_id": "t1"}})
+
+        binding.graph.aupdate_state.assert_called_once()
+        removed = binding.graph.aupdate_state.call_args[0][1]["messages"]
+        removed_ids = {r.id for r in removed}
+        assert "msg-a" in removed_ids
+        assert "msg-b" in removed_ids
+
+    @pytest.mark.asyncio
+    async def test_partial_orphan_only_orphaned_removed(self):
+        """AIMessage with 2 tool calls, one resolved and one orphaned — only orphaned AIMessage removed."""
+        binding = self._make_binding()
+        ai_msg = AIMessage(
+            id="msg-partial",
+            content="",
+            tool_calls=[
+                {"id": "tooluse_resolved", "name": "a", "args": {}},
+                {"id": "tooluse_orphaned", "name": "b", "args": {}},
+            ],
+        )
+        messages = [
+            HumanMessage(content="hi"),
+            ai_msg,
+            _make_tool_message("tooluse_resolved"),
+        ]
+
+        state = MagicMock()
+        state.values = {"messages": messages}
+        binding.graph.aget_state = AsyncMock(return_value=state)
+        binding.graph.aupdate_state = AsyncMock()
+
+        await binding._repair_orphaned_tool_calls({"configurable": {"thread_id": "t1"}})
+
+        binding.graph.aupdate_state.assert_called_once()
+        removed = binding.graph.aupdate_state.call_args[0][1]["messages"]
+        assert len(removed) == 1
+        assert removed[0].id == "msg-partial"
+
+    @pytest.mark.asyncio
+    async def test_aget_state_raises_exception(self):
+        """aget_state raising should trigger fallback path without propagating."""
+        binding = self._make_binding()
+        binding.graph.aget_state = AsyncMock(side_effect=RuntimeError("checkpoint error"))
+        binding.graph.aupdate_state = AsyncMock()
+        binding.graph.checkpointer = None
+
+        await binding._repair_orphaned_tool_calls({"configurable": {"thread_id": "t1"}})
+        # Should not raise; the except block handles it
+
+
+# ---------------------------------------------------------------------------
+# 8. _find_safe_summarization_boundary — edge cases
+# ---------------------------------------------------------------------------
+
+class TestSummarizationBoundaryEdgeCases:
+    """Edge-case coverage for _find_safe_summarization_boundary."""
+
+    def _boundary(self, messages, min_keep=2):
+        from ai_platform_engineering.utils.a2a_common.langmem_utils import _find_safe_summarization_boundary
+        return _find_safe_summarization_boundary(messages, min_keep)
+
+    def test_fewer_messages_than_min_keep(self):
+        """len(messages) <= min_keep should return 0 (no summarization)."""
+        messages = [HumanMessage(content="hi"), AIMessage(content="hello")]
+        assert self._boundary(messages, min_keep=5) == 0
+
+    def test_equal_messages_to_min_keep(self):
+        """len(messages) == min_keep should return 0."""
+        messages = [HumanMessage(content="hi"), AIMessage(content="hello")]
+        assert self._boundary(messages, min_keep=2) == 0
+
+    def test_no_tool_calls_straightforward_boundary(self):
+        """All HumanMessage/AIMessage with no tool calls — boundary is len-min_keep."""
+        messages = [
+            HumanMessage(content="q1"),
+            AIMessage(content="a1"),
+            HumanMessage(content="q2"),
+            AIMessage(content="a2"),
+            HumanMessage(content="q3"),
+            AIMessage(content="a3"),
+        ]
+        boundary = self._boundary(messages, min_keep=2)
+        assert boundary == 4
+
+    def test_multiple_pending_tool_calls_at_boundary(self):
+        """Multiple tool calls crossing the boundary — all must be included."""
+        tid_a = "tooluse_multi_a"
+        tid_b = "tooluse_multi_b"
+        ai_msg = AIMessage(
+            id="msg-multi",
+            content="",
+            tool_calls=[
+                {"id": tid_a, "name": "a", "args": {}},
+                {"id": tid_b, "name": "b", "args": {}},
+            ],
+        )
+        messages = [
+            HumanMessage(content="q1"),
+            AIMessage(content="a1"),
+            ai_msg,
+            _make_tool_message(tid_a),
+            _make_tool_message(tid_b),
+            HumanMessage(content="q2"),
+            AIMessage(content="a2"),
+        ]
+        boundary = self._boundary(messages, min_keep=2)
+        # Boundary must not split the AI+Tool pair
+        assert boundary != 3
+        assert boundary != 4
+
+    def test_tool_message_in_keep_references_summarize(self):
+        """ToolMessage in keep references tool_call in summarize — boundary adjusts."""
+        tid = "tooluse_cross_boundary"
+        messages = [
+            HumanMessage(content="q1"),
+            _make_ai_message_with_tool_calls(tid),
+            HumanMessage(content="q2"),
+            AIMessage(content="a2"),
+            _make_tool_message(tid),
+            HumanMessage(content="q3"),
+            AIMessage(content="a3"),
+        ]
+        boundary = self._boundary(messages, min_keep=3)
+        # The AIMessage at index 1 has the tool_call, ToolMessage at index 4
+        # references it. Boundary must move back to include both.
+        assert boundary <= 1
+
+    def test_empty_messages(self):
+        """Empty messages list returns 0."""
+        assert self._boundary([], min_keep=2) == 0
+
+
+# ---------------------------------------------------------------------------
+# 9. Force-repair regex extraction
+# ---------------------------------------------------------------------------
+
+class TestForceRepairRegex:
+    """Test the regex extraction of tooluse IDs from Bedrock/LangGraph error strings."""
+
+    def _extract_ids(self, error_str):
+        import re
+        return re.findall(r'tooluse_[A-Za-z0-9_-]+', error_str)
+
+    def test_bedrock_error_format(self):
+        """Bedrock: 'Expected toolResult blocks ... for the following Ids: tooluse_abc123'."""
+        error = (
+            "ValidationException: Expected toolResult blocks at "
+            "messages.0.content for the following Ids: tooluse_r0nsJk4QRomof54ouCCjj5"
+        )
+        ids = self._extract_ids(error)
+        assert ids == ["tooluse_r0nsJk4QRomof54ouCCjj5"]
+
+    def test_langgraph_error_format(self):
+        """LangGraph: 'do not have a corresponding ToolMessage ... id: tooluse_xyz'."""
+        error = (
+            "Found AIMessages with tool_calls that do not have a corresponding "
+            "ToolMessage. Here are the first few of the tool 'id' values: "
+            "['tooluse_xYz123-abc']"
+        )
+        ids = self._extract_ids(error)
+        assert ids == ["tooluse_xYz123-abc"]
+
+    def test_multiple_ids_in_error(self):
+        """Error string contains multiple tooluse IDs — all extracted."""
+        error = (
+            "Expected toolResult for tooluse_first_id and also "
+            "tooluse_second_id were missing"
+        )
+        ids = self._extract_ids(error)
+        assert len(ids) == 2
+        assert "tooluse_first_id" in ids
+        assert "tooluse_second_id" in ids
+
+    def test_no_tooluse_ids(self):
+        """Error string without tooluse IDs — returns empty list."""
+        error = "Some unrelated error: connection timeout"
+        ids = self._extract_ids(error)
+        assert ids == []
+
+    def test_tooluse_id_with_underscores_and_hyphens(self):
+        """IDs with underscores and hyphens are fully captured."""
+        error = "Missing result for tooluse_abc-123_DEF-456"
+        ids = self._extract_ids(error)
+        assert ids == ["tooluse_abc-123_DEF-456"]
+
+    def test_is_tool_state_error_detection(self):
+        """Verify the is_tool_state_error boolean logic matches all three patterns."""
+        bedrock_err = "Expected toolResult blocks at messages.0.content"
+        langgraph_err = "do not have a corresponding ToolMessage"
+        generic_err = "Some other error"
+
+        for err_str in [bedrock_err, langgraph_err]:
+            is_tool_state_error = (
+                "Expected toolResult" in err_str
+                or "toolResult blocks" in err_str
+                or "do not have a corresponding ToolMessage" in err_str
+            )
+            assert is_tool_state_error, f"Should detect tool state error: {err_str}"
+
+        is_tool_state_error = (
+            "Expected toolResult" in generic_err
+            or "toolResult blocks" in generic_err
+            or "do not have a corresponding ToolMessage" in generic_err
+        )
+        assert not is_tool_state_error
+
+
+# ---------------------------------------------------------------------------
+# 10. preflight_context_check — edge cases
+# ---------------------------------------------------------------------------
+
+class TestPreflightContextCheckEdgeCases:
+    """Edge-case coverage for preflight_context_check."""
+
+    def _make_graph(self, state_return=None, messages=None):
+        graph = MagicMock()
+        if state_return is not None:
+            graph.aget_state = AsyncMock(return_value=state_return)
+        elif messages is not None:
+            state = MagicMock()
+            state.values = {"messages": messages}
+            graph.aget_state = AsyncMock(return_value=state)
+        else:
+            graph.aget_state = AsyncMock(return_value=None)
+        return graph
+
+    @pytest.mark.asyncio
+    async def test_state_is_none(self):
+        """graph.aget_state returns None — returns needs_compression=False."""
+        from ai_platform_engineering.utils.a2a_common.langmem_utils import preflight_context_check
+        graph = self._make_graph(state_return=None)
+        result = await preflight_context_check(
+            graph=graph,
+            config={"configurable": {"thread_id": "t1"}},
+        )
+        assert result.needs_compression is False
+        assert result.estimated_tokens == 0
+
+    @pytest.mark.asyncio
+    async def test_state_values_is_none(self):
+        """state.values is None — returns needs_compression=False."""
+        from ai_platform_engineering.utils.a2a_common.langmem_utils import preflight_context_check
+        state = MagicMock()
+        state.values = None
+        graph = self._make_graph(state_return=state)
+        result = await preflight_context_check(
+            graph=graph,
+            config={"configurable": {"thread_id": "t1"}},
+        )
+        assert result.needs_compression is False
+
+    @pytest.mark.asyncio
+    async def test_no_messages_key(self):
+        """state.values has no 'messages' key — returns needs_compression=False."""
+        from ai_platform_engineering.utils.a2a_common.langmem_utils import preflight_context_check
+        state = MagicMock()
+        state.values = {"other_key": "value"}
+        # .get("messages", []) returns [] which is falsy
+        graph = self._make_graph(state_return=state)
+        result = await preflight_context_check(
+            graph=graph,
+            config={"configurable": {"thread_id": "t1"}},
+        )
+        assert result.needs_compression is False
+
+    @pytest.mark.asyncio
+    async def test_below_threshold_no_compression(self):
+        """Small history below 80% threshold — needs_compression=False."""
+        from ai_platform_engineering.utils.a2a_common.langmem_utils import preflight_context_check
+        messages = [HumanMessage(content="short question"), AIMessage(content="short answer")]
+        graph = self._make_graph(messages=messages)
+        result = await preflight_context_check(
+            graph=graph,
+            config={"configurable": {"thread_id": "t1"}},
+            max_context_tokens=100000,
+        )
+        assert result.needs_compression is False
+        assert result.estimated_tokens > 0
+
+    @pytest.mark.asyncio
+    async def test_above_threshold_no_model(self):
+        """Above threshold but model=None — needs_compression=True with error."""
+        from ai_platform_engineering.utils.a2a_common.langmem_utils import preflight_context_check
+        long_content = "x" * 400000
+        messages = [HumanMessage(content=long_content)]
+        graph = self._make_graph(messages=messages)
+        result = await preflight_context_check(
+            graph=graph,
+            config={"configurable": {"thread_id": "t1"}},
+            model=None,
+            max_context_tokens=1000,
+        )
+        assert result.needs_compression is True
+        assert result.error == "Model not provided for compression"
+
+    @pytest.mark.asyncio
+    async def test_aget_state_raises_returns_error(self):
+        """graph.aget_state raises — returns ContextCheckResult with error."""
+        from ai_platform_engineering.utils.a2a_common.langmem_utils import preflight_context_check
+        graph = MagicMock()
+        graph.aget_state = AsyncMock(side_effect=RuntimeError("db error"))
+        result = await preflight_context_check(
+            graph=graph,
+            config={"configurable": {"thread_id": "t1"}},
+        )
+        assert result.error is not None
+        assert "db error" in result.error
