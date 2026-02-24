@@ -60,6 +60,8 @@ class AIPlatformEngineerA2ABinding:
       - A sub-agent call fails mid-stream (e.g., context overflow)
       - A tool call is interrupted
       - Network issues cause incomplete responses
+      - LangMem summarization removes ToolMessages but leaves AIMessages
+        with tool_use data in additional_kwargs (Bedrock-specific)
 
       Args:
           config: Runnable configuration with thread_id
@@ -90,6 +92,42 @@ class AIPlatformEngineerA2ABinding:
                       if tc_id:
                           tool_calls_info[tc_id] = (idx, tc_name, msg_id)
 
+                  # Bedrock stores tool_use data in additional_kwargs which the
+                  # Converse API adapter reads when building the request. The
+                  # standard tool_calls attribute may be empty while
+                  # additional_kwargs still contains tool_use blocks, causing
+                  # Bedrock to complain about missing toolResult.
+                  add_kwargs = getattr(msg, 'additional_kwargs', {}) or {}
+                  for key in ('tool_use', 'toolUse'):
+                      tool_use_data = add_kwargs.get(key)
+                      if tool_use_data:
+                          items = tool_use_data if isinstance(tool_use_data, list) else [tool_use_data]
+                          for tu in items:
+                              if isinstance(tu, dict):
+                                  tu_id = tu.get('id') or tu.get('toolUseId')
+                                  tu_name = tu.get('name', 'unknown')
+                                  if tu_id and tu_id not in tool_calls_info:
+                                      tool_calls_info[tu_id] = (idx, tu_name, msg_id)
+                                      logging.debug(
+                                          f"Found tool_use in additional_kwargs: "
+                                          f"id={tu_id[:20]}..., name={tu_name}"
+                                      )
+
+                  # Also check content blocks for Bedrock tool_use (Converse API
+                  # format stores tool_use as content blocks)
+                  msg_content = getattr(msg, 'content', None)
+                  if isinstance(msg_content, list):
+                      for block in msg_content:
+                          if isinstance(block, dict) and block.get('type') == 'tool_use':
+                              tu_id = block.get('id')
+                              tu_name = block.get('name', 'unknown')
+                              if tu_id and tu_id not in tool_calls_info:
+                                  tool_calls_info[tu_id] = (idx, tu_name, msg_id)
+                                  logging.debug(
+                                      f"Found tool_use in content blocks: "
+                                      f"id={tu_id[:20]}..., name={tu_name}"
+                                  )
+
               # Track resolved tool calls
               if isinstance(msg, ToolMessage):
                   tc_id = getattr(msg, 'tool_call_id', None)
@@ -101,6 +139,12 @@ class AIPlatformEngineerA2ABinding:
                       if tc_id not in resolved_tool_calls}
 
           if not orphaned:
+              logging.debug(
+                  f"No orphaned tool calls found. "
+                  f"Tracked {len(tool_calls_info)} tool_call IDs, "
+                  f"{len(resolved_tool_calls)} resolved. "
+                  f"Message types: {[type(m).__name__ for m in messages]}"
+              )
               return
 
           orphaned_names = [info[1] for info in orphaned.values()]
@@ -585,7 +629,6 @@ class AIPlatformEngineerA2ABinding:
                                   continue  # Skip tool notification, already handled
                           else:
                               # Fallback: try to get any string value from args
-                              import json
                               for key, val in tool_args.items():
                                   if isinstance(val, str) and len(val) > 10:
                                       response_format_content = val
@@ -1097,6 +1140,15 @@ class AIPlatformEngineerA2ABinding:
               }
               return
 
+          # Attempt to repair orphaned tool calls before fallback stream.
+          # The primary stream failed with a Bedrock validation error, so
+          # the state likely has an AIMessage with tool_use that has no
+          # corresponding ToolMessage. Repair now to give fallback a chance.
+          try:
+              await self._repair_orphaned_tool_calls(config)
+          except Exception as repair_err:
+              logging.error(f"⚠️ Pre-fallback repair failed: {repair_err}")
+
           # Signal to executor to clear accumulated content before fallback stream
           # This prevents duplication from partial content streamed before the exception
           yield {
@@ -1105,7 +1157,8 @@ class AIPlatformEngineerA2ABinding:
               "clear_accumulators": True,
               "content": "🔄 Switching to fallback streaming mode...",
           }
-          async for item_type, item in self.graph.astream(inputs, config, stream_mode=['messages', 'custom', 'updates']):
+          try:
+            async for item_type, item in self.graph.astream(inputs, config, stream_mode=['messages', 'custom', 'updates']):
 
               # Handle custom A2A event payloads emitted via get_stream_writer()
               if isinstance(item, dict):
@@ -1217,6 +1270,69 @@ class AIPlatformEngineerA2ABinding:
                       logging.info(f"🎯 AIMessage content preview: {content_preview}...")
                       accumulated_ai_content.append(str(message.content))
                   final_ai_message = message
+          except Exception as fallback_err:
+              fallback_error_str = str(fallback_err)
+              logging.error(
+                  f"❌ Fallback stream also failed: {fallback_error_str}"
+              )
+
+              is_bedrock_tool_error = (
+                  "Expected toolResult" in fallback_error_str
+                  or "toolResult blocks" in fallback_error_str
+              )
+
+              if is_bedrock_tool_error:
+                  # The state has a persistent orphaned tool_use that neither
+                  # _repair_orphaned_tool_calls nor summarization could fix.
+                  # Force-repair by removing ALL AIMessages that Bedrock flags.
+                  try:
+                      import re as _re
+                      ids_found = _re.findall(
+                          r'tooluse_[A-Za-z0-9_-]+', fallback_error_str
+                      )
+                      if ids_found:
+                          logging.warning(
+                              f"🔧 Force-repairing Bedrock orphaned IDs: {ids_found}"
+                          )
+                          from langchain_core.messages import RemoveMessage
+                          state = await self.graph.aget_state(config)
+                          msgs = (
+                              state.values.get("messages", [])
+                              if state and state.values else []
+                          )
+                          to_remove = []
+                          for msg in msgs:
+                              if not isinstance(msg, AIMessage):
+                                  continue
+                              msg_id = getattr(msg, 'id', None)
+                              if not msg_id:
+                                  continue
+                              # Check all possible locations for the orphaned ID
+                              msg_str = str(getattr(msg, 'tool_calls', []))
+                              msg_str += str(getattr(msg, 'additional_kwargs', {}))
+                              msg_str += str(getattr(msg, 'content', ''))
+                              if any(tid in msg_str for tid in ids_found):
+                                  to_remove.append(RemoveMessage(id=msg_id))
+                          if to_remove:
+                              await self.graph.aupdate_state(
+                                  config, {"messages": to_remove}
+                              )
+                              logging.info(
+                                  f"✅ Force-removed {len(to_remove)} AIMessage(s) "
+                                  f"with Bedrock orphaned tool_use IDs"
+                              )
+                  except Exception as force_err:
+                      logging.error(f"Force-repair failed: {force_err}")
+
+              yield {
+                  "is_task_complete": False,
+                  "require_user_input": False,
+                  "content": (
+                      "⚠️ I encountered a conversation state issue. "
+                      "I've repaired the state - please try your question again."
+                  ),
+              }
+              return
 
       # After EITHER primary or fallback streaming completes, parse the final response to extract is_task_complete
       logging.info(f"🔍 POST-STREAM PARSING: final_ai_message={final_ai_message is not None}, accumulated_chunks={len(accumulated_ai_content)}, response_format_args={response_format_args is not None}")
@@ -1232,7 +1348,6 @@ class AIPlatformEngineerA2ABinding:
               logging.info(f"🎯 POST-STREAM: Parsing accumulated tool_call_chunks JSON ({len(partial_str)} chars)")
               logging.debug(f"🎯 POST-STREAM: Partial JSON preview: {partial_str[:500]}...")
               try:
-                  import json
                   parsed = json.loads(partial_str)
                   if isinstance(parsed, dict):
                       response_format_args.update(parsed)

@@ -36,12 +36,52 @@ from langchain_core.messages import BaseMessage, SystemMessage, AIMessage, ToolM
 logger = logging.getLogger(__name__)
 
 
+def _extract_tool_call_ids(msg: BaseMessage) -> set:
+    """
+    Extract all tool call IDs from an AIMessage, checking all locations where
+    Bedrock/Anthropic may store them: tool_calls, additional_kwargs, and
+    content blocks.
+    """
+    ids = set()
+    if not isinstance(msg, AIMessage):
+        return ids
+
+    for tc in (getattr(msg, 'tool_calls', None) or []):
+        tc_id = tc.get('id') if isinstance(tc, dict) else getattr(tc, 'id', None)
+        if tc_id:
+            ids.add(tc_id)
+
+    add_kwargs = getattr(msg, 'additional_kwargs', {}) or {}
+    for key in ('tool_use', 'toolUse'):
+        data = add_kwargs.get(key)
+        if data:
+            items = data if isinstance(data, list) else [data]
+            for tu in items:
+                if isinstance(tu, dict):
+                    tu_id = tu.get('id') or tu.get('toolUseId')
+                    if tu_id:
+                        ids.add(tu_id)
+
+    content = getattr(msg, 'content', None)
+    if isinstance(content, list):
+        for block in content:
+            if isinstance(block, dict) and block.get('type') == 'tool_use':
+                tu_id = block.get('id')
+                if tu_id:
+                    ids.add(tu_id)
+
+    return ids
+
+
 def _find_safe_summarization_boundary(messages: List[BaseMessage], min_keep: int) -> int:
     """
     Find a safe index to split messages for summarization.
 
     Ensures we don't split in the middle of tool call/result pairs, which would
     cause LLM validation errors like "Expected toolResult blocks for the following Ids".
+
+    Checks tool_calls, additional_kwargs, and content blocks (Bedrock stores
+    tool_use data in all three locations).
 
     Args:
         messages: List of messages to analyze
@@ -63,15 +103,9 @@ def _find_safe_summarization_boundary(messages: List[BaseMessage], min_keep: int
     for i in range(cut_index, len(messages)):
         msg = messages[i]
 
-        # Check for tool calls in AI messages
         if isinstance(msg, AIMessage):
-            tool_calls = getattr(msg, 'tool_calls', None) or []
-            for tc in tool_calls:
-                tc_id = tc.get('id') if isinstance(tc, dict) else getattr(tc, 'id', None)
-                if tc_id:
-                    pending_tool_calls.add(tc_id)
+            pending_tool_calls.update(_extract_tool_call_ids(msg))
 
-        # Check for tool results
         if isinstance(msg, ToolMessage):
             tc_id = getattr(msg, 'tool_call_id', None)
             if tc_id and tc_id in pending_tool_calls:
@@ -87,14 +121,11 @@ def _find_safe_summarization_boundary(messages: List[BaseMessage], min_keep: int
         msg = messages[i]
 
         if isinstance(msg, AIMessage):
-            tool_calls = getattr(msg, 'tool_calls', None) or []
-            for tc in tool_calls:
-                tc_id = tc.get('id') if isinstance(tc, dict) else getattr(tc, 'id', None)
-                if tc_id and tc_id in pending_tool_calls:
-                    # Found the tool call, need to keep it
-                    # Move cut point before this message
-                    cut_index = i
-                    pending_tool_calls.discard(tc_id)
+            msg_tc_ids = _extract_tool_call_ids(msg)
+            matched = msg_tc_ids & pending_tool_calls
+            if matched:
+                cut_index = i
+                pending_tool_calls -= matched
 
         if not pending_tool_calls:
             break
@@ -103,23 +134,19 @@ def _find_safe_summarization_boundary(messages: List[BaseMessage], min_keep: int
     while cut_index > 0:
         last_msg = messages[cut_index - 1]
         if isinstance(last_msg, AIMessage):
-            tool_calls = getattr(last_msg, 'tool_calls', None) or []
-            if tool_calls:
-                # This AI message has tool calls - check if results are in summarize section
+            tc_ids = _extract_tool_call_ids(last_msg)
+            if tc_ids:
                 has_all_results = True
-                for tc in tool_calls:
-                    tc_id = tc.get('id') if isinstance(tc, dict) else getattr(tc, 'id', None)
-                    if tc_id:
-                        # Look for matching ToolMessage in messages[:cut_index]
-                        found = False
-                        for j in range(cut_index):
-                            if isinstance(messages[j], ToolMessage):
-                                if getattr(messages[j], 'tool_call_id', None) == tc_id:
-                                    found = True
-                                    break
-                        if not found:
-                            has_all_results = False
-                            break
+                for tc_id in tc_ids:
+                    found = False
+                    for j in range(cut_index):
+                        if isinstance(messages[j], ToolMessage):
+                            if getattr(messages[j], 'tool_call_id', None) == tc_id:
+                                found = True
+                                break
+                    if not found:
+                        has_all_results = False
+                        break
 
                 if not has_all_results:
                     cut_index -= 1
