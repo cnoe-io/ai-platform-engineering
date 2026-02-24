@@ -1236,34 +1236,15 @@ class AIPlatformEngineerA2ABinding:
                           }
                       }
 
-                  # Special handling for write_todos: execution plan vs status updates
-                  if tool_name == "write_todos" and tool_content and tool_content.strip():
-                      if not self._execution_plan_sent:
-                          self._execution_plan_sent = True
-                          logging.debug("📋 Emitting initial TODO list as execution_plan_update artifact")
-                          # Emit as execution plan artifact for client display in execution plan pane
-                          yield {
-                              "is_task_complete": False,
-                              "require_user_input": False,
-                              "artifact": {
-                                  "name": "execution_plan_update",
-                                  "description": "TODO-based execution plan",
-                                  "text": tool_content
-                              }
-                          }
-                      else:
-                          logging.debug("📊 Emitting TODO progress update as execution_plan_status_update artifact")
-                          # This is a TODO status update (merge=true) - emit as status update
-                          # Client should update the execution plan pane in-place, not add to chat
-                          yield {
-                              "is_task_complete": False,
-                              "require_user_input": False,
-                              "artifact": {
-                                  "name": "execution_plan_status_update",
-                                  "description": "TODO progress update",
-                                  "text": tool_content
-                              }
-                          }
+                  # Special handling for write_todos ToolMessages:
+                  # Skip emitting execution plan here — the updates handler
+                  # (todo transition at line ~762) already emits the plan using
+                  # _build_todo_plan_text() which produces the emoji+bracket
+                  # format the UI can parse (e.g. "🔄 [PagerDuty] Get on-call").
+                  # The raw ToolMessage content is just "Updated todo list to
+                  # [{...}]" which doesn't match the UI regex.
+                  if tool_name == "write_todos":
+                      logging.debug("📋 Skipping write_todos ToolMessage for exec plan (handled by updates handler)")
                   elif tool_name in rag_tool_names:
                     # For RAG tools, we don't want to stream the content, as its a LOT of text
                       yield {
