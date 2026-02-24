@@ -1086,7 +1086,7 @@ Create LLM API Key:
         Format as key=value on each line. Write to /request.txt.
       subagent: "caipe"
 
-    - display_text: "Generate LLM virtual key"
+    - display_text: "Generate LLM key"
       llm_prompt: >
         Read /request.txt to get model and user_email.
         
