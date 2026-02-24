@@ -12,7 +12,6 @@ import traceback
 import json
 
 from langchain_core.messages import AIMessage, HumanMessage
-from langchain_core.tools import tool
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.checkpoint.memory import InMemorySaver
 from cnoe_agent_utils import LLMFactory
@@ -51,14 +50,6 @@ from deepagents import async_create_deep_agent
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
-
-# Explicit ResponseFormat tool so Bedrock sees it in tool list
-@tool("ResponseFormat", args_schema=PlatformEngineerResponse)
-def response_format_tool(**kwargs):
-  try:
-    return json.dumps(kwargs)
-  except Exception:
-    return str(kwargs)
 
 # RAG Configuration
 ENABLE_RAG = os.getenv("ENABLE_RAG", "false").lower() == "true"
@@ -298,13 +289,6 @@ class AIPlatformEngineerMAS:
         list_files,  # list_files("/tmp/repo", pattern="*.yaml")
     ]
 
-    # Add ResponseFormat tool only when structured response mode is enabled
-    if USE_STRUCTURED_RESPONSE:
-      all_tools.append(response_format_tool)
-      logger.info("✅ Structured response mode enabled - added ResponseFormat tool")
-    else:
-      logger.info("❌ Structured response mode disabled - ResponseFormat tool not added and using [FINAL ANSWER] marker in prompt config")
-
     # Add RAG tools if initially loaded
     if self.rag_tools:
       all_tools.extend(self.rag_tools)
@@ -327,14 +311,13 @@ class AIPlatformEngineerMAS:
 
     logger.info("🎨 Creating deep agent with system prompt")
 
-    # Response format instruction tells the LLM how to use the ResponseFormat tool.
+    # Response format instruction tells the LLM how to structure its final response.
+    # LangGraph's generate_structured_response node handles the actual structured output.
     if USE_STRUCTURED_RESPONSE:
       response_format_instruction = (
-        "CRITICAL: You MUST call the ResponseFormat tool for EVERY response - including greetings, simple questions, and informational queries. "
-        "This is NON-NEGOTIABLE. Never output the final answer as plain text. "
-        "When you are ready to provide ANY answer (simple or complex), call ResponseFormat directly. "
-        "Do NOT output the answer as text before calling the tool - put it ONLY in the tool's 'content' field. "
-        "Normal streaming (tool calls, planning, intermediate outputs) is fine, but the FINAL answer must go through ResponseFormat. "
+        "When you are done with all tasks and ready to provide your final answer, "
+        "simply write your response as clean markdown — do NOT call any tool. "
+        "The system will automatically format it into the required structured output. "
         "Place the final user-facing answer (clean markdown, no thinking/preamble) in the 'content' field. "
         "Set 'is_task_complete' to true when done (including when the task failed and there is nothing more you can do). "
         "When you need information from the user, set metadata.user_input to true and populate metadata.input_fields with the fields you need."
