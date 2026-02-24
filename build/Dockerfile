@@ -32,9 +32,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     wget \
     curl \
     grep \
+    unzip \
     && pip install uv \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
+
+# Terraform CLI — used by terraform_fmt tool for HCL formatting in self-service tasks
+RUN ARCH=$(dpkg --print-architecture) \
+    && wget -q "https://releases.hashicorp.com/terraform/1.11.2/terraform_1.11.2_linux_${ARCH}.zip" -O /tmp/terraform.zip \
+    && unzip -o /tmp/terraform.zip -d /usr/local/bin/ \
+    && rm /tmp/terraform.zip \
+    && chmod +x /usr/local/bin/terraform
 
 # Go toolchain — needed at runtime by github-mcp-server (go run via STDIO)
 COPY --from=golang /usr/local/go /usr/local/go

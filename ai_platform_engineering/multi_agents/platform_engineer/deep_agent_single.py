@@ -116,6 +116,7 @@ from ai_platform_engineering.utils.deepagents_custom.tools import (
     tool_result_to_file,
     wait,
 )
+from ai_platform_engineering.utils.agent_tools.terraform_fmt_tool import terraform_fmt
 from ai_platform_engineering.utils.deepagents_custom.state import DeepAgentState
 
 # Import agent classes for subagent definition creation
@@ -599,15 +600,19 @@ async def create_subagent_def(agent_instance, name: str, description: str, promp
 
 
 async def create_github_subagent_def(prompt_config: dict = None) -> dict:
-    """Create GitHub subagent definition with shared filesystem."""
+    """Create GitHub subagent definition with shared filesystem and terraform_fmt."""
     agent = GitHubAgent()
-    return await create_subagent_def(agent, "github", "GitHub: repository operations, workflows, PRs", prompt_config)
+    subagent_def = await create_subagent_def(agent, "github", "GitHub: repository operations, workflows, PRs", prompt_config)
+    subagent_def["tools"].append(terraform_fmt)
+    return subagent_def
 
 
 async def create_aigateway_subagent_def(prompt_config: dict = None) -> dict:
-    """Create AIGateway subagent definition with shared filesystem."""
+    """Create AIGateway subagent definition with built-in tools (no MCP server)."""
     agent = AIGatewayAgent()
-    return await create_subagent_def(agent, "aigateway", "AIGateway: LLM API keys, usage tracking", prompt_config)
+    subagent_def = await create_subagent_def(agent, "aigateway", "AIGateway: LLM API keys, usage tracking", prompt_config)
+    subagent_def["tools"] = agent.get_additional_tools() + subagent_def["tools"]
+    return subagent_def
 
 
 async def create_backstage_subagent_def(prompt_config: dict = None) -> dict:

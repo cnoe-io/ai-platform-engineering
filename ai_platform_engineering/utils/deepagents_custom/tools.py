@@ -6,6 +6,7 @@ filesystem used by FilesystemMiddleware.
 
 import asyncio
 import logging
+from datetime import datetime, timezone
 from typing import Annotated
 
 from langchain_core.messages import AIMessage, ToolMessage
@@ -26,6 +27,7 @@ FS_TOOL_NAMES = {
     "grep",
     "edit_file",
     "tool_result_to_file",
+    "terraform_fmt",
 }
 
 
@@ -124,16 +126,22 @@ def tool_result_to_file(
             }
         )
 
-    # Write to in-memory filesystem
-    files[file_path] = last_tool_content
-    logger.info(f"tool_result_to_file: wrote {len(last_tool_content)} chars to {file_path}")
+    # Write to in-memory filesystem in the same format as the backend
+    now = datetime.now(timezone.utc).isoformat()
+    content_str = last_tool_content if isinstance(last_tool_content, str) else str(last_tool_content)
+    files[file_path] = {
+        "content": content_str.splitlines(),
+        "created_at": now,
+        "modified_at": now,
+    }
+    logger.info(f"tool_result_to_file: wrote {len(content_str)} chars to {file_path}")
     
     return Command(
         update={
             "files": files,
             "messages": [
                 ToolMessage(
-                    content=f"Updated file {file_path} with {tool_name} output ({len(last_tool_content)} chars)",
+                    content=f"Updated file {file_path} with {tool_name} output ({len(content_str)} chars)",
                     tool_call_id=tool_call_id,
                 )
             ],

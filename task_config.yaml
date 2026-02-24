@@ -65,7 +65,6 @@
 
 Create GitHub Repo:
   tasks:
-    # Step 1: Get available Backstage projects
     - display_text: "Fetch available Backstage projects"
       llm_prompt: >
         Query Backstage catalog using get_entities_by_query with:
@@ -79,7 +78,6 @@ Create GitHub Repo:
         This list will be used as dropdown options in the input form.
       subagent: "backstage"
 
-    # Step 2: Collect repository details
     - display_text: "Collect repository details from user"
       llm_prompt: >
         Read /projects.txt to get the list of available projects.
@@ -96,7 +94,6 @@ Create GitHub Repo:
         Format as key=value on each line. Write to /request.txt.
       subagent: "caipe"
 
-    # Step 3: Check if repository exists
     - display_text: "Check if repository exists"
       llm_prompt: >
         Read /request.txt to get repo_name and org_name.
@@ -109,7 +106,6 @@ Create GitHub Repo:
         If exists=true, stop workflow and inform user that the repository already exists.
       subagent: "github"
 
-    # Step 4: Create repository from template
     - display_text: "Create repository from template"
       llm_prompt: >
         Read /request.txt and /check_result.txt.
@@ -122,7 +118,6 @@ Create GitHub Repo:
         
       subagent: "github"
 
-    # Step 5: Fetch safe-settings template
     - display_text: "Fetch safe-settings template from jarvis-workflows"
       llm_prompt: >
         Fetch the safe-settings template from the jarvis-workflows repo.
@@ -135,7 +130,6 @@ Create GitHub Repo:
         Write "template_fetched=true" to /template_status.txt
       subagent: "github"
 
-    # Step 6: Create branch in admin repo
     - display_text: "Create branch in admin repo"
       llm_prompt: >
         Read /request.txt to get repo_name.
@@ -147,7 +141,6 @@ Create GitHub Repo:
         - branch_name=create-repo-{repo_name}-{suffix}
       subagent: "github"
 
-    # Step 7: Process template and create config file
     - display_text: "Process template and create config file"
       llm_prompt: >
         Read /request.txt to get repo_name, org_name, project_name, and template.
@@ -164,7 +157,6 @@ Create GitHub Repo:
         Write "config_processed=true" to /config_status.txt
       subagent: "github"
 
-    # Step 8: Create PR with config file
     - display_text: "Create admin PR with config"
       llm_prompt: >
         Read /request.txt to get repo_name and template.
@@ -182,7 +174,6 @@ Create GitHub Repo:
         - admin_pr_url={PR_URL}
       subagent: "github"
 
-    # Step 9: Create or update Jira ticket for tracking
     - display_text: "Create or update Jira ticket"
       llm_prompt: >
         Read /request.txt to get repo_name, org_name, user_email, and jira_issue_id (if set).
@@ -206,7 +197,6 @@ Create GitHub Repo:
         - jira_url={ticket URL}
       subagent: "jira"
 
-    # Step 10: Wait for status checks then merge PR
     - display_text: "Wait for status checks and merge PR"
       llm_prompt: >
         Read /admin_pr_result.txt to get admin_pr_url.
@@ -233,7 +223,6 @@ Create GitHub Repo:
         Note: Merging is enabled in self-service mode.
       subagent: "github"
 
-    # Step 11: Close Jira ticket (if PR merged)
     - display_text: "Close Jira ticket"
       llm_prompt: >
         Read /jira_result.txt to get jira_issue_id.
@@ -258,7 +247,6 @@ Create GitHub Repo:
 
 Create EC2 Instance:
   tasks:
-    # Step 1: Collect EC2 instance details from user
     - display_text: "Collect EC2 instance details"
       llm_prompt: >
         Collect the following information from the user and write to /request.txt:
@@ -275,7 +263,6 @@ Create EC2 Instance:
         Format as key=value on each line. Write to /request.txt.
       subagent: "caipe"
 
-    # Step 2: Fetch EC2 terraform template
     - display_text: "Fetch EC2 terraform template"
       llm_prompt: >
         Fetch the EC2 terraform template from the workflows templates repo.
@@ -288,7 +275,6 @@ Create EC2 Instance:
         Write "template_fetched=true" to /template_status.txt
       subagent: "github"
 
-    # Step 3: Process template with user values
     - display_text: "Process EC2 template with user values"
       llm_prompt: >
         Read /request.txt to get all user values.
@@ -319,7 +305,12 @@ Create EC2 Instance:
         Write "config_processed=true" to /config_status.txt
       subagent: "github"
 
-    # Step 4: Create branch in terraform-infra repo
+    - display_text: "Format terraform file"
+      llm_prompt: >
+        Call terraform_fmt with file_path="/processed_ec2.tf" to format it.
+        If formatting fails with errors, fix the HCL syntax in the file and retry terraform_fmt until it succeeds.
+      subagent: "github"
+
     - display_text: "Create branch in terraform-infra repo"
       llm_prompt: >
         Read /request.txt to get resource_name.
@@ -331,7 +322,6 @@ Create EC2 Instance:
         - branch_name=ec2-{resource_name}-{suffix}
       subagent: "github"
 
-    # Step 5: Push terraform config to branch
     - display_text: "Push EC2 terraform config to branch"
       llm_prompt: >
         Read /request.txt to get resource_name.
@@ -349,7 +339,6 @@ Create EC2 Instance:
         Write "file_created=true" to /file_status.txt
       subagent: "github"
 
-    # Step 6: Create PR in terraform-infra repo
     - display_text: "Create PR for EC2 instance"
       llm_prompt: >
         Read /request.txt to get resource_name, user_email.
@@ -375,7 +364,6 @@ Create EC2 Instance:
         - pr_number={PR_NUMBER}
       subagent: "github"
 
-    # Step 7: Create or update Jira ticket for tracking
     - display_text: "Create or update Jira ticket for EC2 request"
       llm_prompt: >
         Read /request.txt to get resource_name, user_email, and jira_issue_id (if set).
@@ -406,7 +394,6 @@ Create EC2 Instance:
         - jira_url={ticket URL}
       subagent: "jira"
 
-    # Step 8: Send Webex notification
     - display_text: "Send Webex notification"
       llm_prompt: >
         Read /request.txt to get resource_name, user_email.
@@ -432,7 +419,6 @@ Create EC2 Instance:
 
 Create EKS Cluster:
   tasks:
-    # Step 1: Collect EKS cluster details from user
     - display_text: "Collect EKS cluster details"
       llm_prompt: >
         Collect the following information from the user and write to /request.txt:
@@ -448,7 +434,6 @@ Create EKS Cluster:
         Format as key=value on each line. Write to /request.txt.
       subagent: "caipe"
 
-    # Step 2: Fetch EKS terraform template
     - display_text: "Fetch EKS terraform template"
       llm_prompt: >
         Fetch the EKS terraform template from the workflows templates repo.
@@ -461,7 +446,6 @@ Create EKS Cluster:
         Write "template_fetched=true" to /template_status.txt
       subagent: "github"
 
-    # Step 3: Process template with user values
     - display_text: "Process EKS template with user values"
       llm_prompt: >
         Read /request.txt to get all user values.
@@ -491,7 +475,12 @@ Create EKS Cluster:
         Write "config_processed=true" to /config_status.txt
       subagent: "github"
 
-    # Step 4: Create branch in terraform-infra repo
+    - display_text: "Format terraform file"
+      llm_prompt: >
+        Call terraform_fmt with file_path="/processed_eks.tf" to format it.
+        If formatting fails with errors, fix the HCL syntax in the file and retry terraform_fmt until it succeeds.
+      subagent: "github"
+
     - display_text: "Create branch in terraform-infra repo"
       llm_prompt: >
         Read /request.txt to get cluster_name.
@@ -503,7 +492,6 @@ Create EKS Cluster:
         - branch_name=eks-{cluster_name}-{suffix}
       subagent: "github"
 
-    # Step 5: Push terraform config to branch
     - display_text: "Push EKS terraform config to branch"
       llm_prompt: >
         Read /request.txt to get cluster_name.
@@ -521,7 +509,6 @@ Create EKS Cluster:
         Write "file_created=true" to /file_status.txt
       subagent: "github"
 
-    # Step 6: Create PR in terraform-infra repo
     - display_text: "Create PR for EKS cluster"
       llm_prompt: >
         Read /request.txt to get cluster_name, user_email.
@@ -549,7 +536,6 @@ Create EKS Cluster:
         - pr_number={PR_NUMBER}
       subagent: "github"
 
-    # Step 7: Create or update Jira ticket for tracking
     - display_text: "Create or update Jira ticket for EKS request"
       llm_prompt: >
         Read /request.txt to get cluster_name, user_email, and jira_issue_id (if set).
@@ -581,7 +567,6 @@ Create EKS Cluster:
         - jira_url={ticket URL}
       subagent: "jira"
 
-    # Step 8: Send Webex notification
     - display_text: "Send Webex notification"
       llm_prompt: >
         Read /request.txt to get cluster_name, user_email.
@@ -608,7 +593,6 @@ Create EKS Cluster:
 
 Create S3 Bucket:
   tasks:
-    # Step 1: Collect S3 bucket details from user
     - display_text: "Collect S3 bucket details"
       llm_prompt: >
         Collect the following information from the user and write to /request.txt:
@@ -623,7 +607,6 @@ Create S3 Bucket:
         Format as key=value on each line. Write to /request.txt.
       subagent: "caipe"
 
-    # Step 2: Fetch S3 terraform template
     - display_text: "Fetch S3 terraform template"
       llm_prompt: >
         Fetch the S3 terraform template from the workflows templates repo.
@@ -636,7 +619,6 @@ Create S3 Bucket:
         Write "template_fetched=true" to /template_status.txt
       subagent: "github"
 
-    # Step 3: Process template with user values
     - display_text: "Process S3 template with user values"
       llm_prompt: >
         Read /request.txt to get all user values.
@@ -665,7 +647,12 @@ Create S3 Bucket:
         Write "config_processed=true" to /config_status.txt
       subagent: "github"
 
-    # Step 4: Create branch in terraform-infra repo
+    - display_text: "Format terraform file"
+      llm_prompt: >
+        Call terraform_fmt with file_path="/processed_s3.tf" to format it.
+        If formatting fails with errors, fix the HCL syntax in the file and retry terraform_fmt until it succeeds.
+      subagent: "github"
+
     - display_text: "Create branch in terraform-infra repo"
       llm_prompt: >
         Read /request.txt to get resource_name.
@@ -677,7 +664,6 @@ Create S3 Bucket:
         - branch_name=s3-{resource_name}-{suffix}
       subagent: "github"
 
-    # Step 5: Push terraform config to branch
     - display_text: "Push S3 terraform config to branch"
       llm_prompt: >
         Read /request.txt to get resource_name.
@@ -695,7 +681,6 @@ Create S3 Bucket:
         Write "file_created=true" to /file_status.txt
       subagent: "github"
 
-    # Step 6: Create PR in terraform-infra repo
     - display_text: "Create PR for S3 bucket"
       llm_prompt: >
         Read /request.txt to get resource_name, user_email.
@@ -721,7 +706,6 @@ Create S3 Bucket:
         - pr_number={PR_NUMBER}
       subagent: "github"
 
-    # Step 7: Create Jira ticket for tracking
     - display_text: "Create Jira ticket for S3 request"
       llm_prompt: >
         Read /request.txt to get resource_name, user_email.
@@ -748,7 +732,6 @@ Create S3 Bucket:
         - jira_url={ticket URL}
       subagent: "jira"
 
-    # Step 8: Send Webex notification
     - display_text: "Send Webex notification"
       llm_prompt: >
         Read /request.txt to get resource_name, user_email.
@@ -777,7 +760,6 @@ Create S3 Bucket:
 
 Deploy App to Common Cluster:
   tasks:
-    # Step 1: Get available Backstage projects
     - display_text: "Fetch available Backstage projects"
       llm_prompt: >
         Query Backstage catalog using get_entities_by_query with:
@@ -791,7 +773,6 @@ Deploy App to Common Cluster:
         This list will be used as dropdown options in the input form.
       subagent: "backstage"
 
-    # Step 2: Collect deployment details from user
     - display_text: "Collect deployment details"
       llm_prompt: >
         Read /projects.txt to get the list of available projects.
@@ -813,7 +794,6 @@ Deploy App to Common Cluster:
         Format as key=value on each line. Write to /request.txt.
       subagent: "caipe"
 
-    # Step 3: Check if deployment repo exists
     - display_text: "Check if deployment repo exists"
       llm_prompt: >
         Read /request.txt to get app_name, app_deployment_repo, org_name.
@@ -831,7 +811,6 @@ Deploy App to Common Cluster:
         - deployment_repo={app_deployment_repo}
       subagent: "github"
 
-    # Step 4: Create deployment repo if needed
     - display_text: "Create deployment repo if needed"
       llm_prompt: >
         Read /request.txt to get app_name, org_name.
@@ -856,7 +835,6 @@ Deploy App to Common Cluster:
         - repo_url=https://github.com/{org_name}/{deployment_repo}
       subagent: "github"
 
-    # Step 5: Fetch ArgoCD templates
     - display_text: "Fetch ArgoCD deployment templates"
       llm_prompt: >
         Fetch the ArgoCD deployment templates from the workflows templates repo.
@@ -873,7 +851,6 @@ Deploy App to Common Cluster:
         Write "templates_fetched=true" to /template_status.txt
       subagent: "github"
 
-    # Step 6: Process templates with user values
     - display_text: "Process ArgoCD templates with user values"
       llm_prompt: >
         Read /request.txt to get all user values.
@@ -906,7 +883,6 @@ Deploy App to Common Cluster:
         Write "templates_processed=true" to /process_status.txt
       subagent: "github"
 
-    # Step 7: Create branch in deployment repo
     - display_text: "Create branch in deployment repo"
       llm_prompt: >
         Read /request.txt to get app_name.
@@ -921,7 +897,6 @@ Deploy App to Common Cluster:
         - branch_name=deploy-{app_name}-{suffix}
       subagent: "github"
 
-    # Step 8: Push ArgoCD manifests to deployment repo
     - display_text: "Push ArgoCD manifests to deployment repo"
       llm_prompt: >
         Read /request.txt to get app_name, environment, org_name.
@@ -954,7 +929,6 @@ Deploy App to Common Cluster:
         Write "files_pushed=true" to /push_status.txt
       subagent: "github"
 
-    # Step 9: Create PR in deployment repo
     - display_text: "Create PR for ArgoCD deployment"
       llm_prompt: >
         Read /request.txt to get app_name, environment, user_email, org_name, auto_approve.
@@ -989,7 +963,6 @@ Deploy App to Common Cluster:
         - pr_number={PR_NUMBER}
       subagent: "github"
 
-    # Step 10: Auto-merge PR if auto_approve is true
     - display_text: "Auto-merge PR if approved"
       llm_prompt: >
         Read /request.txt to get auto_approve.
@@ -1014,7 +987,6 @@ Deploy App to Common Cluster:
         - Note: PR requires manual review and approval
       subagent: "github"
 
-    # Step 11: Create or update Jira ticket for tracking
     - display_text: "Create or update Jira ticket for deployment"
       llm_prompt: >
         Read /request.txt to get app_name, environment, user_email, and jira_issue_id (if set).
@@ -1053,7 +1025,6 @@ Deploy App to Common Cluster:
         - jira_url={ticket URL}
       subagent: "jira"
 
-    # Step 12: Send Webex notification
     - display_text: "Send Webex notification"
       llm_prompt: >
         Read /request.txt to get app_name, environment, user_email.
@@ -1088,51 +1059,38 @@ Deploy App to Common Cluster:
 
 Create LLM API Key:
   tasks:
-    # Step 1: Fetch available providers and models
-    - display_text: "Fetch available LLM providers and models"
+    - display_text: "Fetch available models and collect selection"
       llm_prompt: >
         Use the list_available_models tool to get all available LLM providers and their models.
         
-        From the results, extract:
-        1. The list of provider names (one per line) and write to /providers.txt
-        2. The full model identifiers in "provider/model" format (one per line) and write to /models.txt
-        
-        Example /providers.txt content:
-        openai
-        anthropic
-        bedrock
+        From the results, build a list of full model identifiers in "provider/model" format
+        (one per line) and write to /models.txt
         
         Example /models.txt content:
         openai/gpt-4o
         openai/gpt-4-turbo
         anthropic/claude-3-5-sonnet
-        anthropic/claude-3-opus
-        
-        These lists will be used as dropdown options in the input form.
+        bedrock/amazon.titan-embed-text-v2:0
       subagent: "aigateway"
 
-    # Step 2: Collect user request
-    - display_text: "Collect LLM API key request details"
+    - display_text: "Collect model selection from user"
       llm_prompt: >
-        Read /providers.txt to get the list of available providers.
         Read /models.txt to get the list of available models.
         
         Collect the following information from the user and write to /request.txt:
-        - provider_name (required): LLM provider - use field_values from /providers.txt (default: bedrock)
-        - model_name (required): Model to use - use field_values from /models.txt (default: amazon.titan-embed-text-v2:0)
-          Note: Show models filtered by selected provider, or show all in "provider/model" format
+        - model (required): Model to use - use field_values from /models.txt (default: bedrock/amazon.titan-embed-text-v2:0)
+          Values are in "provider/model" format.
         
         user_email is auto-filled from the authenticated session — do NOT include it in the form.
         
         Format as key=value on each line. Write to /request.txt.
       subagent: "caipe"
 
-    # Step 3: Create or retrieve virtual key
     - display_text: "Generate LLM virtual key"
       llm_prompt: >
-        Read /request.txt to get provider_name, model_name, and user_email.
+        Read /request.txt to get model and user_email.
         
-        If model_name contains a "/" (e.g., "openai/gpt-4o"), extract just the model part.
+        Split the model value on "/" to get provider_name and model_name.
         For example: "openai/gpt-4o" -> provider_name="openai", model_name="gpt-4o"
         
         Use the create_llm_api_key tool with:
@@ -1152,7 +1110,6 @@ Create LLM API Key:
 
 Get LLM Spend Activity:
   tasks:
-    # Step 1: Collect user email and date range
     - display_text: "Collect spend query details"
       llm_prompt: >
         Collect the following information from the user and write to /request.txt:
@@ -1163,7 +1120,6 @@ Get LLM Spend Activity:
         Format as key=value on each line. Write to /request.txt.
       subagent: "caipe"
 
-    # Step 2: Retrieve and display spend report
     - display_text: "Get spend report"
       llm_prompt: >
         Read /request.txt to get user_email, start_date, end_date.

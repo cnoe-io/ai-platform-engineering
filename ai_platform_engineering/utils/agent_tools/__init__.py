@@ -22,6 +22,7 @@ from ai_platform_engineering.utils.agent_tools.glob_tool import glob_find
 from ai_platform_engineering.utils.agent_tools.fetch_url_tool import fetch_url
 from ai_platform_engineering.utils.agent_tools.jq_tool import jq
 from ai_platform_engineering.utils.agent_tools.yq_tool import yq
+from ai_platform_engineering.utils.agent_tools.terraform_fmt_tool import terraform_fmt
 from ai_platform_engineering.utils.agent_tools.file_tool import (
     read_file,
     write_file,
@@ -42,8 +43,9 @@ __all__ = [
     'glob_find',  # glob_find("**/*.py")
 
     # Data processing tools
-    'jq',         # jq("jq '.items[].name' data.json")
-    'yq',         # yq("yq '.spec.replicas' deployment.yaml")
+    'jq',             # jq("jq '.items[].name' data.json")
+    'yq',             # yq("yq '.spec.replicas' deployment.yaml")
+    'terraform_fmt',  # terraform_fmt(hcl_content)
 
     # File I/O tools
     'read_file',   # read_file("/tmp/data.json")

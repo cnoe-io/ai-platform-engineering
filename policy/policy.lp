@@ -79,6 +79,7 @@ builtin_tool(fetch_url).
 builtin_tool(get_current_date).
 builtin_tool(jq).
 builtin_tool(yq).
+builtin_tool(terraform_fmt).
 builtin_tool(wait).
 builtin_tool(invoke_self_service_task).
 builtin_tool(list_self_service_tasks).
