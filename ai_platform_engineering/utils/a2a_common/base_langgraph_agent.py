@@ -7,10 +7,13 @@ import asyncio
 import json
 import logging
 import os
+import ssl
 import tempfile
 from abc import ABC, abstractmethod
 from collections.abc import AsyncIterable
-from typing import Any, Dict
+from typing import Any, Callable, Dict, Optional
+
+import httpx
 
 # Make MCP optional - some agents (like RAG) don't use MCP
 try:
@@ -201,6 +204,65 @@ Use this as the reference point for all date calculations. When users say "today
                 }
             }
         """
+        return None
+
+    def _build_httpx_client_factory(self) -> Optional[Callable]:
+        """
+        Build an httpx.AsyncClient factory with corporate CA cert support.
+
+        Checks for CA bundle paths via environment variables (CUSTOM_CA_BUNDLE,
+        REQUESTS_CA_BUNDLE, SSL_CERT_FILE) or the SSL_VERIFY=false flag to
+        handle TLS interception (e.g. Cisco Secure Access / Umbrella).
+
+        Returns:
+            A callable factory for httpx.AsyncClient, or None if no custom
+            SSL configuration is needed.
+        """
+        ca_bundle = (
+            os.getenv("CUSTOM_CA_BUNDLE")
+            or os.getenv("REQUESTS_CA_BUNDLE")
+            or os.getenv("SSL_CERT_FILE")
+        )
+        ssl_verify = os.getenv("SSL_VERIFY", "true").lower()
+
+        if ca_bundle and os.path.exists(ca_bundle):
+            logger.info(f"Using custom CA bundle for MCP HTTP transport: {ca_bundle}")
+
+            def _factory(
+                headers: dict[str, str] | None = None,
+                timeout: httpx.Timeout | None = None,
+                auth: httpx.Auth | None = None,
+            ) -> httpx.AsyncClient:
+                ctx = ssl.create_default_context(cafile=ca_bundle)
+                return httpx.AsyncClient(
+                    headers=headers,
+                    timeout=timeout or httpx.Timeout(30.0),
+                    auth=auth,
+                    verify=ctx,
+                )
+
+            return _factory
+
+        if ssl_verify == "false":
+            logger.warning(
+                "SSL_VERIFY=false: disabling TLS verification for MCP HTTP transport. "
+                "This is insecure and should only be used for development."
+            )
+
+            def _insecure_factory(
+                headers: dict[str, str] | None = None,
+                timeout: httpx.Timeout | None = None,
+                auth: httpx.Auth | None = None,
+            ) -> httpx.AsyncClient:
+                return httpx.AsyncClient(
+                    headers=headers,
+                    timeout=timeout or httpx.Timeout(30.0),
+                    auth=auth,
+                    verify=False,
+                )
+
+            return _insecure_factory
+
         return None
 
     @abstractmethod
@@ -497,18 +559,21 @@ Use this as the reference point for all date calculations. When users say "today
         if mcp_mode == "http" or mcp_mode == "streamable_http":
             logging.info(f"{agent_name}: Using HTTP transport for MCP client")
 
+            httpx_factory = self._build_httpx_client_factory()
+
             # Check if agent provides custom HTTP configuration
             custom_http_config = self.get_mcp_http_config()
 
             if custom_http_config:
                 # Use custom HTTP configuration (e.g., GitHub Copilot API)
                 logging.info(f"Using custom HTTP MCP configuration for {agent_name}")
-                client = MultiServerMCPClient({
-                    agent_name: {
-                        "transport": "streamable_http",
-                        **custom_http_config  # Spread custom config (url, headers, etc.)
-                    }
-                })
+                connection_config: Dict[str, Any] = {
+                    "transport": "streamable_http",
+                    **custom_http_config,
+                }
+                if httpx_factory:
+                    connection_config["httpx_client_factory"] = httpx_factory
+                client = MultiServerMCPClient({agent_name: connection_config})
             else:
                 # Use default HTTP configuration (localhost)
                 mcp_host = os.getenv("MCP_HOST", "localhost")
@@ -518,15 +583,16 @@ Use this as the reference point for all date calculations. When users say "today
                 # TBD: Handle user authentication
                 user_jwt = "TBD_USER_JWT"
 
-                client = MultiServerMCPClient({
-                    agent_name: {
-                        "transport": "streamable_http",
-                        "url": f"http://{mcp_host}:{mcp_port}/mcp/",
-                        "headers": {
-                            "Authorization": f"Bearer {user_jwt}",
-                        },
-                    }
-                })
+                connection_config = {
+                    "transport": "streamable_http",
+                    "url": f"http://{mcp_host}:{mcp_port}/mcp/",
+                    "headers": {
+                        "Authorization": f"Bearer {user_jwt}",
+                    },
+                }
+                if httpx_factory:
+                    connection_config["httpx_client_factory"] = httpx_factory
+                client = MultiServerMCPClient({agent_name: connection_config})
         else:
             logging.info(f"{agent_name}: Using STDIO transport for MCP client")
             mcp_config = self.get_mcp_config(server_path)
