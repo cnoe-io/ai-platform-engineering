@@ -6,6 +6,7 @@ from typing_extensions import TypedDict
 class Todo(TypedDict):
     """Todo to track."""
 
+    id: str
     content: str
     status: Literal["pending", "in_progress", "completed"]
 

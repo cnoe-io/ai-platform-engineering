@@ -250,7 +250,7 @@ class AIPlatformEngineerA2ABinding:
       }
       lines = []
       for todo_id in sorted(
-          (k for k in self._previous_todos.keys() if k is not None),
+          self._previous_todos.keys(),
           key=lambda x: (int(x) if str(x).isdigit() else float('inf')),
       ):
           entry = self._previous_todos[todo_id]
@@ -707,16 +707,17 @@ class AIPlatformEngineerA2ABinding:
                   # ── Track todo transitions and re-emit execution plan ──
                   plan_changed = False
                   for todos in todos_lists:
-                      for todo in todos:
+                      for idx, todo in enumerate(todos):
                           if not isinstance(todo, dict):
                               continue
-                          todo_id = todo.get("id")
+                          todo_id = todo.get("id") if todo.get("id") is not None else idx
                           new_status = todo.get("status", "pending")
                           old_status = self._previous_todos.get(todo_id, {}).get("status", "pending")
                           todo_content = todo.get("content", f"Step {todo_id}")
 
-                          # Always track every todo we see (needed to rebuild the full plan)
+                          # New todo → always counts as a plan change
                           if todo_id not in self._previous_todos:
+                              plan_changed = True
                               self._previous_todos[todo_id] = {
                                   "status": new_status,
                                   "content": todo_content,
@@ -937,8 +938,8 @@ class AIPlatformEngineerA2ABinding:
                       if tool_name == "write_todos":
                           todos = tool_call.get("args", {}).get("todos", [])
                           plan_changed = False
-                          for todo in todos:
-                              todo_id = todo.get("id")
+                          for idx, todo in enumerate(todos):
+                              todo_id = todo.get("id") if todo.get("id") is not None else idx
                               new_status = todo.get("status", "pending")
                               old_status = self._previous_todos.get(todo_id, {}).get("status", "pending")
                               todo_content = todo.get("content", f"Step {todo_id}")
