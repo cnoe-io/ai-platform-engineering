@@ -133,7 +133,7 @@ Prevents memory exhaustion from loading entire datasets.
 
 Closes #789
 
-Signed-off-by: Sri Aradhyula <sraradhy@cisco.com>
+Signed-off-by: Your Name <your.email@example.com>
 ```
 
 ## Documentation: Spec Kit vs ADRs
@@ -338,7 +338,7 @@ git commit -s -m "feat(argocd): add pagination support
 
 Implemented pagination for MCP list operations.
 
-Signed-off-by: Sri Aradhyula <sraradhy@cisco.com>"
+Signed-off-by: Your Name <your.email@example.com>"
 ```
 
 ### 5. Push and Create PR
@@ -554,13 +554,13 @@ DEFAULT_PAGE_SIZE=20           # Default pagination size
 
 ## Contact
 
-**Maintainer**: Sri Aradhyula <sraradhy@cisco.com>
+**Maintainer**: See MAINTAINERS or CODEOWNERS file
 **Team**: Platform Engineering Team
 
 For questions:
 - Check `docs/docs/changes/` for ADRs
 - Review integration tests
-- Contact maintainer
+- Contact maintainers listed in the repository
 
 ---
 
