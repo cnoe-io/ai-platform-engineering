@@ -888,7 +888,6 @@ services:
     command: python3 -m jarvis_agent.combined_server --fastapi-port 8000 --a2a-port 58000
     profiles:
       - jarvis
-      - all-agents
 
   ####################################################################################################
   #                                      CAIPE UI                                                    #
