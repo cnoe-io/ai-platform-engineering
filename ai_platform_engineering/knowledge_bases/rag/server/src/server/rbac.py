@@ -498,15 +498,20 @@ def is_trusted_request(request: Request) -> bool:
     return False
 
   # Option 1: Check source IP against CIDR ranges
-  if TRUSTED_NETWORK_CIDRS and request.client:
-    try:
-      client_ip = ipaddress.ip_address(request.client.host)
-      for cidr in TRUSTED_NETWORK_CIDRS:
-        if client_ip in cidr:
-          logger.debug(f"Request from trusted network: {client_ip} in {cidr}")
-          return True
-    except ValueError as e:
-      logger.warning(f"Invalid client IP address: {request.client.host} - {e}")
+  # Prefer X-Forwarded-For (real client IP set by Istio ingress) over the direct
+  # connection IP (request.client.host), which is always the ingress gateway.
+  if TRUSTED_NETWORK_CIDRS:
+    xff = request.headers.get("X-Forwarded-For")
+    raw_ip = xff.split(",")[0].strip() if xff else (request.client.host if request.client else None)
+    if raw_ip:
+      try:
+        client_ip = ipaddress.ip_address(raw_ip)
+        for cidr in TRUSTED_NETWORK_CIDRS:
+          if client_ip in cidr:
+            logger.debug(f"Request from trusted network: {client_ip} in {cidr}")
+            return True
+      except ValueError as e:
+        logger.warning(f"Invalid client IP address: {raw_ip} - {e}")
 
   # Option 2: Check for trusted header
   if TRUSTED_NETWORK_TOKEN:
