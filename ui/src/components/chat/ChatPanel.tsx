@@ -1844,7 +1844,7 @@ const ChatMessage = React.memo(function ChatMessage({
             {isUser && (
               <motion.div
                 initial={{ opacity: 0 }}
-                animate={{ opacity: isHovered ? 1 : 0.6 }}
+                animate={{ opacity: isHovered ? 1 : 0.8 }}
                 className="flex items-center gap-1 mt-2 justify-end"
               >
                 {/* Retry button */}
@@ -1855,7 +1855,7 @@ const ChatMessage = React.memo(function ChatMessage({
                         <Button
                           variant="ghost"
                           size="icon"
-                          className="h-7 w-7 text-primary-foreground/70 hover:text-primary-foreground hover:bg-primary/20"
+                          className="h-7 w-7 text-muted-foreground hover:text-foreground hover:bg-muted"
                           onClick={onRetry}
                         >
                           <RotateCcw className="h-3.5 w-3.5" />
@@ -1875,7 +1875,7 @@ const ChatMessage = React.memo(function ChatMessage({
                       <Button
                         variant="ghost"
                         size="icon"
-                        className="h-7 w-7 text-primary-foreground/70 hover:text-primary-foreground hover:bg-primary/20"
+                        className="h-7 w-7 text-muted-foreground hover:text-foreground hover:bg-muted"
                         onClick={() => onCopy(message.content, message.id)}
                       >
                         {isCopied ? (
@@ -1897,7 +1897,7 @@ const ChatMessage = React.memo(function ChatMessage({
             {!isUser && displayContent && (
               <motion.div
                 initial={{ opacity: 0 }}
-                animate={{ opacity: isHovered ? 1 : 0.6 }}
+                animate={{ opacity: isHovered ? 1 : 0.8 }}
                 className="flex items-center gap-1 mt-2"
               >
                 {/* Collapse button - bottom right */}
