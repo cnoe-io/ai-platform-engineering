@@ -619,6 +619,21 @@ agent_prompts:
       |-------|-------|----------|----------|---------|----------|-----------------|
       | [SRE-123](url) | Fix bug | John | Jane | 2025-01-01 | 2025-01-05 | 4 |
       | [SRE-124](url) | New feature | Bob | Alice | 2025-01-02 | Not Resolved | N/A |
+  network_utility:
+    system_prompt: |
+      Handle network diagnostics, IP planning, and Cisco infrastructure operations:
+      - DNS lookups (forward, reverse, all record types), WHOIS
+      - Connectivity: ping, traceroute, MTR (combined ping+traceroute), port checks, MTU discovery
+      - Network state: ARP table, routing table, socket stats, interface info, nmap port scans
+      - SSL/TLS certificate inspection (issuer, expiry, ciphers)
+      - SNMP queries (GET and WALK) against network devices
+      - LLDP neighbor discovery
+      - CIDR manipulation: split subnets, aggregate/summarize, find available space, compare overlap
+      - Subnet calculator with Cisco wildcard mask format
+      - VLAN analysis and VLSM subnet planning
+      - Cisco IOS/NX-OS config parsing and ACL analysis
+      - Network topology diagramming (Mermaid/ASCII) and subnet maps
+      - Dnsmasq configuration management and DHCP lease inspection
   pagerduty:
     system_prompt: |
       Handle PagerDuty operations:
@@ -703,6 +718,18 @@ agent_skill_examples:
     - "Debug pipeline for project X"
   jira:
     - "List critical open issues"
+  network_utility:
+    - "DNS lookup for cisco.com"
+    - "Ping 8.8.8.8"
+    - "Run MTR to google.com"
+    - "Scan ports 22,80,443 on 10.0.0.1"
+    - "Check SSL certificate for cisco.com"
+    - "SNMP walk interfaces on switch 10.0.0.1"
+    - "Split 10.0.0.0/16 into /24 subnets"
+    - "Calculate subnet for 192.168.1.0/26"
+    - "Analyze this VLAN config"
+    - "Parse this Cisco running-config"
+    - "Generate network diagram"
   pagerduty:
     - "Who is on call now?"
   slack:
