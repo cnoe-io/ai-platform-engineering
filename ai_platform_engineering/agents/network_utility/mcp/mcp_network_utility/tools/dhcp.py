@@ -12,7 +12,7 @@ from typing import Dict, Any, List
 logger = logging.getLogger(__name__)
 
 DNSMASQ_LEASE_FILE = os.getenv("DNSMASQ_LEASE_FILE", "/var/lib/misc/dnsmasq.leases")
-DNSMASQ_LOG_DIR = os.getenv("DNSMASQ_LOG_DIR", "/mnt/logs")
+DNSMASQ_LOG_DIR = os.getenv("DNSMASQ_LOG_DIR", "/var/log")
 MAC_REGEX = re.compile(r"^([0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}$")
 
 

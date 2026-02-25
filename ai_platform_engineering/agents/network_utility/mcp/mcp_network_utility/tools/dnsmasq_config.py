@@ -12,7 +12,7 @@ from typing import Dict, Any, List
 
 logger = logging.getLogger(__name__)
 
-DNSMASQ_CONFIG_DIR = os.getenv("DNSMASQ_CONFIG_DIR", "/mnt/config")
+DNSMASQ_CONFIG_DIR = os.getenv("DNSMASQ_CONFIG_DIR", "/etc/dnsmasq.d")
 ALLOWED_CONFIG_DIR = Path(DNSMASQ_CONFIG_DIR).resolve()
 
 

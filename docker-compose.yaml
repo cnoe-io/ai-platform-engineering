@@ -595,15 +595,10 @@ services:
     container_name: mcp-network-utility
     env_file: [.env]
     ports: ["18011:8000"]
-    volumes:
-      - dnsmasq-config:/mnt/config:ro
-      - dnsmasq-logs:/mnt/logs:ro
     environment:
       - MCP_MODE=http
       - MCP_HOST=0.0.0.0
       - MCP_PORT=8000
-      - DNSMASQ_CONFIG_DIR=/mnt/config
-      - DNSMASQ_LOG_DIR=/mnt/logs
     healthcheck:
       test: ["CMD", "python", "-c", "import socket; s=socket.socket(); s.settimeout(1); result=s.connect_ex(('localhost', 8000)); s.close(); exit(0 if result == 0 else 1)"]
       interval: 10s
@@ -1128,8 +1123,4 @@ volumes:
   milvus_minio:
     driver: local
   milvus_data:
-    driver: local
-  dnsmasq-config:
-    driver: local
-  dnsmasq-logs:
     driver: local

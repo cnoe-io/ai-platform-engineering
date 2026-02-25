@@ -901,38 +901,16 @@ services:
     ports: ["18011:8000"]
     volumes:
       - ./ai_platform_engineering/agents/network_utility/mcp/mcp_network_utility:/app/mcp_network_utility
-      - dnsmasq-config:/mnt/config:ro
-      - dnsmasq-logs:/mnt/logs:ro
     environment:
       - MCP_MODE=http
       - MCP_HOST=0.0.0.0
       - MCP_PORT=8000
-      - DNSMASQ_CONFIG_DIR=/mnt/config
-      - DNSMASQ_LOG_DIR=/mnt/logs
     healthcheck:
       test: ["CMD", "python", "-c", "import socket; s=socket.socket(); s.settimeout(1); result=s.connect_ex(('localhost', 8000)); s.close(); exit(0 if result == 0 else 1)"]
       interval: 10s
       timeout: 5s
       retries: 5
       start_period: 15s
-    profiles:
-      - network-utility-agent
-
-  # Dnsmasq service (DHCP/DNS server) - optional sidecar for full DHCP/DNS management
-  dnsmasq:
-    build:
-      context: .
-      dockerfile: build/agents/Dockerfile.dnsmasq
-    container_name: dnsmasq
-    volumes:
-      - dnsmasq-config:/mnt/config
-      - dnsmasq-logs:/mnt/logs
-    ports:
-      - "5367:67/udp"
-      - "5368:68/udp"
-      - "5369:69/udp"
-    cap_add:
-      - NET_ADMIN
     profiles:
       - network-utility-agent
 
@@ -1485,8 +1463,4 @@ volumes:
   milvus_minio:
     driver: local
   milvus_data:
-    driver: local
-  dnsmasq-config:
-    driver: local
-  dnsmasq-logs:
     driver: local
