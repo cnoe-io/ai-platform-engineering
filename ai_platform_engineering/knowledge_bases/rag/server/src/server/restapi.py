@@ -35,7 +35,7 @@ from common.models.server import (
 )
 from common.models.rag import DataSourceInfo, IngestorInfo, valid_metadata_keys
 from common.models.rbac import Role, UserContext, UserInfoResponse
-from server.rbac import get_user_or_anonymous, require_role, has_permission, get_permissions, is_trusted_request, UserInfoCache, set_userinfo_cache
+from server.rbac import get_user_or_anonymous, require_role, has_permission, get_permissions, is_trusted_request, UserInfoCache, set_userinfo_cache, get_auth_manager
 from common.graph_db.neo4j.graph_db import Neo4jDB
 from common.graph_db.base import GraphDB
 from common.constants import DATASOURCE_ID_KEY, WEBLOADER_INGESTOR_REDIS_QUEUE, WEBLOADER_INGESTOR_NAME, WEBLOADER_INGESTOR_TYPE, CONFLUENCE_INGESTOR_REDIS_QUEUE, CONFLUENCE_INGESTOR_NAME, CONFLUENCE_INGESTOR_TYPE, DEFAULT_DATA_LABEL, DEFAULT_SCHEMA_LABEL
@@ -1172,7 +1172,9 @@ async def _reverse_proxy(request: Request):
   its own RBAC implementation since it's only accessible through this proxy.
   """
   # Manually invoke the RBAC check since app.add_route doesn't support Depends()
-  user = await get_user_or_anonymous(request)
+  # We must manually resolve the auth_manager since Depends() doesn't work here
+  auth_manager = get_auth_manager()
+  user = await get_user_or_anonymous(request, auth_manager)
 
   # Determine required role based on method and path
   # GET /status endpoints are read-only, allow READONLY access
