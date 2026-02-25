@@ -124,6 +124,15 @@ dependencies:
     import-values:
       - child: agentExports.data
         parent: global.enabledSubAgents.webex
+  - name: agent
+    version: 0.2.24 # Do NOT bump this. It will be updated automatically using the PR or release workflow
+    alias: agent-network-utility
+    tags:
+      - agent-network-utility
+      - complete
+    import-values:
+      - child: agentExports.data
+        parent: global.enabledSubAgents.network_utility
         # AGNTCY Slim dataplane service
   - name: slim
     version: v0.1.8

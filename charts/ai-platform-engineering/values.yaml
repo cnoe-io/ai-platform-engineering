@@ -15,6 +15,7 @@ tags:
   agent-slack: false
   agent-splunk: false
   agent-webex: false
+  agent-network-utility: false
   rag-stack: false
 
 # Global configuration shared across all subcharts
@@ -308,6 +309,20 @@ agent-komodor:
   mcp:
     image:
       repository: "ghcr.io/cnoe-io/mcp-komodor"
+      # tag defaults to .Chart.AppVersion when not specified
+      tag: ""
+      pullPolicy: "Always"
+    mode: "http" # Options: stdio, http
+    port: 8000
+
+agent-network-utility:
+  nameOverride: "agent-network-utility"
+  image:
+    repository: "ghcr.io/cnoe-io/agent-network-utility"
+    pullPolicy: "Always"
+  mcp:
+    image:
+      repository: "ghcr.io/cnoe-io/mcp-network-utility"
       # tag defaults to .Chart.AppVersion when not specified
       tag: ""
       pullPolicy: "Always"
