@@ -893,7 +893,9 @@ services:
   mcp-network-utility:
     build:
       context: .
-      dockerfile: build/agents/Dockerfile.mcp.network-utility
+      dockerfile: ai_platform_engineering/agents/network_utility/build/Dockerfile.mcp
+      args:
+        - AGENT_NAME=network_utility
     container_name: mcp-network-utility
     env_file: [.env]
     ports: ["18011:8000"]
