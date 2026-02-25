@@ -46,7 +46,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     mtr-tiny \
     nmap \
     snmp \
-    snmp-mibs-downloader \
     lldpd \
     openssl \
     tcpdump \
