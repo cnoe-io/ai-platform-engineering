@@ -1565,10 +1565,8 @@ const ChatMessage = React.memo(function ChatMessage({
               className={cn(
                 "rounded-xl relative overflow-hidden",
                 isUser
-                  ? "inline-block bg-primary text-primary-foreground px-4 py-3 rounded-tr-sm max-w-full"
-                  : "bg-card/50 border border-border/50 px-4 py-3",
-                // Improved text selection styles
-                "selection:bg-primary/30 selection:text-foreground"
+                  ? "inline-block bg-primary text-primary-foreground px-4 py-3 rounded-tr-sm max-w-full selection:bg-primary-foreground selection:text-primary"
+                  : "bg-card/50 border border-border/50 px-4 py-3"
               )}
             >
               {isUser ? (
