@@ -177,7 +177,7 @@ async def _update_key_models(token: str, new_model: str) -> dict:
     """Add a model to an existing key's allowed models list."""
     key_info = await _get_key_info(token)
     if key_info is None:
-        logger.warning(f"Key not found in LiteLLM, cannot update models")
+        logger.warning("Key not found in LiteLLM, cannot update models")
         return {"key_not_found": True}
 
     current_models = key_info.get("models") or []
