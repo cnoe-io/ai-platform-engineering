@@ -359,4 +359,163 @@ describe('Login Page', () => {
       expect(mockSignIn).toHaveBeenCalledWith('oidc', { callbackUrl: '/' })
     })
   })
+
+  // ─────────────────────────────────────────────────────────────────────
+  // callbackUrl flow — the full redirect-back-after-login journey
+  // ─────────────────────────────────────────────────────────────────────
+
+  describe('callbackUrl redirect flow', () => {
+    it('should redirect authenticated user to callbackUrl from search params', async () => {
+      mockSearchParamsGet.mockImplementation((key: string) => {
+        if (key === 'callbackUrl') return '/chat/b76e290b-d90d-4dd6-8db7-fbda49f3fa6d'
+        return null
+      })
+
+      mockUseSession.mockReturnValue({
+        data: { user: { name: 'Test' } },
+        status: 'authenticated',
+      } as any)
+
+      render(<LoginPage />)
+
+      await waitFor(() => {
+        expect(mockPush).toHaveBeenCalledWith('/chat/b76e290b-d90d-4dd6-8db7-fbda49f3fa6d')
+      })
+    })
+
+    it('should pass callbackUrl to signIn when clicking sign-in button', async () => {
+      mockSearchParamsGet.mockImplementation((key: string) => {
+        if (key === 'callbackUrl') return '/chat/some-uuid'
+        return null
+      })
+
+      mockUseSession.mockReturnValue({ data: null, status: 'unauthenticated' } as any)
+
+      render(<LoginPage />)
+
+      fireEvent.click(screen.getByText(/sign in with sso/i))
+
+      await waitFor(() => {
+        expect(mockSignIn).toHaveBeenCalledWith('oidc', { callbackUrl: '/chat/some-uuid' })
+      })
+    })
+
+    it('should use "/" as default callbackUrl when none provided', async () => {
+      mockSearchParamsGet.mockReturnValue(null)
+
+      mockUseSession.mockReturnValue({
+        data: { user: { name: 'Test' } },
+        status: 'authenticated',
+      } as any)
+
+      render(<LoginPage />)
+
+      await waitFor(() => {
+        expect(mockPush).toHaveBeenCalledWith('/')
+      })
+    })
+
+    it('should redirect to callbackUrl for /knowledge-bases path', async () => {
+      mockSearchParamsGet.mockImplementation((key: string) => {
+        if (key === 'callbackUrl') return '/knowledge-bases'
+        return null
+      })
+
+      mockUseSession.mockReturnValue({
+        data: { user: { name: 'Test' } },
+        status: 'authenticated',
+      } as any)
+
+      render(<LoginPage />)
+
+      await waitFor(() => {
+        expect(mockPush).toHaveBeenCalledWith('/knowledge-bases')
+      })
+    })
+
+    it('should redirect to callbackUrl for /admin path', async () => {
+      mockSearchParamsGet.mockImplementation((key: string) => {
+        if (key === 'callbackUrl') return '/admin'
+        return null
+      })
+
+      mockUseSession.mockReturnValue({
+        data: { user: { name: 'Test' } },
+        status: 'authenticated',
+      } as any)
+
+      render(<LoginPage />)
+
+      await waitFor(() => {
+        expect(mockPush).toHaveBeenCalledWith('/admin')
+      })
+    })
+
+    it('should NOT redirect to callbackUrl when session_expired is present', async () => {
+      mockSearchParamsGet.mockImplementation((key: string) => {
+        if (key === 'callbackUrl') return '/chat/some-uuid'
+        if (key === 'session_expired') return 'true'
+        return null
+      })
+
+      mockUseSession.mockReturnValue({
+        data: { user: { name: 'Test' } },
+        status: 'authenticated',
+      } as any)
+
+      render(<LoginPage />)
+
+      await waitFor(() => {
+        expect(screen.getByText(/sign in with sso/i)).toBeInTheDocument()
+      })
+
+      expect(mockPush).not.toHaveBeenCalled()
+    })
+
+    it('should pass callbackUrl to signIn even when session_expired was present', async () => {
+      mockSearchParamsGet.mockImplementation((key: string) => {
+        if (key === 'callbackUrl') return '/chat/my-conversation'
+        if (key === 'session_expired') return 'true'
+        return null
+      })
+
+      mockUseSession.mockReturnValue({ data: null, status: 'unauthenticated' } as any)
+
+      render(<LoginPage />)
+
+      fireEvent.click(screen.getByText(/sign in with sso/i))
+
+      await waitFor(() => {
+        expect(mockSignIn).toHaveBeenCalledWith('oidc', {
+          callbackUrl: '/chat/my-conversation',
+        })
+      })
+    })
+
+    it('should show session expired message while preserving callbackUrl for sign-in', async () => {
+      mockSearchParamsGet.mockImplementation((key: string) => {
+        if (key === 'callbackUrl') return '/chat/expired-session-uuid'
+        if (key === 'session_expired') return 'true'
+        return null
+      })
+
+      mockUseSession.mockReturnValue({ data: null, status: 'unauthenticated' } as any)
+
+      render(<LoginPage />)
+
+      // Session expired message should be visible
+      expect(screen.getByText(/session expired/i)).toBeInTheDocument()
+      expect(screen.getByText(/your authentication session has expired/i)).toBeInTheDocument()
+
+      // Sign in button should be present
+      fireEvent.click(screen.getByText(/sign in with sso/i))
+
+      // callbackUrl should be the original deep link, not "/"
+      await waitFor(() => {
+        expect(mockSignIn).toHaveBeenCalledWith('oidc', {
+          callbackUrl: '/chat/expired-session-uuid',
+        })
+      })
+    })
+  })
 })

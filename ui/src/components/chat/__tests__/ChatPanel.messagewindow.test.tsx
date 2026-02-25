@@ -232,6 +232,29 @@ describe('ChatPanel — Message Windowing', () => {
     mockActiveConversationId = 'conv-1'
     mockGetActiveConversation.mockReturnValue(null)
     mockIsConversationStreaming.mockReturnValue(false)
+
+    // Restore useChatStore mock to default (may have been overridden by
+    // conversation switch tests that call mockImplementation directly)
+    const { useChatStore } = require('@/store/chat-store')
+    ;(useChatStore as jest.Mock).mockImplementation(() => ({
+      activeConversationId: mockActiveConversationId,
+      getActiveConversation: mockGetActiveConversation,
+      createConversation: jest.fn(),
+      addMessage: jest.fn(),
+      updateMessage: jest.fn(),
+      appendToMessage: jest.fn(),
+      addEventToMessage: jest.fn(),
+      addA2AEvent: jest.fn(),
+      clearA2AEvents: jest.fn(),
+      setConversationStreaming: jest.fn(),
+      isConversationStreaming: mockIsConversationStreaming,
+      cancelConversationRequest: jest.fn(),
+      updateMessageFeedback: jest.fn(),
+      consumePendingMessage: jest.fn(() => null),
+      recoverInterruptedTask: jest.fn(),
+      evictOldMessageContent: mockEvictOldMessageContent,
+      loadMessagesFromServer: mockLoadMessagesFromServer,
+    }))
   })
 
   describe('Collapse behavior', () => {
@@ -472,6 +495,141 @@ describe('ChatPanel — Message Windowing', () => {
       // (only truncated preview appears in the banner)
       expect(screen.queryByText(`Full question 0 content - ${'z'.repeat(100)}`)).not.toBeInTheDocument()
       expect(screen.queryByText(`Full question 5 content - ${'z'.repeat(100)}`)).not.toBeInTheDocument()
+    })
+  })
+
+  describe('Large conversation fixtures (inspired by seed scripts)', () => {
+    it('collapses 48 of 50 turns and renders last 2 turns only', () => {
+      const messages: ChatMessage[] = []
+      for (let i = 0; i < 50; i++) {
+        const question = `Turn ${i} question about topic ${i % 20} - ${'q'.repeat(100)}`
+        const answer = `Turn ${i} detailed analysis with table data - ${'a'.repeat(200)}`
+        messages.push(...createTurn(question, answer))
+      }
+      mockGetActiveConversation.mockReturnValue(createConversation(messages))
+
+      render(<ChatPanel endpoint="/api/test" />)
+
+      expect(screen.getByText('48 older turns')).toBeInTheDocument()
+
+      // Last 2 turns visible
+      expect(screen.getByText(`Turn 48 question about topic ${48 % 20} - ${'q'.repeat(100)}`)).toBeInTheDocument()
+      expect(screen.getByText(`Turn 49 question about topic ${49 % 20} - ${'q'.repeat(100)}`)).toBeInTheDocument()
+
+      // First turn hidden
+      expect(screen.queryByText(`Turn 0 question about topic 0 - ${'q'.repeat(100)}`)).not.toBeInTheDocument()
+    })
+
+    it('expands all 50 turns when clicking the banner', () => {
+      const messages: ChatMessage[] = []
+      for (let i = 0; i < 50; i++) {
+        const question = `Turn ${i} Q - ${'q'.repeat(100)}`
+        const answer = `Turn ${i} A - ${'a'.repeat(100)}`
+        messages.push(...createTurn(question, answer))
+      }
+      mockGetActiveConversation.mockReturnValue(createConversation(messages))
+
+      render(<ChatPanel endpoint="/api/test" />)
+
+      const banner = screen.getByText('48 older turns')
+      fireEvent.click(banner.closest('button') || banner)
+
+      // Now all 50 turns should be visible
+      expect(screen.getByText(`Turn 0 Q - ${'q'.repeat(100)}`)).toBeInTheDocument()
+      expect(screen.getByText(`Turn 25 Q - ${'q'.repeat(100)}`)).toBeInTheDocument()
+      expect(screen.getByText(`Turn 49 Q - ${'q'.repeat(100)}`)).toBeInTheDocument()
+    })
+
+    it('does not show Welcome screen for large conversation with many messages', () => {
+      const messages: ChatMessage[] = []
+      for (let i = 0; i < 25; i++) {
+        messages.push(...createTurn(`Q${i}`, `A${i} with rich content`))
+      }
+      mockGetActiveConversation.mockReturnValue(createConversation(messages))
+
+      render(<ChatPanel endpoint="/api/test" />)
+
+      // Should never show Welcome screen
+      expect(screen.queryByText('Welcome to Test App')).not.toBeInTheDocument()
+      // Should show collapsed banner
+      expect(screen.getByText('23 older turns')).toBeInTheDocument()
+    })
+
+    it('handles conversation with markdown tables in messages', () => {
+      const tableContent = '| # | Resource | Status |\n|---|---|---|\n| 1 | svc-001 | Running |\n| 2 | svc-002 | Degraded |'
+      const messages: ChatMessage[] = [
+        ...createTurn('Show resources', tableContent),
+        ...createTurn('Show more', 'More data'),
+        ...createTurn('Latest', 'Latest answer'),
+      ]
+      mockGetActiveConversation.mockReturnValue(createConversation(messages))
+
+      render(<ChatPanel endpoint="/api/test" />)
+
+      // First turn with table is collapsed
+      expect(screen.getByText('1 older turn')).toBeInTheDocument()
+      // Last 2 turns visible
+      expect(screen.getByText('Show more')).toBeInTheDocument()
+      expect(screen.getByText('Latest')).toBeInTheDocument()
+    })
+
+    it('handles conversation with code blocks in messages', () => {
+      const codeContent = '```yaml\napiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: example\nspec:\n  replicas: 3\n```'
+      const messages: ChatMessage[] = [
+        ...createTurn('Show config', codeContent),
+        ...createTurn('Explain', 'This is a deployment'),
+        ...createTurn('Done', 'All done'),
+      ]
+      mockGetActiveConversation.mockReturnValue(createConversation(messages))
+
+      render(<ChatPanel endpoint="/api/test" />)
+
+      expect(screen.getByText('1 older turn')).toBeInTheDocument()
+      expect(screen.getByText('Explain')).toBeInTheDocument()
+    })
+
+    it('calls evictOldMessageContent with correct IDs when collapsing large conversation', () => {
+      const messages: ChatMessage[] = []
+      for (let i = 0; i < 10; i++) {
+        messages.push(...createTurn(`Q${i} - ${'x'.repeat(100)}`, `A${i} - ${'y'.repeat(100)}`))
+      }
+      mockGetActiveConversation.mockReturnValue(createConversation(messages))
+
+      render(<ChatPanel endpoint="/api/test" />)
+
+      // Expand
+      const banner = screen.getByText('8 older turns')
+      fireEvent.click(banner.closest('button') || banner)
+
+      // Collapse
+      const collapseBtn = screen.getByText('Collapse 8 older turns')
+      fireEvent.click(collapseBtn.closest('button') || collapseBtn)
+
+      expect(mockEvictOldMessageContent).toHaveBeenCalledWith('conv-1', expect.any(Array))
+      // Should contain IDs of the 16 messages from the 8 collapsed turns
+      const evictedIds = mockEvictOldMessageContent.mock.calls[0][1]
+      expect(evictedIds.length).toBe(16)
+    })
+
+    it('handles transition from empty to loaded conversation without showing Welcome screen', () => {
+      // Start with empty conversation
+      mockGetActiveConversation.mockReturnValue(createConversation([]))
+      const { rerender } = render(<ChatPanel endpoint="/api/test" />)
+
+      // Welcome screen shows initially
+      expect(screen.getByText('Welcome to Test App')).toBeInTheDocument()
+
+      // Now messages arrive (simulating loadMessagesFromServer completing)
+      const messages: ChatMessage[] = []
+      for (let i = 0; i < 5; i++) {
+        messages.push(...createTurn(`Q${i}`, `A${i}`))
+      }
+      mockGetActiveConversation.mockReturnValue(createConversation(messages))
+      rerender(<ChatPanel endpoint="/api/test" />)
+
+      // Welcome screen should be gone, messages should be visible
+      expect(screen.queryByText('Welcome to Test App')).not.toBeInTheDocument()
+      expect(screen.getByText('3 older turns')).toBeInTheDocument()
     })
   })
 })
