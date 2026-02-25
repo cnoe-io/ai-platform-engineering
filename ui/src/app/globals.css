@@ -603,10 +603,18 @@ pre code.hljs {
   font-size: 0.875rem;
 }
 
-/* Selection styling */
+/* Selection styling — uses primary/primary-foreground pair for guaranteed
+   contrast across all themes (light, dark, nord, purple, cyberpunk, matrix). */
 ::selection {
-  background: hsl(var(--primary) / 0.3);
-  color: hsl(var(--foreground));
+  background: hsl(var(--primary) / 0.45);
+  color: hsl(var(--primary-foreground));
+}
+
+/* Stronger highlight for inputs/textareas where white-on-dark is common */
+textarea::selection,
+input::selection {
+  background: hsl(var(--primary) / 0.55);
+  color: hsl(var(--primary-foreground));
 }
 
 /* Focus-within for form groups */
