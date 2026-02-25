@@ -16,8 +16,10 @@ jest.mock('next-auth/react', () => ({
 }))
 
 // Mock Next Router
+let mockPathname = '/chat/test-uuid'
 jest.mock('next/navigation', () => ({
   useRouter: jest.fn(),
+  usePathname: () => mockPathname,
 }))
 
 // Mock config
@@ -48,6 +50,7 @@ describe('AuthGuard', () => {
 
   beforeEach(() => {
     jest.clearAllMocks()
+    mockPathname = '/chat/test-uuid'
 
     mockUseRouter.mockReturnValue({
       push: mockPush,
@@ -127,7 +130,27 @@ describe('AuthGuard', () => {
       expect(screen.getByText(/checking authentication/i)).toBeInTheDocument()
     })
 
-    it('should redirect to login when unauthenticated', async () => {
+    it('should redirect to login with callbackUrl when unauthenticated', async () => {
+      mockUseSession.mockReturnValue({
+        data: null,
+        status: 'unauthenticated',
+      } as any)
+
+      render(
+        <AuthGuard>
+          <div data-testid="protected-content">Protected Content</div>
+        </AuthGuard>
+      )
+
+      await waitFor(() => {
+        expect(mockPush).toHaveBeenCalledWith('/login?callbackUrl=%2Fchat%2Ftest-uuid')
+      })
+
+      expect(screen.queryByTestId('protected-content')).not.toBeInTheDocument()
+    })
+
+    it('should redirect to /login without callbackUrl when on root path', async () => {
+      mockPathname = '/'
       mockUseSession.mockReturnValue({
         data: null,
         status: 'unauthenticated',
@@ -142,8 +165,6 @@ describe('AuthGuard', () => {
       await waitFor(() => {
         expect(mockPush).toHaveBeenCalledWith('/login')
       })
-
-      expect(screen.queryByTestId('protected-content')).not.toBeInTheDocument()
     })
 
     it('should redirect to unauthorized when user lacks required group', async () => {
@@ -166,7 +187,7 @@ describe('AuthGuard', () => {
       })
     })
 
-    it('should redirect to login when refresh token expired', async () => {
+    it('should redirect to login with callbackUrl when refresh token expired', async () => {
       mockUseSession.mockReturnValue({
         data: {
           user: { name: 'Test User', email: 'test@example.com' },
@@ -183,11 +204,11 @@ describe('AuthGuard', () => {
       )
 
       await waitFor(() => {
-        expect(mockPush).toHaveBeenCalledWith('/login?session_expired=true')
+        expect(mockPush).toHaveBeenCalledWith('/login?session_expired=true&callbackUrl=%2Fchat%2Ftest-uuid')
       })
     })
 
-    it('should redirect to login when refresh token error occurs', async () => {
+    it('should redirect to login with callbackUrl when refresh token error occurs', async () => {
       mockUseSession.mockReturnValue({
         data: {
           user: { name: 'Test User', email: 'test@example.com' },
@@ -204,11 +225,11 @@ describe('AuthGuard', () => {
       )
 
       await waitFor(() => {
-        expect(mockPush).toHaveBeenCalledWith('/login?session_expired=true')
+        expect(mockPush).toHaveBeenCalledWith('/login?session_expired=true&callbackUrl=%2Fchat%2Ftest-uuid')
       })
     })
 
-    it('should redirect to login when token is expired', async () => {
+    it('should redirect to login with callbackUrl when token is expired', async () => {
       const expiredTime = Math.floor(Date.now() / 1000) - 100 // Expired 100 seconds ago
 
       mockUseSession.mockReturnValue({
@@ -227,7 +248,7 @@ describe('AuthGuard', () => {
       )
 
       await waitFor(() => {
-        expect(mockPush).toHaveBeenCalledWith('/login?session_expired=true')
+        expect(mockPush).toHaveBeenCalledWith('/login?session_expired=true&callbackUrl=%2Fchat%2Ftest-uuid')
       })
     })
 
@@ -301,7 +322,7 @@ describe('AuthGuard', () => {
       )
 
       await waitFor(() => {
-        expect(mockPush).toHaveBeenCalledWith('/login?session_expired=true')
+        expect(mockPush).toHaveBeenCalledWith('/login?session_expired=true&callbackUrl=%2Fchat%2Ftest-uuid')
       })
     })
 
@@ -401,7 +422,7 @@ describe('AuthGuard', () => {
       )
 
       await waitFor(() => {
-        expect(mockPush).toHaveBeenCalledWith('/login?session_expired=true')
+        expect(mockPush).toHaveBeenCalledWith('/login?session_expired=true&callbackUrl=%2Fchat%2Ftest-uuid')
       })
 
       // Should only redirect once (for refresh error, not for expired token)
@@ -452,8 +473,8 @@ describe('AuthGuard', () => {
         expect(screen.getByTestId('protected-content')).toBeInTheDocument()
       })
 
-      // Should NOT redirect to login
-      expect(mockPush).not.toHaveBeenCalledWith('/login?session_expired=true')
+      // Should NOT redirect to login (with or without callbackUrl)
+      expect(mockPush).not.toHaveBeenCalled()
     })
 
     it('should handle RefreshTokenMissing error gracefully without crashing', async () => {
@@ -517,6 +538,190 @@ describe('AuthGuard', () => {
       })
 
       expect(mockPush).not.toHaveBeenCalled()
+    })
+  })
+
+  // ===========================================================================
+  // callbackUrl preservation — full flow edge cases
+  // ===========================================================================
+
+  describe('callbackUrl preservation', () => {
+    beforeEach(() => {
+      const { getConfig } = require('@/lib/config')
+      getConfig.mockImplementation((key: string) => {
+        if (key === 'ssoEnabled') return true
+        return undefined
+      })
+
+      // Restore sessionStorage to a clean state — earlier tests
+      // (TokenExpiryGuard coordination) replace it with a stub that
+      // returns 'true' for 'token-expiry-handling', which would cause
+      // AuthGuard to skip all redirects.
+      Object.defineProperty(window, 'sessionStorage', {
+        value: {
+          getItem: jest.fn(() => null),
+          setItem: jest.fn(),
+          removeItem: jest.fn(),
+          clear: jest.fn(),
+        },
+        writable: true,
+      })
+    })
+
+    it('should NOT include callbackUrl when already on /login', async () => {
+      mockPathname = '/login'
+
+      mockUseSession.mockReturnValue({
+        data: null,
+        status: 'unauthenticated',
+      } as any)
+
+      render(
+        <AuthGuard>
+          <div data-testid="protected-content">Protected Content</div>
+        </AuthGuard>
+      )
+
+      await waitFor(() => {
+        expect(mockPush).toHaveBeenCalledWith('/login')
+      })
+    })
+
+    it('should encode deeply nested paths in callbackUrl', async () => {
+      mockPathname = '/chat/abc-123/details'
+
+      mockUseSession.mockReturnValue({
+        data: null,
+        status: 'unauthenticated',
+      } as any)
+
+      render(
+        <AuthGuard>
+          <div data-testid="protected-content">Protected Content</div>
+        </AuthGuard>
+      )
+
+      await waitFor(() => {
+        expect(mockPush).toHaveBeenCalledWith(
+          '/login?callbackUrl=%2Fchat%2Fabc-123%2Fdetails'
+        )
+      })
+    })
+
+    it('should include callbackUrl on /knowledge-bases path', async () => {
+      mockPathname = '/knowledge-bases'
+
+      mockUseSession.mockReturnValue({
+        data: null,
+        status: 'unauthenticated',
+      } as any)
+
+      render(
+        <AuthGuard>
+          <div data-testid="protected-content">Protected Content</div>
+        </AuthGuard>
+      )
+
+      await waitFor(() => {
+        expect(mockPush).toHaveBeenCalledWith(
+          '/login?callbackUrl=%2Fknowledge-bases'
+        )
+      })
+    })
+
+    it('should include callbackUrl on /admin path', async () => {
+      mockPathname = '/admin'
+
+      mockUseSession.mockReturnValue({
+        data: null,
+        status: 'unauthenticated',
+      } as any)
+
+      render(
+        <AuthGuard>
+          <div data-testid="protected-content">Protected Content</div>
+        </AuthGuard>
+      )
+
+      await waitFor(() => {
+        expect(mockPush).toHaveBeenCalledWith(
+          '/login?callbackUrl=%2Fadmin'
+        )
+      })
+    })
+
+    it('should include callbackUrl with session_expired for expired token on deep path', async () => {
+      mockPathname = '/chat/b76e290b-d90d-4dd6-8db7-fbda49f3fa6d'
+      const expiredTime = Math.floor(Date.now() / 1000) - 100
+
+      mockUseSession.mockReturnValue({
+        data: {
+          user: { name: 'Test User', email: 'test@example.com' },
+          isAuthorized: true,
+          expiresAt: expiredTime,
+        } as any,
+        status: 'authenticated',
+      })
+
+      render(
+        <AuthGuard>
+          <div data-testid="protected-content">Protected Content</div>
+        </AuthGuard>
+      )
+
+      await waitFor(() => {
+        expect(mockPush).toHaveBeenCalledWith(
+          '/login?session_expired=true&callbackUrl=%2Fchat%2Fb76e290b-d90d-4dd6-8db7-fbda49f3fa6d'
+        )
+      })
+    })
+
+    it('should include callbackUrl with session_expired for RefreshTokenExpired on deep path', async () => {
+      mockPathname = '/use-cases'
+
+      mockUseSession.mockReturnValue({
+        data: {
+          user: { name: 'Test User', email: 'test@example.com' },
+          isAuthorized: true,
+          error: 'RefreshTokenExpired',
+        } as any,
+        status: 'authenticated',
+      })
+
+      render(
+        <AuthGuard>
+          <div data-testid="protected-content">Protected Content</div>
+        </AuthGuard>
+      )
+
+      await waitFor(() => {
+        expect(mockPush).toHaveBeenCalledWith(
+          '/login?session_expired=true&callbackUrl=%2Fuse-cases'
+        )
+      })
+    })
+
+    it('should NOT include callbackUrl for RefreshTokenExpired when on root /', async () => {
+      mockPathname = '/'
+
+      mockUseSession.mockReturnValue({
+        data: {
+          user: { name: 'Test User', email: 'test@example.com' },
+          isAuthorized: true,
+          error: 'RefreshTokenExpired',
+        } as any,
+        status: 'authenticated',
+      })
+
+      render(
+        <AuthGuard>
+          <div data-testid="protected-content">Protected Content</div>
+        </AuthGuard>
+      )
+
+      await waitFor(() => {
+        expect(mockPush).toHaveBeenCalledWith('/login?session_expired=true')
+      })
     })
   })
 })

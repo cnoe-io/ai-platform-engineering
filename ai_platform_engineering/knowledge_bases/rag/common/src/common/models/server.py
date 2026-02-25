@@ -175,3 +175,11 @@ class QueryRequest(BaseModel):
 class QueryResult(BaseModel):
   document: Document
   score: float
+
+
+# ============================================================================
+# Models for Batch Job Status
+# ============================================================================
+class JobsBatchRequest(BaseModel):
+  datasource_ids: List[str] = Field(..., description="List of datasource IDs to fetch jobs for", max_length=100)
+  status_filter: Optional[List[str]] = Field(None, description="Optional list of job statuses to filter by (e.g., ['in_progress', 'pending'])")

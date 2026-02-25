@@ -31,7 +31,8 @@ if A2A_AUTH_OAUTH2:
   JWKS_URI = os.environ["JWKS_URI"]
   AUDIENCE = os.environ["AUDIENCE"]  # expected 'aud' claim in token
   ISSUER = os.environ["ISSUER"]
-  OAUTH2_CLIENT_ID = os.environ["OAUTH2_CLIENT_ID"]  # your client ID for audience validation
+  # Comma-separated list of allowed client IDs for cid claim validation.
+  OAUTH2_CLIENT_IDS = {cid.strip() for cid in os.environ["OAUTH2_CLIENT_ID"].split(",") if cid.strip()}
   DEBUG_UNMASK_AUTH_HEADER = os.environ.get("DEBUG_UNMASK_AUTH_HEADER", "false").lower() == "true"
   _jwks_cache = JwksCache(JWKS_URI)
 
@@ -108,14 +109,14 @@ def verify_token(token: str) -> bool:
             },
             leeway=CLOCK_SKEW_LEEWAY,    # small clock skew tolerance (seconds)
         )
-        # Check if 'cid' claim exists and validate it
+        # Check if 'cid' claim exists and validate it against the allowed set.
         if "cid" in payload:
             token_cid = payload["cid"]
-            if token_cid == OAUTH2_CLIENT_ID:
-                logger.debug(f"Token CID matches expected client ID: {token_cid}")
+            if token_cid in OAUTH2_CLIENT_IDS:
+                logger.debug(f"Token CID matches allowed client ID: {token_cid}")
                 return True
             else:
-                logger.warning(f"Token CID '{token_cid}' does not match expected client ID '{OAUTH2_CLIENT_ID}'")
+                logger.warning(f"Token CID '{token_cid}' not in allowed client IDs {OAUTH2_CLIENT_IDS}")
                 return False
         else:
             print("\n" + "="*40)

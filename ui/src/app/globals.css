@@ -224,22 +224,22 @@
 [data-theme="cyberpunk"] {
   --background: 270 30% 4%;
   --foreground: 300 20% 92%;
-  --card: 270 30% 6%;
+  --card: 270 30% 7%;
   --card-foreground: 300 20% 92%;
-  --popover: 270 30% 8%;
+  --popover: 270 30% 9%;
   --popover-foreground: 300 20% 92%;
   --primary: 320 100% 60%;
   --primary-foreground: 270 30% 4%;
-  --secondary: 270 30% 12%;
+  --secondary: 270 35% 18%;
   --secondary-foreground: 300 20% 92%;
-  --muted: 270 25% 14%;
-  --muted-foreground: 280 15% 55%;
-  --accent: 270 30% 14%;
+  --muted: 270 30% 18%;
+  --muted-foreground: 290 20% 65%;
+  --accent: 270 35% 20%;
   --accent-foreground: 300 20% 92%;
   --destructive: 0 85% 55%;
   --destructive-foreground: 300 20% 92%;
-  --border: 270 25% 18%;
-  --input: 270 25% 12%;
+  --border: 270 30% 24%;
+  --input: 270 25% 14%;
   --ring: 320 100% 60%;
 
   /* Cyberpunk gradient — hot pink → electric cyan */
@@ -603,10 +603,11 @@ pre code.hljs {
   font-size: 0.875rem;
 }
 
-/* Selection styling */
+/* Selection styling — solid primary background so the highlight block is
+   unmistakable regardless of text color or theme brightness. */
 ::selection {
-  background: hsl(var(--primary) / 0.3);
-  color: hsl(var(--foreground));
+  background: hsl(var(--primary));
+  color: hsl(var(--primary-foreground));
 }
 
 /* Focus-within for form groups */

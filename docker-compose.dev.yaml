@@ -262,11 +262,13 @@ services:
       - ./charts/ai-platform-engineering/data/prompt_config.github_agent.yaml:/app/prompt_config.github_agent.yaml
       - ./ai_platform_engineering/agents/github/agent_github:/app/ai_platform_engineering/agents/agent/agent_github
       - ./ai_platform_engineering/utils:/app/ai_platform_engineering/utils
+      - ${CUSTOM_CA_BUNDLE_PATH:-./certs/ca-bundle.pem}:/app/certs/ca-bundle.pem:ro
     env_file: [.env]
     ports: ["8001:8000"]
     environment:
       - A2A_TRANSPORT=${A2A_TRANSPORT:-p2p}
       - MCP_MODE=http
+      - CUSTOM_CA_BUNDLE=${CUSTOM_CA_BUNDLE:-/app/certs/ca-bundle.pem}
       - SLIM_ENDPOINT=${SLIM_ENDPOINT:-http://slim-dataplane:46357}
       - ENABLE_TRACING=${ENABLE_TRACING:-false}
       - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
@@ -888,7 +890,6 @@ services:
     command: python3 -m jarvis_agent.combined_server --fastapi-port 8000 --a2a-port 58000
     profiles:
       - jarvis
-      - all-agents
 
   ####################################################################################################
   #                                      CAIPE UI                                                    #

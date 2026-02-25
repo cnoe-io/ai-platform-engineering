@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useChatStore } from "@/store/chat-store";
 import { getStorageMode } from "@/lib/storage-config";
 import { AuthGuard } from "@/components/auth-guard";
-import { Loader2 } from "lucide-react";
+import { CAIPESpinner } from "@/components/ui/caipe-spinner";
 
 /**
  * /chat landing page — resumes the last active conversation, falls back to
@@ -79,10 +79,7 @@ function ChatRedirectPage() {
 
   return (
     <div className="flex-1 flex items-center justify-center h-full bg-background">
-      <div className="flex flex-col items-center gap-3 text-muted-foreground">
-        <Loader2 className="h-6 w-6 animate-spin" />
-        <p className="text-sm">Loading conversations...</p>
-      </div>
+      <CAIPESpinner size="lg" message="Loading conversations..." />
     </div>
   );
 }
