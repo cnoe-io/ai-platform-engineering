@@ -17,6 +17,8 @@ from mcp_network_utility.tools import dns
 from mcp_network_utility.tools import diagnostics
 from mcp_network_utility.tools import dnsmasq_config
 from mcp_network_utility.tools import dhcp
+from mcp_network_utility.tools import advanced_networking
+from mcp_network_utility.tools import cisco
 
 
 def main():
@@ -64,6 +66,24 @@ def main():
     mcp.tool()(dhcp.list_dhcp_leases)
     mcp.tool()(dhcp.get_dhcp_lease_by_mac)
     mcp.tool()(dhcp.get_dnsmasq_logs)
+
+    # Advanced Networking
+    mcp.tool()(advanced_networking.mtr_report)
+    mcp.tool()(advanced_networking.nmap_port_scan)
+    mcp.tool()(advanced_networking.show_arp_table)
+    mcp.tool()(advanced_networking.show_routing_table)
+    mcp.tool()(advanced_networking.show_socket_stats)
+    mcp.tool()(advanced_networking.check_ssl_certificate)
+    mcp.tool()(advanced_networking.check_mtu)
+
+    # Cisco-centric Tools
+    mcp.tool()(cisco.snmp_get)
+    mcp.tool()(cisco.snmp_walk)
+    mcp.tool()(cisco.lldp_neighbors)
+    mcp.tool()(cisco.subnet_calculator)
+    mcp.tool()(cisco.subnet_contains_ip)
+    mcp.tool()(cisco.parse_cisco_config)
+    mcp.tool()(cisco.analyze_cisco_acl)
 
     mcp.run(transport=MCP_MODE.lower())
 
