@@ -1,13 +1,18 @@
+## 0.2.24 (2026-02-25)
+
+### Feat
+
+- **ui**: add interactive changelog viewer to System Settings dialog (#851)
+
+### Fix
+
+- **ui**: persist skill_content and related fields on skill creation (#852)
+
 ## 0.2.23 (2026-02-25)
 
 ### Fix
 
 - **ui**: auth redirect, loading spinner, theme visibility, and session resilience (#850)
-
-## 0.2.22-rc.1 (2026-02-24)
-
-### Fix
-
 - **supervisor**: repair streaming failures from json scoping and orphaned tool calls (#842)
 
 ## 0.2.22 (2026-02-24)
