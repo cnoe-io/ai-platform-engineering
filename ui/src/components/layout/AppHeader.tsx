@@ -12,6 +12,7 @@ import {
   Loader2,
   Database,
   Shield,
+  FileText,
 } from "lucide-react";
 import { UserMenu } from "@/components/user-menu";
 import { SettingsPanel } from "@/components/settings-panel";
@@ -449,6 +450,13 @@ export function AppHeader() {
                             ({versionInfo.gitCommit.substring(0, 7)})
                           </span>
                         )}
+                        <button
+                          onClick={() => window.dispatchEvent(new CustomEvent("open-changelog"))}
+                          className="inline-flex items-center gap-1 text-primary hover:underline font-sans font-medium cursor-pointer"
+                        >
+                          <FileText className="h-3 w-3" />
+                          Changelog
+                        </button>
                       </div>
                       {versionInfo.buildDate && (
                         <span className="text-muted-foreground/60">
