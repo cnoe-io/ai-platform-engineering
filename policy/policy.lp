@@ -25,10 +25,11 @@ readonly_tool(list_issue_types).
 readonly_tool(list_issues).
 readonly_tool(search_issues).
 
-% Pull request read tools
+% Pull request tools
 readonly_tool(list_pull_requests).
 readonly_tool(pull_request_read).
 readonly_tool(search_pull_requests).
+readonly_tool(create_pull_request).
 
 % Repository read tools
 readonly_tool(get_commit).

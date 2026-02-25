@@ -1098,11 +1098,10 @@ Create LLM API Key:
         - model_name: {model_name}
         - user_email: {user_email}
         
-        The tool returns a formatted message with:
-        - The generated API key
-        - Base URL for the LLM gateway
-        - Python usage example
-        - Budget information
+        The tool handles both new and existing keys:
+        - If the user already has a key with this model, it confirms existing access
+        - If the user has a key but without this model, it adds the model
+        - If no key exists, it creates a new one with the API key and usage example
         
         Display the tool output directly to the user.
       subagent: "aigateway"

@@ -122,6 +122,90 @@ async def _get_or_create_user(user_email: str, max_budget: float = 100.0) -> str
             return None
 
 
+async def _get_existing_key(user_email: str) -> Optional[dict]:
+    """Look up existing keys for a user via /key/list."""
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {LITELLM_API_KEY}",
+    }
+
+    async with httpx.AsyncClient() as client:
+        response = await client.get(
+            f"{LITELLM_API_URL}/key/list",
+            headers=headers,
+            params={"user_id": user_email},
+        )
+        if response.status_code != 200:
+            logger.warning(f"Failed to list keys for {user_email}: {response.text}")
+            return None
+
+        data = response.json()
+        keys = data.get("keys", data.get("data", []))
+        if not keys:
+            return None
+
+        key_info = keys[0]
+        if isinstance(key_info, str):
+            return {"token": key_info}
+        if isinstance(key_info, dict):
+            return key_info
+    return None
+
+
+async def _get_key_info(token: str) -> Optional[dict]:
+    """Fetch key details (models, metadata) via /key/info."""
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {LITELLM_API_KEY}",
+    }
+
+    async with httpx.AsyncClient() as client:
+        response = await client.get(
+            f"{LITELLM_API_URL}/key/info",
+            headers=headers,
+            params={"key": token},
+        )
+        if response.status_code != 200:
+            logger.warning(f"Could not get key info: {response.text}")
+            return None
+
+        data = response.json()
+        return data.get("info", data)
+
+
+async def _update_key_models(token: str, new_model: str) -> dict:
+    """Add a model to an existing key's allowed models list."""
+    key_info = await _get_key_info(token)
+    if key_info is None:
+        logger.warning(f"Key not found in LiteLLM, cannot update models")
+        return {"key_not_found": True}
+
+    current_models = key_info.get("models") or []
+    if new_model in current_models:
+        logger.info(f"Model {new_model} already in key's models list")
+        return {"models": current_models, "already_exists": True}
+
+    updated_models = current_models + [new_model]
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {LITELLM_API_KEY}",
+    }
+
+    async with httpx.AsyncClient() as client:
+        response = await client.post(
+            f"{LITELLM_API_URL}/key/update",
+            headers=headers,
+            json={"key": token, "models": updated_models},
+        )
+
+        if response.status_code != 200:
+            logger.error(f"Error updating key models: {response.text}")
+            return {"error": True, "message": response.text}
+
+    logger.info(f"Added model {new_model} to key. Total models: {len(updated_models)}")
+    return {"models": updated_models, "model_added": new_model}
+
+
 async def _generate_key(user_id: str, user_email: str, models: list[str], max_budget: float) -> dict:
     """Generate a virtual key for the user."""
     headers = {
@@ -198,7 +282,52 @@ async def create_llm_api_key(provider_name: str, model_name: str, user_email: st
         if not user_id:
             return f"Failed to create/get user {user_email}"
         
-        # Generate key
+        # Check for existing key before generating
+        existing_key = await _get_existing_key(user_email)
+        
+        if existing_key:
+            token = existing_key.get("token") or existing_key.get("key", "")
+            if not token:
+                logger.warning(f"Existing key found for {user_email} but no token available")
+            else:
+                update_result = await _update_key_models(token, full_model_name)
+                
+                if update_result.get("key_not_found"):
+                    logger.warning(f"Existing key for {user_email} is stale, generating new key")
+                elif update_result.get("error"):
+                    return f"Failed to update existing key: {update_result.get('message', 'Unknown error')}"
+                elif update_result.get("already_exists"):
+                    models = update_result.get("models", [])
+                    return f"""## LLM Access - Already Configured
+
+**User**: {user_email}
+**Provider**: {provider_name}
+**Model**: {model_name}
+**Full Model ID**: {full_model_name}
+**Base URL**: {LITELLM_API_URL}
+
+You already have access to model `{full_model_name}`.
+Your existing API key remains valid. All models on your key: {', '.join(f'`{m}`' for m in models)}
+
+**Budget**: $100/month (resets monthly)
+"""
+                else:
+                    models = update_result.get("models", [])
+                    return f"""## LLM Access - Model Added to Existing Key
+
+**User**: {user_email}
+**Provider**: {provider_name}
+**Model**: {model_name}
+**Full Model ID**: {full_model_name}
+**Base URL**: {LITELLM_API_URL}
+
+Model `{full_model_name}` has been added to your existing API key.
+Your existing API key remains valid. All models on your key: {', '.join(f'`{m}`' for m in models)}
+
+**Budget**: $100/month (resets monthly)
+"""
+        
+        # No existing key or stale key — generate new
         key_response = await _generate_key(
             user_id=user_id,
             user_email=user_email,

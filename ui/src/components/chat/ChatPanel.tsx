@@ -252,17 +252,8 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle }: ChatP
     // Only restore if the last message is from the assistant (user hasn't replied yet)
     if (lastMsg.role !== "assistant") return;
 
-    // Don't restore if the last message is already final (task completed)
-    if (lastMsg.isFinal) return;
-
     // Don't restore if user explicitly dismissed the form for this message
     if (dismissedInputForMessageRef.current.has(lastMsg.id)) return;
-
-    // Don't restore if the conversation already has a final/complete result
-    const hasResult = (conversation.a2aEvents || []).some(
-      (e: A2AEvent) => e.artifact?.name === "final_result" || e.artifact?.name === "complete_result"
-    );
-    if (hasResult) return;
 
     // Gather events from both conversation-level and message-level sources
     const eventsToCheck = [
@@ -715,7 +706,10 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle }: ChatP
     console.log("[ChatPanel] 📝 HITL form submitted:", formData);
 
     const turnId = `turn-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
-    addMessage(activeConversationId, { role: "user", content: "Form submitted." }, turnId);
+    const selectionSummary = Object.entries(formData)
+      .map(([key, value]) => `${key}: ${value}`)
+      .join("\n");
+    addMessage(activeConversationId, { role: "user", content: selectionSummary || "Form submitted." }, turnId);
     const assistantMsgId = addMessage(activeConversationId, { role: "assistant", content: "" }, turnId);
 
     const contextId = pendingUserInput.contextId || activeConversationId;
