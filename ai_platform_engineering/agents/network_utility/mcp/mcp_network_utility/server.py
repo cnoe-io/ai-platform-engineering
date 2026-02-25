@@ -19,6 +19,7 @@ from mcp_network_utility.tools import dnsmasq_config
 from mcp_network_utility.tools import dhcp
 from mcp_network_utility.tools import advanced_networking
 from mcp_network_utility.tools import cisco
+from mcp_network_utility.tools import ip_planning
 
 
 def main():
@@ -84,6 +85,16 @@ def main():
     mcp.tool()(cisco.subnet_contains_ip)
     mcp.tool()(cisco.parse_cisco_config)
     mcp.tool()(cisco.analyze_cisco_acl)
+
+    # IP Planning, CIDR & VLAN Tools
+    mcp.tool()(ip_planning.split_cidr)
+    mcp.tool()(ip_planning.aggregate_cidrs)
+    mcp.tool()(ip_planning.find_available_subnets)
+    mcp.tool()(ip_planning.compare_cidrs)
+    mcp.tool()(ip_planning.analyze_vlan_config)
+    mcp.tool()(ip_planning.plan_vlan_subnets)
+    mcp.tool()(ip_planning.generate_network_diagram)
+    mcp.tool()(ip_planning.generate_subnet_map)
 
     mcp.run(transport=MCP_MODE.lower())
 
