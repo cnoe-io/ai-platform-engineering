@@ -1,37 +1,29 @@
-## 0.2.22 (2026-02-24)
+## 0.2.23 (2026-02-25)
 
-## 0.2.21-rc.4 (2026-02-24)
+### Fix
+
+- **ui**: auth redirect, loading spinner, theme visibility, and session resilience (#850)
+
+## 0.2.22-rc.1 (2026-02-24)
+
+### Fix
+
+- **supervisor**: repair streaming failures from json scoping and orphaned tool calls (#842)
+
+## 0.2.22 (2026-02-24)
 
 ### Feat
 
 - Support comma-separated OAUTH2_CLIENT_IDS for cid validation (#849)
+- **rag**: add batch job status endpoint for efficient datasource polling (#845)
+- set USE_STRUCTURED_RESPONSE true by default (#840)
 
 ### Fix
 
 - **ui**: default canViewAdmin to true for pre-upgrade JWT sessions (#837)
-
-## 0.2.21-rc.3 (2026-02-24)
-
-### Feat
-
-- **rag**: add batch job status endpoint for efficient datasource polling (#845)
-
-### Fix
-
 - **docker-compose**: remove jarvis from all-agents profile (#848)
-
-## 0.2.21-rc.2 (2026-02-24)
-
-### Fix
-
 - get rid of ResponseFormat as sonnet sometimes uses this instead and breaks
 - make it work with newer claude models that do not support prefilling
-
-## 0.2.21-rc.1 (2026-02-24)
-
-### Feat
-
-- set USE_STRUCTURED_RESPONSE true by default (#840)
 
 ## 0.2.21 (2026-02-23)
 
