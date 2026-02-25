@@ -33,6 +33,7 @@ Each component has its own environment variables - see `env.example` in `ui/` an
   - Example: `feat(rag): add userinfo caching`
 - **Branch naming** - Use `prebuild/` prefix for CI to build Docker images
   - Example: `prebuild/feat/rag-batch-job-status`
+- **PR descriptions** - Follow the template in `.github/pull_request_template.md`
 
 ## Issue Tracking (bd)
 
