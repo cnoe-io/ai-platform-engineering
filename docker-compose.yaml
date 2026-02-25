@@ -56,6 +56,7 @@ services:
       - SPLUNK_AGENT_HOST=agent-splunk
       - WEATHER_AGENT_HOST=agent-weather
       - WEBEX_AGENT_HOST=agent-webex
+      - NETWORK_UTILITY_AGENT_HOST=agent-network-utility
 
       # The following ENABLE_* environment variables control the activation of individual sub-agents for multi-agent orchestration.
       # In .env file, set each variable to 'true' to enable the corresponding agent, or 'false' to disable it.
@@ -77,6 +78,7 @@ services:
       - ENABLE_WEBEX=${ENABLE_WEBEX:-false}
       - ENABLE_WEBEX=${ENABLE_WEBEX:-false}
       - ENABLE_WEATHER=${ENABLE_WEATHER:-false}
+      - ENABLE_NETWORK_UTILITY=${ENABLE_NETWORK_UTILITY:-false}
 
       # Tracing configuration (will be read from .env if ENABLE_TRACING=true)
       - ENABLE_TRACING=${ENABLE_TRACING:-false}
@@ -567,6 +569,50 @@ services:
       - webex
       - all-agents
 
+  # Network Utility Agent
+  agent-network-utility:
+    image: ghcr.io/cnoe-io/agent-network-utility:${IMAGE_TAG:-0.2.21}
+    container_name: agent-network-utility
+    volumes:
+      - ./charts/ai-platform-engineering/data/prompt_config.network_utility_agent.yaml:/app/prompt_config.network_utility_agent.yaml
+    env_file: [.env]
+    ports: ["8015:8000"]
+    environment:
+      - A2A_TRANSPORT=${A2A_TRANSPORT:-p2p}
+      - MCP_MODE=http
+      - MCP_HOST=mcp-network-utility
+      - MCP_PORT=8000
+      - SLIM_ENDPOINT=${SLIM_ENDPOINT:-http://slim-dataplane:46357}
+    depends_on:
+      mcp-network-utility:
+        condition: service_healthy
+    profiles:
+      - network-utility-agent
+      - all-agents
+
+  mcp-network-utility:
+    image: ghcr.io/cnoe-io/mcp-network-utility:${IMAGE_TAG:-0.2.21}
+    container_name: mcp-network-utility
+    env_file: [.env]
+    ports: ["18011:8000"]
+    volumes:
+      - dnsmasq-config:/mnt/config:ro
+      - dnsmasq-logs:/mnt/logs:ro
+    environment:
+      - MCP_MODE=http
+      - MCP_HOST=0.0.0.0
+      - MCP_PORT=8000
+      - DNSMASQ_CONFIG_DIR=/mnt/config
+      - DNSMASQ_LOG_DIR=/mnt/logs
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; s=socket.socket(); s.settimeout(1); result=s.connect_ex(('localhost', 8000)); s.close(); exit(0 if result == 0 else 1)"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    profiles:
+      - network-utility-agent
+      - all-agents
 
   # Backstage Plugin (Agent Forge)
   backstage-agent-forge:
@@ -1082,4 +1128,8 @@ volumes:
   milvus_minio:
     driver: local
   milvus_data:
+    driver: local
+  dnsmasq-config:
+    driver: local
+  dnsmasq-logs:
     driver: local

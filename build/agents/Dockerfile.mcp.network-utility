@@ -1,0 +1,52 @@
+# ---------- Stage 1: Build dependencies ----------
+FROM python:3.13-slim AS builder
+
+WORKDIR /app
+
+COPY --chown=root:root ./ai_platform_engineering/agents/network_utility/mcp ./
+
+# Install system dependencies and uv in one layer
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    && pip install uv \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install dependencies into venv (no dev deps)
+RUN --mount=type=cache,target=/root/.cache/uv \
+    UV_HTTP_TIMEOUT=300 uv sync --locked --no-dev
+
+# ---------- Stage 2: Final runtime image ----------
+FROM python:3.13-slim
+
+# Install network diagnostic tools required by MCP tools
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    dnsutils \
+    iputils-ping \
+    traceroute \
+    whois \
+    curl \
+    iproute2 \
+    net-tools \
+    dnsmasq \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create appuser in final image
+RUN groupadd -r appuser && useradd -r -g appuser -u 1001 -m appuser
+
+WORKDIR /app
+
+ENV UV_PROJECT_ENVIRONMENT=/app/.venv \
+    PATH="/app/.venv/bin:${PATH}" \
+    PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1
+
+# Copy venv & code from builder
+COPY --from=builder --chown=appuser:appuser /app /app
+
+USER appuser
+
+EXPOSE 8000
+
+CMD ["python", "-m", "mcp_network_utility"]

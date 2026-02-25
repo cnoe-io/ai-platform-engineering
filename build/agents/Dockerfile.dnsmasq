@@ -1,0 +1,43 @@
+FROM ubuntu:24.04
+
+# Install build dependencies
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        build-essential \
+        wget \
+        curl \
+        ca-certificates \
+        pkg-config \
+        libdbus-1-dev \
+        libnetfilter-conntrack-dev \
+        nettle-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+ENV DNSMASQ_VERSION=2.89
+
+WORKDIR /usr/src
+
+# Build dnsmasq from source for a pinned, reproducible version
+RUN wget -O dnsmasq-${DNSMASQ_VERSION}.tar.gz http://thekelleys.org.uk/dnsmasq/dnsmasq-${DNSMASQ_VERSION}.tar.gz && \
+    tar xzf dnsmasq-${DNSMASQ_VERSION}.tar.gz && \
+    cd dnsmasq-${DNSMASQ_VERSION} && \
+    make && make install && \
+    cd / && rm -rf /usr/src/dnsmasq-${DNSMASQ_VERSION}*
+
+RUN mkdir -p /mnt/logs /mnt/config /var/lib/misc
+
+# Create a minimal default config so dnsmasq can start without user-supplied config
+RUN printf '# Minimal dnsmasq default config\n\
+# DNS-only mode (no DHCP unless configured via /mnt/config)\n\
+no-dhcp-interface=\n\
+no-resolv\n\
+server=8.8.8.8\n\
+server=8.8.4.4\n\
+log-queries\n\
+log-facility=/mnt/logs/dnsmasq.log\n' > /etc/dnsmasq.conf
+
+# DHCPv4: 67/udp, 68/udp; DHCPv6: 547/udp, 546/udp; PXE/TFTP: 69/udp; DNS: 53
+EXPOSE 53/udp 53/tcp 67/udp 68/udp 547/udp 546/udp 69/udp
+
+ENTRYPOINT ["dnsmasq", "--keep-in-foreground", \
+    "--conf-dir=/mnt/config,*.conf"]
