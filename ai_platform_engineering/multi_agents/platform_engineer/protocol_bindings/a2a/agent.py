@@ -1130,7 +1130,16 @@ class AIPlatformEngineerA2ABinding:
               "clear_accumulators": True,
               "content": "🔄 Switching to fallback streaming mode...",
           }
+
+          # Reset accumulators so post-stream parsing starts fresh for fallback
+          accumulated_ai_content.clear()
+          final_ai_message = None
+          response_format_content = None
+          response_format_args = None
+          response_format_streaming = False
+
           try:
+            message = None  # Initialize to avoid stale reference from primary stream
             async for item_type, item in self.graph.astream(inputs, config, stream_mode=['messages', 'custom', 'updates']):
 
               # Handle custom A2A event payloads emitted via get_stream_writer()
@@ -1152,10 +1161,33 @@ class AIPlatformEngineerA2ABinding:
                           "metadata": {"options": options} if options else {},
                       }
                       continue
-              elif item_type == 'messages':
-                message = item[0]
-              elif 'generate_structured_response' in item:
-                yield self.handle_structured_response(item['generate_structured_response']['structured_response'])
+
+              if item_type == 'updates' and isinstance(item, dict) and 'generate_structured_response' in item:
+                  structured_resp = item['generate_structured_response'].get('structured_response')
+                  if structured_resp is not None:
+                      parsed = self.handle_structured_response(structured_resp)
+                      parsed['from_response_format_tool'] = True
+                      # Capture for post-stream parsing so it takes priority
+                      response_format_content = parsed.get('content', '')
+                      response_format_args = {
+                          'content': parsed.get('content', ''),
+                          'is_task_complete': parsed.get('is_task_complete', True),
+                          'require_user_input': parsed.get('require_user_input', False),
+                          'metadata': parsed.get('metadata'),
+                      }
+                      logging.info(
+                          f"🎯 Fallback stream: generate_structured_response captured "
+                          f"(content_len={len(response_format_content)}, "
+                          f"is_task_complete={parsed.get('is_task_complete')})"
+                      )
+                      yield parsed
+                  continue
+
+              if item_type == 'messages':
+                  message = item[0] if item else None
+
+              if message is None:
+                  continue
 
               if (
                   isinstance(message, AIMessage)
