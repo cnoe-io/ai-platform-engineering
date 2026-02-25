@@ -238,6 +238,11 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
       metadata: body.metadata,
       visibility,
       shared_with_teams: visibility === "team" ? body.shared_with_teams : undefined,
+      skill_content: body.skill_content,
+      is_quick_start: body.is_quick_start,
+      difficulty: body.difficulty,
+      thumbnail: body.thumbnail,
+      input_form: body.input_form,
     };
 
     await saveAgentConfigToMongoDB(config);
