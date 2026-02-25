@@ -161,9 +161,15 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle }: ChatP
   useEffect(() => {
     setIsUserScrolledUp(false);
     setShowScrollButton(false);
-    setOlderTurnsExpanded(false); // Re-collapse older turns on conversation switch
-    // Scroll to bottom when switching conversations
-    setTimeout(() => scrollToBottom("instant"), 50);
+    setOlderTurnsExpanded(false);
+    // Scroll to bottom when switching conversations. Use rAF to wait for
+    // the browser to lay out the newly rendered messages, then scroll.
+    // For very large conversations the DOM paint can take >50ms, so a
+    // fixed timeout is unreliable.
+    const raf = requestAnimationFrame(() => {
+      scrollToBottom("instant");
+    });
+    return () => cancelAnimationFrame(raf);
   }, [activeConversationId, scrollToBottom]);
 
   // ═══════════════════════════════════════════════════════════════
