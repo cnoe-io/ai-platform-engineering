@@ -1,12 +1,13 @@
 "use client";
 
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useCallback } from "react";
 import { useSession, signIn, signOut } from "next-auth/react";
 import { motion, AnimatePresence } from "framer-motion";
-import { LogIn, LogOut, ChevronDown, Shield, Users, Hash, Code, ChevronRight, Layers, ExternalLink, Clock, RefreshCw, Bug, Settings, Copy, Check, KeyRound, Lightbulb } from "lucide-react";
+import { LogIn, LogOut, ChevronDown, Shield, Users, Hash, Code, ChevronRight, Layers, ExternalLink, Clock, RefreshCw, Bug, Settings, Copy, Check, KeyRound, Lightbulb, FileText, Tag, Wrench, Sparkles, ChevronUp, Search, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { config } from "@/lib/config";
+import type { ChangelogRelease, ChangelogItem } from "@/app/api/changelog/route";
 import {
   Dialog,
   DialogContent,
@@ -99,15 +100,212 @@ function ConfigRow({ label, value }: { label: string; value: string | boolean | 
   );
 }
 
+const GITHUB_REPO_URL = "https://github.com/cnoe-io/ai-platform-engineering";
+
+function renderInlineMarkdown(text: string): React.ReactNode {
+  const parts: React.ReactNode[] = [];
+  let remaining = text;
+  let key = 0;
+
+  while (remaining.length > 0) {
+    const boldMatch = remaining.match(/\*\*(.+?)\*\*/);
+    const codeMatch = remaining.match(/`(.+?)`/);
+    const prMatch = remaining.match(/#(\d+)/);
+
+    type Hit = { index: number; length: number; node: React.ReactNode };
+    let earliest: Hit | null = null;
+
+    const consider = (h: Hit) => {
+      if (!earliest || h.index < earliest.index) earliest = h;
+    };
+
+    if (boldMatch?.index !== undefined) {
+      consider({
+        index: boldMatch.index,
+        length: boldMatch[0].length,
+        node: <strong key={key++} className="font-semibold text-foreground">{boldMatch[1]}</strong>,
+      });
+    }
+
+    if (codeMatch?.index !== undefined) {
+      consider({
+        index: codeMatch.index,
+        length: codeMatch[0].length,
+        node: <code key={key++} className="px-1 py-0.5 rounded bg-muted text-[11px] font-mono">{codeMatch[1]}</code>,
+      });
+    }
+
+    if (prMatch?.index !== undefined) {
+      consider({
+        index: prMatch.index,
+        length: prMatch[0].length,
+        node: (
+          <a
+            key={key++}
+            href={`${GITHUB_REPO_URL}/pull/${prMatch[1]}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-primary hover:underline font-medium"
+          >
+            #{prMatch[1]}
+          </a>
+        ),
+      });
+    }
+
+    if (!earliest) {
+      parts.push(remaining);
+      break;
+    }
+
+    if (earliest.index > 0) {
+      parts.push(remaining.slice(0, earliest.index));
+    }
+    parts.push(earliest.node);
+    remaining = remaining.slice(earliest.index + earliest.length);
+  }
+
+  return <>{parts}</>;
+}
+
+const sectionIcons: Record<string, React.ReactNode> = {
+  Feat: <Sparkles className="h-3.5 w-3.5 text-green-500" />,
+  Fix: <Wrench className="h-3.5 w-3.5 text-amber-500" />,
+  Refactor: <Code className="h-3.5 w-3.5 text-blue-500" />,
+  Perf: <Tag className="h-3.5 w-3.5 text-purple-500" />,
+  "BREAKING CHANGE": <Shield className="h-3.5 w-3.5 text-red-500" />,
+};
+
+const sectionColors: Record<string, string> = {
+  Feat: "bg-green-500/10 text-green-700 dark:text-green-400 border-green-500/20",
+  Fix: "bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/20",
+  Refactor: "bg-blue-500/10 text-blue-700 dark:text-blue-400 border-blue-500/20",
+  Perf: "bg-purple-500/10 text-purple-700 dark:text-purple-400 border-purple-500/20",
+  "BREAKING CHANGE": "bg-red-500/10 text-red-700 dark:text-red-400 border-red-500/20",
+};
+
+function filterReleaseByScope(release: ChangelogRelease, scope: string | null): ChangelogRelease | null {
+  if (!scope) return release;
+  const filteredSections = release.sections
+    .map((section) => ({
+      ...section,
+      items: section.items.filter((item) => item.scope === scope),
+    }))
+    .filter((section) => section.items.length > 0);
+
+  if (filteredSections.length === 0) return null;
+  return { ...release, sections: filteredSections };
+}
+
+function ChangelogSection({ release, defaultOpen, onScopeClick }: {
+  release: ChangelogRelease;
+  defaultOpen: boolean;
+  onScopeClick: (scope: string) => void;
+}) {
+  const [expanded, setExpanded] = useState(defaultOpen);
+
+  const totalItems = release.sections.reduce((sum, s) => sum + s.items.length, 0);
+
+  return (
+    <div className="border border-border rounded-lg overflow-hidden">
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="w-full flex items-center justify-between px-4 py-3 hover:bg-muted/50 transition-colors text-left"
+      >
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
+            <Tag className="h-4 w-4 text-primary" />
+            <span className="font-semibold text-sm">v{release.version}</span>
+          </div>
+          <span className="text-xs text-muted-foreground">{release.date}</span>
+          <span className="text-[10px] text-muted-foreground/60 bg-muted px-1.5 py-0.5 rounded">
+            {totalItems} change{totalItems !== 1 ? "s" : ""}
+          </span>
+        </div>
+        {expanded ? (
+          <ChevronUp className="h-4 w-4 text-muted-foreground" />
+        ) : (
+          <ChevronDown className="h-4 w-4 text-muted-foreground" />
+        )}
+      </button>
+
+      {expanded && (
+        <div className="px-4 pb-4 space-y-3 border-t border-border pt-3">
+          {release.sections.map((section, sIdx) => (
+            <div key={sIdx}>
+              <div className="flex items-center gap-2 mb-2">
+                {sectionIcons[section.type] || <FileText className="h-3.5 w-3.5 text-muted-foreground" />}
+                <span className={cn(
+                  "text-[11px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded border",
+                  sectionColors[section.type] || "bg-muted text-muted-foreground border-border"
+                )}>
+                  {section.type}
+                </span>
+                <span className="text-[10px] text-muted-foreground">({section.items.length})</span>
+              </div>
+              <ul className="space-y-1.5 ml-5">
+                {section.items.map((item, iIdx) => (
+                  <li key={iIdx} className="text-xs text-foreground/80 leading-relaxed flex items-start gap-1.5">
+                    <span className="text-muted-foreground mt-1.5 shrink-0">•</span>
+                    <span>
+                      {item.scope && (
+                        <button
+                          onClick={(e) => { e.stopPropagation(); onScopeClick(item.scope!); }}
+                          className="inline-flex items-center px-1.5 py-0.5 mr-1 rounded text-[10px] font-semibold bg-primary/10 text-primary border border-primary/20 hover:bg-primary/20 transition-colors cursor-pointer"
+                          title={`Filter by ${item.scope}`}
+                        >
+                          {item.scope}
+                        </button>
+                      )}
+                      {renderInlineMarkdown(item.scope ? item.text.replace(/^\*\*[^*]+\*\*:\s*/, "") : item.text)}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function UserMenu() {
   const { data: session, status, update } = useSession();
   const [open, setOpen] = useState(false);
   const [systemOpen, setSystemOpen] = useState(false);
+  const [systemTab, setSystemTab] = useState("oidc");
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [refreshResult, setRefreshResult] = useState<'success' | 'error' | null>(null);
   const [tokenCopied, setTokenCopied] = useState(false);
   const [idTokenCopied, setIdTokenCopied] = useState(false);
+  const [changelogReleases, setChangelogReleases] = useState<ChangelogRelease[]>([]);
+  const [changelogScopes, setChangelogScopes] = useState<string[]>([]);
+  const [changelogScopeFilter, setChangelogScopeFilter] = useState<string | null>(null);
+  const [changelogScopeSearch, setChangelogScopeSearch] = useState("");
+  const [changelogLoading, setChangelogLoading] = useState(false);
+  const [changelogError, setChangelogError] = useState<string | null>(null);
+  const changelogFetched = useRef(false);
   const menuRef = useRef<HTMLDivElement>(null);
+
+  const fetchChangelog = useCallback(async () => {
+    if (changelogFetched.current) return;
+    changelogFetched.current = true;
+    setChangelogLoading(true);
+    setChangelogError(null);
+    try {
+      const res = await fetch("/api/changelog");
+      if (!res.ok) throw new Error("Failed to fetch changelog");
+      const data = await res.json();
+      setChangelogReleases(data.releases || []);
+      setChangelogScopes(data.scopes || []);
+    } catch (err) {
+      console.error("[UserMenu] Changelog fetch failed:", err);
+      setChangelogError("Unable to load changelog");
+    } finally {
+      setChangelogLoading(false);
+    }
+  }, []);
 
   // Close on outside click - MUST be called before any returns (Rules of Hooks)
   useEffect(() => {
@@ -121,6 +319,17 @@ export function UserMenu() {
     }
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [open]);
+
+  useEffect(() => {
+    function handleOpenChangelog() {
+      setSystemTab("changelog");
+      setSystemOpen(true);
+      setOpen(false);
+      fetchChangelog();
+    }
+    window.addEventListener("open-changelog", handleOpenChangelog);
+    return () => window.removeEventListener("open-changelog", handleOpenChangelog);
+  }, [fetchChangelog]);
 
   // Don't render if SSO is not enabled
   if (!config.ssoEnabled) {
@@ -374,8 +583,8 @@ export function UserMenu() {
       </AnimatePresence>
 
       {/* System Dialog — tabbed: OIDC Token, Debug, Built With */}
-      <Dialog open={systemOpen} onOpenChange={setSystemOpen}>
-        <DialogContent className="max-w-2xl max-h-[80vh] p-0">
+      <Dialog open={systemOpen} onOpenChange={(open) => { setSystemOpen(open); if (!open) setSystemTab("oidc"); }}>
+        <DialogContent className="max-w-4xl max-h-[85vh] p-0">
           <DialogHeader className="p-6 pb-4 border-b border-border">
             <div className="flex items-center gap-3">
               <div className="p-2 rounded-xl gradient-primary-br">
@@ -390,7 +599,7 @@ export function UserMenu() {
             </div>
           </DialogHeader>
 
-          <Tabs defaultValue="oidc" className="w-full">
+          <Tabs value={systemTab} className="w-full" onValueChange={(val) => { setSystemTab(val); if (val === "changelog") fetchChangelog(); }}>
             <div className="px-6 pt-2 border-b border-border">
               <TabsList className="bg-transparent h-auto p-0 gap-4">
                 <TabsTrigger
@@ -413,6 +622,13 @@ export function UserMenu() {
                 >
                   <Layers className="h-3.5 w-3.5 mr-1.5" />
                   Built With
+                </TabsTrigger>
+                <TabsTrigger
+                  value="changelog"
+                  className="px-1 pb-2 pt-1 rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none text-xs font-medium"
+                >
+                  <FileText className="h-3.5 w-3.5 mr-1.5" />
+                  Changelog
                 </TabsTrigger>
               </TabsList>
             </div>
@@ -780,6 +996,165 @@ export function UserMenu() {
                     </div>
                   );
                 })}
+              </div>
+            </TabsContent>
+
+            {/* Changelog Tab */}
+            <TabsContent value="changelog" className="mt-0">
+              <div className="flex flex-col max-h-[60vh]">
+                {changelogLoading && (
+                  <div className="flex items-center justify-center py-12 px-6">
+                    <div className="flex flex-col items-center gap-3">
+                      <RefreshCw className="h-5 w-5 animate-spin text-muted-foreground" />
+                      <span className="text-xs text-muted-foreground">Loading changelog...</span>
+                    </div>
+                  </div>
+                )}
+
+                {changelogError && (
+                  <div className="flex flex-col items-center gap-3 py-12 px-6">
+                    <p className="text-sm text-muted-foreground">{changelogError}</p>
+                    <button
+                      onClick={() => { changelogFetched.current = false; fetchChangelog(); }}
+                      className="text-xs text-primary hover:underline"
+                    >
+                      Try again
+                    </button>
+                  </div>
+                )}
+
+                {!changelogLoading && !changelogError && changelogReleases.length === 0 && (
+                  <div className="flex items-center justify-center py-12 px-6">
+                    <span className="text-xs text-muted-foreground">No releases found</span>
+                  </div>
+                )}
+
+                {!changelogLoading && !changelogError && changelogReleases.length > 0 && (
+                  <>
+                    {/* Sticky scope filter bar */}
+                    <div className="px-6 pt-4 pb-3 border-b border-border bg-card sticky top-0 z-10 space-y-2.5">
+                      <div className="flex items-center justify-between">
+                        <p className="text-xs text-muted-foreground">
+                          {changelogScopeFilter ? (
+                            <>
+                              Filtered by{" "}
+                              <button
+                                onClick={() => setChangelogScopeFilter(null)}
+                                className="inline-flex items-center gap-1 font-semibold text-primary hover:underline"
+                              >
+                                {changelogScopeFilter}
+                                <X className="h-3 w-3" />
+                              </button>
+                            </>
+                          ) : (
+                            <>
+                              {changelogReleases.length} stable release{changelogReleases.length !== 1 ? "s" : ""}
+                            </>
+                          )}
+                        </p>
+                        <a
+                          href="https://github.com/cnoe-io/ai-platform-engineering/blob/main/CHANGELOG.md"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex items-center gap-1 text-xs text-primary hover:underline shrink-0"
+                        >
+                          View on GitHub
+                          <ExternalLink className="h-3 w-3" />
+                        </a>
+                      </div>
+                      {changelogScopes.length > 0 && (
+                        <div className="space-y-2">
+                          <div className="relative">
+                            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
+                            <input
+                              type="text"
+                              placeholder="Search components..."
+                              value={changelogScopeSearch}
+                              onChange={(e) => setChangelogScopeSearch(e.target.value)}
+                              className="w-full pl-8 pr-8 py-1.5 rounded-md border border-border bg-muted/30 text-xs placeholder:text-muted-foreground/60 focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary"
+                            />
+                            {changelogScopeSearch && (
+                              <button
+                                onClick={() => setChangelogScopeSearch("")}
+                                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                              >
+                                <X className="h-3.5 w-3.5" />
+                              </button>
+                            )}
+                          </div>
+                          <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto">
+                            {!changelogScopeSearch && (
+                              <button
+                                onClick={() => { setChangelogScopeFilter(null); setChangelogScopeSearch(""); }}
+                                className={cn(
+                                  "px-2 py-1 rounded-md text-[11px] font-medium border transition-colors",
+                                  !changelogScopeFilter
+                                    ? "bg-primary text-primary-foreground border-primary"
+                                    : "bg-muted/50 text-muted-foreground border-border hover:bg-muted hover:text-foreground"
+                                )}
+                              >
+                                All
+                              </button>
+                            )}
+                            {changelogScopes
+                              .filter((s) => !changelogScopeSearch || s.includes(changelogScopeSearch.toLowerCase()))
+                              .map((scope) => (
+                                <button
+                                  key={scope}
+                                  onClick={() => { setChangelogScopeFilter(changelogScopeFilter === scope ? null : scope); setChangelogScopeSearch(""); }}
+                                  className={cn(
+                                    "px-2 py-1 rounded-md text-[11px] font-medium border transition-colors",
+                                    changelogScopeFilter === scope
+                                      ? "bg-primary text-primary-foreground border-primary"
+                                      : "bg-muted/50 text-muted-foreground border-border hover:bg-muted hover:text-foreground"
+                                  )}
+                                >
+                                  {scope}
+                                </button>
+                              ))}
+                            {changelogScopeSearch && changelogScopes.filter((s) => s.includes(changelogScopeSearch.toLowerCase())).length === 0 && (
+                              <span className="text-[11px] text-muted-foreground py-1">No matching components</span>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Scrollable release list */}
+                    <div className="p-6 overflow-y-auto flex-1 space-y-3">
+                      {(() => {
+                        const filtered = changelogReleases
+                          .map((r) => filterReleaseByScope(r, changelogScopeFilter))
+                          .filter((r): r is ChangelogRelease => r !== null);
+
+                        if (filtered.length === 0) {
+                          return (
+                            <div className="flex flex-col items-center gap-2 py-12">
+                              <span className="text-sm text-muted-foreground">
+                                No changes found for <span className="font-semibold text-primary">{changelogScopeFilter}</span>
+                              </span>
+                              <button
+                                onClick={() => setChangelogScopeFilter(null)}
+                                className="text-xs text-primary hover:underline"
+                              >
+                                Clear filter
+                              </button>
+                            </div>
+                          );
+                        }
+
+                        return filtered.map((release, idx) => (
+                          <ChangelogSection
+                            key={release.version}
+                            release={release}
+                            defaultOpen={idx === 0}
+                            onScopeClick={(scope) => setChangelogScopeFilter(scope)}
+                          />
+                        ));
+                      })()}
+                    </div>
+                  </>
+                )}
               </div>
             </TabsContent>
           </Tabs>
