@@ -1,0 +1,24 @@
+[project]
+name = "mcp-network-utility"
+version = "0.1.0"
+description = "Network Utility MCP Server - DNS, DHCP, and network diagnostics"
+license = "Apache-2.0"
+authors = [
+  { name = "Sri Aradhyula", email = "sraradhy@cisco.com" }
+]
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+  "fastmcp==2.13.3",
+  "httpx==0.28.1",
+  "mcp==1.21.0",
+  "pydantic==2.12.5",
+  "python-dotenv==1.2.1",
+]
+
+[project.scripts]
+mcp-network-utility = "mcp_network_utility.__main__:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

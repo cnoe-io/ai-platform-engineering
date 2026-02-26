@@ -20,6 +20,7 @@ The CAIPE (Community AI Platform Engineering) agents are built using any agentic
 | [Komodor](komodor.md) | Kubernetes troubleshooting and monitoring |
 | [AWS](aws.md) | Cloud infrastructure and EKS management |
 | [PagerDuty](pagerduty.md) | Incident management and on-call scheduling |
+| [VictorOps](victorops.md) | Incident management and on-call operations |
 | [Slack](slack.md) | Team communication and collaboration |
 | [Splunk](splunk.md) | Log analytics and monitoring |
 | [Webex](webex.md) | Team communication and collaboration |

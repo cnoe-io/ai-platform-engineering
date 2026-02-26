@@ -687,6 +687,7 @@ const storeImplementation = (set: any, get: any) => ({
             //    otherwise switching tabs wipes the active conversation's content
             //    and the cooldown prevents an immediate re-fetch).
             const isStreaming = currentState.streamingConversations.has(conv._id);
+            const isActive = currentState.activeConversationId === conv._id;
             const localConv = currentState.conversations.find(c => c.id === conv._id);
             const hasLoadedMessages = localConv && localConv.messages.length > 0;
 
@@ -699,9 +700,10 @@ const storeImplementation = (set: any, get: any) => ({
               title,
               createdAt: new Date(conv.created_at),
               updatedAt: new Date(conv.updated_at),
-              // Preserve messages/events for streaming OR already-loaded conversations
-              messages: (isStreaming || hasLoadedMessages) && localConv ? localConv.messages : [],
-              a2aEvents: (isStreaming || hasLoadedMessages) && localConv ? localConv.a2aEvents : [],
+              // Preserve messages/events when streaming, already loaded, or actively
+              // being viewed (prevents race with concurrent loadMessagesFromServer)
+              messages: (isStreaming || hasLoadedMessages || isActive) && localConv ? localConv.messages : [],
+              a2aEvents: (isStreaming || hasLoadedMessages || isActive) && localConv ? localConv.a2aEvents : [],
               owner_id: conv.owner_id,
               sharing: conv.sharing,
             };

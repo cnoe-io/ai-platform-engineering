@@ -246,6 +246,10 @@ const sidebars: SidebarsConfig = {
         },
         {
           type: 'doc',
+          id: 'agents/victorops',
+        },
+        {
+          type: 'doc',
           id: 'agents/webex',
         }
       ],

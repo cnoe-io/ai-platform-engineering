@@ -619,10 +619,55 @@ agent_prompts:
       |-------|-------|----------|----------|---------|----------|-----------------|
       | [SRE-123](url) | Fix bug | John | Jane | 2025-01-01 | 2025-01-05 | 4 |
       | [SRE-124](url) | New feature | Bob | Alice | 2025-01-02 | Not Resolved | N/A |
+  network_utility:
+    system_prompt: |
+      Handle ALL network diagnostics, IP planning, and Cisco infrastructure operations.
+      ALWAYS route to this agent when the user mentions any network tool or concept below.
+
+      **Connectivity & Path Diagnostics** (route here for: ping, traceroute, MTR, mtr, port check, MTU, curl):
+      - ping - basic reachability and latency test
+      - traceroute - trace network path hop-by-hop
+      - MTR / mtr - the "My TraceRoute" network diagnostic tool (combined ping+traceroute with per-hop stats). NOTE: "Run MTR" or "MTR to <host>" always means this network diagnostic tool, NOT "Mean Time to Recovery"
+      - port check / port scan / nmap - check if TCP/UDP ports are open
+      - MTU discovery - detect path MTU and fragmentation issues
+      - curl - HTTP endpoint testing
+
+      **DNS & Domain** (route here for: DNS, dig, nslookup, whois, domain lookup):
+      - DNS lookups (forward, reverse, all record types)
+      - WHOIS domain registration lookups
+
+      **Network State & Discovery** (route here for: ARP, routing table, interfaces, sockets, LLDP, nmap):
+      - ARP table, routing table, socket stats, network interface info
+      - nmap port scans, LLDP neighbor discovery
+
+      **SSL/TLS** (route here for: SSL certificate, TLS, cert check, cert expiry):
+      - SSL/TLS certificate inspection (issuer, expiry, ciphers, chain)
+
+      **SNMP & Cisco** (route here for: SNMP, snmpget, snmpwalk, Cisco config, ACL, IOS, NX-OS, wildcard mask):
+      - SNMP queries (GET and WALK) against network devices
+      - Cisco IOS/NX-OS config parsing and ACL analysis
+      - Subnet calculator with Cisco wildcard mask format
+
+      **IP Planning & CIDR** (route here for: CIDR, subnet, supernet, IP range, available IPs, IP overlap):
+      - Split subnets, aggregate/summarize CIDRs, find available space, compare overlap
+
+      **VLAN** (route here for: VLAN, VLSM, VLAN plan):
+      - VLAN analysis and VLSM subnet planning
+
+      **Network Diagramming** (route here for: network diagram, topology, subnet map):
+      - Network topology diagramming (Mermaid/ASCII) and subnet maps
+
+      **DHCP & Dnsmasq** (route here for: DHCP, lease, dnsmasq):
+      - Dnsmasq configuration management and DHCP lease inspection
   pagerduty:
     system_prompt: |
       Handle PagerDuty operations:
       - on-call schedules, incidents, and acknowledgements
+  victorops:
+    system_prompt: |
+      Handle VictorOps operations:
+      - incident history search, incident creation, incident notes
+      - user lookups, on-call schedules, chat messages
   slack:
     system_prompt: |
       Handle Slack workspace operations:
@@ -703,8 +748,33 @@ agent_skill_examples:
     - "Debug pipeline for project X"
   jira:
     - "List critical open issues"
+  network_utility:
+    - "DNS lookup for cisco.com"
+    - "Ping 8.8.8.8"
+    - "Run MTR"
+    - "Run MTR to google.com"
+    - "MTR 10.0.0.1"
+    - "Traceroute to 8.8.8.8"
+    - "Scan ports 22,80,443 on 10.0.0.1"
+    - "nmap 192.168.1.1"
+    - "Check SSL certificate for cisco.com"
+    - "SNMP walk interfaces on switch 10.0.0.1"
+    - "snmpget sysDescr on 10.0.0.1"
+    - "Show ARP table"
+    - "Show routing table"
+    - "Check MTU to google.com"
+    - "Split 10.0.0.0/16 into /24 subnets"
+    - "Calculate subnet for 192.168.1.0/26"
+    - "Analyze this VLAN config"
+    - "Parse this Cisco running-config"
+    - "Generate network diagram"
+    - "What IPs are available in 10.0.0.0/16"
+    - "WHOIS cisco.com"
   pagerduty:
     - "Who is on call now?"
+  victorops:
+    - "Show VictorOps incidents from last 24 hours"
+    - "Create a VictorOps incident"
   slack:
     - "Send message to #platform-alerts"
   splunk:

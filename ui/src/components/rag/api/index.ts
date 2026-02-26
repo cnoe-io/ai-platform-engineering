@@ -159,6 +159,22 @@ export const terminateJob = async (jobId: string): Promise<void> => {
     return apiPost(`/v1/job/${jobId}/terminate`);
 };
 
+export interface JobsBatchResponse {
+    jobs: Record<string, IngestionJob[]>;
+    total_jobs: number;
+    datasource_count: number;
+}
+
+export const getJobsBatch = async (
+    datasourceIds: string[],
+    statusFilter?: string[]
+): Promise<JobsBatchResponse> => {
+    return apiPost('/v1/jobs/batch', {
+        datasource_ids: datasourceIds,
+        status_filter: statusFilter,
+    });
+};
+
 // ============================================================================
 // Query API
 // ============================================================================

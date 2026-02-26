@@ -15,7 +15,7 @@ services:
   #                                 CAIPE Supervisor Deep Agent                                      #
   ####################################################################################################
   caipe-supervisor:
-    image: ghcr.io/cnoe-io/ai-platform-engineering:${IMAGE_TAG:-0.2.15}
+    image: ghcr.io/cnoe-io/ai-platform-engineering:${IMAGE_TAG:-0.2.21}
     container_name: caipe-supervisor
     volumes:
       - ${PROMPT_CONFIG_PATH:-./charts/ai-platform-engineering/data/prompt_config.deep_agent.yaml}:/app/prompt_config.yaml
@@ -37,7 +37,7 @@ services:
       - SKIP_AGENT_CONNECTIVITY_CHECK=${SKIP_AGENT_CONNECTIVITY_CHECK:-false}
       # TODO: remove this after 11/20
       - ENABLE_ARTIFACT_STREAMING=true
-      - USE_STRUCTURED_RESPONSE=${USE_STRUCTURED_RESPONSE:-false}
+      - USE_STRUCTURED_RESPONSE=${USE_STRUCTURED_RESPONSE:-true}
 
       # Agent hostname mappings for agent connectivity.
       # These environment variables allow the CAIPE agent to connect to sub-agents for multi-agent orchestration.
@@ -56,6 +56,7 @@ services:
       - SPLUNK_AGENT_HOST=agent-splunk
       - WEATHER_AGENT_HOST=agent-weather
       - WEBEX_AGENT_HOST=agent-webex
+      - NETWORK_UTILITY_AGENT_HOST=agent-network-utility
 
       # The following ENABLE_* environment variables control the activation of individual sub-agents for multi-agent orchestration.
       # In .env file, set each variable to 'true' to enable the corresponding agent, or 'false' to disable it.
@@ -77,6 +78,7 @@ services:
       - ENABLE_WEBEX=${ENABLE_WEBEX:-false}
       - ENABLE_WEBEX=${ENABLE_WEBEX:-false}
       - ENABLE_WEATHER=${ENABLE_WEATHER:-false}
+      - ENABLE_NETWORK_UTILITY=${ENABLE_NETWORK_UTILITY:-false}
 
       # Tracing configuration (will be read from .env if ENABLE_TRACING=true)
       - ENABLE_TRACING=${ENABLE_TRACING:-false}
@@ -119,7 +121,7 @@ services:
   ####################################################################################################
   # AWS Agent
   agent-aws:
-    image: ghcr.io/cnoe-io/agent-aws:${IMAGE_TAG:-0.2.15}
+    image: ghcr.io/cnoe-io/agent-aws:${IMAGE_TAG:-0.2.21}
     container_name: agent-aws
     volumes:
       - ./charts/ai-platform-engineering/data/prompt_config.aws_agent.yaml:/app/prompt_config.aws_agent.yaml
@@ -151,7 +153,7 @@ services:
 
   # Petstore Agent
   agent-petstore:
-    image: ghcr.io/cnoe-io/agent-template:${IMAGE_TAG:-0.2.15}
+    image: ghcr.io/cnoe-io/agent-template:${IMAGE_TAG:-0.2.21}
     container_name: agent-petstore
     volumes:
       - ./charts/ai-platform-engineering/data/prompt_config.petstore_agent.yaml:/app/prompt_config.petstore_agent.yaml
@@ -174,7 +176,7 @@ services:
 
   # GitHub
   agent-github:
-    image: ghcr.io/cnoe-io/agent-github:${IMAGE_TAG:-0.2.15}
+    image: ghcr.io/cnoe-io/agent-github:${IMAGE_TAG:-0.2.21}
     container_name: agent-github
     volumes:
       - ./charts/ai-platform-engineering/data/prompt_config.github_agent.yaml:/app/prompt_config.github_agent.yaml
@@ -199,7 +201,7 @@ services:
 
   # Weather Agent
   agent-weather:
-    image: ghcr.io/cnoe-io/agent-weather:${IMAGE_TAG:-0.2.15}
+    image: ghcr.io/cnoe-io/agent-weather:${IMAGE_TAG:-0.2.21}
     container_name: agent-weather
     volumes:
       - ./charts/ai-platform-engineering/data/prompt_config.weather_agent.yaml:/app/prompt_config.weather_agent.yaml
@@ -217,7 +219,7 @@ services:
 
   # Backstage Agent
   agent-backstage:
-    image: ghcr.io/cnoe-io/agent-backstage:${IMAGE_TAG:-0.2.15}
+    image: ghcr.io/cnoe-io/agent-backstage:${IMAGE_TAG:-0.2.21}
     container_name: agent-backstage
     volumes:
       - ./charts/ai-platform-engineering/data/prompt_config.backstage_agent.yaml:/app/prompt_config.backstage_agent.yaml
@@ -237,7 +239,7 @@ services:
       - all-agents
 
   mcp-backstage:
-    image: ghcr.io/cnoe-io/mcp-backstage:${IMAGE_TAG:-0.2.15}
+    image: ghcr.io/cnoe-io/mcp-backstage:${IMAGE_TAG:-0.2.21}
     container_name: mcp-backstage
     env_file: [.env]
     ports: ["18001:8000"]
@@ -257,7 +259,7 @@ services:
 
   # ArgoCD Agents
   agent-argocd:
-    image: ghcr.io/cnoe-io/agent-argocd:${IMAGE_TAG:-0.2.15}
+    image: ghcr.io/cnoe-io/agent-argocd:${IMAGE_TAG:-0.2.21}
     container_name: agent-argocd
     volumes:
       - ./charts/ai-platform-engineering/data/prompt_config.argocd_agent.yaml:/app/prompt_config.argocd_agent.yaml
@@ -277,7 +279,7 @@ services:
       - all-agents
 
   mcp-argocd:
-    image: ghcr.io/cnoe-io/mcp-argocd:${IMAGE_TAG:-0.2.15}
+    image: ghcr.io/cnoe-io/mcp-argocd:${IMAGE_TAG:-0.2.21}
     container_name: mcp-argocd
     env_file: [.env]
     ports: ["18002:8000"]
@@ -297,7 +299,7 @@ services:
 
   # Confluence Agents
   agent-confluence:
-    image: ghcr.io/cnoe-io/agent-confluence:${IMAGE_TAG:-0.2.15}
+    image: ghcr.io/cnoe-io/agent-confluence:${IMAGE_TAG:-0.2.21}
     container_name: agent-confluence
     volumes:
       - ./charts/ai-platform-engineering/data/prompt_config.confluence_agent.yaml:/app/prompt_config.confluence_agent.yaml
@@ -331,7 +333,7 @@ services:
 
   # Jira Agent
   agent-jira:
-    image: ghcr.io/cnoe-io/agent-jira:${IMAGE_TAG:-0.2.15}
+    image: ghcr.io/cnoe-io/agent-jira:${IMAGE_TAG:-0.2.21}
     container_name: agent-jira
     volumes:
       - ./charts/ai-platform-engineering/data/prompt_config.jira_agent.yaml:/app/prompt_config.jira_agent.yaml
@@ -351,7 +353,7 @@ services:
       - all-agents
 
   mcp-jira:
-    image: ghcr.io/cnoe-io/mcp-jira:${IMAGE_TAG:-0.2.15}
+    image: ghcr.io/cnoe-io/mcp-jira:${IMAGE_TAG:-0.2.21}
     container_name: mcp-jira
     env_file: [.env]
     ports: ["18004:8000"]
@@ -371,7 +373,7 @@ services:
 
   # Komodor Agent
   agent-komodor:
-    image: ghcr.io/cnoe-io/agent-komodor:${IMAGE_TAG:-0.2.15}
+    image: ghcr.io/cnoe-io/agent-komodor:${IMAGE_TAG:-0.2.21}
     container_name: agent-komodor
     volumes:
       - ./charts/ai-platform-engineering/data/prompt_config.komodor_agent.yaml:/app/prompt_config.komodor_agent.yaml
@@ -390,7 +392,7 @@ services:
       - komodor
 
   mcp-komodor:
-    image: ghcr.io/cnoe-io/mcp-komodor:${IMAGE_TAG:-0.2.15}
+    image: ghcr.io/cnoe-io/mcp-komodor:${IMAGE_TAG:-0.2.21}
     container_name: mcp-komodor
     env_file: [.env]
     ports: ["18005:8000"]
@@ -409,7 +411,7 @@ services:
 
   # PagerDuty Agent
   agent-pagerduty:
-    image: ghcr.io/cnoe-io/agent-pagerduty:${IMAGE_TAG:-0.2.15}
+    image: ghcr.io/cnoe-io/agent-pagerduty:${IMAGE_TAG:-0.2.21}
     container_name: agent-pagerduty
     volumes:
       - ./charts/ai-platform-engineering/data/prompt_config.pagerduty_agent.yaml:/app/prompt_config.pagerduty_agent.yaml
@@ -429,7 +431,7 @@ services:
       - all-agents
 
   mcp-pagerduty:
-    image: ghcr.io/cnoe-io/mcp-pagerduty:${IMAGE_TAG:-0.2.15}
+    image: ghcr.io/cnoe-io/mcp-pagerduty:${IMAGE_TAG:-0.2.21}
     container_name: mcp-pagerduty
     env_file: [.env]
     ports: ["18006:8000"]
@@ -449,7 +451,7 @@ services:
 
   # Slack Agent
   agent-slack:
-    image: ghcr.io/cnoe-io/agent-slack:${IMAGE_TAG:-0.2.15}
+    image: ghcr.io/cnoe-io/agent-slack:${IMAGE_TAG:-0.2.21}
     container_name: agent-slack
     volumes:
       - ./charts/ai-platform-engineering/data/prompt_config.slack_agent.yaml:/app/prompt_config.slack_agent.yaml
@@ -469,7 +471,7 @@ services:
       - all-agents
 
   mcp-slack:
-    image: ghcr.io/cnoe-io/mcp-slack:${IMAGE_TAG:-0.2.15}
+    image: ghcr.io/cnoe-io/mcp-slack:${IMAGE_TAG:-0.2.21}
     container_name: mcp-slack
     env_file: [.env]
     ports: ["18007:8000"]
@@ -489,7 +491,7 @@ services:
 
   # Splunk
   agent-splunk:
-    image: ghcr.io/cnoe-io/agent-splunk:${IMAGE_TAG:-0.2.15}
+    image: ghcr.io/cnoe-io/agent-splunk:${IMAGE_TAG:-0.2.21}
     container_name: agent-splunk
     volumes:
       - ./charts/ai-platform-engineering/data/prompt_config.splunk_agent.yaml:/app/prompt_config.splunk_agent.yaml
@@ -509,7 +511,7 @@ services:
       - all-agents
 
   mcp-splunk:
-    image: ghcr.io/cnoe-io/mcp-splunk:${IMAGE_TAG:-0.2.15}
+    image: ghcr.io/cnoe-io/mcp-splunk:${IMAGE_TAG:-0.2.21}
     container_name: mcp-splunk
     env_file: [.env]
     ports: ["18008:8000"]
@@ -529,7 +531,7 @@ services:
 
   # Webex
   agent-webex:
-    image: ghcr.io/cnoe-io/agent-webex:${IMAGE_TAG:-0.2.15}
+    image: ghcr.io/cnoe-io/agent-webex:${IMAGE_TAG:-0.2.21}
     container_name: agent-webex
     volumes:
       - ./charts/ai-platform-engineering/data/prompt_config.webex_agent.yaml:/app/prompt_config.webex_agent.yaml
@@ -549,7 +551,7 @@ services:
       - all-agents
 
   mcp-webex:
-    image: ghcr.io/cnoe-io/mcp-webex:${IMAGE_TAG:-0.2.15}
+    image: ghcr.io/cnoe-io/mcp-webex:${IMAGE_TAG:-0.2.21}
     container_name: mcp-webex
     env_file: [.env]
     ports: ["18009:8000"]
@@ -567,6 +569,45 @@ services:
       - webex
       - all-agents
 
+  # Network Utility Agent
+  agent-network-utility:
+    image: ghcr.io/cnoe-io/agent-network-utility:${IMAGE_TAG:-0.2.21}
+    container_name: agent-network-utility
+    volumes:
+      - ./charts/ai-platform-engineering/data/prompt_config.network_utility_agent.yaml:/app/prompt_config.network_utility_agent.yaml
+    env_file: [.env]
+    ports: ["8015:8000"]
+    environment:
+      - A2A_TRANSPORT=${A2A_TRANSPORT:-p2p}
+      - MCP_MODE=http
+      - MCP_HOST=mcp-network-utility
+      - MCP_PORT=8000
+      - SLIM_ENDPOINT=${SLIM_ENDPOINT:-http://slim-dataplane:46357}
+    depends_on:
+      mcp-network-utility:
+        condition: service_healthy
+    profiles:
+      - network-utility-agent
+      - all-agents
+
+  mcp-network-utility:
+    image: ghcr.io/cnoe-io/mcp-network-utility:${IMAGE_TAG:-0.2.21}
+    container_name: mcp-network-utility
+    env_file: [.env]
+    ports: ["18011:8000"]
+    environment:
+      - MCP_MODE=http
+      - MCP_HOST=0.0.0.0
+      - MCP_PORT=8000
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; s=socket.socket(); s.settimeout(1); result=s.connect_ex(('localhost', 8000)); s.close(); exit(0 if result == 0 else 1)"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    profiles:
+      - network-utility-agent
+      - all-agents
 
   # Backstage Plugin (Agent Forge)
   backstage-agent-forge:
@@ -639,7 +680,7 @@ services:
   #   - Configure via MONGODB_* environment variables
   #   - See mongodb service configuration above
   caipe-ui:
-    image: ghcr.io/cnoe-io/caipe-ui:${IMAGE_TAG:-0.2.15}
+    image: ghcr.io/cnoe-io/caipe-ui:${IMAGE_TAG:-0.2.21}
     container_name: caipe-ui
     ports: ["3000:3000"]
     env_file:
@@ -687,7 +728,7 @@ services:
   #                                      RAG Services                                                #
   ####################################################################################################
   rag_server:
-    image: ghcr.io/cnoe-io/caipe-rag-server:${IMAGE_TAG:-0.2.15}
+    image: ghcr.io/cnoe-io/caipe-rag-server:${IMAGE_TAG:-0.2.21}
     container_name: rag_server
     ports: ["9446:9446"]
     environment:
@@ -715,7 +756,7 @@ services:
       - graph_rag
 
   agent_ontology:
-    image: ghcr.io/cnoe-io/caipe-rag-agent-ontology:${IMAGE_TAG:-0.2.15}
+    image: ghcr.io/cnoe-io/caipe-rag-agent-ontology:${IMAGE_TAG:-0.2.21}
     container_name: agent_ontology
     ports: ["8098:8098"]
     environment:
@@ -734,7 +775,7 @@ services:
 
 
   rag_web_ingestor:
-    image: ghcr.io/cnoe-io/caipe-rag-ingestors:${IMAGE_TAG:-0.2.15}
+    image: ghcr.io/cnoe-io/caipe-rag-ingestors:${IMAGE_TAG:-0.2.21}
     container_name: web-ingestor
     environment:
       - INGESTOR_TYPE=webloader

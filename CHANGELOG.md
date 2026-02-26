@@ -1,3 +1,75 @@
+## 0.2.26 (2026-02-26)
+
+## 0.2.25-rc.4 (2026-02-26)
+
+### Feat
+
+- **agent**: add network utility agent and MCP server (#855)
+
+## 0.2.25-rc.3 (2026-02-26)
+
+### Fix
+
+- **deps**: upgrade cnoe-agent-utils to 0.3.11 (#860)
+
+## 0.2.25-rc.2 (2026-02-26)
+
+### Fix
+
+- **build**: add retry logic to npm install for transient registry errors (#859)
+
+## 0.2.25-rc.1 (2026-02-25)
+
+### Feat
+
+- **rag-server**: add MCPAuthMiddleware to enforce auth on /mcp routes
+
+## 0.2.25 (2026-02-25)
+
+## 0.2.24-rc.2 (2026-02-25)
+
+### Fix
+
+- correctly send final structured output to the UI when user input is required
+
+## 0.2.24-rc.1 (2026-02-25)
+
+### Fix
+
+- **rag**: resolve RBAC crash in ontology agent reverse proxy
+
+## 0.2.24 (2026-02-25)
+
+### Feat
+
+- **ui**: add interactive changelog viewer to System Settings dialog (#851)
+
+### Fix
+
+- **ui**: persist skill_content and related fields on skill creation (#852)
+
+## 0.2.23 (2026-02-25)
+
+### Fix
+
+- **ui**: auth redirect, loading spinner, theme visibility, and session resilience (#850)
+- **supervisor**: repair streaming failures from json scoping and orphaned tool calls (#842)
+
+## 0.2.22 (2026-02-24)
+
+### Feat
+
+- Support comma-separated OAUTH2_CLIENT_IDS for cid validation (#849)
+- **rag**: add batch job status endpoint for efficient datasource polling (#845)
+- set USE_STRUCTURED_RESPONSE true by default (#840)
+
+### Fix
+
+- **ui**: default canViewAdmin to true for pre-upgrade JWT sessions (#837)
+- **docker-compose**: remove jarvis from all-agents profile (#848)
+- get rid of ResponseFormat as sonnet sometimes uses this instead and breaks
+- make it work with newer claude models that do not support prefilling
+
 ## 0.2.21 (2026-02-23)
 
 ### Feat
@@ -5,19 +77,11 @@
 - **ui**: replace previewMode with configurable envBadge (#834)
 - **ui**: make admin dashboard read-only for non-admin authenticated users (#833)
 - **ui**: env-configurable personalization defaults, new themes, and unified settings menu (#832)
-
-### Fix
-
-- **ui**: team-shared conversations not appearing for team members (#831)
-
-## 0.2.20-rc.1 (2026-02-22)
-
-### Feat
-
 - **ui**: refactor Create Workflow into Skills Builder Editor with skills in helm chart (#829)
 
 ### Fix
 
+- **ui**: team-shared conversations not appearing for team members (#831)
 - **confluence-ingestor**: track document_count per ingested page (#818)
 
 ## 0.2.20 (2026-02-20)

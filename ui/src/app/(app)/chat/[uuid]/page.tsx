@@ -11,7 +11,7 @@ import { getConfig } from "@/lib/config";
 import { apiClient } from "@/lib/api-client";
 import { useChatStore } from "@/store/chat-store";
 import { getStorageMode } from "@/lib/storage-config";
-import { Loader2 } from "lucide-react";
+import { CAIPESpinner } from "@/components/ui/caipe-spinner";
 import type { Conversation } from "@/types/mongodb";
 import type { Conversation as LocalConversation } from "@/types/a2a";
 
@@ -46,13 +46,30 @@ function ChatUUIDPage() {
     }
   };
 
-  // Check store immediately (synchronous, no loading state!)
+  const storageMode = getStorageMode();
+
+  // Reactive selector: true when the store has messages for this UUID.
+  // This survives races with Sidebar's loadConversationsFromServer —
+  // even if the Sidebar temporarily wipes messages, the selector will
+  // flip back to false and the spinner will stay/reappear.
+  const storeHasMessages = useChatStore(
+    (s) => {
+      const conv = s.conversations.find((c) => c.id === uuid);
+      return !!(conv?.messages && conv.messages.length > 0);
+    }
+  );
+
   const existingConv = useChatStore.getState().conversations.find((c) => c.id === uuid);
 
   const [conversation, setConversation] = useState<Conversation | LocalConversation | null>(existingConv || null);
-  const [loading, setLoading] = useState(!existingConv); // Only show spinner if NOT in store
+  // Track whether the async fetch is still in flight.
+  const [fetchInProgress, setFetchInProgress] = useState(
+    storageMode === 'mongodb' && !storeHasMessages
+  );
+  // Track whether the fetch has completed at least once — used to distinguish
+  // "still loading" from "genuinely empty / new conversation".
+  const [fetchDone, setFetchDone] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const storageMode = getStorageMode(); // Synchronous storage mode
 
   // Memoized callbacks (must be before early returns to maintain hooks order)
   const handleDebugModeChange = useCallback((enabled: boolean) => {
@@ -74,47 +91,50 @@ function ChatUUIDPage() {
       // Validate UUID format before making request
       if (!uuid || typeof uuid !== 'string') {
         setError("Invalid conversation ID");
-        setLoading(false);
+        setFetchInProgress(false);
+        setFetchDone(true);
         return;
       }
 
-      // Check Zustand store first (instant, no loading spinner!)
+      // Check Zustand store first.
       // Read imperatively — this effect must NOT depend on `conversations`
       // to avoid re-running on every store update during streaming.
       const localConv = useChatStore.getState().conversations.find((c) => c.id === uuid);
       if (localConv) {
-        console.log("[ChatUUID] Found conversation in store, loading instantly");
         setConversation(localConv);
         setActiveConversation(uuid);
-        setLoading(false);
 
-        // In MongoDB mode, sync messages from server in the background.
-        // The local cache provides instant display, but we still need to:
-        // 1. Restore A2A events stripped by localStorage partialize
-        // 2. Pick up follow-up messages sent from other devices
-        // 3. Keep Tasks and A2A Debug panels in sync
-        //
-        // IMPORTANT: When the conversation exists in the store but has NO messages
-        // (e.g. after loadConversationsFromServer replaced store objects with
-        // metadata-only entries from the list API), force a reload to ensure
-        // messages appear immediately. This commonly happens when switching tabs
-        // (Chat → Skills → Chat) because the Sidebar refreshes the conversation
-        // list, replacing in-memory conversations with empty-message stubs.
-        if (storageMode === 'mongodb') {
-          const hasMessages = localConv.messages && localConv.messages.length > 0;
-          loadMessagesFromServer(uuid, { force: !hasMessages }).catch((err) => {
+        const hasMessages = localConv.messages && localConv.messages.length > 0;
+
+        if (hasMessages) {
+          // Messages already in memory — render immediately, sync in background
+          console.log("[ChatUUID] Found conversation in store with messages, loading instantly");
+          setFetchInProgress(false);
+          setFetchDone(true);
+
+          if (storageMode === 'mongodb') {
+            loadMessagesFromServer(uuid).catch((err) => {
+              console.warn('[ChatUUID] Failed to sync messages from server:', err);
+            });
+          }
+        } else if (storageMode === 'mongodb') {
+          // Metadata-only stub (e.g. Sidebar's loadConversationsFromServer
+          // replaced full objects with list-API entries that have no messages).
+          // Keep the spinner visible until messages arrive from MongoDB.
+          console.log("[ChatUUID] Found conversation in store but no messages, loading from MongoDB...");
+          try {
+            await loadMessagesFromServer(uuid, { force: true });
+          } catch (err) {
             console.warn('[ChatUUID] Failed to load messages from server:', err);
-          });
+          } finally {
+            setFetchInProgress(false);
+            setFetchDone(true);
+          }
+        } else {
+          // localStorage mode with empty conversation — nothing to wait for
+          setFetchInProgress(false);
+          setFetchDone(true);
         }
-        return;
-      }
-
-      // If conversation is not in store and we're NOT the active conversation,
-      // this conversation might have been deleted - don't try to load it
-      const currentActiveId = useChatStore.getState().activeConversationId;
-      if (currentActiveId && currentActiveId !== uuid) {
-        console.log("[ChatUUID] Not active conversation, aborting load (might be deleted)");
-        setLoading(false);
         return;
       }
 
@@ -143,10 +163,14 @@ function ChatUUIDPage() {
 
             setConversation(localConv);
 
-            // Load messages from MongoDB (includes A2A events for tasks/debug)
-            loadMessagesFromServer(uuid).catch((err) => {
+            // Load messages from MongoDB before dismissing the spinner.
+            // For lengthy chats this can take seconds — keeping the spinner
+            // visible prevents the blank-screen gap.
+            try {
+              await loadMessagesFromServer(uuid);
+            } catch (err) {
               console.warn('[ChatUUID] Failed to load messages from server:', err);
-            });
+            }
           } catch (apiErr: any) {
             // Check store again - it might have been added while we were fetching
             const storeConv = useChatStore.getState().conversations.find(c => c.id === uuid);
@@ -220,7 +244,8 @@ function ChatUUIDPage() {
         // CRITICAL: Always set the active conversation, even when loading from MongoDB
         // This ensures the ContextPanel can display Tasks and A2A Debug
         setActiveConversation(uuid);
-        setLoading(false);
+        setFetchInProgress(false);
+        setFetchDone(true);
       }
     }
 
@@ -231,8 +256,18 @@ function ChatUUIDPage() {
     // overwrote correct final content with stale MongoDB data during streaming.
   }, [uuid, storageMode, setActiveConversation, loadMessagesFromServer]);
 
-  // Show loading spinner only when actually fetching from MongoDB
-  if (loading) {
+  // Show loading spinner when:
+  // 1. The async fetch is still in flight, OR
+  // 2. The fetch completed but a concurrent Sidebar refresh wiped the messages
+  //    out of the store (race condition). `storeHasMessages` is a reactive
+  //    Zustand selector so the spinner auto-dismisses as soon as messages
+  //    re-appear. We only guard this in mongodb mode and only when the fetch
+  //    hasn't just created a genuinely new/empty conversation (fetchDone + no messages
+  //    + not a new conversation with title "New Conversation").
+  const showSpinner = fetchInProgress
+    || (storageMode === 'mongodb' && fetchDone && !storeHasMessages && conversation?.title !== "New Conversation");
+
+  if (showSpinner) {
     return (
       <div className="flex-1 flex overflow-hidden">
         <Sidebar
@@ -242,10 +277,7 @@ function ChatUUIDPage() {
           onCollapse={setSidebarCollapsed}
         />
         <div className="flex-1 flex items-center justify-center">
-          <div className="flex flex-col items-center gap-4">
-            <Loader2 className="h-8 w-8 animate-spin text-primary" />
-            <p className="text-sm text-muted-foreground">Loading conversation...</p>
-          </div>
+          <CAIPESpinner size="lg" message="Loading conversation..." />
         </div>
       </div>
     );

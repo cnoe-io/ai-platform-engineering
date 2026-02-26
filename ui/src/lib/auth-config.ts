@@ -417,7 +417,10 @@ export const authOptions: NextAuthOptions = {
       // Set role from token (OIDC group check only here)
       // MongoDB fallback check happens in API middleware (server-side only)
       session.role = (token.role as 'admin' | 'user') || 'user';
-      session.canViewAdmin = (token.canViewAdmin as boolean) ?? false;
+      // For pre-upgrade JWTs that lack canViewAdmin, default to true when no
+      // admin view group is configured (all authenticated users can view).
+      session.canViewAdmin = (token.canViewAdmin as boolean)
+        ?? (REQUIRED_ADMIN_VIEW_GROUP === '' ? true : false);
 
       // If token refresh failed, mark session as invalid and DON'T include tokens
       if (token.error === "RefreshTokenExpired" || token.error === "RefreshTokenError") {

@@ -267,3 +267,6 @@ coverage.json
 # Temporary commit message files
 .git_commit_msg.txt
 *.git_commit_msg.txt
+
+# Local CA certificate bundles (host-specific)
+certs/

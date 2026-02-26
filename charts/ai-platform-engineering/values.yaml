@@ -14,7 +14,9 @@ tags:
   agent-pagerduty: false
   agent-slack: false
   agent-splunk: false
+  agent-victorops: false
   agent-webex: false
+  agent-network-utility: false
   rag-stack: false
 
 # Global configuration shared across all subcharts
@@ -108,7 +110,7 @@ supervisor-agent:
     EXTERNAL_URL: "http://localhost:8000"  # Agent url for the client. NOTE: this will be user applicaiton specific
     SKIP_AGENT_CONNECTIVITY_CHECK: "false"
     AGENT_CONNECTIVITY_ENABLE_BACKGROUND: "true"
-    USE_STRUCTURED_RESPONSE: "false" # Set to "true" to enforce agent to always use structured response format as the final output
+    USE_STRUCTURED_RESPONSE: "true" # Set to "true" to enforce agent to always use structured response format as the final output
   multiAgentConfig:
     protocol: "a2a"
     port: "8000"
@@ -286,6 +288,19 @@ agent-splunk:
     mode: "http" # Options: stdio, http
     port: 8000
 
+agent-victorops:
+  nameOverride: "agent-victorops"
+  image:
+    repository: "ghcr.io/cnoe-io/agent-victorops"
+    pullPolicy: "Always"
+  mcp:
+    image:
+      repository: "ghcr.io/cnoe-io/mcp-victorops"
+      tag: ""
+      pullPolicy: "Always"
+    mode: "http" # Options: stdio, http
+    port: 8000
+
 agent-webex:
   nameOverride: "agent-webex"
   image:
@@ -308,6 +323,20 @@ agent-komodor:
   mcp:
     image:
       repository: "ghcr.io/cnoe-io/mcp-komodor"
+      # tag defaults to .Chart.AppVersion when not specified
+      tag: ""
+      pullPolicy: "Always"
+    mode: "http" # Options: stdio, http
+    port: 8000
+
+agent-network-utility:
+  nameOverride: "agent-network-utility"
+  image:
+    repository: "ghcr.io/cnoe-io/agent-network-utility"
+    pullPolicy: "Always"
+  mcp:
+    image:
+      repository: "ghcr.io/cnoe-io/mcp-network-utility"
       # tag defaults to .Chart.AppVersion when not specified
       tag: ""
       pullPolicy: "Always"

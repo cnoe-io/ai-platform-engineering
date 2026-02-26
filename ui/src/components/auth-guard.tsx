@@ -1,7 +1,7 @@
 "use client";
 
 import { useSession, signOut } from "next-auth/react";
-import { useRouter } from "next/navigation";
+import { useRouter, usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { getConfig } from "@/lib/config";
 import { LoadingScreen } from "@/components/loading-screen";
@@ -21,10 +21,23 @@ interface AuthGuardProps {
 export function AuthGuard({ children }: AuthGuardProps) {
   const { data: session, status } = useSession();
   const router = useRouter();
+  const pathname = usePathname();
   // Initialize authChecked to true if already authenticated to avoid spinner on navigation
   const [authChecked, setAuthChecked] = useState(status === "authenticated");
   const [loadingTimeout, setLoadingTimeout] = useState(false);
   const [autoResetInitiated, setAutoResetInitiated] = useState(false);
+
+  /**
+   * Build a login URL that preserves the current page as callbackUrl so the
+   * user returns here after re-authenticating (e.g. /chat/<uuid>).
+   */
+  function loginUrl(params?: string): string {
+    const cb = pathname && pathname !== '/' && pathname !== '/login'
+      ? `callbackUrl=${encodeURIComponent(pathname)}`
+      : '';
+    const parts = [params, cb].filter(Boolean).join('&');
+    return parts ? `/login?${parts}` : '/login';
+  }
 
   // Check for corrupted session cookies on mount
   useEffect(() => {
@@ -41,8 +54,9 @@ export function AuthGuard({ children }: AuthGuardProps) {
       document.cookie.split(";").forEach((c) => {
         document.cookie = c.replace(/^ +/, "").replace(/=.*/, "=;expires=" + new Date().toUTCString() + ";path=/");
       });
-      window.location.href = '/login?session_reset=auto';
+      window.location.href = loginUrl('session_reset=auto');
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Enhanced timeout mechanism - if stuck for more than 5 seconds, show cancel button
@@ -72,7 +86,7 @@ export function AuthGuard({ children }: AuthGuardProps) {
           }
 
           // Force redirect to login
-          window.location.href = '/login?session_reset=auto';
+          window.location.href = loginUrl('session_reset=auto');
         }
       }, 15000); // 15 seconds
 
@@ -94,7 +108,7 @@ export function AuthGuard({ children }: AuthGuardProps) {
     }
 
     if (status === "unauthenticated") {
-      router.push("/login");
+      router.push(loginUrl());
       return;
     }
 
@@ -118,7 +132,7 @@ export function AuthGuard({ children }: AuthGuardProps) {
         console.warn("[AuthGuard] Token refresh failed, signing out and redirecting to login...");
         // Sign out to clear the corrupted session, then redirect
         signOut({ redirect: false }).then(() => {
-          router.push("/login?session_expired=true");
+          router.push(loginUrl('session_expired=true'));
         });
         return;
       }
@@ -139,7 +153,7 @@ export function AuthGuard({ children }: AuthGuardProps) {
         console.warn("[AuthGuard] Token expired without refresh, redirecting to login...");
         // Set authChecked before redirect to prevent stuck state
         setAuthChecked(true);
-        router.push("/login?session_expired=true");
+        router.push(loginUrl('session_expired=true'));
         return;
       }
 
@@ -178,7 +192,7 @@ export function AuthGuard({ children }: AuthGuardProps) {
         });
       }
       // Force redirect to login instead of using signOut (which might also be stuck)
-      window.location.href = '/login?session_reset=manual';
+      window.location.href = loginUrl('session_reset=manual');
     };
 
     return (
