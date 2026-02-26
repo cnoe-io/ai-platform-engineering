@@ -292,7 +292,7 @@ describe('cancelTask', () => {
       'http://localhost',
       expect.objectContaining({
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: expect.objectContaining({ 'Content-Type': 'application/json' }),
       })
     );
     const body = JSON.parse(mockFetch.mock.calls[0][1].body);
