@@ -14,6 +14,7 @@
     "slack",
     "splunk",
     "template",
+    "victorops",
     "webex",
     "weather"
   ],
@@ -27,6 +28,7 @@
     "pagerduty",
     "slack",
     "splunk",
+    "victorops",
     "webex"
   ],
   "rag_components": [
