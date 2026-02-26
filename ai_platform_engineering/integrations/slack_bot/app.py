@@ -8,6 +8,7 @@ Supports @mention queries, Q&A mode, AI alert processing, HITL forms, and feedba
 """
 
 import os
+import sys
 import time
 
 from slack_bolt import App
@@ -42,7 +43,7 @@ if AUTH_ENABLED:
         logger.error(f"Failed to initialize OAuth2 auth: {e}")
         raise
 else:
-    logger.info("A2A auth disabled (set SLACK_INTEGRATION_AUTH_ENABLED=true to enable)")
+    logger.info("A2A auth disabled (set SLACK_INTEGRATION_ENABLE_AUTH=true to enable)")
 
 # Initialize A2A client - CAIPE_URL is required
 CAIPE_URL = os.environ.get("CAIPE_URL")
@@ -81,16 +82,17 @@ for attempt in range(1, max_retries + 1):
             logger.warning(f"Supervisor not ready, retrying in {retry_delay}s...")
             time.sleep(retry_delay)
         else:
-            logger.fatal(
+            logger.error(
                 f"Failed to connect to {APP_NAME} after {max_retries} attempts: {e}."
             )
+            sys.exit(1)
 
 
 # =============================================================================
 # @mention handler (manually invoke CAIPE)
 # =============================================================================
 @app.event("app_mention")
-def handle_forge_mention(event, say, client):
+def handle_mention(event, say, client):
     """Handle @mentions of the bot to query CAIPE."""
     try:
         if event.get("edited") or event.get("subtype") == "message_changed":
@@ -190,7 +192,7 @@ def handle_forge_mention(event, say, client):
                                 "type": "button",
                                 "text": {"type": "plain_text", "text": "Retry"},
                                 "style": "primary",
-                                "action_id": "forge_retry",
+                                "action_id": "caipe_retry",
                                 "value": f"{channel_id}|{thread_ts}",
                             },
                         ],
@@ -378,8 +380,8 @@ def handle_hitl_action(ack, body, client):
 # =============================================================================
 # Feedback Action Handler
 # =============================================================================
-@app.action("forge_feedback")
-def handle_forge_feedback(ack, body, client):
+@app.action("caipe_feedback")
+def handle_caipe_feedback(ack, body, client):
     ack()
     try:
         user_id = body.get("user", {}).get("id")
@@ -416,8 +418,8 @@ def handle_forge_feedback(ack, body, client):
                 {
                     "type": "actions",
                     "elements": [
-                        {"type": "button", "text": {"type": "plain_text", "text": "Wrong answer"}, "action_id": "forge_feedback_wrong_answer", "value": f"{channel_id}|{thread_ts}"},
-                        {"type": "button", "text": {"type": "plain_text", "text": "Other"}, "action_id": "forge_feedback_other", "value": f"{channel_id}|{thread_ts}"},
+                        {"type": "button", "text": {"type": "plain_text", "text": "Wrong answer"}, "action_id": "caipe_feedback_wrong_answer", "value": f"{channel_id}|{thread_ts}"},
+                        {"type": "button", "text": {"type": "plain_text", "text": "Other"}, "action_id": "caipe_feedback_other", "value": f"{channel_id}|{thread_ts}"},
                     ],
                 },
             ]
@@ -429,7 +431,7 @@ def handle_forge_feedback(ack, body, client):
         logger.exception(f"Error handling feedback: {e}")
 
 
-@app.action("forge_feedback_more_detail")
+@app.action("caipe_feedback_more_detail")
 def handle_feedback_more_detail(ack, body, client):
     ack()
     try:
@@ -464,7 +466,7 @@ def handle_feedback_more_detail(ack, body, client):
         logger.exception(f"Error handling more detail feedback: {e}")
 
 
-@app.action("forge_feedback_less_verbose")
+@app.action("caipe_feedback_less_verbose")
 def handle_feedback_less_verbose(ack, body, client):
     ack()
     try:
@@ -499,8 +501,8 @@ def handle_feedback_less_verbose(ack, body, client):
         logger.exception(f"Error handling less verbose feedback: {e}")
 
 
-@app.action("forge_retry")
-def handle_forge_retry(ack, body, client):
+@app.action("caipe_retry")
+def handle_caipe_retry(ack, body, client):
     ack()
     try:
         user_id = body.get("user", {}).get("id")
@@ -557,7 +559,7 @@ def _open_feedback_modal(ack, body, client, feedback_type):
             trigger_id=trigger_id,
             view={
                 "type": "modal",
-                "callback_id": "forge_wrong_answer_modal",
+                "callback_id": "caipe_wrong_answer_modal",
                 "private_metadata": f"{value}|{feedback_type}",
                 "title": {"type": "plain_text", "text": "What was wrong?"},
                 "submit": {"type": "plain_text", "text": "Submit"},
@@ -582,17 +584,17 @@ def _open_feedback_modal(ack, body, client, feedback_type):
         logger.exception(f"Error opening feedback modal: {e}")
 
 
-@app.action("forge_feedback_wrong_answer")
+@app.action("caipe_feedback_wrong_answer")
 def handle_feedback_wrong_answer(ack, body, client):
     _open_feedback_modal(ack, body, client, feedback_type="wrong_answer")
 
 
-@app.action("forge_feedback_other")
+@app.action("caipe_feedback_other")
 def handle_feedback_other(ack, body, client):
     _open_feedback_modal(ack, body, client, feedback_type="other")
 
 
-@app.view("forge_wrong_answer_modal")
+@app.view("caipe_wrong_answer_modal")
 def handle_wrong_answer_submission(ack, body, client, view):
     ack()
     try:
