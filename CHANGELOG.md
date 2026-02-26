@@ -1,3 +1,17 @@
+## 0.2.25 (2026-02-25)
+
+## 0.2.24-rc.2 (2026-02-25)
+
+### Fix
+
+- correctly send final structured output to the UI when user input is required
+
+## 0.2.24-rc.1 (2026-02-25)
+
+### Fix
+
+- **rag**: resolve RBAC crash in ontology agent reverse proxy
+
 ## 0.2.24 (2026-02-25)
 
 ### Feat

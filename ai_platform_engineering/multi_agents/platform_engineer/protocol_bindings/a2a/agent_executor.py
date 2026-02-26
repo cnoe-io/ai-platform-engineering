@@ -478,6 +478,19 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                          ]
                      }
         """
+        # Send a final text artifact with the structured content so the UI
+        # replaces any previously-streamed chunks.  Without this, the UI keeps
+        # showing the raw concatenated streaming output because
+        # _handle_user_input_required only used to send a status message (which
+        # the UI doesn't render as the primary content area).
+        if content:
+            final_artifact = new_text_artifact(
+                name='final_result',
+                description='Complete result from Platform Engineer',
+                text=content,
+            )
+            await self._send_artifact(event_queue, task, final_artifact, append=False, last_chunk=True)
+
         # If metadata with form fields is provided, send it as a separate artifact
         # This allows the UI to render a structured form instead of just text
         if metadata and metadata.get("input_fields"):

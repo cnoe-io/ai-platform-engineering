@@ -1,6 +1,6 @@
 [project]
 name = "ai-platform-engineering"
-version = "0.2.24"
+version = "0.2.25"
 description = "Multi-Agent Collaboration & Workflow Automation - AI agents collaborating across tools and teams to deliver high quality results"
 authors = [
   {name = "CNOE Contributors"}
@@ -11,7 +11,7 @@ requires-python = ">=3.13,<4.0"
 dependencies = [
     "a2a-sdk==0.3.0",
     "agntcy-app-sdk==0.4.0",
-    "cnoe-agent-utils==0.3.10",
+    "cnoe-agent-utils==0.3.11",
     "config==0.5.1",
     "cryptography==46.0.3",
     "fastapi>=0.115.6",

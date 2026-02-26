@@ -32,7 +32,7 @@ dependencies = [
     "httpx==0.28.1",
     "httpx-sse==0.4.3",
     "python-dotenv==1.2.1",
-    "cnoe-agent-utils==0.3.9",
+    "cnoe-agent-utils==0.3.11",
     "pydantic==2.12.5",
     "prometheus_client==0.23.1",
     "typing-extensions==4.15.0",
