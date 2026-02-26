@@ -18,7 +18,7 @@ if not API_TOKEN_ID:
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
-logger = logging.getLogger("mcp_victorops_mcpapi")
+logger = logging.getLogger("mcp_victorops")
 
 
 

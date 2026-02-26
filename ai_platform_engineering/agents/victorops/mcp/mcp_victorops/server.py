@@ -13,9 +13,9 @@ allowing large language models and AI assistants to interact with the service.
 import logging
 import os
 from dotenv import load_dotenv
-from mcp.server.fastmcp import FastMCP
+from fastmcp import FastMCP
 
-from agent_victorops.protocol_bindings.mcp_server.mcp_victorops_mcpapi.tools import (
+from mcp_victorops.tools import (
     api_public_v2_user,
     api_reporting_v2_incidents,
     api_public_v1_incidents,
@@ -31,6 +31,10 @@ def main():
     # Configure logging
     logging.basicConfig(level=logging.DEBUG)
 
+    # Suppress noisy debug logs
+    logging.getLogger("sse_starlette.sse").setLevel(logging.INFO)
+    logging.getLogger("mcp.server.lowlevel.server").setLevel(logging.INFO)
+
     # Get MCP configuration from environment variables
     MCP_MODE = os.getenv("MCP_MODE", "STDIO")
 
@@ -38,40 +42,32 @@ def main():
     MCP_HOST = os.getenv("MCP_HOST", "localhost")
     MCP_PORT = int(os.getenv("MCP_PORT", "8000"))
 
-    logging.info(f"Starting MCP server in {MCP_MODE} mode on {MCP_HOST}:{MCP_PORT}")
+    logging.info("Starting MCP server in {} mode on {}:{}".format(MCP_MODE, MCP_HOST, MCP_PORT))
 
-    # Get agent name from environment variables
-    AGENT_NAME = os.getenv("AGENT_NAME", "VICTOROPS_MCPAPI Agent")
-    logging.info(f"Agent name: {AGENT_NAME}")
+    # Get server name from environment variables
+    SERVER_NAME = os.getenv("SERVER_NAME", "VictorOps")
+    logging.info('*' * 40)
+    logging.info("MCP Server name: {}".format(SERVER_NAME))
+    logging.info('*' * 40)
 
     # Create server instance
-    if MCP_MODE == "SSE":
-        mcp = FastMCP(f"{AGENT_NAME} MCP Server", host=MCP_HOST, port=MCP_PORT)
+    if MCP_MODE.lower() in ["sse", "http"]:
+        mcp = FastMCP(f"{SERVER_NAME} MCP Server", host=MCP_HOST, port=MCP_PORT)
     else:
-        mcp = FastMCP("VICTOROPS_MCPAPI MCP Server")
+        mcp = FastMCP(f"{SERVER_NAME} MCP Server")
 
-    # Register api_public_v2_user tools
+    # Register tools
     mcp.tool()(api_public_v2_user.get_api_public_v2_user)
-
-    # Register api_reporting_v2_incidents tools
     mcp.tool()(api_reporting_v2_incidents.get_api_reporting_v2_incidents)
-
-    # Register api_public_v1_incidents tools
     mcp.tool()(api_public_v1_incidents.post_api_public_v1_incidents)
-
     mcp.tool()(incidentnumber_notes.get_api_public_v1_incidents_incident_number_notes)
     mcp.tool()(incidentnumber_notes.post_api_public_v1_incidents_incident_number_notes)
-
     mcp.tool()(incidentnumber_notes_notename.put_api_public_v1_incidents_incident_number_notes_note_name)
     mcp.tool()(incidentnumber_notes_notename.delete_api_public_v1_incidents_incident_number_notes_note_name)
-    
-
-    # Register api_public_v1_chat tools
     mcp.tool()(api_public_v1_chat.post_api_public_v1_chat)
 
-
     # Run the MCP server
-    mcp.run()
+    mcp.run(transport=MCP_MODE.lower())
 
 
 if __name__ == "__main__":

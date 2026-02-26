@@ -1,8 +1,11 @@
-.vscode
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
 *$py.class
+
+# Helm secrets files
+helm/agent-victorops/values-secrets.yaml
+helm/*/values-secrets.yaml
 
 # C extensions
 *.so

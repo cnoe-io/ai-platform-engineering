@@ -663,6 +663,11 @@ agent_prompts:
     system_prompt: |
       Handle PagerDuty operations:
       - on-call schedules, incidents, and acknowledgements
+  victorops:
+    system_prompt: |
+      Handle VictorOps operations:
+      - incident history search, incident creation, incident notes
+      - user lookups, on-call schedules, chat messages
   slack:
     system_prompt: |
       Handle Slack workspace operations:
@@ -767,6 +772,9 @@ agent_skill_examples:
     - "WHOIS cisco.com"
   pagerduty:
     - "Who is on call now?"
+  victorops:
+    - "Show VictorOps incidents from last 24 hours"
+    - "Create a VictorOps incident"
   slack:
     - "Send message to #platform-alerts"
   splunk:

@@ -20,7 +20,7 @@ The server acts as a wrapper over the agent's async call loop and translates sta
 
 ```
 mcp_server/
-├── mcp_victorops_mcpapi
+├── mcp_victorops
 │   ├── __init__.py
 |   ├── server.py
 │   ├── api/
@@ -48,7 +48,7 @@ mcp_server/
 Make sure dependencies are installed and environment variables are configured. Then run:
 
 ```bash
-poetry run mcp_victorops_mcpapi
+poetry run mcp_victorops
 ```
 
 Or directly with Python:

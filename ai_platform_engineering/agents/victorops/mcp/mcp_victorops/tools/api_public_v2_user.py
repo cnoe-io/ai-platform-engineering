@@ -7,7 +7,7 @@
 import logging
 from typing import Dict, Any, Optional
 from ..api.client import make_api_request, assemble_nested_body
-#from mcp_victorops_mcpapi.api.client import make_api_request, assemble_nested_body
+#from mcp_victorops.api.client import make_api_request, assemble_nested_body
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)

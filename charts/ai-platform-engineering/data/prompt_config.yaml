@@ -109,6 +109,9 @@ agent_prompts:
   komodor:
     system_prompt: |
       If the user's prompt is related to Komodor operations, such as getting the status of a cluster, fetching health risks, triggering a RCA, or getting RCA results, assign the task to the Komodor agent.
+  victorops:
+    system_prompt: |
+      If the user's prompt is related to VictorOps operations, such as listing incidents, searching incident history, creating incidents, managing incident notes, looking up users, checking on-call schedules, or sending chat messages, assign the task to the VictorOps agent.
   webex:
     system_prompt: |
       If the user's prompt is related to Webex operations, such as sending a message to a room, listing room members, creating or archiving a room, or posting a notification, assign the task to the Webex agent.
@@ -160,6 +163,10 @@ agent_skill_examples:
   komodor:
     - "Show health risks for clusters"
     - "Trigger a root cause analysis"
+  victorops:
+    - "Show currently triggered VictorOps incidents"
+    - "Search incident history for the last 24 hours"
+    - "Who is on-call in VictorOps?"
   webex:
     - "Send a message to a room"
     - "Get recent messages from a room"

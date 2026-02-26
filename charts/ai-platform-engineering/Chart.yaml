@@ -117,6 +117,14 @@ dependencies:
         parent: global.enabledSubAgents.splunk
   - name: agent
     version: 0.2.26 # Do NOT bump this. It will be updated automatically using the PR or release workflow
+    alias: agent-victorops
+    tags:
+      - agent-victorops
+    import-values:
+      - child: agentExports.data
+        parent: global.enabledSubAgents.victorops
+  - name: agent
+    version: 0.2.26 # Do NOT bump this. It will be updated automatically using the PR or release workflow
     alias: agent-webex
     tags:
       - agent-webex

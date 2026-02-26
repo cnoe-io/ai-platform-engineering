@@ -14,6 +14,7 @@ tags:
   agent-pagerduty: false
   agent-slack: false
   agent-splunk: false
+  agent-victorops: false
   agent-webex: false
   agent-network-utility: false
   rag-stack: false
@@ -282,6 +283,19 @@ agent-splunk:
     image:
       repository: "ghcr.io/cnoe-io/mcp-splunk"
       # tag defaults to .Chart.AppVersion when not specified
+      tag: ""
+      pullPolicy: "Always"
+    mode: "http" # Options: stdio, http
+    port: 8000
+
+agent-victorops:
+  nameOverride: "agent-victorops"
+  image:
+    repository: "ghcr.io/cnoe-io/agent-victorops"
+    pullPolicy: "Always"
+  mcp:
+    image:
+      repository: "ghcr.io/cnoe-io/mcp-victorops"
       tag: ""
       pullPolicy: "Always"
     mode: "http" # Options: stdio, http

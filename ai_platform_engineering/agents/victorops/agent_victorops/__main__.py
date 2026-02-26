@@ -1,83 +1,103 @@
 # Copyright 2025 Cisco
 # SPDX-License-Identifier: Apache-2.0
 
+# =====================================================
+# CRITICAL: Disable a2a tracing BEFORE any a2a imports
+# =====================================================
+from cnoe_agent_utils.tracing import disable_a2a_tracing
+
+disable_a2a_tracing()
+
+# =====================================================
+# Now safe to import a2a modules
+# =====================================================
 
 import click
 import httpx
+import uvicorn
+import asyncio
+import os
 from dotenv import load_dotenv
+from agntcy_app_sdk.factory import AgntcyFactory
 
-from agent_victorops.protocol_bindings.a2a_server.agent import VictorOpsAgent # type: ignore[import-untyped]
 from agent_victorops.protocol_bindings.a2a_server.agent_executor import VictorOpsAgentExecutor # type: ignore[import-untyped]
-
+from agent_victorops.agentcard import create_agent_card
 from a2a.server.apps import A2AStarletteApplication
 from a2a.server.request_handlers import DefaultRequestHandler
-from a2a.server.tasks import InMemoryPushNotifier, InMemoryTaskStore
-from a2a.types import (
-    AgentCapabilities,
-    AgentCard,
-    AgentSkill,
+from a2a.server.tasks import (
+    BasePushNotificationSender,
+    InMemoryPushNotificationConfigStore,
+    InMemoryTaskStore,
 )
 
 from starlette.middleware.cors import CORSMiddleware
+from ai_platform_engineering.utils.metrics import PrometheusMetricsMiddleware
 
 load_dotenv()
+
+A2A_TRANSPORT = os.getenv("A2A_TRANSPORT", "p2p").lower()
+SLIM_ENDPOINT = os.getenv("SLIM_ENDPOINT", "http://slim-dataplane:46357")
+METRICS_ENABLED = os.getenv("METRICS_ENABLED", "false").lower() == "true"
 
 
 @click.command()
 @click.option('--host', 'host', default='localhost')
 @click.option('--port', 'port', default=10000)
 def main(host: str, port: int):
+    asyncio.run(async_main(host, port))
+
+async def async_main(host: str, port: int):
     client = httpx.AsyncClient()
+    push_config_store = InMemoryPushNotificationConfigStore()
+    push_sender = BasePushNotificationSender(httpx_client=client,
+                    config_store=push_config_store)
     request_handler = DefaultRequestHandler(
-        agent_executor=VictorOpsAgentExecutor(),
-        task_store=InMemoryTaskStore(),
-        push_notifier=InMemoryPushNotifier(client),
+      agent_executor=VictorOpsAgentExecutor(),
+      task_store=InMemoryTaskStore(),
+      push_config_store=push_config_store,
+      push_sender=push_sender
     )
+
+    if A2A_TRANSPORT == "slim":
+        agent_url = SLIM_ENDPOINT
+    else:
+        agent_url = f'http://{host}:{port}'
 
     server = A2AStarletteApplication(
-        agent_card=get_agent_card(host, port), http_handler=request_handler
-    )
-    app = server.build()
-
-    # Add CORSMiddleware to allow requests from any origin (disables CORS restrictions)
-    app.add_middleware(
-          CORSMiddleware,
-          allow_origins=["*"],  # Allow all origins
-          allow_methods=["*"],  # Allow all HTTP methods (GET, POST, etc.)
-          allow_headers=["*"],  # Allow all headers
+        agent_card=create_agent_card(agent_url), http_handler=request_handler
     )
 
-    import uvicorn
-    uvicorn.run(app, host=host, port=port)
+    if A2A_TRANSPORT == 'slim':
+        print("Running A2A server in SLIM mode.")
+        factory = AgntcyFactory()
+        transport = factory.create_transport("SLIM", endpoint=agent_url)
+        print("Transport created successfully.")
 
+        bridge = factory.create_bridge(server, transport=transport)
+        print("Bridge created successfully. Starting the bridge.")
+        await bridge.start(blocking=True)
+    else:
+        print("Running A2A server in p2p mode.")
+        app = server.build()
 
-def get_agent_card(host: str, port: int):
-  """Returns the Agent Card for the VictorOps CRUD Agent."""
-  capabilities = AgentCapabilities(streaming=True, pushNotifications=True)
-  skill = AgentSkill(
-    id='victorops',
-    name='VictorOps Operations',
-    description='Performs Create, Read, Update, and Delete operations on VictorOps incidents and services.',
-    tags=['victorops', 'incident_management', 'on_call', 'devops', 'alerts'],
-    examples=[
-      'Create a new incident in VictorOps.',
-      'List all incidents in high urgency state.',
-      'Update the urgency of incident #123 to high.',
-      'List all services in VictorOps.',
-      'Get on-call schedule for the next 7 days.'
-    ],
-  )
-  return AgentCard(
-    name='VictorOps CRUD Agent',
-    description='Agent for managing VictorOps incidents and services with CRUD operations.',
-    url=f'http://{host}:{port}/',
-    version='1.0.0',
-    defaultInputModes=VictorOpsAgent.SUPPORTED_CONTENT_TYPES,
-    defaultOutputModes=VictorOpsAgent.SUPPORTED_CONTENT_TYPES,
-    capabilities=capabilities,
-    skills=[skill],
-  )
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=["*"],
+            allow_methods=["*"],
+            allow_headers=["*"],
+        )
 
+        if METRICS_ENABLED:
+            app.add_middleware(
+                PrometheusMetricsMiddleware,
+                excluded_paths=["/.well-known/agent.json", "/.well-known/agent-card.json", "/health", "/ready"],
+                metrics_path="/metrics",
+                agent_name="victorops",
+            )
+
+        config = uvicorn.Config(app, host=host, port=port, access_log=False)
+        server = uvicorn.Server(config=config)
+        await server.serve()
 
 if __name__ == '__main__':
     main()
