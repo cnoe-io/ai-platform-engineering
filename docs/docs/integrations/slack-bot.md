@@ -119,11 +119,11 @@ Under **Install App**, click **Install to Workspace** and authorize. Save the **
 
 #### Required
 
-| Variable | Description | Example |
-|---|---|---|
-| `CAIPE_URL` | CAIPE supervisor A2A endpoint | `http://caipe-supervisor:8000` |
-| `SLACK_INTEGRATION_BOT_TOKEN` | Bot User OAuth Token (`xoxb-...`) | `xoxb-1234-5678-abc` |
-| `SLACK_INTEGRATION_APP_TOKEN` | App-Level Token for Socket mode (`xapp-...`) | `xapp-1-ABC-123-xyz` |
+| Variable | Description |
+|---|---|
+| `CAIPE_URL` | CAIPE supervisor A2A endpoint |
+| `SLACK_INTEGRATION_BOT_TOKEN` | Bot User OAuth Token (starts with `xoxb-`) |
+| `SLACK_INTEGRATION_APP_TOKEN` | App-Level Token for Socket mode (starts with `xapp-`) |
 
 #### Optional
 
