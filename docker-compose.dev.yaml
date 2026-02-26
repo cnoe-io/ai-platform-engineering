@@ -59,6 +59,7 @@ services:
       - SPLUNK_AGENT_HOST=agent-splunk
       - WEATHER_AGENT_HOST=agent-weather
       - WEBEX_AGENT_HOST=agent-webex
+      - NETWORK_UTILITY_AGENT_HOST=agent-network-utility
       - JARVIS_AGENT_HOST=agent-jarvis
       - JARVIS_AGENT_PORT=58000
 
@@ -91,6 +92,7 @@ services:
       - ENABLE_WEBEX=${ENABLE_WEBEX:-false}
       - ENABLE_WEBEX=${ENABLE_WEBEX:-false}
       - ENABLE_WEATHER=${ENABLE_WEATHER:-false}
+      - ENABLE_NETWORK_UTILITY=${ENABLE_NETWORK_UTILITY:-false}
       - ENABLE_JARVIS=${ENABLE_JARVIS:-false}
 
       # Tracing configuration (will be read from .env if ENABLE_TRACING=true)
@@ -856,6 +858,61 @@ services:
     profiles:
       - agentforge
       - all-agents
+
+  ####################################################################################################
+  #                                   NETWORK UTILITY AGENT                                          #
+  ####################################################################################################
+  # Network Utility agent: DNS, DHCP, dnsmasq management, ping, traceroute, port checks
+  # Uses a custom MCP Dockerfile with network diagnostic tools pre-installed
+  # Optionally connects to a dnsmasq sidecar for DHCP/DNS server management
+  agent-network-utility:
+    build:
+      context: .
+      dockerfile: build/agents/Dockerfile.a2a
+      args:
+        - AGENT_NAME=network_utility
+    container_name: agent-network-utility
+    volumes:
+      - ./charts/ai-platform-engineering/data/prompt_config.network_utility_agent.yaml:/app/prompt_config.network_utility_agent.yaml
+      - ./ai_platform_engineering/agents/network_utility/agent_network_utility:/app/ai_platform_engineering/agents/agent/agent_network_utility
+      - ./ai_platform_engineering/utils:/app/ai_platform_engineering/utils
+    env_file: [.env]
+    ports: ["8015:8000"]
+    environment:
+      - A2A_TRANSPORT=${A2A_TRANSPORT:-p2p}
+      - MCP_MODE=http
+      - MCP_HOST=mcp-network-utility
+      - MCP_PORT=8000
+      - SLIM_ENDPOINT=${SLIM_ENDPOINT:-http://slim-dataplane:46357}
+    depends_on:
+      mcp-network-utility:
+        condition: service_healthy
+    profiles:
+      - network-utility-agent
+
+  mcp-network-utility:
+    build:
+      context: .
+      dockerfile: ai_platform_engineering/agents/network_utility/build/Dockerfile.mcp
+      args:
+        - AGENT_NAME=network_utility
+    container_name: mcp-network-utility
+    env_file: [.env]
+    ports: ["18011:8000"]
+    volumes:
+      - ./ai_platform_engineering/agents/network_utility/mcp/mcp_network_utility:/app/mcp_network_utility
+    environment:
+      - MCP_MODE=http
+      - MCP_HOST=0.0.0.0
+      - MCP_PORT=8000
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; s=socket.socket(); s.settimeout(1); result=s.connect_ex(('localhost', 8000)); s.close(); exit(0 if result == 0 else 1)"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    profiles:
+      - network-utility-agent
 
   ####################################################################################################
   #                                      AGENT JARVIS A2A P2P                                        #
