@@ -1,41 +1,32 @@
-## 0.2.26 (2026-02-26)
+## 0.2.27 (2026-02-26)
 
-## 0.2.25-rc.4 (2026-02-26)
+### Feat
+
+- make skill-templates independent of caipe-ui.enabled (#836)
+
+## 0.2.26-rc.1 (2026-02-26)
+
+### Feat
+
+- **victorops**: Add Agent victorops aka Splunk On-call (#858)
+
+## 0.2.26 (2026-02-26)
 
 ### Feat
 
 - **agent**: add network utility agent and MCP server (#855)
-
-## 0.2.25-rc.3 (2026-02-26)
+- **rag-server**: add MCPAuthMiddleware to enforce auth on /mcp routes
 
 ### Fix
 
 - **deps**: upgrade cnoe-agent-utils to 0.3.11 (#860)
-
-## 0.2.25-rc.2 (2026-02-26)
-
-### Fix
-
 - **build**: add retry logic to npm install for transient registry errors (#859)
 
-## 0.2.25-rc.1 (2026-02-25)
-
-### Feat
-
-- **rag-server**: add MCPAuthMiddleware to enforce auth on /mcp routes
-
 ## 0.2.25 (2026-02-25)
-
-## 0.2.24-rc.2 (2026-02-25)
 
 ### Fix
 
 - correctly send final structured output to the UI when user input is required
-
-## 0.2.24-rc.1 (2026-02-25)
-
-### Fix
-
 - **rag**: resolve RBAC crash in ontology agent reverse proxy
 
 ## 0.2.24 (2026-02-25)
