@@ -362,6 +362,8 @@ backstage-plugin-agent-forge:
 
 ######### CAIPE UI configuration #########
 caipe-ui:
+  skills:
+    enabled: true
   nameOverride: "caipe-ui"
   image:
     repository: "ghcr.io/cnoe-io/caipe-ui"
