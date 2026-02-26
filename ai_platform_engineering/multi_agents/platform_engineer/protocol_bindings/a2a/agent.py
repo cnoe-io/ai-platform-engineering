@@ -193,7 +193,7 @@ class AIPlatformEngineerA2ABinding:
       return None
 
   @trace_agent_stream("platform_engineer", update_input=True)
-  async def stream(self, query, context_id, trace_id=None) -> AsyncIterable[dict[str, Any]]:
+  async def stream(self, query, context_id, trace_id=None, user_id=None) -> AsyncIterable[dict[str, Any]]:
       # user_email is passed via _pending_user_email to avoid the
       # trace_agent_stream decorator stripping unknown kwargs.
       user_email = getattr(self, '_pending_user_email', None)
@@ -222,6 +222,11 @@ class AIPlatformEngineerA2ABinding:
           config['metadata']['user_email'] = user_email
           logging.info(f"Added user_email to config metadata: {user_email}")
 
+      # Add user_id to metadata for cross-thread memory scoping
+      if user_id:
+          config['metadata']['user_id'] = user_id
+          logging.info(f"Added user_id to config metadata: {user_id}")
+
       # Add trace_id to metadata for distributed tracing
       if trace_id:
           config['metadata']['trace_id'] = trace_id
@@ -236,6 +241,32 @@ class AIPlatformEngineerA2ABinding:
               logging.debug("No trace_id available from parameter or context")
 
       logging.debug(f"Created tracing config: {config}")
+
+      # ========================================================================
+      # CROSS-THREAD MEMORY: Retrieve prior context for new conversations
+      # ========================================================================
+      graph_store = getattr(self.graph, 'store', None)
+      try:
+          if graph_store and user_id:
+              state = await self.graph.aget_state(config)
+              is_new_thread = not state or not state.values or not state.values.get("messages")
+              if is_new_thread:
+                  from ai_platform_engineering.utils.store import store_get_cross_thread_context
+                  cross_thread_ctx = await store_get_cross_thread_context(
+                      store=graph_store,
+                      user_id=user_id,
+                  )
+                  if cross_thread_ctx:
+                      from langchain_core.messages import SystemMessage
+                      inputs['messages'].insert(
+                          0, SystemMessage(content=cross_thread_ctx)
+                      )
+                      logging.info(
+                          f"Injected cross-thread context for user={user_id} "
+                          f"({len(cross_thread_ctx)} chars)"
+                      )
+      except Exception as ctx_err:
+          logging.debug(f"Cross-thread context retrieval skipped: {ctx_err}")
 
       # ========================================================================
       # PRE-FLIGHT CONTEXT CHECK: Proactively compress if approaching limit
@@ -254,6 +285,7 @@ class AIPlatformEngineerA2ABinding:
               max_context_tokens=max_context_tokens,
               min_messages_to_keep=min_messages_to_keep,
               tool_count=50,  # Supervisor has many tools
+              store=graph_store,
           )
 
           if context_result.compressed:
@@ -1177,6 +1209,38 @@ class AIPlatformEngineerA2ABinding:
               final_response['content'] = ''
 
       logging.info(f"🚀 YIELDING FINAL RESPONSE: is_task_complete={final_response.get('is_task_complete')}, require_user_input={final_response.get('require_user_input')}, content_length={len(final_response.get('content', ''))}")
+
+      # ========================================================================
+      # BACKGROUND FACT EXTRACTION: Extract and persist facts after response
+      # ========================================================================
+      try:
+          from ai_platform_engineering.utils.agent_memory.fact_extraction import (
+              is_fact_extraction_enabled,
+              extract_and_store_facts,
+          )
+          if is_fact_extraction_enabled() and graph_store and user_id:
+              state = await self.graph.aget_state(config)
+              thread_messages = (
+                  state.values.get("messages", [])
+                  if state and state.values else []
+              )
+              if thread_messages:
+                  thread_id = config.get("configurable", {}).get("thread_id")
+                  asyncio.create_task(
+                      extract_and_store_facts(
+                          store=graph_store,
+                          messages=thread_messages,
+                          user_id=user_id,
+                          thread_id=thread_id,
+                      )
+                  )
+                  logging.info(
+                      f"Launched background fact extraction for user={user_id}, "
+                      f"thread={thread_id}, messages={len(thread_messages)}"
+                  )
+      except Exception as fact_err:
+          logging.debug(f"Background fact extraction skipped: {fact_err}")
+
       yield final_response
 
   def handle_structured_response(self, ai_message):

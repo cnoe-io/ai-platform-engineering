@@ -56,6 +56,7 @@ class TestA2AArtifactStreaming:
         message = Mock(spec=Message)
         message.context_id = "test-context-123"
         message.parts = [Part(root=TextPart(text="test query", kind="text"))]
+        message.metadata = None
 
         task = Mock()
         task.id = "test-task-456"
@@ -848,6 +849,7 @@ class TestRealWorldQueryScenarios:
         message = Mock(spec=Message)
         message.context_id = "test-context-123"
         message.parts = [Part(root=TextPart(text="test query", kind="text"))]
+        message.metadata = None
 
         task = Mock()
         task.id = "test-task-456"

@@ -64,6 +64,14 @@ services:
       - JARVIS_AGENT_HOST=agent-jarvis
       - JARVIS_AGENT_PORT=58000
 
+      # Cross-Thread Store Configuration
+      - LANGGRAPH_STORE_TYPE=${LANGGRAPH_STORE_TYPE:-memory}
+      - LANGGRAPH_STORE_REDIS_URL=${LANGGRAPH_STORE_REDIS_URL:-}
+      - LANGGRAPH_STORE_POSTGRES_DSN=${LANGGRAPH_STORE_POSTGRES_DSN:-}
+      - LANGGRAPH_STORE_TTL_MINUTES=${LANGGRAPH_STORE_TTL_MINUTES:-10080}
+      - ENABLE_FACT_EXTRACTION=${ENABLE_FACT_EXTRACTION:-false}
+      - FACT_EXTRACTION_MODEL=${FACT_EXTRACTION_MODEL:-}
+
       # RAG Service Configuration
       - RAG_SERVER_URL=${RAG_SERVER_URL:-http://rag_server:9446}
       - ENABLE_RAG=${ENABLE_RAG:-false}
@@ -865,13 +873,7 @@ services:
     ports: ["8016:8000"]
     environment:
       - A2A_TRANSPORT=${A2A_TRANSPORT:-p2p}
-      - MCP_MODE=http
-      - MCP_HOST=mcp-victorops
-      - MCP_PORT=8000
       - SLIM_ENDPOINT=${SLIM_ENDPOINT:-http://slim-dataplane:46357}
-    depends_on:
-      mcp-victorops:
-        condition: service_healthy
     profiles:
       - victorops
 
