@@ -188,3 +188,7 @@ dependencies:
     version: 0.2.27
     condition: caipe-ui.mongodb.enabled
     alias: mongodb
+  # Slack Bot Integration (client, not an agent)
+  - name: slack-bot
+    version: 0.2.27 # Do NOT bump this. It will be updated automatically using the PR or release workflow
+    condition: global.integrations.slackBot.enabled

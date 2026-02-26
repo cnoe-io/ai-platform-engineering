@@ -64,6 +64,7 @@ export class A2AClient {
       Accept: "text/event-stream",
       // Request keep-alive to maintain SSE connection
       "Connection": "keep-alive",
+      "X-Client-Source": "caipe-ui",
     };
 
     // Add Authorization header if access token is available
@@ -436,6 +437,7 @@ export class A2AClient {
 
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
+      "X-Client-Source": "caipe-ui",
     };
 
     if (this.accessToken) {
@@ -477,6 +479,7 @@ export class A2AClient {
 
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
+      "X-Client-Source": "caipe-ui",
     };
 
     if (this.accessToken) {

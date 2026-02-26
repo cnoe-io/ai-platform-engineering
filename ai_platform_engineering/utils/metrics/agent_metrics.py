@@ -51,7 +51,7 @@ class AgentMetrics:
         self.requests_total = Counter(
             "agent_requests_total",
             "Total number of requests to the AI Platform Engineer",
-            labelnames=["user_email", "user_id", "status", "routing_mode"],
+            labelnames=["user_email", "user_id", "status", "routing_mode", "client_source"],
         )
 
         self.request_duration_seconds = Histogram(
@@ -160,7 +160,7 @@ class AgentMetrics:
             self.enabled_agents.labels(agent_name=agent).set(1)
 
     @contextmanager
-    def track_request(self, user_email: str, user_id: str = "", routing_mode: str = ""):
+    def track_request(self, user_email: str, user_id: str = "", routing_mode: str = "", client_source: str = "unknown"):
         """
         Context manager to track a request's duration and status.
 
@@ -197,6 +197,7 @@ class AgentMetrics:
                 user_id=user_id or "",
                 status=tracker.status,
                 routing_mode=routing_mode,
+                client_source=client_source,
             ).inc()
 
             self.request_duration_seconds.labels(
@@ -348,6 +349,7 @@ def record_request(
     status: str = "success",
     routing_mode: str = "",
     duration: float = 0.0,
+    client_source: str = "unknown",
 ):
     """Record a request metric directly without context manager."""
     email_label = user_email or "anonymous"
@@ -356,6 +358,7 @@ def record_request(
         user_id=user_id,
         status=status,
         routing_mode=routing_mode,
+        client_source=client_source,
     ).inc()
 
     if duration > 0:
