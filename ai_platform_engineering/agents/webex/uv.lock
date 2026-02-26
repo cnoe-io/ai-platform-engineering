@@ -68,7 +68,7 @@ requires-dist = [
     { name = "agentevals", specifier = "==0.0.7" },
     { name = "agntcy-app-sdk", specifier = "==0.4.5" },
     { name = "click", specifier = "==8.3.1" },
-    { name = "cnoe-agent-utils", specifier = "==0.3.9" },
+    { name = "cnoe-agent-utils", specifier = "==0.3.11" },
     { name = "fastapi", specifier = "==0.115.11" },
     { name = "httpx", specifier = "==0.28.1" },
     { name = "httpx-sse", specifier = "==0.4.3" },
@@ -447,7 +447,7 @@ wheels = [
 
 [[package]]
 name = "cnoe-agent-utils"
-version = "0.3.9"
+version = "0.3.11"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "boto3" },
@@ -469,9 +469,9 @@ dependencies = [
     { name = "tiktoken" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/90/d7/7b6d91c0ee71e79710f2b9bf1dc1469d1a3926e89efbc50684b85b2ed1da/cnoe_agent_utils-0.3.9.tar.gz", hash = "sha256:1633aedeb6e773a338b8fb28b930812481c259b375a25f9395293d5b1e330c87", size = 196674, upload-time = "2025-12-09T04:51:41.181Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/b7/77/1570b79d4c0be4118f7d008b5f2a64a7fcdd05309d0da5e2001596e217ec/cnoe_agent_utils-0.3.11.tar.gz", hash = "sha256:f1284bfc5a7db0ec5e7ab989bfd586efafe261515e6db1fffbfe07c2ae9fc9cb", size = 198551, upload-time = "2026-02-25T17:55:05.019Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/da/d8/6d48684db8dea35380ea24aae83591d0168a1e2ff3316d12c2970f8c7a49/cnoe_agent_utils-0.3.9-py3-none-any.whl", hash = "sha256:2997e50d9c5574b83a2c308a86f17fd85fb563fe897d17bbf852fb6d9135cd0a", size = 59533, upload-time = "2025-12-09T04:51:39.746Z" },
+    { url = "https://files.pythonhosted.org/packages/d8/e6/cabafbf9e3d6a1f1cf1adfc04ce88c170d2b465f84bb08ec67072773923e/cnoe_agent_utils-0.3.11-py3-none-any.whl", hash = "sha256:e601d1318c9fcf380ebccab213842e97abf666ea2f80e38d7856c909b4205577", size = 60626, upload-time = "2026-02-25T17:55:03.583Z" },
 ]
 
 [[package]]
@@ -1515,11 +1515,12 @@ wheels = [
 
 [[package]]
 name = "langfuse"
-version = "3.2.7"
+version = "3.14.5"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "backoff" },
     { name = "httpx" },
+    { name = "openai" },
     { name = "opentelemetry-api" },
     { name = "opentelemetry-exporter-otlp-proto-http" },
     { name = "opentelemetry-sdk" },
@@ -1528,9 +1529,9 @@ dependencies = [
     { name = "requests" },
     { name = "wrapt" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/c3/7e/51df7a35982094b46952b3e83f347642cee730367ff852379d72fdf6b78a/langfuse-3.2.7.tar.gz", hash = "sha256:1a908eb0f7951054876299d6f369826bfab344f417d04898cdb4d8992998bbb6", size = 153495, upload-time = "2025-08-15T16:11:08.444Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/ec/6b/7a945e8bc56cbf343b6f6171fd45870b0ea80ea38463b2db8dd5a9dc04a2/langfuse-3.14.5.tar.gz", hash = "sha256:2f543ec1540053d39b08a50ed5992caf1cd54d472a55cb8e5dcf6d4fcb7ff631", size = 235474, upload-time = "2026-02-23T10:42:47.721Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/cf/02/79501d7ca11e8aca8cffb6cf53190f398f8f40213fcceaa15bda47b5e825/langfuse-3.2.7-py3-none-any.whl", hash = "sha256:bd6cdc4d4760b7159f9aba602284dd33fba61970c876abb54050ef39f07ea760", size = 300037, upload-time = "2025-08-15T16:11:06.167Z" },
+    { url = "https://files.pythonhosted.org/packages/a3/a1/10f04224542d6a57073c4f339b6763836a0899c98966f1d4ffcf56d2cf61/langfuse-3.14.5-py3-none-any.whl", hash = "sha256:5054b1c705ec69bce2d7077ce7419727ac629159428da013790979ca9cae77d5", size = 421240, upload-time = "2026-02-23T10:42:46.085Z" },
 ]
 
 [[package]]
