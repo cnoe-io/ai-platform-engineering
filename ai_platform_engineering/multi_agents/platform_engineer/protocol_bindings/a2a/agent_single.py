@@ -329,6 +329,7 @@ class AIPlatformEngineerA2ABinding:
       # ========================================================================
       if command is not None:
           self._task_plan_entries = {}
+          self._in_self_service_workflow = False
           try:
               state = await self.graph.aget_state(config)
               existing_todos = (state.values or {}).get("todos", []) if state else []
@@ -410,6 +411,7 @@ class AIPlatformEngineerA2ABinding:
       try:
           # Track accumulated AI message content for final parsing
           accumulated_ai_content = []
+          yielded_chunk_count = 0
           final_ai_message = None
 
           # Track sub-agent responses for fallback if synthesis fails
@@ -888,6 +890,7 @@ class AIPlatformEngineerA2ABinding:
                       continue
 
                   if content:  # Only yield if there's actual content
+                      yielded_chunk_count += 1
                       # Check for querying announcements and emit as tool_update events
                       import re
                       querying_pattern = r'🔍\s+Querying\s+(\w+)\s+for\s+([^.]+?)\.\.\.'
@@ -1968,6 +1971,7 @@ class AIPlatformEngineerA2ABinding:
                   # Accumulate content for final parsing
                   if content:
                       accumulated_ai_content.append(content)
+                      yielded_chunk_count += 1
 
                   yield {
                       "is_task_complete": False,
@@ -2114,6 +2118,29 @@ class AIPlatformEngineerA2ABinding:
       except Exception as plan_sync_err:
           logging.warning(f"Post-stream plan sync failed: {plan_sync_err}")
 
+      # Retrieve the supervisor's final AIMessage from graph state.
+      # In streaming mode, AIMessageChunks are emitted but the final complete
+      # AIMessage is not — so final_ai_message is typically None. We get it
+      # from the committed graph state instead (the last AIMessage with text content).
+      if final_ai_message is None:
+          try:
+              graph_state = await self.graph.aget_state(config)
+              if graph_state and graph_state.values:
+                  state_messages = graph_state.values.get("messages", [])
+                  for msg in reversed(state_messages):
+                      if isinstance(msg, AIMessage) and not isinstance(msg, AIMessageChunk):
+                          msg_content = msg.content if hasattr(msg, 'content') else ""
+                          has_text = bool(msg_content) if isinstance(msg_content, str) else any(
+                              (isinstance(p, str) and p) or (isinstance(p, dict) and p.get('text'))
+                              for p in (msg_content if isinstance(msg_content, list) else [])
+                          )
+                          if has_text:
+                              final_ai_message = msg
+                              logging.info(f"📥 Retrieved final AIMessage from graph state ({len(str(msg_content))} chars)")
+                              break
+          except Exception as state_err:
+              logging.warning(f"Could not retrieve graph state for final message: {state_err}")
+
       # After EITHER primary or fallback streaming completes, parse the final response to extract is_task_complete
       logging.info(f"🔍 POST-STREAM PARSING: final_ai_message={final_ai_message is not None}, accumulated_chunks={len(accumulated_ai_content)}, response_format_result={'yes' if response_format_result else 'no'}")
 
@@ -2162,21 +2189,38 @@ class AIPlatformEngineerA2ABinding:
               'content': '',
           }
 
-      # Yield the final parsed response with correct is_task_complete
-      #
-      # FIX #2 for A2A Streaming Duplication (Safety Net):
-      # ------------------------------------------------
-      # Even after Fix #1, the final_response may still contain 'content' that was parsed
-      # from the accumulated chunks. When len(accumulated_ai_content) > 1, we know we're in
-      # streaming mode where content was already sent token-by-token to the client.
-      # Sending it again in the final response would cause duplication.
-      #
-      # Solution: Clear 'content' from final_response when in streaming mode.
-      if accumulated_ai_content and len(accumulated_ai_content) > 1:
-          logging.info(f"⏭️ Clearing content from final response - already streamed {len(accumulated_ai_content)} chunks")
-          final_response['content'] = ''
+      # Attach the clean final model response so the executor can use it
+      # for the final_result artifact instead of the accumulated streaming text.
+      # This is the output of the LAST model call only (the supervisor summary),
+      # not the intermediate thinking/sub-agent text that was streamed live.
+      if final_ai_message:
+          clean_content = final_ai_message.content if hasattr(final_ai_message, 'content') else str(final_ai_message)
+          if isinstance(clean_content, list):
+              parts = []
+              for item in clean_content:
+                  if isinstance(item, dict):
+                      parts.append(item.get('text', ''))
+                  elif isinstance(item, str):
+                      parts.append(item)
+                  else:
+                      parts.append(str(item))
+              clean_content = ''.join(parts)
+          elif not isinstance(clean_content, str):
+              clean_content = str(clean_content) if clean_content else ""
+          if clean_content:
+              final_response['final_model_content'] = clean_content
+              logging.info(f"📤 Attached final_model_content ({len(clean_content)} chars) for executor final_result")
 
-      logging.info(f"🚀 YIELDING FINAL RESPONSE: is_task_complete={final_response.get('is_task_complete')}, require_user_input={final_response.get('require_user_input')}, content_length={len(final_response.get('content', ''))}")
+      # Dedup: clear streaming content when it was already streamed to the client.
+      # The final_model_content field (above) is NOT cleared — the executor uses
+      # it to build the final_result artifact that replaces the streaming text.
+      if yielded_chunk_count > 1:
+          logging.info(f"⏭️ Clearing content from final response - already streamed {yielded_chunk_count} chunks (accumulated {len(accumulated_ai_content)})")
+          final_response['content'] = ''
+      elif accumulated_ai_content:
+          logging.info(f"📤 Keeping content in final response - {len(accumulated_ai_content)} chunks accumulated but only {yielded_chunk_count} yielded")
+
+      logging.info(f"🚀 YIELDING FINAL RESPONSE: is_task_complete={final_response.get('is_task_complete')}, require_user_input={final_response.get('require_user_input')}, content_length={len(final_response.get('content', ''))}, final_model_content={len(final_response.get('final_model_content', ''))}")
       yield final_response
 
   def handle_structured_response(self, ai_message):

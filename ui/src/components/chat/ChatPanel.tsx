@@ -285,6 +285,18 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle }: ChatP
       }
 
       if (metadata?.input_fields && metadata.input_fields.length > 0) {
+        // Don't restore if the user already answered this HITL form.
+        // A user message with a timestamp after the event means the form was submitted.
+        const eventTime = event.timestamp ? new Date(event.timestamp).getTime() : 0;
+        if (eventTime > 0) {
+          const alreadyAnswered = messages.some((m) => {
+            if (m.role !== "user") return false;
+            const msgTime = m.timestamp ? new Date(m.timestamp).getTime() : 0;
+            return msgTime > eventTime;
+          });
+          if (alreadyAnswered) continue;
+        }
+
         console.log(
           `[ChatPanel] 📝 Restoring pending user input form from persisted events (${metadata.input_fields.length} fields)`
         );

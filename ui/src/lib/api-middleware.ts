@@ -174,7 +174,7 @@ export function withErrorHandler<T>(
  * Validate required fields in request body
  */
 export function validateRequired(data: any, fields: string[]): void {
-  const missing = fields.filter((field) => !data[field]);
+  const missing = fields.filter((field) => data[field] === undefined || data[field] === null);
 
   if (missing.length > 0) {
     throw new ApiError(

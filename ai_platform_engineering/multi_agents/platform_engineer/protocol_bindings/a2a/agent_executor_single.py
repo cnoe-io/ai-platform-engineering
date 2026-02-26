@@ -50,6 +50,11 @@ class StreamState:
     sub_agent_content: List[str] = field(default_factory=list)
     sub_agent_datapart: Optional[Dict] = None
 
+    # Clean final content from the last model call (supervisor summary).
+    # When set, used instead of supervisor_content for the final_result
+    # artifact so intermediate streaming text is not included.
+    final_model_content: Optional[str] = None
+
     # Artifact tracking
     streaming_artifact_id: Optional[str] = None
     seen_artifact_ids: set = field(default_factory=set)
@@ -355,7 +360,13 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
     async def _handle_task_complete(self, event: dict, state: StreamState,
                                     content: str, task: A2ATask, event_queue: EventQueue):
         """Handle task completion event."""
-        final_content, is_datapart = self._get_final_content(state)
+        is_datapart = False
+
+        # Prefer the clean final model response over accumulated content
+        if state.final_model_content:
+            final_content = state.final_model_content
+        else:
+            final_content, is_datapart = self._get_final_content(state)
 
         # Fall back to event content if nothing accumulated
         if not final_content and not is_datapart:
@@ -399,6 +410,9 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
     async def _handle_streaming_chunk(self, event: dict, state: StreamState,
                                       content: str, task: A2ATask, event_queue: EventQueue):
         """Handle streaming content chunk."""
+        if event.get('final_model_content'):
+            state.final_model_content = event['final_model_content']
+
         if not content:
             return
 
@@ -446,26 +460,32 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
     async def _handle_stream_end(self, state: StreamState, task: A2ATask,
                                 event_queue: EventQueue):
         """Handle end of stream without explicit completion."""
-        # For multi-agent scenarios, we need to send the supervisor's synthesis
-        # For single-agent scenarios where sub-agent already sent complete_result,
-        # we just need to send the completion status (content already forwarded)
+        is_datapart = False
 
-        final_content, is_datapart = self._get_final_content(state)
+        # Prefer the clean final model response (last model call only) over
+        # the accumulated supervisor_content which includes intermediate
+        # streaming text the user already saw in real-time.
+        if state.final_model_content:
+            final_content = state.final_model_content
+            logger.info(
+                f"Using final_model_content ({len(final_content)} chars) "
+                f"instead of supervisor_content ({sum(len(c) for c in state.supervisor_content)} chars)"
+            )
+        else:
+            final_content, is_datapart = self._get_final_content(state)
 
-        # If we have accumulated content (supervisor synthesis or sub-agent content), send it
+        # If we have content, send it as the final artifact
         if final_content or is_datapart:
-            # Determine artifact name based on scenario
             if state.sub_agents_completed > 1:
                 artifact_name = 'final_result'
                 description = 'Synthesized result from multiple agents'
                 logger.info(f"Sending multi-agent synthesis ({state.sub_agents_completed} agents)")
             elif state.sub_agents_completed == 1:
-                # Single sub-agent already sent its result, but we may have additional content
                 artifact_name = 'final_result'
                 description = 'Final result'
             else:
-                artifact_name = 'partial_result'
-                description = 'Partial result (stream ended)'
+                artifact_name = 'final_result' if state.final_model_content else 'partial_result'
+                description = 'Final result' if state.final_model_content else 'Partial result (stream ended)'
 
             if is_datapart:
                 artifact = new_data_artifact(name=artifact_name, description=description, data=final_content)
@@ -849,6 +869,10 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
 
                 # Normalize content
                 content = self._normalize_content(event.get('content', ''))
+
+                # Capture clean final model content if provided by the agent
+                if event.get('final_model_content'):
+                    state.final_model_content = event['final_model_content']
 
                 # 2. ResponseFormat tool response (structured response mode)
                 #    The LLM called the structured response tool — this IS the

@@ -1103,8 +1103,23 @@ Create LLM API Key:
         - If the user has a key but without this model, it adds the model
         - If no key exists, it creates a new one with the API key and usage example
         
+        Write the FULL tool output to /llm_key_result.txt (preserve ALL content including API key, usage examples, and budget info).
         Display the tool output directly to the user.
       subagent: "aigateway"
+
+    - display_text: "Send LLM key details via Webex"
+      llm_prompt: >
+        Read /request.txt to get user_email.
+        Read /llm_key_result.txt to get the full LLM key result.
+        
+        Send the LLM key details directly to the user via Webex using the post_message tool with:
+        - to_person_email: {user_email}
+        - text: "LLM API Key details for {user_email}"
+        - markdown: the FULL content from /llm_key_result.txt
+        
+        This ensures the user has a copy of their API key and usage instructions
+        in their Webex direct messages for easy reference.
+      subagent: "webex"
 
 
 Get LLM Spend Activity:

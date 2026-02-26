@@ -307,7 +307,26 @@ async def create_llm_api_key(provider_name: str, model_name: str, user_email: st
 **Base URL**: {LITELLM_API_URL}
 
 You already have access to model `{full_model_name}`.
-Your existing API key remains valid. All models on your key: {', '.join(f'`{m}`' for m in models)}
+All models on your key: {', '.join(f'`{m}`' for m in models)}
+
+**🔑 Your API Key**: `{token}`
+
+### Usage Example (Python)
+
+```python
+import openai
+
+client = openai.OpenAI(
+    api_key="{token}",
+    base_url="{LITELLM_API_URL}"
+)
+
+response = client.chat.completions.create(
+    model="{full_model_name}",
+    messages=[{{"role": "user", "content": "Hello!"}}]
+)
+print(response.choices[0].message.content)
+```
 
 **Budget**: $100/month (resets monthly)
 """
@@ -322,7 +341,26 @@ Your existing API key remains valid. All models on your key: {', '.join(f'`{m}`'
 **Base URL**: {LITELLM_API_URL}
 
 Model `{full_model_name}` has been added to your existing API key.
-Your existing API key remains valid. All models on your key: {', '.join(f'`{m}`' for m in models)}
+All models on your key: {', '.join(f'`{m}`' for m in models)}
+
+**🔑 Your API Key**: `{token}`
+
+### Usage Example (Python)
+
+```python
+import openai
+
+client = openai.OpenAI(
+    api_key="{token}",
+    base_url="{LITELLM_API_URL}"
+)
+
+response = client.chat.completions.create(
+    model="{full_model_name}",
+    messages=[{{"role": "user", "content": "Hello!"}}]
+)
+print(response.choices[0].message.content)
+```
 
 **Budget**: $100/month (resets monthly)
 """
