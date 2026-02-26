@@ -3,7 +3,10 @@
 # Pattern based on RAG webui Dockerfile
 
 # ---------- Stage 1: Install dependencies ----------
-FROM node:20-alpine AS deps
+# Pin to BUILDPLATFORM so npm ci runs natively (avoids QEMU "Illegal instruction"
+# crashes when cross-compiling arm64 on amd64 CI runners).
+ARG BUILDPLATFORM
+FROM --platform=$BUILDPLATFORM node:20-alpine AS deps
 RUN apk add --no-cache libc6-compat
 WORKDIR /app
 
@@ -36,7 +39,9 @@ RUN set -e; \
     done
 
 # ---------- Stage 2: Build application ----------
-FROM node:20-alpine AS build
+# Also pinned to BUILDPLATFORM — next build uses @next/swc at compile time only;
+# the standalone output is platform-independent JavaScript.
+FROM --platform=$BUILDPLATFORM node:20-alpine AS build
 WORKDIR /app
 
 # Build args for version info
