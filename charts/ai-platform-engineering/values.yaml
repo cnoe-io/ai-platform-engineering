@@ -14,8 +14,10 @@ tags:
   agent-pagerduty: false
   agent-slack: false
   agent-splunk: false
+  agent-victorops: false
   agent-weather: false
   agent-webex: false
+  agent-network-utility: false
   rag-stack: false
 
 # Global configuration shared across all subcharts
@@ -287,6 +289,19 @@ agent-splunk:
     mode: "http" # Options: stdio, http
     port: 8000
 
+agent-victorops:
+  nameOverride: "agent-victorops"
+  image:
+    repository: "ghcr.io/cnoe-io/agent-victorops"
+    pullPolicy: "Always"
+  mcp:
+    image:
+      repository: "ghcr.io/cnoe-io/mcp-victorops"
+      tag: ""
+      pullPolicy: "Always"
+    mode: "http" # Options: stdio, http
+    port: 8000
+
 agent-webex:
   nameOverride: "agent-webex"
   image:
@@ -329,6 +344,20 @@ agent-komodor:
     mode: "http" # Options: stdio, http
     port: 8000
 
+agent-network-utility:
+  nameOverride: "agent-network-utility"
+  image:
+    repository: "ghcr.io/cnoe-io/agent-network-utility"
+    pullPolicy: "Always"
+  mcp:
+    image:
+      repository: "ghcr.io/cnoe-io/mcp-network-utility"
+      # tag defaults to .Chart.AppVersion when not specified
+      tag: ""
+      pullPolicy: "Always"
+    mode: "http" # Options: stdio, http
+    port: 8000
+
 ######### Backstage plugin agent forge configuration #########
 backstage-plugin-agent-forge:
   nameOverride: "backstage-plugin-agent-forge"
@@ -348,6 +377,8 @@ backstage-plugin-agent-forge:
 
 ######### CAIPE UI configuration #########
 caipe-ui:
+  skills:
+    enabled: true
   nameOverride: "caipe-ui"
   image:
     repository: "ghcr.io/cnoe-io/caipe-ui"

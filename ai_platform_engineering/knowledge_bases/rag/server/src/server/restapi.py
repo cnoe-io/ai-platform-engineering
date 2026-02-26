@@ -9,8 +9,9 @@ from fastapi.responses import JSONResponse
 from fastapi.encoders import jsonable_encoder
 from fastmcp import FastMCP
 from server.tools import AgentTools
+from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
-from starlette.responses import StreamingResponse
+from starlette.responses import PlainTextResponse, StreamingResponse
 from starlette.background import BackgroundTask
 from typing import List, Optional
 import logging
@@ -35,7 +36,7 @@ from common.models.server import (
 )
 from common.models.rag import DataSourceInfo, IngestorInfo, valid_metadata_keys
 from common.models.rbac import Role, UserContext, UserInfoResponse
-from server.rbac import get_user_or_anonymous, require_role, has_permission, get_permissions, is_trusted_request, UserInfoCache, set_userinfo_cache
+from server.rbac import get_user_or_anonymous, require_role, has_permission, get_permissions, is_trusted_request, UserInfoCache, set_userinfo_cache, get_auth_manager, _authenticate_from_token
 from common.graph_db.neo4j.graph_db import Neo4jDB
 from common.graph_db.base import GraphDB
 from common.constants import DATASOURCE_ID_KEY, WEBLOADER_INGESTOR_REDIS_QUEUE, WEBLOADER_INGESTOR_NAME, WEBLOADER_INGESTOR_TYPE, CONFLUENCE_INGESTOR_REDIS_QUEUE, CONFLUENCE_INGESTOR_NAME, CONFLUENCE_INGESTOR_TYPE, DEFAULT_DATA_LABEL, DEFAULT_SCHEMA_LABEL
@@ -216,6 +217,50 @@ async def combined_lifespan(app: FastAPI):
 
 
 # Initialize FastAPI app
+class MCPAuthMiddleware(BaseHTTPMiddleware):
+  """
+  Middleware that enforces authentication on /mcp* routes.
+
+  FastMCP routes are registered outside FastAPI's dependency injection system
+  so they cannot use Depends()-based auth guards. This middleware intercepts
+  requests to /mcp* paths and applies the same auth logic as require_authenticated_user():
+    1. Valid Bearer JWT -> allowed through
+    2. Trusted network (CIDR / X-Trust-Token) -> allowed through
+    3. Anything else -> 401
+
+  Non-MCP routes are unaffected and continue to use their own Depends() guards.
+  """
+
+  async def dispatch(self, request: Request, call_next):
+    if not request.url.path.startswith("/mcp"):
+      return await call_next(request)
+
+    # Allow OPTIONS (CORS preflight) without auth
+    if request.method == "OPTIONS":
+      return await call_next(request)
+
+    auth_header = request.headers.get("Authorization")
+    if auth_header:
+      if not auth_header.startswith("Bearer "):
+        return self._unauthorized("Invalid Authorization header format. Expected 'Bearer <token>'.", request)
+      auth_manager = get_auth_manager()
+      user = await _authenticate_from_token(request, auth_manager)
+      if user:
+        return await call_next(request)
+      return self._unauthorized("Invalid or expired token.", request)
+
+    if is_trusted_request(request):
+      return await call_next(request)
+
+    return self._unauthorized("Missing or malformed Authorization header.", request)
+
+  def _unauthorized(self, reason: str, request: Request):
+    accept = request.headers.get("accept", "")
+    if "text/event-stream" in accept:
+      return PlainTextResponse(f"error unauthorized: {reason}", status_code=401, media_type="text/event-stream")
+    return JSONResponse({"error": "unauthorized", "reason": reason}, status_code=401)
+
+
 if mcp_enabled:
   app = FastAPI(
     title="CAIPE RAG API",
@@ -224,6 +269,7 @@ if mcp_enabled:
     lifespan=combined_lifespan,
     routes=[*mcp_app.routes],  # Include MCP routes
   )
+  app.add_middleware(MCPAuthMiddleware)
 else:
   app = FastAPI(
     title="CAIPE RAG API",
@@ -1172,7 +1218,9 @@ async def _reverse_proxy(request: Request):
   its own RBAC implementation since it's only accessible through this proxy.
   """
   # Manually invoke the RBAC check since app.add_route doesn't support Depends()
-  user = await get_user_or_anonymous(request)
+  # We must manually resolve the auth_manager since Depends() doesn't work here
+  auth_manager = get_auth_manager()
+  user = await get_user_or_anonymous(request, auth_manager)
 
   # Determine required role based on method and path
   # GET /status endpoints are read-only, allow READONLY access

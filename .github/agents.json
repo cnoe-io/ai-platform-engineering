@@ -9,10 +9,12 @@
     "gitlab",
     "jira",
     "komodor",
+    "network_utility",
     "pagerduty",
     "slack",
     "splunk",
     "template",
+    "victorops",
     "webex",
     "weather"
   ],
@@ -22,9 +24,11 @@
     "confluence",
     "jira",
     "komodor",
+    "network_utility",
     "pagerduty",
     "slack",
     "splunk",
+    "victorops",
     "webex"
   ],
   "rag_components": [

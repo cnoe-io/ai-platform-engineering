@@ -16,11 +16,24 @@ RUN npm config set fetch-retries 5 && \
     npm config set fetch-retry-maxtimeout 120000 && \
     npm config set fetch-timeout 300000
 
-# Install dependencies with appropriate package manager
-RUN if [ -f package-lock.json ]; then npm ci; \
-    elif [ -f yarn.lock ]; then yarn install --frozen-lockfile; \
-    elif [ -f pnpm-lock.yaml ]; then npm i -g pnpm && pnpm i --frozen-lockfile; \
-    else npm i; fi
+# Install dependencies with retry wrapper for transient registry errors (E403/ETIMEDOUT)
+RUN set -e; \
+    install_deps() { \
+      if [ -f package-lock.json ]; then npm ci; \
+      elif [ -f yarn.lock ]; then yarn install --frozen-lockfile; \
+      elif [ -f pnpm-lock.yaml ]; then npm i -g pnpm && pnpm i --frozen-lockfile; \
+      else npm i; fi; \
+    }; \
+    max_attempts=3; attempt=1; \
+    until install_deps; do \
+      if [ "$attempt" -ge "$max_attempts" ]; then \
+        echo "npm install failed after $max_attempts attempts"; exit 1; \
+      fi; \
+      attempt=$((attempt + 1)); \
+      echo "Attempt $((attempt - 1)) failed, retrying ($attempt/$max_attempts) in 15s..."; \
+      sleep 15; \
+      npm cache clean --force; \
+    done
 
 # ---------- Stage 2: Build application ----------
 FROM node:20-alpine AS build

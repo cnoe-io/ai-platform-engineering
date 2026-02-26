@@ -1,4 +1,4 @@
-{{- if index .Values "caipe-ui" "enabled" | default false }}
+{{- if index .Values "caipe-ui" "skills" "enabled" | default true }}
 apiVersion: v1
 kind: ConfigMap
 metadata:

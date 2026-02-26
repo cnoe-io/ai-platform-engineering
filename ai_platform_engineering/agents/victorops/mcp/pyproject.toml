@@ -1,0 +1,27 @@
+[project]
+name = "mcp-victorops"
+version = "0.1.0"
+description = "VictorOps MCP Server"
+license = "Apache-2.0"
+authors = [
+  { name = "Ismael Papa", email = "ipapa@cisco.com" }
+]
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+  "fastmcp==2.13.3",
+  "httpx==0.28.1",
+  "mcp==1.21.0",
+  "pydantic==2.12.5",
+  "python-dotenv==1.2.1",
+]
+
+[project.scripts]
+mcp-victorops = "mcp_victorops.__main__:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["mcp_victorops"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
