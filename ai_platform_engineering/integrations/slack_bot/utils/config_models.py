@@ -20,19 +20,22 @@ class GlobalDefaults(BaseModel):
         default_factory=lambda: os.environ.get("JIRA_BASE_URL", "")
     )
 
-    # Prompt defaults
-    response_style_instruction: str = (
-        "Response Style: Keep your answers conversational and straightforward"
-        " - like chatting with a colleague. Be concise and get to the point"
-        " (CRITICAL: MAXIMUM response length should be around 5 sentences"
-        " UNLESS user specifically asks for full response. After providing"
-        " information, ALWAYS ask if they would like to know more in a"
-        " separate line.) without unnecessary details or overly formal"
-        " explanations. If citing sources, CRITICAL: ALWAYS include the"
-        " source AND LINK(S)!"
+    # Prompt defaults — each can be overridden via SLACK_INTEGRATION_PROMPT_* env vars
+    response_style_instruction: str = Field(
+        default_factory=lambda: os.environ.get(
+            "SLACK_INTEGRATION_PROMPT_RESPONSE_STYLE",
+            """Response Style: Keep your answers conversational and straightforward - like chatting with a colleague.
+Be concise and get to the point (CRITICAL: MAXIMUM response length should be around 5 sentences UNLESS user
+specifically asks for full response. After providing information, ALWAYS ask if they would like to know more
+in a separate line.) without unnecessary details or overly formal explanations.
+If citing sources, CRITICAL: ALWAYS include the source AND LINK(S)!""",
+        )
     )
 
-    default_qanda_prompt: str = """You are helping answer questions. A user has posted a message in the channel.
+    default_qanda_prompt: str = Field(
+        default_factory=lambda: os.environ.get(
+            "SLACK_INTEGRATION_PROMPT_QANDA",
+            """You are helping answer questions. A user has posted a message in the channel.
 
 STEP 1 - Check if this is an action request (no search needed):
 If the message is ONLY asking for human action with no technical question, respond with "Standing by for the team!" and stop.
@@ -58,9 +61,14 @@ STEP 4 - List sources (REQUIRED):
 End your response with a Sources section listing ALL sources you found during your search, with titles and links. Include sources even if only tangentially related.
 
 User message:
-{message_text}"""
+{message_text}""",
+        )
+    )
 
-    overthink_qanda_prompt: str = """You are helping answer questions in a Slack channel. A user has posted a message.
+    overthink_qanda_prompt: str = Field(
+        default_factory=lambda: os.environ.get(
+            "SLACK_INTEGRATION_PROMPT_OVERTHINK_QANDA",
+            """You are helping answer questions in a Slack channel. A user has posted a message.
 
 STEP 1 - Quick filter (no search needed):
 - Is this ONLY a code/MR/PR review request with no technical question? Respond with [DEFER] and stop
@@ -91,9 +99,14 @@ STEP 4 - Respond (DO NOT show your reasoning steps, only output the final respon
   - Final line must be [CONFIDENCE: HIGH]
 
 User message:
-{message_text}"""
+{message_text}""",
+        )
+    )
 
-    default_mention_prompt: str = """A user has @mentioned you in Slack.
+    default_mention_prompt: str = Field(
+        default_factory=lambda: os.environ.get(
+            "SLACK_INTEGRATION_PROMPT_MENTION",
+            """A user has @mentioned you in Slack.
 
 STEP 1 - Determine intent:
 - Action request (create ticket, run pipeline, etc.) - execute the action
@@ -113,9 +126,14 @@ STEP 3 - Respond:
 - End with a Sources section listing ALL sources you found, with titles and links
 
 User message:
-{message_text}"""
+{message_text}""",
+        )
+    )
 
-    humble_followup_prompt: str = """You previously saw the user's message but did not respond automatically. The user is now following up by @mentioning you.
+    humble_followup_prompt: str = Field(
+        default_factory=lambda: os.environ.get(
+            "SLACK_INTEGRATION_PROMPT_HUMBLE_FOLLOWUP",
+            """You previously saw the user's message but did not respond automatically. The user is now following up by @mentioning you.
 
 Start by briefly explaining why you did not respond earlier. There are two possible reasons based on your earlier analysis:
 1. You recognized it as a request for human action (like MR reviews, approvals, or asking someone to do something) - explain you stepped back to let humans handle it
@@ -130,9 +148,14 @@ If you did any research, end with a Sources section listing ALL sources you foun
 Be conversational and supportive, not overly apologetic.
 
 User's follow-up message:
-{message_text}"""
+{message_text}""",
+        )
+    )
 
-    default_ai_alerts_prompt: str = """You are an automated incident management and feedback tracking system that creates Jira tickets for alerts and user feedback.
+    default_ai_alerts_prompt: str = Field(
+        default_factory=lambda: os.environ.get(
+            "SLACK_INTEGRATION_PROMPT_AI_ALERTS",
+            """You are an automated incident management and feedback tracking system that creates Jira tickets for alerts and user feedback.
 
 Your task: Analyze this alert/feedback and determine the appropriate action (create ticket, resolve ticket, or no action).
 
@@ -168,7 +191,9 @@ Attachments: {alert_attachments}
 INSTRUCTIONS:
 1. **Analysis**: Explain your reasoning - why does/doesn't this alert warrant a ticket?
 2. **Duplicate Check**: Search for existing tickets with the same core pattern
-3. **Action**: State what you did (created ticket X, updated ticket Y, or no action needed)"""
+3. **Action**: State what you did (created ticket X, updated ticket Y, or no action needed)""",
+        )
+    )
 
 
 class IncludeBotsConfig(BaseModel):

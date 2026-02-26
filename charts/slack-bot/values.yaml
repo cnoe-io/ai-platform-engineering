@@ -15,12 +15,15 @@ serviceAccount:
 
 appName: "CAIPE"  # Display name used in Slack messages (maps to APP_NAME env var)
 
+# CAIPE supervisor URL — the bot connects to this endpoint via A2A protocol.
+# Required. Must be reachable from the bot pod.
+caipeUrl: "http://ai-platform-engineering-supervisor-agent:8000"
+
 # Bot connection mode: "socket" (WebSocket via SLACK_APP_TOKEN) or "http" (incoming webhooks via SLACK_SIGNING_SECRET)
 botMode: "socket"
 
-env:
-  CAIPE_URL: "http://ai-platform-engineering-supervisor-agent:8000"
-  # Additional env vars (e.g. Langfuse) can be added here and will be passed through
+# Additional env vars passed through to the container (e.g. Langfuse config).
+env: {}
   # LANGFUSE_SCORING_ENABLED: "true"
   # LANGFUSE_PUBLIC_KEY: ""
   # LANGFUSE_HOST: ""
@@ -71,7 +74,19 @@ auth:
   # clientSecret should be stored in the Kubernetes Secret (slack.tokenSecretRef) or ExternalSecrets,
   # NOT in values.yaml. Add OAUTH2_CLIENT_SECRET to your secret.
 
+slackWorkspaceUrl: ""  # e.g. "https://mycompany.slack.com" — used for Langfuse feedback permalinks
 silenceEnv: "false"  # Suppress environment info in bot responses
+
+# Prompt overrides — set any of these to replace the built-in default prompt.
+# Values are injected as SLACK_INTEGRATION_PROMPT_* env vars.
+# Leave empty ("") to use the built-in defaults from the bot's config_models.py.
+prompts:
+  responseStyle: ""       # SLACK_INTEGRATION_PROMPT_RESPONSE_STYLE
+  qanda: ""               # SLACK_INTEGRATION_PROMPT_QANDA
+  overthinkQanda: ""      # SLACK_INTEGRATION_PROMPT_OVERTHINK_QANDA
+  mention: ""             # SLACK_INTEGRATION_PROMPT_MENTION
+  humbleFollowup: ""      # SLACK_INTEGRATION_PROMPT_HUMBLE_FOLLOWUP
+  aiAlerts: ""            # SLACK_INTEGRATION_PROMPT_AI_ALERTS
 
 # Channel configuration — serialized as YAML into CAIPE_BOT_CONFIG env var via ConfigMap.
 # Structure: channel_id -> channel config (same format as the bot's config_models.py expects).

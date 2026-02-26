@@ -68,7 +68,9 @@ class FeedbackClient:
             self._langfuse.flush()
             logger.info(
                 f"Submitted feedback score: trace_id={trace_id}, "
-                f"name={score_name}, value={value}, user={user_id}"
+                f"name={score_name}, value={value}, user={user_id}, email={user_email}, "
+                f"session={session_id}, channel={channel_name or channel_id}, "
+                f"permalink={slack_permalink}"
             )
             return True
         except Exception as e:

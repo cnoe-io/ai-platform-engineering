@@ -1504,7 +1504,7 @@ services:
     volumes:
       - ./ai_platform_engineering/integrations/slack_bot:/app
     env_file: [.env]
-    ports: ["8030:8000"]
+    ports: ["8030:3000"]  # Only used in HTTP mode (SLACK_INTEGRATION_BOT_MODE=http)
     environment:
       - SLACK_INTEGRATION_APP_NAME=${SLACK_INTEGRATION_APP_NAME:-CAIPE}
       - SLACK_INTEGRATION_BOT_TOKEN=${SLACK_INTEGRATION_BOT_TOKEN}

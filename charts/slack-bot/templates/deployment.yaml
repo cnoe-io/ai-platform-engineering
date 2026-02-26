@@ -31,6 +31,10 @@ spec:
               value: {{ .Values.botMode | quote }}
             - name: SLACK_INTEGRATION_SILENCE_ENV
               value: {{ .Values.silenceEnv | quote }}
+            {{- if .Values.slackWorkspaceUrl }}
+            - name: SLACK_WORKSPACE_URL
+              value: {{ .Values.slackWorkspaceUrl | quote }}
+            {{- end }}
             {{- if .Values.auth.enabled }}
             - name: SLACK_INTEGRATION_ENABLE_AUTH
               value: "true"
@@ -47,6 +51,30 @@ spec:
               value: {{ .Values.auth.audience | quote }}
             {{- end }}
             {{- end }}
+            {{- if .Values.prompts.responseStyle }}
+            - name: SLACK_INTEGRATION_PROMPT_RESPONSE_STYLE
+              value: {{ .Values.prompts.responseStyle | quote }}
+            {{- end }}
+            {{- if .Values.prompts.qanda }}
+            - name: SLACK_INTEGRATION_PROMPT_QANDA
+              value: {{ .Values.prompts.qanda | quote }}
+            {{- end }}
+            {{- if .Values.prompts.overthinkQanda }}
+            - name: SLACK_INTEGRATION_PROMPT_OVERTHINK_QANDA
+              value: {{ .Values.prompts.overthinkQanda | quote }}
+            {{- end }}
+            {{- if .Values.prompts.mention }}
+            - name: SLACK_INTEGRATION_PROMPT_MENTION
+              value: {{ .Values.prompts.mention | quote }}
+            {{- end }}
+            {{- if .Values.prompts.humbleFollowup }}
+            - name: SLACK_INTEGRATION_PROMPT_HUMBLE_FOLLOWUP
+              value: {{ .Values.prompts.humbleFollowup | quote }}
+            {{- end }}
+            {{- if .Values.prompts.aiAlerts }}
+            - name: SLACK_INTEGRATION_PROMPT_AI_ALERTS
+              value: {{ .Values.prompts.aiAlerts | quote }}
+            {{- end }}
             - name: CAIPE_BOT_CONFIG
               valueFrom:
                 configMapKeyRef:
@@ -58,6 +86,8 @@ spec:
             {{- end }}
             - name: MONGODB_DATABASE
               value: {{ .Values.mongodb.database | quote }}
+            - name: CAIPE_URL
+              value: {{ .Values.caipeUrl | quote }}
             {{- range $key, $value := .Values.env }}
             - name: {{ $key }}
               value: {{ $value | quote }}
@@ -69,6 +99,12 @@ spec:
             - secretRef:
                 name: {{ include "slack-bot.fullname" . }}-secret
             {{- end }}
+          {{- if eq .Values.botMode "http" }}
+          ports:
+            - name: http
+              containerPort: 3000
+              protocol: TCP
+          {{- end }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
       {{- with .Values.nodeSelector }}

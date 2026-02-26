@@ -613,13 +613,13 @@ def _stream_final_response(
                 {
                     "type": "button",
                     "text": {"type": "plain_text", "text": "Not enough detail"},
-                    "action_id": "forge_feedback_more_detail",
+                    "action_id": "caipe_feedback_more_detail",
                     "value": f"{channel_id}|{thread_ts}",
                 },
                 {
                     "type": "button",
                     "text": {"type": "plain_text", "text": "Too verbose"},
-                    "action_id": "forge_feedback_less_verbose",
+                    "action_id": "caipe_feedback_less_verbose",
                     "value": f"{channel_id}|{thread_ts}",
                 },
             ],
@@ -633,7 +633,7 @@ def _stream_final_response(
             "elements": [
                 {
                     "type": "feedback_buttons",
-                    "action_id": "forge_feedback",
+                    "action_id": "caipe_feedback",
                     "positive_button": {
                         "text": {"type": "plain_text", "text": "👍"},
                         "value": f"positive|{original_ts or ''}",

@@ -185,7 +185,7 @@ def format_execution_plan(plan: ExecutionPlan) -> str:
     if not plan.steps:
         return ""
 
-    lines = ["━━━━━━━━━━━━━━━━━━━━", "*Execution Plan*"]
+    lines = ["━━━━━━━━━━━━━━━━━━━━", "📋 *Execution Plan*"]
     for step in plan.steps:
         icon = get_status_icon(step.status)
         lines.append(f"{icon} {step.name}")
