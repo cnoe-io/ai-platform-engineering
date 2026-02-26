@@ -46,6 +46,10 @@ global:
   caipeUi:
     enabled: false
 
+  integrations:
+    slackBot:
+      enabled: false
+
 # ServiceMonitor for scraping all ai-platform-engineering components
 # For agent metrics endpoints, use global.metrics.enabled above
 metrics:
@@ -465,6 +469,96 @@ caipe-ui:
         #   remoteRef:
         #     key: dev/mongodb
         #     property: password
+
+######### Slack Bot Integration configuration #########
+# The Slack bot is a client integration (not an agent) that connects to the
+# CAIPE supervisor via A2A protocol, bringing AI assistance into Slack channels.
+# Enable with: global.integrations.slackBot.enabled=true
+slack-bot:
+  image:
+    repository: "ghcr.io/cnoe-io/slack-bot"
+    # tag defaults to .Chart.AppVersion when not specified
+    tag: ""
+    pullPolicy: "Always"
+
+  # Display name used in Slack messages
+  appName: "CAIPE"
+
+  # Connection mode: "socket" (WebSocket via SLACK_APP_TOKEN) or "http" (webhooks via SLACK_SIGNING_SECRET)
+  botMode: "socket"
+
+  # Environment variables passed to the bot container
+  env:
+    CAIPE_URL: "http://ai-platform-engineering-supervisor-agent:8000"
+    # Langfuse feedback scoring (uncomment to enable)
+    # LANGFUSE_SCORING_ENABLED: "true"
+    # LANGFUSE_PUBLIC_KEY: ""
+    # LANGFUSE_HOST: ""
+
+  # Reference to a Kubernetes Secret containing Slack tokens:
+  #   SLACK_BOT_TOKEN (xoxb-...), SLACK_APP_TOKEN (xapp-...), SLACK_SIGNING_SECRET
+  #   Optionally: OAUTH2_CLIENT_SECRET, LANGFUSE_SECRET_KEY
+  slack:
+    tokenSecretRef: "slack-bot-secrets"
+
+  # MongoDB for persistent session storage (conversation context, trace IDs, user cache)
+  # Uses the same MongoDB as CAIPE UI when deployed together
+  mongodb:
+    uri: ""  # Override per environment, e.g. "mongodb://admin:changeme@ai-platform-engineering-mongodb:27017"
+    database: "caipe"
+
+  # OAuth2 Client Credentials auth for A2A requests to the supervisor
+  # Works with any OIDC provider (Okta, Keycloak, Auth0, Azure AD)
+  auth:
+    enabled: false
+    tokenUrl: ""      # e.g. "https://your-idp.example.com/oauth2/v1/token"
+    clientId: ""
+    scope: ""         # Optional
+    audience: ""      # Optional
+    # clientSecret should be stored in the K8s Secret (slack.tokenSecretRef), NOT here
+
+  # Suppress environment info in bot responses
+  silenceEnv: "false"
+
+  # Per-channel configuration (serialized as YAML into a ConfigMap)
+  # Structure: channel_id -> channel config
+  botConfig: {}
+    # C012345678:
+    #   name: "#my-channel"
+    #   ai_enabled: true
+    #   qanda:
+    #     enabled: true
+    #     overthink: true
+    #   ai_alerts:
+    #     enabled: false
+    #   default:
+    #     project_key: MYPROJ
+    #     issue_type: Bug
+
+  # External Secrets configuration for sensitive data (Slack tokens, Langfuse secret key, etc.)
+  externalSecrets:
+    enabled: false
+    apiVersion: "v1beta1"
+    secretStoreRef:
+      name: "vault"
+      kind: "ClusterSecretStore"
+    data: []
+      # - secretKey: SLACK_BOT_TOKEN
+      #   remoteRef:
+      #     key: prod/slack-bot
+      #     property: bot_token
+      # - secretKey: SLACK_APP_TOKEN
+      #   remoteRef:
+      #     key: prod/slack-bot
+      #     property: app_token
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
 
 ######### RAG Stack configuration #########
 # RAG Stack - Complete stack including web, server, agent, Redis, and Milvus
