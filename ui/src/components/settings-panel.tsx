@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { apiClient } from "@/lib/api-client";
 import { getConfig } from "@/lib/config";
+import { isFeatureEnabled } from "@/store/feature-flag-store";
 
 // Font size options
 const fontSizes = [
@@ -112,6 +113,14 @@ type GradientTheme = typeof gradientThemes[number]["id"];
 
 // Sync status type for UI indicator
 type SyncStatus = 'idle' | 'syncing' | 'synced' | 'error';
+
+/** @deprecated Use `isFeatureEnabled("memory")` from `@/store/feature-flag-store` */
+export const MEMORY_ENABLED_KEY = "caipe-feature-flags";
+
+/** @deprecated Use `isFeatureEnabled("memory")` from `@/store/feature-flag-store` */
+export function isMemoryEnabled(): boolean {
+  return isFeatureEnabled("memory");
+}
 
 export function SettingsPanel() {
   const [open, setOpen] = useState(false);
@@ -269,6 +278,7 @@ export function SettingsPanel() {
     setTheme(themeId);
     syncToServer({ theme: themeId });
   };
+
 
   if (!mounted) return null;
 

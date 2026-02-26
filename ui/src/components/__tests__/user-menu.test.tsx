@@ -93,6 +93,17 @@ jest.mock("lucide-react", () => ({
   KeyRound: () => <span data-testid="icon-keyround" />,
   Search: () => <span data-testid="icon-search" />,
   X: () => <span data-testid="icon-x" />,
+  SlidersHorizontal: () => <span data-testid="icon-sliders" />,
+}));
+
+jest.mock("@/store/feature-flag-store", () => ({
+  useFeatureFlagStore: () => ({ initialize: jest.fn() }),
+  isFeatureEnabled: jest.fn(() => false),
+}));
+
+jest.mock("@/components/preferences-modal", () => ({
+  PreferencesModal: ({ open }: { open: boolean }) =>
+    open ? <div data-testid="preferences-modal">Preferences</div> : null,
 }));
 
 jest.mock("@/components/ui/button", () => ({
