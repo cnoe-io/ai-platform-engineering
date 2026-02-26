@@ -1,5 +1,5 @@
-name: "[Tests][Stable Tag] Quick Sanity Integration"
-description: "Run quick sanity integration tests on stable tag"
+name: "[Tests][Release Tag] Quick Sanity Integration"
+description: "Run quick sanity integration tests on the latest release tag"
 
 on:
   push:
@@ -32,6 +32,25 @@ jobs:
 
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          fetch-tags: true
+          fetch-depth: 0
+
+      - name: Resolve latest release tag
+        id: resolve-tag
+        run: |
+          set -euo pipefail
+          # Find the latest semver release tag (exclude rc/pre-release and the 'stable' alias)
+          LATEST_TAG=$(git tag --sort=-version:refname \
+            | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' \
+            | head -1)
+          if [ -z "$LATEST_TAG" ]; then
+            echo "ERROR: No semver release tag found" >&2
+            exit 1
+          fi
+          echo "Resolved latest release tag: $LATEST_TAG"
+          echo "IMAGE_TAG=$LATEST_TAG" >> "$GITHUB_ENV"
+          echo "image_tag=$LATEST_TAG" >> "$GITHUB_OUTPUT"
 
       - name: Create .env from GitHub Secrets
         run: |
@@ -110,7 +129,8 @@ jobs:
       - name: Start services
         run: |
           set -euo pipefail
-          IMAGE_TAG=stable docker compose -f docker-compose.yaml --profile=p2p up -d
+          echo "Starting services with IMAGE_TAG=$IMAGE_TAG"
+          docker compose -f docker-compose.yaml --profile=p2p up -d
 
       - name: Stream service logs (background)
         run: |
@@ -119,7 +139,7 @@ jobs:
           echo "::group::Service logs"
 
           # Stream logs to console AND file for artifact upload
-          ( IMAGE_TAG=stable docker compose -f docker-compose.yaml --profile=p2p logs -f --no-color --timestamps \
+          ( docker compose -f docker-compose.yaml --profile=p2p logs -f --no-color --timestamps \
               | tee -a compose-live.log ) &
           echo $! > logs.pid
         shell: bash
@@ -159,7 +179,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v6
         with:
-          name: compose-logs-stable
+          name: compose-logs-release-${{ steps.resolve-tag.outputs.image_tag }}
           path: compose-live.log
           if-no-files-found: warn
 
@@ -167,6 +187,6 @@ jobs:
         if: always()
         run: |
           echo "::group::Clean-up workspace"
-          IMAGE_TAG=stable docker compose -f docker-compose.yaml --profile=p2p down -v --remove-orphans || true
+          docker compose -f docker-compose.yaml --profile=p2p down -v --remove-orphans || true
           docker rmi -f $(docker images -aq) || true
           echo "::endgroup::"
