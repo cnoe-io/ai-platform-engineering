@@ -154,9 +154,9 @@ class TestBuildExtractionConfig:
         config = _build_extraction_config("user-1")
         assert "configurable" in config
 
-    def test_config_user_id_preserves_special_chars(self):
+    def test_config_user_id_sanitizes_periods(self):
         config = _build_extraction_config("user@domain.com")
-        assert config["configurable"]["langgraph_user_id"] == "user@domain.com"
+        assert config["configurable"]["langgraph_user_id"] == "user@domain_com"
 
     def test_config_empty_user_id(self):
         config = _build_extraction_config("")

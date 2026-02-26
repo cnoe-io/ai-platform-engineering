@@ -36,6 +36,7 @@ from ai_platform_engineering.utils.store import (
     get_store,
     get_store_config,
     reset_store,
+    sanitize_namespace_label,
     store_get_cross_thread_context,
     store_put_memory,
     store_put_summary,
@@ -132,6 +133,39 @@ class TestGetStoreConfig:
         with patch.dict("os.environ", env, clear=True):
             config = get_store_config()
             assert config["redis_url"] == "redis://primary:6379/0"
+
+
+# ============================================================================
+# Namespace Sanitization Tests
+# ============================================================================
+
+
+class TestSanitizeNamespaceLabel:
+    """Tests for sanitize_namespace_label()."""
+
+    def test_replaces_periods(self):
+        assert sanitize_namespace_label("user@domain.com") == "user@domain_com"
+
+    def test_replaces_multiple_periods(self):
+        assert sanitize_namespace_label("a.b.c.d") == "a_b_c_d"
+
+    def test_no_periods_unchanged(self):
+        assert sanitize_namespace_label("user@example") == "user@example"
+
+    def test_empty_string(self):
+        assert sanitize_namespace_label("") == ""
+
+    def test_none_returns_none(self):
+        assert sanitize_namespace_label(None) is None
+
+    def test_only_period(self):
+        assert sanitize_namespace_label(".") == "_"
+
+    def test_preserves_other_special_chars(self):
+        assert sanitize_namespace_label("a@b-c_d+e") == "a@b-c_d+e"
+
+    def test_cisco_email(self):
+        assert sanitize_namespace_label("sraradhy@cisco.com") == "sraradhy@cisco_com"
 
 
 # ============================================================================

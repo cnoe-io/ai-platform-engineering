@@ -66,7 +66,8 @@ FACT_EXTRACTION_MODEL=                 # Model for extraction (empty = use defau
 - `.specify/specs/cross-thread-store.md` - Updated spec with Phase 4
 - `tests/test_fact_extraction.py` (new) - 65 unit tests covering feature flag, config, extraction, store compatibility, edge cases
 - `tests/test_store.py` (enhanced) - 86 unit tests covering store factory, operations, cross-thread context, integration
-- `scripts/test_fact_extraction_live.py` (new) - Live integration test with recall verification and user isolation
+- `tests/test_checkpoint.py` (new) - 49 unit tests covering checkpointer lifecycle, thread isolation, state round-trip, auto-trim, safe split, repair fallback, concurrent access, agent wiring
+- `integration/test_fact_extraction_live.py` (new) - Live integration test with recall verification and user isolation
 
 ## Dependency: cnoe-agent-utils
 
@@ -74,8 +75,16 @@ The `trace_agent_stream` decorator in `cnoe-agent-utils` required a fix to forwa
 
 - PR: https://github.com/cnoe-io/cnoe-agent-utils/pull/32
 
+## Testing
+
+All persistence-related tests (289 total) pass:
+- `tests/test_checkpoint.py` — 49 tests for checkpointer (thread isolation, trim, safe split, repair fallback, concurrent access, agent wiring)
+- `tests/test_store.py` — 86 tests for cross-thread store (factory, put/get, user isolation, LangMem integration)
+- `tests/test_fact_extraction.py` — 65 tests for fact extraction (feature flag, config, extraction, store compatibility, edge cases)
+- `tests/test_persistence_unit.py` — 89 tests for persistence internals (tool-call extraction, summarization, orphan repair, config wiring)
+
 ## Related
 
-- ADR: `2026-02-26-cross-thread-langgraph-store.md` (Cross-thread store infrastructure)
+- ADR: `2026-02-26-cross-thread-langgraph-store.md` (Checkpointer + cross-thread store infrastructure)
 - ADR: `2025-12-13-context-management-and-resilience.md` (LangMem context management)
 - Spec: `.specify/specs/cross-thread-store.md`

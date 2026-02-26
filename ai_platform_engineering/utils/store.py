@@ -21,11 +21,23 @@ Usage:
 
 import logging
 import os
+import re
 import time
 import uuid
 from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
+
+
+def sanitize_namespace_label(label: str) -> str:
+    """Replace characters disallowed in LangGraph store namespace labels.
+
+    LangGraph namespace labels cannot contain periods (``'.'``).  This helper
+    replaces every period with an underscore so that email addresses (and
+    similar identifiers) can be used safely as namespace components while
+    remaining human-readable and reversible.
+    """
+    return re.sub(r"\.", "_", label) if label else label
 
 STORE_TYPE_MEMORY = "memory"
 STORE_TYPE_REDIS = "redis"
@@ -234,7 +246,7 @@ async def store_put_memory(
     if not store or not user_id:
         return ""
 
-    namespace = ("memories", user_id)
+    namespace = ("memories", sanitize_namespace_label(user_id))
     key = str(uuid.uuid4())
     value = {
         "data": data,
@@ -272,7 +284,7 @@ async def store_put_summary(
     if not store or not user_id:
         return ""
 
-    namespace = ("summaries", user_id)
+    namespace = ("summaries", sanitize_namespace_label(user_id))
     key = str(uuid.uuid4())
     value = {
         "summary": summary,
@@ -313,7 +325,7 @@ async def store_get_cross_thread_context(
     parts = []
 
     try:
-        summaries = await store.asearch(("summaries", user_id), limit=max_summaries)
+        summaries = await store.asearch(("summaries", sanitize_namespace_label(user_id)), limit=max_summaries)
         if summaries:
             sorted_summaries = sorted(
                 summaries,
@@ -333,7 +345,7 @@ async def store_get_cross_thread_context(
         logger.debug(f"Failed to retrieve summaries for user={user_id}: {e}")
 
     try:
-        memories = await store.asearch(("memories", user_id), limit=max_memories)
+        memories = await store.asearch(("memories", sanitize_namespace_label(user_id)), limit=max_memories)
         if memories:
             sorted_memories = sorted(
                 memories,

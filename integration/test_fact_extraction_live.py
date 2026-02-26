@@ -11,9 +11,9 @@ background fact extraction to complete, then verifies the agent can recall
 those facts in a follow-up conversation on a NEW thread.
 
 Usage:
-    uv run python scripts/test_fact_extraction_live.py
-    uv run python scripts/test_fact_extraction_live.py --base-url http://0.0.0.0:8000
-    uv run python scripts/test_fact_extraction_live.py --skip-recall
+    uv run python integration/test_fact_extraction_live.py
+    uv run python integration/test_fact_extraction_live.py --base-url http://0.0.0.0:8000
+    uv run python integration/test_fact_extraction_live.py --skip-recall
 """
 
 import argparse

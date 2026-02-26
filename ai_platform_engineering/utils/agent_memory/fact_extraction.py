@@ -32,6 +32,8 @@ from typing import Any, Optional
 
 from langchain_core.messages import BaseMessage
 
+from ai_platform_engineering.utils.store import sanitize_namespace_label
+
 logger = logging.getLogger(__name__)
 
 _FACT_EXTRACTOR = None
@@ -127,10 +129,11 @@ def _build_extraction_config(
 
     The namespace template `("memories", "{langgraph_user_id}")` resolves
     `{langgraph_user_id}` from `config["configurable"]["langgraph_user_id"]`.
+    Periods in user_id are replaced because LangGraph namespace labels forbid them.
     """
     return {
         "configurable": {
-            "langgraph_user_id": user_id,
+            "langgraph_user_id": sanitize_namespace_label(user_id),
             "thread_id": thread_id or "",
         },
     }
