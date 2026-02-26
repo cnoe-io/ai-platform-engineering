@@ -1,0 +1,85 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "slack-bot.fullname" . }}
+  labels:
+    {{- include "slack-bot.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "slack-bot.selectorLabels" . | nindent 6 }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 1
+  template:
+    metadata:
+      labels:
+        {{- include "slack-bot.selectorLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "slack-bot.serviceAccountName" . }}
+      containers:
+        - name: {{ .Chart.Name }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          env:
+            - name: APP_NAME
+              value: {{ .Values.appName | quote }}
+            - name: SLACK_BOT_MODE
+              value: {{ .Values.botMode | quote }}
+            - name: SLACK_INTEGRATION_SILENCE_ENV
+              value: {{ .Values.silenceEnv | quote }}
+            {{- if .Values.auth.enabled }}
+            - name: SLACK_INTEGRATION_ENABLE_AUTH
+              value: "true"
+            - name: OAUTH2_TOKEN_URL
+              value: {{ .Values.auth.tokenUrl | quote }}
+            - name: OAUTH2_CLIENT_ID
+              value: {{ .Values.auth.clientId | quote }}
+            {{- if .Values.auth.scope }}
+            - name: OAUTH2_SCOPE
+              value: {{ .Values.auth.scope | quote }}
+            {{- end }}
+            {{- if .Values.auth.audience }}
+            - name: OAUTH2_AUDIENCE
+              value: {{ .Values.auth.audience | quote }}
+            {{- end }}
+            {{- end }}
+            - name: CAIPE_BOT_CONFIG
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "slack-bot.fullname" . }}-config
+                  key: caipe-bot-config.yaml
+            {{- if .Values.mongodb.uri }}
+            - name: MONGODB_URI
+              value: {{ .Values.mongodb.uri | quote }}
+            {{- end }}
+            - name: MONGODB_DATABASE
+              value: {{ .Values.mongodb.database | quote }}
+            {{- range $key, $value := .Values.env }}
+            - name: {{ $key }}
+              value: {{ $value | quote }}
+            {{- end }}
+          envFrom:
+            - secretRef:
+                name: {{ .Values.slack.tokenSecretRef }}
+            {{- if .Values.externalSecrets.enabled }}
+            - secretRef:
+                name: {{ include "slack-bot.fullname" . }}-secret
+            {{- end }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

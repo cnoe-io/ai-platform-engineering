@@ -104,37 +104,43 @@ export async function POST(request: NextRequest): Promise<NextResponse<FeedbackR
 
     // Send to Langfuse if configured
     const langfuse = getLangfuseClient();
-    
-    if (langfuse) {
-      const scoreValue = body.feedbackType === "like" ? 1 : 0;
-      
-      // Format comment with all feedback details
-      const commentParts: string[] = [];
-      commentParts.push(`Type: ${body.feedbackType}`);
-      if (body.reason) {
-        commentParts.push(`Reason: ${body.reason}`);
-      }
-      if (body.additionalFeedback) {
-        commentParts.push(`Additional: ${body.additionalFeedback}`);
-      }
-      commentParts.push(`User: ${userId}`);
-      commentParts.push(`Message: ${body.messageId}`);
-      if (body.conversationId) {
-        commentParts.push(`Conversation: ${body.conversationId}`);
-      }
-      
-      const comment = commentParts.join(" | ");
 
-      // Create score in Langfuse using conversationId as the trace ID
-      // This groups all feedback for a conversation under one trace
-      await langfuse.score({
+    if (langfuse) {
+      // Map feedback to categorical values matching the Slack bot's scoring format.
+      // This ensures consistent Langfuse dashboards across both clients.
+      const scoreValue = body.feedbackType === "like" ? "thumbs_up" : (body.reason || "thumbs_down");
+
+      // Build structured metadata (same shape as Slack bot's langfuse_client.py)
+      const metadata: Record<string, string> = {
+        user_email: userId,
+        source: "caipe-ui",
+      };
+      if (body.messageId) metadata.message_id = body.messageId;
+      if (body.conversationId) metadata.session_id = body.conversationId;
+
+      const comment = body.additionalFeedback || body.reason || undefined;
+
+      // Score 1: UI-specific score
+      langfuse.score({
         traceId: langfuseTraceId,
-        name: "user-feedback",
+        name: "caipe-ui",
         value: scoreValue,
+        dataType: "CATEGORICAL",
         comment,
+        metadata,
       });
 
-      // Flush to ensure the score is sent
+      // Score 2: Aggregated score across all clients (matches Slack bot's "all slack channels")
+      langfuse.score({
+        traceId: langfuseTraceId,
+        name: "all channels",
+        value: scoreValue,
+        dataType: "CATEGORICAL",
+        comment,
+        metadata,
+      });
+
+      // Flush to ensure scores are sent
       await langfuse.flushAsync();
 
       console.log("[Feedback API] Feedback sent to Langfuse:", {
