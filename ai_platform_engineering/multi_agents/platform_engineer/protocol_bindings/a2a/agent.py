@@ -272,12 +272,28 @@ class AIPlatformEngineerA2ABinding:
           logging.error(f"⚠️ Supervisor: Failed to repair orphaned tool calls: {repair_error}")
           # Don't fail - this is a recovery mechanism
 
-      # ========================================================================
-      # SYNTHESIS RETRY CONFIGURATION
-      # If synthesis fails (orphaned tool calls, timeout), retry before failing
-      # ========================================================================
-      max_synthesis_retries = int(os.getenv("MAX_SYNTHESIS_RETRIES", "0"))
-      synthesis_retry_count = 0
+      # ============ TEMPORARY: context overflow test ============
+      # Inject ~180k tokens of dummy content so the next LLM call overflows.
+      # Remove this block after testing.
+      _TEST_CONTEXT_OVERFLOW = os.getenv("TEST_CONTEXT_OVERFLOW", "").lower() == "true"
+      if _TEST_CONTEXT_OVERFLOW:
+          logging.warning("TEST_CONTEXT_OVERFLOW enabled -- injecting ~180k tokens of padding")
+          _pad = "x " * 30000  # ~30k tokens per message
+          _num_blocks = 6
+          _dummy_msgs = []
+          for i in range(_num_blocks):
+              _dummy_msgs.append(ToolMessage(
+                  content=f"[test padding block {i+1}/{_num_blocks}] {_pad}",
+                  tool_call_id=f"test_overflow_{i}",
+                  name="test_padding",
+              ))
+          _dummy_ai = AIMessage(content="I will analyze these results.", tool_calls=[
+              {"name": "test_padding", "args": {}, "id": f"test_overflow_{i}"}
+              for i in range(_num_blocks)
+          ])
+          await self.graph.aupdate_state(config, {"messages": [_dummy_ai] + _dummy_msgs})
+          logging.warning(f"Injected {_num_blocks} dummy messages (~{_num_blocks * 30}k tokens)")
+      # ============ END TEMPORARY ============
 
       try:
           # Track accumulated AI message content for final parsing
@@ -288,10 +304,6 @@ class AIPlatformEngineerA2ABinding:
           response_format_content = None
           response_format_args = None  # Complete tool args when captured
           response_format_streaming = False  # True when we're streaming ResponseFormat args
-
-          # Track sub-agent responses for fallback if synthesis fails
-          # Format: {tool_name: response_content}
-          accumulated_subagent_responses = {}
 
           # Track current active agent for sub-agent message grouping
           # This is used by the executor to add sourceAgent metadata to artifacts
@@ -657,13 +669,6 @@ class AIPlatformEngineerA2ABinding:
                       pending_tool_calls.pop(tool_call_id)
                       logging.debug(f"Resolved tool call: {tool_call_id} -> {tool_name}")
 
-                  # Track sub-agent responses for fallback if synthesis fails
-                  # Only track significant responses (sub-agent tools like 'task', agent names)
-                  if tool_content and len(tool_content) > 100:
-                      if tool_name not in accumulated_subagent_responses:
-                          accumulated_subagent_responses[tool_name] = []
-                      accumulated_subagent_responses[tool_name].append(tool_content)
-                      logging.debug(f"📦 Tracked sub-agent response from {tool_name}: {len(tool_content)} chars")
 
                   # This is a hard-coded list for now
                   # TODO: Fetch the rag tool names from when the deep agent is initialised
@@ -834,482 +839,244 @@ class AIPlatformEngineerA2ABinding:
       except asyncio.CancelledError:
           logging.warning("⚠️ Primary stream cancelled by client disconnection - parsing final response before exit")
           # Don't return immediately - let post-stream parsing run below
-      except ValueError as ve:
-          # Handle LangGraph validation errors (e.g., orphaned tool_calls, context overflow)
-          error_str = str(ve)
+      except Exception as e:
+          error_str = str(e)
+          is_recursion_limit = "recursion limit" in error_str.lower()
+          logging.warning(f"Primary stream failed (recursion_limit={is_recursion_limit}): {error_str}")
 
-          # Check if it's an orphaned tool call error
-          if "tool_calls that do not have a corresponding ToolMessage" in error_str:
-              logging.error(f"❌ Orphaned tool calls detected: {list(pending_tool_calls.values())}")
+          # ==============================================================
+          # Phase 1: State Repair (always, best-effort)
+          # ==============================================================
+          yield {
+              "is_task_complete": False,
+              "require_user_input": False,
+              "clear_accumulators": True,
+              "content": "",
+          }
+          accumulated_ai_content.clear()
+          final_ai_message = None
+          response_format_content = None
+          response_format_args = None
+          response_format_streaming = False
 
-              # Add synthetic ToolMessages for orphaned calls to recover
-              try:
-                  synthetic_messages = []
-                  for tool_call_id, tool_name in pending_tool_calls.items():
-                      synthetic_msg = ToolMessage(
-                          content="Tool call interrupted or failed to complete.",
-                          tool_call_id=tool_call_id,
-                          name=tool_name,
-                      )
-                      synthetic_messages.append(synthetic_msg)
+          try:
+              await self._repair_orphaned_tool_calls(config)
+          except Exception as repair_err:
+              logging.warning(f"State repair (orphaned tools) failed: {repair_err}")
 
-                  if synthetic_messages:
-                      await self.graph.aupdate_state(config, {"messages": synthetic_messages})
-                      logging.info(f"✅ Added {len(synthetic_messages)} synthetic ToolMessages to recover from orphaned tool calls")
-                      # Clear tracking
-                      pending_tool_calls.clear()
-              except Exception as recovery_error:
-                  logging.error(f"Failed to add synthetic ToolMessages: {recovery_error}")
+          is_context_overflow = any(
+              phrase in error_str.lower()
+              for phrase in ("input is too long", "prompt is too long", "too many tokens", "context length exceeded")
+          ) or ("token" in error_str.lower() and "maximum" in error_str.lower())
 
-              # Preserve user's query in the error message
-              user_query_preview = query[:200] if len(query) > 200 else query
-
-              yield {
-                  "is_task_complete": False,
-                  "require_user_input": False,
-                  "clear_accumulators": True,  # Signal to executor to clear accumulated content before retry
-                  "content": (
-                      "✅ I've recovered from an interrupted tool call. "
-                      "Let me continue processing your request...\n\n"
-                      f"Your query: {user_query_preview}\n\n"
-                      "Proceeding..."
-                  ),
-              }
-
-              # Try to re-invoke the graph with the same query to continue
-              try:
-                  # Re-stream with recovered state (use same streaming mode as main stream)
-                  retry_stream_mode = ['messages', 'custom'] if os.getenv("ENABLE_STREAMING", "true").lower() == "true" else ['values', 'custom']
-                  async for item_type, item in self.graph.astream(inputs, config, stream_mode=retry_stream_mode):
-                      if item_type == 'custom' and isinstance(item, dict):
-                          if item.get("type") == "a2a_event":
-                              custom_text = item.get("data", "")
-                              if custom_text:
-                                  yield {"is_task_complete": False, "require_user_input": False, "content": custom_text}
-                      elif item_type == 'messages':
-                          message = item[0] if item else None
-                          if isinstance(message, AIMessage) and hasattr(message, 'content') and message.content:
-                              yield {"is_task_complete": False, "require_user_input": False, "content": str(message.content)}
-                  return
-              except Exception as retry_error:
-                  logging.error(f"Retry after recovery failed: {retry_error}")
-                  yield {
-                      "is_task_complete": False,
-                      "require_user_input": False,
-                      "content": "❌ Recovery retry failed. Please ask your question again."
-                  }
-                  return
-
-          # Check if it's a Bedrock tool_use ordering error
-          # This happens when ToolMessage is not IMMEDIATELY after the AIMessage with tool_use
-          elif "tool_use" in error_str and "tool_result" in error_str and "immediately after" in error_str:
-              logging.error(f"❌ Bedrock tool_use ordering error: {error_str}")
-
-              # Extract the problematic tool_use ID from error if possible
-              id_match = re.search(r'tooluse_[A-Za-z0-9_-]+', error_str)
-              problem_id = id_match.group(0) if id_match else "unknown"
-              logging.error(f"Problematic tool_use ID: {problem_id}")
-
-              # Aggressive fix: Remove ALL messages with orphaned tool_calls
-              try:
-                  from langchain_core.messages import RemoveMessage
-
-                  state = await self.graph.aget_state(config)
-                  messages = state.values.get("messages", []) if state and state.values else []
-
-                  # Find all tool_call IDs and their resolutions
-                  tool_call_to_msg = {}  # {tool_call_id: msg with that tool_call}
-                  resolved = set()
-
-                  for msg in messages:
-                      if isinstance(msg, AIMessage):
-                          tool_calls = getattr(msg, 'tool_calls', None) or []
-                          for tc in tool_calls:
-                              tc_id = tc.get('id') if isinstance(tc, dict) else getattr(tc, 'id', None)
-                              if tc_id:
-                                  tool_call_to_msg[tc_id] = msg
-                      if isinstance(msg, ToolMessage):
-                          tc_id = getattr(msg, 'tool_call_id', None)
-                          if tc_id:
-                              resolved.add(tc_id)
-
-                  # Remove AIMessages with unresolved tool_calls
-                  msgs_to_remove = []
-                  for tc_id, msg in tool_call_to_msg.items():
-                      if tc_id not in resolved:
-                          msg_id = getattr(msg, 'id', None)
-                          if msg_id:
-                              msgs_to_remove.append(RemoveMessage(id=msg_id))
-                              logging.info(f"Removing AIMessage with orphaned tool_call: {tc_id[:20]}...")
-
-                  if msgs_to_remove:
-                      await self.graph.aupdate_state(config, {"messages": msgs_to_remove})
-                      logging.info(f"✅ Removed {len(msgs_to_remove)} AIMessages with orphaned tool_calls")
-
-                  yield {
-                      "is_task_complete": False,
-                      "require_user_input": False,
-                      "content": (
-                          "⚠️ A previous tool call failed and caused a message ordering issue. "
-                          "I've cleaned up the conversation history.\n\n"
-                          "Please ask your question again."
-                      ),
-                  }
-                  return
-
-              except Exception as cleanup_error:
-                  logging.error(f"Failed to clean up orphaned tool_calls: {cleanup_error}")
-                  yield {
-                      "is_task_complete": False,
-                      "require_user_input": False,
-                      "content": "❌ Tool ordering error occurred. Please start a new conversation."
-                  }
-                  return
-
-          # Check if it's a context overflow error
-          elif "Input is too long" in error_str or "context" in error_str.lower():
-              logging.error(f"❌ Context window overflow: {error_str}")
-
-              # Try to summarize conversation history instead of clearing
+          if is_context_overflow:
+              logging.warning(f"Context overflow detected, attempting aggressive summarization: {error_str[:200]}")
               try:
                   state = await self.graph.aget_state(config)
                   messages = state.values.get("messages", []) if state and state.values else []
-
                   if messages:
-                      # Use shared LangMem utility for consistent summarization
                       model = LLMFactory().get_llm()
                       result = await summarize_messages(
                           messages=messages,
                           model=model,
                           agent_name="supervisor",
                       )
-
                       if result.success and result.summary_message:
-                          # Replace all messages with summary
                           await self.graph.aupdate_state(config, {"messages": [result.summary_message]})
-
                           logging.info(
-                              f"✅ Summarized conversation history. "
-                              f"LangMem used: {result.used_langmem}, "
-                              f"tokens saved: {result.tokens_saved:,}"
-                          )
-
-                          recovery_msg = (
-                              "❌ The conversation exceeded the model's context window. "
-                              "I've summarized our conversation to recover.\n\n"
-                              "Please continue - your previous context has been preserved in summary form."
+                              f"Context summarized: langmem={result.used_langmem}, "
+                              f"tokens_saved={result.tokens_saved:,}"
                           )
                       else:
-                          # Summarization failed, fall back to clearing
                           await self.graph.aupdate_state(config, {"messages": []})
-                          logging.warning(f"⚠️ Summarization failed: {result.error}. Cleared history instead.")
-
-                          recovery_msg = (
-                              "❌ The conversation exceeded the model's context window. "
-                              "I've cleared the history to recover.\n\n"
-                              "**What happened:** The accumulated messages and tool outputs were too large for the model.\n\n"
-                              "**To avoid this:** Try asking for smaller chunks of data or more specific queries.\n\n"
-                              "Please ask your question again."
-                          )
-                  else:
-                      recovery_msg = "❌ Context overflow occurred but no history to summarize. Please ask your question again."
-
-              except Exception as recovery_error:
-                  logging.error(f"Failed to recover from context overflow: {recovery_error}")
-                  recovery_msg = "❌ Context overflow recovery failed. Please refresh and try again."
-
-              yield {
-                  "is_task_complete": False,
-                  "require_user_input": False,
-                  "content": recovery_msg,
-              }
-          elif "tool_calls" in error_str.lower() and "toolmessage" in error_str.lower():
-              # Orphaned tool calls error - try to repair and retry, or fallback to raw output
-              logging.warning(f"⚠️ Orphaned tool calls detected. Retry {synthesis_retry_count + 1}/{max_synthesis_retries}")
-
-              if synthesis_retry_count < max_synthesis_retries:
-                  synthesis_retry_count += 1
-                  try:
-                      # Try to repair orphaned tool calls
-                      logging.info("🔧 Attempting to repair orphaned tool calls...")
-                      await self._repair_orphaned_tool_calls(config)
-                      logging.info("✅ Orphaned tool calls repaired. Retrying synthesis...")
-
-                      # Don't return - fall through to try again
-                      # Note: This won't actually retry in the current structure,
-                      # but we can at least try to return the accumulated content
-                  except Exception as repair_error:
-                      logging.error(f"❌ Failed to repair orphaned tool calls: {repair_error}")
-
-              # If we have accumulated sub-agent responses, return them as fallback
-              if accumulated_subagent_responses:
-                  logging.warning(f"📦 Synthesis failed. Returning {len(accumulated_subagent_responses)} accumulated sub-agent responses as fallback.")
-
-                  # Format the raw sub-agent outputs
-                  fallback_content = "⚠️ **Note:** The final synthesis timed out, but here are the results from the sub-agents:\n\n"
-                  for tool_name, responses in accumulated_subagent_responses.items():
-                      fallback_content += f"---\n\n### Results from {tool_name}:\n\n"
-                      for resp in responses:
-                          # Truncate very long responses
-                          if len(resp) > 50000:
-                              resp = resp[:50000] + "\n\n... [truncated due to length]"
-                          fallback_content += f"{resp}\n\n"
-
-                  fallback_content += "---\n\n⚠️ _The agent was unable to synthesize these results. Please review the raw output above._"
-
-                  yield {
-                      "is_task_complete": True,
-                      "require_user_input": False,
-                      "content": fallback_content,
-                  }
-              else:
-                  # No accumulated responses - return error
-                  yield {
-                      "is_task_complete": False,
-                      "require_user_input": False,
-                      "content": f"❌ Synthesis failed: {error_str}\n\nNo sub-agent responses were captured. Please try again.",
-                  }
+                          logging.warning(f"Summarization failed ({result.error}), cleared history")
+              except Exception as summ_err:
+                  logging.error(f"Aggressive summarization failed: {summ_err}")
           else:
-              # Other validation errors
-              error_msg = f"Validation error: {error_str}"
-              logging.error(f"❌ {error_msg}")
-              yield {
-                  "is_task_complete": False,
-                  "require_user_input": False,
-                  "content": f"❌ Error: {error_msg}\n\nPlease try again or ask a follow-up question.",
+              try:
+                  max_ctx = int(os.getenv("MAX_CONTEXT_TOKENS", "0"))
+                  if not max_ctx:
+                      logging.warning("MAX_CONTEXT_TOKENS not set; skipping context compression in error recovery")
+                  else:
+                      await preflight_context_check(
+                          graph=self.graph,
+                          config=config,
+                          model=LLMFactory().get_llm(),
+                          agent_name="supervisor",
+                          max_context_tokens=max_ctx,
+                          min_messages_to_keep=4,
+                          tool_count=50,
+                      )
+              except Exception as ctx_err:
+                  logging.warning(f"State repair (context compression) failed: {ctx_err}")
+
+          # ==============================================================
+          # Decision: retry once, or go straight to wrap-up?
+          # Recursion limit means the agent looped -- more steps won't help.
+          # Everything else might be fixed by the state repair above.
+          # ==============================================================
+          if not is_recursion_limit:
+              try:
+                  message = None
+                  async for item_type, item in self.graph.astream(
+                      inputs, config,
+                      stream_mode=['messages', 'custom', 'updates'],
+                  ):
+                      if isinstance(item, dict):
+                          if item.get("type") == "a2a_event":
+                              event_obj = self._deserialize_a2a_event(item.get("data"))
+                              if event_obj is not None:
+                                  yield event_obj
+                                  continue
+                              else:
+                                  logging.warning("Retry: a2a_event deserialization failed; ignoring.")
+                          elif item.get("type") == "human_prompt":
+                              yield {
+                                  "is_task_complete": False,
+                                  "require_user_input": True,
+                                  "content": item.get("prompt", ""),
+                                  "metadata": {"options": item.get("options", [])} if item.get("options") else {},
+                              }
+                              continue
+
+                      if item_type == 'updates' and isinstance(item, dict) and 'generate_structured_response' in item:
+                          structured_resp = item['generate_structured_response'].get('structured_response')
+                          if structured_resp is not None:
+                              parsed = self.handle_structured_response(structured_resp)
+                              parsed['from_response_format_tool'] = True
+                              response_format_content = parsed.get('content', '')
+                              response_format_args = {
+                                  'content': parsed.get('content', ''),
+                                  'is_task_complete': parsed.get('is_task_complete', True),
+                                  'require_user_input': parsed.get('require_user_input', False),
+                                  'metadata': parsed.get('metadata'),
+                              }
+                              logging.info(
+                                  f"Retry stream: generate_structured_response captured "
+                                  f"(content_len={len(response_format_content)})"
+                              )
+                              yield parsed
+                          continue
+
+                      if item_type == 'messages':
+                          message = item[0] if item else None
+
+                      if message is None:
+                          continue
+
+                      if (
+                          isinstance(message, AIMessage)
+                          and getattr(message, "tool_calls", None)
+                          and len(message.tool_calls) > 0
+                      ):
+                          for tool_call in message.tool_calls:
+                              tool_name = tool_call.get("name", "")
+                              if tool_name.lower() in ('responseformat', 'platformengineerresponse'):
+                                  tool_args = tool_call.get("args", {})
+                                  structured_content = (
+                                      tool_args.get("content", "")
+                                      or tool_args.get("message", "")
+                                      or tool_args.get("response", "")
+                                  )
+                                  if structured_content and USE_STRUCTURED_RESPONSE:
+                                      logging.info("Retry stream: ResponseFormat tool captured")
+                                      yield {
+                                          "is_task_complete": tool_args.get("is_task_complete", True),
+                                          "require_user_input": tool_args.get("require_user_input", False),
+                                          "content": structured_content,
+                                          "metadata": tool_args.get("metadata"),
+                                          "from_response_format_tool": True,
+                                      }
+                                      response_format_args = {
+                                          'content': structured_content,
+                                          'is_task_complete': tool_args.get("is_task_complete", True),
+                                          'require_user_input': tool_args.get("require_user_input", False),
+                                          'metadata': tool_args.get("metadata"),
+                                      }
+                                      break
+                          else:
+                              yield {"is_task_complete": False, "require_user_input": False, "content": ""}
+                      elif isinstance(message, AIMessageChunk):
+                          content = message.content
+                          if isinstance(content, list):
+                              content = ''.join(
+                                  item.get('text', '') if isinstance(item, dict) else str(item)
+                                  for item in content
+                              )
+                          elif not isinstance(content, str):
+                              content = str(content) if content else ''
+                          if content:
+                              accumulated_ai_content.append(content)
+                          yield {"is_task_complete": False, "require_user_input": False, "content": content}
+                      elif isinstance(message, AIMessage):
+                          if hasattr(message, 'content'):
+                              accumulated_ai_content.append(str(message.content))
+                          final_ai_message = message
+
+              except Exception as retry_err:
+                  logging.error(f"Retry after state repair also failed: {retry_err}")
+                  error_str = str(retry_err)
+          # ==============================================================
+          # Phase 2: Wrap-up -- if retry was skipped (recursion limit) or
+          # retry didn't produce a structured response, re-invoke the
+          # graph's generate_structured_response node. We inject an
+          # AIMessage describing the error (as_node="agent") so the
+          # graph routes to structured response generation using its
+          # own system prompt and the full conversation context.
+          # ==============================================================
+          if not response_format_args:
+              logging.info(f"Phase 2 wrap-up via generate_structured_response (error: {error_str[:120]}...)")
+              try:
+                  await self._repair_orphaned_tool_calls(config)
+
+                  error_summary = (
+                      f"I encountered an error and need to wrap up: {error_str[:500]}\n\n"
+                      "I will now summarize what was accomplished so far and provide my final response."
+                  )
+                  await self.graph.aupdate_state(
+                      config,
+                      {"messages": [AIMessage(content=error_summary)]},
+                      as_node="agent",
+                  )
+
+                  async for item_type, item in self.graph.astream(
+                      None, config,
+                      stream_mode=['updates'],
+                  ):
+                      if item_type == 'updates' and isinstance(item, dict) and 'generate_structured_response' in item:
+                          structured_resp = item['generate_structured_response'].get('structured_response')
+                          if structured_resp is not None:
+                              parsed = self.handle_structured_response(structured_resp)
+                              parsed['from_response_format_tool'] = True
+                              response_format_content = parsed.get('content', '')
+                              response_format_args = {
+                                  'content': parsed.get('content', ''),
+                                  'is_task_complete': parsed.get('is_task_complete', True),
+                                  'require_user_input': parsed.get('require_user_input', False),
+                                  'metadata': parsed.get('metadata'),
+                              }
+                              logging.info(f"Phase 2 structured response captured (content_len={len(response_format_content)})")
+                              yield parsed
+              except Exception as wrapup_err:
+                  logging.error(f"Phase 2 wrap-up failed: {wrapup_err}")
+
+          if not response_format_args:
+              fallback_msg = (
+                  "I ran into an issue while processing your request. "
+                  "Please ask me to continue or try your question again."
+              )
+              response_format_args = {
+                  'content': fallback_msg,
+                  'is_task_complete': True,
+                  'require_user_input': False,
+                  'metadata': None,
               }
-
-          # Don't yield completion event - keep queue open for follow-up questions
-          return
-      # Fallback to old method if astream doesn't work
-      except Exception as e:
-          error_str = str(e)
-          logging.warning(f"Token-level streaming failed, falling back to message-level: {e}")
-
-          # Check if this is a timeout or orphaned tool call error that we can recover from
-          is_timeout_error = "timed out" in error_str.lower() or "timeout" in error_str.lower()
-          is_orphan_error = "tool_calls" in error_str.lower() and "toolmessage" in error_str.lower()
-
-          # If we have accumulated sub-agent responses, return them as fallback
-          if (is_timeout_error or is_orphan_error) and accumulated_subagent_responses:
-              logging.warning(f"📦 Streaming failed with recoverable error. Returning {len(accumulated_subagent_responses)} accumulated sub-agent responses as fallback.")
-
-              # Format the raw sub-agent outputs
-              fallback_content = "⚠️ **Note:** The agent encountered a timeout, but here are the results from the sub-agents:\n\n"
-              for tool_name, responses in accumulated_subagent_responses.items():
-                  fallback_content += f"---\n\n### Results from {tool_name}:\n\n"
-                  for resp in responses:
-                      # Truncate very long responses
-                      if len(resp) > 50000:
-                          resp = resp[:50000] + "\n\n... [truncated due to length]"
-                      fallback_content += f"{resp}\n\n"
-
-              fallback_content += "---\n\n⚠️ _The agent was unable to synthesize these results due to timeout. Please review the raw output above._"
-
               yield {
                   "is_task_complete": True,
                   "require_user_input": False,
-                  "content": fallback_content,
+                  "content": fallback_msg,
+                  "from_response_format_tool": True,
               }
-              return
-
-          # Attempt to repair orphaned tool calls before fallback stream.
-          # The primary stream failed with a Bedrock validation error, so
-          # the state likely has an AIMessage with tool_use that has no
-          # corresponding ToolMessage. Repair now to give fallback a chance.
-          try:
-              await self._repair_orphaned_tool_calls(config)
-          except Exception as repair_err:
-              logging.error(f"⚠️ Pre-fallback repair failed: {repair_err}")
-
-          # Signal to executor to clear accumulated content before fallback stream
-          # This prevents duplication from partial content streamed before the exception
-          yield {
-              "is_task_complete": False,
-              "require_user_input": False,
-              "clear_accumulators": True,
-              "content": "🔄 Switching to fallback streaming mode...",
-          }
-          try:
-            async for item_type, item in self.graph.astream(inputs, config, stream_mode=['messages', 'custom', 'updates']):
-
-              # Handle custom A2A event payloads emitted via get_stream_writer()
-              if isinstance(item, dict):
-                  if item.get("type") == "a2a_event":
-                      event_obj = self._deserialize_a2a_event(item.get("data"))
-                      if event_obj is not None:
-                          yield event_obj
-                          continue
-                      else:
-                          logging.warning("Supervisor: Received a2a_event but failed to deserialize; ignoring.")
-                  elif item.get("type") == "human_prompt":
-                      prompt_text = item.get("prompt", "")
-                      options = item.get("options", [])
-                      yield {
-                          "is_task_complete": False,
-                          "require_user_input": True,
-                          "content": prompt_text,
-                          "metadata": {"options": options} if options else {},
-                      }
-                      continue
-              elif item_type == 'messages':
-                message = item[0]
-              elif 'generate_structured_response' in item:
-                yield self.handle_structured_response(item['generate_structured_response']['structured_response'])
-
-              if (
-                  isinstance(message, AIMessage)
-                  and getattr(message, "tool_calls", None)
-                  and len(message.tool_calls) > 0
-              ):
-                  # Check for ResponseFormat tool in fallback stream
-                  for tool_call in message.tool_calls:
-                      tool_name = tool_call.get("name", "")
-                      if tool_name.lower() in ('responseformat', 'platformengineerresponse'):
-                          tool_args = tool_call.get("args", {})
-                          structured_content = tool_args.get("content", "") or tool_args.get("message", "") or tool_args.get("response", "")
-                          if structured_content and USE_STRUCTURED_RESPONSE:
-                              logging.info("🎯 Fallback stream: Structured response mode - yielding completion from ResponseFormat tool")
-                              yield {
-                                  "is_task_complete": tool_args.get("is_task_complete", True),
-                                  "require_user_input": tool_args.get("require_user_input", False),
-                                  "content": structured_content,
-                                  "metadata": tool_args.get("metadata"),
-                                  "from_response_format_tool": True
-                              }
-                              break
-                  else:
-                      logging.debug("Detected AIMessage with tool calls, yielding")
-                      yield {
-                          "is_task_complete": False,
-                          "require_user_input": False,
-                          "content": "",
-                      }
-              elif isinstance(message, ToolMessage):
-                  # Stream ToolMessage content (includes formatted TODO lists)
-                  tool_content = message.content if hasattr(message, 'content') else ""
-                  # Normalize tool_content to string (Bedrock returns list, OpenAI returns string)
-                  if isinstance(tool_content, list):
-                      text_parts = []
-                      for item in tool_content:
-                          if isinstance(item, dict):
-                              text_parts.append(item.get('text', ''))
-                          elif isinstance(item, str):
-                              text_parts.append(item)
-                          else:
-                              text_parts.append(str(item))
-                      tool_content = ''.join(text_parts)
-                  elif not isinstance(tool_content, str):
-                      tool_content = str(tool_content) if tool_content else ""
-                  logging.debug(f"Detected ToolMessage with {len(tool_content)} chars, yielding")
-                  yield {
-                      "is_task_complete": False,
-                      "require_user_input": False,
-                      "content": tool_content if tool_content else "",
-                  }
-              elif isinstance(message, AIMessageChunk):
-                  # Normalize content to string (AWS Bedrock returns list, OpenAI returns string)
-                  content = message.content
-                  if isinstance(content, list):
-                      # If content is a list (AWS Bedrock), extract text from content blocks
-                      text_parts = []
-                      for item in content:
-                          if isinstance(item, dict):
-                              # Extract text from Bedrock content block: {"type": "text", "text": "..."}
-                              text_parts.append(item.get('text', ''))
-                          elif isinstance(item, str):
-                              text_parts.append(item)
-                          else:
-                              text_parts.append(str(item))
-                      content = ''.join(text_parts)
-                  elif not isinstance(content, str):
-                      content = str(content) if content else ''
-
-                  # Accumulate content for final parsing
-                  if content:
-                      accumulated_ai_content.append(content)
-
-                  yield {
-                      "is_task_complete": False,
-                      "require_user_input": False,
-                      "content": content,
-                  }
-              elif isinstance(message, AIMessage):
-                  # Final complete AIMessage (not a chunk) from fallback stream
-                  # Store it for parsing after stream ends
-                  logging.info(f"🎯 CAPTURED final AIMessage from fallback stream: type={type(message).__name__}, has_content={hasattr(message, 'content')}")
-                  if hasattr(message, 'content'):
-                      content_preview = str(message.content)[:200]
-                      logging.info(f"🎯 AIMessage content preview: {content_preview}...")
-                      accumulated_ai_content.append(str(message.content))
-                  final_ai_message = message
-          except Exception as fallback_err:
-              fallback_error_str = str(fallback_err)
-              logging.error(
-                  f"❌ Fallback stream also failed: {fallback_error_str}"
-              )
-
-              # Covers both:
-              # - Bedrock: "Expected toolResult blocks ... for the following Ids: tooluse_xxx"
-              # - LangGraph INVALID_CHAT_HISTORY: "do not have a corresponding ToolMessage
-              #   ... 'id': 'tooluse_xxx'"
-              is_tool_state_error = (
-                  "Expected toolResult" in fallback_error_str
-                  or "toolResult blocks" in fallback_error_str
-                  or "do not have a corresponding ToolMessage" in fallback_error_str
-              )
-
-              if is_tool_state_error:
-                  # The state has a persistent orphaned tool_use that neither
-                  # _repair_orphaned_tool_calls nor summarization could fix.
-                  # Force-repair by removing AIMessages whose IDs appear in the error.
-                  try:
-                      ids_found = re.findall(
-                          r'tooluse_[A-Za-z0-9_-]+', fallback_error_str
-                      )
-                      if ids_found:
-                          logging.warning(
-                              f"🔧 Force-repairing Bedrock orphaned IDs: {ids_found}"
-                          )
-                          from langchain_core.messages import RemoveMessage
-                          state = await self.graph.aget_state(config)
-                          msgs = (
-                              state.values.get("messages", [])
-                              if state and state.values else []
-                          )
-                          to_remove = []
-                          for msg in msgs:
-                              if not isinstance(msg, AIMessage):
-                                  continue
-                              msg_id = getattr(msg, 'id', None)
-                              if not msg_id:
-                                  continue
-                              # Check all possible locations for the orphaned ID
-                              msg_str = str(getattr(msg, 'tool_calls', []))
-                              msg_str += str(getattr(msg, 'additional_kwargs', {}))
-                              msg_str += str(getattr(msg, 'content', ''))
-                              if any(tid in msg_str for tid in ids_found):
-                                  to_remove.append(RemoveMessage(id=msg_id))
-                          if to_remove:
-                              await self.graph.aupdate_state(
-                                  config, {"messages": to_remove}
-                              )
-                              logging.info(
-                                  f"✅ Force-removed {len(to_remove)} AIMessage(s) "
-                                  f"with Bedrock orphaned tool_use IDs"
-                              )
-                  except Exception as force_err:
-                      logging.error(f"Force-repair failed: {force_err}")
-
-              yield {
-                  "is_task_complete": False,
-                  "require_user_input": False,
-                  "content": (
-                      "⚠️ I encountered a conversation state issue. "
-                      "I've repaired the state - please try your question again."
-                  ),
-              }
-              return
 
       # After EITHER primary or fallback streaming completes, parse the final response to extract is_task_complete
       logging.info(f"🔍 POST-STREAM PARSING: final_ai_message={final_ai_message is not None}, accumulated_chunks={len(accumulated_ai_content)}, response_format_args={response_format_args is not None}")
