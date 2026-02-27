@@ -1,13 +1,18 @@
+## 0.2.28 (2026-02-27)
+
+## 0.2.27-rc.1 (2026-02-27)
+
+### Fix
+
+- linter err
+- more gracefully handle error such as context too large, recursion limit etc
+- correctly handle final output when recursion limit is hit
+
 ## 0.2.27 (2026-02-26)
 
 ### Feat
 
 - make skill-templates independent of caipe-ui.enabled (#836)
-
-## 0.2.26-rc.1 (2026-02-26)
-
-### Feat
-
 - **victorops**: Add Agent victorops aka Splunk On-call (#858)
 
 ## 0.2.26 (2026-02-26)
