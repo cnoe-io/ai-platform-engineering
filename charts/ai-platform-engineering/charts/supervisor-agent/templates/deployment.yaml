@@ -116,6 +116,10 @@ spec:
               mountPath: /app/prompt_config.rag.yaml
               subPath: prompt_config.rag.yaml
               readOnly: true
+            - name: task-config
+              mountPath: /app/task_config.yaml
+              subPath: task_config.yaml
+              readOnly: true
             {{- with .Values.volumeMounts }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
@@ -126,6 +130,9 @@ spec:
         - name: prompt-config-rag
           configMap:
             name: prompt-config-rag
+        - name: task-config
+          configMap:
+            name: task-config
         {{- with .Values.volumes }}
         {{- toYaml . | nindent 8 }}
         {{- end }}

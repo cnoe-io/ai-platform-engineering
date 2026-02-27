@@ -30,6 +30,7 @@ services:
     container_name: caipe-dev
     volumes:
       - ${PROMPT_CONFIG_PATH:-./charts/ai-platform-engineering/data/prompt_config.deep_agent.yaml}:/app/prompt_config.yaml
+      - ${TASK_CONFIG_PATH:-./task_config.yaml}:/app/task_config.yaml
       - ./ai_platform_engineering:/app/ai_platform_engineering
     env_file:
       - .env
@@ -38,6 +39,8 @@ services:
     environment:
       # Prompt configuration file path
       - PROMPT_CONFIG_PATH=/app/prompt_config.yaml
+      # Task config file path (self-service workflows)
+      - TASK_CONFIG_PATH=/app/task_config.yaml
 
       # GitHub Token for git operations
       - GITHUB_TOKEN=${GITHUB_PERSONAL_ACCESS_TOKEN}

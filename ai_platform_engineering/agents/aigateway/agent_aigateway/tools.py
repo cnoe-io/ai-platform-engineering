@@ -16,6 +16,108 @@ logger = logging.getLogger(__name__)
 # Support both naming conventions for flexibility
 LITELLM_API_URL = os.getenv("LITELLM_API_URL") or os.getenv("LITELLM_PROXY_URL", "")
 LITELLM_API_KEY = os.getenv("LITELLM_API_KEY") or os.getenv("LITELLM_MASTER_KEY", "")
+WEBEX_TOKEN = os.getenv("WEBEX_TOKEN", "")
+LITELLM_DOCS_URL = os.getenv("LITELLM_DOCS_URL", f"{LITELLM_API_URL}/")
+
+
+async def _send_webex_message(to_email: str, markdown: str) -> bool:
+    """Send a Webex direct message. Returns True on success."""
+    if not WEBEX_TOKEN:
+        logger.warning("WEBEX_TOKEN not set — skipping Webex notification")
+        return False
+
+    MAX_WEBEX_LENGTH = 7439
+    if len(markdown.encode("utf-8")) > MAX_WEBEX_LENGTH:
+        truncation = "\n\n⚠️ _Message truncated due to length._"
+        max_len = MAX_WEBEX_LENGTH - len(truncation.encode("utf-8"))
+        markdown = markdown.encode("utf-8")[:max_len].decode("utf-8", errors="ignore") + truncation
+
+    async with httpx.AsyncClient(timeout=30) as client:
+        try:
+            resp = await client.post(
+                "https://webexapis.com/v1/messages",
+                headers={"Authorization": f"Bearer {WEBEX_TOKEN}", "Content-Type": "application/json"},
+                json={"toPersonEmail": to_email, "markdown": markdown},
+            )
+            if resp.status_code < 300:
+                logger.info(f"Webex message sent to {to_email}")
+                return True
+            logger.error(f"Webex send failed ({resp.status_code}): {resp.text}")
+        except Exception as e:
+            logger.error(f"Webex send error: {e}")
+    return False
+
+
+def _build_webex_message(
+    *,
+    user_email: str,
+    provider_name: str,
+    model_name: str,
+    full_model_name: str,
+    api_key: str,
+    models: list[str] | None = None,
+    status: str = "created",
+) -> str:
+    """Build a deterministic Webex message with API key, curl, and Python examples."""
+    if status == "already_configured":
+        header = "### LLM Access Request - Using Existing Key\n\n"
+        header += f"✅ **You already have access to model `{full_model_name}`.**\n\n"
+    elif status == "model_added":
+        header = "### LLM Access Request Successful - Model Added\n\n"
+        header += f"✅ **New model `{full_model_name}` has been added to your existing key.**\n\n"
+    else:
+        header = "### LLM Access Request Successful - New Key Created\n\n"
+
+    msg = header
+    msg += f"User ID: {user_email}\n"
+    msg += f"Provider: {provider_name}\n"
+    msg += f"Model: {model_name}\n"
+    msg += f"Full Model ID: {full_model_name}\n"
+    msg += f"Base URL: {LITELLM_API_URL}\n\n"
+
+    if models:
+        msg += f"Approved Models: {', '.join(models)}\n"
+    msg += "Budget: $100/month (resets monthly)\n"
+    msg += "_Note: Each user gets one virtual key. Budget resets monthly._\n\n"
+
+    msg += "**🔑 Your API Key:**\n```\n" + api_key + "\n```\n\n"
+
+    is_embedding = "embed" in model_name.lower()
+
+    if is_embedding:
+        msg += "**Sample cURL:**\n```bash\n"
+        msg += f"curl -X POST '{LITELLM_API_URL}/v1/embeddings' \\\n"
+        msg += f"  -H 'Authorization: Bearer {api_key}' \\\n"
+        msg += "  -H 'Content-Type: application/json' \\\n"
+        msg += f"  -d '{{\"model\": \"{full_model_name}\", \"input\": [\"test\"]}}'\n"
+        msg += "```\n\n"
+        msg += "**Python:**\n```python\n"
+        msg += "import openai\n"
+        msg += f"client = openai.OpenAI(api_key=\"{api_key}\", base_url=\"{LITELLM_API_URL}\")\n"
+        msg += f"response = client.embeddings.create(model=\"{full_model_name}\", input=[\"test\"])\n"
+        msg += "```\n\n"
+    else:
+        msg += "**Sample cURL:**\n```bash\n"
+        msg += f"curl -X POST '{LITELLM_API_URL}/v1/chat/completions' \\\n"
+        msg += f"  -H 'Authorization: Bearer {api_key}' \\\n"
+        msg += "  -H 'Content-Type: application/json' \\\n"
+        msg += f"  -d '{{\"model\": \"{full_model_name}\", \"messages\": [{{\"role\": \"user\", \"content\": \"Hello\"}}]}}'\n"
+        msg += "```\n\n"
+        msg += "**Python:**\n```python\n"
+        msg += "import openai\n\n"
+        msg += "client = openai.OpenAI(\n"
+        msg += f"    api_key=\"{api_key}\",\n"
+        msg += f"    base_url=\"{LITELLM_API_URL}\"\n"
+        msg += ")\n"
+        msg += "response = client.chat.completions.create(\n"
+        msg += f"    model=\"{full_model_name}\",\n"
+        msg += "    messages=[{\"role\": \"user\", \"content\": \"Hello\"}]\n"
+        msg += ")\n"
+        msg += "print(response.choices[0].message.content)\n"
+        msg += "```\n\n"
+
+    msg += f"For further instructions, see [LiteLLM Docs]({LITELLM_DOCS_URL})."
+    return msg
 
 
 def _validate_config() -> str | None:
@@ -298,72 +400,30 @@ async def create_llm_api_key(provider_name: str, model_name: str, user_email: st
                     return f"Failed to update existing key: {update_result.get('message', 'Unknown error')}"
                 elif update_result.get("already_exists"):
                     models = update_result.get("models", [])
-                    return f"""## LLM Access - Already Configured
-
-**User**: {user_email}
-**Provider**: {provider_name}
-**Model**: {model_name}
-**Full Model ID**: {full_model_name}
-**Base URL**: {LITELLM_API_URL}
-
-You already have access to model `{full_model_name}`.
-All models on your key: {', '.join(f'`{m}`' for m in models)}
-
-**🔑 Your API Key**: `{token}`
-
-### Usage Example (Python)
-
-```python
-import openai
-
-client = openai.OpenAI(
-    api_key="{token}",
-    base_url="{LITELLM_API_URL}"
-)
-
-response = client.chat.completions.create(
-    model="{full_model_name}",
-    messages=[{{"role": "user", "content": "Hello!"}}]
-)
-print(response.choices[0].message.content)
-```
-
-**Budget**: $100/month (resets monthly)
-"""
+                    webex_msg = _build_webex_message(
+                        user_email=user_email, provider_name=provider_name,
+                        model_name=model_name, full_model_name=full_model_name,
+                        api_key=token, models=models, status="already_configured",
+                    )
+                    await _send_webex_message(user_email, webex_msg)
+                    return (
+                        f"You already have access to model `{full_model_name}`. "
+                        f"All models on your key: {', '.join(f'`{m}`' for m in models)}. "
+                        f"Your API key and usage instructions have been sent to {user_email} via Webex."
+                    )
                 else:
                     models = update_result.get("models", [])
-                    return f"""## LLM Access - Model Added to Existing Key
-
-**User**: {user_email}
-**Provider**: {provider_name}
-**Model**: {model_name}
-**Full Model ID**: {full_model_name}
-**Base URL**: {LITELLM_API_URL}
-
-Model `{full_model_name}` has been added to your existing API key.
-All models on your key: {', '.join(f'`{m}`' for m in models)}
-
-**🔑 Your API Key**: `{token}`
-
-### Usage Example (Python)
-
-```python
-import openai
-
-client = openai.OpenAI(
-    api_key="{token}",
-    base_url="{LITELLM_API_URL}"
-)
-
-response = client.chat.completions.create(
-    model="{full_model_name}",
-    messages=[{{"role": "user", "content": "Hello!"}}]
-)
-print(response.choices[0].message.content)
-```
-
-**Budget**: $100/month (resets monthly)
-"""
+                    webex_msg = _build_webex_message(
+                        user_email=user_email, provider_name=provider_name,
+                        model_name=model_name, full_model_name=full_model_name,
+                        api_key=token, models=models, status="model_added",
+                    )
+                    await _send_webex_message(user_email, webex_msg)
+                    return (
+                        f"Model `{full_model_name}` has been added to your existing API key. "
+                        f"All models on your key: {', '.join(f'`{m}`' for m in models)}. "
+                        f"Your API key and usage instructions have been sent to {user_email} via Webex."
+                    )
         
         # No existing key or stale key — generate new
         key_response = await _generate_key(
@@ -378,37 +438,16 @@ print(response.choices[0].message.content)
         
         api_key = key_response.get("key", "")
         
-        # Format response
-        message = f"""## LLM Access Created Successfully
-
-**User**: {user_email}
-**Provider**: {provider_name}
-**Model**: {model_name}
-**Full Model ID**: {full_model_name}
-**Base URL**: {LITELLM_API_URL}
-
-**API Key**: `{api_key}`
-
-### Usage Example (Python)
-
-```python
-import openai
-
-client = openai.OpenAI(
-    api_key="{api_key}",
-    base_url="{LITELLM_API_URL}"
-)
-
-response = client.chat.completions.create(
-    model="{full_model_name}",
-    messages=[{{"role": "user", "content": "Hello!"}}]
-)
-print(response.choices[0].message.content)
-```
-
-**Budget**: $100/month (resets monthly)
-"""
-        return message
+        webex_msg = _build_webex_message(
+            user_email=user_email, provider_name=provider_name,
+            model_name=model_name, full_model_name=full_model_name,
+            api_key=api_key, models=[full_model_name], status="created",
+        )
+        await _send_webex_message(user_email, webex_msg)
+        return (
+            f"LLM API key for model `{full_model_name}` has been created successfully. "
+            f"Your API key and usage instructions have been sent to {user_email} via Webex."
+        )
         
     except Exception as e:
         error_msg = f"Failed to create LLM API key: {str(e)}"

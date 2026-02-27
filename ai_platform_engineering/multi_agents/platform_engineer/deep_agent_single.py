@@ -296,8 +296,14 @@ read_file / write_file
 # =============================================================================
 
 def get_task_config_filename() -> str:
-    """Get the task config filename path (in repo root)."""
-    # Navigate from this file to repo root
+    """Get the task config filename path.
+    
+    Uses TASK_CONFIG_PATH env var if set (for Helm/K8s ConfigMap mounts),
+    otherwise falls back to task_config.yaml in the repo root.
+    """
+    env_path = os.getenv("TASK_CONFIG_PATH")
+    if env_path:
+        return env_path
     current_dir = Path(__file__).parent
     repo_root = current_dir.parent.parent.parent
     return str(repo_root / "task_config.yaml")
