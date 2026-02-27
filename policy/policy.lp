@@ -83,7 +83,6 @@ builtin_tool(yq).
 builtin_tool(terraform_fmt).
 builtin_tool(wait).
 builtin_tool(invoke_self_service_task).
-builtin_tool(list_self_service_tasks).
 
 % === Non-GitHub Agents ===
 % These agents have their own MCP tools that should be allowed

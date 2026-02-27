@@ -210,7 +210,6 @@ def test_builtin_tools_allowed():
         "tool_result_to_file",
         "wait",
         "invoke_self_service_task",
-        "list_self_service_tasks",
     ]
     
     for tool in builtin_tools:

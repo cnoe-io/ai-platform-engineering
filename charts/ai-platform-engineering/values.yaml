@@ -100,8 +100,8 @@ ragPromptConfig: ""           # Custom RAG prompt config (overrides default if s
 
 # Task Configuration
 # Self-service workflow definitions (Create LLM Key, GitHub Org Invite, etc.)
-# Provide custom task config YAML to override the default bundled in the chart.
-taskConfig: ""                # Custom task config (overrides default data/task_config.yaml if set)
+# Default is bundled from data/task_config.yaml. Override via taskConfig value.
+taskConfig: ""
 
 ######### Supervisor agent configuration #########
 supervisor-agent:
@@ -117,7 +117,7 @@ supervisor-agent:
     SKIP_AGENT_CONNECTIVITY_CHECK: "false"
     AGENT_CONNECTIVITY_ENABLE_BACKGROUND: "true"
     USE_STRUCTURED_RESPONSE: "true" # Set to "true" to enforce agent to always use structured response format as the final output
-    TASK_CONFIG_PATH: "/app/task_config.yaml"  # Mounted from task-config ConfigMap
+    TASK_CONFIG_PATH: "/app/task_config.yaml"
   multiAgentConfig:
     protocol: "a2a"
     port: "8000"

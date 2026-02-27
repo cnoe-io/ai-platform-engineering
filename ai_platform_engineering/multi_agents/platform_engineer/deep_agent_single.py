@@ -466,37 +466,6 @@ def create_invoke_self_service_task_tool():
     return invoke_self_service_task
 
 
-def create_list_self_service_tasks_tool():
-    """Create a tool to list available self-service tasks."""
-    
-    @tool
-    def list_self_service_tasks() -> str:
-        """
-        List all available self-service tasks that can be invoked.
-        
-        Returns:
-            Formatted list of available tasks with descriptions.
-        """
-        config = load_task_config()
-        
-        if not config:
-            return "No self-service tasks available."
-        
-        result = "## Available Self-Service Tasks\n\n"
-        for task_name, task_def in config.items():
-            steps = task_def.get("tasks", [])
-            result += f"### {task_name}\n"
-            result += f"Steps: {len(steps)}\n"
-            for step in steps[:3]:  # Show first 3 steps
-                result += f"  - {step.get('display_text', 'Step')}\n"
-            if len(steps) > 3:
-                result += f"  - ... and {len(steps) - 3} more steps\n"
-            result += "\n"
-        
-        return result
-    
-    return list_self_service_tasks
-
 
 # =============================================================================
 # Subagent Creation Functions - Using SubAgent dict format
@@ -856,10 +825,9 @@ class PlatformEngineerDeepAgent:
         
         # Self-service task tools
         invoke_task_tool = create_invoke_self_service_task_tool()
-        list_tasks_tool = create_list_self_service_tasks_tool()
         
         # All supervisor tools
-        all_tools = utility_tools + [invoke_task_tool, list_tasks_tool]
+        all_tools = utility_tools + [invoke_task_tool]
         
         # RAG connectivity check and tool loading
         if self.rag_enabled and self.rag_config is None:
@@ -1038,8 +1006,6 @@ When users ask questions about platform policies, procedures, or documentation:
 4. A notification is sent to the user via Webex upon completion
 
 **DO NOT skip `invoke_self_service_task`** for these operations. DO NOT try to perform these operations directly with subagents.
-
-Use `list_self_service_tasks` to see detailed information about all available workflows.
 
 ## Task Planning (write_todos format)
 
