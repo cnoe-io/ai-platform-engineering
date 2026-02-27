@@ -6,7 +6,7 @@ description: Parent chart to deploy multiple agent subcharts as different platfo
 sources:
   - https://github.com/cnoe-io/ai-platform-engineering/charts
 # Chart version for ai-platform-engineering parent chart
-version: 0.2.28 # Do NOT bump this. It will be updated automatically using the PR or release workflow
+version: 0.2.28-rc.helm.1 # Do NOT bump this. It will be updated automatically using the PR or release workflow
 dependencies:
   # AI Platform Engineer Multi-Agent
   - name: supervisor-agent
@@ -141,6 +141,24 @@ dependencies:
     import-values:
       - child: agentExports.data
         parent: global.enabledSubAgents.network_utility
+  - name: agent
+    version: 0.2.28 # Do NOT bump this. It will be updated automatically using the PR or release workflow
+    alias: agent-weather
+    tags:
+      - agent-weather
+      - complete
+    import-values:
+      - child: agentExports.data
+        parent: global.enabledSubAgents.weather
+  - name: agent
+    version: 0.2.28 # Do NOT bump this. It will be updated automatically using the PR or release workflow
+    alias: agent-petstore
+    tags:
+      - agent-petstore
+      - complete
+    import-values:
+      - child: agentExports.data
+        parent: global.enabledSubAgents.petstore
         # AGNTCY Slim dataplane service
   - name: slim
     version: v0.1.8
