@@ -31,7 +31,7 @@ from ai_platform_engineering.utils.a2a_common.langmem_utils import (
     preflight_context_check,
     _extract_tool_call_ids,
 )
-from langchain_core.messages import AIMessage, AIMessageChunk, HumanMessage, ToolMessage
+from langchain_core.messages import AIMessage, AIMessageChunk, ToolMessage
 
 _log_level = os.getenv("LOG_LEVEL", "INFO").upper()
 logging.basicConfig(level=getattr(logging, _log_level, logging.INFO), format='%(asctime)s - %(levelname)s - %(message)s')
