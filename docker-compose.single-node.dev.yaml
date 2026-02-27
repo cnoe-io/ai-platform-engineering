@@ -14,6 +14,7 @@
 #   - graph_rag: Enable RAG with graph database
 #   - caipe-ui: Enable CAIPE web UI
 #   - weather: Enable remote Weather agent
+#   - mongodb: Enable MongoDB for UI persistence
 #
 # Example: docker compose -f docker-compose.single-node.dev.yaml --profile weather up
 # ============================================================================
@@ -84,6 +85,29 @@ services:
       - WEATHER_AGENT_HOST=agent-weather
       - WEATHER_AGENT_PORT=8000
     command: platform-engineer-single
+
+  ####################################################################################################
+  #                                      MongoDB                                                   #
+  ####################################################################################################
+  caipe-ui-mongodb:
+    image: mongo:7.0
+    container_name: caipe-ui-mongodb
+    ports:
+      - "27017:27017"
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=${MONGODB_ROOT_USERNAME:-admin}
+      - MONGO_INITDB_ROOT_PASSWORD=${MONGODB_ROOT_PASSWORD:-changeme}
+    volumes:
+      - mongodb_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+    profiles:
+      - mongodb
+      - caipe-ui
 
   ####################################################################################################
   #                               Remote A2A Agents                                                #
@@ -514,6 +538,8 @@ services:
       - tracing
 
 volumes:
+  mongodb_data:
+    driver: local
   langfuse_postgres_data:
     driver: local
   langfuse_clickhouse_data:

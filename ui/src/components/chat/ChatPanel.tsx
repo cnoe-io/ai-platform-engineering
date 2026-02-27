@@ -242,6 +242,9 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle }: ChatP
     setPendingUserInput(null);
   }, [activeConversationId]);
 
+  // Track last message events length to re-trigger restoration when events load
+  const lastMsgEventsLen = conversation?.messages?.[conversation.messages.length - 1]?.events?.length ?? 0;
+
   useEffect(() => {
     if (pendingUserInput || isThisConversationStreaming) return;
     if (!conversation || conversation.messages.length === 0) return;
@@ -252,14 +255,23 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle }: ChatP
     // Only restore if the last message is from the assistant (user hasn't replied yet)
     if (lastMsg.role !== "assistant") return;
 
+    // Don't restore if the assistant message completed (isFinal=true means the
+    // workflow finished; any HITL form in the events is from an earlier turn).
+    if (lastMsg.isFinal) {
+      console.log(`[ChatPanel] 📝 HITL restore skipped: last assistant message is final (workflow completed)`);
+      return;
+    }
+
     // Don't restore if user explicitly dismissed the form for this message
     if (dismissedInputForMessageRef.current.has(lastMsg.id)) return;
 
     // Gather events from both conversation-level and message-level sources
-    const eventsToCheck = [
-      ...(conversation.a2aEvents || []),
-      ...(lastMsg.events || []),
-    ];
+    const convEvents = conversation.a2aEvents || [];
+    const msgEvents = lastMsg.events || [];
+    const eventsToCheck = [...convEvents, ...msgEvents];
+    
+    const hitlEvents = eventsToCheck.filter(e => e.artifact?.name === "UserInputMetaData");
+    console.log(`[ChatPanel] 📝 HITL restore check: convEvents=${convEvents.length}, msgEvents=${msgEvents.length}, total=${eventsToCheck.length}, hitlEvents=${hitlEvents.length}`);
 
     for (const event of eventsToCheck) {
       if (event.artifact?.name !== "UserInputMetaData") continue;
@@ -284,17 +296,19 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle }: ChatP
         }
       }
 
+      console.log(`[ChatPanel] 📝 HITL event found: hasMetadata=${!!metadata}, inputFields=${metadata?.input_fields?.length ?? 0}, eventTime=${event.timestamp}`);
+
       if (metadata?.input_fields && metadata.input_fields.length > 0) {
         // Don't restore if the user already answered this HITL form.
-        // A user message with a timestamp after the event means the form was submitted.
-        const eventTime = event.timestamp ? new Date(event.timestamp).getTime() : 0;
-        if (eventTime > 0) {
-          const alreadyAnswered = messages.some((m) => {
-            if (m.role !== "user") return false;
-            const msgTime = m.timestamp ? new Date(m.timestamp).getTime() : 0;
-            return msgTime > eventTime;
-          });
-          if (alreadyAnswered) continue;
+        // Use position-based check: if there's a user message AFTER the last
+        // assistant message, the form was already submitted. We avoid timestamp
+        // comparisons because MongoDB created_at can be later than streaming
+        // event timestamps (post-stream saves write user messages after events).
+        const assistantIdx = messages.findIndex(m => m.id === lastMsg.id);
+        const hasUserReplyAfter = messages.slice(assistantIdx + 1).some(m => m.role === "user");
+        if (hasUserReplyAfter) {
+          console.log(`[ChatPanel] 📝 HITL form already answered (user message after assistant)`);
+          continue;
         }
 
         console.log(
@@ -305,7 +319,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle }: ChatP
       }
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeConversationId, conversation?.messages?.length, isThisConversationStreaming]);
+  }, [activeConversationId, conversation?.messages?.length, conversation?.a2aEvents?.length, lastMsgEventsLen, isThisConversationStreaming]);
 
   const handleCopy = async (content: string, id: string) => {
     await navigator.clipboard.writeText(content);
@@ -361,6 +375,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle }: ChatP
     let rawStreamContent = ""; // Accumulates ALL streaming content (never reset)
     let eventCounter = 0;
     let hasReceivedCompleteResult = false;
+    let hitlFormRequested = false;
     let lastUIUpdate = 0;
     let capturedTaskId: string | undefined; // Capture taskId from first event for crash recovery
     const UI_UPDATE_INTERVAL = 100; // Throttle UI updates to max 10/sec
@@ -444,6 +459,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle }: ChatP
           const metadata = event.metadata as UserInputMetadata;
           if (metadata.input_fields && metadata.input_fields.length > 0) {
             console.log(`[ChatPanel] 📝 Form has ${metadata.input_fields.length} fields:`, metadata.input_fields.map(f => f.field_name));
+            hitlFormRequested = true;
             setPendingUserInput({
               messageId: assistantMsgId,
               metadata,
@@ -600,7 +616,12 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle }: ChatP
       console.log(`[A2A SDK] 🏁 STREAM COMPLETE - ${eventCounter} events, hasResult=${hasReceivedCompleteResult}`);
       console.log(`[A2A SDK] 📊 Final content: ${accumulatedText.length} chars, Raw stream: ${rawStreamContent.length} chars`);
 
-      if (!hasReceivedCompleteResult) {
+      if (hitlFormRequested) {
+        // HITL: stream ended because the agent is waiting for user input.
+        // Keep isFinal=false so the form persists correctly across refresh.
+        console.log(`[A2A SDK] 📝 Stream ended with HITL form pending — keeping isFinal=false`);
+        updateMessage(convId!, assistantMsgId, { content: accumulatedText, rawStreamContent, isFinal: false });
+      } else if (!hasReceivedCompleteResult) {
         if (accumulatedText.length > 0) {
           console.log(`[A2A SDK] ⚠️ No final_result - using accumulated content (${accumulatedText.length} chars)`);
           updateMessage(convId!, assistantMsgId, { content: accumulatedText, rawStreamContent, isFinal: true });
