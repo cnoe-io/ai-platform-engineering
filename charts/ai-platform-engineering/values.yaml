@@ -17,6 +17,8 @@ tags:
   agent-victorops: false
   agent-webex: false
   agent-network-utility: false
+  agent-weather: false
+  agent-petstore: false
   rag-stack: false
 
 # Global configuration shared across all subcharts
@@ -342,6 +344,22 @@ agent-network-utility:
       pullPolicy: "Always"
     mode: "http" # Options: stdio, http
     port: 8000
+
+agent-weather:
+  nameOverride: "agent-weather"
+  image:
+    repository: "ghcr.io/cnoe-io/agent-weather"
+    pullPolicy: "Always"
+  mcp:
+    useRemoteMcpServer: true
+
+agent-petstore:
+  nameOverride: "agent-petstore"
+  image:
+    repository: "ghcr.io/cnoe-io/agent-petstore"
+    pullPolicy: "Always"
+  mcp:
+    useRemoteMcpServer: true
 
 ######### Backstage plugin agent forge configuration #########
 backstage-plugin-agent-forge:
