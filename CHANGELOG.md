@@ -1,6 +1,10 @@
-## 0.2.30 (2026-02-28)
+## 0.2.31 (2026-02-28)
 
-## 0.2.29-rc.1 (2026-02-28)
+### Fix
+
+- align netutils chart alias and disable secrets for demo agents (#871)
+
+## 0.2.30 (2026-02-28)
 
 ### Refactor
 
