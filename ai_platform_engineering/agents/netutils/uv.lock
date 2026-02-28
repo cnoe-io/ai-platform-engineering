@@ -27,7 +27,7 @@ wheels = [
 ]
 
 [[package]]
-name = "agent-network-utility"
+name = "agent-netutils"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
@@ -38,7 +38,7 @@ dependencies = [
     { name = "langchain-core" },
     { name = "langchain-mcp-adapters" },
     { name = "langgraph" },
-    { name = "mcp-network-utility" },
+    { name = "mcp-netutils" },
     { name = "prometheus-client" },
     { name = "python-dotenv" },
 ]
@@ -59,7 +59,7 @@ requires-dist = [
     { name = "langchain-core", specifier = "==1.1.2" },
     { name = "langchain-mcp-adapters", specifier = "==0.2.1" },
     { name = "langgraph", specifier = "==1.0.4" },
-    { name = "mcp-network-utility", directory = "mcp" },
+    { name = "mcp-netutils", directory = "mcp" },
     { name = "prometheus-client", specifier = "==0.23.1" },
     { name = "python-dotenv", specifier = "==1.2.1" },
 ]
@@ -2266,7 +2266,7 @@ cli = [
 ]
 
 [[package]]
-name = "mcp-network-utility"
+name = "mcp-netutils"
 version = "0.1.0"
 source = { directory = "mcp" }
 dependencies = [

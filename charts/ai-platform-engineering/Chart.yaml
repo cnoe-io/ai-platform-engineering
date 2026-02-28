@@ -136,7 +136,7 @@ dependencies:
     version: 0.2.29 # Do NOT bump this. It will be updated automatically using the PR or release workflow
     alias: agent-network-utility
     tags:
-      - agent-network-utility
+      - agent-netutils
       - complete
     import-values:
       - child: agentExports.data
