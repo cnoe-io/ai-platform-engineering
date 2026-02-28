@@ -23,10 +23,19 @@ jobs:
       version: ${{ github.event.inputs.version }}
     secrets: inherit
 
+  # Then: Publish Helm charts to GHCR
+  publish-helm-charts:
+    name: Publish Helm Charts
+    needs: sync-chart-versions
+    uses: ./.github/workflows/helm.yml
+    with:
+      publish_all: 'true'
+    secrets: inherit
+
   # Then: Create the release
   release:
     name: Create Release
-    needs: sync-chart-versions
+    needs: [sync-chart-versions, publish-helm-charts]
     runs-on: ubuntu-latest
     steps:
       - name: 🔒 Harden runner
@@ -261,6 +270,9 @@ jobs:
           echo "- \`pyproject.toml\` - version updated" >> $GITHUB_STEP_SUMMARY
           echo "- \`CHANGELOG.md\` - changelog generated (commitizen)" >> $GITHUB_STEP_SUMMARY
           echo "- \`uv.lock\` - lock file regenerated" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Helm Charts ⏳" >> $GITHUB_STEP_SUMMARY
+          echo "Helm chart publish workflow triggered (publish_all=true)" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Images (CI builds triggered) ⏳" >> $GITHUB_STEP_SUMMARY
           echo "CI workflows triggered asynchronously - images will be tagged with \`$NEW_VERSION\` when complete:" >> $GITHUB_STEP_SUMMARY

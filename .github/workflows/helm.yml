@@ -17,6 +17,13 @@ on:
         options:
           - 'true'
           - 'false'
+  workflow_call:
+    inputs:
+      publish_all:
+        description: 'Publish all charts (bypass change detection)'
+        required: false
+        default: 'false'
+        type: string
 
 permissions:
   contents: read
@@ -145,8 +152,8 @@ jobs:
   publish:
     name: Push Helm Charts to GHCR
     runs-on: ubuntu-latest
-    # Publish on merge to main or workflow_dispatch
-    if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch'
+    # Publish on merge to main, workflow_dispatch, or workflow_call
+    if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch' || github.event_name == 'workflow_call'
 
     steps:
       - name: 📥 Checkout repository
@@ -166,8 +173,8 @@ jobs:
       - name: 🔍 Detect Changed Charts
         id: detect
         run: |
-          # Check if publish_all is set (workflow_dispatch)
-          PUBLISH_ALL="${{ github.event.inputs.publish_all }}"
+          # Check if publish_all is set (workflow_dispatch or workflow_call)
+          PUBLISH_ALL="${{ inputs.publish_all }}"
 
           if [[ "$PUBLISH_ALL" == "true" ]]; then
             echo "📦 publish_all=true, will publish all charts"
