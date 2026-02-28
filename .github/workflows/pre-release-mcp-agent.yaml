@@ -108,6 +108,7 @@ jobs:
 
     env:
       REGISTRY: ghcr.io
+      IMAGE_NAME: ${{ github.repository_owner }}/prebuild/mcp-${{ matrix.agent }}
       AGENT_DIR: ai_platform_engineering/agents/${{ matrix.agent }}
 
     steps:
@@ -115,11 +116,6 @@ jobs:
         uses: step-security/harden-runner@5ef0c079ce82195b2a36a210272d6b661572d83e  # v2.14.2
         with:
           egress-policy: audit
-
-      - name: Normalize image name
-        run: |
-          SANITIZED=$(echo "${{ matrix.agent }}" | tr '_' '-')
-          echo "IMAGE_NAME=${{ github.repository_owner }}/prebuild/mcp-${SANITIZED}" >> $GITHUB_ENV
 
       - name: Checkout repository
         uses: actions/checkout@v6
@@ -243,12 +239,8 @@ jobs:
       fail-fast: false
     env:
       OWNER: ${{ github.repository_owner }}
+      PACKAGE_NAME: prebuild/mcp-${{ matrix.agent }}
     steps:
-      - name: Normalize package name
-        run: |
-          SANITIZED=$(echo "${{ matrix.agent }}" | tr '_' '-')
-          echo "PACKAGE_NAME=prebuild/mcp-${SANITIZED}" >> $GITHUB_ENV
-
       - name: Delete prebuild images for branch
         uses: actions/github-script@v8
         env:
