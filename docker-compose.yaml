@@ -574,7 +574,7 @@ services:
     image: ghcr.io/cnoe-io/agent-network-utility:${IMAGE_TAG:-0.2.21}
     container_name: agent-network-utility
     volumes:
-      - ./charts/ai-platform-engineering/data/prompt_config.network_utility_agent.yaml:/app/prompt_config.network_utility_agent.yaml
+      - ./charts/ai-platform-engineering/data/prompt_config.network-utility_agent.yaml:/app/prompt_config.network-utility_agent.yaml
     env_file: [.env]
     ports: ["8015:8000"]
     environment:

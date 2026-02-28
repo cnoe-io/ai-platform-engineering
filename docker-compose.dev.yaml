@@ -925,7 +925,7 @@ services:
         - AGENT_NAME=network_utility
     container_name: agent-network-utility
     volumes:
-      - ./charts/ai-platform-engineering/data/prompt_config.network_utility_agent.yaml:/app/prompt_config.network_utility_agent.yaml
+      - ./charts/ai-platform-engineering/data/prompt_config.network-utility_agent.yaml:/app/prompt_config.network-utility_agent.yaml
       - ./ai_platform_engineering/agents/network_utility/agent_network_utility:/app/ai_platform_engineering/agents/agent/agent_network_utility
       - ./ai_platform_engineering/utils:/app/ai_platform_engineering/utils
     env_file: [.env]

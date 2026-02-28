@@ -140,7 +140,7 @@ dependencies:
       - complete
     import-values:
       - child: agentExports.data
-        parent: global.enabledSubAgents.network_utility
+        parent: global.enabledSubAgents.network-utility
   - name: agent
     version: 0.2.28 # Do NOT bump this. It will be updated automatically using the PR or release workflow
     alias: agent-weather

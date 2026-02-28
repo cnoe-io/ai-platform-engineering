@@ -99,7 +99,7 @@ async def async_main(host: str, port: int):
                     "/ready",
                 ],
                 metrics_path="/metrics",
-                agent_name="network_utility",
+                agent_name="network-utility",
             )
 
         config = uvicorn.Config(app, host=host, port=port, access_log=False)

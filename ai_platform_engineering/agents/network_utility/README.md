@@ -6,7 +6,7 @@ An AI agent for network diagnostics, DNS resolution, DHCP lease management, and 
 
 ```
 User → Platform Engineer (supervisor)
-         → A2ARemoteAgentConnectTool("network_utility")
+         → A2ARemoteAgentConnectTool("network-utility")
          → HTTP POST to agent-network-utility:8000
               → NetworkUtilityAgent (BaseLangGraphAgent)
               → MCP client → mcp-network-utility:8000 (HTTP)

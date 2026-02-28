@@ -14,14 +14,14 @@ load_dotenv()
 # ==================================================
 # AGENT SPECIFIC CONFIGURATION
 # ==================================================
-AGENT_NAME = "network_utility"
+AGENT_NAME = "network-utility"
 AGENT_DESCRIPTION = (
     "An AI agent that provides network diagnostics, DNS resolution, "
     "DHCP lease management, and dnsmasq configuration utilities."
 )
 
 agent_skill = AgentSkill(
-    id="network_utility_agent_skill",
+    id="network-utility_agent_skill",
     name="Network Utility Agent Skill",
     description=(
         "Provides capabilities for DNS lookups, network diagnostics (ping, traceroute, port checks), "

@@ -19,7 +19,7 @@ class ResponseFormat(BaseModel):
     message: str
 
 
-_prompt_config = load_subagent_prompt_config("network_utility")
+_prompt_config = load_subagent_prompt_config("network-utility")
 
 
 class NetworkUtilityAgent(BaseLangGraphAgent):
@@ -31,7 +31,7 @@ class NetworkUtilityAgent(BaseLangGraphAgent):
 
     def get_agent_name(self) -> str:
         """Return the agent's name."""
-        return "network_utility"
+        return "network-utility"
 
     def get_system_instruction(self) -> str:
         """Return the system instruction for the agent."""
@@ -66,7 +66,7 @@ class NetworkUtilityAgent(BaseLangGraphAgent):
         """Return message shown when processing tool results."""
         return _prompt_config.tool_processing_message
 
-    @trace_agent_stream("network_utility")
+    @trace_agent_stream("network-utility")
     async def stream(self, query: str, sessionId: str, trace_id: str = None):
         """
         Stream responses with network-utility-specific tracing and error handling.
