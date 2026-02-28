@@ -1,5 +1,5 @@
 [project]
-name = "mcp-network-utility"
+name = "mcp-netutils"
 version = "0.1.0"
 description = "Network Utility MCP Server - DNS, DHCP, and network diagnostics"
 license = "Apache-2.0"
@@ -17,7 +17,7 @@ dependencies = [
 ]
 
 [project.scripts]
-mcp-network-utility = "mcp_network_utility.__main__:main"
+mcp-netutils = "mcp_netutils.__main__:main"
 
 [build-system]
 requires = ["hatchling"]

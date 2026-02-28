@@ -1,5 +1,5 @@
 [project]
-name = "agent_network_utility"
+name = "agent_netutils"
 version = "0.1.0"
 description = "A network utility agent for DNS, DHCP, and network diagnostics using LangGraph and MCP."
 authors = [
@@ -16,7 +16,7 @@ dependencies = [
   "langchain-core==1.1.2",
   "langchain-mcp-adapters==0.2.1",
   "langgraph==1.0.4",
-  "mcp-network-utility",
+  "mcp-netutils",
   "prometheus-client==0.23.1",
   "python-dotenv==1.2.1",
 ]
@@ -56,4 +56,4 @@ markers = [
 ]
 
 [tool.uv.sources]
-mcp-network-utility = { path = "./mcp" }
+mcp-netutils = { path = "./mcp" }

@@ -16,7 +16,7 @@ tags:
   agent-splunk: false
   agent-victorops: false
   agent-webex: false
-  agent-network-utility: false
+  agent-netutils: false
   agent-weather: false
   agent-petstore: false
   rag-stack: false
@@ -331,14 +331,14 @@ agent-komodor:
     mode: "http" # Options: stdio, http
     port: 8000
 
-agent-network-utility:
-  nameOverride: "agent-network-utility"
+agent-netutils:
+  nameOverride: "agent-netutils"
   image:
-    repository: "ghcr.io/cnoe-io/agent-network-utility"
+    repository: "ghcr.io/cnoe-io/agent-netutils"
     pullPolicy: "Always"
   mcp:
     image:
-      repository: "ghcr.io/cnoe-io/mcp-network-utility"
+      repository: "ghcr.io/cnoe-io/mcp-netutils"
       # tag defaults to .Chart.AppVersion when not specified
       tag: ""
       pullPolicy: "Always"

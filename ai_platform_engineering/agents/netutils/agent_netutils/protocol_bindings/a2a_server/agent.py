@@ -1,7 +1,7 @@
 # Copyright 2025 CNOE
 # SPDX-License-Identifier: Apache-2.0
 
-"""Network Utility Agent implementation using common A2A base classes."""
+"""Netutils Agent implementation using common A2A base classes."""
 
 import os
 from typing import Literal
@@ -19,11 +19,11 @@ class ResponseFormat(BaseModel):
     message: str
 
 
-_prompt_config = load_subagent_prompt_config("network-utility")
+_prompt_config = load_subagent_prompt_config("netutils")
 
 
-class NetworkUtilityAgent(BaseLangGraphAgent):
-    """Network Utility Agent for DNS, DHCP, and network diagnostics."""
+class NetutilsAgent(BaseLangGraphAgent):
+    """Netutils Agent for DNS, DHCP, and network diagnostics."""
 
     SYSTEM_INSTRUCTION = _prompt_config.get_system_instruction()
 
@@ -31,7 +31,7 @@ class NetworkUtilityAgent(BaseLangGraphAgent):
 
     def get_agent_name(self) -> str:
         """Return the agent's name."""
-        return "network-utility"
+        return "netutils"
 
     def get_system_instruction(self) -> str:
         """Return the system instruction for the agent."""
@@ -46,7 +46,7 @@ class NetworkUtilityAgent(BaseLangGraphAgent):
         return ResponseFormat
 
     def get_mcp_config(self, server_path: str) -> dict:
-        """Return MCP configuration for Network Utility (stdio mode)."""
+        """Return MCP configuration for Netutils (stdio mode)."""
         return {
             "command": "uv",
             "args": ["run", "--project", os.path.dirname(server_path), server_path],
@@ -66,10 +66,10 @@ class NetworkUtilityAgent(BaseLangGraphAgent):
         """Return message shown when processing tool results."""
         return _prompt_config.tool_processing_message
 
-    @trace_agent_stream("network-utility")
+    @trace_agent_stream("netutils")
     async def stream(self, query: str, sessionId: str, trace_id: str = None):
         """
-        Stream responses with network-utility-specific tracing and error handling.
+        Stream responses with netutils-specific tracing and error handling.
 
         Overrides the base stream method to add agent-specific tracing decorator.
         """
@@ -80,13 +80,13 @@ class NetworkUtilityAgent(BaseLangGraphAgent):
             async for event in super().stream(query, sessionId, trace_id):
                 yield event
         except Exception as e:
-            logger.error(f"Unexpected Network Utility agent error: {str(e)}", exc_info=True)
+            logger.error(f"Unexpected Netutils agent error: {str(e)}", exc_info=True)
             yield {
                 "is_task_complete": True,
                 "require_user_input": False,
                 "kind": "error",
                 "content": (
-                    f"❌ An unexpected error occurred in Network Utility: {str(e)}"
+                    f"❌ An unexpected error occurred in Netutils: {str(e)}"
                     "\n\nPlease try again or contact support if the issue persists."
                 ),
             }

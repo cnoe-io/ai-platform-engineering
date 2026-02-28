@@ -56,7 +56,7 @@ services:
       - SPLUNK_AGENT_HOST=agent-splunk
       - WEATHER_AGENT_HOST=agent-weather
       - WEBEX_AGENT_HOST=agent-webex
-      - NETWORK_UTILITY_AGENT_HOST=agent-network-utility
+      - NETUTILS_AGENT_HOST=agent-netutils
 
       # The following ENABLE_* environment variables control the activation of individual sub-agents for multi-agent orchestration.
       # In .env file, set each variable to 'true' to enable the corresponding agent, or 'false' to disable it.
@@ -78,7 +78,7 @@ services:
       - ENABLE_WEBEX=${ENABLE_WEBEX:-false}
       - ENABLE_WEBEX=${ENABLE_WEBEX:-false}
       - ENABLE_WEATHER=${ENABLE_WEATHER:-false}
-      - ENABLE_NETWORK_UTILITY=${ENABLE_NETWORK_UTILITY:-false}
+      - ENABLE_NETUTILS=${ENABLE_NETUTILS:-false}
 
       # Tracing configuration (will be read from .env if ENABLE_TRACING=true)
       - ENABLE_TRACING=${ENABLE_TRACING:-false}
@@ -569,30 +569,30 @@ services:
       - webex
       - all-agents
 
-  # Network Utility Agent
-  agent-network-utility:
-    image: ghcr.io/cnoe-io/agent-network-utility:${IMAGE_TAG:-0.2.21}
-    container_name: agent-network-utility
+  # Netutils Agent
+  agent-netutils:
+    image: ghcr.io/cnoe-io/agent-netutils:${IMAGE_TAG:-0.2.21}
+    container_name: agent-netutils
     volumes:
-      - ./charts/ai-platform-engineering/data/prompt_config.network-utility_agent.yaml:/app/prompt_config.network-utility_agent.yaml
+      - ./charts/ai-platform-engineering/data/prompt_config.netutils_agent.yaml:/app/prompt_config.netutils_agent.yaml
     env_file: [.env]
     ports: ["8015:8000"]
     environment:
       - A2A_TRANSPORT=${A2A_TRANSPORT:-p2p}
       - MCP_MODE=http
-      - MCP_HOST=mcp-network-utility
+      - MCP_HOST=mcp-netutils
       - MCP_PORT=8000
       - SLIM_ENDPOINT=${SLIM_ENDPOINT:-http://slim-dataplane:46357}
     depends_on:
-      mcp-network-utility:
+      mcp-netutils:
         condition: service_healthy
     profiles:
-      - network-utility-agent
+      - netutils-agent
       - all-agents
 
-  mcp-network-utility:
-    image: ghcr.io/cnoe-io/mcp-network-utility:${IMAGE_TAG:-0.2.21}
-    container_name: mcp-network-utility
+  mcp-netutils:
+    image: ghcr.io/cnoe-io/mcp-netutils:${IMAGE_TAG:-0.2.21}
+    container_name: mcp-netutils
     env_file: [.env]
     ports: ["18011:8000"]
     environment:
@@ -606,7 +606,7 @@ services:
       retries: 5
       start_period: 15s
     profiles:
-      - network-utility-agent
+      - netutils-agent
       - all-agents
 
   # Backstage Plugin (Agent Forge)

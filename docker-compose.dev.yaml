@@ -60,7 +60,7 @@ services:
       - WEATHER_AGENT_HOST=agent-weather
       - VICTOROPS_AGENT_HOST=agent-victorops
       - WEBEX_AGENT_HOST=agent-webex
-      - NETWORK_UTILITY_AGENT_HOST=agent-network-utility
+      - NETUTILS_AGENT_HOST=agent-netutils
       - JARVIS_AGENT_HOST=agent-jarvis
       - JARVIS_AGENT_PORT=58000
 
@@ -93,7 +93,7 @@ services:
       - ENABLE_VICTOROPS=${ENABLE_VICTOROPS:-false}
       - ENABLE_WEBEX=${ENABLE_WEBEX:-false}
       - ENABLE_WEATHER=${ENABLE_WEATHER:-false}
-      - ENABLE_NETWORK_UTILITY=${ENABLE_NETWORK_UTILITY:-false}
+      - ENABLE_NETUTILS=${ENABLE_NETUTILS:-false}
       - ENABLE_JARVIS=${ENABLE_JARVIS:-false}
 
       # Tracing configuration (will be read from .env if ENABLE_TRACING=true)
@@ -912,47 +912,47 @@ services:
       - all-agents
 
   ####################################################################################################
-  #                                   NETWORK UTILITY AGENT                                          #
+  #                                      NETUTILS AGENT                                              #
   ####################################################################################################
-  # Network Utility agent: DNS, DHCP, dnsmasq management, ping, traceroute, port checks
+  # Netutils agent: DNS, DHCP, dnsmasq management, ping, traceroute, port checks
   # Uses a custom MCP Dockerfile with network diagnostic tools pre-installed
   # Optionally connects to a dnsmasq sidecar for DHCP/DNS server management
-  agent-network-utility:
+  agent-netutils:
     build:
       context: .
       dockerfile: build/agents/Dockerfile.a2a
       args:
-        - AGENT_NAME=network_utility
-    container_name: agent-network-utility
+        - AGENT_NAME=netutils
+    container_name: agent-netutils
     volumes:
-      - ./charts/ai-platform-engineering/data/prompt_config.network-utility_agent.yaml:/app/prompt_config.network-utility_agent.yaml
-      - ./ai_platform_engineering/agents/network_utility/agent_network_utility:/app/ai_platform_engineering/agents/agent/agent_network_utility
+      - ./charts/ai-platform-engineering/data/prompt_config.netutils_agent.yaml:/app/prompt_config.netutils_agent.yaml
+      - ./ai_platform_engineering/agents/netutils/agent_netutils:/app/ai_platform_engineering/agents/agent/agent_netutils
       - ./ai_platform_engineering/utils:/app/ai_platform_engineering/utils
     env_file: [.env]
     ports: ["8015:8000"]
     environment:
       - A2A_TRANSPORT=${A2A_TRANSPORT:-p2p}
       - MCP_MODE=http
-      - MCP_HOST=mcp-network-utility
+      - MCP_HOST=mcp-netutils
       - MCP_PORT=8000
       - SLIM_ENDPOINT=${SLIM_ENDPOINT:-http://slim-dataplane:46357}
     depends_on:
-      mcp-network-utility:
+      mcp-netutils:
         condition: service_healthy
     profiles:
-      - network-utility-agent
+      - netutils-agent
 
-  mcp-network-utility:
+  mcp-netutils:
     build:
       context: .
-      dockerfile: ai_platform_engineering/agents/network_utility/build/Dockerfile.mcp
+      dockerfile: ai_platform_engineering/agents/netutils/build/Dockerfile.mcp
       args:
-        - AGENT_NAME=network_utility
-    container_name: mcp-network-utility
+        - AGENT_NAME=netutils
+    container_name: mcp-netutils
     env_file: [.env]
     ports: ["18011:8000"]
     volumes:
-      - ./ai_platform_engineering/agents/network_utility/mcp/mcp_network_utility:/app/mcp_network_utility
+      - ./ai_platform_engineering/agents/netutils/mcp/mcp_netutils:/app/mcp_netutils
     environment:
       - MCP_MODE=http
       - MCP_HOST=0.0.0.0
@@ -964,7 +964,7 @@ services:
       retries: 5
       start_period: 15s
     profiles:
-      - network-utility-agent
+      - netutils-agent
 
   ####################################################################################################
   #                                      AGENT JARVIS A2A P2P                                        #

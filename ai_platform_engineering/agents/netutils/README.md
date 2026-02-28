@@ -1,4 +1,4 @@
-# Network Utility Agent
+# Netutils Agent
 
 An AI agent for network diagnostics, DNS resolution, DHCP lease management, and dnsmasq configuration management.
 
@@ -6,11 +6,11 @@ An AI agent for network diagnostics, DNS resolution, DHCP lease management, and 
 
 ```
 User → Platform Engineer (supervisor)
-         → A2ARemoteAgentConnectTool("network-utility")
-         → HTTP POST to agent-network-utility:8000
-              → NetworkUtilityAgent (BaseLangGraphAgent)
-              → MCP client → mcp-network-utility:8000 (HTTP)
-                   → Network Utility MCP tools
+         → A2ARemoteAgentConnectTool("netutils")
+         → HTTP POST to agent-netutils:8000
+              → NetutilsAgent (BaseLangGraphAgent)
+              → MCP client → mcp-netutils:8000 (HTTP)
+                   → Netutils MCP tools
                    → dnsmasq (config/logs/leases via shared volumes)
               → LLM
          → Response streamed back to user
@@ -18,7 +18,7 @@ User → Platform Engineer (supervisor)
 
 ## Components
 
-- **Agent** (`agent_network_utility/`): A2A server wrapping a LangGraph ReAct agent
+- **Agent** (`agent_netutils/`): A2A server wrapping a LangGraph ReAct agent
 - **MCP Server** (`mcp/`): FastMCP server providing network diagnostic tools
 
 ## Capabilities
@@ -37,9 +37,9 @@ User → Platform Engineer (supervisor)
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `ENABLE_NETWORK_UTILITY` | `false` | Enable in platform engineer |
-| `NETWORK_UTILITY_AGENT_HOST` | `agent-network-utility` | Agent hostname |
-| `NETWORK_UTILITY_AGENT_PORT` | `8000` | Agent port |
+| `ENABLE_NETUTILS` | `false` | Enable in platform engineer |
+| `NETUTILS_AGENT_HOST` | `agent-netutils` | Agent hostname |
+| `NETUTILS_AGENT_PORT` | `8000` | Agent port |
 | `MCP_MODE` | `http` | MCP transport (http/stdio) |
 | `DNSMASQ_CONFIG_DIR` | `/mnt/config` | Dnsmasq config mount |
 | `DNSMASQ_LEASE_FILE` | `/var/lib/misc/dnsmasq.leases` | Lease file path |
@@ -65,5 +65,5 @@ make lint
 
 ```bash
 # Build and run with docker-compose
-docker compose --profile network-utility-agent up -d
+docker compose --profile netutils-agent up -d
 ```

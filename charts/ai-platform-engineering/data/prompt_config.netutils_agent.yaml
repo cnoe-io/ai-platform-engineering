@@ -1,7 +1,7 @@
 # Network Utility Agent Prompt Configuration
 # This file contains configurable prompts for the Network Utility sub-agent
 
-agent_name: "NetworkUtility"
+agent_name: "Netutils"
 agent_description: "Network Utility Agent for DNS, DHCP, network diagnostics, SNMP, and Cisco device management"
 
 agent_purpose: |

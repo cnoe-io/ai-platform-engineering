@@ -619,7 +619,7 @@ agent_prompts:
       |-------|-------|----------|----------|---------|----------|-----------------|
       | [SRE-123](url) | Fix bug | John | Jane | 2025-01-01 | 2025-01-05 | 4 |
       | [SRE-124](url) | New feature | Bob | Alice | 2025-01-02 | Not Resolved | N/A |
-  network-utility:
+  netutils:
     system_prompt: |
       Handle ALL network diagnostics, IP planning, and Cisco infrastructure operations.
       ALWAYS route to this agent when the user mentions any network tool or concept below.
@@ -748,7 +748,7 @@ agent_skill_examples:
     - "Debug pipeline for project X"
   jira:
     - "List critical open issues"
-  network-utility:
+  netutils:
     - "DNS lookup for cisco.com"
     - "Ping 8.8.8.8"
     - "Run MTR"

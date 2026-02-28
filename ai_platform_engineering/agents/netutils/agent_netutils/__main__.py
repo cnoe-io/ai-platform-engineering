@@ -20,8 +20,8 @@ import os
 from dotenv import load_dotenv
 from agntcy_app_sdk.factory import AgntcyFactory
 
-from agent_network_utility.protocol_bindings.a2a_server.agent_executor import NetworkUtilityAgentExecutor  # type: ignore[import-untyped]
-from agent_network_utility.agentcard import create_agent_card
+from agent_netutils.protocol_bindings.a2a_server.agent_executor import NetutilsAgentExecutor  # type: ignore[import-untyped]
+from agent_netutils.agentcard import create_agent_card
 from a2a.server.apps import A2AStarletteApplication
 from a2a.server.request_handlers import DefaultRequestHandler
 from a2a.server.tasks import (
@@ -54,7 +54,7 @@ async def async_main(host: str, port: int):
         httpx_client=client, config_store=push_config_store
     )
     request_handler = DefaultRequestHandler(
-        agent_executor=NetworkUtilityAgentExecutor(),
+        agent_executor=NetutilsAgentExecutor(),
         task_store=InMemoryTaskStore(),
         push_config_store=push_config_store,
         push_sender=push_sender,
@@ -99,7 +99,7 @@ async def async_main(host: str, port: int):
                     "/ready",
                 ],
                 metrics_path="/metrics",
-                agent_name="network-utility",
+                agent_name="netutils",
             )
 
         config = uvicorn.Config(app, host=host, port=port, access_log=False)

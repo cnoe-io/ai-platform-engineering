@@ -1,4 +1,4 @@
-# Network Utility MCP Server
+# Netutils MCP Server
 
 MCP server providing network diagnostic and DHCP/DNS management tools via dnsmasq.
 
@@ -42,8 +42,8 @@ MCP server providing network diagnostic and DHCP/DNS management tools via dnsmas
 
 ```bash
 # stdio mode (for local agent use)
-uv run python -m mcp_network_utility
+uv run python -m mcp_netutils
 
 # HTTP mode (for Docker/remote use)
-MCP_MODE=http MCP_HOST=0.0.0.0 MCP_PORT=8000 uv run python -m mcp_network_utility
+MCP_MODE=http MCP_HOST=0.0.0.0 MCP_PORT=8000 uv run python -m mcp_netutils
 ```
