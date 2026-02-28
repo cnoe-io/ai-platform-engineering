@@ -1,3 +1,11 @@
+## 0.2.30 (2026-02-28)
+
+## 0.2.29-rc.1 (2026-02-28)
+
+### Refactor
+
+- rename network_utility agent to netutils (NetUtils) (#870)
+
 ## 0.2.29 (2026-02-27)
 
 ### Feat
