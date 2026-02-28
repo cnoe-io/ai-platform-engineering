@@ -134,13 +134,13 @@ dependencies:
         parent: global.enabledSubAgents.webex
   - name: agent
     version: 0.2.30 # Do NOT bump this. It will be updated automatically using the PR or release workflow
-    alias: agent-network-utility
+    alias: agent-netutils
     tags:
       - agent-netutils
       - complete
     import-values:
       - child: agentExports.data
-        parent: global.enabledSubAgents.network_utility
+        parent: global.enabledSubAgents.netutils
   - name: agent
     version: 0.2.30 # Do NOT bump this. It will be updated automatically using the PR or release workflow
     alias: agent-weather
