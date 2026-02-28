@@ -35,7 +35,7 @@ def main():
 
     logging.info("Starting MCP server in {} mode on {}:{}".format(MCP_MODE, MCP_HOST, MCP_PORT))
 
-    SERVER_NAME = os.getenv("SERVER_NAME", "Netutils")
+    SERVER_NAME = os.getenv("SERVER_NAME", "NetUtils")
     logging.info("*" * 40)
     logging.info("MCP Server name: {}".format(SERVER_NAME))
     logging.info("*" * 40)

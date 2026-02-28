@@ -1,7 +1,7 @@
 # Copyright 2025 CNOE
 # SPDX-License-Identifier: Apache-2.0
 
-"""Netutils Agent implementation using common A2A base classes."""
+"""NetUtils Agent implementation using common A2A base classes."""
 
 import os
 from typing import Literal
@@ -22,8 +22,8 @@ class ResponseFormat(BaseModel):
 _prompt_config = load_subagent_prompt_config("netutils")
 
 
-class NetutilsAgent(BaseLangGraphAgent):
-    """Netutils Agent for DNS, DHCP, and network diagnostics."""
+class NetUtilsAgent(BaseLangGraphAgent):
+    """NetUtils Agent for DNS, DHCP, and network diagnostics."""
 
     SYSTEM_INSTRUCTION = _prompt_config.get_system_instruction()
 
@@ -46,7 +46,7 @@ class NetutilsAgent(BaseLangGraphAgent):
         return ResponseFormat
 
     def get_mcp_config(self, server_path: str) -> dict:
-        """Return MCP configuration for Netutils (stdio mode)."""
+        """Return MCP configuration for NetUtils (stdio mode)."""
         return {
             "command": "uv",
             "args": ["run", "--project", os.path.dirname(server_path), server_path],
@@ -69,7 +69,7 @@ class NetutilsAgent(BaseLangGraphAgent):
     @trace_agent_stream("netutils")
     async def stream(self, query: str, sessionId: str, trace_id: str = None):
         """
-        Stream responses with netutils-specific tracing and error handling.
+        Stream responses with NetUtils-specific tracing and error handling.
 
         Overrides the base stream method to add agent-specific tracing decorator.
         """
@@ -80,13 +80,13 @@ class NetutilsAgent(BaseLangGraphAgent):
             async for event in super().stream(query, sessionId, trace_id):
                 yield event
         except Exception as e:
-            logger.error(f"Unexpected Netutils agent error: {str(e)}", exc_info=True)
+            logger.error(f"Unexpected NetUtils agent error: {str(e)}", exc_info=True)
             yield {
                 "is_task_complete": True,
                 "require_user_input": False,
                 "kind": "error",
                 "content": (
-                    f"❌ An unexpected error occurred in Netutils: {str(e)}"
+                    f"❌ An unexpected error occurred in NetUtils: {str(e)}"
                     "\n\nPlease try again or contact support if the issue persists."
                 ),
             }

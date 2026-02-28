@@ -569,7 +569,7 @@ services:
       - webex
       - all-agents
 
-  # Netutils Agent
+  # NetUtils Agent
   agent-netutils:
     image: ghcr.io/cnoe-io/agent-netutils:${IMAGE_TAG:-0.2.21}
     container_name: agent-netutils

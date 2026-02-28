@@ -1,4 +1,4 @@
-# Netutils Agent
+# NetUtils Agent
 
 An AI agent for network diagnostics, DNS resolution, DHCP lease management, and dnsmasq configuration management.
 
@@ -8,9 +8,9 @@ An AI agent for network diagnostics, DNS resolution, DHCP lease management, and 
 User → Platform Engineer (supervisor)
          → A2ARemoteAgentConnectTool("netutils")
          → HTTP POST to agent-netutils:8000
-              → NetutilsAgent (BaseLangGraphAgent)
+              → NetUtilsAgent (BaseLangGraphAgent)
               → MCP client → mcp-netutils:8000 (HTTP)
-                   → Netutils MCP tools
+                   → NetUtils MCP tools
                    → dnsmasq (config/logs/leases via shared volumes)
               → LLM
          → Response streamed back to user

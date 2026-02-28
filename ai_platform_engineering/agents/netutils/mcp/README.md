@@ -1,4 +1,4 @@
-# Netutils MCP Server
+# NetUtils MCP Server
 
 MCP server providing network diagnostic and DHCP/DNS management tools via dnsmasq.
 

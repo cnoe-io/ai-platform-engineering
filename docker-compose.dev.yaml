@@ -912,9 +912,9 @@ services:
       - all-agents
 
   ####################################################################################################
-  #                                      NETUTILS AGENT                                              #
+  #                                      NETUTILS AGENT (NetUtils)                                    #
   ####################################################################################################
-  # Netutils agent: DNS, DHCP, dnsmasq management, ping, traceroute, port checks
+  # NetUtils agent: DNS, DHCP, dnsmasq management, ping, traceroute, port checks
   # Uses a custom MCP Dockerfile with network diagnostic tools pre-installed
   # Optionally connects to a dnsmasq sidecar for DHCP/DNS server management
   agent-netutils:

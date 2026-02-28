@@ -20,7 +20,7 @@ import os
 from dotenv import load_dotenv
 from agntcy_app_sdk.factory import AgntcyFactory
 
-from agent_netutils.protocol_bindings.a2a_server.agent_executor import NetutilsAgentExecutor  # type: ignore[import-untyped]
+from agent_netutils.protocol_bindings.a2a_server.agent_executor import NetUtilsAgentExecutor  # type: ignore[import-untyped]
 from agent_netutils.agentcard import create_agent_card
 from a2a.server.apps import A2AStarletteApplication
 from a2a.server.request_handlers import DefaultRequestHandler
@@ -54,7 +54,7 @@ async def async_main(host: str, port: int):
         httpx_client=client, config_store=push_config_store
     )
     request_handler = DefaultRequestHandler(
-        agent_executor=NetutilsAgentExecutor(),
+        agent_executor=NetUtilsAgentExecutor(),
         task_store=InMemoryTaskStore(),
         push_config_store=push_config_store,
         push_sender=push_sender,

@@ -22,7 +22,7 @@ AGENT_DESCRIPTION = (
 
 agent_skill = AgentSkill(
     id="netutils_agent_skill",
-    name="Netutils Agent Skill",
+    name="NetUtils Agent Skill",
     description=(
         "Provides capabilities for DNS lookups, network diagnostics (ping, traceroute, port checks), "
         "DHCP lease management, and dnsmasq configuration management."

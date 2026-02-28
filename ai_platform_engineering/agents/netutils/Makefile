@@ -1,6 +1,6 @@
-# Netutils Agent Makefile
+# NetUtils Agent Makefile
 # --------------------------------------------------
-# This Makefile provides targets for the Netutils agent.
+# This Makefile provides targets for the NetUtils agent.
 # It includes common functionality from ../common.mk
 # --------------------------------------------------
 
@@ -12,8 +12,8 @@ include ../common.mk
 
 # Override test target - agent tests depend on workspace context
 .PHONY: test
-test: ## Run Netutils tests (use workspace-level targets)
-	@echo "❌ Netutils agent tests depend on ai_platform_engineering workspace utilities."
+test: ## Run NetUtils tests (use workspace-level targets)
+	@echo "❌ NetUtils agent tests depend on ai_platform_engineering workspace utilities."
 	@echo ""
 	@echo "Run tests from the workspace root instead:"
 	@echo "  make test-mcp-netutils    # Run MCP server tests only"
