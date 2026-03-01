@@ -1,53 +1,69 @@
-# Introduction to AI Agents
+# Introduction to AI Agents and ReAct Pattern
 
-## Agentic AI Concepts
+## 1. Overview
 
-This tutorial introduces the foundations of **Agentic AI**, a paradigm shift where large language models (LLMs) evolve from passive text generators into active, autonomous systems capable of reasoning, planning, and interacting with tools and environments to accomplish complex tasks.
+This is the first part of a multi-part lab series on building AI agents. In this part, you'll learn the foundational concepts of agentic AI and build your first working agents using the ReAct pattern.
+
+**What you'll learn in this part:**
+
+- Core concepts of agentic AI and the ReAct pattern
+- How to build a simple agent with LangChain
+- How to integrate tools using the Model Context Protocol (MCP)
+- The difference between AI agents and MCP servers
+
+**Prerequisites:**
+
+- Basic Python knowledge
+- Access to Azure OpenAI (credentials provided in lab environment)
 
 ---
 
-### What is an Agent?
+## 2. Understanding AI Agents
 
-An **AI Agent** is an intelligent system that uses a **Large Language Model (LLM)** as its "brain" to make decisions and control the flow of an application. Unlike traditional chatbots that simply respond to queries, agents are proactive systems that can:
+### 2.1 What is an Agent?
+
+An **AI Agent** is an intelligent system that uses a **Large Language Model (LLM)** as its "brain" to make decisions and control application flow. Unlike traditional chatbots that simply respond to queries, agents are proactive systems that can:
 
 - **Plan** multi-step approaches to solve complex problems
 - **Execute** actions using external tools and APIs
 - **Adapt** their strategy based on results and feedback
 - **Persist** through failures and iterate toward solutions
 
-Think of an agent as a digital assistant that doesn't just answer questions, but actually *does things* to help you achieve your goals.
+> [!NOTE]
+> An agent doesn't just answer questions — it actively takes actions to achieve goals..
 
-### Core Components
+### 2.2 Core Components of an Agent
 
-**1. System Prompts**
-System prompts define the agent’s role, behavior, and constraints.
-They determine *how* the agent should think and act within a given task.
+Every AI agent consists of three essential components:
 
-**2. Tools**
-Tools (or functions, APIs, and skills) extend the LLM’s capabilities beyond language.
-Examples include:
+**System Prompts**
+System prompts define the agent's role, behavior, and constraints. They act as the agent's "personality" and "instructions."
+
+*Example:* "You are Mission Control for a Mars colony. Use your tools to help astronauts stay safe."
+
+**Tools**
+Tools extend the LLM's capabilities beyond text generation. They allow agents to interact with the real world.
+
+*Examples:*
 
 - Searching the web
-
 - Running code
-
 - Querying a database
+- Checking sensor readings
+- Sending notifications
 
-- Sending an email
+**Memory**
 
-- Summarizing a document
+Memory allows agents to maintain context across interactions:
 
-**3. Memory**
-
-Memory allows the agent to retain context and knowledge over time.
-- *Short-term memory* keeps track of the current reasoning process or conversation.
-- *Long-term memory* stores persistent knowledge, such as user preferences or past experiences.
+- **Short-term memory:** Tracks the current task and reasoning steps
+- **Long-term memory:** Stores persistent knowledge like user preferences or past experiences
 
 ---
 
-### Anatomy of an Agent
+### 2.3 The Agent Lifecycle
 
-An agent operates as a continuous feedback loop, similar to how humans approach complex problems. This cycle consists of three key phases:
+An agent operates as a continuous feedback loop, similar to how humans approach complex problems:
 
 1. **Perception**: Understanding the current situation and available information
 2. **Decision**: Choosing the best action based on reasoning and goals
@@ -58,16 +74,16 @@ An agent operates as a continuous feedback loop, similar to how humans approach 
 This continuous cycle enables the agent to:
 
 - **Adapt** to changing conditions
-
 - **Learn** from successes and failures
-
 - **Persist** through obstacles
-
 - **Operate autonomously** until the goal is achieved
 
-The key insight is that agents don't just execute pre-programmed sequences—they dynamically adjust their approach based on real-time feedback.
+> [!NOTE]
+> Agents don't execute pre-programmed sequences—they dynamically adjust their approach based on real-time feedback.
 
-### ReAct Loop: The Heart of Agent Intelligence
+---
+
+### 2.4 The ReAct Pattern: Reason + Act
 
 **ReAct** stands for **Reason + Act**, a foundational pattern that transforms LLMs from passive responders into active problem-solvers. This approach enables agents to think through problems step-by-step while taking concrete actions.
 
@@ -76,14 +92,11 @@ The key insight is that agents don't just execute pre-programmed sequences—the
 Traditional LLMs can only generate text responses. ReAct enables them to:
 
 - **Break down complex problems** into manageable steps
-
 - **Gather information** dynamically as needed
-
 - **Verify assumptions** through real-world actions
-
 - **Course-correct** when initial approaches fail
 
-#### Step-by-Step Flow
+#### The ReAct Loop
 
 | Step | Description | Example |
 |------|-------------|----------|
@@ -93,7 +106,7 @@ Traditional LLMs can only generate text responses. ReAct enables them to:
 
 This cycle continues until the task is complete, an error occurs, or a maximum iteration limit is reached.
 
-#### Example Conceptual Flow
+#### Example: Mars Habitat Status Check
 
 ```
 User Query: "What's the status of our Mars habitat?"
@@ -111,32 +124,39 @@ Observe: "All systems normal. Ready to respond."
 Final Answer: "Habitat status: Oxygen optimal at 20.7%, Rover Spirit at 76% battery"
 ```
 
-![](images/react-agent.svg)
+<center><img src="images/react-agent.svg" alt="Mission Control" width="250"></center>
 
-## Hands-On: Create a Simple ReAct Agent
+---
 
-Now let's build a practical ReAct agent that manages a Mars colony. This example demonstrates how agents use tools to gather information and make decisions.
+## 3. Build Your First ReAct Agent
 
-### Step 1: Configure LLM Connection
+In this section, you'll build a Mars colony management agent that uses the ReAct pattern to check habitat conditions and rover status.
 
-The LLM connection details are already provided in the lab environment so there is no need to provide them.
+### Task 1: Verify Your Environment
 
-However if you would like to try on another envoironmend you would need to provide the necessary parameters to connect to a LLM.
-For this lab we use Azure OpenAi.
+The lab environment already has Azure OpenAI credentials configured. Let's verify they're available.
 
-**Required variables:**
+```bash
+echo "Checking Azure OpenAI configuration..."
+env | grep AZURE_OPENAI
+```
 
-- `AZURE_OPENAI_DEPLOYMENT`: Your model deployment name (e.g., "gpt-4o")
+**Expected output:**
+You should see environment variables like:
 
-- `AZURE_OPENAI_API_VERSION`: API version (e.g., "2025-03-01-preview")
+- `AZURE_OPENAI_DEPLOYMENT`
+- `AZURE_OPENAI_API_VERSION`
+- `AZURE_OPENAI_ENDPOINT`
+- `AZURE_OPENAI_API_KEY`
 
-- `AZURE_OPENAI_ENDPOINT`: Your Azure OpenAI endpoint URL
+> [!NOTE]
+> If you want to run this lab in your own environment, you'll need to set these variables with your Azure OpenAI credentials.
 
-- `AZURE_OPENAI_API_KEY`: Your API key
+---
 
-### Step 2: Install Dependencies
+### Task 2: Install Required Dependencies
 
-We'll use LangChain, a popular framework for building LLM applications:
+We'll use LangChain, a popular framework for building LLM applications.
 
 ```bash
 pip install -U langchain "langchain[openai]" langgraph langchain-openai dotenv
@@ -144,21 +164,22 @@ pip install -U langchain "langchain[openai]" langgraph langchain-openai dotenv
 
 **What each package does:**
 
-- `langchain`: Core framework for LLM applications
+- `langchain`: Core framework for building agent workflows
+- `langgraph`: Advanced agent orchestration and state management
+- `langchain-openai`: Integration with Azure OpenAI
+- `dotenv`: Loads environment variables from files
 
-- `langgraph`: Advanced agent orchestration and workflow management
+---
 
-- `langchain-openai`: Azure OpenAI integration
+### Task 3: Examine the Agent Code
 
-### Step 3: Examine the Agent Code
-
-Let's look at our Mars colony management agent:
+Let's look at the Mars colony management agent code to understand how it works.
 
 ```bash
-cat $HOME/work/simple-agent/simple_react_agent.py
+bat $HOME/work/simple-agent/simple_react_agent.py
 ```
 
-The output should look like:
+**Expected output:**
 ```python
 from langchain.agents import create_agent
 from langchain_openai import AzureChatOpenAI
@@ -203,13 +224,68 @@ for message in response['messages']:
         print(f"AI: {message.content}")
 ```
 
-Let's execute the script
+#### Code Breakdown
+
+Let's understand what each part does:
+
+**Tool Definitions (Lines 10-21)**
+```python
+def check_oxygen_level() -> str:
+    """Returns the current oxygen level in the Mars habitat."""
+    print("[TOOL] check_oxygen_level was called")
+    oxygen_level = round(random.uniform(18.0, 23.0), 1)
+    return f"Oxygen level is optimal at {oxygen_level}%."
+```
+- This function simulates a sensor reading
+- The docstring is crucial—the agent reads it to understand what the tool does
+- Returns a string that the agent can interpret
+
+**LLM Initialization (Lines 23-27)**
+```python
+llm = AzureChatOpenAI(
+    azure_deployment=os.getenv("AZURE_OPENAI_DEPLOYMENT"),
+    openai_api_version=os.getenv("AZURE_OPENAI_API_VERSION")
+)
+```
+- Creates a connection to Azure OpenAI
+- Uses environment variables for configuration
+- This is the "brain" of the agent
+
+**Agent Creation (Lines 30-34)**
+```python
+agent = create_agent(
+    model=llm,
+    tools=[check_oxygen_level, rover_battery_status],
+    system_prompt="You are Mission Control for a Mars colony..."
+)
+```
+- Combines the LLM with available tools
+- The system prompt defines the agent's role and behavior
+- The agent can now reason about when to use each tool
+
+**Agent Invocation (Lines 37-38)**
+```python
+response = agent.invoke({
+    "messages": [{"role": "user", "content": "Mission Control, what's the oxygen level..."}]
+})
+```
+- Sends a user query to the agent
+- The agent will use the ReAct pattern to:
+  1. Reason about what information is needed
+  2. Call the appropriate tools
+  3. Synthesize a final answer
+
+---
+
+### Task 4: Run the Agent
+
+Now let's see the agent in action!
 
 ```bash
 python3 $HOME/work/simple-agent/simple_react_agent.py
 ```
 
-Expected output
+**Expected output:**
 ```text
 [TOOL] check_oxygen_level was called
 [TOOL] rover_battery_status was called for rover: Spirit
@@ -221,52 +297,74 @@ AI: The oxygen level in the Mars habitat is optimal at 20.7%.
 Rover Spirit's battery is currently at 56% and it's functioning normally.
 ```
 
-## MCP (Model Context Protocol): Standardizing Agent Capabilities
+**What just happened?**
 
-**Model Context Protocol (MCP)** is an emerging standard that addresses a critical challenge in the AI agent ecosystem: how to consistently and securely connect LLMs with external tools, data sources, and services.
+1. **Reason:** The agent analyzed the user's question and determined it needed two pieces of information
+2. **Act:** It called `check_oxygen_level()` first
+3. **Observe:** It received the oxygen reading
+4. **Act:** It then called `rover_battery_status("Spirit")`
+5. **Observe:** It received the battery status
+6. **Respond:** It synthesized both results into a coherent answer
 
-### The Problem MCP Solves
+Notice the `[TOOL]` messages showing when each tool was called. This demonstrates the ReAct loop in action!
+
+---
+
+## 4. Understanding Model Context Protocol (MCP)
+
+### 4.1 What is MCP?
+
+**Model Context Protocol (MCP)** is an emerging standard that addresses a critical challenge: how to consistently and securely connect LLMs with external tools, data sources, and services.
+
+### 4.2 The Problem MCP Solves
 
 Before MCP, every AI application had to:
 
 - Build custom integrations for each tool or service
-
 - Handle authentication and security differently
-
 - Maintain separate codebases for similar functionality
-
 - Deal with inconsistent APIs and data formats
 
-### MCP's Solution
+### 4.3 MCP's Solution
 
 MCP provides a **standardized interface** that enables:
 
 - **Consistent tool integration** across different LLM applications
-
 - **Secure communication** between agents and external services
-
 - **Reusable components** that work with any MCP-compatible system
-
 - **Simplified development** through common protocols
 
-![](images/mcp.svg)
+<center><img src="images/mcp.svg" alt="MCP Architecture" width="250"></center>
 
 **Think of MCP as "USB for AI agents"** - just as USB standardized how devices connect to computers, MCP standardizes how agents connect to tools and services.
 
-### Create a Simple ReAct Agent with MCP Server
+---
 
-We'll use LangChain, a popular framework for building LLM applications:
+## 5. Build an Agent with MCP
 
-```bash
-pip install -U langchain "langchain[openai]" langgraph langchain-openai langchain-mcp-adapters
-```
+Now you'll build the same Mars colony agent, but using MCP to expose the tools. This demonstrates how MCP separates tool definitions from agent logic.
 
-Lets first take a look at the provided MCP server which exposes two tools:
+### Task 5: Install MCP Dependencies
 
 ```bash
-cat $HOME/work/simple-agent/simple_mcp_server.py
+pip install -U langchain-mcp-adapters
 ```
 
+**What this does:**
+- Adds MCP support to LangChain
+- Allows agents to discover and use tools from MCP servers
+
+---
+
+### Task 6: Examine the MCP Server
+
+An MCP server exposes tools that agents can use. Let's look at our Mars colony MCP server.
+
+```bash
+bat $HOME/work/simple-agent/simple_mcp_server.py
+```
+
+**Expected output:**
 ```python
 from mcp.server.fastmcp import FastMCP
 import random
@@ -291,12 +389,47 @@ if __name__ == "__main__":
     mcp.run(transport="stdio")
 ```
 
-The agent will use the existing MCP tool for any related requests
+#### Code Breakdown
+
+**MCP Server Creation (Lines 1-4)**
+```python
+from mcp.server.fastmcp import FastMCP
+mcp = FastMCP("Mars Colony")
+```
+- Creates an MCP server named "Mars Colony"
+- This server will expose tools to any MCP-compatible agent
+
+**Tool Registration (Lines 6-11)**
+```python
+@mcp.tool()
+def check_oxygen_level() -> str:
+    """Returns the current oxygen level in the Mars habitat."""
+```
+- The `@mcp.tool()` decorator registers the function as an MCP tool
+- The docstring becomes the tool's description for agents
+- The function signature defines the tool's parameters
+
+**Server Startup (Lines 19-20)**
+```python
+if __name__ == "__main__":
+    mcp.run(transport="stdio")
+```
+- Starts the MCP server using standard input/output for communication
+- The agent will communicate with this server to call tools
+
+**Key difference from previous code:** The tools are now in a separate server process, not directly in the agent code. This allows multiple agents to share the same tools!
+
+---
+
+### Task 7: Examine the MCP-Enabled Agent
+
+Now let's look at how an agent connects to an MCP server.
 
 ```bash
-cat $HOME/work/simple-agent/simple_react_agent_with_mcp.py
+bat $HOME/work/simple-agent/simple_react_agent_with_mcp.py
 ```
 
+**Expected output:**
 ```python
 import asyncio
 from mcp import ClientSession, StdioServerParameters
@@ -352,13 +485,56 @@ if __name__ == "__main__":
     asyncio.run(main())
 ```
 
-Now start the agent
+#### Code Breakdown
+
+**MCP Server Connection (Lines 16-19)**
+```python
+server_params = StdioServerParameters(
+    command="python3",
+    args=[mcp_server_file_path],
+)
+```
+- Defines how to start the MCP server
+- The agent will launch the server as a subprocess
+- Communication happens via standard input/output
+
+**Session Management (Lines 21-24)**
+```python
+async with stdio_client(server_params) as (read, write):
+    async with ClientSession(read, write) as session:
+        await session.initialize()
+```
+- Establishes a connection to the MCP server
+- Initializes the communication protocol
+- Uses async/await for efficient I/O
+
+**Tool Discovery (Line 27)**
+```python
+tools = await load_mcp_tools(session)
+```
+- **This is the magic of MCP!**
+- The agent automatically discovers all available tools from the server
+- No need to manually list tools—the server provides them dynamically
+
+**Agent Creation (Line 38)**
+```python
+agent = create_agent(llm, tools)
+```
+- Creates the agent with tools from the MCP server
+- The agent doesn't know or care that tools come from MCP
+- This separation allows for flexible tool management
+
+---
+
+### Task 8: Run the MCP-Enabled Agent
+
+Let's see the MCP version in action!
 
 ```bash
 python3 $HOME/work/simple-agent/simple_react_agent_with_mcp.py
 ```
 
-Expected output
+**Expected output:**
 ```text
 Processing request of type ListToolsRequest
 Processing request of type CallToolRequest
@@ -370,43 +546,48 @@ AI: Rover Spirit battery at 99% and functioning normally.
 AI: The oxygen level in the Mars habitat is optimal at 18.6%. Meanwhile, Rover Spirit's battery is at 99% and functioning normally. All systems are looking good!
 ```
 
-## AI Agents vs MCP Servers: Understanding the Distinction
+**What's different?**
 
-As the agentic AI landscape evolves rapidly, it's crucial to understand the complementary roles of AI Agents and MCP Servers in building scalable, maintainable systems.
+Notice the MCP protocol messages:
 
-### AI Agents: The "Brain"
+- `ListToolsRequest`: The agent asks the MCP server what tools are available
+- `CallToolRequest`: The agent calls a tool through the MCP protocol
+
+The agent behavior is the same as before, but the architecture is more modular and scalable!
+
+---
+
+## 5. AI Agents vs MCP Servers
+
+Now that you've built both versions, let's understand the key differences and when to use each approach.
+
+### 5.1 AI Agents: The "Brain"
 
 **AI Agents** are intelligent systems that:
 
 - **Reason** through complex problems using LLMs
-
 - **Plan** multi-step approaches to achieve goals
-
 - **Adapt** strategies based on results and feedback
-
 - **Maintain context** and memory across interactions
-
 - **Orchestrate** multiple tools and services
 
-**Think of agents as:** Digital employees that can think, plan, and execute complex tasks
+> [!TIP]
+> **Think of agents as:** Digital employees that can think, plan, and execute complex tasks
 
-### MCP Servers: The "Toolbox"
+### 5.2 MCP Servers: The "Toolbox"
 
 **MCP Servers** are standardized interfaces that:
 
 - **Expose tools** and capabilities to agents
-
 - **Handle authentication** and security
-
 - **Provide consistent APIs** across different services
-
 - **Enable tool reuse** across multiple agents
-
 - **Simplify integration** with external systems
 
-**Think of MCP servers as:** Standardized tool libraries that any agent can use
+> [!TIP]
+> **Think of MCP servers as:** Standardized tool libraries that any agent can use
 
-### The Relationship
+### 5.3 The Relationship
 
 ```
 AI Agent (Brain) ←→ MCP Protocol ←→ MCP Server (Toolbox)
@@ -417,28 +598,70 @@ AI Agent (Brain) ←→ MCP Protocol ←→ MCP Server (Toolbox)
 - Orchestration                      - External APIs
 ```
 
-### Why This Separation Matters
+### 5.4 When to Use Each Approach
+
+**Direct Tool Integration:**
+
+- ✅ Simple, single-agent applications
+- ✅ Rapid prototyping
+- ✅ Tools specific to one agent
+- ❌ Harder to share tools across agents
+- ❌ Tight coupling between agent and tools
+
+**MCP Integration:**
+
+- ✅ Multiple agents sharing tools
+- ✅ Production systems requiring modularity
+- ✅ Tools that need independent updates
+- ✅ Enterprise environments with security requirements
+- ❌ Slightly more complex setup
+
+### 5.5 Benefits of Separation
 
 1. **Modularity**: Tools can be developed independently of agents
-
 2. **Reusability**: One MCP server can serve multiple agents
-
 3. **Security**: Centralized authentication and access control
-
 4. **Scalability**: Agents and tools can scale independently
-
 5. **Maintainability**: Updates to tools don't require agent changes
 
-### Advanced Agent Capabilities
+---
 
-As agents become more sophisticated, they incorporate:
+## 6. Summary
+
+Congratulations! You've completed Part 1 of the AI Agents lab series. Here's what you accomplished:
+
+✅ Understood the core concepts of agentic AI and the ReAct pattern
+✅ Built a working ReAct agent with direct tool integration
+✅ Created an MCP server to expose tools
+✅ Built an agent that uses MCP for tool discovery
+✅ Learned the differences between agents and MCP servers
+
+### Key Takeaways from Part 1
+
+1. **Agents use the ReAct pattern** to reason, act, and observe in a continuous loop
+2. **Tools extend agent capabilities** beyond text generation
+3. **MCP standardizes tool integration** for better modularity and reusability
+4. **Agents are the "brain"** that reasons and plans
+5. **MCP servers are the "toolbox"** that provides capabilities
+
+### What's Next?
+
+In the upcoming parts of this lab series, you'll explore:
+
+- **Part 2**: [Advanced agent patterns and techniques]
+- **Part 3**: [Building production-ready agent systems]
+
+### Additional Resources
+
+For those interested in diving deeper:
 
 - **[Agent Memory](https://blog.langchain.com/memory-for-agents/)**: Long-term and short-term memory systems
 - **[Context Engineering](https://blog.langchain.com/context-engineering-for-agents/)**: Optimizing prompts and context for better performance
-- **[Multi-Agent Orchestration](https://outshift.cisco.com/blog/architecting-jarvis-technical-deep-dive-into-its-multi-agent-system-design?search=jarvis)**: Coordinating multiple specialized agents
+- **[Multi-Agent Orchestration](https://cisco.com/blog/architecting-jarvis-technical-deep-dive-into-its-multi-agent-system-design?search=jarvis)**: Coordinating multiple specialized agents
 - **[Tool Pruning via RAG](https://github.com/langchain-ai/langgraph-bigtool)**: Intelligently selecting relevant tools from large toolsets
-
-### Further Reading
-
 - **[AI Agent vs MCP Server - Detailed Comparison](https://cnoe-io.github.io/ai-platform-engineering/blog/ai-agent-vs-mcp-server)**
+- **[LangChain Documentation](https://python.langchain.com/docs/)**
+- **[Model Context Protocol Specification](https://modelcontextprotocol.io/)**
+
+---
 
