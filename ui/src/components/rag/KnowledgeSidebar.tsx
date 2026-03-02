@@ -11,6 +11,7 @@ import {
   ChevronLeft,
   ChevronRight,
   BookOpen,
+  Wrench,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -45,12 +46,20 @@ const navItems = [
     description: "Explore entity relationships",
     requiresGraphRag: true,
   },
+  {
+    id: "mcp-tools",
+    label: "MCP Tools",
+    href: "/knowledge-bases/mcp-tools",
+    icon: Wrench,
+    description: "Configure MCP search tools",
+  },
 ];
 
 export function KnowledgeSidebar({ collapsed, onCollapse, graphRagEnabled }: KnowledgeSidebarProps) {
   const pathname = usePathname();
 
   const getActiveTab = () => {
+    if (pathname?.includes("/mcp-tools")) return "mcp-tools";
     if (pathname?.includes("/search")) return "search";
     if (pathname?.includes("/ingest")) return "ingest";
     if (pathname?.includes("/graph")) return "graph";

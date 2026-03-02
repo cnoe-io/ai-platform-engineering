@@ -314,7 +314,7 @@ This pattern mimics how humans use search engines: scan snippets first, then cli
 **Core Tools:**
 - `search` - Hybrid semantic/keyword search with filters and bias presets (semantic or keyword-focused)
 - `fetch_document` - Retrieve full document content by ID from search results
-- `fetch_datasources_and_entity_types` - List available datasources and entity types in the knowledge base
+- `list_datasources_and_entity_types` - List available datasources and entity types in the knowledge base
 
 **Graph Tools (when Graph RAG enabled):**
 - `graph_explore_ontology_entity` - Explore entity type schemas and their relationships (1-3 hops)
