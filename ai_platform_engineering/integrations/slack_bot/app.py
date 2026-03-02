@@ -283,6 +283,112 @@ def handle_qanda_message(event, say, client):
             logger.exception(f"Failed to send error message: {say_error}")
 
 
+def handle_dm_message(event, say, client):
+    """Handle direct messages to the bot."""
+    try:
+        if event.get("bot_id"):
+            return
+
+        thread_ts = event.get("thread_ts") or event.get("ts")
+        user_id = event.get("user")
+        message_text = slack_context.extract_message_text(event)
+
+        user_name, user_email = utils.get_message_author_info(event, client)
+
+        logger.info(
+            f"[{thread_ts}] DM from User: {user_name} ({user_id}), "
+            f"Email: {user_email}, Message: {message_text}"
+        )
+
+        if not message_text or not message_text.strip():
+            say(text="Please include a question or message!", thread_ts=thread_ts)
+            return
+
+        bot_info = client.auth_test()
+        bot_user_id = bot_info.get("user_id")
+
+        context_message = message_text
+        if event.get("thread_ts"):
+            context_message = slack_context.build_thread_context(
+                app, event.get("channel"), thread_ts, message_text, bot_user_id
+            )
+
+        context_id = session_manager.get_context_id(thread_ts)
+
+        final_message = config.defaults.default_mention_prompt.format(
+            message_text=context_message
+        )
+
+        if config.defaults.response_style_instruction not in final_message:
+            final_message += "\n\n" + config.defaults.response_style_instruction
+
+        request_metadata = {}
+        if user_email:
+            final_message = f"The user email is {user_email}\n\n{final_message}"
+            request_metadata["user_email"] = user_email
+
+        team_id = event.get("team")
+
+        result = ai.stream_a2a_response(
+            a2a_client=a2a_client,
+            slack_client=client,
+            channel_id=event.get("channel"),
+            thread_ts=thread_ts,
+            message_text=final_message,
+            team_id=team_id,
+            user_id=user_id,
+            context_id=context_id,
+            metadata=request_metadata if request_metadata else None,
+            session_manager=session_manager,
+        )
+
+        if isinstance(result, dict) and result.get("retry_needed"):
+            original_error = result.get("error", "Unknown error")
+            logger.warning(
+                f"[{thread_ts}] DM request failed, showing retry button: {original_error[:100]}"
+            )
+
+            client.chat_postMessage(
+                channel=event.get("channel"),
+                thread_ts=thread_ts,
+                blocks=[
+                    {
+                        "type": "section",
+                        "text": {
+                            "type": "mrkdwn",
+                            "text": "Something went wrong - some tools or subagents may have timed out. Would you like to try again?",
+                        },
+                    },
+                    {
+                        "type": "actions",
+                        "elements": [
+                            {
+                                "type": "button",
+                                "text": {"type": "plain_text", "text": "Retry"},
+                                "style": "primary",
+                                "action_id": "caipe_retry",
+                                "value": f"{event.get('channel')}|{thread_ts}",
+                            },
+                        ],
+                    },
+                ],
+                text="Something went wrong. Click Retry to try again.",
+            )
+
+        logger.info(f"[{thread_ts}] Completed DM request for {user_name}")
+
+    except Exception as e:
+        logger.exception(f"Error handling DM message: {e}")
+        try:
+            say(
+                blocks=slack_formatter.format_error_message(str(e)),
+                text=f"Error: {e}",
+                thread_ts=event.get("thread_ts") or event.get("ts"),
+            )
+        except Exception as say_error:
+            logger.exception(f"Failed to send error message: {say_error}")
+
+
 @app.event("message")
 def handle_message_events(body, say, client):
     event = body.get("event")
@@ -291,6 +397,12 @@ def handle_message_events(body, say, client):
 
     subtype = event.get("subtype")
     if subtype in ("message_deleted", "message_changed", "channel_join", "channel_leave"):
+        return
+
+    # Route DMs to dedicated handler
+    channel_type = event.get("channel_type")
+    if channel_type == "im" and not event.get("bot_id"):
+        handle_dm_message(event, say, client)
         return
 
     channel_id = event.get("channel")
@@ -450,7 +562,7 @@ def handle_feedback_more_detail(ack, body, client):
             feedback_client=feedback_client,
         )
 
-        client.chat_postEphemeral(channel=channel_id, user=user_id, thread_ts=thread_ts, text="Got it! Asking CAIPE for more detail...")
+        client.chat_postEphemeral(channel=channel_id, user=user_id, thread_ts=thread_ts, text=f"Got it! Asking {APP_NAME} for more detail...")
 
         context_id = session_manager.get_context_id(thread_ts)
         team_id = body.get("team", {}).get("id")
@@ -485,7 +597,7 @@ def handle_feedback_less_verbose(ack, body, client):
             feedback_client=feedback_client,
         )
 
-        client.chat_postEphemeral(channel=channel_id, user=user_id, thread_ts=thread_ts, text="Got it! Asking CAIPE for a more concise response...")
+        client.chat_postEphemeral(channel=channel_id, user=user_id, thread_ts=thread_ts, text=f"Got it! Asking {APP_NAME} for a more concise response...")
 
         context_id = session_manager.get_context_id(thread_ts)
         team_id = body.get("team", {}).get("id")
@@ -565,7 +677,7 @@ def _open_feedback_modal(ack, body, client, feedback_type):
                 "submit": {"type": "plain_text", "text": "Submit"},
                 "close": {"type": "plain_text", "text": "Cancel"},
                 "blocks": [
-                    {"type": "section", "text": {"type": "mrkdwn", "text": "Tell CAIPE what went wrong and it'll try again right away."}},
+                    {"type": "section", "text": {"type": "mrkdwn", "text": f"Tell {APP_NAME} what went wrong and it'll try again right away."}},
                     {
                         "type": "input",
                         "block_id": "correction_input",
@@ -624,7 +736,7 @@ def handle_wrong_answer_submission(ack, body, client, view):
 
         client.chat_postEphemeral(
             channel=channel_id, user=user_id, thread_ts=thread_ts,
-            text="Got it! Asking CAIPE to correct the response based on your feedback...",
+            text=f"Got it! Asking {APP_NAME} to correct the response based on your feedback...",
         )
 
         context_id = session_manager.get_context_id(thread_ts)

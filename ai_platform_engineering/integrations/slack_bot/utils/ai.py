@@ -589,16 +589,11 @@ def _stream_final_response(
     )
     stream_ts = start_response["ts"]
 
-    # Stream the content in chunks for typing effect
-    # Slack's markdown_text parameter accepts standard markdown and converts automatically
-    chunk_size = 50
-    for i in range(0, len(final_text), chunk_size):
-        chunk = final_text[i : i + chunk_size]
-        slack_client.chat_appendStream(
-            channel=channel_id,
-            ts=stream_ts,
-            markdown_text=chunk,
-        )
+    slack_client.chat_appendStream(
+        channel=channel_id,
+        ts=stream_ts,
+        markdown_text=final_text,
+    )
 
     # Build final blocks - only feedback buttons, NOT the text or plan
     # (the streamed text stays, stopStream just adds blocks below it)
