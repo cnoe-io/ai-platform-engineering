@@ -73,7 +73,15 @@ class GitHubAgent(BaseLangGraphAgent):
         return "github"
 
     def get_mcp_http_config(self) -> Dict[str, Any] | None:
-        """Not used — GitHub MCP runs as a local STDIO process."""
+        """Return None — GitHub does not use HTTP MCP.
+
+        Multi-node (MCP_MODE=http): _load_mcp_tools skips STDIO, the default
+        localhost HTTP probe finds no server, and get_additional_tools()
+        provides the gh CLI tool as the primary GitHub interface.
+
+        Single-node (MCP_MODE=stdio): _load_mcp_tools falls through to
+        get_mcp_config() which launches github-mcp-server via ``go run``.
+        """
         return None
 
     def _get_github_mcp_server_dir(self) -> str:
@@ -147,18 +155,20 @@ class GitHubAgent(BaseLangGraphAgent):
         return _prompt_config.tool_processing_message
 
     def get_additional_tools(self) -> list:
-        """Provide gh CLI as a fallback tool when MCP STDIO fails.
+        """Provide gh CLI tool for GitHub operations.
 
-        Only used when MCP tools fail to load (Go not installed, source
-        directory missing, process crash, etc.).  ``create_subagent_def``
-        calls ``_load_mcp_tools(include_fallback=False)`` and only adds
-        these fallback tools when MCP returned nothing.
+        In multi-node mode (MCP_MODE=http) gh CLI is the primary tool for
+        repository operations, workflow logs, and other GitHub interactions.
+
+        In single-node mode (MCP_MODE=stdio) the go-based github-mcp-server
+        provides full MCP coverage; gh CLI is only used as a fallback if
+        MCP tools fail to load.
         """
         tools = []
         gh_tool = get_gh_cli_tool()
         if gh_tool:
             tools.append(gh_tool)
-            logger.info("GitHub agent: gh CLI tool available as fallback")
+            logger.info("GitHub agent: Added gh CLI tool (gh_cli_execute)")
         return tools
 
     def _wrap_mcp_tools(self, tools: list, context_id: str) -> list:
