@@ -102,15 +102,42 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                 raise
 
     def _parse_execution_plan_text(self, text: str) -> list[dict[str, str]]:
-        """Parse TODO-based execution plan text into structured list."""
+        """Parse TODO-based execution plan text into structured list.
+
+        Supports multiple formats for backwards compatibility:
+          1. Emoji + [Agent] format: "⏳ [Jira] Search for tickets"
+          2. Bullet + emoji format (write_todos): "- ⏳ Search for tickets"
+          3. Markdown checkbox format: "- [x] step" / "- [ ] step"
+        """
         import re
         items = []
-        pattern = r'-\s*\[([xX ])\]\s*(.+)'
+
+        emoji_status_map = {"⏳": "pending", "🔄": "in_progress", "✅": "completed", "❌": "failed"}
+
+        agent_pattern = re.compile(r'([⏳✅🔄❌])\s*\[([^\]]+)\]\s*(.+)')
+        bullet_emoji_pattern = re.compile(r'-\s*([⏳✅🔄❌])\s+(.+)')
+        checkbox_pattern = re.compile(r'-\s*\[([xX ])\]\s*(.+)')
+
         for line in text.strip().split('\n'):
-            match = re.match(pattern, line.strip())
+            stripped = line.strip()
+
+            match = agent_pattern.search(stripped)
+            if match:
+                status = emoji_status_map.get(match.group(1), 'pending')
+                items.append({'step': match.group(3).strip(), 'status': status})
+                continue
+
+            match = bullet_emoji_pattern.match(stripped)
+            if match:
+                status = emoji_status_map.get(match.group(1), 'pending')
+                items.append({'step': match.group(2).strip(), 'status': status})
+                continue
+
+            match = checkbox_pattern.match(stripped)
             if match:
                 status = 'completed' if match.group(1).lower() == 'x' else 'pending'
                 items.append({'step': match.group(2).strip(), 'status': status})
+
         return items
 
     async def _ensure_execution_plan_completed(self, event_queue: EventQueue, task: A2ATask) -> None:
@@ -148,11 +175,15 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
         logger.info("Sent execution plan completion update")
 
     def _format_execution_plan_text(self, todos: list[dict[str, str]], label: str = 'final') -> str:
-        """Format execution plan as markdown checkbox list."""
+        """Format execution plan using emoji status indicators.
+
+        Uses the bullet + emoji format that the UI's parseExecutionTasks can parse.
+        """
+        status_icons = {"pending": "⏳", "in_progress": "🔄", "completed": "✅", "failed": "❌"}
         lines = []
         for item in todos:
-            checkbox = '[x]' if item.get('status') == 'completed' else '[ ]'
-            lines.append(f"- {checkbox} {item.get('step', '')}")
+            icon = status_icons.get(item.get('status', 'pending'), '⏳')
+            lines.append(f"- {icon} {item.get('step', '')}")
         return '\n'.join(lines)
 
     def _extract_final_answer(self, content: str) -> str:

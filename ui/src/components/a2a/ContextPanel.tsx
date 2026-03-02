@@ -512,6 +512,10 @@ export function ContextPanel({
 }
 
 // Parse execution plan tasks from A2A events (ONLY from execution_plan artifacts, not tool notifications)
+// Supports multiple formats for backwards compatibility with multi-node deployment:
+//   1. Emoji + [AgentName] format (single-node): "⏳ [Jira] Search for tickets"
+//   2. Bullet + emoji format (multi-node write_todos): "- ⏳ Search for tickets"
+//   3. Markdown checkbox format (executor completion): "- [x] step done"
 function parseExecutionTasks(events: A2AEvent[]): ExecutionTask[] {
   const tasksMap = new Map<string, ExecutionTask>();
   let execPlanEventCount = 0;
@@ -529,38 +533,78 @@ function parseExecutionTasks(events: A2AEvent[]): ExecutionTask[] {
         existingTaskKeys: Array.from(tasksMap.keys()),
       });
 
-      // Parse TODO list format from agent-forge style output
-      // Matches patterns like:
-      // ⏳ [ArgoCD] List all applications deployed in comn-dev-use2-1 cluster
-      // ✅ [AWS] Query all pods in the cluster
-      // 🔄 [CAIPE] Synthesize findings
-      const todoPattern = /([⏳✅🔄❌📋])\s*\[([^\]]+)\]\s*(.+)/g;
-      let match;
       let order = 0;
+      let matched = false;
 
-      while ((match = todoPattern.exec(text)) !== null) {
+      // Pattern 1: Emoji + [AgentName] + description (single-node format)
+      // e.g. "⏳ [ArgoCD] List all applications deployed in cluster"
+      const agentPattern = /([⏳✅🔄❌])\s*\[([^\]]+)\]\s*(.+)/g;
+      let match;
+      while ((match = agentPattern.exec(text)) !== null) {
+        matched = true;
         const [, statusEmoji, agent, description] = match;
         const taskId = `${agent}-${description.slice(0, 20)}`.replace(/\s+/g, "-").toLowerCase();
-
-        let status: ExecutionTask["status"] = "pending";
-        if (statusEmoji === "✅") status = "completed";
-        else if (statusEmoji === "🔄") status = "in_progress";
-        else if (statusEmoji === "⏳") status = "pending";
-        else if (statusEmoji === "❌") status = "failed";
 
         tasksMap.set(taskId, {
           id: taskId,
           agent: agent.trim(),
           description: description.trim(),
-          status,
+          status: emojiToStatus(statusEmoji),
           order: order++,
         });
+      }
+
+      // Pattern 2: Bullet + emoji + description without [AgentName] (multi-node write_todos)
+      // e.g. "- ⏳ Search for user's tickets in Jira"
+      if (!matched) {
+        const bulletEmojiPattern = /(?:^|\n)\s*-\s*([⏳✅🔄❌])\s+([^\n]+)/g;
+        while ((match = bulletEmojiPattern.exec(text)) !== null) {
+          matched = true;
+          const [, statusEmoji, description] = match;
+          const trimmed = description.trim();
+          const taskId = `task-${trimmed.slice(0, 25)}`.replace(/\s+/g, "-").toLowerCase();
+
+          tasksMap.set(taskId, {
+            id: taskId,
+            agent: "Supervisor",
+            description: trimmed,
+            status: emojiToStatus(statusEmoji),
+            order: order++,
+          });
+        }
+      }
+
+      // Pattern 3: Markdown checkbox format (executor completion updates)
+      // e.g. "- [x] Searched for tickets" or "- [ ] Pending step"
+      if (!matched) {
+        const checkboxPattern = /(?:^|\n)\s*-\s*\[([xX ])\]\s*([^\n]+)/g;
+        while ((match = checkboxPattern.exec(text)) !== null) {
+          const [, checkState, description] = match;
+          const trimmed = description.trim();
+          const taskId = `task-${trimmed.slice(0, 25)}`.replace(/\s+/g, "-").toLowerCase();
+
+          tasksMap.set(taskId, {
+            id: taskId,
+            agent: "Supervisor",
+            description: trimmed,
+            status: checkState.trim() === "" ? "pending" : "completed",
+            order: order++,
+          });
+        }
       }
     }
   });
 
   // Sort by order
   return Array.from(tasksMap.values()).sort((a, b) => a.order - b.order);
+}
+
+function emojiToStatus(emoji: string): ExecutionTask["status"] {
+  if (emoji === "✅") return "completed";
+  if (emoji === "🔄") return "in_progress";
+  if (emoji === "⏳") return "pending";
+  if (emoji === "❌") return "failed";
+  return "pending";
 }
 
 // Tool call interface

@@ -314,24 +314,32 @@ class A2ARemoteAgentConnectTool(BaseTool):
       logger.info("A2AClient not initialized. Connecting now...")
       await self.connect()
 
+    # Prepend user context so sub-agents know who is making the request
+    message_text = prompt
+    if user_email:
+      message_text = f"by user: {user_email}\n\n{prompt}"
+      logger.info(f"Prepended user_email to sub-agent message: {user_email}")
+
     message_payload: dict[str, Any] = {
         "message": {
             "role": "user",
-            "parts": [{"kind": "text", "text": prompt}],
+            "parts": [{"kind": "text", "text": message_text}],
             "message_id": uuid4().hex,
         }
     }
 
-    # Add metadata for trace_id and context_id to maintain conversation continuity
+    # Add metadata for trace_id, context_id, and user_email
     metadata = {}
     if trace_id:
       metadata["trace_id"] = trace_id
       logger.info(f"Adding trace_id to A2A message: {trace_id}")
 
-    # Add context_id to metadata if provided (for conversation continuity across multiple calls)
     if context_id:
       metadata["context_id"] = context_id
       logger.info(f"Adding context_id to A2A message for conversation continuity: {context_id}")
+
+    if user_email:
+      metadata["user_email"] = user_email
 
     if metadata:
       message_payload["message"]["metadata"] = metadata

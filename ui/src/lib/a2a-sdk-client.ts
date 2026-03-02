@@ -405,6 +405,10 @@ export class A2ASDKClient {
   /**
    * Send a HITL response (form submission) and stream the agent's continuation.
    * Formats decisions as a DataPart with resume key for the backend executor.
+   *
+   * The message text includes the actual form values as "key: value" lines so
+   * that multi-node executors (which read message text, not DataPart metadata)
+   * receive the user's selections. Single-node executors use the DataPart.
    */
   async *sendHITLResponse(
     contextId: string,
@@ -423,9 +427,26 @@ export class A2ASDKClient {
       },
     };
 
-    const message = decisions.length === 1 && decisions[0].type === 'reject' && decisions[0].message
-      ? decisions[0].message
-      : "Form submitted";
+    // Build message text with actual form values (not just "Form submitted")
+    // so multi-node executors can read them from the message text.
+    let message = "Form submitted";
+    if (decisions.length === 1 && decisions[0].type === 'reject' && decisions[0].message) {
+      message = decisions[0].message;
+    } else {
+      for (const d of decisions) {
+        const inner = d.args?.args;
+        if (inner && typeof inner === 'object' && 'user_inputs' in inner) {
+          const ui = (inner as Record<string, unknown>).user_inputs;
+          if (ui && typeof ui === 'object') {
+            const entries = Object.entries(ui as Record<string, string>);
+            if (entries.length > 0) {
+              message = entries.map(([k, v]) => `${k}: ${v}`).join("\n");
+              break;
+            }
+          }
+        }
+      }
+    }
 
     console.log(`[A2A SDK] 📤 Sending HITL response with ${decisions.length} decisions`);
 

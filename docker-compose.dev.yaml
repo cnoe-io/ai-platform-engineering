@@ -1043,11 +1043,15 @@ services:
       - NEXTAUTH_SECRET=${NEXTAUTH_SECRET:-caipe-dev-secret-change-in-production}
       - NEXTAUTH_URL=${NEXTAUTH_URL:-http://localhost:3000}
       # SSO Configuration - reads from .env file
-      # Map OIDC_* variables from .env to CAIPE_UI_OIDC_* expected by the app
-      - CAIPE_UI_OIDC_ENABLED=${OIDC_ENABLED:-false}
-      - CAIPE_UI_OIDC_CLIENT_ID=${OIDC_CLIENT_ID:-}
-      - CAIPE_UI_OIDC_CLIENT_SECRET=${OIDC_CLIENT_SECRET:-}
-      - CAIPE_UI_OIDC_ISSUER=${OIDC_ISSUER:-}
+      # The app reads SSO_ENABLED, OIDC_CLIENT_ID, OIDC_CLIENT_SECRET, OIDC_ISSUER directly
+      - SSO_ENABLED=${SSO_ENABLED:-false}
+      - OIDC_CLIENT_ID=${OIDC_CLIENT_ID:-}
+      - OIDC_CLIENT_SECRET=${OIDC_CLIENT_SECRET:-}
+      - OIDC_ISSUER=${OIDC_ISSUER:-}
+      - OIDC_GROUP_CLAIM=${OIDC_GROUP_CLAIM:-}
+      - OIDC_REQUIRED_GROUP=${OIDC_REQUIRED_GROUP:-}
+      - OIDC_REQUIRED_ADMIN_GROUP=${OIDC_REQUIRED_ADMIN_GROUP:-}
+      - OIDC_ENABLE_REFRESH_TOKEN=${OIDC_ENABLE_REFRESH_TOKEN:-true}
       # UI Branding (optional — set in .env or leave blank for CAIPE defaults)
       # No NEXT_PUBLIC_ prefix needed; the server reads process.env at request time
       - APP_NAME=${APP_NAME:-}

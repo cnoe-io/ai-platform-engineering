@@ -102,15 +102,45 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                 raise
 
     def _parse_execution_plan_text(self, text: str) -> list[dict[str, str]]:
-        """Parse TODO-based execution plan text into structured list."""
+        """Parse TODO-based execution plan text into structured list.
+
+        Supports multiple formats for backwards compatibility:
+          1. Emoji + [Agent] format: "⏳ [Jira] Search for tickets"
+          2. Bullet + emoji format (write_todos): "- ⏳ Search for tickets"
+          3. Markdown checkbox format: "- [x] step" / "- [ ] step"
+        """
         import re
         items = []
-        pattern = r'-\s*\[([xX ])\]\s*(.+)'
+
+        emoji_status_map = {"⏳": "pending", "🔄": "in_progress", "✅": "completed", "❌": "failed"}
+
+        # Pattern 1: Emoji + [Agent] + description
+        agent_pattern = re.compile(r'([⏳✅🔄❌])\s*\[([^\]]+)\]\s*(.+)')
+        # Pattern 2: Bullet + emoji + description (no agent brackets)
+        bullet_emoji_pattern = re.compile(r'-\s*([⏳✅🔄❌])\s+(.+)')
+        # Pattern 3: Markdown checkbox
+        checkbox_pattern = re.compile(r'-\s*\[([xX ])\]\s*(.+)')
+
         for line in text.strip().split('\n'):
-            match = re.match(pattern, line.strip())
+            stripped = line.strip()
+
+            match = agent_pattern.search(stripped)
+            if match:
+                status = emoji_status_map.get(match.group(1), 'pending')
+                items.append({'step': match.group(3).strip(), 'status': status})
+                continue
+
+            match = bullet_emoji_pattern.match(stripped)
+            if match:
+                status = emoji_status_map.get(match.group(1), 'pending')
+                items.append({'step': match.group(2).strip(), 'status': status})
+                continue
+
+            match = checkbox_pattern.match(stripped)
             if match:
                 status = 'completed' if match.group(1).lower() == 'x' else 'pending'
                 items.append({'step': match.group(2).strip(), 'status': status})
+
         return items
 
     async def _ensure_execution_plan_completed(self, event_queue: EventQueue, task: A2ATask) -> None:
@@ -148,11 +178,15 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
         logger.info("Sent execution plan completion update")
 
     def _format_execution_plan_text(self, todos: list[dict[str, str]], label: str = 'final') -> str:
-        """Format execution plan as markdown checkbox list."""
+        """Format execution plan using emoji status indicators.
+
+        Uses the bullet + emoji format that the UI's parseExecutionTasks can parse.
+        """
+        status_icons = {"pending": "⏳", "in_progress": "🔄", "completed": "✅", "failed": "❌"}
         lines = []
         for item in todos:
-            checkbox = '[x]' if item.get('status') == 'completed' else '[ ]'
-            lines.append(f"- {checkbox} {item.get('step', '')}")
+            icon = status_icons.get(item.get('status', 'pending'), '⏳')
+            lines.append(f"- {icon} {item.get('step', '')}")
         return '\n'.join(lines)
 
     def _extract_final_answer(self, content: str) -> str:
@@ -664,6 +698,15 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                 raise Exception("Failed to create task")
             await self._safe_enqueue_event(event_queue, task)
 
+        # Extract user email from "by user: email\n\n..." prefix injected by UI
+        user_email = None
+        raw_query = query or ""
+        if raw_query.startswith("by user: "):
+            first_line = raw_query.split("\n", 1)[0]
+            user_email = first_line.replace("by user: ", "").strip()
+            if user_email:
+                logger.info(f"📧 Extracted user email from message: {user_email}")
+
         # Extract trace_id from A2A context (or generate if root)
         trace_id = extract_trace_id_from_context(context)
         if not trace_id:
@@ -675,6 +718,7 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
         state.trace_id = trace_id  # For client feedback/scoring
 
         try:
+            self.agent._pending_user_email = user_email
             async for event in self.agent.stream(query, context_id, trace_id):
                 # FIX for A2A Streaming Duplication (Retry/Fallback):
                 # When the agent encounters an error (e.g., orphaned tool calls) and retries,
