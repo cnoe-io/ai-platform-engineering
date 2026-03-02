@@ -1,7 +1,7 @@
 # ---------- Stage 1: Build dependencies ----------
 FROM python:3.13-slim AS builder
 
-ARG AGENT_NAME=network_utility
+ARG AGENT_NAME=netutils
 
 RUN if [ -z "$AGENT_NAME" ]; then \
     echo "Error: AGENT_NAME build argument is required but not set."; \
@@ -26,7 +26,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 # ---------- Stage 2: Final runtime image ----------
 FROM python:3.13-slim
 
-ARG AGENT_NAME=network_utility
+ARG AGENT_NAME=netutils
 
 RUN if [ -z "$AGENT_NAME" ]; then \
     echo "Error: AGENT_NAME build argument is required but not set."; \

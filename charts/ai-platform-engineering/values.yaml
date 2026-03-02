@@ -16,7 +16,9 @@ tags:
   agent-splunk: false
   agent-victorops: false
   agent-webex: false
-  agent-network-utility: false
+  agent-netutils: false
+  agent-weather: false
+  agent-petstore: false
   rag-stack: false
 
 # Global configuration shared across all subcharts
@@ -333,19 +335,41 @@ agent-komodor:
     mode: "http" # Options: stdio, http
     port: 8000
 
-agent-network-utility:
-  nameOverride: "agent-network-utility"
+agent-netutils:
+  nameOverride: "agent-netutils"
+  agentSecrets:
+    requiresSecret: false
   image:
-    repository: "ghcr.io/cnoe-io/agent-network-utility"
+    repository: "ghcr.io/cnoe-io/agent-netutils"
     pullPolicy: "Always"
   mcp:
     image:
-      repository: "ghcr.io/cnoe-io/mcp-network-utility"
+      repository: "ghcr.io/cnoe-io/mcp-netutils"
       # tag defaults to .Chart.AppVersion when not specified
       tag: ""
       pullPolicy: "Always"
     mode: "http" # Options: stdio, http
     port: 8000
+
+agent-weather:
+  nameOverride: "agent-weather"
+  agentSecrets:
+    requiresSecret: false
+  image:
+    repository: "ghcr.io/cnoe-io/agent-weather"
+    pullPolicy: "Always"
+  mcp:
+    useRemoteMcpServer: true
+
+agent-petstore:
+  nameOverride: "agent-petstore"
+  agentSecrets:
+    requiresSecret: false
+  image:
+    repository: "ghcr.io/cnoe-io/agent-petstore"
+    pullPolicy: "Always"
+  mcp:
+    useRemoteMcpServer: true
 
 ######### Backstage plugin agent forge configuration #########
 backstage-plugin-agent-forge:
@@ -403,7 +427,7 @@ caipe-ui:
   config:
     # Feature flags
     ENABLE_SUBAGENT_CARDS: "true"
-    SSO_ENABLED: "true"
+    SSO_ENABLED: "false"
     # MongoDB configuration
     MONGODB_DATABASE: "caipe"
     # NextAuth URL (non-sensitive)
