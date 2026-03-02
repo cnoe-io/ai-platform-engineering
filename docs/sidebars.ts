@@ -256,6 +256,17 @@ const sidebars: SidebarsConfig = {
     },
     {
       type: 'category',
+      label: 'Integrations',
+      items: [
+        {
+          type: 'doc',
+          id: 'integrations/slack-bot',
+          label: 'Slack Bot',
+        },
+      ],
+    },
+    {
+      type: 'category',
       label: 'Knowledge Bases',
       items: [
         {

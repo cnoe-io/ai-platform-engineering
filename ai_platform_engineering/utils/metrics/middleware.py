@@ -74,6 +74,9 @@ class PrometheusMetricsMiddleware(BaseHTTPMiddleware):
         # Extract user info from JWT token
         user_email, user_id = self._extract_user_info(request)
 
+        # Extract client source (e.g. "caipe-ui", "slack-bot")
+        client_source = request.headers.get("X-Client-Source", "unknown")
+
         # Get routing mode from environment
         routing_mode = self._get_routing_mode()
 
@@ -126,6 +129,7 @@ class PrometheusMetricsMiddleware(BaseHTTPMiddleware):
                     user_id=user_id or "",
                     status=status,
                     routing_mode=routing_mode,
+                    client_source=client_source,
                 ).inc()
 
                 agent_metrics.request_duration_seconds.labels(
