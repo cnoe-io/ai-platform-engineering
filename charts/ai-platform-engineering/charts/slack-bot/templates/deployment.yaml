@@ -89,8 +89,10 @@ spec:
             - name: CAIPE_URL
               value: {{ .Values.caipeUrl | quote }}
             {{- range $key, $value := .Values.env }}
+            {{- if ne $key "CAIPE_URL" }}
             - name: {{ $key }}
               value: {{ $value | quote }}
+            {{- end }}
             {{- end }}
           envFrom:
             - secretRef:
