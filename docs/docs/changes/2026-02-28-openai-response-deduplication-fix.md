@@ -175,5 +175,5 @@ cause this investigation identified.
 |------|-------------|
 | `scripts/agent_fix.py` | Patched `agent.py` with the two-line fix |
 | `scripts/agent_executor_fix.py` | Original `agent_executor.py` (unmodified, for reference) |
-| `scripts/setup-caipe.sh` | Deployment script managing ConfigMaps and patches |
+| `setup-caipe.sh` (repo root) | Deployment script managing ConfigMaps and patches |
 | Upstream repo | <https://github.com/cnoe-io/ai-platform-engineering> |

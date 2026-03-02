@@ -22,11 +22,11 @@ In this part, you'll add observability to your multi-agent system by deploying L
 > **Automated setup:** An interactive script is available that performs all lab setup automatically:
 >
 > ```bash
-> ./scripts/setup-caipe.sh
+> ./setup-caipe.sh
 > ```
 >
 > It will prompt you for your cluster, OpenAI key, and which features to enable (RAG, tracing).
-> For non-interactive use: `./scripts/setup-caipe.sh --non-interactive --tracing` (see `--help` for all options).
+> For non-interactive use: `./setup-caipe.sh --non-interactive --tracing` (see `--help` for all options).
 
 ---
 
