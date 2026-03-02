@@ -13,3 +13,4 @@
 # the following users/teams will be requested for
 # review when someone opens a pull request.
 * @sriaradhyula
+ai_platform_engineering/integrations/slack_bot @kevkantes @ErikMLutz @dasein
