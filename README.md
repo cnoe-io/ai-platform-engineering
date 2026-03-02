@@ -68,7 +68,125 @@ Together, these sub-agents enable users to perform complex operations using agen
 * 🚀 *Sync the ‘production’ ArgoCD application to the latest commit*
 * 🚀 *Get the status of the 'frontend' ArgoCD application*
 
-## 📦 Quick Doc Links
+## 🚀 Quick Start with Docker Compose
+
+Run CAIPE locally with a single command:
+
+```bash
+# Clone the repository
+git clone https://github.com/cnoe-io/ai-platform-engineering.git
+cd ai-platform-engineering
+
+# Copy and configure environment variables
+cp .env.example .env
+# Edit .env with your API keys (OPENAI_API_KEY, etc.)
+
+# Run CAIPE with the web UI
+docker compose --profile caipe-ui up
+```
+
+Access the UI at **http://localhost:3001** and the API at **http://localhost:8000**.
+
+### Optional Profiles
+
+Enable additional features with profiles:
+
+```bash
+# With tracing (Langfuse)
+docker compose --profile caipe-ui --profile tracing up
+
+# With RAG (knowledge base)
+docker compose --profile caipe-ui --profile rag up
+
+# Development mode (build from source)
+docker compose -f docker-compose.dev.yaml --profile caipe-ui up --build
+```
+
+### Deployment Modes
+
+CAIPE supports two deployment modes:
+
+| Mode | Description | Use Case |
+|------|-------------|----------|
+| **Multi-Node** (default) | Supervisor orchestrates multiple remote sub-agents via A2A protocol | Production, scalable deployments |
+| **Single-Node** | All agents run in-process with MCP tools via stdio transport | Development, simpler deployments |
+
+#### Single-Node Mode
+
+Single-node mode runs everything in a single container, making it ideal for development and simpler deployments:
+
+```bash
+# Run single-node mode
+docker compose -f docker-compose.single-node.yaml --profile caipe-ui up
+
+# Development mode with single-node (build from source)
+docker compose -f docker-compose.single-node.dev.yaml --profile caipe-ui up --build
+```
+
+Single-node mode uses the `deepagents` library for task-based execution with workflows defined in `task_config.yaml`.
+
+##### Single-Node with RAG (Knowledge Base)
+
+Enable RAG services to give the agent access to ingested knowledge bases:
+
+```bash
+# Single-node with RAG (no graph database)
+docker compose -f docker-compose.single-node.dev.yaml --profile rag --profile caipe-ui up --build
+
+# Single-node with full Graph RAG (includes Neo4j)
+docker compose -f docker-compose.single-node.dev.yaml --profile graph_rag --profile caipe-ui up --build
+```
+
+**RAG Profiles:**
+
+| Profile | Services Included | Use Case |
+|---------|-------------------|----------|
+| `rag` | rag_server, web_ingestor, milvus, redis | Vector search without graph relationships |
+| `graph_rag` | All `rag` services + Neo4j, agent_ontology | Full knowledge graph with entity relationships |
+
+**Ingesting Content:**
+
+Once RAG services are running, you can ingest web content via the RAG server API:
+
+```bash
+# Ingest a website (uses sitemap if available)
+curl -X POST http://localhost:9446/v1/datasources \
+  -H "Content-Type: application/json" \
+  -d '{"url": "https://cnoe-io.github.io/ai-platform-engineering/"}'
+```
+
+The agent will automatically use the knowledge base when answering questions about ingested content.
+
+#### Multi-Node Mode (Default)
+
+Multi-node mode runs a supervisor agent that orchestrates specialized sub-agents as separate services:
+
+```bash
+# Run multi-node mode (default docker-compose.yaml)
+docker compose --profile caipe-ui up
+
+# Development mode with multi-node
+docker compose -f docker-compose.dev.yaml --profile caipe-ui up --build
+```
+
+### Kubernetes Deployment
+
+For Kubernetes, use the Helm chart:
+
+```bash
+# Multi-node mode (default) - deploys supervisor + sub-agents
+helm install caipe charts/ai-platform-engineering \
+  --set tags.caipe-ui=true \
+  --set caipe-ui.env.NEXT_PUBLIC_A2A_BASE_URL="https://your-caipe-api.example.com"
+
+# Single-node mode - deploys single unified agent
+helm install caipe charts/ai-platform-engineering \
+  --set global.deploymentMode=single-node \
+  --set tags.caipe-ui=true \
+  --set caipe-ui.env.NEXT_PUBLIC_A2A_BASE_URL="https://your-caipe-api.example.com"
+```
+
+## 📦 Documentation
 
 - [Quick Start Guide](https://cnoe-io.github.io/ai-platform-engineering/getting-started/quick-start)
 - Setup

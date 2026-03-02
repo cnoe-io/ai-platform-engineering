@@ -15,6 +15,7 @@ tags:
   agent-slack: false
   agent-splunk: false
   agent-victorops: false
+  agent-weather: false
   agent-webex: false
   agent-netutils: false
   agent-weather: false
@@ -103,6 +104,11 @@ promptConfig: ""              # Custom prompt config (overrides promptConfigType
 
 ragPromptConfig: ""           # Custom RAG prompt config (overrides default if set)
 
+# Task Configuration
+# Self-service workflow definitions (Create LLM Key, GitHub Org Invite, etc.)
+# Default is bundled from data/task_config.yaml. Override via taskConfig value.
+taskConfig: ""
+
 ######### Supervisor agent configuration #########
 supervisor-agent:
   nameOverride: "supervisor-agent"
@@ -117,6 +123,7 @@ supervisor-agent:
     SKIP_AGENT_CONNECTIVITY_CHECK: "false"
     AGENT_CONNECTIVITY_ENABLE_BACKGROUND: "true"
     USE_STRUCTURED_RESPONSE: "true" # Set to "true" to enforce agent to always use structured response format as the final output
+    TASK_CONFIG_PATH: "/app/task_config.yaml"
   multiAgentConfig:
     protocol: "a2a"
     port: "8000"
@@ -319,6 +326,20 @@ agent-webex:
       tag: ""
       pullPolicy: "Always"
     mode: "http" # Options: stdio, http
+    port: 8000
+
+agent-weather:
+  nameOverride: "agent-weather"
+  remoteAgent: true
+  image:
+    repository: "ghcr.io/cnoe-io/agent-weather"
+    pullPolicy: "Always"
+  mcp:
+    image:
+      repository: "ghcr.io/cnoe-io/mcp-weather"
+      tag: ""
+      pullPolicy: "Always"
+    mode: "http"
     port: 8000
 
 agent-komodor:

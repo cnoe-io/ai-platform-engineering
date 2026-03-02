@@ -1,0 +1,34 @@
+{
+  "annotations": {
+    "destructiveHint": true,
+    "title": "Invite user to organization"
+  },
+  "description": "Invite a user to a GitHub organization by email address. The authenticated user must be an organization owner. The user will receive an email invitation to join the org.",
+  "inputSchema": {
+    "properties": {
+      "email": {
+        "description": "Email address of the person to invite. Can be an existing GitHub user's email.",
+        "type": "string"
+      },
+      "org": {
+        "description": "GitHub organization name (e.g. cisco-eti)",
+        "type": "string"
+      },
+      "role": {
+        "description": "Role for the new member. Default is 'direct_member'.",
+        "enum": [
+          "admin",
+          "direct_member",
+          "billing_manager"
+        ],
+        "type": "string"
+      }
+    },
+    "required": [
+      "org",
+      "email"
+    ],
+    "type": "object"
+  },
+  "name": "invite_user_to_org"
+}

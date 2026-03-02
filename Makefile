@@ -11,7 +11,9 @@ APP_NAME ?= ai-platform-engineering
 ## -------------------------------------------------
 .PHONY: \
 	setup-venv start-venv clean-pyc clean-venv clean-build-artifacts clean \
+	uv-prep install-deps \
 	build install build-docker run run-ai-platform-engineer langgraph-dev \
+	run-a2a run-a2a-client run-a2a-client-local \
 	generate-docker-compose generate-docker-compose-dev generate-docker-compose-all clean-docker-compose \
 	lint lint-fix test test-compose-generator test-compose-generator-coverage \
 	test-rag-unit test-rag-coverage test-rag-memory test-rag-scale validate lock-all help \
@@ -116,6 +118,36 @@ run-ai-platform-engineer: setup-venv ## Run the AI Platform Engineering Multi-Ag
 langgraph-dev: setup-venv ## Run langgraph in development mode
 	@echo "Running langgraph dev..."
 	@. .venv/bin/activate && uv add langgraph-cli[inmem] --dev && uv sync --dev && cd ai_platform_engineering/multi_agents/platform_engineer && LANGGRAPH_DEV=true langgraph dev
+
+uv-prep: ## Lock and sync uv dependencies
+	uv lock
+	uv sync
+
+install-deps: uv-prep ## Install all dependencies
+
+run-a2a: install-deps ## Run the AI Platform Engineer single-node deep agent with A2A protocol
+	@PORT=$${PORT:-8000}; \
+	HOST=$${HOST:-0.0.0.0}; \
+	export A2A_HOST=$$HOST; \
+	export A2A_PORT=$$PORT; \
+	export A2A_PUBLIC_URL=http://localhost:$$PORT; \
+	echo "Starting AI Platform Engineer A2A server (single-node) on $$HOST:$$PORT"; \
+	uv run uvicorn ai_platform_engineering.multi_agents.platform_engineer.protocol_bindings.a2a.main_single:app --host $$HOST --port $$PORT --reload
+
+run-a2a-client: ## Run the agent-chat-cli client to connect to the A2A agent
+	@HOST=$${A2A_HOST:-localhost}; \
+	PORT=$${A2A_PORT:-8000}; \
+	echo "Connecting to A2A agent at $$HOST:$$PORT..."; \
+	docker run -it --network=host \
+		-e A2A_HOST=$$HOST \
+		-e A2A_PORT=$$PORT \
+		ghcr.io/cnoe-io/agent-chat-cli:stable
+
+run-a2a-client-local: setup-venv ## Run agent-chat-cli from local source
+	@HOST=$${A2A_HOST:-localhost}; \
+	PORT=$${A2A_PORT:-8000}; \
+	echo "Running local agent-chat-cli connecting to $$HOST:$$PORT..."; \
+	cd agent-chat-cli && A2A_HOST=$$HOST A2A_PORT=$$PORT uv run python -m agent_chat_cli a2a
 
 ## ========== CAIPE UI ==========
 

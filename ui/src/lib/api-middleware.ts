@@ -4,6 +4,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth-config';
+import { getConfig } from '@/lib/config';
 import { getCollection } from '@/lib/mongodb';
 import type { User } from '@/types/mongodb';
 
@@ -23,6 +24,9 @@ export interface AuthenticatedRequest extends NextRequest {
  * Get authenticated user from session
  * Returns user info and full session, or throws 401 error
  *
+ * When SSO is disabled, returns a fallback anonymous user so that
+ * MongoDB persistence works without authentication.
+ *
  * Admin role is determined by:
  * 1. OIDC group membership (session.role from auth-config)
  * 2. MongoDB user.metadata.role === 'admin' (fallback)
@@ -31,6 +35,12 @@ export async function getAuthenticatedUser(request: NextRequest) {
   const session = await getServerSession(authOptions);
 
   if (!session || !session.user?.email) {
+    // When SSO is disabled, allow unauthenticated access with a fallback user
+    // so MongoDB persistence works in local dev / no-SSO deployments.
+    if (!getConfig('ssoEnabled')) {
+      const fallbackUser = { email: 'anonymous@local', name: 'Anonymous', role: 'user' };
+      return { user: fallbackUser, session: { role: 'user', canViewAdmin: false } };
+    }
     throw new ApiError('Unauthorized', 401);
   }
 
@@ -174,7 +184,7 @@ export function withErrorHandler<T>(
  * Validate required fields in request body
  */
 export function validateRequired(data: any, fields: string[]): void {
-  const missing = fields.filter((field) => !data[field]);
+  const missing = fields.filter((field) => data[field] === undefined || data[field] === null);
 
   if (missing.length > 0) {
     throw new ApiError(

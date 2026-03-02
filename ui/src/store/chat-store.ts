@@ -1049,6 +1049,7 @@ const storeImplementation = (set: any, get: any) => ({
             }
 
             const isExplicitlyInterrupted = Boolean(msg.metadata?.is_interrupted);
+            const hasHitlForm = events.some((e: A2AEvent) => e.artifact?.name === 'UserInputMetaData');
             const chatMsg: ChatMessage = {
               id: msg.message_id || msg._id?.toString() || generateId(),
               role: msg.role as "user" | "assistant",
@@ -1061,7 +1062,8 @@ const storeImplementation = (set: any, get: any) => ({
               // Mark as interrupted only if explicitly flagged in MongoDB, or
               // if this is the very last assistant message and it's not final
               // (genuinely mid-stream when saved, with no follow-up).
-              isInterrupted: isExplicitlyInterrupted || (msg.role === 'assistant' && !isFinal),
+              // HITL messages are not interrupted — they're waiting for user input.
+              isInterrupted: hasHitlForm ? false : (isExplicitlyInterrupted || (msg.role === 'assistant' && !isFinal)),
               feedback: msg.feedback ? {
                 type: msg.feedback.rating === 'positive' ? 'like' : msg.feedback.rating === 'negative' ? 'dislike' : null,
                 submitted: true,

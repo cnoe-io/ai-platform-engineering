@@ -194,7 +194,11 @@ class AIPlatformEngineerA2ABinding:
 
   @trace_agent_stream("platform_engineer", update_input=True)
   async def stream(self, query, context_id, trace_id=None) -> AsyncIterable[dict[str, Any]]:
-      logging.debug(f"Starting stream with query: {query}, context_id: {context_id}, trace_id: {trace_id}")
+      # user_email is passed via _pending_user_email to avoid the
+      # trace_agent_stream decorator stripping unknown kwargs.
+      user_email = getattr(self, '_pending_user_email', None)
+      self._pending_user_email = None
+      logging.debug(f"Starting stream with query: {query}, context_id: {context_id}, trace_id: {trace_id}, user_email: {user_email}")
       # Reset execution plan state for each new stream
       self._execution_plan_sent = False
 
@@ -212,6 +216,11 @@ class AIPlatformEngineerA2ABinding:
       if context_id:
           config['metadata']['context_id'] = context_id
           logging.info(f"Added context_id to config metadata: {context_id}")
+
+      # Add user_email to metadata so sub-agent tools can forward it
+      if user_email:
+          config['metadata']['user_email'] = user_email
+          logging.info(f"Added user_email to config metadata: {user_email}")
 
       # Add trace_id to metadata for distributed tracing
       if trace_id:

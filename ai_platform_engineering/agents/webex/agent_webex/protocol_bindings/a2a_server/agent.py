@@ -64,6 +64,9 @@ class WebexAgent(BaseLangGraphAgent):
         Return MCP configuration for stdio mode.
 
         This is used when MCP_MODE is 'stdio' (default).
+        
+        Args:
+            server_path: Path to the MCP server entry point (e.g., __main__.py)
         """
         if self.mcp_mode != "stdio":
             raise NotImplementedError(
@@ -80,22 +83,23 @@ class WebexAgent(BaseLangGraphAgent):
 
         # Default server path if not provided
         if not server_path:
-            server_path = "./mcp/mcp_server_webex/"
+            # Compute path relative to this file
+            # This file is at: agents/webex/agent_webex/protocol_bindings/a2a_server/agent.py
+            # MCP server is at: agents/webex/mcp/mcp_webex/__main__.py
+            # Go up 3 levels to agent_webex, then up 1 more to webex
+            webex_agent_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
+            server_path = os.path.join(webex_agent_dir, "mcp", "mcp_webex", "__main__.py")
+
+        # Get project path (2 levels up from server file)
+        project_path = os.path.dirname(os.path.dirname(server_path))
 
         return {
-            "webex": {
-                "command": "uv",
-                "args": [
-                    "--directory",
-                    server_path,
-                    "run",
-                    "mcp-server-webex",
-                ],
-                "env": {
-                    "WEBEX_TOKEN": webex_token,
-                },
-                "transport": "stdio",
-            }
+            "command": "uv",
+            "args": ["run", "--project", project_path, server_path],
+            "env": {
+                "WEBEX_TOKEN": webex_token,
+            },
+            "transport": "stdio",
         }
 
     def get_system_instruction(self) -> str:

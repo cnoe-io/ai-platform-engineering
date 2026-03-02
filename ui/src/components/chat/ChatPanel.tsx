@@ -13,9 +13,9 @@ import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useChatStore } from "@/store/chat-store";
-import { A2ASDKClient, type ParsedA2AEvent, toStoreEvent } from "@/lib/a2a-sdk-client";
+import { A2ASDKClient, type ParsedA2AEvent, type HITLDecision, toStoreEvent } from "@/lib/a2a-sdk-client";
 import { cn, deduplicateByKey } from "@/lib/utils";
-import { ChatMessage as ChatMessageType } from "@/types/a2a";
+import { ChatMessage as ChatMessageType, A2AEvent } from "@/types/a2a";
 import { getConfig } from "@/lib/config";
 import { FeedbackButton, Feedback } from "./FeedbackButton";
 import { DEFAULT_AGENTS, CustomCall } from "./CustomCallButtons";
@@ -49,10 +49,11 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle }: ChatP
   const scrollViewportRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // User input form state
+  // User input form state (HITL - Human-in-the-Loop)
   const [pendingUserInput, setPendingUserInput] = useState<{
     messageId: string;
     metadata: UserInputMetadata;
+    contextId?: string;
   } | null>(null);
 
   // Track message IDs where the user explicitly dismissed the input form,
@@ -241,6 +242,9 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle }: ChatP
     setPendingUserInput(null);
   }, [activeConversationId]);
 
+  // Track last message events length to re-trigger restoration when events load
+  const lastMsgEventsLen = conversation?.messages?.[conversation.messages.length - 1]?.events?.length ?? 0;
+
   useEffect(() => {
     if (pendingUserInput || isThisConversationStreaming) return;
     if (!conversation || conversation.messages.length === 0) return;
@@ -251,14 +255,23 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle }: ChatP
     // Only restore if the last message is from the assistant (user hasn't replied yet)
     if (lastMsg.role !== "assistant") return;
 
+    // Don't restore if the assistant message completed (isFinal=true means the
+    // workflow finished; any HITL form in the events is from an earlier turn).
+    if (lastMsg.isFinal) {
+      console.log(`[ChatPanel] 📝 HITL restore skipped: last assistant message is final (workflow completed)`);
+      return;
+    }
+
     // Don't restore if user explicitly dismissed the form for this message
     if (dismissedInputForMessageRef.current.has(lastMsg.id)) return;
 
     // Gather events from both conversation-level and message-level sources
-    const eventsToCheck = [
-      ...(conversation.a2aEvents || []),
-      ...(lastMsg.events || []),
-    ];
+    const convEvents = conversation.a2aEvents || [];
+    const msgEvents = lastMsg.events || [];
+    const eventsToCheck = [...convEvents, ...msgEvents];
+    
+    const hitlEvents = eventsToCheck.filter(e => e.artifact?.name === "UserInputMetaData");
+    console.log(`[ChatPanel] 📝 HITL restore check: convEvents=${convEvents.length}, msgEvents=${msgEvents.length}, total=${eventsToCheck.length}, hitlEvents=${hitlEvents.length}`);
 
     for (const event of eventsToCheck) {
       if (event.artifact?.name !== "UserInputMetaData") continue;
@@ -283,7 +296,21 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle }: ChatP
         }
       }
 
+      console.log(`[ChatPanel] 📝 HITL event found: hasMetadata=${!!metadata}, inputFields=${metadata?.input_fields?.length ?? 0}, eventTime=${event.timestamp}`);
+
       if (metadata?.input_fields && metadata.input_fields.length > 0) {
+        // Don't restore if the user already answered this HITL form.
+        // Use position-based check: if there's a user message AFTER the last
+        // assistant message, the form was already submitted. We avoid timestamp
+        // comparisons because MongoDB created_at can be later than streaming
+        // event timestamps (post-stream saves write user messages after events).
+        const assistantIdx = messages.findIndex(m => m.id === lastMsg.id);
+        const hasUserReplyAfter = messages.slice(assistantIdx + 1).some(m => m.role === "user");
+        if (hasUserReplyAfter) {
+          console.log(`[ChatPanel] 📝 HITL form already answered (user message after assistant)`);
+          continue;
+        }
+
         console.log(
           `[ChatPanel] 📝 Restoring pending user input form from persisted events (${metadata.input_fields.length} fields)`
         );
@@ -292,7 +319,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle }: ChatP
       }
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeConversationId, conversation?.messages?.length, isThisConversationStreaming]);
+  }, [activeConversationId, conversation?.messages?.length, conversation?.a2aEvents?.length, lastMsgEventsLen, isThisConversationStreaming]);
 
   const handleCopy = async (content: string, id: string) => {
     await navigator.clipboard.writeText(content);
@@ -348,6 +375,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle }: ChatP
     let rawStreamContent = ""; // Accumulates ALL streaming content (never reset)
     let eventCounter = 0;
     let hasReceivedCompleteResult = false;
+    let hitlFormRequested = false;
     let lastUIUpdate = 0;
     let capturedTaskId: string | undefined; // Capture taskId from first event for crash recovery
     const UI_UPDATE_INTERVAL = 100; // Throttle UI updates to max 10/sec
@@ -431,10 +459,16 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle }: ChatP
           const metadata = event.metadata as UserInputMetadata;
           if (metadata.input_fields && metadata.input_fields.length > 0) {
             console.log(`[ChatPanel] 📝 Form has ${metadata.input_fields.length} fields:`, metadata.input_fields.map(f => f.field_name));
+            hitlFormRequested = true;
             setPendingUserInput({
               messageId: assistantMsgId,
               metadata,
+              contextId: event.contextId || convId,
             });
+            if (metadata.response) {
+              accumulatedText = metadata.response;
+              updateMessage(convId!, assistantMsgId, { content: accumulatedText });
+            }
           }
         }
 
@@ -582,7 +616,12 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle }: ChatP
       console.log(`[A2A SDK] 🏁 STREAM COMPLETE - ${eventCounter} events, hasResult=${hasReceivedCompleteResult}`);
       console.log(`[A2A SDK] 📊 Final content: ${accumulatedText.length} chars, Raw stream: ${rawStreamContent.length} chars`);
 
-      if (!hasReceivedCompleteResult) {
+      if (hitlFormRequested) {
+        // HITL: stream ended because the agent is waiting for user input.
+        // Keep isFinal=false so the form persists correctly across refresh.
+        console.log(`[A2A SDK] 📝 Stream ended with HITL form pending — keeping isFinal=false`);
+        updateMessage(convId!, assistantMsgId, { content: accumulatedText, rawStreamContent, isFinal: false });
+      } else if (!hasReceivedCompleteResult) {
         if (accumulatedText.length > 0) {
           console.log(`[A2A SDK] ⚠️ No final_result - using accumulated content (${accumulatedText.length} chars)`);
           updateMessage(convId!, assistantMsgId, { content: accumulatedText, rawStreamContent, isFinal: true });
@@ -655,10 +694,16 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle }: ChatP
     // Send message as-is (users can use @agent syntax naturally)
     const message = input.trim();
 
+    // Dismiss any pending input form when user types text directly
+    if (pendingUserInput) {
+      dismissedInputForMessageRef.current.add(pendingUserInput.messageId);
+      setPendingUserInput(null);
+    }
+
     setInput("");
 
     await submitMessage(message);
-  }, [input, submitMessage, isThisConversationStreaming, queuedMessages]);
+  }, [input, submitMessage, isThisConversationStreaming, queuedMessages, pendingUserInput]);
 
   // Auto-submit pending message from use case selection
   useEffect(() => {
@@ -687,23 +732,137 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle }: ChatP
     // Future: Send to /api/feedback endpoint
   }, []);
 
-  // Handle user input form submission
+  // Handle user input form submission via HITL resume (not plain text)
   const handleUserInputSubmit = useCallback(async (formData: Record<string, string>) => {
-    if (!pendingUserInput) return;
+    if (!pendingUserInput || !activeConversationId) return;
 
-    console.log("[ChatPanel] 📝 User input form submitted:", formData);
+    console.log("[ChatPanel] 📝 HITL form submitted:", formData);
 
-    // Format the form data as a message
-    const formattedMessage = Object.entries(formData)
+    const turnId = `turn-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+    const selectionSummary = Object.entries(formData)
       .map(([key, value]) => `${key}: ${value}`)
       .join("\n");
+    addMessage(activeConversationId, { role: "user", content: selectionSummary || "Form submitted." }, turnId);
+    const assistantMsgId = addMessage(activeConversationId, { role: "assistant", content: "" }, turnId);
 
-    // Clear pending input
+    const contextId = pendingUserInput.contextId || activeConversationId;
+    dismissedInputForMessageRef.current.add(pendingUserInput.messageId);
     setPendingUserInput(null);
 
-    // Submit the form data as a new message
-    await submitMessage(formattedMessage);
-  }, [pendingUserInput, submitMessage]);
+    const client = new A2ASDKClient({ endpoint, accessToken });
+
+    // Build HITL decision with form values for the backend executor's resume handler
+    const inputFieldsWithValues = (pendingUserInput.metadata.input_fields || []).map(field => ({
+      ...field,
+      value: formData[field.field_name] || '',
+    }));
+
+    const decision: HITLDecision = {
+      type: 'edit',
+      actionName: 'CAIPEAgentResponse',
+      args: {
+        args: {
+          metadata: { input_fields: inputFieldsWithValues },
+          user_inputs: formData,
+        },
+      },
+    };
+
+    setConversationStreaming(activeConversationId, {
+      conversationId: activeConversationId,
+      messageId: assistantMsgId,
+      client: { abort: () => client.abort() } as ReturnType<typeof setConversationStreaming> extends void ? never : Parameters<typeof setConversationStreaming>[1] extends { client: infer C } ? C : never,
+    });
+
+    let accumulatedText = "";
+    let rawStreamContent = "";
+    let eventCounter = 0;
+    let hasReceivedCompleteResult = false;
+
+    try {
+      for await (const event of client.sendHITLResponse(contextId, [decision])) {
+        eventCounter++;
+        const artifactName = event.artifactName || "";
+        const newContent = event.displayContent;
+
+        const storeEvent = toStoreEvent(event, `event-${eventCounter}-${Date.now()}`);
+        addA2AEvent(storeEvent as Parameters<typeof addA2AEvent>[0], activeConversationId);
+
+        if (artifactName === "partial_result" || artifactName === "final_result" || artifactName === "complete_result") {
+          if (newContent) {
+            accumulatedText = newContent;
+            rawStreamContent += `\n\n[${artifactName}]\n${newContent}`;
+            hasReceivedCompleteResult = true;
+            updateMessage(activeConversationId, assistantMsgId, {
+              content: accumulatedText,
+              rawStreamContent,
+              isFinal: true,
+            });
+          } else if (accumulatedText.length > 0) {
+            rawStreamContent += `\n\n[${artifactName}] (using accumulated content)`;
+            hasReceivedCompleteResult = true;
+            updateMessage(activeConversationId, assistantMsgId, {
+              content: accumulatedText,
+              rawStreamContent,
+              isFinal: true,
+            });
+          }
+        }
+
+        if (event.type === "status" && event.isFinal) {
+          setConversationStreaming(activeConversationId, null);
+          break;
+        }
+
+        if (!newContent) continue;
+
+        // Skip tool notifications and execution plans from chat text —
+        // they are shown in the Tasks panel via A2A events
+        const isToolOrPlanArtifact =
+          artifactName === "tool_notification_start" ||
+          artifactName === "tool_notification_end" ||
+          artifactName === "execution_plan_update" ||
+          artifactName === "execution_plan_status_update";
+
+        if (isToolOrPlanArtifact) {
+          continue;
+        }
+
+        if (hasReceivedCompleteResult) continue;
+
+        if (event.shouldAppend === false) {
+          accumulatedText = newContent;
+        } else {
+          accumulatedText += newContent;
+        }
+        rawStreamContent += newContent;
+        updateMessage(activeConversationId, assistantMsgId, { content: accumulatedText, rawStreamContent });
+      }
+
+      if (!hasReceivedCompleteResult) {
+        if (accumulatedText.length > 0) {
+          console.log(`[ChatPanel] HITL: no final/complete_result - using accumulated content (${accumulatedText.length} chars)`);
+          updateMessage(activeConversationId, assistantMsgId, {
+            content: accumulatedText,
+            rawStreamContent,
+            isFinal: true,
+          });
+        } else {
+          console.log(`[ChatPanel] HITL: stream ended with no content`);
+          updateMessage(activeConversationId, assistantMsgId, { rawStreamContent, isFinal: true });
+        }
+      } else {
+        updateMessage(activeConversationId, assistantMsgId, { rawStreamContent });
+      }
+      setConversationStreaming(activeConversationId, null);
+    } catch (error) {
+      console.error("[ChatPanel] HITL resume error:", error);
+      appendToMessage(activeConversationId, assistantMsgId,
+        `\n\n**Error:** ${(error as Error).message || "Failed to resume"}`);
+      setConversationStreaming(activeConversationId, null);
+    }
+  }, [pendingUserInput, activeConversationId, endpoint, accessToken, addMessage, updateMessage,
+      appendToMessage, addA2AEvent, setConversationStreaming]);
 
   // Handle @mention detection
   const handleInputChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {

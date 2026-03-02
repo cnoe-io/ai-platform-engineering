@@ -111,7 +111,8 @@ class A2ARemoteAgentConnectTool(BaseTool):
           self._skill_id = self._agent_card.skills[0].id
 
         logger.info(f"Successfully fetched public agent card for {self._remote_agent_card}.")
-        if _public_card.supportsAuthenticatedExtendedCard and self._access_token:
+        supports_extended = getattr(_public_card, 'supports_authenticated_extended_card', None) or getattr(_public_card, 'supportsAuthenticatedExtendedCard', None)
+        if supports_extended and self._access_token:
           try:
             _extended_card = await resolver.get_agent_card(
                 relative_card_path='/agent/authenticatedExtendedCard',
@@ -128,6 +129,16 @@ class A2ARemoteAgentConnectTool(BaseTool):
             exc_info=True)
         raise RuntimeError(
             f"Could not fetch remote agent card from {base_url}") from e
+
+    # Override the agent card's url with the base_url we used to fetch it.
+    # Remote agents often advertise url=http://0.0.0.0:PORT which is only
+    # valid inside the remote container.  Using base_url (e.g.
+    # http://agent-weather:8000) ensures requests reach the correct host.
+    if not isinstance(self._remote_agent_card, AgentCard) and self._agent_card.url != self._remote_agent_card:
+      logger.info(
+          f"Overriding agent card url '{self._agent_card.url}' → '{self._remote_agent_card}'"
+      )
+      self._agent_card.url = self._remote_agent_card
 
     logger.info(f"Agent Card: {self._agent_card}")
     self._client = A2AClient(
@@ -303,24 +314,32 @@ class A2ARemoteAgentConnectTool(BaseTool):
       logger.info("A2AClient not initialized. Connecting now...")
       await self.connect()
 
+    # Prepend user context so sub-agents know who is making the request
+    message_text = prompt
+    if user_email:
+      message_text = f"by user: {user_email}\n\n{prompt}"
+      logger.info(f"Prepended user_email to sub-agent message: {user_email}")
+
     message_payload: dict[str, Any] = {
         "message": {
             "role": "user",
-            "parts": [{"kind": "text", "text": prompt}],
+            "parts": [{"kind": "text", "text": message_text}],
             "message_id": uuid4().hex,
         }
     }
 
-    # Add metadata for trace_id and context_id to maintain conversation continuity
+    # Add metadata for trace_id, context_id, and user_email
     metadata = {}
     if trace_id:
       metadata["trace_id"] = trace_id
       logger.info(f"Adding trace_id to A2A message: {trace_id}")
 
-    # Add context_id to metadata if provided (for conversation continuity across multiple calls)
     if context_id:
       metadata["context_id"] = context_id
       logger.info(f"Adding context_id to A2A message for conversation continuity: {context_id}")
+
+    if user_email:
+      metadata["user_email"] = user_email
 
     if metadata:
       message_payload["message"]["metadata"] = metadata
