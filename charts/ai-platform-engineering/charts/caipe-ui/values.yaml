@@ -181,6 +181,11 @@ config:
   # DOCS_URL: "https://your-docs-site.com"
   # SOURCE_URL: "https://github.com/your-org/your-repo"
 
+# Name of a pre-existing Kubernetes Secret to mount as environment variables.
+# Use this when managing secrets outside the chart (e.g. via extraDeploy, CI/CD, or manual creation).
+# The secret is mounted via envFrom.secretRef alongside the config ConfigMap.
+existingSecret: ""
+
 # External Secrets configuration for sensitive data (OIDC credentials, NextAuth secret)
 # These secrets are fetched from your secret store (Vault, AWS Secrets Manager, etc.)
 # To enable: set externalSecrets.enabled=true and configure data section
