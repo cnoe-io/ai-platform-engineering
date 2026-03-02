@@ -1,0 +1,17 @@
+{{- if eq .Values.botMode "http" }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "slack-bot.fullname" . }}
+  labels:
+    {{- include "slack-bot.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  ports:
+    - port: 3000
+      targetPort: 3000
+      protocol: TCP
+      name: http
+  selector:
+    {{- include "slack-bot.selectorLabels" . | nindent 4 }}
+{{- end }}

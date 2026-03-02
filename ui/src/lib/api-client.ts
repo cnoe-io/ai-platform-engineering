@@ -38,6 +38,7 @@ class APIClient {
       ...options,
       headers: {
         'Content-Type': 'application/json',
+        'X-Client-Source': 'caipe-ui',
         ...options?.headers,
       },
     });

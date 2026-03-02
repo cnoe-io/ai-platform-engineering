@@ -190,6 +190,7 @@ jobs:
             "ci-supervisor-agent.yml:false"
             "ci-agent-forge-plugin.yml:false"
             "ci-caipe-ui.yml:false"
+            "ci-slack-bot.yml:false"
           )
 
           SUCCESS=0
