@@ -1,13 +1,34 @@
+## 0.2.31 (2026-02-28)
+
+### Fix
+
+- align netutils chart alias and disable secrets for demo agents (#871)
+
+## 0.2.30 (2026-02-28)
+
+### Refactor
+
+- rename network_utility agent to netutils (NetUtils) (#870)
+
+## 0.2.29 (2026-02-27)
+
+### Feat
+
+- add agent-weather and agent-petstore to helm chart (#869)
+
+## 0.2.28 (2026-02-27)
+
+### Fix
+
+- linter err
+- more gracefully handle error such as context too large, recursion limit etc
+- correctly handle final output when recursion limit is hit
+
 ## 0.2.27 (2026-02-26)
 
 ### Feat
 
 - make skill-templates independent of caipe-ui.enabled (#836)
-
-## 0.2.26-rc.1 (2026-02-26)
-
-### Feat
-
 - **victorops**: Add Agent victorops aka Splunk On-call (#858)
 
 ## 0.2.26 (2026-02-26)

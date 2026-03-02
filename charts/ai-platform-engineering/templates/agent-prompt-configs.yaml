@@ -19,7 +19,7 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: prompt-config-{{ $name }}
+  name: prompt-config-{{ $name | replace "_" "-" }}
   namespace: {{ $.Release.Namespace }}
   labels:
     app.kubernetes.io/name: {{ include "ai-platform-engineering.name" $ }}

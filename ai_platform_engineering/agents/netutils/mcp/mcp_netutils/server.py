@@ -13,13 +13,13 @@ import os
 from dotenv import load_dotenv
 from fastmcp import FastMCP
 
-from mcp_network_utility.tools import dns
-from mcp_network_utility.tools import diagnostics
-from mcp_network_utility.tools import dnsmasq_config
-from mcp_network_utility.tools import dhcp
-from mcp_network_utility.tools import advanced_networking
-from mcp_network_utility.tools import cisco
-from mcp_network_utility.tools import ip_planning
+from mcp_netutils.tools import dns
+from mcp_netutils.tools import diagnostics
+from mcp_netutils.tools import dnsmasq_config
+from mcp_netutils.tools import dhcp
+from mcp_netutils.tools import advanced_networking
+from mcp_netutils.tools import cisco
+from mcp_netutils.tools import ip_planning
 
 
 def main():
@@ -35,7 +35,7 @@ def main():
 
     logging.info("Starting MCP server in {} mode on {}:{}".format(MCP_MODE, MCP_HOST, MCP_PORT))
 
-    SERVER_NAME = os.getenv("SERVER_NAME", "NetworkUtility")
+    SERVER_NAME = os.getenv("SERVER_NAME", "NetUtils")
     logging.info("*" * 40)
     logging.info("MCP Server name: {}".format(SERVER_NAME))
     logging.info("*" * 40)
