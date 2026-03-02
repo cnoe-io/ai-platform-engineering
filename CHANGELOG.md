@@ -1,3 +1,18 @@
+## 0.2.32 (2026-03-02)
+
+### Fix
+
+- delete old files
+- move slack-bot chart under ai-platform-engineering chart
+
+## 0.2.31-rc.1 (2026-03-02)
+
+### Fix
+
+- **slack-bot**: move Dockerfile to build/ and add to release-finalize
+- **slack-bot**: add CI and pre-release workflows for slack bot Docker build
+- **slack-bot**: bump slack-bot chart version to 0.2.31
+
 ## 0.2.31 (2026-02-28)
 
 ### Fix
@@ -18,11 +33,19 @@
 
 ## 0.2.28 (2026-02-27)
 
+### Feat
+
+- **slack-bot**: add X-Client-Source header and parent Helm chart wiring
+- **slack-bot**: upstream Slack bot integration into CAIPE platform
+
 ### Fix
 
 - linter err
 - more gracefully handle error such as context too large, recursion limit etc
 - correctly handle final output when recursion limit is hit
+- **slack-bot**: add DM handler, use APP_NAME variable, and simplify streaming (#868)
+- **slack-bot**: fix gitleaks false positive and UI test assertion
+- **slack-bot**: address review issues from forge-slack-bot upstream validation
 
 ## 0.2.27 (2026-02-26)
 
