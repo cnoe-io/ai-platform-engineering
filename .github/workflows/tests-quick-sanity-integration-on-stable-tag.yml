@@ -177,7 +177,7 @@ jobs:
 
       - name: Upload logs artifact
         if: always()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: compose-logs-release-${{ steps.resolve-tag.outputs.image_tag }}
           path: compose-live.log
