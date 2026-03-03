@@ -521,7 +521,7 @@ caipe-ui:
 # Enable with: global.integrations.slackBot.enabled=true
 slack-bot:
   image:
-    repository: "ghcr.io/cnoe-io/slack-bot"
+    repository: "ghcr.io/cnoe-io/caipe-slack-bot"
     # tag defaults to .Chart.AppVersion when not specified
     tag: ""
     pullPolicy: "Always"
