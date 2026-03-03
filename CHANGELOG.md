@@ -1,17 +1,34 @@
+## 0.2.33 (2026-03-03)
+
+### Feat
+
+- **caipe-ui**: add existingSecret support for pre-existing secrets (#862)
+
+### Fix
+
+- **ci**: replace pull_request_target with pull_request for security
+- **auth**: return 401 when unauthenticated on protected routes (#882)
+- **docs**: escape nested quotes in ADR front matter title (#881)
+- **slack-bot**: skip duplicate CAIPE_URL in env map loop (#879)
+
 ## 0.2.32 (2026-03-02)
+
+### Feat
+
+- **slack-bot**: add X-Client-Source header and parent Helm chart wiring
+- **slack-bot**: upstream Slack bot integration into CAIPE platform
 
 ### Fix
 
 - delete old files
 - move slack-bot chart under ai-platform-engineering chart
-
-## 0.2.31-rc.1 (2026-03-02)
-
-### Fix
-
 - **slack-bot**: move Dockerfile to build/ and add to release-finalize
 - **slack-bot**: add CI and pre-release workflows for slack bot Docker build
 - **slack-bot**: bump slack-bot chart version to 0.2.31
+- **slack-bot**: add DM handler, use APP_NAME variable, and simplify streaming (#868)
+- **slack-bot**: fix gitleaks false positive and UI test assertion
+- **slack-bot**: address review issues from forge-slack-bot upstream validation
+- **github**: multi-node uses gh CLI, single-node uses MCP STDIO
 
 ## 0.2.31 (2026-02-28)
 
@@ -35,17 +52,21 @@
 
 ### Feat
 
-- **slack-bot**: add X-Client-Source header and parent Helm chart wiring
-- **slack-bot**: upstream Slack bot integration into CAIPE platform
+- **aigateway**: deterministic Webex message and Helm task config
 
 ### Fix
 
 - linter err
 - more gracefully handle error such as context too large, recursion limit etc
 - correctly handle final output when recursion limit is hit
-- **slack-bot**: add DM handler, use APP_NAME variable, and simplify streaming (#868)
-- **slack-bot**: fix gitleaks false positive and UI test assertion
-- **slack-bot**: address review issues from forge-slack-bot upstream validation
+- **multi-node**: execution plan parsing, user email propagation, form submission, and SSO config
+- **ui**: prevent HITL form from reappearing after workflow completion
+- **ci**: pin deps/build stages to BUILDPLATFORM in caipe-ui Dockerfile
+- **build**: regenerate uv.lock to sync with pyproject.toml
+
+### Refactor
+
+- **helm**: symlink task_config.yaml from charts data and remove list_self_service_tasks tool
 
 ## 0.2.27 (2026-02-26)
 
@@ -68,10 +89,16 @@
 
 ## 0.2.25 (2026-02-25)
 
+### Feat
+
+- handle existing LLM keys, persist form on refresh, show selections
+
 ### Fix
 
 - correctly send final structured output to the UI when user input is required
 - **rag**: resolve RBAC crash in ontology agent reverse proxy
+- **streaming**: use supervisor final message for final_result artifact
+- **aigateway**: remove extraneous f-string prefix in tools.py
 
 ## 0.2.24 (2026-02-25)
 
@@ -96,7 +123,10 @@
 
 - Support comma-separated OAUTH2_CLIENT_IDS for cid validation (#849)
 - **rag**: add batch job status endpoint for efficient datasource polling (#845)
+- **ui**: add response field to CAIPEAgentResponse for form chat text
+- **tools**: add terraform_fmt tool and fix filesystem state consistency
 - set USE_STRUCTURED_RESPONSE true by default (#840)
+- **single-node**: add structured response support and ResponseFormat tool notifications
 
 ### Fix
 
@@ -104,6 +134,17 @@
 - **docker-compose**: remove jarvis from all-agents profile (#848)
 - get rid of ResponseFormat as sonnet sometimes uses this instead and breaks
 - make it work with newer claude models that do not support prefilling
+- **agent**: make CAIPEAgentResponse response field optional
+- **tools**: use correct InjectedState import for tool_result_to_file
+- **agent**: emit execution plan when write_todos is called
+- **agent**: fix execution plan bug
+- **github-mcp**: make octicon icons optional for Go embed
+- **ui**: add missing A2AEvent type import to ChatPanel
+- **single-node**: fix ResponseFormat parsing, HITL handler, and UI overflow
+- **ui**: restore agent-config types from skills builder feature
+- **ui**: sync agent-config store and types with main
+- **ui**: restore agent-builder components lost during merge
+- **chart**: remove self-service env defaults that override envFrom
 
 ## 0.2.21 (2026-02-23)
 
@@ -126,8 +167,10 @@
 - **ui**: auto-enable follow_external_links when sitemap mode is selected
 - **ui**: show follow_external_links option for sitemap crawl mode
 - **webloader**: show sitemap URL in job success message
+- **chart**: add agent-weather dependency and remoteAgent bypass for single-node
 - **ui**: add support to UI's admin page for prometheus metrics dashboard (#826)
 - **ui**: add WORKFLOW_RUNNER_ENABLED feature flag (#823)
+- **github-mcp**: add invite_user_to_org tool and parameterize task config
 
 ### Fix
 
@@ -138,8 +181,11 @@
 - **webloader**: detect canonical domain from sitemap URLs
 - **webloader**: add robust sitemap discovery with fallback chain
 - **webloader**: fix sitemap discovery for subdirectory paths
+- **ci**: strip pre-release suffix before version arithmetic in helm-pre-release
+- **ui**: clear stale HITL form after submission
 - **rag**: resolve web-ingestor tight loop caused by reload interval mismatch (#817)
 - **ui**: show amber RAG Disconnected badge when only RAG is offline (#821)
+- **task-config**: handle empty repos and fix step numbering in deploy task
 - persist user input on the UI after refresh or page return
 - **rag**: prioritize JWT auth over trusted network (#815)
 - **confluence-ingestor**: accept CONFLUENCE_API_TOKEN as fallback for CONFLUENCE_TOKEN (#814)
@@ -147,6 +193,7 @@
 ### Refactor
 
 - **webloader**: add job_id prefix to all spider log messages
+- move field_values sorting from code to task config
 
 ## 0.2.19 (2026-02-18)
 
@@ -162,6 +209,14 @@
 ### Fix
 
 - **supervisor**: send supervisor synthesis as final_result in single sub-agent scenario (#809)
+- **github**: fix streaming
+- **github**: fix github mcp
+- **remote-a2a**: add remote weather agent and add github mcp
+- **ui**: restore HITL resume flow for form submissions
+- **a2a**: construct resume Command from plain text form submissions
+- **prompt**: add final_answer_instructions to platform system prompt template
+- sync UI code with main and regenerate webex mcp uv.lock
+- resolve merge conflicts with main (RAG proxy comments, auth-config docs)
 - **rag**: fix lint issues in rbac.py
 
 ### Refactor
@@ -172,6 +227,7 @@
 
 ### Feat
 
+- **single-node**: add user email context, fix recursion limit, and fix webex mcp
 - **rag-ui**: add 'Restrict to this page' button for SPA tab scraping
 - Return trace_id to clients for Langfuse feedback (#805)
 
@@ -233,6 +289,8 @@
 - **ingestors**: integrate Scrapy loader into web ingestor
 - **common**: add ScrapySettings model and job metrics tracking
 - **ingestors**: add Scrapy-based web loader infrastructure
+- **a2a**: emit per-task tool notifications for deterministic workflows
+- simplify deployment to single-node deep agent architecture
 
 ### Fix
 
@@ -283,6 +341,13 @@
 - **lint**: remove unnecessary f-string prefix
 - **lint**: remove unused imports and delete scripts folder
 - **ingestors**: correct metadata structure for source URL in documents
+- **a2a**: prevent primary stream crash on nameless ToolMessages
+- **ui**: restore entrypoint.sh env-config.js for runtime env injection
+- **ui**: use dynamic getConfig for caipeUrl in health hook
+- **ci**: resolve ruff lint errors and duplicate TypeScript declarations
+- **agents**: fix github subagent and single node deep agent
+- **rag**: fix rag tool initialisation
+- **agents**: fix webex, backstage, jira agents
 - **ui**: remove container healthcheck and align RAG_SERVER_URL usage
 - **ui**: replace build-time env vars with runtime PublicEnvScript injection
 - **ci**: ensure caipe-ui builds on RC tag pushes
