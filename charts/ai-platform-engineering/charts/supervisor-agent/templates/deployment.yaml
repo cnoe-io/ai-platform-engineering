@@ -93,6 +93,42 @@ spec:
             - name: SLIM_ENDPOINT
               value: {{ include "supervisorAgent.slim.endpoint" . | quote }}
             {{- end }}
+            {{- with .Values.memoryPersistence }}
+            - name: LANGGRAPH_STORE_TYPE
+              value: {{ .type | default "memory" | quote }}
+            {{- if eq (.type | default "memory") "redis" }}
+            {{- if and .redis.existingSecret .redis.existingSecret.name .redis.existingSecret.key }}
+            - name: LANGGRAPH_STORE_REDIS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .redis.existingSecret.name | quote }}
+                  key: {{ .redis.existingSecret.key | quote }}
+            {{- else }}
+            - name: LANGGRAPH_STORE_REDIS_URL
+              value: {{ .redis.url | default "" | quote }}
+            {{- end }}
+            {{- if .redis.keyPrefix }}
+            - name: LANGGRAPH_STORE_KEY_PREFIX
+              value: {{ .redis.keyPrefix | quote }}
+            {{- end }}
+            {{- end }}
+            {{- if eq (.type | default "memory") "postgres" }}
+            {{- if and .postgres.existingSecret .postgres.existingSecret.name .postgres.existingSecret.key }}
+            - name: LANGGRAPH_STORE_POSTGRES_DSN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .postgres.existingSecret.name | quote }}
+                  key: {{ .postgres.existingSecret.key | quote }}
+            {{- else }}
+            - name: LANGGRAPH_STORE_POSTGRES_DSN
+              value: {{ .postgres.dsn | default "" | quote }}
+            {{- end }}
+            {{- end }}
+            - name: LANGGRAPH_STORE_TTL_MINUTES
+              value: {{ .ttlMinutes | default 10080 | quote }}
+            - name: ENABLE_FACT_EXTRACTION
+              value: {{ .enableFactExtraction | default false | quote }}
+            {{- end }}
           {{- if not (eq (include "supervisorAgent.slim.enabled" .) "true") }}
           {{- with .Values.livenessProbe }}
           livenessProbe:

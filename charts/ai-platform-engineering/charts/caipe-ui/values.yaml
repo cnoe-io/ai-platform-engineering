@@ -184,12 +184,21 @@ config:
 # Name of a pre-existing Kubernetes Secret to mount as environment variables.
 # Use this when managing secrets outside the chart (e.g. via extraDeploy, CI/CD, or manual creation).
 # The secret is mounted via envFrom.secretRef alongside the config ConfigMap.
+#
+# BYO MongoDB / DocumentDB: Create a Secret with key MONGODB_URI (connection string).
+# Example: kubectl create secret generic my-caipe-secrets --from-literal=MONGODB_URI='mongodb://user:pass@host:27017/caipe'
+# For AWS DocumentDB use the DocumentDB connection string (MongoDB-compatible) as MONGODB_URI.
+# You can also include NEXTAUTH_SECRET, OIDC_*, etc. in the same secret.
 existingSecret: ""
 
-# External Secrets configuration for sensitive data (OIDC credentials, NextAuth secret)
-# These secrets are fetched from your secret store (Vault, AWS Secrets Manager, etc.)
+# External Secrets configuration for sensitive data (OIDC, NextAuth, MongoDB/DocumentDB)
+# Secrets are fetched from your secret store (Vault, AWS Secrets Manager, etc.)
 # To enable: set externalSecrets.enabled=true and configure data section
-# See EXTERNAL_SECRETS.md for detailed instructions
+# See EXTERNAL_SECRETS.md and values-external-secrets.yaml for full examples
+#
+# BYO MongoDB / DocumentDB: Add a data entry with secretKey: MONGODB_URI and remoteRef
+# to your store (e.g. key: dev/caipe-ui, property: MONGODB_URI). Use MongoDB or
+# DocumentDB connection string; DocumentDB is MongoDB-compatible.
 externalSecrets:
   enabled: false  # Set to true to enable external secrets
   apiVersion: "v1beta1"
@@ -197,22 +206,10 @@ externalSecrets:
     name: "vault"  # Your secret store name (replace with your SecretStore/ClusterSecretStore)
     kind: "ClusterSecretStore"  # or "SecretStore" for namespace-scoped
   data: []
-    # Example configuration (see values-external-secrets.yaml or EXTERNAL_SECRETS.md):
+    # Example (see values-external-secrets.yaml):
     # - secretKey: NEXTAUTH_SECRET
-    #   remoteRef:
-    #     conversionStrategy: Default
-    #     decodingStrategy: None
-    #     key: dev/caipe-ui
-    #     property: NEXTAUTH_SECRET
-    # - secretKey: OIDC_ISSUER
-    #   remoteRef:
-    #     key: dev/caipe-ui
-    #     property: OIDC_ISSUER
-    # - secretKey: OIDC_CLIENT_ID
-    #   remoteRef:
-    #     key: dev/caipe-ui
-    #     property: OIDC_CLIENT_ID
+    #   remoteRef: { key: dev/caipe-ui, property: NEXTAUTH_SECRET }
+    # - secretKey: MONGODB_URI
+    #   remoteRef: { key: dev/caipe-ui, property: MONGODB_URI }
     # - secretKey: OIDC_CLIENT_SECRET
-    #   remoteRef:
-    #     key: dev/caipe-ui
-    #     property: OIDC_CLIENT_SECRET
+    #   remoteRef: { key: dev/caipe-ui, property: OIDC_CLIENT_SECRET }
