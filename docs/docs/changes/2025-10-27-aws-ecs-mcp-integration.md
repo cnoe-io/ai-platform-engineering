@@ -1,3 +1,7 @@
+---
+title: "2025-10-27: AWS ECS MCP Server Integration"
+---
+
 # AWS ECS MCP Server Integration
 
 **Status**: 🟢 In-use (Part of consolidated AWS integration)

@@ -1,3 +1,7 @@
+---
+title: "2025-10-27: AWS Agent Backend Implementations"
+---
+
 # AWS Agent Backend Implementations
 
 **Status**: 🟢 In-use (Part of consolidated AWS integration)

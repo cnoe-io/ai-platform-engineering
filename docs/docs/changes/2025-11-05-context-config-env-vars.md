@@ -1,3 +1,7 @@
+---
+title: "2025-11-05: Context Management Environment Variables"
+---
+
 # Context Management Environment Variables
 
 **Status**: 🟢 In-use

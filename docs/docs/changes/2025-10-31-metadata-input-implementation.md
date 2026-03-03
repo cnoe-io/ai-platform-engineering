@@ -1,3 +1,7 @@
+---
+title: "2025-10-31: CopilotKit-Style Metadata Input Implementation"
+---
+
 # CopilotKit-Style Metadata Input Implementation
 
 **Status**: 🟡 Proposed (Superseded by 2025-11-07-user-input-metadata-format.md with UserInputMetaData prefix)

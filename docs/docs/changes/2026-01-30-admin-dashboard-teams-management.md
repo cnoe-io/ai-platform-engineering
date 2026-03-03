@@ -1,3 +1,7 @@
+---
+title: "2026-01-30: Admin Dashboard with Team Management"
+---
+
 # Admin Dashboard with Team Management
 
 **Date**: 2026-01-30  

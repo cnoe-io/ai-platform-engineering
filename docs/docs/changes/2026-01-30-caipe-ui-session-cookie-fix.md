@@ -1,3 +1,7 @@
+---
+title: "2026-01-30: ✅ SESSION COOKIE SIZE FIX - Browser Crash Resolved"
+---
+
 # ✅ SESSION COOKIE SIZE FIX - Browser Crash Resolved
 
 ## 🚨 Problem

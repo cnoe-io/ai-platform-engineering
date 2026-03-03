@@ -1,3 +1,7 @@
+---
+title: "2025-11-05: ADR: ArgoCD Agent - OOM Protection Architecture"
+---
+
 # ADR: ArgoCD Agent - OOM Protection Architecture
 
 **Status**: 🟢 In-use

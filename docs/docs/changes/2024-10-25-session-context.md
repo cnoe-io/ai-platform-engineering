@@ -1,3 +1,7 @@
+---
+title: "2024-10-25: Chat Session Context - Sub-Agent Tool Message Streaming Fix"
+---
+
 # Chat Session Context - Sub-Agent Tool Message Streaming Fix
 
 **Status**: 🟢 In-use

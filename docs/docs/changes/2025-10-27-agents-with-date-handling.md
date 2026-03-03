@@ -1,3 +1,7 @@
+---
+title: "2025-10-27: Agents with Enhanced Date Handling"
+---
+
 # Agents with Enhanced Date Handling
 
 **Status**: 🟢 In-use (Part of consolidated date handling feature)

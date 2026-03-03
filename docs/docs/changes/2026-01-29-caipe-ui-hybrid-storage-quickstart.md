@@ -1,3 +1,7 @@
+---
+title: "2026-01-29: Hybrid Storage Quick Start"
+---
+
 # Hybrid Storage Quick Start
 
 ## TL;DR

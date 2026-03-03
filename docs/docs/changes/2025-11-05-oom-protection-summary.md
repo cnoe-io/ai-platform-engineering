@@ -1,3 +1,7 @@
+---
+title: "2025-11-05: ADR: ArgoCD Agent - OOM Protection Strategy"
+---
+
 # ADR: ArgoCD Agent - OOM Protection Strategy
 
 **Status**: 🟢 In-use

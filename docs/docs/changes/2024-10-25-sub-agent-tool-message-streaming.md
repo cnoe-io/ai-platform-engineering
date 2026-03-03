@@ -1,3 +1,7 @@
+---
+title: "2024-10-25: Sub-Agent Tool Message Streaming Analysis"
+---
+
 # Sub-Agent Tool Message Streaming Analysis
 
 **Status**: 🟢 In-use

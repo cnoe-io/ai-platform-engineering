@@ -1,3 +1,7 @@
+---
+title: "2026-02-10: UI Scroll Performance & Rendering Fixes"
+---
+
 # UI Scroll Performance & Rendering Fixes
 
 **Date**: 2026-02-10

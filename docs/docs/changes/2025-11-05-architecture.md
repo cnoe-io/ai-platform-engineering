@@ -1,3 +1,7 @@
+---
+title: "2025-11-05: AI Platform Engineering Architecture"
+---
+
 # AI Platform Engineering Architecture
 
 **Status**: 🟢 In-use

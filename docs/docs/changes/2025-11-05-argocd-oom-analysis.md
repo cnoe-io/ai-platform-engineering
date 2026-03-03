@@ -1,3 +1,7 @@
+---
+title: "2025-11-05: ADR: ArgoCD Agent OOM Analysis & Resolution"
+---
+
 # ADR: ArgoCD Agent OOM Analysis & Resolution
 
 **Status**: 🟢 In-use

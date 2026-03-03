@@ -1,3 +1,7 @@
+---
+title: "2025-11-07: User Input Metadata Format with Prefix Detection"
+---
+
 # User Input Metadata Format with Prefix Detection
 
 **Status**: 🟢 In-use

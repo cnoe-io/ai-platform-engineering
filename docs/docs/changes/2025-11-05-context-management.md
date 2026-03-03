@@ -1,3 +1,7 @@
+---
+title: "2025-11-05: Auto Context Management for LangGraph Agents"
+---
+
 # Auto Context Management for LangGraph Agents
 
 **Status**: 🟢 In-use

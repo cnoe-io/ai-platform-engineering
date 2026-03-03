@@ -1,3 +1,7 @@
+---
+title: "2024-10-22: Agent Refactoring: Unified BaseLangGraphAgent Implementation"
+---
+
 # Agent Refactoring: Unified BaseLangGraphAgent Implementation
 
 **Status**: 🟢 In-use

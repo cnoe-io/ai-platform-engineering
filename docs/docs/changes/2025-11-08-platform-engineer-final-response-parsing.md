@@ -1,3 +1,7 @@
+---
+title: "2025-11-08: ADR: Platform Engineer Final Response Parsing and DataPart Implementation"
+---
+
 # ADR: Platform Engineer Final Response Parsing and DataPart Implementation
 
 **Status**: 🟢 In-use

@@ -1,3 +1,7 @@
+---
+title: "2025-12-23: ADR: Agent Name Tracing Fix for LangGraph Observations"
+---
+
 # ADR: Agent Name Tracing Fix for LangGraph Observations
 
 **Status**: 🟢 In-use

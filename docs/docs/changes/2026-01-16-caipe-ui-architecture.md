@@ -1,3 +1,7 @@
+---
+title: "2026-01-16: ADR: CAIPE UI Architecture and Technology Decisions"
+---
+
 # ADR: CAIPE UI Architecture and Technology Decisions
 
 | Field | Value |

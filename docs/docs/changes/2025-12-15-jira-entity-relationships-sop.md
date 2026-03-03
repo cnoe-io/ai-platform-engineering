@@ -1,3 +1,7 @@
+---
+title: "2025-12-15: Jira Entity Relationships SOP"
+---
+
 # Jira Entity Relationships SOP
 
 **Date**: 2025-12-15

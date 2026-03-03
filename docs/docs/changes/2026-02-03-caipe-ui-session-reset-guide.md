@@ -1,3 +1,7 @@
+---
+title: "2026-02-03: CAIPE UI Session Reset & Cookie Management Guide"
+---
+
 # CAIPE UI Session Reset & Cookie Management Guide
 
 **Date**: 2026-02-03

@@ -1,3 +1,7 @@
+---
+title: "2026-01-29: Bug Fix: Full Page Reload on New Chat"
+---
+
 # Bug Fix: Full Page Reload on New Chat
 
 ## Issue

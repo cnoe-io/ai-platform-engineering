@@ -1,3 +1,7 @@
+---
+title: "2026-01-22: Multi-Agent Synthesis Fix"
+---
+
 # Multi-Agent Synthesis Fix
 
 **Date**: 2026-01-22

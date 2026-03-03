@@ -1,3 +1,7 @@
+---
+title: "2026-02-06: Remove NEXT_PUBLIC_ Prefix — Runtime Config via API"
+---
+
 # Remove NEXT_PUBLIC_ Prefix — Runtime Config via API
 
 ## Status

@@ -1,3 +1,7 @@
+---
+title: "2024-10-22: A2A Common: Intermediate States and Tool Visibility"
+---
+
 # A2A Common: Intermediate States and Tool Visibility
 
 **Status**: 🟢 In-use

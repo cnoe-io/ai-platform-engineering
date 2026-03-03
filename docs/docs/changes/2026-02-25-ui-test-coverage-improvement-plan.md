@@ -1,3 +1,7 @@
+---
+title: "2026-02-25: CAIPE UI Test Coverage Improvement Plan"
+---
+
 # CAIPE UI Test Coverage Improvement Plan
 
 **Status**: Planned

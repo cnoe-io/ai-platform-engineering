@@ -1,3 +1,7 @@
+---
+title: "2026-01-29: Bug Fix: New Chat Removing Old Conversations"
+---
+
 # Bug Fix: New Chat Removing Old Conversations
 
 ## Issue

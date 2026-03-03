@@ -1,3 +1,7 @@
+---
+title: "2025-10-30: Agent Forge GitHub Action Workflow Setup"
+---
+
 # Agent Forge GitHub Action Workflow Setup
 
 **Status**: 🟢 In-use

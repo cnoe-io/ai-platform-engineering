@@ -1,3 +1,7 @@
+---
+title: "2025-11-05: Date Handling in AI Platform Engineering Agents"
+---
+
 # Date Handling in AI Platform Engineering Agents
 
 **Status**: 🟢 In-use

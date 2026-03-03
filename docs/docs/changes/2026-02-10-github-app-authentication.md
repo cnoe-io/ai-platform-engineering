@@ -1,3 +1,7 @@
+---
+title: "2026-02-10: GitHub App Authentication for the GitHub Agent"
+---
+
 # GitHub App Authentication for the GitHub Agent
 
 **Date**: 2026-02-10

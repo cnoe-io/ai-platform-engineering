@@ -1,3 +1,7 @@
+---
+title: "2025-12-04: Jira Field Discovery and Schema Validation Implementation"
+---
+
 # Jira Field Discovery and Schema Validation Implementation
 
 **Date**: 2025-12-04

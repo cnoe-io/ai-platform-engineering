@@ -1,3 +1,7 @@
+---
+title: "2025-11-05: ADR: A2A Artifact Streaming Race Condition Fix"
+---
+
 # ADR: A2A Artifact Streaming Race Condition Fix
 
 **Status**: 🟢 In-use

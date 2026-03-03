@@ -1,3 +1,7 @@
+---
+title: "2024-10-22: AWS Agent Refactoring - Complete ✅"
+---
+
 # AWS Agent Refactoring - Complete ✅
 
 **Status**: 🟢 In-use

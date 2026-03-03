@@ -1,3 +1,7 @@
+---
+title: "2026-01-30: MongoDB Chat History Migration Guide"
+---
+
 # MongoDB Chat History Migration Guide
 
 ## Background
