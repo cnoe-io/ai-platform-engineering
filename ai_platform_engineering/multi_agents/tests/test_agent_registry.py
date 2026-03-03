@@ -598,6 +598,42 @@ class TestRegistryExclusions(unittest.TestCase):
         self.assertEqual(set(registry.AGENT_ADDRESS_MAPPING.keys()), {"GITHUB", "JIRA", "PAGERDUTY"})
 
 
+class TestDisabledAgentsBlocklist(unittest.TestCase):
+    """Test the DISABLED_AGENTS env var blocklist feature."""
+
+    def setUp(self):
+        self.original_env = os.environ.copy()
+
+    def tearDown(self):
+        os.environ.clear()
+        os.environ.update(self.original_env)
+
+    @patch('ai_platform_engineering.multi_agents.agent_registry.AgentRegistry._load_agents')
+    def test_disabled_agents_filters_out_blocklisted_agents(self, mock_load):
+        """DISABLED_AGENTS removes matching agents (case-insensitive, comma-separated)."""
+        mock_load.return_value = None
+        with patch.dict(os.environ, {
+            "ENABLE_GITHUB": "true",
+            "ENABLE_JIRA": "true",
+            "ENABLE_GITLAB": "true",
+            "ENABLE_PAGERDUTY": "true",
+            "DISABLED_AGENTS": " gitlab , PAGERDUTY ",
+        }, clear=True):
+            registry = AgentRegistry()
+        self.assertEqual(set(registry.AGENT_NAMES), {"GITHUB", "JIRA"})
+
+    @patch('ai_platform_engineering.multi_agents.agent_registry.AgentRegistry._load_agents')
+    def test_disabled_agents_unset_has_no_effect(self, mock_load):
+        """Without DISABLED_AGENTS, all enabled agents remain."""
+        mock_load.return_value = None
+        with patch.dict(os.environ, {
+            "ENABLE_GITHUB": "true",
+            "ENABLE_JIRA": "true",
+        }, clear=True):
+            registry = AgentRegistry()
+        self.assertEqual(set(registry.AGENT_NAMES), {"GITHUB", "JIRA"})
+
+
 def run_tests():
     """Run all tests and provide summary."""
     # Create test suite
@@ -613,6 +649,7 @@ def run_tests():
         TestAddressMapping,
         TestGetEnabledAgentsFromEnv,
         TestRegistryExclusions,
+        TestDisabledAgentsBlocklist,
     ]
 
     for test_class in test_classes:

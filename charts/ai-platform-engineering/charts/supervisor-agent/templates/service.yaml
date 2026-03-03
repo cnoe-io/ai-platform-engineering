@@ -1,24 +1,7 @@
-apiVersion: v1
-kind: Service
-metadata:
-  name: {{ include "supervisorAgent.fullname" . }}
-  labels:
-    {{- include "supervisorAgent.labels" . | nindent 4 }}
-spec:
-  type: {{ .Values.service.type }}
-  ports:
-    {{- if .Values.service.ports }}
-    {{- range .Values.service.ports }}
-    - port: {{ .port }}
-      targetPort: {{ .name }}
-      protocol: {{ .protocol | default "TCP" }}
-      name: {{ .name }}
-    {{- end }}
-    {{- else }}
-    - port: {{ .Values.service.port }}
-      targetPort: http
-      protocol: TCP
-      name: http
-    {{- end }}
-  selector:
-    {{- include "supervisorAgent.selectorLabels" . | nindent 4 }}
+{{- /* Default supervisor service */ -}}
+{{ include "supervisorAgent.service" (dict "root" . "profileName" "") }}
+{{- /* Profile supervisor services */ -}}
+{{- range $profileName, $profile := .Values.clientProfiles }}
+---
+{{ include "supervisorAgent.service" (dict "root" $ "profileName" $profileName) }}
+{{- end }}

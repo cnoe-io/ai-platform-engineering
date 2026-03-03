@@ -1,0 +1,39 @@
+Supervisor Agent deployed: {{ include "supervisorAgent.fullname" . }}
+{{- if .Values.clientProfiles }}
+
+Per-client supervisor profiles detected. The following additional
+Deployment + Service pairs have been created:
+
+{{- range $name, $profile := .Values.clientProfiles }}
+  - {{ include "supervisorAgent.fullname" $ }}-{{ $name }}
+    Client ID : {{ $profile.clientId }}
+    Disabled  : {{ $profile.disabledAgents | default "none" }}
+{{- end }}
+
+ACTION REQUIRED: Configure your ingress or service mesh to route
+traffic to each profile's Service based on the OAuth2 client ID.
+For Istio, use RequestAuthentication to extract the JWT "cid" claim
+into a header (e.g. x-jwt-client-id), then add VirtualService match
+rules per client ID. Example:
+
+  jwtRules:
+    - issuer: "<your-issuer>"
+      jwksUri: "<your-jwks-uri>"
+      outputClaimToHeaders:
+        - header: x-jwt-client-id
+          claim: cid
+
+  http:
+{{- range $name, $profile := .Values.clientProfiles }}
+    - match:
+        - headers:
+            x-jwt-client-id:
+              exact: "{{ $profile.clientId }}"
+      route:
+        - destination:
+            host: {{ include "supervisorAgent.fullname" $ }}-{{ $name }}.{{ $.Release.Namespace }}.svc.cluster.local
+{{- end }}
+    - route:
+        - destination:
+            host: {{ include "supervisorAgent.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local
+{{- end }}
