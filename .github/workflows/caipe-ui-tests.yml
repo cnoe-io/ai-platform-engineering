@@ -47,7 +47,7 @@ jobs:
         id: jest
         working-directory: ui
         continue-on-error: true
-        run: npm test -- --coverage --coverageReporters=text --coverageReporters=json-summary
+        run: npm test -- --coverage --coverageReporters=text --coverageReporters=json-summary --forceExit
 
       - name: Set test results
         id: test-results

@@ -33,6 +33,10 @@ jest.mock('@/lib/auth-config', () => ({
   authOptions: {},
 }));
 
+jest.mock('@/lib/config', () => ({
+  getConfig: (key: string) => key === 'ssoEnabled',
+}));
+
 const mockCollections: Record<string, any> = {};
 const mockGetCollection = jest.fn((name: string) => {
   if (!mockCollections[name]) {
