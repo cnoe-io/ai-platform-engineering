@@ -1,3 +1,7 @@
+---
+title: "2024-10-22: Prompt Configuration Feature"
+---
+
 # Prompt Configuration Feature
 
 **Status**: 🟢 In-use

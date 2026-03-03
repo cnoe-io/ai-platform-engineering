@@ -1,3 +1,7 @@
+---
+title: "2026-02-03: CAIPE UI MongoDB Chat Quick Fix Guide"
+---
+
 # CAIPE UI MongoDB Chat Quick Fix Guide
 
 **Date**: 2026-02-03

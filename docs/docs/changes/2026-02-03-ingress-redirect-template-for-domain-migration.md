@@ -1,3 +1,7 @@
+---
+title: "2026-02-03: Ingress Redirect Template for Domain Migration"
+---
+
 # Ingress Redirect Template for Domain Migration
 
 **Date**: 2026-02-03

@@ -1,3 +1,7 @@
+---
+title: "2026-01-27: ADR: Use Case Storage Configuration for CAIPE UI"
+---
+
 # ADR: Use Case Storage Configuration for CAIPE UI
 
 **Status**: 🟢 In-use

@@ -1,3 +1,7 @@
+---
+title: "2024-10-23: Platform Engineer Streaming Architecture"
+---
+
 # Platform Engineer Streaming Architecture
 
 **Status**: 🟢 In-use

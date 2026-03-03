@@ -17,9 +17,19 @@ This is the second part of the AI agents lab series. In this part, you'll learn 
 
 - Completion of Part 1 (Introduction to AI Agents and ReAct Pattern)
 - Basic understanding of AI agents and MCP
-- Access to Azure OpenAI (credentials provided in lab environment)
+- A running CAIPE environment on Kubernetes (see below)
 - [Kind](https://kind.sigs.k8s.io/) and [kubectl](https://kubernetes.io/docs/tasks/tools/) installed locally
 - [Helm](https://helm.sh/) installed
+
+**Get your environment ready:** Before starting this lab, you need CAIPE deployed on a Kubernetes cluster (e.g. Kind). The easiest way is to use the one-command setup script from the [ai-platform-engineering](https://github.com/cnoe-io/ai-platform-engineering) repo root:
+
+```bash
+git clone https://github.com/cnoe-io/ai-platform-engineering.git
+cd ai-platform-engineering
+./setup-caipe.sh
+```
+
+The script will create a Kind cluster (if needed), deploy CAIPE (supervisor, agents, UI), and prompt you for LLM credentials. When it finishes, you can open the CAIPE UI and run the exercises in this lab. For full options (non-interactive mode, RAG, tracing), see [Run CAIPE with KinD](/getting-started/kind/setup).
 
 ---
 
@@ -49,7 +59,7 @@ There are several proven patterns for organizing multi-agent systems. Let's expl
 
 In this pattern, agents communicate in a network using pub-sub, multicast, or broadcast groups. Each agent is aware of and can hand off tasks to any other agent in the group.
 
-<center><img src="images/mas-network.svg" alt="MAS Network Architecture" width="600"></center>
+<center><img src="images/mas-network.svg" alt="MAS Network Architecture" width="600" /></center>
 
 **Use cases:**
 
@@ -63,7 +73,7 @@ In this pattern, agents communicate in a network using pub-sub, multicast, or br
 
 Simple ReAct agents can be "shallow"—they struggle with longer-running tasks and complex multi-turn conversations. Deep Research agents implement a planner-based architecture to plan tasks and invoke sub-agents, system tools, and human-in-the-loop interactions.
 
-<center><img src="images/mas-deep-agents.svg" alt="MAS Planner Architecture" width="600"></center>
+<center><img src="images/mas-deep-agents.svg" alt="MAS Planner Architecture" width="600" /></center>
 
 **Examples:** Claude Code, AWS Kiro CLI, research assistants
 
@@ -79,7 +89,7 @@ Simple ReAct agents can be "shallow"—they struggle with longer-running tasks a
 
 A supervisor agent orchestrates tasks among sub-agents, either within the same system or over a network. The supervisor routes requests, aggregates responses, and maintains overall task coordination.
 
-<center><img src="images/mas-supervisor.svg" alt="MAS Supervisor Architecture" width="600"></center>
+<center><img src="images/mas-supervisor.svg" alt="MAS Supervisor Architecture" width="600" /></center>
 
 **Use cases:**
 - Systems with clear task delegation patterns
@@ -92,7 +102,7 @@ A supervisor agent orchestrates tasks among sub-agents, either within the same s
 
 This pattern extends the supervisor model with multiple levels—supervisors managing other supervisors. This enables large-scale systems with complex organizational structures.
 
-<center><img src="images/mas-hierarchical-supervisor.svg" alt="MAS Hierarchical Architecture" width="600"></center>
+<center><img src="images/mas-hierarchical-supervisor.svg" alt="MAS Hierarchical Architecture" width="600" /></center>
 
 **Use cases:**
 
@@ -136,7 +146,7 @@ This pattern extends the supervisor model with multiple levels—supervisors man
 
 The **Agent-to-Agent (A2A) Protocol** is an open standard that enables AI agents to communicate over the network in a consistent, interoperable way. Instead of every system inventing custom APIs, A2A defines how agents announce their identity, capabilities, and how they exchange requests, responses, and streaming updates.
 
-<center><img src="images/a2a-ref.svg" alt="A2A Protocol" width="600"></center>
+<center><img src="images/a2a-ref.svg" alt="A2A Protocol" width="600" /></center>
 
 > [!TIP]
 > Think of A2A as "HTTP for AI agents"—just as HTTP standardized web communication, A2A standardizes agent communication.
@@ -193,7 +203,7 @@ This makes it easy to build systems where a planner agent delegates tasks to spe
 
 **CAIPE (Community AI Platform Engineering)** is a Multi-Agent System that provides a secure, scalable, persona-driven reference implementation with built-in knowledge base retrieval. It streamlines platform operations, accelerates workflows, and fosters innovation for modern engineering teams.
 
-<center><img src="images/mas_architecture.svg" alt="CAIPE Architecture" width="600"></center>
+<center><img src="images/mas_architecture.svg" alt="CAIPE Architecture" width="600" /></center>
 
 **Key features:**
 
@@ -602,7 +612,7 @@ Then open your browser to [http://localhost:3000](http://localhost:3000).
 - Capability discovery
 - Multi-turn conversations
 
-<center><img src="images/rag-chat.svg" alt="Caipe UI" width="600"></center>
+<center><img src="images/rag-chat.svg" alt="Caipe UI" width="600" /></center>
 
 ---
 
@@ -685,7 +695,7 @@ Try queries that require both agents to work together:
 
 **Multi-domain query:**
 ```text
-Get me today's weather for New York, and also test if MCP is reachable right now.
+Get me today's weather for New York, and also test if api.github.com is reachable. Summarize both results.
 ```
 
 **Complex reasoning:**

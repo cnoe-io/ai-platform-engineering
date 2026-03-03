@@ -1,3 +1,7 @@
+---
+title: "2025-12-13: Context Management and Error Resilience Architecture"
+---
+
 # Context Management and Error Resilience Architecture
 
 **Status**: 🟢 In-use  

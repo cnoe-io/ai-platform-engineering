@@ -1,3 +1,7 @@
+---
+title: "2026-01-30: Cookie Management Fix - Summary"
+---
+
 # Cookie Management Fix - Summary
 
 ## Problem Solved

@@ -1,3 +1,7 @@
+---
+title: "2026-02-06: Runtime Environment Variables & RAG_SERVER_URL Alignment"
+---
+
 # Runtime Environment Variables & RAG_SERVER_URL Alignment
 
 ## Status

@@ -1,3 +1,7 @@
+---
+title: "2025-10-31: Streaming Text Chunking Fix"
+---
+
 # Streaming Text Chunking Fix
 
 **Status**: 🟢 In-use

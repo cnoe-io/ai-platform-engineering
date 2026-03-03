@@ -1,3 +1,7 @@
+---
+title: "2025-11-05: Agent Forge Docker Build Integration"
+---
+
 # Agent Forge Docker Build Integration
 
 **Status**: 🟢 In-use

@@ -1,3 +1,7 @@
+---
+title: "2026-02-03: CAIPE UI Ingress Configuration Guide"
+---
+
 # CAIPE UI Ingress Configuration Guide
 
 **Date**: 2026-02-03

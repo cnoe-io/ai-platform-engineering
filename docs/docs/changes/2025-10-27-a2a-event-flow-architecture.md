@@ -1,3 +1,7 @@
+---
+title: "2025-10-27: A2A Event Flow Architecture - Complete Analysis"
+---
+
 # A2A Event Flow Architecture - Complete Analysis
 
 **Status**: 🟢 In-use

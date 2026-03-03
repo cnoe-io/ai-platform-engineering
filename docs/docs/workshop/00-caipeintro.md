@@ -35,6 +35,7 @@ This lab is divided into progressive modules:
 2. **AI Agents and ReAct Pattern**: Build your first agent with tools
 3. **Multi-Agent Systems**: Deploy CAIPE and coordinate multiple agents
 4. **RAG and Git Agents**: Knowledge retrieval and version control automation
+5. **Tracing and Observability**: Observe and trace agent interactions with Langfuse
 
 Each module builds on the previous one, so we recommend completing them in order.
 
@@ -102,7 +103,7 @@ Each module builds on the previous one, so we recommend completing them in order
 
 Here’s how all these components work together in CAIPE:
 
-<center><img src="images/mas_architecture.svg" style="max-width:800px;width:100%"/></center>
+<center><img src="images/mas_architecture.svg" style={{ maxWidth: '800px', width: '100%' }} /></center>
 
 CAIPE uses a supervisor pattern, where a coordinator agent delegates tasks to specialized platform agents. Each agent has access to MCP tools in their domain, and all agents communicate using the A2A protocol.
 
@@ -112,9 +113,12 @@ CAIPE uses a supervisor pattern, where a coordinator agent delegates tasks to sp
 - [CAIPE GitHub Repository](https://github.com/cnoe-io/ai-platform-engineering)
 
 Visit the CAIPE repository.
-<br>
+
+<br />
+
 ![Star CAIPE Repo](images/caipe-repo-qr.svg)
-<br>
+
+<br />
 
 _Link:_ [https://github.com/cnoe-io/ai-platform-engineering](https://github.com/cnoe-io/ai-platform-engineering)
 

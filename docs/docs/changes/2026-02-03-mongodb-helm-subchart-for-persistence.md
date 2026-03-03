@@ -1,3 +1,7 @@
+---
+title: "2026-02-03: MongoDB Helm Subchart for CAIPE UI Persistence"
+---
+
 # MongoDB Helm Subchart for CAIPE UI Persistence
 
 **Date**: 2026-02-03

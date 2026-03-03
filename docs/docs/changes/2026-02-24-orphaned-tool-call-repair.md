@@ -1,3 +1,7 @@
+---
+title: "2026-02-24: Orphaned Tool Call Repair for Bedrock Multi-Turn Conversations"
+---
+
 # Orphaned Tool Call Repair for Bedrock Multi-Turn Conversations
 
 **Status**: Implemented

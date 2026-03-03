@@ -124,7 +124,7 @@ Observe: "All systems normal. Ready to respond."
 Final Answer: "Habitat status: Oxygen optimal at 20.7%, Rover Spirit at 76% battery"
 ```
 
-<center><img src="images/react-agent.svg" alt="Mission Control" width="250"></center>
+<center><img src="images/react-agent.svg" alt="Mission Control" width="250" /></center>
 
 ---
 
@@ -334,7 +334,7 @@ MCP provides a **standardized interface** that enables:
 - **Reusable components** that work with any MCP-compatible system
 - **Simplified development** through common protocols
 
-<center><img src="images/mcp.svg" alt="MCP Architecture" width="250"></center>
+<center><img src="images/mcp.svg" alt="MCP Architecture" width="250" /></center>
 
 **Think of MCP as "USB for AI agents"** - just as USB standardized how devices connect to computers, MCP standardizes how agents connect to tools and services.
 
@@ -648,8 +648,9 @@ Congratulations! You've completed Part 1 of the AI Agents lab series. Here's wha
 
 In the upcoming parts of this lab series, you'll explore:
 
-- **Part 2**: [Advanced agent patterns and techniques]
-- **Part 3**: [Building production-ready agent systems]
+- **Part 2**: [Multi-Agent Systems and CAIPE](/workshop/mas) — Deploy CAIPE and coordinate multiple agents
+- **Part 3**: [RAG and Git Agents](/workshop/rag) — Knowledge retrieval and version control automation
+- **Part 4**: [Tracing and Observability](/workshop/tracing) — Observe agent interactions with Langfuse
 
 ### Additional Resources
 

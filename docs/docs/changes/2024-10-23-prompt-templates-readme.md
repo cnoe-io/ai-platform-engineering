@@ -1,3 +1,7 @@
+---
+title: "2024-10-23: Common Prompt Templates"
+---
+
 # Common Prompt Templates
 
 **Status**: 🟢 In-use

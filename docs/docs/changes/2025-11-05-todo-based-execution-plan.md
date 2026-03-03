@@ -1,3 +1,7 @@
+---
+title: "2025-11-05: TODO-Based Execution Plan Architecture"
+---
+
 # TODO-Based Execution Plan Architecture
 
 **Status**: 🟢 In-use

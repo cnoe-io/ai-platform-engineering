@@ -1,88 +1,106 @@
-# Helm Setup Guide
+---
+sidebar_position: 1
+---
 
-This guide will help you deploy the AI Platform Engineering system using Helm charts.
+# Deploy CAIPE with Helm
 
-## Overview
+This guide helps you deploy **CAIPE** (Community AI Platform Engineering) on any Kubernetes cluster using **Helm**. No prior experience with CAIPE is required.
 
-The [`ai-platform-engineering` Helm chart](https://github.com/cnoe-io/ai-platform-engineering/tree/main/charts/ai-platform-engineering) is a parent chart that orchestrates the deployment of multiple agent subcharts, each representing different platform integrations. The chart supports flexible deployment configurations through tags, allowing you to deploy either a basic setup or a complete multi-agent system.
+**What is CAIPE?** CAIPE is an open-source platform for building and running **AI agents** that use tools, LLMs (e.g. Claude or GPT), and multi-agent orchestration. The Helm chart deploys the supervisor, UI, and optional agents (ArgoCD, GitHub, Backstage, RAG, etc.) on your cluster.
 
-**Chart Version:** 0.2.8
+**When to use Helm:** Use this path when you already have a Kubernetes cluster (EKS, GKE, AKS, KinD, etc.) and want to install CAIPE from the official chart. For a one-command local setup, see [Run CAIPE with KinD](/getting-started/kind/setup) instead.
 
-## Prerequisites
+---
+
+## Step 1: Clone the repository (optional but recommended)
+
+Cloning the repo gives you the chart source, examples, and EKS/config references:
+
+```bash
+git clone https://github.com/cnoe-io/ai-platform-engineering.git
+cd ai-platform-engineering
+```
+
+You can install the chart **directly from the OCI registry** (no clone required). Cloning is useful for customising values or using a values file from the repo.
+
+---
+
+## Step 2: Prerequisites
 
 Before installing the chart, ensure you have:
 
-- Kubernetes cluster (version 1.28+)
-- Helm 3.x installed
-- `kubectl` configured to access your cluster
-- Sufficient cluster resources for the agents you plan to deploy
-- Required credentials for the integrations you plan to use (see [Configure Agent Secrets](../eks/configure-agent-secrets.md))
+| Requirement | Purpose |
+|-------------|---------|
+| **Kubernetes cluster** | Version 1.28 or higher (EKS, GKE, AKS, KinD, etc.) |
+| **kubectl** | Configured to access your cluster (`kubectl get nodes` should work) |
+| **Helm 3.x** | To install and upgrade the chart |
+| **Credentials** | API keys and secrets for the agents you enable (see [Configure Agent Secrets](../eks/configure-agent-secrets)) |
 
-## Quick Start
+You must **configure secrets before or right after** installing the chart so that agents can authenticate to external services. See [Configure Agent Secrets](../eks/configure-agent-secrets) for details.
 
-**NOTE**: You need to configure your secrets before installing the chart. Refer to the [Configure Agent Secrets](../eks/configure-agent-secrets.md) guide for more details.
+---
 
-### Basic Installation
+## Step 3: Install the chart
 
-The basic installation includes the following sub-agents:
-- ArgoCD
-- Backstage
-- GitHub
+The chart is published to **GitHub Container Registry (GHCR)**. You can install without cloning the repo.
 
-You can install directly from the OCI registry:
+**Chart version in this guide:** 0.2.32. For the **latest** chart version, see [GitHub Releases](https://github.com/cnoe-io/ai-platform-engineering/releases)—then replace `0.2.32` with the release tag (e.g. `0.2.33`) in the commands below.
+
+### Basic installation (ArgoCD, Backstage, GitHub agents)
 
 ```bash
 helm install ai-platform-engineering oci://ghcr.io/cnoe-io/charts/ai-platform-engineering \
-  --version 0.2.8 \
+  --version 0.2.32 \
   --namespace ai-platform-engineering \
   --create-namespace \
   --set-string tags.basic=true
 ```
 
-Or pull the chart first and install from the local file:
-
-```bash
-# Pull the chart
-helm pull oci://ghcr.io/cnoe-io/charts/ai-platform-engineering --version 0.2.8
-
-# Install from the downloaded file
-helm install ai-platform-engineering ai-platform-engineering-0.2.8.tgz \
-  --namespace ai-platform-engineering \
-  --create-namespace \
-  --set-string tags.basic=true
-```
-
-## Customise the deployment
-
-The chart supports deployment profiles via tags and we have two default profiles currently available: basic and complete. You can customise the deployment by adding the tags you need.
-
-### Basic Profile (ArgoCD, Backstage, GitHub sub-agents)
+### Complete profile (all agents)
 
 ```bash
 helm install ai-platform-engineering oci://ghcr.io/cnoe-io/charts/ai-platform-engineering \
-  --version 0.2.8 \
-  --namespace ai-platform-engineering \
-  --create-namespace \
-  --set-string tags.basic=true
-```
-
-### Complete Profile (All agents)
-
-```bash
-helm install ai-platform-engineering oci://ghcr.io/cnoe-io/charts/ai-platform-engineering \
-  --version 0.2.8 \
+  --version 0.2.32 \
   --namespace ai-platform-engineering \
   --create-namespace \
   --set-string tags.complete=true
 ```
 
-### Customise the deployment
+After installation, configure your [agent secrets](../eks/configure-agent-secrets) and LLM provider if you haven’t already. Then use `kubectl get pods -n ai-platform-engineering` to confirm pods are running.
 
-You can customise the sub-agents by adding the tags you need. For example, to install the basic profile as well as the PagerDuty and AWS sub-agents, you can run:
+---
+
+## Step 4: Verify the deployment
+
+```bash
+# List Helm releases in the namespace
+helm list -n ai-platform-engineering
+
+# Check pod status
+kubectl get pods -n ai-platform-engineering
+
+# View logs for a specific agent (example: GitHub agent)
+kubectl logs -n ai-platform-engineering -l app=agent-github
+```
+
+---
+
+## Customising the deployment
+
+The chart uses **tags** to enable or disable components. Two built-in profiles:
+
+| Profile | Tag | What’s included |
+|---------|-----|------------------|
+| **Basic** | `tags.basic=true` | ArgoCD, Backstage, GitHub agents |
+| **Complete** | `tags.complete=true` | All agents and RAG stack |
+
+### Add specific agents
+
+Combine the basic profile with extra agents:
 
 ```bash
 helm install ai-platform-engineering oci://ghcr.io/cnoe-io/charts/ai-platform-engineering \
-  --version 0.2.8 \
+  --version 0.2.32 \
   --namespace ai-platform-engineering \
   --create-namespace \
   --set-string tags.basic=true \
@@ -90,11 +108,13 @@ helm install ai-platform-engineering oci://ghcr.io/cnoe-io/charts/ai-platform-en
   --set-string tags.agent-aws=true
 ```
 
-Or if you prefer to entirely customise the deployment, you can do so by adding the tags you need in the format `tags.<agent-name>=true` (*Note*: for rag agent, use `tags.rag-stack=true`) e.g. if you only want to deploy Backstage, Slack and RAG sub-agents, you can run:
+### Pick only the agents you need
+
+Enable only the components you want (no basic/complete profile):
 
 ```bash
 helm install ai-platform-engineering oci://ghcr.io/cnoe-io/charts/ai-platform-engineering \
-  --version 0.2.8 \
+  --version 0.2.32 \
   --namespace ai-platform-engineering \
   --create-namespace \
   --set-string tags.agent-backstage=true \
@@ -102,13 +122,32 @@ helm install ai-platform-engineering oci://ghcr.io/cnoe-io/charts/ai-platform-en
   --set-string tags.rag-stack=true
 ```
 
-**Note:** Any sub-agent can be customised by adding the tags you need in the format `tags.agent-<agent-name>=true`. All available sub-agents are listed in the [Chart Components](#chart-components) section.
+**Note:** For the RAG stack use `tags.rag-stack=true`. For other agents use `tags.agent-<name>=true` (e.g. `tags.agent-github=true`). See [Chart components](#chart-components) for the full list.
 
-## Chart Components
+### Use a values file
 
-The chart includes the following components:
+If you cloned the repo, you can create a `values.yaml` and install from it:
 
-### Core Components
+```yaml
+# values.yaml
+tags:
+  basic: true
+  agent-aws: true
+```
+
+```bash
+helm install ai-platform-engineering oci://ghcr.io/cnoe-io/charts/ai-platform-engineering \
+  --version 0.2.32 \
+  --namespace ai-platform-engineering \
+  --create-namespace \
+  --values values.yaml
+```
+
+---
+
+## Chart components
+
+### Core components
 
 | Component | Version | Description |
 |-----------|---------|-------------|
@@ -118,30 +157,44 @@ The chart includes the following components:
 | **rag-stack** | 0.0.1 | RAG (Retrieval-Augmented Generation) stack |
 | **backstage-plugin-agent-forge** | 0.1.0 | Backstage plugin for agent management |
 
-### Agent Components
+### Agent components
 
-All agent subcharts use version **0.2.2** and include:
+All agent subcharts use version **0.2.2**. Enable with `tags.agent-<name>=true` (or `tags.rag-stack=true` for RAG).
 
 | Agent | Tag | Profiles | Description |
 |-------|-----|----------|-------------|
-| **agent-argocd** | `agent-argocd` | basic, complete | ArgoCD integration for GitOps workflows |
+| **agent-argocd** | `agent-argocd` | basic, complete | ArgoCD GitOps integration |
 | **agent-aws** | `agent-aws` | complete | AWS cloud resource management |
-| **agent-backstage** | `agent-backstage` | basic, complete | Backstage developer portal integration |
-| **agent-confluence** | `agent-confluence` | complete | Confluence documentation management |
-| **agent-github** | `agent-github` | basic, complete | GitHub repository and workflow management |
-| **agent-jira** | `agent-jira` | complete | Jira issue tracking integration |
+| **agent-backstage** | `agent-backstage` | basic, complete | Backstage developer portal |
+| **agent-confluence** | `agent-confluence` | complete | Confluence documentation |
+| **agent-github** | `agent-github` | basic, complete | GitHub repos and workflows |
+| **agent-jira** | `agent-jira` | complete | Jira issue tracking |
 | **agent-komodor** | `agent-komodor` | complete | Komodor Kubernetes troubleshooting |
-| **agent-pagerduty** | `agent-pagerduty` | complete | PagerDuty incident management |
-| **agent-slack** | `agent-slack` | complete | Slack messaging integration |
+| **agent-pagerduty** | `agent-pagerduty` | complete | PagerDuty incidents |
+| **agent-slack** | `agent-slack` | complete | Slack messaging |
 | **agent-splunk** | `agent-splunk` | complete | Splunk log analytics |
 | **agent-webex** | `agent-webex` | complete | Webex collaboration |
-| **rag-stack** | `rag-stack` | complete | RAG (Retrieval-Augmented Generation) stack |
+| **rag-stack** | `rag-stack` | complete | RAG knowledge base and embeddings |
 
-## Other Installation Options
+---
+
+## Other installation options
+
+### Install from a local chart (after clone)
+
+```bash
+# From repo root
+helm pull oci://ghcr.io/cnoe-io/charts/ai-platform-engineering --version 0.2.32
+
+helm install ai-platform-engineering ai-platform-engineering-0.2.32.tgz \
+  --namespace ai-platform-engineering \
+  --create-namespace \
+  --set-string tags.basic=true
+```
 
 ### ArgoCD
 
-If you use ArgoCD to deploy the chart, you can also use the ArgoCD Application CRD to deploy the chart. Here is an example:
+To deploy the chart via ArgoCD, use an Application manifest. Example:
 
 ```yaml
 apiVersion: argoproj.io/v1alpha1
@@ -154,103 +207,63 @@ metadata:
 spec:
   project: default
   sources:
-    # Main chart from GHCR
     - chart: ai-platform-engineering
       repoURL: ghcr.io/cnoe-io/charts
-      targetRevision: 0.2.8
+      targetRevision: 0.2.32
       helm:
         parameters:
-        - name: tags.basic # <--- enable basic agents
-          value: "true"
-        - name: tags.agent-aws # <--- enable AWS agent
-          value: "true"
-...
+          - name: tags.basic
+            value: "true"
+          - name: tags.agent-aws
+            value: "true"
 ```
 
-### Helm Values File
-
-You can also use a Helm values file to deploy the chart instead of using the command line with `--set-string` flags. Here is an example:
-
-```yaml
-# values.yaml
-tags:
-  basic: true
-  agent-aws: true
-```
-
-Then install with:
+### Enable RAG stack only
 
 ```bash
 helm install ai-platform-engineering oci://ghcr.io/cnoe-io/charts/ai-platform-engineering \
-  --version 0.2.8 \
-  --namespace ai-platform-engineering \
-  --create-namespace \
-  --values values.yaml
-```
-
-### Enable AGNTCY Slim
-
-To enable the AGNTCY Slim dataplane service:
-
-```bash
-helm install ai-platform-engineering cnoe/ai-platform-engineering \
-  --version 0.2.8 \
-  --namespace ai-platform-engineering \
-  --create-namespace \
-  --set global.slim.enabled=true
-```
-
-### Enable RAG Stack
-
-To enable the RAG stack:
-
-```bash
-helm install ai-platform-engineering oci://ghcr.io/cnoe-io/charts/ai-platform-engineering \
-  --version 0.2.8 \
+  --version 0.2.32 \
   --namespace ai-platform-engineering \
   --create-namespace \
   --set-string tags.rag-stack=true
 ```
 
-### Enable Backstage Agent Forge Plugin
-
-Backstage Agent Forge plugin is a plugin for Backstage that allows you to manage your agents from Backstage. This includes the chatbot interface for the agents.
+### Enable Backstage Agent Forge plugin
 
 ```bash
 helm install ai-platform-engineering oci://ghcr.io/cnoe-io/charts/ai-platform-engineering \
-  --version 0.2.8 \
+  --version 0.2.32 \
   --namespace ai-platform-engineering \
   --create-namespace \
   --set-string tags.backstage-agent-forge=true
 ```
 
+---
+
 ## Troubleshooting
 
-### Check Deployment Status
+### Pods not starting
 
-```bash
-# List all releases
-helm list -n ai-platform-engineering
+- Check resources: `kubectl describe pod <pod-name> -n ai-platform-engineering`
+- Verify [secrets](../eks/configure-agent-secrets) are created and correct
+- Confirm image pull permissions and cluster resource quotas
 
-# Check pod status
-kubectl get pods -n ai-platform-engineering
+### Agent authentication failures
 
-# View logs for a specific agent
-kubectl logs -n ai-platform-engineering -l app=agent-github
-```
+- Ensure required [agent secrets](../eks/configure-agent-secrets) exist for the agents you enabled
+- Verify credentials are valid and have the right permissions
 
-### Common Issues
+### Chart install or upgrade fails
 
-**Pods not starting:**
-- Check resource availability: `kubectl describe pod <pod-name> -n ai-platform-engineering`
-- Verify secrets are configured correctly (see [Configure Agent Secrets](../eks/configure-agent-secrets.md))
-- Check image pull permissions
+- Ensure Kubernetes version is 1.28+
+- Confirm namespace and RBAC allow the chart to create resources
+- For local development, run `helm dependency update` in the chart directory if you are building from source
 
-**Agent authentication failures:**
-- Ensure all required secrets are created (see [Configure Agent Secrets](../eks/configure-agent-secrets.md))
-- Verify credentials are valid and have appropriate permissions
+---
 
-**Chart installation fails:**
-- Run `helm dependency update` to ensure all dependencies are available
-- Check Kubernetes version compatibility
-- Verify namespace exists and has sufficient RBAC permissions
+## Next steps
+
+- [Configure Agent Secrets](../eks/configure-agent-secrets) — Create secrets for GitHub, ArgoCD, LLMs, etc.
+- [Configure LLMs for EKS](../eks/configure-llms) — LLM provider and API keys
+- [Run with KinD](/getting-started/kind/setup) — One-command local setup with `setup-caipe.sh`
+- [Run with EKS](/getting-started/eks/setup) — Create an EKS cluster and deploy CAIPE

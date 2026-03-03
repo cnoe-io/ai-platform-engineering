@@ -13,7 +13,7 @@ In this part, you'll add observability to your multi-agent system by deploying L
 
 **Prerequisites:**
 
-- Completion of Part 2 (Multi-Agent Systems and CAIPE)
+- Completion of Part 2 (Multi-Agent Systems) and Part 3 (RAG and Git Agents) — or at least Part 2
 - A running Kind cluster (we'll reuse or create the `caipe` cluster)
 - [Helm](https://helm.sh/) installed
 - Access to OpenAI (credentials provided in lab environment)
@@ -139,29 +139,29 @@ Open your browser to [http://localhost:3100](http://localhost:3100).
 
 1. You'll see the Langfuse sign-in page. Click **Sign up** to create a new account.
 
-<center><img src="images/langfuse-sign-in.svg" alt="Langfuse Sign In" width="500"></center>
+<center><img src="images/langfuse-sign-in.svg" alt="Langfuse Sign In" width="500" /></center>
 
 2. Enter a **Name**, **Email**, and **Password**, then click **Sign up** (this is your local instance — any values work).
 
-<center><img src="images/langfuse-sign-up.svg" alt="Langfuse Sign Up" width="500"></center>
+<center><img src="images/langfuse-sign-up.svg" alt="Langfuse Sign Up" width="500" /></center>
 
 3. After sign-up, you'll be prompted to create a new **Organization**. Click **+ New Organization**, enter a name (e.g., `lab`), and click **Create**.
 
-<center><img src="images/langfuse-get-started.svg" alt="Langfuse Get Started" width="600"></center>
+<center><img src="images/langfuse-get-started.svg" alt="Langfuse Get Started" width="600" /></center>
 
-<center><img src="images/langfuse-create-org.svg" alt="Langfuse Create Organization" width="600"></center>
+<center><img src="images/langfuse-create-org.svg" alt="Langfuse Create Organization" width="600" /></center>
 
 4. Skip the **Invite Members** step by clicking **Next**.
 
-<center><img src="images/langfuse-invite-members.svg" alt="Langfuse Invite Members" width="600"></center>
+<center><img src="images/langfuse-invite-members.svg" alt="Langfuse Invite Members" width="600" /></center>
 
 5. Create a new **Project** (e.g., `lab-tracing`) and click **Create**.
 
-<center><img src="images/langfuse-create-project.svg" alt="Langfuse Create Project" width="600"></center>
+<center><img src="images/langfuse-create-project.svg" alt="Langfuse Create Project" width="600" /></center>
 
 6. You'll land on the **Tracing** page for your new project.
 
-<center><img src="images/langfuse-tracing-project.svg" alt="Langfuse Tracing Project" width="600"></center>
+<center><img src="images/langfuse-tracing-project.svg" alt="Langfuse Tracing Project" width="600" /></center>
 
 ---
 
@@ -171,15 +171,15 @@ You need API keys so the CAIPE agents can send traces to Langfuse.
 
 1. In the Langfuse UI, go to your project **Settings** > **API Keys** and click **+ Create new API key**.
 
-<center><img src="images/langfuse-api-keys-settings.svg" alt="Langfuse API Keys Settings" width="600"></center>
+<center><img src="images/langfuse-api-keys-settings.svg" alt="Langfuse API Keys Settings" width="600" /></center>
 
 2. Enter a note (e.g., `lab-tracing`) and click **Create API keys**.
 
-<center><img src="images/langfuse-create-api-key.svg" alt="Langfuse Create API Key" width="500"></center>
+<center><img src="images/langfuse-create-api-key.svg" alt="Langfuse Create API Key" width="500" /></center>
 
 3. Copy both the **Secret Key** and **Public Key** — you will need them in the next step. The secret key can only be viewed once.
 
-<center><img src="images/langfuse-api-keys-created.svg" alt="Langfuse API Keys Created" width="500"></center>
+<center><img src="images/langfuse-api-keys-created.svg" alt="Langfuse API Keys Created" width="500" /></center>
 
 > [!IMPORTANT]
 > Keep these keys handy. You will configure them as Kubernetes secrets in the next section.
@@ -328,21 +328,21 @@ uvx https://github.com/cnoe-io/agent-chat-cli.git a2a
 > [!NOTE]
 > When prompted to `Enter token (optional): `, just press enter.
 
-Try these queries to generate traces across multiple agents:
+Try these queries to generate traces across multiple agents (same prompts as in [Multi-Agent Systems](/workshop/mas) and the [Conclusion](/workshop/conclusion)):
 
 **Weather query:**
 ```text
-What's the weather in London?
+What's the current weather in San Francisco?
 ```
 
 **Network diagnostic:**
 ```text
-Check if google.com is reachable
+Check if google.com is reachable.
 ```
 
 **Cross-agent query:**
 ```text
-How is the weather in San Jose? Also check network connectivity to api.github.com and summarize both results.
+Get me today's weather for New York, and also test if api.github.com is reachable. Summarize both results.
 ```
 
 ---
@@ -397,7 +397,7 @@ kind delete cluster --name caipe
 
 ## 9. Summary
 
-Congratulations! You've completed Part 3 of the AI Agents lab series. Here's what you accomplished:
+Congratulations! You've completed Part 4 of the AI Agents lab series. Here's what you accomplished:
 
 - Deployed Langfuse on Kubernetes using Helm
 - Configured CAIPE agents to emit traces to Langfuse
@@ -420,4 +420,4 @@ Congratulations! You've completed Part 3 of the AI Agents lab series. Here's wha
 
 ---
 
-**Part 3 Complete!** You now know how to add production-grade observability to your multi-agent system, giving you full visibility into every agent interaction, tool call, and LLM generation.
+**Part 4 Complete!** You now know how to add production-grade observability to your multi-agent system, giving you full visibility into every agent interaction, tool call, and LLM generation. Continue to the [CAIPE Labs Conclusion](/workshop/conclusion) to wrap up the series.

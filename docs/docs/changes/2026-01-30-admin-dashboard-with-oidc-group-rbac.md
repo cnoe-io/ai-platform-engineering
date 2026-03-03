@@ -1,3 +1,7 @@
+---
+title: "2026-01-30: Admin Dashboard with OIDC Group-Based RBAC"
+---
+
 # Admin Dashboard with OIDC Group-Based RBAC
 
 **Date**: 2026-01-30  

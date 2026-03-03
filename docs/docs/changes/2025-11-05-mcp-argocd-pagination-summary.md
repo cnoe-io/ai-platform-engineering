@@ -1,3 +1,7 @@
+---
+title: "2025-11-05: ADR: MCP ArgoCD Pagination Implementation"
+---
+
 # ADR: MCP ArgoCD Pagination Implementation
 
 **Status**: 🟢 In-use

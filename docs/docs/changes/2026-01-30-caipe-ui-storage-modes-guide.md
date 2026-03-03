@@ -1,3 +1,7 @@
+---
+title: "2026-01-30: Storage Modes - CAIPE UI"
+---
+
 # Storage Modes - CAIPE UI
 
 ## Overview

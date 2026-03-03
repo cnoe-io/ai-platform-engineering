@@ -1,3 +1,7 @@
+---
+title: "2026-01-29: MongoDB Health Status Integration"
+---
+
 # MongoDB Health Status Integration
 
 MongoDB status has been added to the CAIPE Health indicator in the header!

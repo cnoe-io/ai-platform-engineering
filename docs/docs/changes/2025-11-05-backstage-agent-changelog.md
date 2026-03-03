@@ -1,3 +1,7 @@
+---
+title: "2025-11-05: Backstage Agent Changelog"
+---
+
 # Backstage Agent Changelog
 
 **Status**: 🟢 In-use

@@ -55,7 +55,7 @@ This is the process of preparing your knowledge base:
 4. **Embedding**: Convert text chunks into vector representations
 5. **Storage**: Store embeddings in a vector database with metadata
 
-<center><img src="images/rag-ingestion.svg" alt="RAG Ingestion Process" width="600"></center>
+<center><img src="images/rag-ingestion.svg" alt="RAG Ingestion Process" width="600" /></center>
 
 **Why chunking matters:**
 - LLMs have token limits for context windows
@@ -79,7 +79,7 @@ This is how the system answers queries:
 4. **Augmented Generation**: Pass the query + retrieved context to the LLM
 5. **Response**: LLM generates an answer grounded in the retrieved information
 
-<center><img src="images/rag-agent-arch.svg" alt="RAG Agent Architecture" width="600"></center>
+<center><img src="images/rag-agent-arch.svg" alt="RAG Agent Architecture" width="600" /></center>
 
 **Key insight:** The same embedding model must be used for both ingestion and retrieval to ensure vectors are in the same semantic space.
 
@@ -110,7 +110,7 @@ These enable finding semantically similar content even when exact words don't ma
 
 In this lab, you'll deploy a complete RAG system with these components:
 
-<center><img src="images/rag-arch.svg" alt="RAG Architecture Overview" width="600"></center>
+<center><img src="images/rag-arch.svg" alt="RAG Architecture Overview" width="600" /></center>
 
 **Components:**
 
@@ -309,7 +309,7 @@ docker-compose up -d --force-recreate --no-deps caipe-supervisor
 
 Access the RAG management interface:
 
-<a href="#"  onclick="showLabPanel(3,0); return false;" style="font-size:1.25em; background:#007cba; color:#fff; padding:10px 20px; border-radius:6px; text-decoration:none;">
+<a href="#" style={{ fontSize: '1.25em', background: '#007cba', color: '#fff', padding: '10px 20px', borderRadius: '6px', textDecoration: 'none' }}>
   Open RAG UI
 </a>
 
@@ -318,7 +318,7 @@ Access the RAG management interface:
 
 ### Task 6: Ingest AGNTCY Documentation
 
-<center><img src="images/caipe-ui-kb.svg" alt="RAG UI Screenshot" width="600"></center>
+<center><img src="images/caipe-ui-kb.svg" alt="RAG UI Screenshot" width="600" /></center>
 
 Once the Caipe UI is open, please select the Knowledge bases section and follow these steps:
 
@@ -347,7 +347,7 @@ https://docs.agntcy.org
 4. **Embedding**: Each chunk is sent to the embedding model to generate vector embeddings
 5. **Storage**: Embeddings are stored in Milvus along with metadata (source, title, description, etc.)
 
-<center><img src="images/rag-ingestion.svg" alt="RAG Ingestion Process" width="600"></center>
+<center><img src="images/rag-ingestion.svg" alt="RAG Ingestion Process" width="600" /></center>
 
 **Why this matters:**
 
@@ -365,7 +365,7 @@ https://docs.agntcy.org
 Let's test the RAG system directly through the UI.
 
 
-<center><img src="images/caipe-ui-kb-search.svg" alt="RAG UI Screenshot" width="600"></center>
+<center><img src="images/caipe-ui-kb-search.svg" alt="RAG UI Screenshot" width="600" /></center>
 
 **1. Navigate to the Search option of the Knowledge Bases tab**
 
@@ -392,7 +392,7 @@ This is the raw retrieval output before the LLM synthesizes it into a coherent a
 
 ### Task 9: Switch to the Chat tab of the Caipe UI
 
-<center><img src="images/rag-chat.svg" alt="RAG UI Screenshot" width="600"></center>
+<center><img src="images/rag-chat.svg" alt="RAG UI Screenshot" width="600" /></center>
 
 
 ---
@@ -416,7 +416,7 @@ Tell me more about SLIM in AGNTCY
 4. **Augmented Generation**: The LLM receives your question + retrieved context
 5. **Response Synthesis**: The LLM generates a coherent answer grounded in the documentation
 
-<center><img src="images/rag-agent-arch.svg" alt="RAG Agent Architecture" width="600"></center>
+<center><img src="images/rag-agent-arch.svg" alt="RAG Agent Architecture" width="600" /></center>
 
 **Key difference from raw search:**
 - The LLM synthesizes information from multiple chunks
@@ -440,7 +440,7 @@ Research and write a report on AGNTCY in markdown format, wait for this to be co
 > [!NOTE]
 > The agent should have:
 > - Created a report with name: **`%%LABNAME%%-report.md`**
-> - Committed it to the workshop git repository with commit message "agntcy-report".
+> - Committed it to the CAIPE Labs git repository with commit message "agntcy-report".
 
 ---
 
@@ -474,7 +474,7 @@ This demonstrates the power of multi-agent systems: complex workflows are broken
 
 ### Task 13: Check the Repository
 
-Visit the workshop repository to verify your report was committed:
+Visit the CAIPE Labs repository to verify your report was committed:
 
 **Repository URL:**
 ```
@@ -553,7 +553,9 @@ Congratulations! You've completed Part 3 of the AI Agents lab series. Here's wha
 
 ### What's Next?
 
-Continue exploring advanced topics:
+- **Part 4**: [Tracing and Observability](/workshop/tracing) — Add Langfuse and observe agent interactions end-to-end.
+
+Then explore advanced topics:
 
 - Fine-tuning embedding models for your domain
 - Implementing hybrid search (vector + keyword)

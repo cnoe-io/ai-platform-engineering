@@ -1,3 +1,7 @@
+---
+title: "2024-10-22: Platform Engineer Streaming Architecture"
+---
+
 # Platform Engineer Streaming Architecture
 
 **Status**: 🔴 Abandoned (Superseded by 2024-10-23-platform-engineer-streaming-architecture.md)

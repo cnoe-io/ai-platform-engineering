@@ -1,3 +1,7 @@
+---
+title: "2026-01-16: ADR: Agent Executor Simplification Refactor"
+---
+
 # ADR: Agent Executor Simplification Refactor
 
 **Status**: 🟡 In-review  

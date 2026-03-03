@@ -1,3 +1,7 @@
+---
+title: "2025-10-27: Automatic Date/Time Injection for All Agents"
+---
+
 # Automatic Date/Time Injection for All Agents
 
 **Status**: 🟢 In-use (Part of consolidated date handling feature)

@@ -1,3 +1,7 @@
+---
+title: "2026-01-29: Hybrid Storage System"
+---
+
 # Hybrid Storage System
 
 The CAIPE UI supports **two storage modes** with automatic fallback for resilient operation:

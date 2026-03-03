@@ -1,3 +1,7 @@
+---
+title: "2025-10-31: Metadata Detection Feature - Implementation Summary"
+---
+
 # Metadata Detection Feature - Implementation Summary
 
 **Status**: 🟡 Proposed (Partially implemented - server working, client needs debug)

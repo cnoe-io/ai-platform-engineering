@@ -1,3 +1,7 @@
+---
+title: "2026-02-03: MongoDB Setup for CAIPE UI"
+---
+
 # MongoDB Setup for CAIPE UI
 
 ## Summary

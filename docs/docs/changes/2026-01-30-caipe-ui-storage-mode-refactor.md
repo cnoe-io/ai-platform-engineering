@@ -1,3 +1,7 @@
+---
+title: "2026-01-30: Storage Mode Refactor - Exclusive Storage (No Hybrid)"
+---
+
 # Storage Mode Refactor - Exclusive Storage (No Hybrid)
 
 ## Summary
