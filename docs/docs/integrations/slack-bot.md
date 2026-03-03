@@ -266,10 +266,8 @@ The Slack bot ships as a subchart under `charts/slack-bot/`. It is enabled via t
 
 ```yaml
 # charts/ai-platform-engineering/values.yaml
-global:
-  integrations:
-    slackBot:
-      enabled: true
+tags:
+  slack-bot: true
 ```
 
 #### Helm Values
