@@ -1,5 +1,5 @@
 ---
-title: "2026-01-29: Bug Fix: Flicker/Reload on "New Chat" Click"
+title: "2026-01-29: Bug Fix: Flicker/Reload on 'New Chat' Click"
 ---
 
 # Bug Fix: Flicker/Reload on "New Chat" Click
