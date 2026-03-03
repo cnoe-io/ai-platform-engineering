@@ -242,8 +242,10 @@ describe('ContextPanel', () => {
 
       render(<ContextPanel {...defaultProps} />)
 
-      // Progress should show 1/2 (the pending task becomes completed, the failed stays failed)
-      expect(screen.getByText('1/2 completed')).toBeInTheDocument()
+      // When streaming ends without final_result (e.g. HITL pause), we do not force-complete
+      // pending tasks, so progress shows 0/2 (pending + failed). Only with final_result
+      // would the pending task be marked completed.
+      expect(screen.getByText('0/2 completed')).toBeInTheDocument()
     })
 
     it('should update task status from execution_plan_status_update events', () => {
