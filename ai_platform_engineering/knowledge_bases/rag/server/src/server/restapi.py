@@ -34,7 +34,7 @@ from common.models.server import (
   ConfluenceReloadRequest,
   JobsBatchRequest,
 )
-from common.models.rag import DataSourceInfo, IngestorInfo, valid_metadata_keys
+from common.models.rag import DataSourceInfo, IngestorInfo, valid_metadata_keys, MCPToolConfig, MCPBuiltinToolsConfig
 from common.models.rbac import Role, UserContext, UserInfoResponse
 from server.rbac import get_user_or_anonymous, require_role, has_permission, get_permissions, is_trusted_request, UserInfoCache, set_userinfo_cache, get_auth_manager, _authenticate_from_token
 from common.graph_db.neo4j.graph_db import Neo4jDB
@@ -57,6 +57,7 @@ vector_db: Optional[Milvus] = None
 jobmanager: Optional[JobManager] = None
 data_graph_db: Optional[GraphDB] = None
 ontology_graph_db: Optional[GraphDB] = None
+agent_tools: Optional[AgentTools] = None
 
 # Initialize logger
 logger = utils.get_logger(__name__)
@@ -190,6 +191,11 @@ if mcp_enabled:
   mcp_app = mcp.http_app(path="/mcp")
 
 
+# Tool IDs that map to the built-in seeded search tool (can update, cannot create/delete)
+# Tool IDs permanently blocked from custom tool creation (shadow built-in tools)
+RESERVED_TOOL_IDS = {"search", "fetch_document", "list_datasources_and_entity_types"}
+
+
 # Combine both lifespans - App and MCP (if enabled)
 @asynccontextmanager
 async def combined_lifespan(app: FastAPI):
@@ -199,6 +205,14 @@ async def combined_lifespan(app: FastAPI):
     else:
       if not metadata_storage:
         raise HTTPException(status_code=500, detail="Cannot initialize MCP server - metadata storage not initialized")
+
+      global agent_tools
+
+      # Seed default configs if not already present in Redis
+      if not await metadata_storage.get_mcp_builtin_config():
+        await metadata_storage.store_mcp_builtin_config(MCPBuiltinToolsConfig())
+        logger.info("Seeded default MCPBuiltinToolsConfig")
+
       # Initialize MCP server tools
       agent_tools = AgentTools(
         vector_db_query_service=vector_db_query_service,
@@ -208,8 +222,10 @@ async def combined_lifespan(app: FastAPI):
         ontology_graph_db=ontology_graph_db,
       )
 
-      # Add all agent tools to the MCP app
-      await agent_tools.register_tools(mcp, graph_rag_enabled=graph_rag_enabled)
+      # Load configs from Redis and register tools
+      builtin_config = await metadata_storage.get_mcp_builtin_config() or MCPBuiltinToolsConfig()
+      tool_configs = await metadata_storage.fetch_all_mcp_tool_configs()
+      await agent_tools.register_tools(mcp, graph_rag_enabled=graph_rag_enabled, builtin_config=builtin_config, tool_configs=tool_configs)
 
       # Register MCP app lifespan
       async with mcp_app.lifespan(app):
@@ -1397,3 +1413,101 @@ async def init_tests(logger: logging.Logger, redis_client: redis.Redis, embeddin
 
   logger.info("====== Initialization tests completed successfully ======")
   return
+
+
+# ============================================================================
+# MCP Tool Configuration Endpoints
+# ============================================================================
+
+
+async def _reload_mcp_tools():
+  """Reload MCP tools from the current Redis config. No-op if MCP is disabled."""
+  if not mcp_enabled or agent_tools is None:
+    return
+  builtin_config = await metadata_storage.get_mcp_builtin_config() or MCPBuiltinToolsConfig()
+  tool_configs = await metadata_storage.fetch_all_mcp_tool_configs()
+  await agent_tools.reload_tools(mcp, graph_rag_enabled=graph_rag_enabled, builtin_config=builtin_config, tool_configs=tool_configs)
+
+
+@app.get("/v1/mcp/tools", tags=["MCP Tools"])
+async def list_mcp_tools(user: UserContext = Depends(require_role(Role.READONLY))):
+  """List all MCP search tool configurations."""
+  if not metadata_storage:
+    raise HTTPException(status_code=500, detail="Server not initialized")
+  tools = await metadata_storage.fetch_all_mcp_tool_configs()
+  return JSONResponse(status_code=status.HTTP_200_OK, content=jsonable_encoder(tools))
+
+
+@app.post("/v1/mcp/tools", tags=["MCP Tools"])
+async def create_mcp_tool(config: MCPToolConfig, user: UserContext = Depends(require_role(Role.ADMIN))):
+  """Create a new custom MCP search tool. The tool_id must be unique and not reserved."""
+  if not metadata_storage:
+    raise HTTPException(status_code=500, detail="Server not initialized")
+  if config.tool_id in RESERVED_TOOL_IDS:
+    raise HTTPException(status_code=409, detail=f"tool_id '{config.tool_id}' conflicts with a built-in tool name and cannot be used.")
+  existing = await metadata_storage.get_mcp_tool_config(config.tool_id)
+  if existing:
+    raise HTTPException(status_code=409, detail=f"A tool with tool_id '{config.tool_id}' already exists. Use PUT to update it.")
+  now = int(time.time())
+  config.created_at = now
+  config.updated_at = now
+  await metadata_storage.store_mcp_tool_config(config)
+  logger.info(f"Created MCP tool '{config.tool_id}' (by {user.email})")
+  await _reload_mcp_tools()
+  return JSONResponse(status_code=status.HTTP_201_CREATED, content=jsonable_encoder(config))
+
+
+@app.put("/v1/mcp/tools/{tool_id}", tags=["MCP Tools"])
+async def update_mcp_tool(tool_id: str, config: MCPToolConfig, user: UserContext = Depends(require_role(Role.ADMIN))):
+  """Update an existing MCP search tool configuration (including the seeded 'search' tool)."""
+  if not metadata_storage:
+    raise HTTPException(status_code=500, detail="Server not initialized")
+  if tool_id in RESERVED_TOOL_IDS:
+    raise HTTPException(status_code=409, detail=f"tool_id '{tool_id}' conflicts with a built-in tool name and cannot be managed here.")
+  existing = await metadata_storage.get_mcp_tool_config(tool_id)
+  if not existing:
+    raise HTTPException(status_code=404, detail=f"MCP tool '{tool_id}' not found.")
+  if config.tool_id != tool_id:
+    raise HTTPException(status_code=400, detail="tool_id in the body must match the path parameter.")
+  config.created_at = existing.created_at
+  config.updated_at = int(time.time())
+  await metadata_storage.store_mcp_tool_config(config)
+  logger.info(f"Updated MCP tool '{tool_id}' (by {user.email})")
+  await _reload_mcp_tools()
+  return JSONResponse(status_code=status.HTTP_200_OK, content=jsonable_encoder(config))
+
+
+@app.delete("/v1/mcp/tools/{tool_id}", tags=["MCP Tools"])
+async def delete_mcp_tool(tool_id: str, user: UserContext = Depends(require_role(Role.ADMIN))):
+  """Delete a custom MCP search tool. Reserved tool IDs (e.g. 'search') cannot be deleted."""
+  if not metadata_storage:
+    raise HTTPException(status_code=500, detail="Server not initialized")
+  if tool_id in RESERVED_TOOL_IDS:
+    raise HTTPException(status_code=409, detail=f"tool_id '{tool_id}' is a built-in tool and cannot be deleted.")
+  existing = await metadata_storage.get_mcp_tool_config(tool_id)
+  if not existing:
+    raise HTTPException(status_code=404, detail=f"MCP tool '{tool_id}' not found.")
+  await metadata_storage.delete_mcp_tool_config(tool_id)
+  logger.info(f"Deleted MCP tool '{tool_id}' (by {user.email})")
+  await _reload_mcp_tools()
+  return JSONResponse(status_code=status.HTTP_200_OK, content={"message": f"MCP tool '{tool_id}' deleted."})
+
+
+@app.get("/v1/mcp/builtin-config", tags=["MCP Tools"])
+async def get_mcp_builtin_config(user: UserContext = Depends(require_role(Role.READONLY))):
+  """Get the built-in MCP tools enable/disable configuration."""
+  if not metadata_storage:
+    raise HTTPException(status_code=500, detail="Server not initialized")
+  config = await metadata_storage.get_mcp_builtin_config() or MCPBuiltinToolsConfig()
+  return JSONResponse(status_code=status.HTTP_200_OK, content=jsonable_encoder(config))
+
+
+@app.put("/v1/mcp/builtin-config", tags=["MCP Tools"])
+async def update_mcp_builtin_config(config: MCPBuiltinToolsConfig, user: UserContext = Depends(require_role(Role.ADMIN))):
+  """Update the built-in MCP tools enable/disable toggles (fetch_document, fetch_datasources, graph_tools)."""
+  if not metadata_storage:
+    raise HTTPException(status_code=500, detail="Server not initialized")
+  await metadata_storage.store_mcp_builtin_config(config)
+  logger.info(f"Updated MCPBuiltinToolsConfig (by {user.email}): {config}")
+  await _reload_mcp_tools()
+  return JSONResponse(status_code=status.HTTP_200_OK, content=jsonable_encoder(config))
