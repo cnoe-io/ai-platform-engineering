@@ -2109,7 +2109,7 @@ deploy_caipe() {
   local helm_args=(
     --namespace caipe
     --version "$CAIPE_CHART_VERSION"
-    --set global.caipeUi.enabled=true
+    --set tags.caipe-ui=true
     --set tags.agent-weather=true
     --set tags.agent-netutils=true
     --set caipe-ui.config.SSO_ENABLED=false

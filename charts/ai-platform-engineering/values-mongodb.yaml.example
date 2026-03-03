@@ -14,10 +14,6 @@
 tags:
   caipe-ui: true  # Enable CAIPE UI
 
-global:
-  caipeUi:
-    enabled: true
-
 ######### CAIPE UI Configuration #########
 caipe-ui:
   # MongoDB configuration for persistent chat history
