@@ -392,7 +392,7 @@ class TestRegistryExclusions(unittest.TestCase):
     def test_default_exclusions_contain_known_feature_flags(self):
         """DEFAULT_REGISTRY_EXCLUSIONS must contain all known feature flags."""
         expected = {"TRACING", "STREAMING", "ACE", "ARTIFACT_STREAMING",
-                    "AUTO", "GRAPH_RAG", "RAG", "SUBAGENT_CARDS"}
+                    "AUTO", "GRAPH_RAG", "RAG", "SUBAGENT_CARDS", "FACT_EXTRACTION"}
         self.assertEqual(expected, set(DEFAULT_REGISTRY_EXCLUSIONS))
 
     def test_default_exclusions_is_frozenset(self):

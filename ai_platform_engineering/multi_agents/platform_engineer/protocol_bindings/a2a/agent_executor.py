@@ -713,13 +713,20 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
             trace_id = str(uuid.uuid4()).replace('-', '').lower()
             logger.info(f"Generated ROOT trace_id: {trace_id}")
 
+        # Extract user_id from A2A message metadata (set by client or gateway)
+        user_id = None
+        if context.message and context.message.metadata:
+            meta = context.message.metadata
+            if isinstance(meta, dict):
+                user_id = meta.get("user_id") or meta.get("user_email")
+
         # Initialize state
         state = StreamState()
         state.trace_id = trace_id  # For client feedback/scoring
 
         try:
             self.agent._pending_user_email = user_email
-            async for event in self.agent.stream(query, context_id, trace_id):
+            async for event in self.agent.stream(query, context_id, trace_id, user_id=user_id):
                 # FIX for A2A Streaming Duplication (Retry/Fallback):
                 # When the agent encounters an error (e.g., orphaned tool calls) and retries,
                 # the executor may have already accumulated content from the failed attempt.

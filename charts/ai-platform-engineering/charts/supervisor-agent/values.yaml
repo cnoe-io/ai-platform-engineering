@@ -189,3 +189,39 @@ clientProfiles: {}
 metrics:
   # Enable metrics endpoint
   enabled: true
+
+# Cross-thread memory persistence (LangGraph Store)
+# Backend for user memories and conversation summaries across threads.
+# Options: memory (in-process, default) | redis | postgres
+#
+# Bring your own (BYO) / external backends:
+# - Redis: in-cluster (e.g. rag-redis), external Redis, or AWS ElastiCache for Redis.
+#   Set redis.url or redis.existingSecret (recommended for credentials).
+# - Postgres: external or managed Postgres. Set postgres.dsn or postgres.existingSecret.
+memoryPersistence:
+  # Store type: "memory", "redis", or "postgres"
+  type: "memory"
+  # Redis (type=redis): BYO / external / AWS ElastiCache for Redis
+  redis:
+    # Connection URL (e.g. redis://host:6379/0, redis://user:pass@host:6379/0, ElastiCache endpoint)
+    url: ""
+    # Or pull URL from a Kubernetes Secret (recommended for credentials)
+    existingSecret:
+      name: ""   # Secret name
+      key: ""   # Key in secret (e.g. REDIS_URL or LANGGRAPH_STORE_REDIS_URL)
+    # Key/namespace prefix when using a shared Redis (BYO). All store keys are namespaced so
+    # multiple deployments (e.g. prod, staging, tenant-a) can share one Redis without collision.
+    # Example: release name, "caipe-prod", "tenant-xyz". Leave empty for dedicated Redis.
+    keyPrefix: ""
+  # Postgres (type=postgres): BYO / external / managed Postgres
+  postgres:
+    # DSN (e.g. postgresql://user:pass@host:5432/dbname). Prefer existingSecret for credentials.
+    dsn: ""
+    # Or pull DSN from a Kubernetes Secret
+    existingSecret:
+      name: ""   # Secret name
+      key: ""   # Key in secret (e.g. DATABASE_URL or LANGGRAPH_STORE_POSTGRES_DSN)
+  # TTL for stored items in minutes (default 10080 = 7 days)
+  ttlMinutes: 10080
+  # Enable automatic fact extraction from conversations (LangMem). Default false.
+  enableFactExtraction: false

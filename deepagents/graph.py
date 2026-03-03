@@ -50,6 +50,7 @@ def _agent_builder(
     interrupt_config: Optional[ToolInterruptConfig] = None,
     config_schema: Optional[Type[Any]] = None,
     checkpointer: Optional[Checkpointer] = None,
+    store: Optional[Any] = None,
     post_model_hook: Optional[Callable] = None,
     response_format: Optional[
         Union[StructuredResponseSchema, tuple[str, StructuredResponseSchema]]
@@ -108,16 +109,20 @@ def _agent_builder(
         )
     all_tools = built_in_tools + list(tools) + [task_tool]
 
-    return create_react_agent(
-        model,
-        prompt=prompt,
-        tools=all_tools,
-        state_schema=state_schema,
-        post_model_hook=selected_post_model_hook,
-        config_schema=config_schema,
-        checkpointer=checkpointer,
-        response_format=response_format,
-    )
+    react_kwargs = {
+        "model": model,
+        "prompt": prompt,
+        "tools": all_tools,
+        "state_schema": state_schema,
+        "post_model_hook": selected_post_model_hook,
+        "config_schema": config_schema,
+        "checkpointer": checkpointer,
+        "response_format": response_format,
+    }
+    if store is not None:
+        react_kwargs["store"] = store
+
+    return create_react_agent(**react_kwargs)
 
 
 def create_deep_agent(
@@ -130,6 +135,7 @@ def create_deep_agent(
     interrupt_config: Optional[ToolInterruptConfig] = None,
     config_schema: Optional[Type[Any]] = None,
     checkpointer: Optional[Checkpointer] = None,
+    store: Optional[Any] = None,
     post_model_hook: Optional[Callable] = None,
     response_format: Optional[
         Union[StructuredResponseSchema, tuple[str, StructuredResponseSchema]]
@@ -159,6 +165,7 @@ def create_deep_agent(
         config_schema: The schema of the deep agent.
         post_model_hook: Custom post model hook
         checkpointer: Optional checkpointer for persisting agent state between runs.
+        store: Optional BaseStore for cross-thread long-term memory.
     """
     return _agent_builder(
         tools=tools,
@@ -170,6 +177,7 @@ def create_deep_agent(
         interrupt_config=interrupt_config,
         config_schema=config_schema,
         checkpointer=checkpointer,
+        store=store,
         post_model_hook=post_model_hook,
         is_async=False,
         response_format=response_format,
@@ -186,6 +194,7 @@ def async_create_deep_agent(
     interrupt_config: Optional[ToolInterruptConfig] = None,
     config_schema: Optional[Type[Any]] = None,
     checkpointer: Optional[Checkpointer] = None,
+    store: Optional[Any] = None,
     post_model_hook: Optional[Callable] = None,
     response_format: Optional[
         Union[StructuredResponseSchema, tuple[str, StructuredResponseSchema]]
@@ -215,6 +224,7 @@ def async_create_deep_agent(
         config_schema: The schema of the deep agent.
         post_model_hook: Custom post model hook
         checkpointer: Optional checkpointer for persisting agent state between runs.
+        store: Optional BaseStore for cross-thread long-term memory.
     """
     return _agent_builder(
         tools=tools,
@@ -226,6 +236,7 @@ def async_create_deep_agent(
         interrupt_config=interrupt_config,
         config_schema=config_schema,
         checkpointer=checkpointer,
+        store=store,
         post_model_hook=post_model_hook,
         response_format=response_format,
         is_async=True,
