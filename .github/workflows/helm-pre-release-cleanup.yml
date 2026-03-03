@@ -2,7 +2,7 @@ name: "[Pre-Release] Helm Chart Cleanup"
 description: "Cleanup pre-release Helm charts when PR is closed or label is removed"
 
 on:
-  pull_request_target:
+  pull_request:
     types: [closed, unlabeled]
     paths:
       - charts/**
