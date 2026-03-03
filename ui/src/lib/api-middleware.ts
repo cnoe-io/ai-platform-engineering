@@ -20,24 +20,35 @@ export interface AuthenticatedRequest extends NextRequest {
   };
 }
 
+export interface GetAuthenticatedUserOptions {
+  /**
+   * When true and SSO is disabled, no session returns a fallback anonymous user
+   * (for local dev / no-SSO). When false (default), no session always throws 401.
+   */
+  allowAnonymous?: boolean;
+}
+
 /**
  * Get authenticated user from session
  * Returns user info and full session, or throws 401 error
  *
- * When SSO is disabled, returns a fallback anonymous user so that
- * MongoDB persistence works without authentication.
+ * Protected routes (via withAuth) require a real session: no session → 401.
+ * Optional allowAnonymous allows a fallback user when SSO is disabled for
+ * routes that explicitly permit unauthenticated access in local dev.
  *
  * Admin role is determined by:
  * 1. OIDC group membership (session.role from auth-config)
  * 2. MongoDB user.metadata.role === 'admin' (fallback)
  */
-export async function getAuthenticatedUser(request: NextRequest) {
+export async function getAuthenticatedUser(
+  request: NextRequest,
+  options: GetAuthenticatedUserOptions = {}
+) {
   const session = await getServerSession(authOptions);
 
   if (!session || !session.user?.email) {
-    // When SSO is disabled, allow unauthenticated access with a fallback user
-    // so MongoDB persistence works in local dev / no-SSO deployments.
-    if (!getConfig('ssoEnabled')) {
+    const { allowAnonymous = false } = options;
+    if (allowAnonymous && !getConfig('ssoEnabled')) {
       const fallbackUser = { email: 'anonymous@local', name: 'Anonymous', role: 'user' };
       return { user: fallbackUser, session: { role: 'user', canViewAdmin: false } };
     }
@@ -73,7 +84,8 @@ export async function getAuthenticatedUser(request: NextRequest) {
 
 /**
  * Require authentication for API route
- * Use this as a wrapper for protected endpoints
+ * Use this as a wrapper for protected endpoints.
+ * No session → 401 (never uses anonymous fallback).
  */
 export async function withAuth<T>(
   request: NextRequest,
@@ -83,7 +95,7 @@ export async function withAuth<T>(
     session: any
   ) => Promise<T>
 ): Promise<T> {
-  const { user, session } = await getAuthenticatedUser(request);
+  const { user, session } = await getAuthenticatedUser(request, { allowAnonymous: false });
   return handler(request, user, session);
 }
 
