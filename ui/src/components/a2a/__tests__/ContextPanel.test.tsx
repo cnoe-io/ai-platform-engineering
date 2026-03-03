@@ -219,31 +219,31 @@ describe('ContextPanel', () => {
 
       render(<ContextPanel {...defaultProps} />)
 
-      expect(screen.getByText('2/3 completed')).toBeInTheDocument()
+      expect(screen.getByText(/2\/3\s*completed/)).toBeInTheDocument()
     })
 
-    it('should mark remaining tasks as completed when streaming ends (except failed)', () => {
+    it('should mark remaining tasks as completed when streaming ends with final_result (except failed)', () => {
       const planText = '⏳ [ArgoCD] List all applications\n❌ [AWS] Query EC2 instances'
       const events = [
         createExecutionPlanEvent(planText),
         createA2AEvent({
           type: 'artifact',
           displayContent: 'Done',
-          artifact: { name: 'final_result', description: 'Final', text: 'Done' },
+          artifact: { name: 'final_result', description: 'Final result', text: 'Done' },
         }),
       ]
       const conv = makeConversation('conv-1', events)
 
       setStoreState({
-        isStreaming: false, // Streaming ended
+        isStreaming: false,
         activeConversationId: 'conv-1',
         conversations: [conv],
       })
 
       render(<ContextPanel {...defaultProps} />)
 
-      // Progress should show 1/2 (the pending task becomes completed, the failed stays failed)
-      expect(screen.getByText('1/2 completed')).toBeInTheDocument()
+      // With final_result, pending task is force-completed → 1/2 (failed stays failed)
+      expect(screen.getByText(/1\/2\s*completed/)).toBeInTheDocument()
     })
 
     it('should update task status from execution_plan_status_update events', () => {
@@ -272,7 +272,7 @@ describe('ContextPanel', () => {
       render(<ContextPanel {...defaultProps} />)
 
       // Task should now be completed (updated by second event)
-      expect(screen.getByText('1/1 completed')).toBeInTheDocument()
+      expect(screen.getByText(/1\/1\s*completed/)).toBeInTheDocument()
     })
   })
 

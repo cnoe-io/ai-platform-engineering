@@ -26,6 +26,10 @@ jest.mock('@/lib/mongodb', () => ({
   getCollection: jest.fn(),
 }));
 
+jest.mock('@/lib/config', () => ({
+  getConfig: (key: string) => key === 'ssoEnabled',
+}));
+
 const mockGetServerSession = jest.requireMock('next-auth').getServerSession;
 const mockGetCollection = jest.requireMock('@/lib/mongodb').getCollection;
 

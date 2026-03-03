@@ -34,6 +34,10 @@ jest.mock('@/lib/auth-config', () => ({
   authOptions: {},
 }));
 
+jest.mock('@/lib/config', () => ({
+  getConfig: (key: string) => key === 'ssoEnabled',
+}));
+
 // Mock MongoDB - use getter for isMongoDBConfigured to support 503 tests
 let mockIsMongoDBConfigured = true;
 const mockCollections: Record<string, any> = {};

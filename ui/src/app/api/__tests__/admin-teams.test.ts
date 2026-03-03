@@ -37,6 +37,10 @@ jest.mock('@/lib/auth-config', () => ({
   authOptions: {},
 }));
 
+jest.mock('@/lib/config', () => ({
+  getConfig: (key: string) => key === 'ssoEnabled',
+}));
+
 // Mock MongoDB
 const mockCollections: Record<string, any> = {};
 const mockGetCollection = jest.fn((name: string) => {

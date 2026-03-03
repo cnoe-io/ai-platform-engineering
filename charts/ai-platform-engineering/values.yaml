@@ -121,6 +121,20 @@ supervisor-agent:
   multiAgentConfig:
     protocol: "a2a"
     port: "8000"
+  # Cross-thread memory persistence: memory (default) | redis | postgres
+  # BYO / external: Redis (in-cluster, external, AWS ElastiCache for Redis), Postgres (external/managed).
+  # Use url/dsn for plain values, or existingSecret to pull from a K8s Secret (recommended for credentials).
+  memoryPersistence:
+    type: "memory"
+    redis:
+      url: ""   # e.g. redis://host:6379/0, redis://user:pass@host:6379/0, or ElastiCache Redis endpoint
+      existingSecret: {}   # optional: { name: "my-redis-secret", key: "REDIS_URL" }
+      keyPrefix: ""   # optional: namespace shared Redis (e.g. release name, "caipe-prod", "tenant-xyz")
+    postgres:
+      dsn: ""   # e.g. postgresql://user:pass@host:5432/dbname
+      existingSecret: {}   # optional: { name: "my-pg-secret", key: "DATABASE_URL" }
+    ttlMinutes: 10080
+    enableFactExtraction: false
 
 ######### Sub-agent configurations #########
 # Agent configurations using aliases from Chart.yaml
@@ -464,7 +478,8 @@ caipe-ui:
     # SOURCE_URL: "https://github.com/your-org/your-repo"
     # Enable Prometheus metrics
     # PROMETHEUS_URL: "http://prometheus-server.monitoring.svc.cluster.local:9090"
-  # External Secrets configuration for sensitive data (OIDC credentials, NextAuth secret, MongoDB credentials)
+  # External Secrets configuration for sensitive data (OIDC, NextAuth, MongoDB/DocumentDB)
+  # BYO MongoDB or DocumentDB: add data entry with secretKey: MONGODB_URI and remoteRef to your store.
   externalSecrets:
     enabled: false  # Set to true to enable external secrets
     apiVersion: "v1beta1"
@@ -474,7 +489,11 @@ caipe-ui:
     data: []
       # See charts/ai-platform-engineering/charts/caipe-ui/values-external-secrets.yaml for examples
 
-  # MongoDB configuration for CAIPE UI persistence
+  # BYO MongoDB/DocumentDB: set existingSecret to a Secret containing MONGODB_URI (and other keys as needed).
+  # Leave mongodb.enabled false and provide MONGODB_URI via existingSecret or externalSecrets above.
+  existingSecret: ""
+
+  # MongoDB configuration for CAIPE UI persistence (in-cluster; disable for BYO)
   mongodb:
     nameOverride: "mongodb"
     enabled: false  # Set to true to enable MongoDB

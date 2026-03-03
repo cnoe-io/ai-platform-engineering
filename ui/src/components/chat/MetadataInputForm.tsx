@@ -11,7 +11,7 @@ export interface InputField {
   field_name: string;
   field_label?: string;
   field_description?: string;
-  field_type?: "text" | "select" | "boolean" | "number" | "url" | "email";
+  field_type?: "text" | "select" | "multiselect" | "boolean" | "number" | "url" | "email";
   field_values?: string[] | null;
   placeholder?: string;
   required?: boolean;
@@ -57,6 +57,29 @@ export function MetadataInputForm({
   });
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
+  // Per-field: when true, show checkboxes (multi-select); when false, show dropdown (default)
+  const [multiselectMode, setMultiselectMode] = useState<Record<string, boolean>>(() => {
+    const initial: Record<string, boolean> = {};
+    inputFields.forEach((field) => {
+      if (field.field_values && field.field_values.length > 0) {
+        initial[field.field_name] = field.field_type === "multiselect";
+      }
+    });
+    return initial;
+  });
+
+  const setMultiselectForField = useCallback((fieldName: string, enabled: boolean) => {
+    setMultiselectMode((prev) => ({ ...prev, [fieldName]: enabled }));
+    setFormData((prev) => {
+      const current = prev[fieldName] || "";
+      if (enabled) {
+        return { ...prev, [fieldName]: current }; // keep current (single or comma-separated)
+      }
+      // Switching to dropdown: use first value if comma-separated
+      const first = current.split(",").map((s) => s.trim()).filter(Boolean)[0];
+      return { ...prev, [fieldName]: first || "" };
+    });
+  }, []);
 
   const handleFieldChange = useCallback((fieldName: string, value: string) => {
     setFormData((prev) => ({ ...prev, [fieldName]: value }));
@@ -69,6 +92,27 @@ export function MetadataInputForm({
       });
     }
   }, [errors]);
+
+  /** Toggle one value in a comma-separated multiselect field. */
+  const handleMultiselectToggle = useCallback(
+    (fieldName: string, value: string) => {
+      setFormData((prev) => {
+        const current = prev[fieldName] || "";
+        const selected = current ? current.split(",").map((s) => s.trim()).filter(Boolean) : [];
+        const idx = selected.indexOf(value);
+        const next = idx === -1 ? [...selected, value] : selected.filter((_, i) => i !== idx);
+        return { ...prev, [fieldName]: next.join(", ") };
+      });
+      if (errors[fieldName]) {
+        setErrors((prev) => {
+          const newErrors = { ...prev };
+          delete newErrors[fieldName];
+          return newErrors;
+        });
+      }
+    },
+    [errors]
+  );
 
   const validateForm = useCallback(() => {
     const newErrors: Record<string, string> = {};
@@ -132,13 +176,29 @@ export function MetadataInputForm({
         {inputFields.map((field, idx) => {
           const fieldType = field.field_type || "text";
           const fieldLabel = field.field_label || field.field_name.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
-          
+          const hasOptions = field.field_values && field.field_values.length > 0;
+          const isMultiselect = hasOptions && multiselectMode[field.field_name];
+
           return (
             <div key={field.field_name} className="space-y-1.5">
-              <label className="text-sm font-medium text-foreground">
-                {fieldLabel}
-                {field.required !== false && <span className="text-red-400 ml-1">*</span>}
-              </label>
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <label className="text-sm font-medium text-foreground">
+                  {fieldLabel}
+                  {field.required !== false && <span className="text-red-400 ml-1">*</span>}
+                </label>
+                {hasOptions && (
+                  <label className="flex items-center gap-2 cursor-pointer text-xs text-muted-foreground hover:text-foreground">
+                    <input
+                      type="checkbox"
+                      checked={!!multiselectMode[field.field_name]}
+                      onChange={(e) => setMultiselectForField(field.field_name, e.target.checked)}
+                      disabled={disabled || isSubmitting}
+                      className="h-3.5 w-3.5 rounded border-border text-primary focus:ring-2 focus:ring-primary/50"
+                    />
+                    <span>Allow multiple</span>
+                  </label>
+                )}
+              </div>
 
               {field.field_description && (
                 <p className="text-xs text-muted-foreground">
@@ -146,8 +206,36 @@ export function MetadataInputForm({
                 </p>
               )}
 
-              {/* Render field based on type — auto-detect select when field_values present */}
-              {field.field_values && field.field_values.length > 0 ? (
+              {/* Multi-select: checkboxes, value stored as comma-separated */}
+              {isMultiselect ? (
+                <div className="space-y-2 rounded-lg border border-border bg-background px-3 py-2.5">
+                  {field.field_values!.map((value) => {
+                    const selected = (formData[field.field_name] || "")
+                      .split(",")
+                      .map((s) => s.trim())
+                      .filter(Boolean);
+                    const checked = selected.includes(value);
+                    return (
+                      <label
+                        key={value}
+                        className={cn(
+                          "flex items-center gap-3 cursor-pointer rounded py-1.5 px-2 -mx-2 hover:bg-muted/50",
+                          (disabled || isSubmitting) && "opacity-60 cursor-not-allowed"
+                        )}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => handleMultiselectToggle(field.field_name, value)}
+                          disabled={disabled || isSubmitting}
+                          className="h-4 w-4 rounded border-border text-primary focus:ring-2 focus:ring-primary/50"
+                        />
+                        <span className="text-sm text-foreground">{value}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+              ) : hasOptions ? (
                 <div className="relative">
                   <select
                     value={formData[field.field_name] || ""}
@@ -163,7 +251,7 @@ export function MetadataInputForm({
                     )}
                   >
                     <option value="">Select an option...</option>
-                    {field.field_values.map((value) => (
+                    {field.field_values!.map((value) => (
                       <option key={value} value={value}>
                         {value}
                       </option>

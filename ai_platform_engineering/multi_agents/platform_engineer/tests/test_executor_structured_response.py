@@ -427,7 +427,7 @@ class TestExecuteWithFromResponseFormatTool:
         ) as mock_binding:
             mock_agent = MagicMock()
 
-            async def stream(*_):
+            async def stream(*_, **kwargs):
                 yield {
                     "from_response_format_tool": True,
                     "require_user_input": False,
@@ -462,7 +462,7 @@ class TestExecuteWithFromResponseFormatTool:
         ) as mock_binding:
             mock_agent = MagicMock()
 
-            async def stream(*_):
+            async def stream(*_, **kwargs):
                 yield {
                     "from_response_format_tool": True,
                     "require_user_input": True,
@@ -500,7 +500,7 @@ class TestExecuteWithFromResponseFormatTool:
         ) as mock_binding:
             mock_agent = MagicMock()
 
-            async def stream(*_):
+            async def stream(*_, **kwargs):
                 yield {
                     "from_response_format_tool": True,
                     "require_user_input": False,
@@ -538,7 +538,7 @@ class TestExecuteWithFromResponseFormatTool:
         ) as mock_binding:
             mock_agent = MagicMock()
 
-            async def stream(*_):
+            async def stream(*_, **kwargs):
                 # is_task_complete=False but from_response_format_tool=True
                 yield {
                     "from_response_format_tool": True,
@@ -615,7 +615,7 @@ class TestExecuteOrdering:
         ) as mock_binding:
             mock_agent = MagicMock()
 
-            async def stream(*_):
+            async def stream(*_, **kwargs):
                 # Both True: from_response_format_tool branch should be taken
                 yield {
                     "from_response_format_tool": True,
@@ -653,7 +653,7 @@ class TestExecuteOrdering:
         ) as mock_binding:
             mock_agent = MagicMock()
 
-            async def stream(*_):
+            async def stream(*_, **kwargs):
                 yield {
                     "from_response_format_tool": False,
                     "is_task_complete": True,
