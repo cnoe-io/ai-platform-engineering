@@ -129,6 +129,30 @@ Get llmSecrets.create with global fallback
 {{- end -}}
 
 {{/*
+Get llmSecrets.externalSecrets.name with fallback to secretName
+*/}}
+{{- define "agent.llmSecrets.externalSecrets.name" -}}
+    {{- $name := "" -}}
+    {{- if .Values.llmSecrets.externalSecrets.name -}}
+        {{- $name = .Values.llmSecrets.externalSecrets.name -}}
+    {{- end -}}
+    {{- with .Values.global -}}
+        {{- with .llmSecrets -}}
+            {{- with .externalSecrets -}}
+                {{- if hasKey . "name" -}}
+                    {{- $name = .name -}}
+                {{- end -}}
+            {{- end -}}
+        {{- end -}}
+    {{- end -}}
+    {{- if $name -}}
+        {{- $name -}}
+    {{- else -}}
+        {{- include "agent.llmSecrets.secretName" . -}}
+    {{- end -}}
+{{- end -}}
+
+{{/*
 Get llmSecrets.externalSecrets.secretStoreRef with global fallback
 */}}
 {{- define "agent.llmSecrets.externalSecrets.secretStoreRef" -}}
@@ -169,22 +193,26 @@ Get agentSecrets.create with global fallback
 Determine if external secrets are enabled for agentSecrets - prioritize global
 */}}
 {{- define "agent.agentSecrets.externalSecrets.enabled" -}}
-    {{- $enabled := (default false .Values.agentSecrets.externalSecrets.enabled) -}}
-    {{- with .Values.global -}}
-        {{- with .externalSecrets -}}
-            {{- if and (hasKey . "enabled") .enabled -}}
-                {{- $enabled = true -}}
-            {{- end -}}
-        {{- end -}}
-        {{- with .agentSecrets -}}
+    {{- if not .Values.agentSecrets.requiresSecret -}}
+        {{- false -}}
+    {{- else -}}
+        {{- $enabled := (default false .Values.agentSecrets.externalSecrets.enabled) -}}
+        {{- with .Values.global -}}
             {{- with .externalSecrets -}}
-                {{- if hasKey . "enabled" -}}
-                    {{- $enabled = .enabled -}}
+                {{- if and (hasKey . "enabled") .enabled -}}
+                    {{- $enabled = true -}}
+                {{- end -}}
+            {{- end -}}
+            {{- with .agentSecrets -}}
+                {{- with .externalSecrets -}}
+                    {{- if hasKey . "enabled" -}}
+                        {{- $enabled = .enabled -}}
+                    {{- end -}}
                 {{- end -}}
             {{- end -}}
         {{- end -}}
+        {{- $enabled -}}
     {{- end -}}
-    {{- $enabled -}}
 {{- end }}
 
 {{/*
