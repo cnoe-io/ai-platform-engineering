@@ -206,10 +206,26 @@ externalSecrets:
     name: "vault"  # Your secret store name (replace with your SecretStore/ClusterSecretStore)
     kind: "ClusterSecretStore"  # or "SecretStore" for namespace-scoped
   data: []
-    # Example (see values-external-secrets.yaml):
+    # Example configuration (see values-external-secrets.yaml or EXTERNAL_SECRETS.md):
     # - secretKey: NEXTAUTH_SECRET
-    #   remoteRef: { key: dev/caipe-ui, property: NEXTAUTH_SECRET }
+    #   remoteRef:
+    #     conversionStrategy: Default
+    #     decodingStrategy: None
+    #     key: dev/caipe-ui
+    #     property: NEXTAUTH_SECRET
     # - secretKey: MONGODB_URI
-    #   remoteRef: { key: dev/caipe-ui, property: MONGODB_URI }
+    #   remoteRef:
+    #     key: dev/caipe-ui
+    #     property: MONGODB_URI
+    # - secretKey: OIDC_ISSUER
+    #   remoteRef:
+    #     key: dev/caipe-ui
+    #     property: OIDC_ISSUER
+    # - secretKey: OIDC_CLIENT_ID
+    #   remoteRef:
+    #     key: dev/caipe-ui
+    #     property: OIDC_CLIENT_ID
     # - secretKey: OIDC_CLIENT_SECRET
-    #   remoteRef: { key: dev/caipe-ui, property: OIDC_CLIENT_SECRET }
+    #   remoteRef:
+    #     key: dev/caipe-ui
+    #     property: OIDC_CLIENT_SECRET
