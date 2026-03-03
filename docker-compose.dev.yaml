@@ -873,7 +873,13 @@ services:
     ports: ["8016:8000"]
     environment:
       - A2A_TRANSPORT=${A2A_TRANSPORT:-p2p}
+      - MCP_MODE=http
+      - MCP_HOST=mcp-victorops
+      - MCP_PORT=8000
       - SLIM_ENDPOINT=${SLIM_ENDPOINT:-http://slim-dataplane:46357}
+    depends_on:
+      mcp-victorops:
+        condition: service_healthy
     profiles:
       - victorops
 
