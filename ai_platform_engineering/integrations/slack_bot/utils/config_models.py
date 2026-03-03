@@ -224,6 +224,7 @@ class ChannelConfig(BaseModel):
 
     name: str
     ai_enabled: bool = False
+    custom_prompt: Optional[str] = None
     qanda: QandaConfig = Field(default_factory=QandaConfig)
     ai_alerts: AIAlertsConfig = Field(default_factory=AIAlertsConfig)
     default: Dict[str, Any]

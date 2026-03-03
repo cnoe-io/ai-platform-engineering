@@ -94,6 +94,30 @@ class TestChannelIDToJira:
         assert cfg.channels["C123"].qanda.include_bots.enabled is True
         assert cfg.channels["C123"].qanda.include_bots.bot_list == ["Bot1", "Bot2"]
 
+    def test_config_with_channel_mention_custom_prompt(self, monkeypatch):
+        monkeypatch.setenv(
+            "SLACK_INTEGRATION_BOT_CONFIG",
+            """
+C123:
+  name: "#test-channel"
+  ai_enabled: true
+  custom_prompt: "Channel prompt: {message_text}"
+  qanda:
+    enabled: false
+  ai_alerts:
+    enabled: false
+  default:
+    project_key: TEST
+""",
+        )
+        cfg = Config.from_env()
+        assert cfg.channels["C123"].custom_prompt == "Channel prompt: {message_text}"
+
+    def test_config_channel_mention_custom_prompt_defaults_to_none(self):
+        # Uses default from conftest - no custom_prompt set
+        cfg = Config.from_env()
+        assert cfg.channels["C123"].custom_prompt is None
+
     def test_config_mutual_exclusivity_validation(self, monkeypatch):
         # Both ai_alerts and qanda.include_bots enabled should raise error
         monkeypatch.setenv(
