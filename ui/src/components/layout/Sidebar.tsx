@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   MessageSquare,
+  Radio,
   History,
   Plus,
   Archive,
@@ -52,6 +53,7 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
     deleteConversation,
     loadConversationsFromServer,
     loadMessagesFromServer,
+    isConversationStreaming,
   } = useChatStore();
   const { data: session } = useSession();
   const [useCaseBuilderOpen, setUseCaseBuilderOpen] = useState(false);
@@ -327,6 +329,8 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
                     conv.sharing.share_link_enabled
                   );
 
+                  const isLive = isConversationStreaming(conv.id);
+
                   return (
                   <div
                     key={conv.id}
@@ -339,11 +343,13 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
                       transition={{ delay: index * 0.02 }}
                       className={cn(
                         "group relative flex items-center gap-2 p-2 rounded-lg cursor-pointer transition-all min-w-0",
-                        activeConversationId === conv.id
-                          ? "bg-primary/10 border border-primary/30"
-                          : isShared
-                            ? "hover:bg-muted/50 border border-blue-500/20"
-                            : "hover:bg-muted/50 border border-transparent"
+                        isLive
+                          ? "bg-emerald-500/10 border border-emerald-500/30"
+                          : activeConversationId === conv.id
+                            ? "bg-primary/10 border border-primary/30"
+                            : isShared
+                              ? "hover:bg-muted/50 border border-blue-500/20"
+                              : "hover:bg-muted/50 border border-transparent"
                       )}
                       onClick={() => {
                         setActiveConversation(conv.id);
@@ -353,17 +359,29 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
                       }}
                     >
                     <div className={cn(
-                      "shrink-0 w-8 h-8 rounded-md flex items-center justify-center",
-                      activeConversationId === conv.id
-                        ? "bg-primary/20"
-                        : "bg-muted"
+                      "shrink-0 w-8 h-8 rounded-md flex items-center justify-center relative",
+                      isLive
+                        ? "bg-emerald-500/20"
+                        : activeConversationId === conv.id
+                          ? "bg-primary/20"
+                          : "bg-muted"
                     )}>
-                      <MessageSquare className={cn(
-                        "h-4 w-4",
-                        activeConversationId === conv.id
-                          ? "text-primary"
-                          : "text-muted-foreground"
-                      )} />
+                      {isLive ? (
+                        <>
+                          <Radio className="h-4 w-4 text-emerald-500 animate-pulse" />
+                          <span className="absolute -top-0.5 -right-0.5 flex h-2.5 w-2.5">
+                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                            <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500" />
+                          </span>
+                        </>
+                      ) : (
+                        <MessageSquare className={cn(
+                          "h-4 w-4",
+                          activeConversationId === conv.id
+                            ? "text-primary"
+                            : "text-muted-foreground"
+                        )} />
+                      )}
                     </div>
 
                     {!collapsed && (
@@ -386,8 +404,11 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
                               </TooltipProvider>
                             )}
                           </div>
-                          <p className="text-xs text-muted-foreground truncate">
-                            {formatDate(conv.updatedAt)}
+                          <p className={cn(
+                            "text-xs truncate",
+                            isLive ? "text-emerald-600 dark:text-emerald-400 font-medium" : "text-muted-foreground"
+                          )}>
+                            {isLive ? "Live" : formatDate(conv.updatedAt)}
                           </p>
                         </div>
 
