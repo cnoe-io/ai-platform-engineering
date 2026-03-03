@@ -224,7 +224,14 @@ describe('ContextPanel', () => {
 
     it('should mark remaining tasks as completed when streaming ends (except failed)', () => {
       const planText = '⏳ [ArgoCD] List all applications\n❌ [AWS] Query EC2 instances'
-      const events = [createExecutionPlanEvent(planText)]
+      const events = [
+        createExecutionPlanEvent(planText),
+        createA2AEvent({
+          type: 'artifact',
+          displayContent: 'Done',
+          artifact: { name: 'final_result', description: 'Final', text: 'Done' },
+        }),
+      ]
       const conv = makeConversation('conv-1', events)
 
       setStoreState({
