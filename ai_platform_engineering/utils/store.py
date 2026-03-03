@@ -12,6 +12,8 @@ Configuration via environment variables:
     LANGGRAPH_STORE_REDIS_URL: Redis connection string (falls back to REDIS_URL)
     LANGGRAPH_STORE_POSTGRES_DSN: Postgres DSN (falls back to POSTGRES_DSN)
     LANGGRAPH_STORE_TTL_MINUTES: TTL for stored items (default 10080 = 7 days)
+    LANGGRAPH_STORE_KEY_PREFIX: Optional key/namespace prefix for shared Redis (BYO);
+        when set, all store keys are namespaced so multiple deployments can share one Redis.
 
 Usage:
     from ai_platform_engineering.utils.store import create_store, get_store
@@ -39,6 +41,15 @@ def sanitize_namespace_label(label: str) -> str:
     """
     return re.sub(r"\.", "_", label) if label else label
 
+
+def _store_namespace(key_prefix: str, category: str, user_id: str) -> tuple[str, ...]:
+    """Build store namespace tuple, optionally prefixed for shared Redis (BYO)."""
+    user_label = sanitize_namespace_label(user_id)
+    if key_prefix:
+        return (sanitize_namespace_label(key_prefix), category, user_label)
+    return (category, user_label)
+
+
 STORE_TYPE_MEMORY = "memory"
 STORE_TYPE_REDIS = "redis"
 STORE_TYPE_POSTGRES = "postgres"
@@ -53,6 +64,7 @@ def get_store_config() -> dict[str, Any]:
         "redis_url": os.getenv("LANGGRAPH_STORE_REDIS_URL") or os.getenv("REDIS_URL", ""),
         "postgres_dsn": os.getenv("LANGGRAPH_STORE_POSTGRES_DSN") or os.getenv("POSTGRES_DSN", ""),
         "ttl_minutes": int(os.getenv("LANGGRAPH_STORE_TTL_MINUTES", str(DEFAULT_TTL_MINUTES))),
+        "key_prefix": (os.getenv("LANGGRAPH_STORE_KEY_PREFIX") or "").strip(),
     }
 
 
@@ -246,7 +258,9 @@ async def store_put_memory(
     if not store or not user_id:
         return ""
 
-    namespace = ("memories", sanitize_namespace_label(user_id))
+    config = get_store_config()
+    key_prefix = config.get("key_prefix") or ""
+    namespace = _store_namespace(key_prefix, "memories", user_id)
     key = str(uuid.uuid4())
     value = {
         "data": data,
@@ -284,7 +298,9 @@ async def store_put_summary(
     if not store or not user_id:
         return ""
 
-    namespace = ("summaries", sanitize_namespace_label(user_id))
+    config = get_store_config()
+    key_prefix = config.get("key_prefix") or ""
+    namespace = _store_namespace(key_prefix, "summaries", user_id)
     key = str(uuid.uuid4())
     value = {
         "summary": summary,
@@ -322,10 +338,15 @@ async def store_get_cross_thread_context(
     if not store or not user_id:
         return None
 
+    config = get_store_config()
+    key_prefix = config.get("key_prefix") or ""
+    summaries_ns = _store_namespace(key_prefix, "summaries", user_id)
+    memories_ns = _store_namespace(key_prefix, "memories", user_id)
+
     parts = []
 
     try:
-        summaries = await store.asearch(("summaries", sanitize_namespace_label(user_id)), limit=max_summaries)
+        summaries = await store.asearch(summaries_ns, limit=max_summaries)
         if summaries:
             sorted_summaries = sorted(
                 summaries,
@@ -345,7 +366,7 @@ async def store_get_cross_thread_context(
         logger.debug(f"Failed to retrieve summaries for user={user_id}: {e}")
 
     try:
-        memories = await store.asearch(("memories", sanitize_namespace_label(user_id)), limit=max_memories)
+        memories = await store.asearch(memories_ns, limit=max_memories)
         if memories:
             sorted_memories = sorted(
                 memories,

@@ -58,6 +58,19 @@ class TestGetStoreConfig:
             assert config["redis_url"] == ""
             assert config["postgres_dsn"] == ""
             assert config["ttl_minutes"] == DEFAULT_TTL_MINUTES
+            assert config["key_prefix"] == ""
+
+    def test_key_prefix_for_shared_redis(self):
+        env = {"LANGGRAPH_STORE_KEY_PREFIX": "caipe-prod"}
+        with patch.dict("os.environ", env, clear=True):
+            config = get_store_config()
+            assert config["key_prefix"] == "caipe-prod"
+
+    def test_key_prefix_stripped(self):
+        env = {"LANGGRAPH_STORE_KEY_PREFIX": "  staging  "}
+        with patch.dict("os.environ", env, clear=True):
+            config = get_store_config()
+            assert config["key_prefix"] == "staging"
 
     def test_redis_config(self):
         env = {
