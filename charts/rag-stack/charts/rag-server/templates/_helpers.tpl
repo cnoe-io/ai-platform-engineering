@@ -90,11 +90,12 @@ Get enableGraphRag with global fallback
 {{- end -}}
 
 {{/*
-Get Redis URL combining host and port
+Get Redis URL combining host, port and db index
 */}}
 {{- define "rag-server.redisUrl" -}}
     {{- $host := "redis" -}}
     {{- $port := "6379" -}}
+    {{- $db := 0 -}}
     {{- with .Values.global -}}
         {{- with .rag -}}
             {{- with .redis -}}
@@ -104,10 +105,13 @@ Get Redis URL combining host and port
                 {{- if hasKey . "port" -}}
                     {{- $port = .port -}}
                 {{- end -}}
+                {{- if hasKey . "db" -}}
+                    {{- $db = .db -}}
+                {{- end -}}
             {{- end -}}
         {{- end -}}
     {{- end -}}
-    {{- printf "redis://%s:%s/0" $host ($port | toString) -}}
+    {{- printf "redis://%s:%s/%d" $host ($port | toString) $db -}}
 {{- end -}}
 
 {{/*

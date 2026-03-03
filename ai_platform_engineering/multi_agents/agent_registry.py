@@ -41,6 +41,7 @@ DEFAULT_REGISTRY_EXCLUSIONS = frozenset({
     "GRAPH_RAG",            # Graph RAG capability flag
     "RAG",                  # RAG capability flag
     "SUBAGENT_CARDS",       # UI feature flag for sub-agent cards
+    "FACT_EXTRACTION",      # LangMem fact extraction feature flag
 })
 
 

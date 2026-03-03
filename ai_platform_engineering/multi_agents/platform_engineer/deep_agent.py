@@ -46,6 +46,7 @@ from ai_platform_engineering.multi_agents.tools import (
     list_files,  # list_files("/tmp/repo", pattern="*.yaml")
 )
 from deepagents import async_create_deep_agent
+from ai_platform_engineering.utils.store import create_store
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -358,6 +359,15 @@ class AIPlatformEngineerMAS:
         return {}
 
       deep_agent_kwargs["post_model_hook"] = _bedrock_prefill_fix_hook
+
+    # Create cross-thread store for long-term memory
+    try:
+      store = create_store()
+      if store is not None:
+        deep_agent_kwargs["store"] = store
+        logger.info("Cross-thread store attached to deep agent")
+    except Exception as e:
+      logger.warning(f"Failed to create cross-thread store: {e}")
 
     deep_agent = async_create_deep_agent(**deep_agent_kwargs)
 
