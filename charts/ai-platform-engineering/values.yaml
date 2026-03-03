@@ -21,6 +21,7 @@ tags:
   agent-weather: false
   agent-petstore: false
   rag-stack: false
+  slack-bot: false
 
 # Global configuration shared across all subcharts
 global:
@@ -45,13 +46,6 @@ global:
 
   agentgateway:
     enabled: false
-
-  caipeUi:
-    enabled: false
-
-  integrations:
-    slackBot:
-      enabled: false
 
 # ServiceMonitor for scraping all ai-platform-engineering components
 # For agent metrics endpoints, use global.metrics.enabled above
