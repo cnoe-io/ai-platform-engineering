@@ -33,7 +33,7 @@ class MongoDBSessionStore:
         self._client = MongoClient(
             uri,
             serverSelectionTimeoutMS=5000,
-            retryWrites=True,
+            retryWrites=False,  # DocumentDB does not support retryable writes — do not change
         )
         self._db = self._client[database]
         self._sessions = self._db["slack_sessions"]
