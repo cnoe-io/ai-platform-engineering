@@ -200,7 +200,7 @@ agent-ontology:
 
 # RAG Web configuration
 rag-webui:
-  enabled: true
+  enabled: false
   image:
     repository: "ghcr.io/cnoe-io/caipe-rag-webui"
     # tag defaults to .Chart.AppVersion when not specified
