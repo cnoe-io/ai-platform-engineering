@@ -222,30 +222,28 @@ describe('ContextPanel', () => {
       expect(screen.getByText(/2\/3\s*completed/)).toBeInTheDocument()
     })
 
-    it('should mark remaining tasks as completed when streaming ends (except failed)', () => {
+    it('should mark remaining tasks as completed when streaming ends with final_result (except failed)', () => {
       const planText = '⏳ [ArgoCD] List all applications\n❌ [AWS] Query EC2 instances'
       const events = [
         createExecutionPlanEvent(planText),
         createA2AEvent({
           type: 'artifact',
           displayContent: 'Done',
-          artifact: { name: 'final_result', description: 'Final', text: 'Done' },
+          artifact: { name: 'final_result', description: 'Final result', text: 'Done' },
         }),
       ]
       const conv = makeConversation('conv-1', events)
 
       setStoreState({
-        isStreaming: false, // Streaming ended
+        isStreaming: false,
         activeConversationId: 'conv-1',
         conversations: [conv],
       })
 
       render(<ContextPanel {...defaultProps} />)
 
-      // When streaming ends without final_result (e.g. HITL pause), we do not force-complete
-      // pending tasks, so progress shows 0/2 (pending + failed). Only with final_result
-      // would the pending task be marked completed.
-      expect(screen.getByText(/0\/2\s*completed/)).toBeInTheDocument()
+      // With final_result, pending task is force-completed → 1/2 (failed stays failed)
+      expect(screen.getByText(/1\/2\s*completed/)).toBeInTheDocument()
     })
 
     it('should update task status from execution_plan_status_update events', () => {
