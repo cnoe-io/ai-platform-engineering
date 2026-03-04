@@ -70,7 +70,7 @@ describe('getServerConfig', () => {
         'ALLOW_DEV_ADMIN_WHEN_SSO_DISABLED', 'SHOW_POWERED_BY',
         'LOGO_STYLE', 'SPINNER_COLOR', 'TAGLINE', 'DESCRIPTION',
         'APP_NAME', 'LOGO_URL', 'GRADIENT_FROM', 'GRADIENT_TO',
-        'SUPPORT_EMAIL',
+        'SUPPORT_EMAIL', 'FEEDBACK_ENABLED', 'NPS_ENABLED', 'AUDIT_LOGS_ENABLED',
         'DEFAULT_FONT_SIZE', 'DEFAULT_FONT_FAMILY',
         'DEFAULT_THEME', 'DEFAULT_GRADIENT_THEME',
       );
@@ -89,6 +89,7 @@ describe('getServerConfig', () => {
       expect(cfg.ssoEnabled).toBe(false);
       expect(cfg.ragEnabled).toBe(true); // default true
       expect(cfg.feedbackEnabled).toBe(true); // default true
+      expect(cfg.npsEnabled).toBe(false);
       expect(cfg.mongodbEnabled).toBe(false);
       expect(cfg.tagline).toBe('Multi-Agent Workflow Automation');
       expect(cfg.description).toBe(
@@ -104,6 +105,7 @@ describe('getServerConfig', () => {
       expect(cfg.showPoweredBy).toBe(true);
       expect(cfg.supportEmail).toBe('support@example.com');
       expect(cfg.allowDevAdminWhenSsoDisabled).toBe(false);
+      expect(cfg.auditLogsEnabled).toBe(false);
       expect(cfg.storageMode).toBe('localStorage');
     });
 
@@ -124,7 +126,7 @@ describe('getServerConfig', () => {
         'gradientFrom', 'gradientTo', 'logoStyle', 'spinnerColor',
         'showPoweredBy', 'supportEmail', 'allowDevAdminWhenSsoDisabled',
         'storageMode', 'enabledIntegrationIcons', 'faviconUrl',
-        'docsUrl', 'sourceUrl', 'workflowRunnerEnabled', 'feedbackEnabled', 'npsEnabled',
+        'docsUrl', 'sourceUrl', 'workflowRunnerEnabled', 'feedbackEnabled', 'npsEnabled', 'auditLogsEnabled',
         'defaultFontSize', 'defaultFontFamily', 'defaultTheme', 'defaultGradientTheme',
       ];
       expect(Object.keys(cfg).sort()).toEqual(expectedKeys.sort());
@@ -698,7 +700,7 @@ describe('getClientConfigScript (XSS safety)', () => {
       'gradientFrom', 'gradientTo', 'logoStyle', 'spinnerColor',
       'showPoweredBy', 'supportEmail', 'allowDevAdminWhenSsoDisabled',
       'storageMode', 'enabledIntegrationIcons', 'faviconUrl',
-      'docsUrl', 'sourceUrl', 'workflowRunnerEnabled', 'feedbackEnabled', 'npsEnabled',
+      'docsUrl', 'sourceUrl', 'workflowRunnerEnabled', 'feedbackEnabled', 'npsEnabled', 'auditLogsEnabled',
       'defaultFontSize', 'defaultFontFamily', 'defaultTheme', 'defaultGradientTheme',
     ];
     expect(Object.keys(parsed).sort()).toEqual(expectedKeys.sort());

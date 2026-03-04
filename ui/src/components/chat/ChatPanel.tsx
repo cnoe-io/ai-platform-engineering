@@ -1302,7 +1302,8 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
           </div>
 
           <p className="text-xs text-muted-foreground text-center">
-            {getConfig('appName')} can make mistakes. Verify important information.
+            {getConfig('appName')} can make mistakes. Verify important info.
+            {getConfig('auditLogsEnabled') && ' · Conversations are logged for audit.'}
           </p>
         </div>
       </div>

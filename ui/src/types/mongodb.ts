@@ -319,3 +319,22 @@ export interface UserActivity {
   resource_id: string;
   details?: Record<string, any>;
 }
+
+// ============================================================================
+// Audit Log Types (Admin-only)
+// ============================================================================
+
+export interface AuditConversation extends Conversation {
+  message_count: number;
+  last_message_at?: Date;
+  status: 'active' | 'archived' | 'deleted';
+}
+
+export interface AuditLogFilters {
+  owner_email?: string;
+  search?: string;
+  date_from?: string;
+  date_to?: string;
+  include_deleted?: boolean;
+  status?: 'active' | 'archived' | 'deleted';
+}
