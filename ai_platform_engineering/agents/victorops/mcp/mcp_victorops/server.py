@@ -21,7 +21,9 @@ from mcp_victorops.tools import (
     api_public_v1_incidents,
     incidentnumber_notes_notename,
     incidentnumber_notes,
-    api_public_v1_chat
+    api_public_v1_chat,
+    api_public_v1_team,
+    api_public_v2_team_oncall
 )
 
 def main():
@@ -57,6 +59,7 @@ def main():
         mcp = FastMCP(f"{SERVER_NAME} MCP Server")
 
     # Register tools
+    mcp.tool()(api_public_v1_incidents.get_api_public_v1_incidents)
     mcp.tool()(api_public_v2_user.get_api_public_v2_user)
     mcp.tool()(api_reporting_v2_incidents.get_api_reporting_v2_incidents)
     mcp.tool()(api_public_v1_incidents.post_api_public_v1_incidents)
@@ -65,6 +68,8 @@ def main():
     mcp.tool()(incidentnumber_notes_notename.put_api_public_v1_incidents_incident_number_notes_note_name)
     mcp.tool()(incidentnumber_notes_notename.delete_api_public_v1_incidents_incident_number_notes_note_name)
     mcp.tool()(api_public_v1_chat.post_api_public_v1_chat)
+    mcp.tool()(api_public_v1_team.get_api_public_v1_team)
+    mcp.tool()(api_public_v2_team_oncall.get_api_public_v2_team_oncall_schedule)
 
     # Run the MCP server
     mcp.run(transport=MCP_MODE.lower())
