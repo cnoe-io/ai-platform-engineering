@@ -10,7 +10,7 @@ title: "2026-03-03: Share with Everyone"
 
 ## Summary
 
-Added a "Share with everyone" option to conversation sharing, completing the three-tier sharing model: individual users, teams, and everyone. Owners can toggle a conversation's visibility to make it accessible to all authenticated users in the organization.
+Added a "Share with everyone" option to conversation sharing, completing the three-tier sharing model: individual users, teams, and everyone. Owners can toggle a conversation's visibility to make it accessible to all authenticated users in the organization with full read and write access (same access level as user/team sharing).
 
 ## Problem Statement
 
@@ -34,6 +34,10 @@ Activate the existing `is_public` boolean field end-to-end rather than introduci
 | Activate `is_public` field | No migration, simple, consistent | Binary (all or nothing) | **Chosen** |
 | "Organization" pseudo-team | Reuses team model | Requires special team management, confusing UX | Rejected |
 | Separate public endpoint | Clean separation | API duplication, extra routes to maintain | Rejected |
+
+### Access Level Decision
+
+Public access grants the same full access (read + write) as user/team sharing. Users who access a public conversation can both view messages and send new ones. Read-only enforcement for public viewers was considered but deferred — the current design matches the existing shared conversation behavior where all shared users can participate.
 
 ## Solution Architecture
 
@@ -131,13 +135,16 @@ const sharedConditions = [
 | `ui/src/components/chat/ShareDialog.tsx` | Toggle switch, `handleTogglePublic`, "Everyone" access entry |
 | `ui/src/components/layout/Sidebar.tsx` | Globe icon (green) for public, Users icon (blue) for private sharing |
 | `ui/src/app/api/__tests__/chat-sharing-teams.test.ts` | Updated expectations for new `is_public` query condition |
-| `ui/src/app/api/__tests__/chat-sharing-public.test.ts` | **New** — 12 tests for public sharing |
+| `ui/src/app/api/__tests__/chat-sharing-public.test.ts` | **New** — 19 tests for public sharing |
 
 ## Testing
 
-- **12 new tests** covering access control, API toggle, and query inclusion
-- **2 updated tests** in existing sharing test suite for new query conditions
-- **Full suite**: 75 suites, 1832 tests pass, zero regressions
+- **19 new tests** in `chat-sharing-public.test.ts`:
+  - Access control: public grant, deny, owner bypass, skip-teams optimization (5 tests)
+  - API POST: toggle on/off, standalone, combined with users, validation, owner-only, response, auth (9 tests)
+  - API GET: returns is_public state true/false (2 tests)
+  - Query inclusion: conversations listing, shared listing with exclusions (3 tests)
+- **2 updated tests** in existing `chat-sharing-teams.test.ts` for new query conditions
 
 ## Migration Notes
 

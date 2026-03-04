@@ -9,6 +9,7 @@
  * - requireConversationAccess — public conversations accessible to any user
  * - GET /api/chat/conversations — public conversations appear in listing
  * - GET /api/chat/shared — public conversations appear in shared listing
+ * - Combined scenarios — is_public alongside user/team sharing
  */
 
 import { NextRequest } from 'next/server';
@@ -141,7 +142,7 @@ describe('requireConversationAccess — public (is_public) access', () => {
     requireConversationAccess = mod.requireConversationAccess;
   });
 
-  it('grants access to any user when conversation is_public is true', async () => {
+  it('grants access to any authenticated user when is_public is true', async () => {
     const conv = makeConversation({
       sharing: {
         is_public: true,
@@ -180,7 +181,7 @@ describe('requireConversationAccess — public (is_public) access', () => {
     ).rejects.toThrow('Forbidden');
   });
 
-  it('grants access to owner regardless of is_public', async () => {
+  it('grants access to owner regardless of is_public value', async () => {
     const conv = makeConversation({
       sharing: { is_public: false, shared_with: [], shared_with_teams: [] },
     });
@@ -192,6 +193,43 @@ describe('requireConversationAccess — public (is_public) access', () => {
 
     expect(result).toBeDefined();
     expect(result._id).toBe(conv._id);
+  });
+
+  it('grants access via is_public even when shared_with and shared_with_teams are empty', async () => {
+    const conv = makeConversation({
+      sharing: {
+        is_public: true,
+        shared_with: [],
+        shared_with_teams: [],
+        share_link_enabled: false,
+      },
+    });
+    const convsCol = createMockCollection();
+    convsCol.findOne.mockResolvedValue(conv);
+    mockCollections['conversations'] = convsCol;
+
+    const result = await requireConversationAccess(conv._id, VIEWER_EMAIL, mockGetCollection);
+
+    expect(result).toBeDefined();
+    expect(result.sharing.is_public).toBe(true);
+  });
+
+  it('does not check teams or sharing_access when is_public is true', async () => {
+    const conv = makeConversation({
+      sharing: {
+        is_public: true,
+        shared_with: [],
+        shared_with_teams: ['some-team'],
+      },
+    });
+    const convsCol = createMockCollection();
+    convsCol.findOne.mockResolvedValue(conv);
+    mockCollections['conversations'] = convsCol;
+
+    await requireConversationAccess(conv._id, STRANGER_EMAIL, mockGetCollection);
+
+    expect(mockGetCollection).not.toHaveBeenCalledWith('teams');
+    expect(mockGetCollection).not.toHaveBeenCalledWith('sharing_access');
   });
 });
 
@@ -306,6 +344,157 @@ describe('POST /api/chat/conversations/[id]/share — is_public toggle', () => {
     const res = await POST(req, { params: Promise.resolve({ id: VALID_UUID }) });
     expect(res.status).toBe(403);
   });
+
+  it('combines is_public with user_emails in one request', async () => {
+    mockGetServerSession.mockResolvedValue(userSession(OWNER_EMAIL));
+
+    const conv = makeConversation();
+    const convsCol = createMockCollection();
+    convsCol.findOne
+      .mockResolvedValueOnce(conv)
+      .mockResolvedValueOnce({
+        ...conv,
+        sharing: {
+          ...conv.sharing,
+          is_public: true,
+          shared_with: [VIEWER_EMAIL],
+        },
+      });
+    mockCollections['conversations'] = convsCol;
+
+    const req = makeRequest(`/api/chat/conversations/${VALID_UUID}/share`, {
+      method: 'POST',
+      body: JSON.stringify({
+        is_public: true,
+        user_emails: [VIEWER_EMAIL],
+        permission: 'view',
+      }),
+    });
+
+    const res = await POST(req, { params: Promise.resolve({ id: VALID_UUID }) });
+    expect(res.status).toBe(200);
+
+    const updateCall = convsCol.updateOne.mock.calls[0];
+    expect(updateCall[1].$set['sharing.is_public']).toBe(true);
+    expect(updateCall[1].$set['sharing.shared_with']).toContain(VIEWER_EMAIL);
+  });
+
+  it('requires permission when user_emails provided alongside is_public', async () => {
+    mockGetServerSession.mockResolvedValue(userSession(OWNER_EMAIL));
+
+    const conv = makeConversation();
+    const convsCol = createMockCollection();
+    convsCol.findOne.mockResolvedValue(conv);
+    mockCollections['conversations'] = convsCol;
+
+    const req = makeRequest(`/api/chat/conversations/${VALID_UUID}/share`, {
+      method: 'POST',
+      body: JSON.stringify({
+        is_public: true,
+        user_emails: [VIEWER_EMAIL],
+      }),
+    });
+
+    const res = await POST(req, { params: Promise.resolve({ id: VALID_UUID }) });
+    expect(res.status).toBe(400);
+
+    const body = await res.json();
+    expect(body.error).toContain('permission');
+  });
+
+  it('returns updated conversation with is_public in response', async () => {
+    mockGetServerSession.mockResolvedValue(userSession(OWNER_EMAIL));
+
+    const conv = makeConversation();
+    const updatedConv = {
+      ...conv,
+      sharing: { ...conv.sharing, is_public: true },
+    };
+    const convsCol = createMockCollection();
+    convsCol.findOne
+      .mockResolvedValueOnce(conv)
+      .mockResolvedValueOnce(updatedConv);
+    mockCollections['conversations'] = convsCol;
+
+    const req = makeRequest(`/api/chat/conversations/${VALID_UUID}/share`, {
+      method: 'POST',
+      body: JSON.stringify({ is_public: true }),
+    });
+
+    const res = await POST(req, { params: Promise.resolve({ id: VALID_UUID }) });
+    const body = await res.json();
+
+    expect(body.success).toBe(true);
+    expect(body.data.sharing.is_public).toBe(true);
+  });
+
+  it('returns 401 when not authenticated', async () => {
+    mockGetServerSession.mockResolvedValue(null);
+
+    const req = makeRequest(`/api/chat/conversations/${VALID_UUID}/share`, {
+      method: 'POST',
+      body: JSON.stringify({ is_public: true }),
+    });
+
+    const res = await POST(req, { params: Promise.resolve({ id: VALID_UUID }) });
+    expect(res.status).toBe(401);
+  });
+});
+
+// ============================================================================
+// GET /api/chat/conversations/[id]/share — returns is_public state
+// ============================================================================
+
+describe('GET /api/chat/conversations/[id]/share — is_public state', () => {
+  let GET: any;
+
+  beforeEach(async () => {
+    jest.resetModules();
+    const mod = await import('@/app/api/chat/conversations/[id]/share/route');
+    GET = mod.GET;
+  });
+
+  it('returns is_public true in sharing info', async () => {
+    mockGetServerSession.mockResolvedValue(userSession(OWNER_EMAIL));
+
+    const conv = makeConversation({
+      sharing: { is_public: true, shared_with: [], shared_with_teams: [], share_link_enabled: false },
+    });
+    const convsCol = createMockCollection();
+    convsCol.findOne.mockResolvedValue(conv);
+    mockCollections['conversations'] = convsCol;
+
+    const sharingAccessCol = createMockCollection();
+    sharingAccessCol.find.mockReturnValue({ toArray: jest.fn().mockResolvedValue([]) });
+    mockCollections['sharing_access'] = sharingAccessCol;
+
+    const req = makeRequest(`/api/chat/conversations/${VALID_UUID}/share`);
+    const res = await GET(req, { params: Promise.resolve({ id: VALID_UUID }) });
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.data.sharing.is_public).toBe(true);
+  });
+
+  it('returns is_public false in sharing info', async () => {
+    mockGetServerSession.mockResolvedValue(userSession(OWNER_EMAIL));
+
+    const conv = makeConversation();
+    const convsCol = createMockCollection();
+    convsCol.findOne.mockResolvedValue(conv);
+    mockCollections['conversations'] = convsCol;
+
+    const sharingAccessCol = createMockCollection();
+    sharingAccessCol.find.mockReturnValue({ toArray: jest.fn().mockResolvedValue([]) });
+    mockCollections['sharing_access'] = sharingAccessCol;
+
+    const req = makeRequest(`/api/chat/conversations/${VALID_UUID}/share`);
+    const res = await GET(req, { params: Promise.resolve({ id: VALID_UUID }) });
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.data.sharing.is_public).toBe(false);
+  });
 });
 
 // ============================================================================
@@ -344,6 +533,32 @@ describe('GET /api/chat/conversations — public conversations', () => {
 
     expect(orConditions).toContainEqual({ 'sharing.is_public': true });
   });
+
+  it('includes is_public alongside owner and shared_with conditions', async () => {
+    mockGetServerSession.mockResolvedValue(userSession(VIEWER_EMAIL));
+
+    const teamsCol = createMockCollection();
+    teamsCol.find.mockReturnValue({
+      project: jest.fn().mockReturnValue({
+        toArray: jest.fn().mockResolvedValue([]),
+      }),
+    });
+    mockCollections['teams'] = teamsCol;
+
+    const convsCol = createMockCollection();
+    convsCol.countDocuments.mockResolvedValue(0);
+    mockCollections['conversations'] = convsCol;
+
+    const req = makeRequest('/api/chat/conversations');
+    await GET(req);
+
+    const findCall = convsCol.find.mock.calls[0][0];
+    const orConditions = findCall.$or;
+
+    expect(orConditions).toContainEqual({ owner_id: VIEWER_EMAIL });
+    expect(orConditions).toContainEqual({ 'sharing.shared_with': VIEWER_EMAIL });
+    expect(orConditions).toContainEqual({ 'sharing.is_public': true });
+  });
 });
 
 // ============================================================================
@@ -380,5 +595,27 @@ describe('GET /api/chat/shared — public conversations', () => {
     const findCall = convsCol.find.mock.calls[0][0];
     expect(findCall.$or).toContainEqual({ 'sharing.is_public': true });
     expect(findCall.owner_id).toEqual({ $ne: VIEWER_EMAIL });
+  });
+
+  it('excludes own public conversations from shared listing', async () => {
+    mockGetServerSession.mockResolvedValue(userSession(OWNER_EMAIL));
+
+    const teamsCol = createMockCollection();
+    teamsCol.find.mockReturnValue({
+      project: jest.fn().mockReturnValue({
+        toArray: jest.fn().mockResolvedValue([]),
+      }),
+    });
+    mockCollections['teams'] = teamsCol;
+
+    const convsCol = createMockCollection();
+    convsCol.countDocuments.mockResolvedValue(0);
+    mockCollections['conversations'] = convsCol;
+
+    const req = makeRequest('/api/chat/shared');
+    await GET(req);
+
+    const findCall = convsCol.find.mock.calls[0][0];
+    expect(findCall.owner_id).toEqual({ $ne: OWNER_EMAIL });
   });
 });

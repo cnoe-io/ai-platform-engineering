@@ -15,15 +15,16 @@ The `is_public` field already existed in the `Conversation.sharing` schema but w
 ### In Scope
 - Toggle `is_public` via the share API endpoint
 - Allow `is_public` as a standalone sharing action (no `user_emails`/`team_ids` required)
-- Grant read access to any authenticated user when `is_public: true`
+- Grant full access (read + write) to any authenticated user when `is_public: true`
 - Include public conversations in listings and shared views
-- UI toggle switch in the ShareDialog
+- UI toggle switch in the ShareDialog with clear visual indication
 - Visual indicator (Globe icon) in the sidebar for public conversations
-- Tests covering access control, API toggle, and query inclusion
+- Combine `is_public` with user/team sharing in a single request
+- Tests covering access control, API toggle, query inclusion, and combined scenarios
 
 ### Out of Scope
 - Anonymous/unauthenticated access to public conversations
-- Write/comment permissions for public viewers
+- Read-only enforcement for public viewers (may be added later)
 - Public conversation search/discovery page
 - Notifications when a conversation is made public
 - Admin-level override to disable public sharing
@@ -36,8 +37,10 @@ The `sharing.is_public` boolean on the `Conversation` document controls visibili
 
 ```
 is_public: false  → only owner, shared_with users, shared_with_teams members
-is_public: true   → any authenticated user in the organization
+is_public: true   → any authenticated user in the organization (full access)
 ```
+
+Public access grants the same level of access as user/team sharing — authenticated users can both view and send messages. Read-only enforcement is deferred to a future iteration.
 
 **Access check order** in `requireConversationAccess`:
 1. Owner check
@@ -100,7 +103,7 @@ interface ShareConversationRequest {
 
 - [x] Owner can toggle "Share with everyone" in the ShareDialog
 - [x] `POST /api/chat/conversations/[id]/share` accepts `{ is_public: true/false }` as a standalone action
-- [x] Any authenticated user can access a public conversation (read-only)
+- [x] Any authenticated user can access a public conversation (full read + write access)
 - [x] Public conversations appear in the conversation listing for all users
 - [x] Public conversations appear in the shared conversations listing
 - [x] Sidebar shows a green Globe icon for public conversations (distinct from blue Users icon)
@@ -130,11 +133,12 @@ interface ShareConversationRequest {
 
 ### Phase 3: Tests ✅
 - [x] Update existing `chat-sharing-teams.test.ts` expectations for new `is_public` query condition
-- [x] Create `chat-sharing-public.test.ts` with 12 tests covering:
-  - `requireConversationAccess` public access grant/deny
-  - `POST share` — toggle on/off, standalone, validation, owner-only
-  - `GET conversations` — public query inclusion
-  - `GET shared` — public query inclusion
+- [x] Create `chat-sharing-public.test.ts` with 19 tests covering:
+  - `requireConversationAccess` — public grant, deny, owner bypass, skip-teams optimization
+  - `POST share` — toggle on/off, standalone, validation, owner-only, combined with users, auth
+  - `GET share` — returns is_public state (true/false)
+  - `GET conversations` — public query inclusion, alongside other conditions
+  - `GET shared` — public query inclusion, excludes own conversations
 
 ### Phase 4: Documentation ✅
 - [x] Create spec in `.specify/specs/`
@@ -142,17 +146,18 @@ interface ShareConversationRequest {
 
 ## Testing Strategy
 
-- Unit tests: 12 new tests in `chat-sharing-public.test.ts`
-  - Access control: public grant, deny, owner bypass
-  - API: toggle on, toggle off, standalone action, validation, owner-only
-  - Queries: conversations listing, shared listing
+- Unit tests: 19 new tests in `chat-sharing-public.test.ts`
+  - Access control: public grant, deny, owner bypass, skip-teams optimization (5 tests)
+  - API POST: toggle on/off, standalone, validation, owner-only, combined, permission required, response, auth (9 tests)
+  - API GET: returns is_public true/false (2 tests)
+  - Queries: conversations listing with all conditions, shared listing with exclusion (3 tests)
 - Existing tests: Updated 2 tests in `chat-sharing-teams.test.ts` for new query conditions
-- Full suite: 75 suites, 1832 tests pass, zero regressions
 - Manual verification:
   1. Open a conversation → Share → toggle "Share with everyone" on
   2. Log in as a different user → verify conversation appears in listing
   3. Verify Globe icon in sidebar for the public conversation
   4. Toggle off → verify access revoked
+  5. Send a message as another user on a public conversation → verify it works
 
 ## Rollout Plan
 
