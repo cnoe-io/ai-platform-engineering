@@ -1,3 +1,61 @@
+## 0.2.34 (2026-03-04)
+
+### Feat
+
+- **ui**: add share with everyone for conversations (#891)
+- **ui**: live status, input-required, and unviewed message indicators (#892)
+
+## 0.2.33-rc.6 (2026-03-04)
+
+### Fix
+
+- **rag**: use dynamic RAG tool names instead of hardcoded list
+
+## 0.2.33-rc.5 (2026-03-04)
+
+### Feat
+
+- **ui**: add preferences modal with categorized feature flags (#865)
+
+### Fix
+
+- **rag**: make MCP authentication optional
+- **ui**: use bulk API for initial datasource job fetching
+
+## 0.2.33-rc.4 (2026-03-03)
+
+### Feat
+
+- add custom mention prompts (#888)
+
+## 0.2.33-rc.3 (2026-03-03)
+
+### Feat
+
+- **rag**: add configurable MCP server for RAG (#875)
+- **ui**: add multiselect toggle and comma-separated values to metadata form (#880)
+
+### Fix
+
+- **chart**: use tags for caipe-ui and slack-bot instead of global conditions (#885)
+
+## 0.2.33-rc.2 (2026-03-03)
+
+### Feat
+
+- **memory**: add cross-thread store and automatic fact extraction (#861)
+
+### Fix
+
+- sub-agent needs to handle gracefully when no secret is needed
+
+## 0.2.33-rc.1 (2026-03-03)
+
+### Fix
+
+- **slack-bot**: disable retryable writes for DocumentDB compatibility (#886)
+- **slack-bot**: correct image repository to caipe-slack-bot (#884)
+
 ## 0.2.33 (2026-03-03)
 
 ### Feat
