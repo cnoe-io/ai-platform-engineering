@@ -206,6 +206,7 @@ function AdminPage() {
     setError(null);
 
     try {
+      const feedbackOn = getConfig('feedbackEnabled');
       const npsOn = getConfig('npsEnabled');
       // Fetch stats, users, teams, skill metrics, feedback, and NPS in parallel
       const [statsRes, usersRes, teamsRes, skillStatsRes, feedbackRes, npsRes] = await Promise.all([
@@ -213,7 +214,7 @@ function AdminPage() {
         fetch('/api/admin/users'),
         fetch('/api/admin/teams').catch(() => null),
         fetch('/api/admin/stats/skills').catch(() => null),
-        fetch('/api/admin/feedback').catch(() => null),
+        feedbackOn ? fetch('/api/admin/feedback').catch(() => null) : null,
         npsOn ? fetch('/api/admin/nps').catch(() => null) : null,
       ]);
 
@@ -547,7 +548,11 @@ function AdminPage() {
 
             {/* Tabbed Content */}
             <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
-              <TabsList className={`grid w-full ${getConfig('npsEnabled') ? 'grid-cols-8' : 'grid-cols-7'}`}>
+              <TabsList className={`grid w-full ${
+                getConfig('feedbackEnabled') && getConfig('npsEnabled') ? 'grid-cols-8' :
+                getConfig('feedbackEnabled') || getConfig('npsEnabled') ? 'grid-cols-7' :
+                'grid-cols-6'
+              }`}>
                 <TabsTrigger value="users" className="gap-2">
                   <Users className="h-4 w-4" />
                   Users
@@ -560,10 +565,12 @@ function AdminPage() {
                   <Layers className="h-4 w-4" />
                   Skills
                 </TabsTrigger>
+                {getConfig('feedbackEnabled') && (
                 <TabsTrigger value="feedback" className="gap-2">
                   <ThumbsUp className="h-4 w-4" />
                   Feedback
                 </TabsTrigger>
+                )}
                 {getConfig('npsEnabled') && (
                 <TabsTrigger value="nps" className="gap-2">
                   <Star className="h-4 w-4" />
@@ -891,7 +898,7 @@ function AdminPage() {
               </TabsContent>
 
               {/* Feedback Tab */}
-              <TabsContent value="feedback" className="space-y-4">
+              {getConfig('feedbackEnabled') && <TabsContent value="feedback" className="space-y-4">
                 <Card>
                   <CardHeader>
                     <div className="flex items-center justify-between">
@@ -1022,7 +1029,7 @@ function AdminPage() {
                     )}
                   </CardContent>
                 </Card>
-              </TabsContent>
+              </TabsContent>}
 
               {/* NPS Tab */}
               {getConfig('npsEnabled') && <TabsContent value="nps" className="space-y-4">

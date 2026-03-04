@@ -35,8 +35,12 @@ jest.mock('@/lib/auth-config', () => ({
   authOptions: {},
 }));
 
+let mockFeedbackEnabled = true;
 jest.mock('@/lib/config', () => ({
-  getConfig: (key: string) => key === 'ssoEnabled',
+  getConfig: (key: string) => {
+    if (key === 'feedbackEnabled') return mockFeedbackEnabled;
+    return key === 'ssoEnabled';
+  },
 }));
 
 const mockCollections: Record<string, any> = {};
@@ -139,9 +143,19 @@ describe('GET /api/admin/feedback', () => {
     Object.keys(mockCollections).forEach((k) => delete mockCollections[k]);
     mockGetCollection.mockClear();
     mockIsMongoDBConfigured = true;
+    mockFeedbackEnabled = true;
 
     const mod = await import('@/app/api/admin/feedback/route');
     GET = mod.GET;
+  });
+
+  it('returns 404 when feedback feature is disabled', async () => {
+    mockFeedbackEnabled = false;
+    mockGetServerSession.mockResolvedValue(adminSession);
+    const res = await GET(makeRequest('/api/admin/feedback'));
+    expect(res.status).toBe(404);
+    const body = await res.json();
+    expect(body.code).toBe('FEEDBACK_DISABLED');
   });
 
   it('returns 401 when not authenticated', async () => {

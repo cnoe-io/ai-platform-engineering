@@ -2,6 +2,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getCollection, isMongoDBConfigured } from '@/lib/mongodb';
+import { getConfig } from '@/lib/config';
 import {
   withAuth,
   withErrorHandler,
@@ -10,6 +11,13 @@ import {
 } from '@/lib/api-middleware';
 
 export const GET = withErrorHandler(async (request: NextRequest) => {
+  if (!getConfig('feedbackEnabled')) {
+    return NextResponse.json(
+      { success: false, error: 'Feedback feature is not enabled', code: 'FEEDBACK_DISABLED' },
+      { status: 404 }
+    );
+  }
+
   if (!isMongoDBConfigured) {
     return NextResponse.json(
       {

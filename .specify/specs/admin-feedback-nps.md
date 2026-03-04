@@ -21,6 +21,7 @@ This feature closes the feedback loop so platform operators can monitor quality 
 - **Feedback persistence**: Save feedback to MongoDB when users submit it (alongside the existing Langfuse path)
 - **Admin Feedback tab**: New tab in `/admin` showing a filterable list of all feedback entries with user, message context, reason, timestamp, and link to conversation
 - **Admin feedback API**: `GET /api/admin/feedback` endpoint returning paginated feedback data
+- **Feedback as optional feature**: Controlled via `FEEDBACK_ENABLED` environment variable (default: on)
 - **NPS as optional feature**: Controlled via `NPS_ENABLED` environment variable (default: off)
 - **Admin-controlled NPS campaigns**: Admins create time-bounded campaigns; users see the survey only when a campaign is active
 - **NPS campaign management**: Create, list, and stop campaigns via `/api/admin/nps/campaigns`
@@ -132,6 +133,7 @@ interface NPSResponse {
 - [x] Read-only mode displays an audit banner and disables message input
 - [x] "Back to Feedback" button navigates to `/admin?tab=feedback`
 - [x] Admin page supports `?tab=` query param for deep linking
+- [x] Feedback is an optional feature controlled by `FEEDBACK_ENABLED` env var (default: on)
 - [x] NPS is an optional feature controlled by `NPS_ENABLED` env var
 - [x] NPS survey appears only when an admin-created campaign is active
 - [x] NPS survey displays the campaign name
@@ -144,7 +146,7 @@ interface NPSResponse {
 - [x] Admin can filter NPS analytics by specific campaign
 - [x] Admin NPS tab shows: overall NPS score, breakdown, 30-day trend, recent responses, campaigns
 - [x] POST messages blocked for admin_audit access level (403)
-- [x] All new code has comprehensive tests (79 suites, 1906 tests pass)
+- [x] All new code has comprehensive tests (79 suites, 1912 tests pass)
 - [x] Linting passes
 
 ## Implementation Plan
@@ -165,7 +167,11 @@ interface NPSResponse {
 - [x] Add `readOnly` prop to `ChatPanel` with audit banner and "Back to Feedback" link
 - [x] Return `access_level` from `GET /api/chat/conversations/[id]`
 
-### Phase 4: NPS Feature Flag & Config
+### Phase 4: Feature Flags & Config
+- [x] Add `feedbackEnabled` to `Config` interface and `getServerConfig()` (default: true)
+- [x] Gate `GET /api/admin/feedback` endpoint with `feedbackEnabled` check
+- [x] Conditionally render Feedback tab in admin dashboard
+- [x] Dynamically adjust tab grid columns based on enabled features
 - [x] Add `npsEnabled` to `Config` interface and `getServerConfig()`
 - [x] Gate all NPS endpoints and UI with `npsEnabled` check
 - [x] Conditionally render NPS tab and NPSSurvey component
@@ -189,20 +195,21 @@ interface NPSResponse {
 - [x] "Back to Feedback" navigates to `/admin?tab=feedback`
 
 ### Phase 8: Testing
-- [x] `admin-feedback.test.ts` — 10 tests (auth, authz, pagination, filtering, structure)
+- [x] `admin-feedback.test.ts` — 11 tests (auth, authz, feedback disabled guard, pagination, filtering, structure)
 - [x] `nps-submit.test.ts` — 19 tests (submit validation, active campaign detection)
 - [x] `nps-campaigns.test.ts` — 30 tests (create, list, stop, overlap, status computation)
 - [x] `admin-nps.test.ts` — 11 tests (analytics, campaign filtering, NPS calculation)
 - [x] `admin-audit-access.test.ts` — 11 tests (access levels, conversation route)
 - [x] `chat-messages.test.ts` — +3 tests (write blocking for audit access)
-- [x] Updated `config.test.ts` and `admin-page.test.tsx` for new config keys and mocks
+- [x] Updated `config.test.ts` with `feedbackEnabled` default, env var override, and key presence tests
+- [x] Updated `admin-page.test.tsx` for new config keys and mocks
 
 ## Testing Strategy
 
-### Automated Tests (1906 tests, 79 suites — all pass)
-- API route tests: auth, authz, MongoDB guard, validation, business logic
+### Automated Tests (1912 tests, 79 suites — all pass)
+- API route tests: auth, authz, MongoDB guard, feature flag guard, validation, business logic
 - Middleware tests: `requireConversationAccess` access levels
-- Config tests: `npsEnabled` key presence
+- Config tests: `feedbackEnabled` and `npsEnabled` defaults, env var overrides, key presence
 - Admin page tests: fetch mock coverage for new endpoints
 
 ### Manual Verification
@@ -217,8 +224,9 @@ interface NPSResponse {
 
 1. Merge to `prebuild/feat/admin-feedback-nps` branch
 2. Requires MongoDB (same as existing admin features)
-3. NPS is opt-in via `NPS_ENABLED=true` environment variable
-4. No infrastructure changes needed beyond existing MongoDB
+3. Feedback is enabled by default; opt-out via `FEEDBACK_ENABLED=false`
+4. NPS is opt-in via `NPS_ENABLED=true` environment variable
+5. No infrastructure changes needed beyond existing MongoDB
 
 ## Related
 

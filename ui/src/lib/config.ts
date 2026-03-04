@@ -91,6 +91,11 @@ export interface Config {
    */
   workflowRunnerEnabled: boolean;
   /**
+   * Whether the admin Feedback tab and feedback API are enabled.
+   * Enabled by default. Set FEEDBACK_ENABLED=false to disable.
+   */
+  feedbackEnabled: boolean;
+  /**
    * Whether the NPS (Net Promoter Score) feature is enabled.
    * When false (default), the NPS survey popup, admin NPS tab, and NPS API
    * endpoints are all disabled. Set NPS_ENABLED=true to enable.
@@ -154,6 +159,7 @@ const DEFAULT_CONFIG: Config = {
   docsUrl: null,
   sourceUrl: null,
   workflowRunnerEnabled: false,
+  feedbackEnabled: true,
   npsEnabled: false,
   defaultFontSize: DEFAULT_FONT_SIZE,
   defaultFontFamily: DEFAULT_FONT_FAMILY,
@@ -220,6 +226,7 @@ export function getServerConfig(): Config {
     || (env('PREVIEW_MODE') === 'true' ? 'Preview' : '');
   const allowDevAdminWhenSsoDisabled = env('ALLOW_DEV_ADMIN_WHEN_SSO_DISABLED') === 'true';
   const workflowRunnerEnabled = env('WORKFLOW_RUNNER_ENABLED') === 'true';
+  const feedbackEnabled = env('FEEDBACK_ENABLED') !== 'false';
   const npsEnabled = env('NPS_ENABLED') === 'true';
 
   const showPoweredByEnv = env('SHOW_POWERED_BY');
@@ -260,6 +267,7 @@ export function getServerConfig(): Config {
     docsUrl: env('DOCS_URL') || null,
     sourceUrl: env('SOURCE_URL') || null,
     workflowRunnerEnabled,
+    feedbackEnabled,
     npsEnabled,
     defaultFontSize: validated(env('DEFAULT_FONT_SIZE'), VALID_FONT_SIZES, DEFAULT_FONT_SIZE),
     defaultFontFamily: validated(env('DEFAULT_FONT_FAMILY'), VALID_FONT_FAMILIES, DEFAULT_FONT_FAMILY),
