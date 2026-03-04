@@ -133,7 +133,7 @@ When MongoDB is unavailable (`storageMode !== 'mongodb'`):
 | Component | Path | Change |
 |-----------|------|--------|
 | `AppHeader` | `src/components/layout/AppHeader.tsx` | Added "Home" nav pill as first tab; updated `getActiveTab()` to detect `/` |
-| `ShareDialog` | `src/components/chat/ShareDialog.tsx` | Added "Share with everyone" toggle for `is_public` |
+| `ShareDialog` | `src/components/chat/ShareDialog.tsx` | Added `data-testid="share-public-toggle"` to the toggle (toggle itself merged in PR #891) |
 
 ### Existing APIs Used (No Backend Changes)
 
@@ -146,7 +146,7 @@ When MongoDB is unavailable (`storageMode !== 'mongodb'`):
 
 ## Testing
 
-### Unit Tests (Jest) — 1953 tests across 82 suites
+### Unit Tests (Jest) — 2156 tests across 91 suites
 
 - Home page integration tests: AuthGuard, page structure, footer, welcome banner, capability cards, recent chats, shared conversations, insights widget, localStorage mode, auth guard, error handling
 - Component tests: ConversationCard, RecentChats, SharedConversations, InsightsWidget, CapabilityCards, WelcomeBanner

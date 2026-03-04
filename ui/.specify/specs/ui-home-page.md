@@ -210,7 +210,7 @@ A small widget on the home page shows the user's personal stats: total conversat
 | Component | Path | Change |
 |-----------|------|--------|
 | `AppHeader` | `src/components/layout/AppHeader.tsx` | Added "Home" nav pill as first tab; updated `getActiveTab()` to detect `/` |
-| `ShareDialog` | `src/components/chat/ShareDialog.tsx` | Added "Share with everyone" toggle for `is_public` with `role="switch"` |
+| `ShareDialog` | `src/components/chat/ShareDialog.tsx` | Added `data-testid="share-public-toggle"` to the "Share with everyone" toggle (toggle itself was added in PR #891) |
 
 ### API Endpoints Used (No Backend Changes)
 
@@ -225,11 +225,11 @@ A small widget on the home page shows the user's personal stats: total conversat
 
 - `apiClient.getSharedConversations()` existed but was unused — now powers the shared conversations tabs
 - `apiClient.getUserStats()` existed and powered `/insights` — reused for the widget
-- `sharing.is_public` field existed on the `Conversation` type — now surfaced via ShareDialog toggle
+- `sharing.is_public` field existed on the `Conversation` type — surfaced via ShareDialog toggle (PR #891); this PR adds `data-testid` and tests
 
 ## Testing Strategy
 
-### Unit Tests (Jest) — 1953 tests across 82 suites
+### Unit Tests (Jest) — 2156 tests across 91 suites
 
 **Home Page (`home-page.test.tsx`)**:
 - Page structure: AuthGuard wrapper, `data-testid`, "Powered by caipe.io" footer

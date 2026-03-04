@@ -102,11 +102,11 @@ describe('ShareDialog — Share with everyone toggle', () => {
     })
   })
 
-  it('renders description text', async () => {
+  it('renders description text when not public', async () => {
     render(<ShareDialog {...defaultProps} />)
 
     await waitFor(() => {
-      expect(screen.getByText('Anyone in your organization can view this conversation')).toBeInTheDocument()
+      expect(screen.getByText('Only people and teams you add can access')).toBeInTheDocument()
     })
   })
 
@@ -264,6 +264,7 @@ describe('ShareDialog — Share with everyone toggle', () => {
     })
 
     const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {})
+    const alertSpy = jest.spyOn(window, 'alert').mockImplementation(() => {})
 
     render(<ShareDialog {...defaultProps} />)
 
@@ -279,5 +280,6 @@ describe('ShareDialog — Share with everyone toggle', () => {
     })
 
     consoleSpy.mockRestore()
+    alertSpy.mockRestore()
   })
 })

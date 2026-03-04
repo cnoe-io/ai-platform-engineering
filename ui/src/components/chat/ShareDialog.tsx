@@ -520,6 +520,7 @@ export function ShareDialog({
               role="switch"
               aria-checked={isPublic}
               aria-label="Share with everyone"
+              data-testid="share-public-toggle"
             >
               <span
                 className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
