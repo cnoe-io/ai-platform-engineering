@@ -90,7 +90,7 @@ Instead of automatic periodic surveys, admins create time-bounded campaigns:
 
 `NPSSurvey` component checks for active campaigns and shows:
 - Campaign name
-- Question: "How well does {appName} help you get your work done?"
+- Question: "How well does \{appName\} help you get your work done?"
 - 0–10 score scale (color-coded: red detractors, yellow passives, green promoters)
 - Optional comment
 - Dismissal tracked per campaign in localStorage
