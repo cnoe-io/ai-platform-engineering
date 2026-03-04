@@ -46,6 +46,7 @@ https://github.com/cnoe-io/ai-platform-engineering
 - https://github.com/cnoe-io/agent-chat-cli — CLI client for A2A agent interaction
 - https://github.com/cnoe-io/openapi-mcp-codegen — OpenAPI-to-MCP server code generator
 - https://github.com/cnoe-io/cnoe-agent-utils — Shared Python utilities for CAIPE agents
+- https://github.com/cnoe-io/community-plugins/tree/agent-forge-upstream-docker/workspaces/agent-forge — Agent Forge Backstage plugin (upstream contribution to [backstage/community-plugins](https://github.com/backstage/community-plugins/blob/main/workspaces/agent-forge/plugins/agent-forge/README.md), published as [@caipe/plugin-agent-forge](https://www.npmjs.com/package/@caipe/plugin-agent-forge) on npm)
 
 ### Website URL
 
@@ -138,12 +139,10 @@ CAIPE complements and integrates with the following CNCF projects:
 |---|---|
 | **Kubernetes** | Primary deployment target; dedicated Kubernetes agent for cluster operations |
 | **Argo** (ArgoCD) | Dedicated ArgoCD agent for GitOps deployment management |
-| **Backstage** | Embeddable as a plugin in Backstage for Internal Developer Portal integration |
+| **Backstage** | [Agent Forge plugin](https://github.com/backstage/community-plugins/blob/main/workspaces/agent-forge/plugins/agent-forge/README.md) contributed upstream to backstage/community-plugins for Internal Developer Portal integration |
 | **Helm** | Helm charts for Kubernetes deployment; Helm-based release lifecycle |
 | **OpenTelemetry** | Tracing integration via Langfuse (OTel-compatible); structured telemetry |
 | **Prometheus/Grafana** | Planned integration for metrics-driven agent workflows |
-| **Crossplane** | Planned agent for infrastructure-as-code operations |
-| **Envoy/Gateway API** | API gateway pattern for A2A agent routing and OAuth token validation |
 
 ### Cloud native overlap
 
