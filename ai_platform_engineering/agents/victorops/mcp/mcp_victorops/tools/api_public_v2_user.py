@@ -7,14 +7,13 @@
 import logging
 from typing import Dict, Any, Optional
 from ..api.client import make_api_request, assemble_nested_body
-#from mcp_victorops.api.client import make_api_request, assemble_nested_body
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger("mcp_tools")
 
 
-async def get_api_public_v2_user(param_email: Optional[str] = None) -> Dict[str, Any]:
+async def get_api_public_v2_user(email: Optional[str] = None) -> Dict[str, Any]:
     """
         List users
 
@@ -26,7 +25,7 @@ async def get_api_public_v2_user(param_email: Optional[str] = None) -> Dict[str,
 
         Args:
 
-            param_email (str): An email address with which to search for users
+            email (str): An email address with which to search for users
 
 
         Returns:
@@ -40,8 +39,8 @@ async def get_api_public_v2_user(param_email: Optional[str] = None) -> Dict[str,
     params = {}
     data = {}
 
-    if param_email is not None:
-        params["email"] = str(param_email).lower() if isinstance(param_email, bool) else param_email
+    if email is not None:
+        params["email"] = str(email).lower() if isinstance(email, bool) else email
 
     flat_body = {}
     data = assemble_nested_body(flat_body)
