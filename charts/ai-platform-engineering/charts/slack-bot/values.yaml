@@ -94,11 +94,19 @@ prompts:
 #   C012345678:
 #     name: "#my-channel"
 #     ai_enabled: true
+#     custom_prompt: |     # Per-channel @mention prompt override. Overrides the global prompts.mention value
+#       You are a helpful assistant for the #my-channel team.
+#       Answer questions about our platform and escalate incidents when needed.
+#       User message: {message_text}
 #     qanda:
 #       enabled: true
 #       overthink: true
+#       custom_prompt: |   # Per-channel Q&A prompt override. Overrides the global prompts.qanda value
+#         You are a Q&A assistant for the #my-channel team.
+#         User message: {message_text}
 #     ai_alerts:
 #       enabled: false
+#       custom_prompt: ""  # Per-channel AI alerts prompt override. Overrides the global prompts.aiAlerts value
 #     default:
 #       project_key: MYPROJ
 #       issue_type: Bug
