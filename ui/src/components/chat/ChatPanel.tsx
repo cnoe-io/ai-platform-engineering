@@ -14,6 +14,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useChatStore } from "@/store/chat-store";
 import { A2ASDKClient, type ParsedA2AEvent, type HITLDecision, toStoreEvent } from "@/lib/a2a-sdk-client";
+import { isFeatureEnabled, useFeatureFlagStore } from "@/store/feature-flag-store";
 import { cn, deduplicateByKey } from "@/lib/utils";
 import { ChatMessage as ChatMessageType, A2AEvent } from "@/types/a2a";
 import { getConfig } from "@/lib/config";
@@ -30,6 +31,8 @@ interface ChatPanelProps {
 
 export function ChatPanel({ endpoint, conversationId, conversationTitle }: ChatPanelProps) {
   const { data: session } = useSession();
+  const autoScrollEnabled = useFeatureFlagStore((s) => s.flags.autoScroll ?? true);
+  const showTimestamps = useFeatureFlagStore((s) => s.flags.showTimestamps ?? false);
 
   // Derive the user's first name for message labels (falls back to "You")
   const userDisplayName = useMemo(() => {
@@ -146,14 +149,14 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle }: ChatP
 
   // Auto-scroll when new messages arrive (only if user hasn't scrolled up)
   useEffect(() => {
-    if (!isUserScrolledUp) {
+    if (autoScrollEnabled && !isUserScrolledUp) {
       scrollToBottom("smooth");
     }
-  }, [conversation?.messages?.length, isUserScrolledUp, scrollToBottom]);
+  }, [conversation?.messages?.length, isUserScrolledUp, scrollToBottom, autoScrollEnabled]);
 
   // Auto-scroll during streaming only if user is near the bottom
   useEffect(() => {
-    if (isThisConversationStreaming && !isUserScrolledUp) {
+    if (autoScrollEnabled && isThisConversationStreaming && !isUserScrolledUp) {
       scrollToBottom("instant");
     }
   }, [conversation?.messages?.at(-1)?.content, isThisConversationStreaming, isUserScrolledUp, scrollToBottom]);
@@ -360,12 +363,13 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle }: ChatP
     // Add assistant message placeholder with same turnId
     const assistantMsgId = addMessage(convId, { role: "assistant", content: "" }, turnId);
 
-    // Create A2A SDK client for this request
-    // Include user email so agents know who is making the request
+    // Create A2A SDK client for this request.
+    // Only include userEmail when cross-thread memory is enabled so the
+    // backend can scope fact extraction and recall to this user.
     const client = new A2ASDKClient({
       endpoint,
       accessToken,
-      userEmail: session?.user?.email ?? undefined,
+      userEmail: isFeatureEnabled("memory") ? (session?.user?.email ?? undefined) : undefined,
     });
 
     // ═══════════════════════════════════════════════════════════════
@@ -1070,6 +1074,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle }: ChatP
                           isRecovering={recoveringMessageId === msg.id}
                           conversationId={conversationId}
                           userDisplayName={userDisplayName}
+                          showTimestamp={showTimestamps}
                         />
                       );
                     })}
@@ -1504,22 +1509,16 @@ interface ChatMessageProps {
   onCopy: (content: string, id: string) => void;
   isCopied: boolean;
   isStreaming?: boolean;
-  // Whether this is the latest answer (should be expanded by default)
   isLatestAnswer?: boolean;
-  // Stop handler for streaming messages
   onStop?: () => void;
-  // Retry prompt - called to regenerate the response
   onRetry?: () => void;
-  // Feedback props
   feedback?: Feedback;
   onFeedbackChange?: (feedback: Feedback) => void;
   onFeedbackSubmit?: (feedback: Feedback) => void;
-  // Conversation ID for Langfuse feedback tracking
   conversationId?: string;
-  // Crash recovery: true when polling tasks/get for this message's interrupted task
   isRecovering?: boolean;
-  // Display name for user messages (first name from session, falls back to "You")
   userDisplayName?: string;
+  showTimestamp?: boolean;
 }
 
 /**
@@ -1540,11 +1539,11 @@ const ChatMessage = React.memo(function ChatMessage({
   conversationId,
   isRecovering = false,
   userDisplayName = "You",
+  showTimestamp = false,
 }: ChatMessageProps) {
   const isUser = message.role === "user";
-  // Show Thinking expanded by default — content is truncated to 2000 chars during
-  // streaming to prevent freezes, so it's safe to keep expanded.
-  const [showRawStream, setShowRawStream] = useState(true);
+  const showThinkingDefault = useFeatureFlagStore((s) => s.flags.showThinking ?? true);
+  const [showRawStream, setShowRawStream] = useState(showThinkingDefault);
   const [isHovered, setIsHovered] = useState(false);
   // Collapse final answer for assistant messages - auto-collapse older answers, keep latest expanded
   const [isCollapsed, setIsCollapsed] = useState(() => {
@@ -1614,19 +1613,33 @@ const ChatMessage = React.memo(function ChatMessage({
             : "text-muted-foreground justify-between"
         )}>
           {isUser ? (
-            <span className="text-xs font-medium">
-              {/* Priority: message-level senderName (from MongoDB, the actual sender)
-                  → session-based userDisplayName (backward compat for legacy messages)
-                  → "You" (no session / no data) */}
-              {message.senderName
-                ? message.senderName.split(" ")[0]
-                : userDisplayName}
-            </span>
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-medium">
+                {message.senderName
+                  ? message.senderName.split(" ")[0]
+                  : userDisplayName}
+              </span>
+              {showTimestamp && (
+                <span className="text-[10px] text-muted-foreground/60 font-normal">
+                  {message.timestamp instanceof Date
+                    ? message.timestamp.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+                    : new Date(message.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                </span>
+              )}
+            </div>
           ) : (
             <>
-              <span className="text-xs font-medium">{getConfig('appName')}</span>
               <div className="flex items-center gap-2">
-                {/* Collapse button - shown when not streaming and content is long */}
+                <span className="text-xs font-medium">{getConfig('appName')}</span>
+                {showTimestamp && (
+                  <span className="text-[10px] text-muted-foreground/60 font-normal">
+                    {message.timestamp instanceof Date
+                      ? message.timestamp.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+                      : new Date(message.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                  </span>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
                 {!isStreaming && displayContent && displayContent.length > 300 && (
                   <button
                     onClick={() => setIsCollapsed(!isCollapsed)}

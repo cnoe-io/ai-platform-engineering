@@ -117,6 +117,11 @@ export interface UserSettings {
     context_panel_visible: boolean;
     debug_mode: boolean;
     code_theme: string;
+    memory_enabled: string;
+    debug_mode_enabled: string;
+    show_thinking_enabled: string;
+    auto_scroll_enabled: string;
+    show_timestamps_enabled: string;
   };
   notifications: {
     email_enabled: boolean;
@@ -143,6 +148,11 @@ export const DEFAULT_USER_SETTINGS: Omit<UserSettings, '_id' | 'user_id' | 'upda
     context_panel_visible: true,
     debug_mode: false,
     code_theme: 'onedark',
+    memory_enabled: 'true',
+    debug_mode_enabled: 'false',
+    show_thinking_enabled: 'true',
+    auto_scroll_enabled: 'true',
+    show_timestamps_enabled: 'false',
   },
   notifications: {
     email_enabled: true,

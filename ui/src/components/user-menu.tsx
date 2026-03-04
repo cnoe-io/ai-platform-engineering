@@ -3,7 +3,9 @@
 import React, { useState, useRef, useEffect, useCallback } from "react";
 import { useSession, signIn, signOut } from "next-auth/react";
 import { motion, AnimatePresence } from "framer-motion";
-import { LogIn, LogOut, ChevronDown, Shield, Users, Hash, Code, ChevronRight, Layers, ExternalLink, Clock, RefreshCw, Bug, Settings, Copy, Check, KeyRound, Lightbulb, FileText, Tag, Wrench, Sparkles, ChevronUp, Search, X } from "lucide-react";
+import { LogIn, LogOut, ChevronDown, Shield, Users, Hash, Code, ChevronRight, Layers, ExternalLink, Clock, RefreshCw, Bug, Settings, Copy, Check, KeyRound, Lightbulb, FileText, Tag, Wrench, Sparkles, ChevronUp, Search, X, SlidersHorizontal } from "lucide-react";
+import { useFeatureFlagStore } from "@/store/feature-flag-store";
+import { PreferencesModal } from "@/components/preferences-modal";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { config } from "@/lib/config";
@@ -272,7 +274,9 @@ function ChangelogSection({ release, defaultOpen, onScopeClick }: {
 
 export function UserMenu() {
   const { data: session, status, update } = useSession();
+  const { initialize } = useFeatureFlagStore();
   const [open, setOpen] = useState(false);
+  const [prefsOpen, setPrefsOpen] = useState(false);
   const [systemOpen, setSystemOpen] = useState(false);
   const [systemTab, setSystemTab] = useState("oidc");
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -306,6 +310,8 @@ export function UserMenu() {
       setChangelogLoading(false);
     }
   }, []);
+
+  useEffect(() => { initialize(); }, [initialize]);
 
   // Close on outside click - MUST be called before any returns (Rules of Hooks)
   useEffect(() => {
@@ -565,6 +571,23 @@ export function UserMenu() {
               </div>
             )}
 
+            {/* Preferences */}
+            <div className="border-b border-border">
+              <button
+                onClick={() => {
+                  setPrefsOpen(true);
+                  setOpen(false);
+                }}
+                className="w-full flex items-center justify-between px-4 py-2 text-xs font-medium hover:bg-muted/50 transition-colors"
+              >
+                <div className="flex items-center gap-2">
+                  <SlidersHorizontal className="h-3.5 w-3.5" />
+                  <span>Preferences</span>
+                </div>
+                <ChevronRight className="h-3.5 w-3.5" />
+              </button>
+            </div>
+
             {/* Actions */}
             <div className="p-1.5">
               <button
@@ -581,6 +604,9 @@ export function UserMenu() {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Preferences Modal */}
+      <PreferencesModal open={prefsOpen} onOpenChange={setPrefsOpen} />
 
       {/* System Dialog — tabbed: OIDC Token, Debug, Built With */}
       <Dialog open={systemOpen} onOpenChange={(open) => { setSystemOpen(open); if (!open) setSystemTab("oidc"); }}>
