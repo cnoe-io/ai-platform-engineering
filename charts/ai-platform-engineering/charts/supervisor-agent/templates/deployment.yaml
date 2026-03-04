@@ -71,7 +71,7 @@ spec:
             - secretRef:
                 name: {{ $llmSecretName }}
             {{- end }}
-            {{- if eq (default "multi-node" .Values.global.deploymentMode) "multi-node" }}
+            {{- if eq .Values.global.deploymentMode "multi-node" }}
             - configMapRef:
                 name: {{ printf "%s-supervisor-agent-env" .Release.Name }}
             {{- else }}
@@ -165,7 +165,7 @@ spec:
               mountPath: /app/task_config.yaml
               subPath: task_config.yaml
               readOnly: true
-            {{- if eq (default "multi-node" .Values.global.deploymentMode) "single-node" }}
+            {{- if eq .Values.global.deploymentMode "single-node" }}
             {{- range $name, $enabled := (default dict .Values.singleNode.enabledSubAgents) }}
             {{- if $enabled }}
             - name: prompt-config-{{ $name | replace "_" "-" }}
@@ -188,7 +188,7 @@ spec:
         - name: task-config
           configMap:
             name: task-config
-        {{- if eq (default "multi-node" .Values.global.deploymentMode) "single-node" }}
+        {{- if eq .Values.global.deploymentMode "single-node" }}
         {{- range $name, $enabled := (default dict .Values.singleNode.enabledSubAgents) }}
         {{- if $enabled }}
         - name: prompt-config-{{ $name | replace "_" "-" }}

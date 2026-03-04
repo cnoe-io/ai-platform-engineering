@@ -119,7 +119,7 @@ In multi-node mode reads from global.enabledSubAgents (populated by Chart.yaml i
 {{- define "ai-platform-engineering.enabledSubAgents.names" -}}
     {{- $names := list -}}
     {{- $agents := dict -}}
-    {{- if eq (default "multi-node" .Values.global.deploymentMode) "single-node" -}}
+    {{- if eq .Values.global.deploymentMode "single-node" -}}
         {{- $agents = (.Values.singleNode).enabledSubAgents | default dict -}}
     {{- else -}}
         {{- $agents = (.Values.global).enabledSubAgents | default dict -}}

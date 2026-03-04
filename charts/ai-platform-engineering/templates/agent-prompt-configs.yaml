@@ -4,7 +4,7 @@
 */ -}}
 
 {{- $agents := dict }}
-{{- if eq (default "multi-node" .Values.global.deploymentMode) "single-node" }}
+{{- if eq .Values.global.deploymentMode "single-node" }}
 {{- $agents = (default dict .Values.singleNode.enabledSubAgents) }}
 {{- else }}
 {{- $agents = (default dict .Values.global.enabledSubAgents) }}
