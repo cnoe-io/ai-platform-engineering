@@ -90,6 +90,12 @@ export interface Config {
    * Set WORKFLOW_RUNNER_ENABLED=true to enable.
    */
   workflowRunnerEnabled: boolean;
+  /**
+   * Whether the NPS (Net Promoter Score) feature is enabled.
+   * When false (default), the NPS survey popup, admin NPS tab, and NPS API
+   * endpoints are all disabled. Set NPS_ENABLED=true to enable.
+   */
+  npsEnabled: boolean;
   /** Default font size for new users: "small" | "medium" | "large" | "x-large" */
   defaultFontSize: string;
   /** Default font family for new users: "inter" | "source-sans" | "ibm-plex" | "system" */
@@ -148,6 +154,7 @@ const DEFAULT_CONFIG: Config = {
   docsUrl: null,
   sourceUrl: null,
   workflowRunnerEnabled: false,
+  npsEnabled: false,
   defaultFontSize: DEFAULT_FONT_SIZE,
   defaultFontFamily: DEFAULT_FONT_FAMILY,
   defaultTheme: DEFAULT_THEME,
@@ -213,6 +220,7 @@ export function getServerConfig(): Config {
     || (env('PREVIEW_MODE') === 'true' ? 'Preview' : '');
   const allowDevAdminWhenSsoDisabled = env('ALLOW_DEV_ADMIN_WHEN_SSO_DISABLED') === 'true';
   const workflowRunnerEnabled = env('WORKFLOW_RUNNER_ENABLED') === 'true';
+  const npsEnabled = env('NPS_ENABLED') === 'true';
 
   const showPoweredByEnv = env('SHOW_POWERED_BY');
   const showPoweredBy = showPoweredByEnv !== undefined ? showPoweredByEnv !== 'false' : true;
@@ -252,6 +260,7 @@ export function getServerConfig(): Config {
     docsUrl: env('DOCS_URL') || null,
     sourceUrl: env('SOURCE_URL') || null,
     workflowRunnerEnabled,
+    npsEnabled,
     defaultFontSize: validated(env('DEFAULT_FONT_SIZE'), VALID_FONT_SIZES, DEFAULT_FONT_SIZE),
     defaultFontFamily: validated(env('DEFAULT_FONT_FAMILY'), VALID_FONT_FAMILIES, DEFAULT_FONT_FAMILY),
     defaultTheme: validated(env('DEFAULT_THEME'), VALID_THEMES, DEFAULT_THEME),

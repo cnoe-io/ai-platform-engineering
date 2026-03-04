@@ -328,15 +328,26 @@ export async function getUserTeamIds(userEmail: string): Promise<string[]> {
   }
 }
 
+export type ConversationAccessLevel = 'owner' | 'shared' | 'admin_audit';
+
+interface ConversationAccessResult {
+  conversation: any;
+  access_level: ConversationAccessLevel;
+}
+
 /**
  * Check if user has access to a conversation (owner, shared with directly,
- * shared with one of their teams, or via sharing_access records).
+ * shared with one of their teams, via sharing_access records, or admin audit).
+ *
+ * When `session` is provided and the user is an admin, they receive read-only
+ * audit access even if they are not the owner or a share recipient.
  */
 export async function requireConversationAccess(
   conversationId: string,
   userId: string,
-  getCollectionFn: (name: string) => Promise<any>
-) {
+  getCollectionFn: (name: string) => Promise<any>,
+  session?: { role?: string; canViewAdmin?: boolean }
+): Promise<ConversationAccessResult> {
   const conversations = await getCollectionFn('conversations');
   const conversation = await conversations.findOne({ _id: conversationId });
 
@@ -346,7 +357,7 @@ export async function requireConversationAccess(
 
   // Check if user is owner
   if (conversation.owner_id === userId) {
-    return conversation;
+    return { conversation, access_level: 'owner' };
   }
 
   // Check if conversation is public (shared with everyone)
@@ -356,7 +367,7 @@ export async function requireConversationAccess(
 
   // Check if conversation is shared with user directly
   if (conversation.sharing?.shared_with?.includes(userId)) {
-    return conversation;
+    return { conversation, access_level: 'shared' };
   }
 
   // Check if conversation is shared with one of the user's teams
@@ -368,7 +379,7 @@ export async function requireConversationAccess(
         userTeamIds.includes(teamId)
       );
       if (hasTeamAccess) {
-        return conversation;
+        return { conversation, access_level: 'shared' };
       }
     }
   }
@@ -382,7 +393,12 @@ export async function requireConversationAccess(
   });
 
   if (access) {
-    return conversation;
+    return { conversation, access_level: 'shared' };
+  }
+
+  // Admins get read-only audit access to any conversation
+  if (session?.role === 'admin' || session?.canViewAdmin === true) {
+    return { conversation, access_level: 'admin_audit' };
   }
 
   throw new ApiError('Forbidden: You do not have access to this conversation', 403, 'FORBIDDEN');

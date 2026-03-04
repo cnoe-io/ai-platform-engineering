@@ -1,0 +1,226 @@
+# Spec: Admin Feedback Visibility & NPS Score Dashboard
+
+## Overview
+
+Make user feedback visible to admins in a dedicated Feedback tab on the admin dashboard, and introduce a Net Promoter Score (NPS) survey system with admin-controlled campaigns, its own admin tab for tracking user satisfaction, and read-only admin audit access to conversations.
+
+## Motivation
+
+Currently, user feedback (thumbs up/down + reasons) is collected via `FeedbackButton` and sent to Langfuse, but it is **not persisted to MongoDB**. The admin dashboard's `feedback_summary` reads from MongoDB and always shows zeros. Admins have no way to:
+
+1. See individual feedback entries, who submitted them, what reasons were given, or what messages they relate to
+2. Track satisfaction trends over time
+3. Measure Net Promoter Score — a standard product health metric
+4. Audit conversations that received feedback without modifying them
+
+This feature closes the feedback loop so platform operators can monitor quality and act on user signals.
+
+## Scope
+
+### In Scope
+- **Feedback persistence**: Save feedback to MongoDB when users submit it (alongside the existing Langfuse path)
+- **Admin Feedback tab**: New tab in `/admin` showing a filterable list of all feedback entries with user, message context, reason, timestamp, and link to conversation
+- **Admin feedback API**: `GET /api/admin/feedback` endpoint returning paginated feedback data
+- **NPS as optional feature**: Controlled via `NPS_ENABLED` environment variable (default: off)
+- **Admin-controlled NPS campaigns**: Admins create time-bounded campaigns; users see the survey only when a campaign is active
+- **NPS campaign management**: Create, list, and stop campaigns via `/api/admin/nps/campaigns`
+- **NPS survey component**: In-app NPS survey (0–10 scale + optional comment) triggered by active campaigns
+- **Campaign-specific NPS results**: Admin can filter NPS analytics by individual campaign
+- **NPS API endpoints**: `POST /api/nps`, `GET /api/nps/active`, `GET /api/admin/nps`, `POST/GET/PATCH /api/admin/nps/campaigns`
+- **NPS MongoDB collections**: `nps_responses` and `nps_campaigns` collections
+- **Admin NPS tab**: NPS score, breakdown, trend chart, campaign management, and individual responses
+- **Read-only admin audit**: Admins can view any conversation via feedback chat links in read-only mode
+- **Deep-linkable admin tabs**: Admin page supports `?tab=feedback` query parameter for direct navigation
+
+### Out of Scope
+- Langfuse changes (existing Langfuse integration remains as-is)
+- Email/Slack NPS notifications
+- Export/CSV download of feedback or NPS data (future)
+
+## Design
+
+### Architecture
+
+```
+┌─────────────────────────────────────────────────────────┐
+│  Feedback Flow (Enhanced)                               │
+│  ─────────────────────────────────────────────          │
+│  User clicks thumbs up/down → FeedbackButton            │
+│    ├─→ POST /api/feedback → Langfuse (existing)         │
+│    └─→ PUT /api/chat/messages/[id] → MongoDB (NEW)      │
+│                                                         │
+│  Admin views:                                           │
+│    GET /api/admin/feedback → paginated feedback list     │
+│    └─→ Reads messages collection where feedback exists   │
+│    Click chat link → /chat/[id] → read-only audit mode  │
+└─────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────┐
+│  NPS Flow (Campaign-based)                              │
+│  ─────────────────────────────────────────────          │
+│  Admin creates campaign (date range) via dashboard       │
+│    POST /api/admin/nps/campaigns                        │
+│  User checks for active campaign:                       │
+│    GET /api/nps/active → { active, campaign }           │
+│  NPS survey shown when campaign is active:              │
+│    POST /api/nps → nps_responses (with campaign_id)     │
+│  Admin stops campaign early:                            │
+│    PATCH /api/admin/nps/campaigns                       │
+│                                                         │
+│  Admin views:                                           │
+│    GET /api/admin/nps?campaign_id=X → filtered results  │
+│    └─→ Score, breakdown, trend, responses, campaigns    │
+└─────────────────────────────────────────────────────────┘
+```
+
+### Data Models
+
+**Feedback on messages** (existing `MessageFeedback` — now actually used):
+```typescript
+interface MessageFeedback {
+  rating: 'positive' | 'negative';
+  reason?: string;
+  comment?: string;
+  submitted_at: Date;
+  submitted_by?: string;
+}
+```
+
+**NPS Campaign** (new collection `nps_campaigns`):
+```typescript
+interface NPSCampaign {
+  _id: ObjectId;
+  name: string;
+  starts_at: Date;
+  ends_at: Date;
+  created_by: string;
+  created_at: Date;
+  stopped_by?: string;   // set when admin stops early
+  stopped_at?: Date;
+}
+```
+
+**NPS Response** (new collection `nps_responses`):
+```typescript
+interface NPSResponse {
+  _id: ObjectId;
+  user_email: string;
+  score: number;          // 0–10
+  comment?: string;
+  campaign_id?: string;   // linked to campaign
+  created_at: Date;
+}
+```
+
+### Components Affected
+- [x] UI (`ui/`) — FeedbackButton, admin page, NPS survey, API routes, config, middleware
+- [ ] Agents (`ai_platform_engineering/agents/`)
+- [ ] Multi-Agents (`ai_platform_engineering/multi_agents/`)
+- [ ] MCP Servers
+- [ ] Knowledge Bases (`ai_platform_engineering/knowledge_bases/`)
+- [ ] Documentation (`docs/`)
+- [ ] Helm Charts (`charts/`)
+
+## Acceptance Criteria
+
+- [x] User feedback (thumbs up/down) is persisted to MongoDB on the message document
+- [x] Admin dashboard shows a "Feedback" tab with all feedback entries
+- [x] Feedback tab shows: user, rating, reason, comment, message snippet, timestamp, chat link
+- [x] Feedback tab supports filtering by rating (positive/negative/all)
+- [x] Each feedback entry links to the source conversation so admins can view the full chat
+- [x] Clicking a chat link opens the conversation in read-only audit mode for admins
+- [x] Read-only mode displays an audit banner and disables message input
+- [x] "Back to Feedback" button navigates to `/admin?tab=feedback`
+- [x] Admin page supports `?tab=` query param for deep linking
+- [x] NPS is an optional feature controlled by `NPS_ENABLED` env var
+- [x] NPS survey appears only when an admin-created campaign is active
+- [x] NPS survey displays the campaign name
+- [x] NPS survey question: "How well does {appName} help you get your work done?"
+- [x] NPS survey collects 0–10 score and optional comment
+- [x] NPS responses are stored in `nps_responses` collection linked to campaign
+- [x] Admins can create, list, and stop NPS campaigns
+- [x] Overlapping campaigns are prevented
+- [x] Campaign stop uses inline confirmation (no browser popup)
+- [x] Admin can filter NPS analytics by specific campaign
+- [x] Admin NPS tab shows: overall NPS score, breakdown, 30-day trend, recent responses, campaigns
+- [x] POST messages blocked for admin_audit access level (403)
+- [x] All new code has comprehensive tests (79 suites, 1906 tests pass)
+- [x] Linting passes
+
+## Implementation Plan
+
+### Phase 1: Feedback Persistence to MongoDB
+- [x] Update `ChatPanel.tsx` to call `apiClient.updateMessage()` with feedback data
+- [x] Ensure `PUT /api/chat/messages/[id]` stores `feedback.submitted_by`
+
+### Phase 2: Admin Feedback API & Tab
+- [x] Create `GET /api/admin/feedback` endpoint with pagination and filtering
+- [x] Batch-fetch conversation titles for chat links
+- [x] Add "Feedback" tab to admin dashboard
+
+### Phase 3: Read-Only Admin Audit
+- [x] Extend `requireConversationAccess` to return `{ conversation, access_level }`
+- [x] Add `admin_audit` access level for admins viewing non-owned conversations
+- [x] Block POST messages for `admin_audit` access
+- [x] Add `readOnly` prop to `ChatPanel` with audit banner and "Back to Feedback" link
+- [x] Return `access_level` from `GET /api/chat/conversations/[id]`
+
+### Phase 4: NPS Feature Flag & Config
+- [x] Add `npsEnabled` to `Config` interface and `getServerConfig()`
+- [x] Gate all NPS endpoints and UI with `npsEnabled` check
+- [x] Conditionally render NPS tab and NPSSurvey component
+
+### Phase 5: Admin-Controlled NPS Campaigns
+- [x] Create `nps_campaigns` collection and CRUD API
+- [x] `POST /api/admin/nps/campaigns` — create campaign (with overlap prevention)
+- [x] `GET /api/admin/nps/campaigns` — list with response counts and status
+- [x] `PATCH /api/admin/nps/campaigns` — stop campaign early (inline confirmation)
+- [x] Rewrite NPSSurvey to check `/api/nps/active` for active campaign
+- [x] Display campaign name in survey popup
+- [x] Link NPS responses to campaign_id
+
+### Phase 6: Campaign-Specific Analytics
+- [x] Add `campaign_id` query param filter to `GET /api/admin/nps`
+- [x] Clickable campaign rows in admin NPS tab to filter results
+- [x] "Clear filter" banner when viewing campaign-specific data
+
+### Phase 7: Admin Tab Deep Linking
+- [x] Add `useSearchParams` for `?tab=` query param support
+- [x] "Back to Feedback" navigates to `/admin?tab=feedback`
+
+### Phase 8: Testing
+- [x] `admin-feedback.test.ts` — 10 tests (auth, authz, pagination, filtering, structure)
+- [x] `nps-submit.test.ts` — 19 tests (submit validation, active campaign detection)
+- [x] `nps-campaigns.test.ts` — 30 tests (create, list, stop, overlap, status computation)
+- [x] `admin-nps.test.ts` — 11 tests (analytics, campaign filtering, NPS calculation)
+- [x] `admin-audit-access.test.ts` — 11 tests (access levels, conversation route)
+- [x] `chat-messages.test.ts` — +3 tests (write blocking for audit access)
+- [x] Updated `config.test.ts` and `admin-page.test.tsx` for new config keys and mocks
+
+## Testing Strategy
+
+### Automated Tests (1906 tests, 79 suites — all pass)
+- API route tests: auth, authz, MongoDB guard, validation, business logic
+- Middleware tests: `requireConversationAccess` access levels
+- Config tests: `npsEnabled` key presence
+- Admin page tests: fetch mock coverage for new endpoints
+
+### Manual Verification
+- Submit feedback → verify in admin Feedback tab
+- Click chat link → verify read-only audit mode
+- "Back to Feedback" → verify deep link to feedback tab
+- Enable NPS → create campaign → verify survey appears for users
+- Stop campaign → verify survey stops appearing
+- Filter NPS by campaign → verify scoped results
+
+## Rollout Plan
+
+1. Merge to `prebuild/feat/admin-feedback-nps` branch
+2. Requires MongoDB (same as existing admin features)
+3. NPS is opt-in via `NPS_ENABLED=true` environment variable
+4. No infrastructure changes needed beyond existing MongoDB
+
+## Related
+
+- ADR: `docs/docs/changes/2026-03-03-admin-feedback-nps-dashboard.md`
+- Related ADR: `docs/docs/changes/2026-01-30-admin-dashboard-with-oidc-group-rbac.md`

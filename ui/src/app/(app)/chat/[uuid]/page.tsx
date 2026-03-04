@@ -62,6 +62,7 @@ function ChatUUIDPage() {
   const existingConv = useChatStore.getState().conversations.find((c) => c.id === uuid);
 
   const [conversation, setConversation] = useState<Conversation | LocalConversation | null>(existingConv || null);
+  const [accessLevel, setAccessLevel] = useState<string | null>(null);
   // Track whether the async fetch is still in flight.
   const [fetchInProgress, setFetchInProgress] = useState(
     storageMode === 'mongodb' && !storeHasMessages
@@ -146,6 +147,10 @@ function ChatUUIDPage() {
           console.log("[ChatUUID] Loading from MongoDB...");
           try {
             const conv = await apiClient.getConversation(uuid);
+            // Capture access level from API response for readonly enforcement
+            if ((conv as any).access_level) {
+              setAccessLevel((conv as any).access_level);
+            }
             // Convert MongoDB conversation to local format
             const localConv: LocalConversation = {
               id: conv._id,
@@ -334,6 +339,7 @@ function ChatUUIDPage() {
             endpoint={caipeUrl}
             conversationId={uuid}
             conversationTitle={conversationTitle}
+            readOnly={accessLevel === 'admin_audit'}
           />
         </motion.div>
       </div>
