@@ -68,13 +68,17 @@ export const POST = withErrorHandler(async (
       throw new ApiError('Invalid conversation ID format', 400);
     }
 
-    // Require at least one of user_emails or team_ids
-    if ((!body.user_emails || body.user_emails.length === 0) && 
-        (!body.team_ids || body.team_ids.length === 0)) {
-      throw new ApiError('Either user_emails or team_ids must be provided', 400);
+    // Require at least one sharing action
+    const hasUsers = body.user_emails && body.user_emails.length > 0;
+    const hasTeams = body.team_ids && body.team_ids.length > 0;
+    const hasPublicToggle = body.is_public !== undefined;
+    if (!hasUsers && !hasTeams && !hasPublicToggle) {
+      throw new ApiError('At least one of user_emails, team_ids, or is_public must be provided', 400);
     }
 
-    validateRequired(body, ['permission']);
+    if ((hasUsers || hasTeams) && !body.permission) {
+      throw new ApiError('permission is required when sharing with users or teams', 400);
+    }
 
     const conversations = await getCollection<Conversation>('conversations');
     const conversation = await conversations.findOne({ _id: conversationId });
@@ -144,6 +148,10 @@ export const POST = withErrorHandler(async (
       // Update conversation shared_with_teams
       const existingSharedWithTeams = conversation.sharing?.shared_with_teams || [];
       update['sharing.shared_with_teams'] = [...new Set([...existingSharedWithTeams, ...body.team_ids])];
+    }
+
+    if (body.is_public !== undefined) {
+      update['sharing.is_public'] = body.is_public;
     }
 
     if (body.enable_link !== undefined) {

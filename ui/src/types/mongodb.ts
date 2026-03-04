@@ -209,6 +209,7 @@ export interface ShareConversationRequest {
   permission: 'view' | 'comment';
   enable_link?: boolean;
   link_expires?: string; // ISO date string
+  is_public?: boolean;
 }
 
 // Message API
