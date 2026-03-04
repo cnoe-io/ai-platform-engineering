@@ -151,10 +151,11 @@ interface NPSResponse {
 - [x] POST messages blocked for admin_audit and shared_readonly access levels (403)
 - [x] Sharing dialog supports "Can view" / "Can edit" permission per user and team
 - [x] Permission can be changed after sharing via PATCH endpoint
-- [x] Public shares are always read-only
+- [x] Public shares default to read/write; owner can switch to read-only via permission dropdown
+- [x] Public share permission stored in `sharing.public_permission` (default: comment)
 - [x] Legacy shares (without permission records) default to full access for backward compatibility
 - [x] Team shares store per-team permission in `sharing.team_permissions`
-- [x] All new code has comprehensive tests (83 suites, 2024 tests pass)
+- [x] All new code has comprehensive tests (83 suites, 2026 tests pass)
 - [x] Linting passes
 
 ## Implementation Plan
@@ -177,7 +178,8 @@ interface NPSResponse {
 - [x] Add permission dropdown ("Can view" / "Can edit") to ShareDialog for users and teams
 - [x] Store per-team permissions in `sharing.team_permissions`
 - [x] Add `PATCH /api/chat/conversations/[id]/share` for changing permissions
-- [x] Default permission selector in ShareDialog for new shares
+- [x] Default permission selector in ShareDialog for new shares (defaults to "Can edit")
+- [x] Permission dropdown on "Share with everyone" row with `public_permission` storage
 
 ### Phase 4: Feature Flags & Config
 - [x] Add `feedbackEnabled` to `Config` interface and `getServerConfig()` (default: true)
@@ -213,7 +215,7 @@ interface NPSResponse {
 - [x] `admin-nps.test.ts` — 11 tests (analytics, campaign filtering, NPS calculation)
 - [x] `admin-audit-access.test.ts` — 11 tests (access levels, conversation route)
 - [x] `chat-messages.test.ts` — +3 tests (write blocking for audit access)
-- [x] `chat-sharing-readonly.test.ts` — 18 tests (permission-based access, PATCH, backward compat)
+- [x] `chat-sharing-readonly.test.ts` — 20 tests (permission-based access, PATCH, backward compat, public permission)
 - [x] Updated `config.test.ts` with `feedbackEnabled` default, env var override, and key presence tests
 - [x] Updated `admin-page.test.tsx` for new config keys and mocks
 - [x] Updated `chat-sharing-public.test.ts` for `shared_readonly` access level
@@ -221,7 +223,7 @@ interface NPSResponse {
 
 ## Testing Strategy
 
-### Automated Tests (2024 tests, 83 suites — all pass)
+### Automated Tests (2026 tests, 83 suites — all pass)
 - API route tests: auth, authz, MongoDB guard, feature flag guard, validation, business logic
 - Middleware tests: `requireConversationAccess` access levels
 - Config tests: `feedbackEnabled` and `npsEnabled` defaults, env var overrides, key presence

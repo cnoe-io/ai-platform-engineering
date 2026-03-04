@@ -62,12 +62,13 @@ Extended `requireConversationAccess` to return `{ conversation, access_level }` 
 The sharing model now supports per-user and per-team permission levels:
 - **Direct user shares**: Permission stored in `SharingAccess` collection (`'view'` or `'comment'`)
 - **Team shares**: Permission stored in `conversation.sharing.team_permissions` map
-- **Public shares**: Always read-only (`shared_readonly`)
+- **Public shares**: Permission stored in `conversation.sharing.public_permission` (default: `'comment'`/read-write); owner can switch to read-only via dropdown
 - **Backward compatibility**: Legacy shares without permission records default to `'comment'` (full access)
 
 The `ShareDialog` component now shows:
-- A default permission selector ("Can view" / "Can edit") next to the search input for new shares
+- A default permission selector ("Can view" / "Can edit") next to the search input for new shares (defaults to "Can edit")
 - A per-user/team permission dropdown in the access list for changing existing permissions
+- A permission dropdown on the "Share with everyone" row to control public access level
 - Permissions are changed via `PATCH /api/chat/conversations/[id]/share`
 
 ### NPS as Optional Feature
@@ -172,7 +173,7 @@ Admin page reads `?tab=` from query params via `useSearchParams()`. Valid tabs: 
 
 ## Testing
 
-### Automated Tests (2024 tests, 83 suites — all pass)
+### Automated Tests (2026 tests, 83 suites — all pass)
 
 | Test File | Tests | Coverage |
 |-----------|-------|----------|
@@ -182,7 +183,7 @@ Admin page reads `?tab=` from query params via `useSearchParams()`. Valid tabs: 
 | `admin-nps.test.ts` | 11 | NPS calculation, campaign filtering, trend, guards |
 | `admin-audit-access.test.ts` | 11 | Access levels (owner/shared/admin_audit), conversation route, 403/404 |
 | `chat-messages.test.ts` | +3 | Write blocking for admin_audit, owner allowed, GET for audit |
-| `chat-sharing-readonly.test.ts` | 18 | Permission-based access levels, PATCH permission updates, backward compat, message blocking |
+| `chat-sharing-readonly.test.ts` | 20 | Permission-based access levels, PATCH permission updates, backward compat, public permission, message blocking |
 | `config.test.ts` | +7 | `feedbackEnabled` defaults/env var tests, `npsEnabled` key presence |
 | `admin-page.test.tsx` | +fixes | Mock for `/api/admin/feedback`, `/api/admin/nps`, `useSearchParams` |
 
