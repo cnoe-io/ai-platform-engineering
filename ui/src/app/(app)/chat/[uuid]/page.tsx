@@ -339,7 +339,8 @@ function ChatUUIDPage() {
             endpoint={caipeUrl}
             conversationId={uuid}
             conversationTitle={conversationTitle}
-            readOnly={accessLevel === 'admin_audit'}
+            readOnly={accessLevel === 'admin_audit' || accessLevel === 'shared_readonly'}
+            readOnlyReason={accessLevel === 'admin_audit' ? 'admin_audit' : accessLevel === 'shared_readonly' ? 'shared_readonly' : undefined}
           />
         </motion.div>
       </div>

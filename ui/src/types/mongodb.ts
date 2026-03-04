@@ -48,6 +48,7 @@ export interface Conversation {
     is_public: boolean;
     shared_with: string[]; // Array of user emails
     shared_with_teams: string[]; // Array of team IDs
+    team_permissions?: Record<string, 'view' | 'comment'>; // Per-team permission
     share_link_enabled: boolean;
     share_link_expires?: Date;
   };

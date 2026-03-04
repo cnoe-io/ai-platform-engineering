@@ -24,14 +24,17 @@ import { DEFAULT_AGENTS, CustomCall } from "./CustomCallButtons";
 import { AGENT_LOGOS } from "@/components/shared/AgentLogos";
 import { MetadataInputForm, type UserInputMetadata, type InputField } from "./MetadataInputForm";
 
+type ReadOnlyReason = 'admin_audit' | 'shared_readonly';
+
 interface ChatPanelProps {
   endpoint: string;
   conversationId?: string; // MongoDB conversation UUID
   conversationTitle?: string;
   readOnly?: boolean;
+  readOnlyReason?: ReadOnlyReason;
 }
 
-export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnly }: ChatPanelProps) {
+export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnly, readOnlyReason }: ChatPanelProps) {
   const { data: session } = useSession();
   const autoScrollEnabled = useFeatureFlagStore((s) => s.flags.autoScroll ?? true);
   const showTimestamps = useFeatureFlagStore((s) => s.flags.showTimestamps ?? false);
@@ -1147,9 +1150,19 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
           <div className="max-w-7xl mx-auto px-6 py-3 flex items-center justify-between">
             <div className="flex items-center gap-2 text-amber-700 dark:text-amber-400">
               <ShieldCheck className="h-4 w-4 shrink-0" />
-              <span className="text-sm font-medium">Read-Only Audit Mode</span>
-              <span className="text-xs text-amber-600 dark:text-amber-500">— You are viewing this conversation as an admin auditor.</span>
+              {readOnlyReason === 'admin_audit' ? (
+                <>
+                  <span className="text-sm font-medium">Read-Only Audit Mode</span>
+                  <span className="text-xs text-amber-600 dark:text-amber-500">— You are viewing this conversation as an admin auditor.</span>
+                </>
+              ) : (
+                <>
+                  <span className="text-sm font-medium">View Only</span>
+                  <span className="text-xs text-amber-600 dark:text-amber-500">— This conversation was shared with you as read-only.</span>
+                </>
+              )}
             </div>
+            {readOnlyReason === 'admin_audit' && (
             <a
               href="/admin?tab=feedback"
               className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md bg-amber-600/20 text-amber-700 dark:text-amber-300 hover:bg-amber-600/30 transition-colors"
@@ -1157,6 +1170,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
               <ArrowLeft className="h-3 w-3" />
               Back to Feedback
             </a>
+            )}
           </div>
         </div>
       ) : (

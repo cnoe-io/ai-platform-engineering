@@ -15,7 +15,8 @@ Added comprehensive feedback and NPS (Net Promoter Score) features to the admin 
 1. **Feedback tab** (optional, `FEEDBACK_ENABLED=true` by default): Shows all user feedback (thumbs up/down) with reasons, comments, user attribution, message context, and clickable links to source conversations
 2. **NPS tab** (optional, `NPS_ENABLED=true`): Admin-controlled campaign-based NPS tracking with score gauge, promoter/passive/detractor breakdown, trend chart, campaign management, and individual response list
 3. **Read-only admin audit**: Admins can view any conversation via feedback chat links in read-only mode without modifying it
-4. **Deep-linkable admin tabs**: Admin page supports `?tab=feedback` query parameter for direct navigation
+4. **Read-only sharing permissions**: Owners can share conversations as "Can view" (read-only) or "Can edit" (full access) per user and team, with per-team permission storage and backward-compatible defaults
+5. **Deep-linkable admin tabs**: Admin page supports `?tab=feedback` query parameter for direct navigation
 
 Also fixed the feedback persistence gap — user feedback is now saved to MongoDB alongside the existing Langfuse integration, making it visible to admins.
 
@@ -50,11 +51,24 @@ New `GET /api/admin/feedback` endpoint queries messages with `feedback.rating` s
 
 ### Read-Only Admin Audit
 
-Extended `requireConversationAccess` to return `{ conversation, access_level }` where `access_level` can be `'owner'`, `'shared'`, or `'admin_audit'`. Admins get `admin_audit` access to any conversation they don't own or have shared access to.
+Extended `requireConversationAccess` to return `{ conversation, access_level }` where `access_level` can be `'owner'`, `'shared'`, `'shared_readonly'`, or `'admin_audit'`. Admins get `admin_audit` access to any conversation they don't own or have shared access to.
 
 - `GET /api/chat/conversations/[id]` returns `access_level` in response
-- `POST /api/chat/conversations/[id]/messages` blocks writes for `admin_audit` (403)
-- `ChatPanel` renders a read-only audit banner with "Back to Feedback" link when `readOnly` is true
+- `POST /api/chat/conversations/[id]/messages` blocks writes for `admin_audit` and `shared_readonly` (403)
+- `ChatPanel` renders contextual read-only banners: "Read-Only Audit Mode" for admins, "View Only" for shared_readonly users
+
+### Read-Only Sharing Permissions
+
+The sharing model now supports per-user and per-team permission levels:
+- **Direct user shares**: Permission stored in `SharingAccess` collection (`'view'` or `'comment'`)
+- **Team shares**: Permission stored in `conversation.sharing.team_permissions` map
+- **Public shares**: Always read-only (`shared_readonly`)
+- **Backward compatibility**: Legacy shares without permission records default to `'comment'` (full access)
+
+The `ShareDialog` component now shows:
+- A default permission selector ("Can view" / "Can edit") next to the search input for new shares
+- A per-user/team permission dropdown in the access list for changing existing permissions
+- Permissions are changed via `PATCH /api/chat/conversations/[id]/share`
 
 ### NPS as Optional Feature
 
@@ -101,13 +115,14 @@ Admin page reads `?tab=` from query params via `useSearchParams()`. Valid tabs: 
 | `POST` | `/api/admin/nps/campaigns` | `requireAdmin` | Create NPS campaign |
 | `GET` | `/api/admin/nps/campaigns` | `requireAdminView` | List campaigns with response counts and status |
 | `PATCH` | `/api/admin/nps/campaigns` | `requireAdmin` | Stop campaign early |
+| `PATCH` | `/api/chat/conversations/[id]/share` | owner | Update user/team permission |
 
 ### Modified API Behavior
 
 | Method | Endpoint | Change |
 |--------|----------|--------|
 | `GET` | `/api/chat/conversations/[id]` | Returns `access_level` field |
-| `POST` | `/api/chat/conversations/[id]/messages` | Blocks writes for `admin_audit` (403) |
+| `POST` | `/api/chat/conversations/[id]/messages` | Blocks writes for `admin_audit` and `shared_readonly` (403) |
 | `PUT` | `/api/chat/messages/[id]` | Stores `feedback.submitted_by` from session |
 
 ### MongoDB Collections
@@ -138,7 +153,9 @@ Admin page reads `?tab=` from query params via `useSearchParams()`. Valid tabs: 
 | `ui/src/components/nps/NPSSurvey.tsx` | NPS survey component (campaign-aware) |
 | `ui/src/components/chat/ChatPanel.tsx` | Read-only audit mode, feedback persistence |
 | `ui/src/app/(app)/chat/[uuid]/page.tsx` | Wires `readOnly` prop based on access_level |
-| `ui/src/lib/api-middleware.ts` | `requireConversationAccess` with access levels |
+| `ui/src/lib/api-middleware.ts` | `requireConversationAccess` with access levels (`owner`, `shared`, `shared_readonly`, `admin_audit`) |
+| `ui/src/components/chat/ShareDialog.tsx` | Share dialog with per-user/team permission dropdowns |
+| `ui/src/app/api/chat/conversations/[id]/share/route.ts` | Share API with PATCH for permission updates |
 | `ui/src/lib/config.ts` | `feedbackEnabled` and `npsEnabled` config keys |
 | `ui/scripts/seed-feedback-nps.mjs` | Seed script for test data |
 
@@ -155,7 +172,7 @@ Admin page reads `?tab=` from query params via `useSearchParams()`. Valid tabs: 
 
 ## Testing
 
-### Automated Tests (2006 tests, 82 suites — all pass)
+### Automated Tests (2024 tests, 83 suites — all pass)
 
 | Test File | Tests | Coverage |
 |-----------|-------|----------|
@@ -165,6 +182,7 @@ Admin page reads `?tab=` from query params via `useSearchParams()`. Valid tabs: 
 | `admin-nps.test.ts` | 11 | NPS calculation, campaign filtering, trend, guards |
 | `admin-audit-access.test.ts` | 11 | Access levels (owner/shared/admin_audit), conversation route, 403/404 |
 | `chat-messages.test.ts` | +3 | Write blocking for admin_audit, owner allowed, GET for audit |
+| `chat-sharing-readonly.test.ts` | 18 | Permission-based access levels, PATCH permission updates, backward compat, message blocking |
 | `config.test.ts` | +7 | `feedbackEnabled` defaults/env var tests, `npsEnabled` key presence |
 | `admin-page.test.tsx` | +fixes | Mock for `/api/admin/feedback`, `/api/admin/nps`, `useSearchParams` |
 

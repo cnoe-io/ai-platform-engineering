@@ -350,7 +350,7 @@ describe('requireConversationAccess — team-based access', () => {
     });
     mockCollections['teams'] = teamsCol;
 
-    // But has sharing_access record
+    // But has sharing_access record with view permission → shared_readonly
     const sharingAccessCol = createMockCollection();
     sharingAccessCol.findOne.mockResolvedValue({
       conversation_id: conv._id,
@@ -363,7 +363,7 @@ describe('requireConversationAccess — team-based access', () => {
 
     expect(result).toBeDefined();
     expect(result.conversation._id).toBe(conv._id);
-    expect(result.access_level).toBe('shared');
+    expect(result.access_level).toBe('shared_readonly');
   });
 
   it('throws 404 when conversation does not exist', async () => {

@@ -74,9 +74,9 @@ export const POST = withErrorHandler(async (
       conversationId, user.email, getCollection, session
     );
 
-    // Admin audit access is read-only — block writes
-    if (access_level === 'admin_audit') {
-      throw new ApiError('Read-only audit access — cannot add messages', 403, 'FORBIDDEN');
+    // Read-only access — block writes
+    if (access_level === 'admin_audit' || access_level === 'shared_readonly') {
+      throw new ApiError('Read-only access — cannot add messages', 403, 'FORBIDDEN');
     }
 
     const conversations = await getCollection<Conversation>('conversations');

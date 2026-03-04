@@ -31,6 +31,7 @@ This feature closes the feedback loop so platform operators can monitor quality 
 - **NPS MongoDB collections**: `nps_responses` and `nps_campaigns` collections
 - **Admin NPS tab**: NPS score, breakdown, trend chart, campaign management, and individual responses
 - **Read-only admin audit**: Admins can view any conversation via feedback chat links in read-only mode
+- **Read-only sharing permissions**: Owners can share conversations as "Can view" (read-only) or "Can edit" (full access) per user/team
 - **Deep-linkable admin tabs**: Admin page supports `?tab=feedback` query parameter for direct navigation
 
 ### Out of Scope
@@ -147,8 +148,13 @@ interface NPSResponse {
 - [x] Campaign stop uses inline confirmation (no browser popup)
 - [x] Admin can filter NPS analytics by specific campaign
 - [x] Admin NPS tab shows: overall NPS score, breakdown, 30-day trend, recent responses, campaigns
-- [x] POST messages blocked for admin_audit access level (403)
-- [x] All new code has comprehensive tests (82 suites, 2006 tests pass)
+- [x] POST messages blocked for admin_audit and shared_readonly access levels (403)
+- [x] Sharing dialog supports "Can view" / "Can edit" permission per user and team
+- [x] Permission can be changed after sharing via PATCH endpoint
+- [x] Public shares are always read-only
+- [x] Legacy shares (without permission records) default to full access for backward compatibility
+- [x] Team shares store per-team permission in `sharing.team_permissions`
+- [x] All new code has comprehensive tests (83 suites, 2024 tests pass)
 - [x] Linting passes
 
 ## Implementation Plan
@@ -162,12 +168,16 @@ interface NPSResponse {
 - [x] Batch-fetch conversation titles for chat links
 - [x] Add "Feedback" tab to admin dashboard
 
-### Phase 3: Read-Only Admin Audit
+### Phase 3: Read-Only Admin Audit & Sharing Permissions
 - [x] Extend `requireConversationAccess` to return `{ conversation, access_level }`
-- [x] Add `admin_audit` access level for admins viewing non-owned conversations
-- [x] Block POST messages for `admin_audit` access
-- [x] Add `readOnly` prop to `ChatPanel` with audit banner and "Back to Feedback" link
+- [x] Add `admin_audit` and `shared_readonly` access levels
+- [x] Block POST messages for `admin_audit` and `shared_readonly` access
+- [x] Add `readOnly` and `readOnlyReason` props to `ChatPanel` with contextual banners
 - [x] Return `access_level` from `GET /api/chat/conversations/[id]`
+- [x] Add permission dropdown ("Can view" / "Can edit") to ShareDialog for users and teams
+- [x] Store per-team permissions in `sharing.team_permissions`
+- [x] Add `PATCH /api/chat/conversations/[id]/share` for changing permissions
+- [x] Default permission selector in ShareDialog for new shares
 
 ### Phase 4: Feature Flags & Config
 - [x] Add `feedbackEnabled` to `Config` interface and `getServerConfig()` (default: true)
@@ -203,12 +213,15 @@ interface NPSResponse {
 - [x] `admin-nps.test.ts` — 11 tests (analytics, campaign filtering, NPS calculation)
 - [x] `admin-audit-access.test.ts` — 11 tests (access levels, conversation route)
 - [x] `chat-messages.test.ts` — +3 tests (write blocking for audit access)
+- [x] `chat-sharing-readonly.test.ts` — 18 tests (permission-based access, PATCH, backward compat)
 - [x] Updated `config.test.ts` with `feedbackEnabled` default, env var override, and key presence tests
 - [x] Updated `admin-page.test.tsx` for new config keys and mocks
+- [x] Updated `chat-sharing-public.test.ts` for `shared_readonly` access level
+- [x] Updated `chat-sharing-teams.test.ts` for permission-aware access levels
 
 ## Testing Strategy
 
-### Automated Tests (2006 tests, 82 suites — all pass)
+### Automated Tests (2024 tests, 83 suites — all pass)
 - API route tests: auth, authz, MongoDB guard, feature flag guard, validation, business logic
 - Middleware tests: `requireConversationAccess` access levels
 - Config tests: `feedbackEnabled` and `npsEnabled` defaults, env var overrides, key presence

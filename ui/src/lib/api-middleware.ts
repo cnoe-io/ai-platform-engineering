@@ -328,7 +328,7 @@ export async function getUserTeamIds(userEmail: string): Promise<string[]> {
   }
 }
 
-export type ConversationAccessLevel = 'owner' | 'shared' | 'admin_audit';
+export type ConversationAccessLevel = 'owner' | 'shared' | 'shared_readonly' | 'admin_audit';
 
 interface ConversationAccessResult {
   conversation: any;
@@ -360,14 +360,26 @@ export async function requireConversationAccess(
     return { conversation, access_level: 'owner' };
   }
 
-  // Check if conversation is public (shared with everyone)
+  // Check if conversation is public (shared with everyone) — always read-only
   if (conversation.sharing?.is_public) {
-    return { conversation, access_level: 'shared' };
+    return { conversation, access_level: 'shared_readonly' };
   }
 
   // Check if conversation is shared with user directly
   if (conversation.sharing?.shared_with?.includes(userId)) {
-    return { conversation, access_level: 'shared' };
+    const sharingAccess = await getCollectionFn('sharing_access');
+    const accessRecord = await sharingAccess.findOne({
+      conversation_id: conversationId,
+      granted_to: userId,
+      revoked_at: null,
+    });
+    // Default to 'comment' (full access) for backward compatibility with
+    // shares created before permissions were introduced
+    const perm = accessRecord?.permission ?? 'comment';
+    return {
+      conversation,
+      access_level: perm === 'comment' ? 'shared' : 'shared_readonly',
+    };
   }
 
   // Check if conversation is shared with one of the user's teams
@@ -375,16 +387,21 @@ export async function requireConversationAccess(
   if (sharedTeams && sharedTeams.length > 0) {
     const userTeamIds = await getUserTeamIds(userId);
     if (userTeamIds.length > 0) {
-      const hasTeamAccess = sharedTeams.some((teamId: string) =>
+      const matchedTeamId = sharedTeams.find((teamId: string) =>
         userTeamIds.includes(teamId)
       );
-      if (hasTeamAccess) {
-        return { conversation, access_level: 'shared' };
+      if (matchedTeamId) {
+        const teamPerms = conversation.sharing?.team_permissions;
+        const perm = teamPerms?.[matchedTeamId] ?? 'comment';
+        return {
+          conversation,
+          access_level: perm === 'comment' ? 'shared' : 'shared_readonly',
+        };
       }
     }
   }
 
-  // Check sharing_access collection
+  // Check sharing_access collection (link-based or other grants)
   const sharingAccess = await getCollectionFn('sharing_access');
   const access = await sharingAccess.findOne({
     conversation_id: conversationId,
@@ -393,7 +410,11 @@ export async function requireConversationAccess(
   });
 
   if (access) {
-    return { conversation, access_level: 'shared' };
+    const perm = access.permission ?? 'comment';
+    return {
+      conversation,
+      access_level: perm === 'comment' ? 'shared' : 'shared_readonly',
+    };
   }
 
   // Admins get read-only audit access to any conversation

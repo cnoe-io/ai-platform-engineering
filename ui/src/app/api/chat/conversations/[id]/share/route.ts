@@ -148,6 +148,14 @@ export const POST = withErrorHandler(async (
       // Update conversation shared_with_teams
       const existingSharedWithTeams = conversation.sharing?.shared_with_teams || [];
       update['sharing.shared_with_teams'] = [...new Set([...existingSharedWithTeams, ...body.team_ids])];
+
+      // Store per-team permission
+      const existingTeamPerms = conversation.sharing?.team_permissions || {};
+      const newTeamPerms = { ...existingTeamPerms };
+      for (const teamId of body.team_ids) {
+        newTeamPerms[teamId] = body.permission;
+      }
+      update['sharing.team_permissions'] = newTeamPerms;
     }
 
     if (body.is_public !== undefined) {
@@ -169,6 +177,58 @@ export const POST = withErrorHandler(async (
 
     const updated = await conversations.findOne({ _id: conversationId });
 
+    return successResponse(updated);
+  });
+});
+
+// PATCH /api/chat/conversations/[id]/share — update permission for a user or team
+export const PATCH = withErrorHandler(async (
+  request: NextRequest,
+  context: { params: Promise<{ id: string }> }
+) => {
+  return withAuth(request, async (req, user) => {
+    const params = await context.params;
+    const conversationId = params.id;
+    const body = await request.json();
+
+    if (!validateUUID(conversationId)) {
+      throw new ApiError('Invalid conversation ID format', 400);
+    }
+
+    const { email, team_id, permission } = body;
+    if (!permission || !['view', 'comment'].includes(permission)) {
+      throw new ApiError('permission must be "view" or "comment"', 400);
+    }
+    if (!email && !team_id) {
+      throw new ApiError('email or team_id is required', 400);
+    }
+
+    const conversations = await getCollection<Conversation>('conversations');
+    const conversation = await conversations.findOne({ _id: conversationId });
+    if (!conversation) {
+      throw new ApiError('Conversation not found', 404);
+    }
+
+    requireOwnership(conversation.owner_id, user.email);
+
+    if (email) {
+      const sharingAccess = await getCollection<SharingAccess>('sharing_access');
+      await sharingAccess.updateOne(
+        { conversation_id: conversationId, granted_to: email, revoked_at: null },
+        { $set: { permission } }
+      );
+    }
+
+    if (team_id) {
+      const teamPerms = conversation.sharing?.team_permissions || {};
+      teamPerms[team_id] = permission;
+      await conversations.updateOne(
+        { _id: conversationId },
+        { $set: { 'sharing.team_permissions': teamPerms } }
+      );
+    }
+
+    const updated = await conversations.findOne({ _id: conversationId });
     return successResponse(updated);
   });
 });
