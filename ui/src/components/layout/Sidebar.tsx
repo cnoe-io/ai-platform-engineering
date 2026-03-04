@@ -54,6 +54,7 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
     loadConversationsFromServer,
     loadMessagesFromServer,
     isConversationStreaming,
+    hasUnviewedMessages,
   } = useChatStore();
   const { data: session } = useSession();
   const [useCaseBuilderOpen, setUseCaseBuilderOpen] = useState(false);
@@ -330,6 +331,7 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
                   );
 
                   const isLive = isConversationStreaming(conv.id);
+                  const isUnviewed = !isLive && hasUnviewedMessages(conv.id);
 
                   return (
                   <div
@@ -345,11 +347,13 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
                         "group relative flex items-center gap-2 p-2 rounded-lg cursor-pointer transition-all min-w-0",
                         isLive
                           ? "bg-emerald-500/10 border border-emerald-500/30"
-                          : activeConversationId === conv.id
-                            ? "bg-primary/10 border border-primary/30"
-                            : isShared
-                              ? "hover:bg-muted/50 border border-blue-500/20"
-                              : "hover:bg-muted/50 border border-transparent"
+                          : isUnviewed
+                            ? "bg-blue-500/5 border border-blue-500/25"
+                            : activeConversationId === conv.id
+                              ? "bg-primary/10 border border-primary/30"
+                              : isShared
+                                ? "hover:bg-muted/50 border border-blue-500/20"
+                                : "hover:bg-muted/50 border border-transparent"
                       )}
                       onClick={() => {
                         setActiveConversation(conv.id);
@@ -362,9 +366,11 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
                       "shrink-0 w-8 h-8 rounded-md flex items-center justify-center relative",
                       isLive
                         ? "bg-emerald-500/20"
-                        : activeConversationId === conv.id
-                          ? "bg-primary/20"
-                          : "bg-muted"
+                        : isUnviewed
+                          ? "bg-blue-500/15"
+                          : activeConversationId === conv.id
+                            ? "bg-primary/20"
+                            : "bg-muted"
                     )}>
                       {isLive ? (
                         <>
@@ -375,12 +381,21 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
                           </span>
                         </>
                       ) : (
-                        <MessageSquare className={cn(
-                          "h-4 w-4",
-                          activeConversationId === conv.id
-                            ? "text-primary"
-                            : "text-muted-foreground"
-                        )} />
+                        <>
+                          <MessageSquare className={cn(
+                            "h-4 w-4",
+                            isUnviewed
+                              ? "text-blue-500"
+                              : activeConversationId === conv.id
+                                ? "text-primary"
+                                : "text-muted-foreground"
+                          )} />
+                          {isUnviewed && (
+                            <span className="absolute -top-0.5 -right-0.5 flex h-2.5 w-2.5">
+                              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-blue-500" />
+                            </span>
+                          )}
+                        </>
                       )}
                     </div>
 
@@ -406,9 +421,13 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
                           </div>
                           <p className={cn(
                             "text-xs truncate",
-                            isLive ? "text-emerald-600 dark:text-emerald-400 font-medium" : "text-muted-foreground"
+                            isLive
+                              ? "text-emerald-600 dark:text-emerald-400 font-medium"
+                              : isUnviewed
+                                ? "text-blue-600 dark:text-blue-400 font-medium"
+                                : "text-muted-foreground"
                           )}>
-                            {isLive ? "Live" : formatDate(conv.updatedAt)}
+                            {isLive ? "Live" : isUnviewed ? "New response" : formatDate(conv.updatedAt)}
                           </p>
                         </div>
 

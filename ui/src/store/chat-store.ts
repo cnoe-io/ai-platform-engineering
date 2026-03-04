@@ -24,6 +24,9 @@ interface ChatState {
   // Per-turn event tracking: selectedTurnId per conversation
   selectedTurnIds: Map<string, string>; // conversationId -> turnId
 
+  // Conversations with new responses the user hasn't viewed yet
+  unviewedConversations: Set<string>;
+
   // Actions
   createConversation: () => string;
   setActiveConversation: (id: string) => void;
@@ -51,6 +54,11 @@ interface ChatState {
   recoverInterruptedTask: (conversationId: string, messageId: string, endpoint: string, accessToken?: string) => Promise<boolean>; // Level 2: Poll tasks/get for interrupted messages
   loadMessagesFromServer: (conversationId: string, options?: { force?: boolean }) => Promise<void>; // Load messages from MongoDB when opening conversation
   evictOldMessageContent: (conversationId: string, messageIdsToEvict: string[]) => void; // Evict content from old messages to free memory
+
+  // Unviewed conversation actions
+  markConversationUnviewed: (conversationId: string) => void;
+  clearConversationUnviewed: (conversationId: string) => void;
+  hasUnviewedMessages: (conversationId: string) => boolean;
 
   // Turn selection actions for per-message event tracking
   setSelectedTurn: (conversationId: string, turnId: string | null) => void;
@@ -129,6 +137,7 @@ const storeImplementation = (set: any, get: any) => ({
       a2aEvents: [],
       pendingMessage: null,
       selectedTurnIds: new Map<string, string>(),
+      unviewedConversations: new Set<string>(),
 
       createConversation: () => {
         const id = generateId();
@@ -168,10 +177,12 @@ const storeImplementation = (set: any, get: any) => ({
       },
 
       setActiveConversation: (id: string) => {
-        // Just switch the active conversation
-        // Events are now stored per-conversation, so no need to clear global events
+        const prev = get();
+        const newUnviewed = new Set(prev.unviewedConversations);
+        newUnviewed.delete(id);
         set({
           activeConversationId: id,
+          unviewedConversations: newUnviewed,
         });
       },
 
@@ -307,8 +318,17 @@ const storeImplementation = (set: any, get: any) => ({
           };
         });
 
-        // When streaming completes, save messages to MongoDB
+        // When streaming completes, save messages to MongoDB and mark unviewed
         if (!state) {
+          // Mark as unviewed if the user is looking at a different conversation
+          const current = get();
+          if (current.activeConversationId !== conversationId) {
+            const newUnviewed = new Set(current.unviewedConversations);
+            newUnviewed.add(conversationId);
+            set({ unviewedConversations: newUnviewed });
+            console.log(`[Store] Marked conversation as unviewed: ${conversationId.substring(0, 8)}`);
+          }
+
           // Reset periodic save counter for this conversation
           eventCountSinceLastSave.delete(conversationId);
           // Mark save as pending — prevents loadMessagesFromServer from
@@ -1221,6 +1241,26 @@ const storeImplementation = (set: any, get: any) => ({
         }));
 
         console.log(`[ChatStore] Evicted content from ${evictedCount} messages (~${(freedChars / 1024).toFixed(0)}KB freed) for: ${conversationId.substring(0, 8)}`);
+      },
+
+      markConversationUnviewed: (conversationId: string) => {
+        set((prev: ChatState) => {
+          const newSet = new Set(prev.unviewedConversations);
+          newSet.add(conversationId);
+          return { unviewedConversations: newSet };
+        });
+      },
+
+      clearConversationUnviewed: (conversationId: string) => {
+        set((prev: ChatState) => {
+          const newSet = new Set(prev.unviewedConversations);
+          newSet.delete(conversationId);
+          return { unviewedConversations: newSet };
+        });
+      },
+
+      hasUnviewedMessages: (conversationId: string) => {
+        return get().unviewedConversations.has(conversationId);
       },
 
       // Turn selection actions for per-message event tracking

@@ -1,51 +1,65 @@
-# Spec: Live Status Indicator
+# Spec: Live Status & Unviewed Message Indicators
 
 ## Overview
 
-Show a green pulsing antenna icon on sidebar chat items that are actively streaming, always visible without hovering, so users can immediately see which conversations are live.
+Show a green pulsing antenna icon on sidebar chat items that are actively streaming, and a blue "New response" badge after streaming completes on conversations the user hasn't opened yet. Both indicators are always visible without hovering, even when the sidebar is collapsed.
 
 ## Motivation
 
 When a user sends a message and a response is being streamed, there is no visual indication on the chat history sidebar that a conversation is actively processing. The streaming state is only visible inside the chat panel itself (via the A2AStreamPanel "Live" label) or in the AppHeader status dot. If a user navigates away from the active conversation or has multiple conversations in flight, there is no way to tell from the sidebar which ones are still live.
 
-This feature provides at-a-glance awareness of streaming activity directly in the chat list — critical for multi-conversation workflows and collapsed sidebar states.
+Additionally, once streaming completes on a background conversation, the user has no indication that a new response is ready and waiting. They must manually check each conversation to discover completed responses.
+
+This feature provides at-a-glance awareness of both streaming activity and unviewed responses directly in the chat list — critical for multi-conversation workflows and collapsed sidebar states.
 
 ## Scope
 
 ### In Scope
 - Show a green `Radio` (antenna) icon replacing the `MessageSquare` icon when a conversation is streaming
-- Add a pulsing green dot overlay for additional visibility
+- Add a pulsing green dot overlay for additional visibility during streaming
 - Replace the date text with "Live" in green when streaming
 - Apply an emerald-tinted background/border to live conversation items
-- Ensure the indicator is visible in both expanded and collapsed sidebar states
-- Automatically revert to normal appearance when streaming ends
+- After streaming ends on a non-active conversation, show a blue "New response" indicator
+- Blue dot badge on the icon and "New response" text replacing the date
+- Apply a blue-tinted background/border to unviewed conversation items
+- Clear the unviewed indicator when the user navigates to that conversation
+- Ensure all indicators are visible in both expanded and collapsed sidebar states
 
 ### Out of Scope
-- Sound or browser notification for live status
+- Sound or browser notification for live/unviewed status
 - Showing streaming progress percentage
 - Per-agent streaming indicators
-- Persisting live status across page reloads (streaming state is ephemeral)
+- Persisting unviewed state across page reloads (ephemeral in-session tracking)
+- Unread message count badges
 
 ## Design
 
 ### Architecture
 
-The feature leverages the existing `streamingConversations` Map in the Zustand chat store. No new state management is needed — the `isConversationStreaming(conversationId)` method already exists and is used elsewhere (ChatPanel, ContextPanel, AppHeader).
+**Live indicator**: Leverages the existing `streamingConversations` Map in the Zustand chat store. The `isConversationStreaming(conversationId)` method already exists.
 
-In the Sidebar component, each conversation item now checks its streaming status and conditionally renders:
+**Unviewed indicator**: Adds a new `unviewedConversations: Set<string>` to the chat store. When streaming ends (`setConversationStreaming(id, null)`) and the conversation is not the currently active one, it is added to the unviewed set. When the user navigates to a conversation (`setActiveConversation(id)`), it is removed from the set.
 
 ```
-If isConversationStreaming(conv.id):
-  Icon:       Radio (lucide-react) with animate-pulse + ping dot
-  Background: bg-emerald-500/10, border-emerald-500/30
-  Date text:  "Live" in emerald-600/400
-Else:
-  Icon:       MessageSquare (existing behavior)
-  Background: Existing active/shared/default styling
-  Date text:  formatDate(conv.updatedAt) (existing behavior)
+Conversation States (priority order):
+
+1. isLive (streaming):
+   Icon:       Radio (lucide-react) with animate-pulse + ping dot
+   Background: bg-emerald-500/10, border-emerald-500/30
+   Date text:  "Live" in emerald-600/400
+
+2. isUnviewed (new response, not yet viewed):
+   Icon:       MessageSquare in blue-500 + solid blue dot
+   Background: bg-blue-500/5, border-blue-500/25
+   Date text:  "New response" in blue-600/400
+
+3. Default:
+   Icon:       MessageSquare (existing behavior)
+   Background: Existing active/shared/default styling
+   Date text:  formatDate(conv.updatedAt)
 ```
 
-The icon container (`shrink-0 w-8 h-8`) is rendered outside the `!collapsed` guard, so the green antenna is always visible even when the sidebar is collapsed.
+The icon container (`shrink-0 w-8 h-8`) is rendered outside the `!collapsed` guard, so both indicators are always visible even when the sidebar is collapsed.
 
 ### Components Affected
 - [ ] Agents (`ai_platform_engineering/agents/`)
@@ -53,7 +67,8 @@ The icon container (`shrink-0 w-8 h-8`) is rendered outside the `!collapsed` gua
 - [ ] MCP Servers
 - [ ] Knowledge Bases (`ai_platform_engineering/knowledge_bases/`)
 - [x] UI (`ui/`)
-  - `ui/src/components/layout/Sidebar.tsx`
+  - `ui/src/store/chat-store.ts` — `unviewedConversations` state, mark/clear/has actions
+  - `ui/src/components/layout/Sidebar.tsx` — Visual rendering of both indicators
 - [x] Documentation (`docs/`)
   - ADR: `docs/docs/changes/2026-03-03-live-status-indicator.md`
 - [ ] Helm Charts (`charts/`)
@@ -64,15 +79,18 @@ The icon container (`shrink-0 w-8 h-8`) is rendered outside the `!collapsed` gua
 - [x] A green ping dot appears at the top-right corner of the icon for additional visibility
 - [x] The conversation item has an emerald-tinted background and border when streaming
 - [x] The date text is replaced with "Live" in green when streaming
-- [x] The indicator is visible when the sidebar is collapsed (icon-only mode)
-- [x] The indicator disappears automatically when streaming completes or is cancelled
-- [x] Non-streaming conversations retain their existing appearance (active, shared, default)
+- [x] After streaming ends on a background conversation, a blue dot and "New response" text appear
+- [x] The unviewed indicator has a blue-tinted background and border
+- [x] Clicking the conversation clears the unviewed indicator
+- [x] Both indicators are visible when the sidebar is collapsed (icon-only mode)
+- [x] The live indicator transitions to unviewed (if not active) or disappears (if active)
+- [x] Non-streaming, non-unviewed conversations retain their existing appearance
 - [x] No regressions in existing sidebar behavior (navigation, archive, share)
 - [x] TypeScript compiles clean
 
 ## Implementation Plan
 
-### Phase 1: Core Feature ✅
+### Phase 1: Live Status Indicator ✅
 - [x] Import `Radio` icon from lucide-react
 - [x] Import `isConversationStreaming` from the chat store
 - [x] Add `isLive` check per conversation item
@@ -81,21 +99,32 @@ The icon container (`shrink-0 w-8 h-8`) is rendered outside the `!collapsed` gua
 - [x] Apply emerald background/border styling for live items
 - [x] Replace date text with "Live" label when streaming
 
-### Phase 2: Documentation ✅
+### Phase 2: Unviewed Message Indicator ✅
+- [x] Add `unviewedConversations: Set<string>` to chat store state
+- [x] Add `markConversationUnviewed`, `clearConversationUnviewed`, `hasUnviewedMessages` actions
+- [x] Mark as unviewed in `setConversationStreaming` when streaming ends on non-active conversation
+- [x] Clear unviewed in `setActiveConversation` when user navigates to conversation
+- [x] Add blue dot badge on icon for unviewed conversations
+- [x] Replace date text with "New response" in blue for unviewed conversations
+- [x] Apply blue background/border styling for unviewed items
+
+### Phase 3: Documentation ✅
 - [x] Create spec in `.specify/specs/`
 - [x] Create ADR in `docs/docs/changes/`
 
 ## Testing Strategy
 
-- Unit tests: N/A (pure UI rendering based on existing store state)
-- Integration tests: N/A (no new state logic)
+- Unit tests: N/A (pure UI rendering based on store state)
+- Integration tests: N/A (state transitions are simple set add/delete operations)
 - Manual verification:
-  - Start a new conversation and send a message
-  - Verify the sidebar item shows the green antenna icon with pulse while streaming
+  - Start a new conversation and send a message — verify green antenna during streaming
   - Verify "Live" text replaces the date
-  - Verify the indicator disappears when the response completes
-  - Collapse the sidebar and verify the green icon is still visible
-  - Open a second conversation and verify both show correctly (only the streaming one is green)
+  - Open a second conversation tab while the first is streaming
+  - Wait for the first conversation's response to complete
+  - Verify the first conversation now shows blue dot + "New response"
+  - Click the first conversation — verify the unviewed indicator clears
+  - Collapse the sidebar — verify both indicators are visible in icon-only mode
+  - Cancel a streaming request — verify live indicator clears (no unviewed since active)
 
 ## Rollout Plan
 
@@ -107,3 +136,4 @@ The icon container (`shrink-0 w-8 h-8`) is rendered outside the `!collapsed` gua
 
 - ADR: `docs/docs/changes/2026-03-03-live-status-indicator.md`
 - Branch: `prebuild/feat/live-status-indicator`
+- PR: [#892](https://github.com/cnoe-io/ai-platform-engineering/pull/892)

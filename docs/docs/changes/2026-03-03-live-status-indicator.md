@@ -1,4 +1,4 @@
-# Live Status Indicator on Sidebar Conversations
+# Live Status & Unviewed Message Indicators on Sidebar Conversations
 
 **Status**: 🟢 In-use
 **Category**: Features & Enhancements
@@ -6,74 +6,89 @@
 
 ## Overview
 
-Added a live status indicator to the sidebar chat history items. When a conversation is actively streaming (receiving an AI response), its icon changes from a chat bubble to a green pulsing antenna, always visible without hovering — even when the sidebar is collapsed.
+Added two-phase status indicators to sidebar chat history items:
+
+1. **Live** (green antenna) — While a conversation is actively streaming, its icon changes to a green pulsing antenna with a ping dot.
+2. **Unviewed** (blue dot) — After streaming ends on a conversation the user isn't currently viewing, a blue dot and "New response" text appear until the user clicks into that conversation.
+
+Both indicators are always visible without hovering, even when the sidebar is collapsed.
 
 ## Problem Statement
 
-The streaming state of a conversation was only visible inside the chat panel (A2AStreamPanel "Live" label) or as a subtle dot in the AppHeader. Users working with multiple conversations had no way to tell from the sidebar which chats were actively processing. This made it hard to track in-flight requests, especially in collapsed sidebar mode where only icons are visible.
+The streaming state of a conversation was only visible inside the chat panel (A2AStreamPanel "Live" label) or as a subtle dot in the AppHeader. Users working with multiple conversations had no way to tell from the sidebar which chats were actively processing or had completed with new responses. This made it hard to track in-flight requests and discover completed responses, especially in collapsed sidebar mode where only icons are visible.
 
 ## Decision
 
-Surface the existing per-conversation streaming state directly in the sidebar using a visually distinct green antenna icon with a pulse animation.
+Surface per-conversation streaming and unviewed state directly in the sidebar with two distinct visual treatments:
 
 | Alternative | Pros | Cons | Decision |
 |---|---|---|---|
-| **Green antenna icon with pulse (chosen)** | Highly visible, uses existing state, no new deps | Adds visual complexity | Selected |
-| Small colored dot on existing icon | Minimal change | Easy to miss, especially when collapsed | Rejected |
-| Text-only "Live" badge | Simple | Not visible when sidebar is collapsed | Rejected |
-| Spinner/loading icon | Familiar pattern | Doesn't convey "broadcasting/live" semantics | Rejected |
+| **Green antenna (live) + blue dot (unviewed)** | Clear two-phase lifecycle, always visible | Adds new store state for unviewed tracking | Selected |
+| Single green dot for both states | Simpler | No distinction between "in progress" vs "done, go read it" | Rejected |
+| Browser notifications for completed responses | Works even when tab is backgrounded | Intrusive, requires permission, OS-dependent | Rejected |
+| Badge with unread count | Precise information | Over-engineered for this use case; count not meaningful | Rejected |
 
 ## Solution Architecture
 
 ### Data Flow
 
-The feature hooks into the existing `streamingConversations` Map in the Zustand chat store (`chat-store.ts`). No new state was introduced.
-
 ```
-chat-store.ts                          Sidebar.tsx
-┌──────────────────────┐    subscribe   ┌──────────────────────┐
-│ streamingConversations│ ────────────> │ isConversationStreaming│
-│   Map<id, state>     │               │   (conv.id) → bool   │
-└──────────────────────┘               └──────────┬───────────┘
-                                                  │
-                                          ┌───────▼───────┐
-                                          │ isLive = true  │
-                                          │ → Radio icon   │
-                                          │ → pulse + ping │
-                                          │ → emerald bg   │
-                                          │ → "Live" text  │
-                                          └───────────────┘
+chat-store.ts                              Sidebar.tsx
+┌───────────────────────┐    subscribe     ┌──────────────────────────┐
+│ streamingConversations │ ──────────────> │ isConversationStreaming() │
+│   Map<id, state>      │                 │   → isLive               │
+├───────────────────────┤                 ├──────────────────────────┤
+│ unviewedConversations  │ ──────────────> │ hasUnviewedMessages()    │
+│   Set<id>             │                 │   → isUnviewed           │
+└───────────┬───────────┘                 └──────────┬───────────────┘
+            │                                        │
+            │  setConversationStreaming(id, null)     │  Render priority:
+            │  ──► if not active → add to unviewed   │  1. isLive → green antenna
+            │                                        │  2. isUnviewed → blue dot
+            │  setActiveConversation(id)             │  3. default → MessageSquare
+            │  ──► remove from unviewed              │
+            └────────────────────────────────────────┘
 ```
 
-### Visual Changes
+### Visual States
 
-When `isLive` is true for a conversation item:
+| Element | Default | Live (streaming) | Unviewed (new response) |
+|---|---|---|---|
+| Icon | `MessageSquare` (gray) | `Radio` (emerald, pulse) | `MessageSquare` (blue) |
+| Dot | None | Green ping dot | Solid blue dot |
+| Background | `bg-muted` | `bg-emerald-500/10` | `bg-blue-500/5` |
+| Border | transparent | `border-emerald-500/30` | `border-blue-500/25` |
+| Date text | `formatDate(updatedAt)` | "Live" (emerald, bold) | "New response" (blue, bold) |
 
-| Element | Default | Live |
-|---|---|---|
-| Icon | `MessageSquare` (gray/primary) | `Radio` (emerald, animate-pulse) |
-| Dot | None | Green ping dot (top-right corner) |
-| Background | `bg-muted` / `bg-primary/10` | `bg-emerald-500/10` |
-| Border | transparent / `border-primary/30` | `border-emerald-500/30` |
-| Date text | `formatDate(updatedAt)` | "Live" (emerald-600/400, bold) |
+### State Lifecycle
 
-All changes are purely conditional — when streaming ends, the item reverts to its existing appearance with no additional cleanup.
+1. User sends a message → conversation starts streaming → **Live** indicator appears
+2. Streaming completes while user is on a different conversation → **Unviewed** indicator appears
+3. User clicks the conversation → unviewed flag is cleared → **Default** appearance
+
+If streaming completes while the user is already viewing that conversation, no unviewed indicator is shown (they saw the response arrive in real time).
 
 ### Collapsed Sidebar
 
-The icon container is rendered outside the `!collapsed` guard in the sidebar layout, so the green antenna and ping dot are visible in icon-only mode.
+The icon container is rendered outside the `!collapsed` guard, so both the green antenna (live) and blue dot (unviewed) are visible in icon-only mode.
 
 ## Components Changed
 
+- `ui/src/store/chat-store.ts`
+  - Added `unviewedConversations: Set<string>` to store state
+  - Added `markConversationUnviewed`, `clearConversationUnviewed`, `hasUnviewedMessages` actions
+  - Updated `setConversationStreaming` to mark non-active conversations as unviewed when streaming ends
+  - Updated `setActiveConversation` to clear the unviewed flag on navigation
+
 - `ui/src/components/layout/Sidebar.tsx`
   - Added `Radio` import from lucide-react
-  - Added `isConversationStreaming` from the chat store
-  - Added `isLive` check per conversation map iteration
-  - Conditional icon rendering (Radio vs MessageSquare)
-  - Conditional styling (emerald background/border/text)
-  - Ping dot overlay with `animate-ping` animation
+  - Added `isConversationStreaming` and `hasUnviewedMessages` from the chat store
+  - Added `isLive` and `isUnviewed` checks per conversation item
+  - Three-state conditional rendering for icon, background, border, and date text
+  - Blue dot badge and "New response" text for unviewed conversations
 
 ## Related
 
 - Spec: `.specify/specs/live-status-indicator.md`
 - Branch: `prebuild/feat/live-status-indicator`
+- PR: [#892](https://github.com/cnoe-io/ai-platform-engineering/pull/892)
