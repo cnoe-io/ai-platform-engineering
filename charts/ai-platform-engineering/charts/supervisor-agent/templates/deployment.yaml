@@ -71,10 +71,14 @@ spec:
             - secretRef:
                 name: {{ $llmSecretName }}
             {{- end }}
-            {{- /* Only include supervisor-agent-env ConfigMap in multi-agent mode */ -}}
-            {{- if eq (default "single-node" .Values.global.deploymentMode) "multi-agent" }}
+            {{- if eq (default "multi-node" .Values.global.deploymentMode) "multi-node" }}
+            {{- /* multi-node: ENABLE_* + agent HOST/PORT vars */ -}}
             - configMapRef:
                 name: {{ printf "%s-supervisor-agent-env" .Release.Name }}
+            {{- else }}
+            {{- /* single-node: ENABLE_* vars only (agents run in-process) */ -}}
+            - configMapRef:
+                name: {{ printf "%s-single-node-agent-env" .Release.Name }}
             {{- end }}
           env:
             - name: AGENT_PROTOCOL
@@ -120,6 +124,16 @@ spec:
               mountPath: /app/task_config.yaml
               subPath: task_config.yaml
               readOnly: true
+            {{- if eq (default "single-node" .Values.global.deploymentMode) "single-node" }}
+            {{- range $name, $enabled := (default dict .Values.global.enabledSubAgents) }}
+            {{- if $enabled }}
+            - name: prompt-config-{{ $name | replace "_" "-" }}
+              mountPath: /app/prompt_config.{{ $name }}_agent.yaml
+              subPath: prompt_config.{{ $name }}_agent.yaml
+              readOnly: true
+            {{- end }}
+            {{- end }}
+            {{- end }}
             {{- with .Values.volumeMounts }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
@@ -133,6 +147,16 @@ spec:
         - name: task-config
           configMap:
             name: task-config
+        {{- if eq (default "single-node" .Values.global.deploymentMode) "single-node" }}
+        {{- range $name, $enabled := (default dict .Values.global.enabledSubAgents) }}
+        {{- if $enabled }}
+        - name: prompt-config-{{ $name | replace "_" "-" }}
+          configMap:
+            name: prompt-config-{{ $name | replace "_" "-" }}
+            optional: true
+        {{- end }}
+        {{- end }}
+        {{- end }}
         {{- with .Values.volumes }}
         {{- toYaml . | nindent 8 }}
         {{- end }}

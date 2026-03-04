@@ -161,12 +161,34 @@ RAG_SERVER_URL = os.getenv("RAG_SERVER_URL", "http://localhost:9446").strip("/")
 RAG_CONNECTIVITY_RETRIES = 5
 RAG_CONNECTIVITY_WAIT_SECONDS = 10
 
+
+def _get_subagent_model(name: str) -> Optional[str]:
+    """Resolve a per-subagent LLM model override from environment variables.
+
+    Checks for SUBAGENT_<NAME>_MODEL env var (e.g. SUBAGENT_GITHUB_MODEL).
+    The value should be a provider:model-name string supported by
+    langchain's init_chat_model (e.g. "openai:gpt-4o-mini").
+
+    Returns None when no override is configured, which causes the
+    deepagents library to fall back to the parent agent's model.
+    """
+    env_var = f"SUBAGENT_{name.upper()}_MODEL"
+    value = os.getenv(env_var)
+    if value:
+        logger.info(f"Per-subagent model override: {env_var}={value}")
+    return value or None
+
 # Structured Response Configuration
 # When enabled, LLM uses ResponseFormat tool for final answers instead of [FINAL ANSWER] marker
 USE_STRUCTURED_RESPONSE = os.getenv("USE_STRUCTURED_RESPONSE", "false").lower() == "true"
 
 # Remote A2A agents (run as separate containers, communicate via A2A protocol)
 ENABLE_WEATHER = os.getenv("ENABLE_WEATHER", "false").lower() in ("true", "1", "yes")
+
+
+def _is_agent_enabled(name: str) -> bool:
+    """Check if an agent is enabled via ENABLE_<NAME> env var (defaults to true)."""
+    return os.getenv(f"ENABLE_{name.upper()}", "true").lower() in ("true", "1", "yes")
 
 
 def replace(old, new):
@@ -496,19 +518,22 @@ def create_caipe_subagent_def() -> dict:
         wait,  # Async sleep for waiting scenarios
     ]
     
-    return {
+    subagent_def = {
         "name": "caipe",
         "description": "Collects user input via forms, writes to filesystem for downstream agents",
         "system_prompt": CAIPE_SUBAGENT_PROMPT,
         "tools": tools,
-        # Use interrupt_on for HITL
         "interrupt_on": {"CAIPEAgentResponse": True},
-        # PolicyMiddleware enforces tool call authorization
-        # SubAgentMiddleware will also add FilesystemMiddleware with shared StateBackend
         "middleware": [
             PolicyMiddleware(agent_name="caipe", agent_type="subagent"),
         ],
     }
+
+    model_override = _get_subagent_model("caipe")
+    if model_override:
+        subagent_def["model"] = model_override
+
+    return subagent_def
 
 
 async def create_subagent_def(agent_instance, name: str, description: str, prompt_config: dict = None) -> dict:
@@ -520,6 +545,11 @@ async def create_subagent_def(agent_instance, name: str, description: str, promp
     System prompts are loaded from prompt_config.yaml when available (via agent_prompts section),
     otherwise falls back to the agent's built-in SYSTEM_INSTRUCTION.
     
+    Per-subagent model overrides are resolved from SUBAGENT_<NAME>_MODEL env vars.
+    The value should be a provider:model-name string (e.g. "openai:gpt-4o-mini")
+    supported by langchain's init_chat_model. When not set, the subagent inherits
+    the parent agent's model.
+    
     Args:
         agent_instance: The agent instance with get_mcp_tools() and SYSTEM_INSTRUCTION
         name: Subagent name for routing
@@ -527,7 +557,8 @@ async def create_subagent_def(agent_instance, name: str, description: str, promp
         prompt_config: Optional prompt configuration dict with agent_prompts section
         
     Returns:
-        SubAgent dict with name, description, system_prompt, tools, middleware
+        SubAgent dict with name, description, system_prompt, tools, middleware,
+        and optionally model
     """
     # Load MCP tools – pass include_fallback=False so _load_mcp_tools returns
     # an empty list on failure instead of silently substituting gh_cli_execute.
@@ -558,19 +589,26 @@ async def create_subagent_def(agent_instance, name: str, description: str, promp
         system_prompt = agent_instance._get_system_instruction_with_date()
         logger.info(f"📝 Using built-in system_prompt for {name} subagent")
     
-    logger.info(f"📦 Created SubAgent def for {name} with {len(tools)} tools (incl. utility tools) + PolicyMiddleware")
-    
-    return {
+    subagent_def = {
         "name": name,
         "description": description,
         "system_prompt": system_prompt,
         "tools": tools,
-        # PolicyMiddleware enforces tool call authorization (read-only tools, self-service mode, etc.)
-        # SubAgentMiddleware will also add FilesystemMiddleware with shared StateBackend
         "middleware": [
             PolicyMiddleware(agent_name=name, agent_type="subagent"),
         ],
     }
+
+    model_override = _get_subagent_model(name)
+    if model_override:
+        subagent_def["model"] = model_override
+
+    logger.info(
+        f"📦 Created SubAgent def for {name} with {len(tools)} tools"
+        f"{f', model={model_override}' if model_override else ''}"
+    )
+    
+    return subagent_def
 
 
 async def create_github_subagent_def(prompt_config: dict = None) -> dict:
@@ -648,6 +686,25 @@ async def create_confluence_subagent_def(prompt_config: dict = None) -> dict:
     """Create Confluence subagent definition with shared filesystem."""
     agent = ConfluenceAgent()
     return await create_subagent_def(agent, "confluence", "Confluence: wiki documentation", prompt_config)
+
+
+# Registry of in-process subagents for single-node mode.
+# Each entry maps agent name to its creation function.
+# Agents are loaded only when ENABLE_<NAME> env var is "true" (default).
+SINGLE_NODE_AGENTS = [
+    ("github", create_github_subagent_def),
+    ("aigateway", create_aigateway_subagent_def),
+    ("backstage", create_backstage_subagent_def),
+    ("jira", create_jira_subagent_def),
+    ("webex", create_webex_subagent_def),
+    ("argocd", create_argocd_subagent_def),
+    ("aws", create_aws_subagent_def),
+    ("pagerduty", create_pagerduty_subagent_def),
+    ("slack", create_slack_subagent_def),
+    ("splunk", create_splunk_subagent_def),
+    ("komodor", create_komodor_subagent_def),
+    ("confluence", create_confluence_subagent_def),
+]
 
 
 # =============================================================================
@@ -795,7 +852,16 @@ class PlatformEngineerDeepAgent:
         """Build the deep agent graph with subagents (async to load MCP tools)."""
         logger.info(f"Building deep agent (generation {self._graph_generation + 1})...")
         
-        base_model = LLMFactory().get_llm()
+        # Resolve the supervisor model.  Prefer SUPERVISOR_MODEL env var using
+        # langchain's provider:model-name format (e.g. "openai:gpt-4o").
+        # Falls back to LLMFactory for backward compatibility with existing
+        # LLM_PROVIDER / OPENAI_MODEL_NAME style env vars.
+        supervisor_model_str = os.getenv("SUPERVISOR_MODEL")
+        if supervisor_model_str:
+            base_model = supervisor_model_str
+            logger.info(f"Supervisor model override: SUPERVISOR_MODEL={supervisor_model_str}")
+        else:
+            base_model = LLMFactory().get_llm()
         
         # Load task configuration
         task_config = load_task_config()
@@ -891,21 +957,17 @@ class PlatformEngineerDeepAgent:
         # Pass prompt_config to use system prompts from prompt_config.yaml
         prompt_config = self._prompt_config
         
-        # Load subagent definitions in parallel
+        # Filter agents by ENABLE_<NAME> env vars
+        enabled_agents = [(name, fn) for name, fn in SINGLE_NODE_AGENTS if _is_agent_enabled(name)]
+        disabled_agents = [name for name, fn in SINGLE_NODE_AGENTS if not _is_agent_enabled(name)]
+        if disabled_agents:
+            logger.info(f"⏭️ Disabled agents (via ENABLE_* env vars): {disabled_agents}")
+        logger.info(f"✅ Enabled agents: {[name for name, _ in enabled_agents]}")
+        
+        # Load enabled subagent definitions in parallel
         # Note: MyID operations are handled through task_config GitHub workflows
         mcp_subagent_results = await asyncio.gather(
-            create_github_subagent_def(prompt_config),
-            create_aigateway_subagent_def(prompt_config),
-            create_backstage_subagent_def(prompt_config),
-            create_jira_subagent_def(prompt_config),
-            create_webex_subagent_def(prompt_config),
-            create_argocd_subagent_def(prompt_config),
-            create_aws_subagent_def(prompt_config),
-            create_pagerduty_subagent_def(prompt_config),
-            create_slack_subagent_def(prompt_config),
-            create_splunk_subagent_def(prompt_config),
-            create_komodor_subagent_def(prompt_config),
-            create_confluence_subagent_def(prompt_config),
+            *[fn(prompt_config) for _, fn in enabled_agents],
             return_exceptions=True,
         )
         
@@ -916,7 +978,8 @@ class PlatformEngineerDeepAgent:
         subagent_defs = [caipe_subagent]  # CAIPE always succeeds (no MCP)
         for i, result in enumerate(mcp_subagent_results):
             if isinstance(result, Exception):
-                logger.warning(f"Failed to create subagent: {result}")
+                agent_name = enabled_agents[i][0]
+                logger.warning(f"Failed to create subagent '{agent_name}': {result}")
             else:
                 subagent_defs.append(result)
         

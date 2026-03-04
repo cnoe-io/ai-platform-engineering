@@ -24,6 +24,64 @@ tags:
 
 # Global configuration shared across all subcharts
 global:
+  # Deployment mode: "single-node" (all agents in-process) or "multi-node" (each agent as a separate pod)
+  deploymentMode: "multi-node"
+
+  # Supervisor (parent agent) LLM model override (single-node mode only).
+  # Uses langchain's provider:model-name format (e.g. "openai:gpt-4o").
+  # When empty, falls back to the LLM_PROVIDER / model-name env vars from llm-secret.
+  supervisorModel: ""
+
+  # Per-subagent LLM model overrides (single-node mode only).
+  # In single-node mode all subagents share the supervisor's LLM by default.
+  # Set a value here to override the model for a specific subagent.
+  # Values use the provider:model-name format supported by langchain's init_chat_model.
+  # Examples: "openai:gpt-4o-mini", "anthropic:claude-sonnet-4-5-20250929"
+  # Leave empty or omit entries to use the default model from llm-secret.
+  # In multi-node mode each agent runs in its own container — use per-agent
+  # env overrides or separate llm-secret values instead.
+  subagentModels: {}
+    # github: "openai:gpt-4o-mini"
+    # jira: "openai:gpt-4o"
+    # argocd: "azure_openai:gpt-5.2"
+    # argocd: "anthropic:claude-sonnet-4-5-20250929"
+
+  # Agent enable/disable toggles — used by BOTH single-node and multi-node modes.
+  #   single-node : controls which in-process agents are loaded (via ENABLE_<NAME> env vars)
+  #   multi-node  : controls which agent pods are registered with the supervisor
+  # Agents whose env var is absent default to enabled in single-node mode,
+  # so explicitly set an agent to false here to disable it.
+  enabledSubAgents:
+    aigateway: true
+    argocd: true
+    aws: true
+    backstage: true
+    confluence: true
+    github: true
+    jira: true
+    komodor: true
+    pagerduty: true
+    rag: false
+    slack: true
+    splunk: true
+    weather: false
+    webex: true
+
+  # HashiCorp Vault configuration for secure LiteLLM API key storage (AppRole auth).
+  # Vault is always used by the aigateway agent — keys are stored/retrieved from Vault
+  # whenever VAULT_ADDR and AppRole credentials are available.
+  #
+  # All Vault env vars should be added to llmSecrets (either .data for createLlmSecret
+  # or .externalSecrets.data for ExternalSecrets), matching the pattern used for all
+  # other env vars. Required env vars:
+  #   VAULT_ADDR           - e.g. "https://keeper.cisco.com"
+  #   VAULT_NAMESPACE      - Vault Enterprise namespace, e.g. "eticloud"
+  #   VAULT_ROLE_ID        - AppRole role ID
+  #   VAULT_SECRET_ID      - AppRole secret ID
+  #   VAULT_MOUNT_POINT    - KV v2 mount point (default: "secret")
+  #   VAULT_APPROLE_PATH   - AppRole auth path (default: "approle")
+  #   VAULT_PATH_PREFIX    - Secret path prefix for LiteLLM keys
+
   createLlmSecret: false # if true, llm secret will be created by the parent chart. Otherwise, expect existing llm secret
   llmSecrets:
     create: false # do not create llm secret in subcharts (use global or existing llm secret)
