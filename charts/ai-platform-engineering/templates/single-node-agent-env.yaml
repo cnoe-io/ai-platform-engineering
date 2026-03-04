@@ -4,7 +4,7 @@ It provides ENABLE_<AGENT> env vars so the deep agent knows which subagents to l
 and SUBAGENT_<AGENT>_MODEL env vars for per-subagent LLM model overrides.
 In multi-node mode, the supervisor-agent-env ConfigMap handles this instead.
 */ -}}
-{{- if eq (default "single-node" .Values.global.deploymentMode) "single-node" }}
+{{- if eq (default "multi-node" .Values.global.deploymentMode) "single-node" }}
 apiVersion: v1
 kind: ConfigMap
 metadata:

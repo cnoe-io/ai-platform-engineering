@@ -165,7 +165,7 @@ spec:
               mountPath: /app/task_config.yaml
               subPath: task_config.yaml
               readOnly: true
-            {{- if eq (default "single-node" .Values.global.deploymentMode) "single-node" }}
+            {{- if eq (default "multi-node" .Values.global.deploymentMode) "single-node" }}
             {{- range $name, $enabled := (default dict .Values.global.enabledSubAgents) }}
             {{- if $enabled }}
             - name: prompt-config-{{ $name | replace "_" "-" }}
@@ -188,7 +188,7 @@ spec:
         - name: task-config
           configMap:
             name: task-config
-        {{- if eq (default "single-node" .Values.global.deploymentMode) "single-node" }}
+        {{- if eq (default "multi-node" .Values.global.deploymentMode) "single-node" }}
         {{- range $name, $enabled := (default dict .Values.global.enabledSubAgents) }}
         {{- if $enabled }}
         - name: prompt-config-{{ $name | replace "_" "-" }}

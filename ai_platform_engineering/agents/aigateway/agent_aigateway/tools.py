@@ -88,6 +88,22 @@ async def _send_webex_message(to_email: str, markdown: str) -> bool:
   return False
 
 
+def _format_embedding_code_examples(base_url: str, model: str, api_key: str) -> str:
+  """Build cURL and Python sample code blocks for embeddings."""
+  s = "**Sample cURL:**\n```bash\n"
+  s += f"curl -X POST '{base_url}/v1/embeddings' \\\n"
+  s += f"  -H 'Authorization: Bearer {api_key}' \\\n"
+  s += "  -H 'Content-Type: application/json' \\\n"
+  s += f"  -d '{{\"model\": \"{model}\", \"input\": [\"test\"]}}'\n"
+  s += "```\n\n"
+  s += "**Python:**\n```python\n"
+  s += "import openai\n"
+  s += f"client = openai.OpenAI(api_key=\"{api_key}\", base_url=\"{base_url}\")\n"
+  s += f"response = client.embeddings.create(model=\"{model}\", input=[\"test\"])\n"
+  s += "```\n\n"
+  return s
+
+
 def _format_chat_code_examples(base_url: str, model: str, api_key: str) -> str:
   """Build cURL, Python OpenAI, and Python LangChain sample code blocks for chat completions."""
   s = "**Sample cURL:**\n```bash\n"
@@ -163,17 +179,7 @@ def _build_webex_message(
   is_embedding = "embed" in model_name.lower()
 
   if is_embedding:
-    msg += "**Sample cURL:**\n```bash\n"
-    msg += f"curl -X POST '{LITELLM_API_URL}/v1/embeddings' \\\n"
-    msg += f"  -H 'Authorization: Bearer {api_key}' \\\n"
-    msg += "  -H 'Content-Type: application/json' \\\n"
-    msg += f"  -d '{{\"model\": \"{full_model_name}\", \"input\": [\"test\"]}}'\n"
-    msg += "```\n\n"
-    msg += "**Python:**\n```python\n"
-    msg += "import openai\n"
-    msg += f"client = openai.OpenAI(api_key=\"{api_key}\", base_url=\"{LITELLM_API_URL}\")\n"
-    msg += f"response = client.embeddings.create(model=\"{full_model_name}\", input=[\"test\"])\n"
-    msg += "```\n\n"
+    msg += _format_embedding_code_examples(LITELLM_API_URL, full_model_name, api_key)
   else:
     msg += _format_chat_code_examples(LITELLM_API_URL, full_model_name, api_key)
 
