@@ -10,14 +10,15 @@ kind: ConfigMap
 metadata:
   name: {{ printf "%s-single-node-agent-env" .Release.Name }}
 data:
-  {{- if .Values.global.supervisorModel }}
-  SUPERVISOR_MODEL: {{ .Values.global.supervisorModel | quote }}
+  {{- $singleNode := default dict .Values.singleNode }}
+  {{- if $singleNode.supervisorModel }}
+  SUPERVISOR_MODEL: {{ $singleNode.supervisorModel | quote }}
   {{- end }}
   {{- range $name, $enabled := (default dict .Values.global.enabledSubAgents) }}
   {{- $ENV := upper $name }}
   ENABLE_{{ $ENV }}: {{ ternary "true" "false" $enabled | quote }}
   {{- end }}
-  {{- range $name, $model := (default dict .Values.global.subagentModels) }}
+  {{- range $name, $model := (default dict $singleNode.subagentModels) }}
   {{- if $model }}
   SUBAGENT_{{ upper $name }}_MODEL: {{ $model | quote }}
   {{- end }}

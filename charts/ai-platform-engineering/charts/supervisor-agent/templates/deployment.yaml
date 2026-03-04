@@ -77,6 +77,13 @@ spec:
             {{- else }}
             - configMapRef:
                 name: {{ printf "%s-single-node-agent-env" .Release.Name }}
+            {{- range $name, $enabled := (default dict .Values.global.enabledSubAgents) }}
+            {{- if $enabled }}
+            - secretRef:
+                name: {{ printf "agent-%s-secret" $name }}
+                optional: true
+            {{- end }}
+            {{- end }}
             {{- end }}
           env:
             - name: AGENT_PROTOCOL
