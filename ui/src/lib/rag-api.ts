@@ -149,6 +149,32 @@ async function post<T>(path: string, body?: unknown): Promise<T> {
 }
 
 /**
+ * Make a PUT request to the RAG API
+ */
+async function put<T>(path: string, body?: unknown): Promise<T> {
+  const url = `${API_BASE}${path}`;
+
+  const response = await fetch(url, {
+    method: 'PUT',
+    credentials: 'include',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+
+  if (!response.ok) {
+    throw new Error(`API Error: ${response.status} ${response.statusText}`);
+  }
+
+  if (response.status === 204) {
+    return {} as T;
+  }
+
+  return response.json();
+}
+
+/**
  * Make a DELETE request to the RAG API
  */
 async function del<T>(path: string, params?: Record<string, string>): Promise<T> {
@@ -348,4 +374,57 @@ export async function getUserInfo(): Promise<UserInfo> {
   }
   
   return data;
+}
+
+// ============================================================================
+// MCP Tool Configuration API
+// ============================================================================
+
+export interface ParallelSearch {
+  label: string;
+  datasource_ids: string[];
+  is_graph_entity: boolean | null;
+  extra_filters: Record<string, unknown>;
+  semantic_weight: number;
+}
+
+export interface MCPToolConfig {
+  tool_id: string;
+  description: string;
+  parallel_searches: ParallelSearch[];
+  allow_runtime_filters: boolean;
+  enabled: boolean;
+  created_at: number;
+  updated_at: number;
+}
+
+export interface MCPBuiltinToolsConfig {
+  search_enabled: boolean;
+  fetch_document_enabled: boolean;
+  fetch_datasources_enabled: boolean;
+  graph_tools_enabled: boolean;
+}
+
+export async function getMCPTools(): Promise<MCPToolConfig[]> {
+  return get('/v1/mcp/tools');
+}
+
+export async function createMCPTool(config: Omit<MCPToolConfig, 'created_at' | 'updated_at'>): Promise<MCPToolConfig> {
+  return post('/v1/mcp/tools', config);
+}
+
+export async function updateMCPTool(toolId: string, config: MCPToolConfig): Promise<MCPToolConfig> {
+  return put(`/v1/mcp/tools/${toolId}`, config);
+}
+
+export async function deleteMCPTool(toolId: string): Promise<{ message: string }> {
+  return del(`/v1/mcp/tools/${toolId}`);
+}
+
+export async function getMCPBuiltinConfig(): Promise<MCPBuiltinToolsConfig> {
+  return get('/v1/mcp/builtin-config');
+}
+
+export async function updateMCPBuiltinConfig(config: MCPBuiltinToolsConfig): Promise<MCPBuiltinToolsConfig> {
+  return put('/v1/mcp/builtin-config', config);
 }

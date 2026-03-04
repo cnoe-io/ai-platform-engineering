@@ -23,10 +23,7 @@ VAULT_SECRET_ID = os.getenv("VAULT_SECRET_ID", "")
 VAULT_NAMESPACE = os.getenv("VAULT_NAMESPACE", "")
 VAULT_MOUNT_POINT = os.getenv("VAULT_MOUNT_POINT", "secret")
 VAULT_APPROLE_PATH = os.getenv("VAULT_APPROLE_PATH", "approle")
-VAULT_PATH_PREFIX = os.getenv(
-  "VAULT_PATH_PREFIX",
-  "projects/litellm/dev/jarvis-agent/litellm-keys",
-)
+VAULT_PATH_PREFIX = os.getenv("VAULT_PATH_PREFIX", "")
 
 
 class VaultAuthenticationError(Exception):

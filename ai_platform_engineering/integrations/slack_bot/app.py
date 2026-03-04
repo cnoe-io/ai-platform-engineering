@@ -143,6 +143,8 @@ def handle_mention(event, say, client):
 
         if is_humble_followup:
             mention_prompt = config.defaults.humble_followup_prompt
+        elif channel_config.custom_prompt:
+            mention_prompt = channel_config.custom_prompt
         else:
             mention_prompt = config.defaults.default_mention_prompt
         final_message = mention_prompt.format(message_text=context_message)

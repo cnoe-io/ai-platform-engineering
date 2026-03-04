@@ -86,7 +86,7 @@ services:
       - VAULT_SECRET_ID=${VAULT_SECRET_ID:-}
       - VAULT_MOUNT_POINT=${VAULT_MOUNT_POINT:-secret}
       - VAULT_APPROLE_PATH=${VAULT_APPROLE_PATH:-approle}
-      - VAULT_PATH_PREFIX=${VAULT_PATH_PREFIX:-projects/litellm/dev/jarvis-agent/litellm-keys}
+      - VAULT_PATH_PREFIX=${VAULT_PATH_PREFIX:-}
 
       # Artifact streaming
       - ENABLE_ARTIFACT_STREAMING=true

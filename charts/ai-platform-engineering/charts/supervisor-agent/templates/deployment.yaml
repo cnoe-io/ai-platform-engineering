@@ -66,17 +66,15 @@ spec:
               protocol: TCP
             {{- end }}
           envFrom:
-            {{- $llmSecretName := include "supervisorAgent.llmSecrets.secretName" . | trim -}}
+            {{- $llmSecretName := include "supervisorAgent.llmSecrets.secretName" . | trim }}
             {{- if $llmSecretName }}
             - secretRef:
                 name: {{ $llmSecretName }}
             {{- end }}
             {{- if eq (default "multi-node" .Values.global.deploymentMode) "multi-node" }}
-            {{- /* multi-node: ENABLE_* + agent HOST/PORT vars */ -}}
             - configMapRef:
                 name: {{ printf "%s-supervisor-agent-env" .Release.Name }}
             {{- else }}
-            {{- /* single-node: ENABLE_* vars only (agents run in-process) */ -}}
             - configMapRef:
                 name: {{ printf "%s-single-node-agent-env" .Release.Name }}
             {{- end }}
@@ -96,6 +94,42 @@ spec:
               value: {{ include "supervisorAgent.slim.transport" . | quote }}
             - name: SLIM_ENDPOINT
               value: {{ include "supervisorAgent.slim.endpoint" . | quote }}
+            {{- end }}
+            {{- with .Values.memoryPersistence }}
+            - name: LANGGRAPH_STORE_TYPE
+              value: {{ .type | default "memory" | quote }}
+            {{- if eq (.type | default "memory") "redis" }}
+            {{- if and .redis.existingSecret .redis.existingSecret.name .redis.existingSecret.key }}
+            - name: LANGGRAPH_STORE_REDIS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .redis.existingSecret.name | quote }}
+                  key: {{ .redis.existingSecret.key | quote }}
+            {{- else }}
+            - name: LANGGRAPH_STORE_REDIS_URL
+              value: {{ .redis.url | default "" | quote }}
+            {{- end }}
+            {{- if .redis.keyPrefix }}
+            - name: LANGGRAPH_STORE_KEY_PREFIX
+              value: {{ .redis.keyPrefix | quote }}
+            {{- end }}
+            {{- end }}
+            {{- if eq (.type | default "memory") "postgres" }}
+            {{- if and .postgres.existingSecret .postgres.existingSecret.name .postgres.existingSecret.key }}
+            - name: LANGGRAPH_STORE_POSTGRES_DSN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .postgres.existingSecret.name | quote }}
+                  key: {{ .postgres.existingSecret.key | quote }}
+            {{- else }}
+            - name: LANGGRAPH_STORE_POSTGRES_DSN
+              value: {{ .postgres.dsn | default "" | quote }}
+            {{- end }}
+            {{- end }}
+            - name: LANGGRAPH_STORE_TTL_MINUTES
+              value: {{ .ttlMinutes | default 10080 | quote }}
+            - name: ENABLE_FACT_EXTRACTION
+              value: {{ .enableFactExtraction | default false | quote }}
             {{- end }}
           {{- if not (eq (include "supervisorAgent.slim.enabled" .) "true") }}
           {{- with .Values.livenessProbe }}

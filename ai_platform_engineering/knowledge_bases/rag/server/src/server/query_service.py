@@ -11,22 +11,24 @@ class VectorDBQueryService:
     def __init__(self, vector_db: Milvus):
         self.vector_db = vector_db
 
-    async def validate_filter_keys(self, filters: Dict[str, str]):
+    async def validate_filter_keys(self, filters: Dict[str, "str | bool | List[str]"]):
         """Validate filter keys and values"""
         valid_filter_keys = valid_metadata_keys()
         for filter_name, filter_value in filters.items():
             if filter_name not in valid_filter_keys:
                 logger.warning(f"Invalid filter key: {filter_name}")
                 raise ValueError(f"Invalid filter key: {filter_name}, must be one of {valid_filter_keys}")
-            
-            # Add additional validation for filter values if needed
-            if not isinstance(filter_value, str) and not isinstance(filter_value, bool):
-                logger.warning(f"Invalid filter value for {filter_name}: {filter_value}, must be a string or boolean")
-                raise ValueError(f"Invalid filter value for {filter_name}: {filter_value}, must be a string or boolean")
 
-    async def query(self, 
+            if isinstance(filter_value, list):
+                if not all(isinstance(v, str) for v in filter_value):
+                    raise ValueError(f"Invalid filter value for {filter_name}: list values must all be strings")
+            elif not isinstance(filter_value, str) and not isinstance(filter_value, bool):
+                logger.warning(f"Invalid filter value for {filter_name}: {filter_value}, must be a string, boolean, or list of strings")
+                raise ValueError(f"Invalid filter value for {filter_name}: {filter_value}, must be a string, boolean, or list of strings")
+
+    async def query(self,
         query: str,
-        filters: Optional[Dict[str, str|bool]] = None,
+        filters: Optional[Dict[str, "str | bool | List[str]"]] = None,
         limit: int = 10, 
         ranker: str = "",
         ranker_params: Optional[Dict[str, Any]] = None) -> List[QueryResult]:
@@ -51,6 +53,20 @@ class VectorDBQueryService:
                 if isinstance(value, bool):
                     # For boolean values, don't use quotes
                     filter_expr_parts.append(f"{key} == {str(value).lower()}")
+                elif isinstance(value, list):
+                    # Split into exact values and prefix patterns (ending with *)
+                    exact = [v for v in value if not v.endswith("*")]
+                    prefixes = [v[:-1] for v in value if v.endswith("*")]
+                    parts = []
+                    if exact:
+                        values_str = ", ".join([f'"{v}"' for v in exact])
+                        parts.append(f"{key} in [{values_str}]")
+                    for prefix in prefixes:
+                        parts.append(f'{key} like "{prefix}%"')
+                    if len(parts) == 1:
+                        filter_expr_parts.append(parts[0])
+                    else:
+                        filter_expr_parts.append(f"({' or '.join(parts)})")
                 else:
                     # For string values, use quotes
                     filter_expr_parts.append(f"{key} == '{value}'")

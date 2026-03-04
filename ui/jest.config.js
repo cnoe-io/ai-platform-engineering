@@ -26,6 +26,8 @@ const customJestConfig = {
   transformIgnorePatterns: [
     'node_modules/(?!(uuid|@a2a-js)/)',
   ],
+  // Prevent CI failure when workers do not exit gracefully (e.g. SkillsBuilderEditor async state)
+  forceExit: true,
 }
 
 // createJestConfig is exported this way to ensure that next/jest can load the Next.js config which is async

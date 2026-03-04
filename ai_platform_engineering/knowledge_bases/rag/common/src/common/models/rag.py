@@ -56,4 +56,55 @@ class DocumentChunkMetadata(DocumentMetadata): # Inherits from DocumentMetadata
     id: str = Field(..., description="Unique identifier for the document chunk")
     chunk_index: int = Field(..., description="Index of the chunk within the document")
     total_chunks: int = Field(..., description="Total number of chunks in the document")
-    
+
+
+# ============================================================================
+# Models for MCP tool configuration
+# ============================================================================
+
+class MCPBuiltinToolsConfig(BaseModel):
+    """Enable/disable flags for built-in MCP tools."""
+    search_enabled: bool = True
+    fetch_document_enabled: bool = True
+    fetch_datasources_enabled: bool = True
+    graph_tools_enabled: bool = True  # Only active when graph_rag_enabled=True on server
+
+
+class ParallelSearch(BaseModel):
+    """One leg of a parallel search. Each entry in MCPToolConfig.parallel_searches
+    becomes a concurrent vector-DB query whose results are returned under its label.
+    """
+    label: str = Field(..., description="Key used in the response dict for this search's results")
+    datasource_ids: List[str] = Field(
+        default_factory=list,
+        description="Datasource IDs (or prefix patterns ending with *) to restrict this search. Empty = all."
+    )
+    is_graph_entity: Optional[bool] = Field(
+        default=None,
+        description="None = no filter, True = graph entities only, False = regular documents only"
+    )
+    extra_filters: Dict[str, Any] = Field(
+        default_factory=dict,
+        description="Additional metadata filters applied to this search"
+    )
+    semantic_weight: float = Field(
+        default=0.5, ge=0.0, le=1.0,
+        description="Semantic (dense) weight for this search. Keyword weight = 1.0 - this value."
+    )
+
+
+class MCPToolConfig(BaseModel):
+    """Configuration for a custom MCP search tool."""
+    tool_id: str = Field(..., description="Slug used as the MCP tool name, e.g. 'infra_search'")
+    description: str = Field(default="", description="Tool description shown to the LLM agent")
+    parallel_searches: List[ParallelSearch] = Field(
+        default_factory=lambda: [ParallelSearch(label="results")],
+        description="One or more parallel sub-searches. Response is a dict keyed by label."
+    )
+    allow_runtime_filters: bool = Field(
+        default=False,
+        description="If True, expose a 'filters' parameter so the LLM can pass extra filters per-call."
+    )
+    enabled: bool = True
+    created_at: int = Field(default=0, description="Unix timestamp of creation")
+    updated_at: int = Field(default=0, description="Unix timestamp of last update")

@@ -244,6 +244,7 @@ export class A2ASDKClient {
         role: "user",
         parts: parts as MessageSendParams["message"]["parts"],
         ...(contextId && { contextId }),
+        ...(this.userEmail && { metadata: { user_email: this.userEmail } }),
       },
     };
 

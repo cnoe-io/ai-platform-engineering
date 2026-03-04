@@ -2,11 +2,13 @@
 import json
 from typing import Optional, List
 import redis.asyncio as redis
-from common.models.rag import DataSourceInfo, IngestorInfo
+from common.models.rag import DataSourceInfo, IngestorInfo, MCPToolConfig, MCPBuiltinToolsConfig
 from common.constants import (
     REDIS_DATASOURCE_PREFIX,
     REDIS_DATASOURCE_DOCUMENTS_PREFIX,
-    REDIS_INGESTOR_PREFIX
+    REDIS_INGESTOR_PREFIX,
+    REDIS_MCP_TOOL_CONFIG_PREFIX,
+    REDIS_MCP_BUILTIN_CONFIG_KEY,
 )
 
 class MetadataStorage:
@@ -107,12 +109,60 @@ class MetadataStorage:
         if keys:
             await self.redis_client.delete(*keys)
 
+    # ============================================================================
+    # MCP tool config methods
+    # ============================================================================
+
+    async def store_mcp_tool_config(self, config: MCPToolConfig):
+        """Store an MCP tool configuration in Redis."""
+        await self.redis_client.set(
+            f"{REDIS_MCP_TOOL_CONFIG_PREFIX}{config.tool_id}",
+            json.dumps(config.model_dump(), default=str)
+        )
+
+    async def get_mcp_tool_config(self, tool_id: str) -> Optional[MCPToolConfig]:
+        """Retrieve an MCP tool configuration from Redis."""
+        data = await self.redis_client.get(f"{REDIS_MCP_TOOL_CONFIG_PREFIX}{tool_id}")
+        if data:
+            return MCPToolConfig(**json.loads(data))
+        return None
+
+    async def fetch_all_mcp_tool_configs(self) -> List[MCPToolConfig]:
+        """List all stored MCP tool configurations."""
+        keys = await self.redis_client.keys(f"{REDIS_MCP_TOOL_CONFIG_PREFIX}*")
+        result = []
+        for key in keys:
+            raw = await self.redis_client.get(key)
+            if raw:
+                result.append(MCPToolConfig(**json.loads(raw)))
+        return result
+
+    async def delete_mcp_tool_config(self, tool_id: str):
+        """Delete an MCP tool configuration from Redis."""
+        await self.redis_client.delete(f"{REDIS_MCP_TOOL_CONFIG_PREFIX}{tool_id}")
+
+    async def store_mcp_builtin_config(self, config: MCPBuiltinToolsConfig):
+        """Store the built-in MCP tools configuration (fetch/graph enable flags)."""
+        await self.redis_client.set(
+            REDIS_MCP_BUILTIN_CONFIG_KEY,
+            json.dumps(config.model_dump(), default=str)
+        )
+
+    async def get_mcp_builtin_config(self) -> Optional[MCPBuiltinToolsConfig]:
+        """Retrieve the built-in MCP tools configuration."""
+        data = await self.redis_client.get(REDIS_MCP_BUILTIN_CONFIG_KEY)
+        if data:
+            return MCPBuiltinToolsConfig(**json.loads(data))
+        return None
+
     async def clear_all_data(self):
         """Clear all Redis data"""
         datasource_keys = await self.redis_client.keys(f"{REDIS_DATASOURCE_PREFIX}*")
         relation_keys = await self.redis_client.keys(f"{REDIS_DATASOURCE_DOCUMENTS_PREFIX}*")
         ingestor_keys = await self.redis_client.keys(f"{REDIS_INGESTOR_PREFIX}*")
-        
-        all_keys = datasource_keys + relation_keys + ingestor_keys
+        mcp_tool_keys = await self.redis_client.keys(f"{REDIS_MCP_TOOL_CONFIG_PREFIX}*")
+        mcp_builtin_keys = await self.redis_client.keys(REDIS_MCP_BUILTIN_CONFIG_KEY)
+
+        all_keys = datasource_keys + relation_keys + ingestor_keys + mcp_tool_keys + mcp_builtin_keys
         if all_keys:
             await self.redis_client.delete(*all_keys)

@@ -456,6 +456,55 @@ def _get_message_content(message: BaseMessage) -> str:
 
 
 # ============================================================================
+# Cross-Thread Store Integration
+# ============================================================================
+
+async def _save_summary_to_store(
+    store: Any,
+    config: Any,
+    summary_text: str,
+    agent_name: str = "agent",
+) -> None:
+    """
+    Save a compression summary to the cross-thread store for future conversations.
+
+    Only saves if both a store and user_id are available in config metadata.
+    Failures are logged but do not affect the caller.
+    """
+    if store is None or not summary_text:
+        return
+
+    try:
+        metadata = config.get("metadata", {}) if isinstance(config, dict) else {}
+        user_id = metadata.get("user_id")
+        thread_id = (
+            config.get("configurable", {}).get("thread_id")
+            if isinstance(config, dict)
+            else None
+        )
+
+        if not user_id:
+            logger.debug(f"[{agent_name}] No user_id in config, skipping cross-thread summary save")
+            return
+
+        from ai_platform_engineering.utils.store import store_put_summary
+        key = await store_put_summary(
+            store=store,
+            user_id=user_id,
+            summary=summary_text,
+            thread_id=thread_id,
+        )
+
+        if key:
+            logger.info(
+                f"[{agent_name}] Saved compression summary to cross-thread store "
+                f"(user={user_id}, key={key})"
+            )
+    except Exception as e:
+        logger.debug(f"[{agent_name}] Failed to save summary to cross-thread store: {e}")
+
+
+# ============================================================================
 # Proactive Context Management
 # ============================================================================
 
@@ -485,6 +534,7 @@ async def preflight_context_check(
     max_context_tokens: int = 100000,
     min_messages_to_keep: int = 4,
     tool_count: int = 40,
+    store: Any = None,
 ) -> ContextCheckResult:
     """
     Proactively check context usage and compress if needed BEFORE calling LLM.
@@ -637,6 +687,14 @@ async def preflight_context_check(
                     f"{total_estimated:,} → {new_total:,} tokens. "
                     f"LangMem used: {result.used_langmem}, "
                     f"saved {result.tokens_saved:,} tokens"
+                )
+
+                # Save summary to cross-thread store for future conversations
+                await _save_summary_to_store(
+                    store=store,
+                    config=config,
+                    summary_text=result.summary_message.content,
+                    agent_name=agent_name,
                 )
 
                 return ContextCheckResult(

@@ -370,7 +370,7 @@ Deploy the chart:
 helm upgrade --install caipe oci://ghcr.io/cnoe-io/charts/ai-platform-engineering \
   --namespace caipe \
   --version 0.2.31 \
-  --set global.caipeUi.enabled=true \
+  --set tags.caipe-ui=true \
   --set tags.agent-weather=true \
   --set tags.agent-netutils=true \
   --set caipe-ui.config.SSO_ENABLED=false \
@@ -397,7 +397,7 @@ helm upgrade --install caipe oci://ghcr.io/cnoe-io/charts/ai-platform-engineerin
 > helm upgrade --install caipe oci://ghcr.io/cnoe-io/charts/ai-platform-engineering \
 >   --namespace caipe \
 >   --version 0.2.31 \
->   --set global.caipeUi.enabled=true \
+>   --set tags.caipe-ui=true \
 >   --set tags.agent-weather=true \
 >   --set tags.agent-netutils=true \
 >   --set caipe-ui.config.SSO_ENABLED=false \

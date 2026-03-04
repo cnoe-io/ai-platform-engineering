@@ -1,6 +1,7 @@
+import asyncio
 import os
 import re
-from typing import Optional, List, Dict, Any
+from typing import Callable, Optional, List, Dict, Any
 
 from common.utils import get_logger
 from common.graph_db.base import GraphDB
@@ -9,15 +10,15 @@ import dotenv
 from langchain_core.messages.utils import count_tokens_approximately
 from redis.asyncio import Redis
 from common.constants import (
-    KV_ONTOLOGY_VERSION_ID_KEY, 
-    PROP_DELIMITER, 
+    KV_ONTOLOGY_VERSION_ID_KEY,
+    PROP_DELIMITER,
     ONTOLOGY_VERSION_ID_KEY,
     PRIMARY_ID_KEY
 )
 from common.models.graph import Entity, EntityIdentifier
 import traceback
 from server.query_service import VectorDBQueryService
-from common.models.rag import valid_metadata_keys
+from common.models.rag import valid_metadata_keys, MCPToolConfig, MCPBuiltinToolsConfig, ParallelSearch
 from fastmcp import FastMCP
 from common.utils import json_encode
 
@@ -29,22 +30,6 @@ max_graph_raw_query_results=int(os.getenv("MAX_GRAPH_RAW_QUERY_RESULTS", 100))
 max_graph_raw_query_tokens=int(os.getenv("MAX_GRAPH_RAW_QUERY_TOKENS", 80000))
 search_result_truncate_length=int(os.getenv("SEARCH_RESULT_TRUNCATE_LENGTH", 500))
 
-# Bias presets for search tool
-BIAS_KEYWORD = "keyword"  # 80% keyword, 20% semantic
-BIAS_SEMANTIC = "semantic"  # 30% keyword, 70% semantic
-
-def get_search_weights(bias: str) -> List[float]:
-    """Get search weights based on bias type.
-    Returns [semantic_weight, keyword_weight]
-    """
-    if bias == BIAS_KEYWORD:
-        return [0.1, 0.9]  # 10% semantic, 90% keyword
-    elif bias == BIAS_SEMANTIC:
-        return [0.5, 0.5]  # 50% semantic, 50% keyword
-    else:
-        # Default to semantic
-        return [0.5, 0.5]
-
 class AgentTools:
     def __init__(self, redis_client: Redis, vector_db_query_service: VectorDBQueryService, metadata_storage: MetadataStorage, data_graph_db: Optional[GraphDB] = None, ontology_graph_db: Optional[GraphDB] = None):
         self.redis_client = redis_client
@@ -53,64 +38,36 @@ class AgentTools:
         self.data_graphdb: Optional[GraphDB] = data_graph_db
         self.ontology_graphdb: Optional[GraphDB] = ontology_graph_db
 
-    async def register_tools(self, mcp: FastMCP, graph_rag_enabled: bool):
+    # Tool IDs permanently managed by the server — never register from custom config
+    _SKIP_TOOL_IDS = {"search", "fetch_document", "list_datasources_and_entity_types"}
 
-        # Modify search description based on graph_rag_enabled and valid_filter_keys 
-        if graph_rag_enabled:
-            valid_filter_keys = valid_metadata_keys()
-            logger.info(f"Valid filter keys for search tool: {valid_filter_keys}")
-            search_description = f"""
-        Search for relevant documents and graph entities using semantic search in the vector databases.
-        Automatically searches BOTH graph entities and regular documents.
-        Returns results with text truncated to 500 chars. Use fetch_document to get full content.
-        Args:
-            query (str): The search query
-                - For semantic search (default): Use full sentences (e.g., "What is the deployment process?")
-                - For keyword search: Use specific terms (e.g., "ERROR-404", "S3BucketEncryption")
-            filters (dict): Optional filters to apply. Valid filter keys are: {valid_filter_keys}.
-            limit (int): Maximum number of results per type to return (default: 10).
-            keyword_search (bool): If True, search for exact keywords/terms. If False (default), use semantic search with full sentences.
-            thought (str): Your thoughts for choosing this tool
+    async def register_tools(
+        self,
+        mcp: FastMCP,
+        graph_rag_enabled: bool,
+        builtin_config: MCPBuiltinToolsConfig,
+        tool_configs: List[MCPToolConfig],
+    ) -> None:
+        """Register all MCP tools based on runtime configuration."""
+        # Register the hardcoded search tool (if enabled)
+        if builtin_config.search_enabled:
+            mcp.tool(self.search)
 
-        Returns:
-            dict: {{
-                "graph_entity_documents": [list of graph entity results],
-                "text_documents": [list of regular document results]
-            }}
-            Each result contains text_content (truncated to 500 chars), metadata, and score.
-            Use fetch_document with document_id to get full content.
-        """
-        else:
-            valid_filter_keys = valid_metadata_keys() # exclude graph metadata keys
-            # remove any graph-related keys
-            valid_filter_keys = [key for key in valid_filter_keys if "graph_entity" not in key]
+        # Register each enabled custom search tool (skip reserved/built-in names)
+        for config in tool_configs:
+            if not config.enabled or config.tool_id in self._SKIP_TOOL_IDS:
+                continue
+            fn = self._make_search_fn(config, graph_rag_enabled)
+            description = self._build_search_description(config, graph_rag_enabled)
+            mcp.tool(name_or_fn=fn, description=description)
 
-            logger.info(f"Valid filter keys for search tool: {valid_filter_keys}")
-            search_description =f"""
-        Search for relevant documents using semantic search in the vector databases.
-        Returns results with text truncated to 500 chars. Use fetch_document to get full content.
-        Args:
-            query (str): The search query
-                - For semantic search (default): Use full sentences (e.g., "What is the deployment process?")
-                - For keyword search: Use specific terms (e.g., "ERROR-404", "deployment-failure")
-            filters (dict): Optional filters to apply. Valid filter keys are: {valid_filter_keys}.
-            limit (int): Maximum number of results to return (default: 10)
-            keyword_search (bool): If True, search for exact keywords/terms. If False (default), use semantic search with full sentences.
-            thought (str): Your thoughts for choosing this tool
+        # Built-in non-search tools
+        if builtin_config.fetch_document_enabled:
+            mcp.tool(self.fetch_document)
+        if builtin_config.fetch_datasources_enabled:
+            mcp.tool(self.list_datasources_and_entity_types)
 
-        Returns:
-            list: search results with text truncated to 500 chars and full metadata. Use fetch_document with document_id to get full content.
-        """
-        mcp.tool(
-            name_or_fn=self.search,
-            description=search_description,
-        )
-            
-        # Register additional tools
-        mcp.tool(self.fetch_document)
-        mcp.tool(self.fetch_datasources_and_entity_types)
-            
-        if graph_rag_enabled:
+        if graph_rag_enabled and builtin_config.graph_tools_enabled:
             graph_tools = [
                 self.graph_explore_ontology_entity,
                 self.graph_explore_data_entity,
@@ -121,112 +78,226 @@ class AgentTools:
             ]
             for tool in graph_tools:
                 mcp.tool(tool)
-        
-        logger.info(f"Registered MCP tools: {await mcp.get_tools()}")
-       
-    ####################
-    # Search tool     #
-    ####################
 
-    async def search(self, query: str, filters: Optional[dict]=None, limit: int = 10,  keyword_search: bool = False, thought: str = ""):
-        """
-        Search for relevant documents and graph entities using semantic search in the vector databases.
-        Automatically searches BOTH graph entities and regular documents.
-        Returns results separated by type. Use fetch_document to get full content.
-        """
-        logger.info(f"Search query: {query}, Limit: {limit} per type, Keyword Search: {keyword_search}, filters: {filters}, Thought: {thought}")
+        logger.info(f"Registered MCP tools: {list((await mcp.get_tools()).keys())}")
 
-        # Get weights based on bias
-        if keyword_search:
-            weights = [0.0, 1.0] # 0% semantic, 100% keyword
+    async def reload_tools(
+        self,
+        mcp: FastMCP,
+        graph_rag_enabled: bool,
+        builtin_config: MCPBuiltinToolsConfig,
+        tool_configs: List[MCPToolConfig],
+    ) -> None:
+        """Hot-reload all MCP tools from updated configuration."""
+        for tool_name in list((await mcp.get_tools()).keys()):
+            mcp.remove_tool(tool_name)
+        await self.register_tools(mcp, graph_rag_enabled, builtin_config, tool_configs)
+
+    async def search(
+        self,
+        query: str,
+        filters: Optional[dict] = None,
+        limit: int = 10,
+        keyword_search: bool = False,
+        thought: str = "",
+    ) -> Any:
+        """
+        Search for relevant documents and graph entities in the knowledge base.
+
+        Args:
+            query (str): The search query.
+                - Semantic search (default): Use full sentences (e.g., 'What is the deployment process?')
+                - Keyword search: Use specific terms (e.g., 'ERROR-404', 'deployment-failure')
+            filters (dict): Optional metadata filters applied to both searches.
+            limit (int): Maximum number of results to return per search (default: 10).
+            keyword_search (bool): If True, use exact keyword/term matching instead of semantic search.
+            thought (str): Your reasoning for choosing this tool.
+
+        Returns:
+            dict with keys: "text_documents", "graph_entity_documents"
+            Each key maps to a list of results with text_content (truncated to 500 chars), metadata, and score.
+            Use fetch_document with document_id to get full content.
+        """
+        logger.info(
+            f"[search] query={query!r}, limit={limit}, "
+            f"keyword_search={keyword_search}, filters={filters}, thought={thought!r}"
+        )
+        weights = [0.0, 1.0] if keyword_search else [0.5, 0.5]
+
+        async def _run_one(is_graph_entity: bool) -> List[Dict[str, Any]]:
+            q_filters: Dict[str, Any] = {}
+            if filters:
+                q_filters.update(filters)
+            q_filters["is_graph_entity"] = is_graph_entity
+            results = await self.vector_db_query_service.query(
+                query=query,
+                filters=q_filters,
+                limit=limit,
+                ranker="weighted",
+                ranker_params={"weights": weights},
+            )
+            output = []
+            for result in results:
+                text = result.document.page_content
+                if len(text) > search_result_truncate_length:
+                    text = (
+                        text[:search_result_truncate_length]
+                        + "... [truncated, use fetch_document with document_id to get full content]"
+                    )
+                output.append({
+                    "text_content": text,
+                    "metadata": result.document.metadata,
+                    "score": result.score,
+                })
+            return output
+
+        text_docs, graph_docs = await asyncio.gather(
+            _run_one(False),
+            _run_one(True),
+            return_exceptions=True,
+        )
+        if isinstance(text_docs, Exception):
+            logger.error(f"[search] text_documents failed: {text_docs}\n{traceback.format_exc()}")
+            text_docs = []
+        if isinstance(graph_docs, Exception):
+            logger.error(f"[search] graph_entity_documents failed: {graph_docs}\n{traceback.format_exc()}")
+            graph_docs = []
+
+        logger.info(f"[search] text_documents: {len(text_docs)}, graph_entity_documents: {len(graph_docs)}")
+        return {"text_documents": text_docs, "graph_entity_documents": graph_docs}
+
+    def _build_search_description(self, config: MCPToolConfig, graph_rag_enabled: bool) -> str:
+        """Build the human/LLM-facing description for a search tool."""
+        valid_filter_keys = valid_metadata_keys()
+        has_graph_search = any(
+            ps.is_graph_entity is True
+            for ps in config.parallel_searches
+        )
+        if not (graph_rag_enabled and has_graph_search):
+            valid_filter_keys = [k for k in valid_filter_keys if "graph_entity" not in k]
+
+        filters_line = (
+            f"    filters (dict): Optional metadata filters. Valid keys: {valid_filter_keys}.\n"
+            if config.allow_runtime_filters
+            else ""
+        )
+
+        labels = [ps.label for ps in config.parallel_searches]
+        keys_str = ", ".join(f'"{lbl}"' for lbl in labels)
+        return_section = (
+            "Returns:\n"
+            f"    dict with keys: {keys_str}\n"
+            "    Each key maps to a list of results with text_content (truncated to 500 chars), metadata, and score.\n"
+            "    Use fetch_document with document_id to get full content."
+        )
+
+        base = config.description or "Search for relevant documents in the knowledge base."
+        return (
+            f"{base}\n\n"
+            "Args:\n"
+            "    query (str): The search query.\n"
+            "        - Semantic search (default): Use full sentences (e.g., 'What is the deployment process?')\n"
+            "        - Keyword search: Use specific terms (e.g., 'ERROR-404', 'deployment-failure')\n"
+            f"{filters_line}"
+            "    limit (int): Maximum number of results to return (default: 10).\n"
+            "    keyword_search (bool): If True, use exact keyword/term matching instead of semantic search.\n"
+            "    thought (str): Your reasoning for choosing this tool.\n\n"
+            f"{return_section}"
+        )
+
+    def _make_search_fn(self, config: MCPToolConfig, graph_rag_enabled: bool) -> Callable:
+        """
+        Factory that returns a coroutine with the correct signature for the given config.
+        FastMCP reads the function signature via inspect to build the JSON schema exposed to
+        the LLM, so the outer wrapper must explicitly include or exclude the `filters` param.
+        Both variants delegate to the shared `_execute` closure.
+        """
+        tool_id = config.tool_id
+        parallel_searches: List[ParallelSearch] = list(config.parallel_searches)
+
+        async def _execute(
+            query: str,
+            runtime_filters: Optional[Dict[str, Any]],
+            limit: int,
+            keyword_search: bool,
+            thought: str,
+        ) -> Any:
+            logger.info(
+                f"[{tool_id}] query={query!r}, limit={limit}, "
+                f"keyword_search={keyword_search}, runtime_filters={runtime_filters}, "
+                f"thought={thought!r}"
+            )
+
+            async def _run_one(ps: ParallelSearch) -> List[Dict[str, Any]]:
+                weights = [0.0, 1.0] if keyword_search else [ps.semantic_weight, 1.0 - ps.semantic_weight]
+                q_filters: Dict[str, Any] = {}
+                if runtime_filters:
+                    q_filters.update(runtime_filters)
+                q_filters.update(ps.extra_filters)
+                if ps.is_graph_entity is not None:
+                    q_filters["is_graph_entity"] = ps.is_graph_entity
+                if ps.datasource_ids:
+                    q_filters["datasource_id"] = list(ps.datasource_ids)
+                results = await self.vector_db_query_service.query(
+                    query=query,
+                    filters=q_filters or None,
+                    limit=limit,
+                    ranker="weighted",
+                    ranker_params={"weights": weights},
+                )
+                output = []
+                for result in results:
+                    text = result.document.page_content
+                    if len(text) > search_result_truncate_length:
+                        text = (
+                            text[:search_result_truncate_length]
+                            + "... [truncated, use fetch_document with document_id to get full content]"
+                        )
+                    output.append({
+                        "text_content": text,
+                        "metadata": result.document.metadata,
+                        "score": result.score,
+                    })
+                return output
+
+            # Run all parallel searches concurrently, always return dict keyed by label
+            results_list = await asyncio.gather(
+                *[_run_one(ps) for ps in parallel_searches],
+                return_exceptions=True,
+            )
+            response: Dict[str, Any] = {}
+            for ps, result in zip(parallel_searches, results_list):
+                if isinstance(result, Exception):
+                    logger.error(f"[{tool_id}] parallel search '{ps.label}' failed: {result}\n{traceback.format_exc()}")
+                    response[ps.label] = []
+                else:
+                    logger.info(f"[{tool_id}] parallel search '{ps.label}': {len(result)} results")
+                    response[ps.label] = result
+            return response
+
+        if config.allow_runtime_filters:
+            async def _tool_with_filters(
+                query: str,
+                filters: Optional[dict] = None,
+                limit: int = 10,
+                keyword_search: bool = False,
+                thought: str = "",
+            ) -> Any:
+                return await _execute(query, filters, limit, keyword_search, thought)
+
+            _tool_with_filters.__name__ = tool_id
+            return _tool_with_filters
         else:
-            weights = [0.5, 0.5] # 50% semantic, 50% keyword
-            
-        logger.info(f"Using search weights (semantic, keyword): {weights}")
-        
-        graph_entity_results: List[Dict[str, Any]] = []
-        text_document_results: List[Dict[str, Any]] = []
-        
-        # Search 1: Graph entities
-        try:
-            graph_filters = filters.copy() if filters else {}
-            graph_filters["is_graph_entity"] = True
-            
-            logger.info(f"Search filters for graph entities: {graph_filters}")
-            graph_results = await self.vector_db_query_service.query(
-                query=query,
-                filters=graph_filters,
-                limit=limit,
-                ranker="weighted",
-                ranker_params={"weights": weights}
-            )
-            
-            logger.info(f"Graph entity search results: {len(graph_results)} entities found")
-            
-            # Process graph entity results
-            for result in graph_results:
-                text = result.document.page_content
-                metadata = result.document.metadata
-                score = result.score
-                
-                # Truncate text
-                if len(text) > search_result_truncate_length:
-                    text = text[:search_result_truncate_length] + "... [truncated, use fetch_document with document_id to get full content]"
-                
-                graph_entity_results.append({
-                    "text_content": text,
-                    "metadata": metadata,
-                    "score": score
-                })
-        except Exception as e:
-            logger.error(f"Traceback: {traceback.format_exc()}")
-            logger.error(f"Error during graph entity search: {e}")
-            # Continue to regular document search even if graph search fails
-        
-        # Search 2: Regular documents
-        try:
-            doc_filters = filters.copy() if filters else {}
-            doc_filters["is_graph_entity"] = False
-            
-            logger.info(f"Search filters for regular documents: {doc_filters}")
-            doc_results = await self.vector_db_query_service.query(
-                query=query,
-                filters=doc_filters,
-                limit=limit,
-                ranker="weighted",
-                ranker_params={"weights": weights}
-            )
-            
-            logger.info(f"Regular document search results: {len(doc_results)} documents found")
-            
-            # Process regular document results
-            for result in doc_results:
-                text = result.document.page_content
-                metadata = result.document.metadata
-                score = result.score
-                
-                # Truncate text
-                if len(text) > search_result_truncate_length:
-                    text = text[:search_result_truncate_length] + "... [truncated, use fetch_document with document_id to get full content]"
-                
-                text_document_results.append({
-                    "text_content": text,
-                    "metadata": metadata,
-                    "score": score
-                })
-        except Exception as e:
-            logger.error(f"Traceback: {traceback.format_exc()}")
-            logger.error(f"Error during regular document search: {e}")
-            # If both searches failed, return error
-            if not graph_entity_results and not text_document_results:
-                return f"Error during search: {e}"
-        
-        logger.info(f"Total search results: {len(graph_entity_results)} graph entities, {len(text_document_results)} text documents")
-        
-        return {
-            "graph_entity_documents": graph_entity_results,
-            "text_documents": text_document_results
-        }
+            async def _tool_no_filters(
+                query: str,
+                limit: int = 10,
+                keyword_search: bool = False,
+                thought: str = "",
+            ) -> Any:
+                return await _execute(query, None, limit, keyword_search, thought)
+
+            _tool_no_filters.__name__ = tool_id
+            return _tool_no_filters
 
     async def fetch_document(self, document_id: str, thought: str = ""):
         """
@@ -260,7 +331,7 @@ class AgentTools:
             logger.error(f"Error fetching document {document_id}: {e}")
             return f"Error fetching document '{document_id}': {str(e)}"
 
-    async def fetch_datasources_and_entity_types(self, thought: str = ""):
+    async def list_datasources_and_entity_types(self, thought: str = ""):
         """
         Fetch list of available datasources and entity types in the knowledge base.
         
