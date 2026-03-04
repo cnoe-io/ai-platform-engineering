@@ -13,6 +13,7 @@ import {
   Database,
   Shield,
   FileText,
+  Home,
 } from "lucide-react";
 import { UserMenu } from "@/components/user-menu";
 import { SettingsPanel } from "@/components/settings-panel";
@@ -89,11 +90,12 @@ export function AppHeader() {
   const combinedStatus = getCombinedStatus();
 
   const getActiveTab = () => {
+    if (pathname === "/") return "home";
     if (pathname?.startsWith("/chat")) return "chat";
     if (pathname?.startsWith("/knowledge-bases")) return "knowledge";
     if (pathname?.startsWith("/skills") || pathname?.startsWith("/use-cases")) return "skills";
     if (pathname?.startsWith("/admin")) return "admin";
-    return "skills"; // Default to Skills
+    return "home";
   };
 
   const activeTab = getActiveTab();
@@ -120,8 +122,21 @@ export function AppHeader() {
           )}
         </Link>
 
-        {/* Navigation Pills - Skills first for prominence */}
+        {/* Navigation Pills */}
         <div className="flex items-center bg-muted/50 rounded-full p-1">
+          <Link
+            href="/"
+            prefetch={true}
+            className={cn(
+              "flex items-center gap-1.5 px-4 py-1.5 rounded-full text-sm font-medium transition-all",
+              activeTab === "home"
+                ? "gradient-primary text-white shadow-sm"
+                : "text-muted-foreground hover:text-foreground"
+            )}
+          >
+            <Home className="h-3.5 w-3.5" />
+            Home
+          </Link>
           <Link
             href="/skills"
             prefetch={true}
