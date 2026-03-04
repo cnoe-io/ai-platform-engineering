@@ -46,8 +46,10 @@ export interface Conversation {
   };
   sharing: {
     is_public: boolean;
+    public_permission?: 'view' | 'comment'; // Permission for public shares (default: comment)
     shared_with: string[]; // Array of user emails
     shared_with_teams: string[]; // Array of team IDs
+    team_permissions?: Record<string, 'view' | 'comment'>; // Per-team permission
     share_link_enabled: boolean;
     share_link_expires?: Date;
   };
@@ -220,6 +222,7 @@ export interface ShareConversationRequest {
   enable_link?: boolean;
   link_expires?: string; // ISO date string
   is_public?: boolean;
+  public_permission?: 'view' | 'comment'; // Permission when is_public is true
 }
 
 // Message API

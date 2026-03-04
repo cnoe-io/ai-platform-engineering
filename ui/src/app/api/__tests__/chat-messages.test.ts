@@ -1313,3 +1313,144 @@ describe('Cross-device message persistence', () => {
     expect(body.data.items[1].metadata.is_final).toBe(true);
   });
 });
+
+// ============================================================================
+// Admin Audit Access — Write Blocking
+// ============================================================================
+
+describe('POST /api/chat/conversations/[id]/messages — admin audit write blocking', () => {
+  const testConversationId = '550e8400-e29b-41d4-a716-446655440000';
+
+  let POST: any;
+  let GET: any;
+
+  beforeEach(async () => {
+    jest.resetModules();
+    Object.keys(mockCollections).forEach((k) => delete mockCollections[k]);
+    mockGetCollection.mockClear();
+
+    const mod = await import(
+      '@/app/api/chat/conversations/[id]/messages/route'
+    );
+    POST = mod.POST;
+    GET = mod.GET;
+  });
+
+  function setupConversationMocks(ownerEmail: string) {
+    const convCol = createMockCollection();
+    convCol.findOne.mockResolvedValue({
+      _id: testConversationId,
+      owner_id: ownerEmail,
+      title: 'Test Conversation',
+      sharing: { shared_with: [], shared_with_teams: [] },
+    });
+    mockCollections['conversations'] = convCol;
+
+    const sharingCol = createMockCollection();
+    sharingCol.findOne.mockResolvedValue(null);
+    mockCollections['sharing_access'] = sharingCol;
+
+    const teamsCol = createMockCollection();
+    teamsCol.find.mockReturnValue({
+      project: jest.fn().mockReturnValue({
+        toArray: jest.fn().mockResolvedValue([]),
+      }),
+    });
+    mockCollections['teams'] = teamsCol;
+
+    return convCol;
+  }
+
+  it('blocks POST when admin has audit-only access', async () => {
+    mockGetServerSession.mockResolvedValue({
+      user: { email: 'admin@example.com', name: 'Admin' },
+      role: 'admin',
+      canViewAdmin: true,
+    });
+
+    setupConversationMocks('owner@example.com');
+    mockCollections['messages'] = createMockCollection();
+
+    const req = makeRequest(
+      `/api/chat/conversations/${testConversationId}/messages`,
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          message_id: 'blocked-msg',
+          role: 'user',
+          content: 'Should not be saved',
+        }),
+      }
+    );
+
+    const res = await POST(req, {
+      params: Promise.resolve({ id: testConversationId }),
+    });
+    expect(res.status).toBe(403);
+    const body = await res.json();
+    expect(body.code).toBe('FORBIDDEN');
+  });
+
+  it('allows POST when user is the conversation owner', async () => {
+    mockGetServerSession.mockResolvedValue({
+      user: { email: 'owner@example.com', name: 'Owner' },
+      role: 'user',
+    });
+
+    const convCol = setupConversationMocks('owner@example.com');
+    const msgCol = createMockCollection();
+    msgCol.updateOne.mockResolvedValue({
+      upsertedId: new ObjectId(),
+      upsertedCount: 1,
+      matchedCount: 0,
+      modifiedCount: 0,
+      acknowledged: true,
+    });
+    msgCol.findOne.mockResolvedValue({
+      _id: new ObjectId(),
+      message_id: 'owner-msg',
+      conversation_id: testConversationId,
+      content: 'Hello',
+      role: 'user',
+    });
+    mockCollections['messages'] = msgCol;
+
+    const req = makeRequest(
+      `/api/chat/conversations/${testConversationId}/messages`,
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          message_id: 'owner-msg',
+          role: 'user',
+          content: 'Hello',
+        }),
+      }
+    );
+
+    const res = await POST(req, {
+      params: Promise.resolve({ id: testConversationId }),
+    });
+    expect(res.status).toBe(201);
+  });
+
+  it('allows GET for admin audit (read-only access)', async () => {
+    mockGetServerSession.mockResolvedValue({
+      user: { email: 'admin@example.com', name: 'Admin' },
+      role: 'admin',
+      canViewAdmin: true,
+    });
+
+    setupConversationMocks('owner@example.com');
+    const msgCol = createMockCollection();
+    msgCol.countDocuments.mockResolvedValue(0);
+    mockCollections['messages'] = msgCol;
+
+    const req = makeRequest(
+      `/api/chat/conversations/${testConversationId}/messages`
+    );
+    const res = await GET(req, {
+      params: Promise.resolve({ id: testConversationId }),
+    });
+    expect(res.status).toBe(200);
+  });
+});

@@ -328,15 +328,26 @@ export async function getUserTeamIds(userEmail: string): Promise<string[]> {
   }
 }
 
+export type ConversationAccessLevel = 'owner' | 'shared' | 'shared_readonly' | 'admin_audit';
+
+interface ConversationAccessResult {
+  conversation: any;
+  access_level: ConversationAccessLevel;
+}
+
 /**
  * Check if user has access to a conversation (owner, shared with directly,
- * shared with one of their teams, or via sharing_access records).
+ * shared with one of their teams, via sharing_access records, or admin audit).
+ *
+ * When `session` is provided and the user is an admin, they receive read-only
+ * audit access even if they are not the owner or a share recipient.
  */
 export async function requireConversationAccess(
   conversationId: string,
   userId: string,
-  getCollectionFn: (name: string) => Promise<any>
-) {
+  getCollectionFn: (name: string) => Promise<any>,
+  session?: { role?: string; canViewAdmin?: boolean }
+): Promise<ConversationAccessResult> {
   const conversations = await getCollectionFn('conversations');
   const conversation = await conversations.findOne({ _id: conversationId });
 
@@ -346,17 +357,33 @@ export async function requireConversationAccess(
 
   // Check if user is owner
   if (conversation.owner_id === userId) {
-    return conversation;
+    return { conversation, access_level: 'owner' };
   }
 
   // Check if conversation is public (shared with everyone)
   if (conversation.sharing?.is_public) {
-    return conversation;
+    const perm = conversation.sharing?.public_permission ?? 'comment';
+    return {
+      conversation,
+      access_level: perm === 'comment' ? 'shared' : 'shared_readonly',
+    };
   }
 
   // Check if conversation is shared with user directly
   if (conversation.sharing?.shared_with?.includes(userId)) {
-    return conversation;
+    const sharingAccess = await getCollectionFn('sharing_access');
+    const accessRecord = await sharingAccess.findOne({
+      conversation_id: conversationId,
+      granted_to: userId,
+      revoked_at: null,
+    });
+    // Default to 'comment' (full access) for backward compatibility with
+    // shares created before permissions were introduced
+    const perm = accessRecord?.permission ?? 'comment';
+    return {
+      conversation,
+      access_level: perm === 'comment' ? 'shared' : 'shared_readonly',
+    };
   }
 
   // Check if conversation is shared with one of the user's teams
@@ -364,16 +391,21 @@ export async function requireConversationAccess(
   if (sharedTeams && sharedTeams.length > 0) {
     const userTeamIds = await getUserTeamIds(userId);
     if (userTeamIds.length > 0) {
-      const hasTeamAccess = sharedTeams.some((teamId: string) =>
+      const matchedTeamId = sharedTeams.find((teamId: string) =>
         userTeamIds.includes(teamId)
       );
-      if (hasTeamAccess) {
-        return conversation;
+      if (matchedTeamId) {
+        const teamPerms = conversation.sharing?.team_permissions;
+        const perm = teamPerms?.[matchedTeamId] ?? 'comment';
+        return {
+          conversation,
+          access_level: perm === 'comment' ? 'shared' : 'shared_readonly',
+        };
       }
     }
   }
 
-  // Check sharing_access collection
+  // Check sharing_access collection (link-based or other grants)
   const sharingAccess = await getCollectionFn('sharing_access');
   const access = await sharingAccess.findOne({
     conversation_id: conversationId,
@@ -382,7 +414,16 @@ export async function requireConversationAccess(
   });
 
   if (access) {
-    return conversation;
+    const perm = access.permission ?? 'comment';
+    return {
+      conversation,
+      access_level: perm === 'comment' ? 'shared' : 'shared_readonly',
+    };
+  }
+
+  // Admins get read-only audit access to any conversation
+  if (session?.role === 'admin' || session?.canViewAdmin === true) {
+    return { conversation, access_level: 'admin_audit' };
   }
 
   throw new ApiError('Forbidden: You do not have access to this conversation', 403, 'FORBIDDEN');

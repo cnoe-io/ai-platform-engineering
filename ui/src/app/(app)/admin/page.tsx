@@ -1,9 +1,10 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
+import { useSearchParams } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { motion } from "framer-motion";
-import { Users, MessageSquare, TrendingUp, Activity, Database, Share2, ShieldCheck, ShieldOff, UserPlus, Trash2, UsersIcon, Loader2, Bot, ThumbsUp, ThumbsDown, Clock, Zap, CheckCircle2, AlertCircle, Layers, Eye } from "lucide-react";
+import { Users, MessageSquare, TrendingUp, Activity, Database, Share2, ShieldCheck, ShieldOff, UserPlus, Trash2, UsersIcon, Loader2, Bot, ThumbsUp, ThumbsDown, Clock, Zap, CheckCircle2, AlertCircle, Layers, Eye, Star, Filter, ExternalLink, Plus, Calendar, X } from "lucide-react";
 import { AuthGuard } from "@/components/auth-guard";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -24,6 +25,7 @@ import { CreateTeamDialog } from "@/components/admin/CreateTeamDialog";
 import { TeamDetailsDialog } from "@/components/admin/TeamDetailsDialog";
 import { useAdminRole } from "@/hooks/use-admin-role";
 import { apiClient } from "@/lib/api-client";
+import { getConfig } from "@/lib/config";
 import type { Team as TeamType } from "@/types/teams";
 import type { SkillMetricsAdmin } from "@/types/agent-config";
 
@@ -71,6 +73,65 @@ interface AdminStats {
   };
 }
 
+interface FeedbackEntry {
+  message_id: string;
+  conversation_id: string;
+  conversation_title?: string;
+  content_snippet: string;
+  role: string;
+  rating: 'positive' | 'negative';
+  reason?: string;
+  submitted_by: string;
+  submitted_at: string;
+}
+
+interface FeedbackData {
+  entries: FeedbackEntry[];
+  pagination: {
+    page: number;
+    limit: number;
+    total: number;
+    total_pages: number;
+  };
+}
+
+interface NPSCampaign {
+  _id: string;
+  name: string;
+  starts_at: string;
+  ends_at: string;
+  created_by: string;
+  created_at: string;
+  response_count: number;
+  status: 'active' | 'ended' | 'scheduled';
+}
+
+interface NPSData {
+  nps_score: number;
+  total_responses: number;
+  campaigns?: NPSCampaign[];
+  breakdown: {
+    promoters: number;
+    passives: number;
+    detractors: number;
+    promoter_pct: number;
+    passive_pct: number;
+    detractor_pct: number;
+  };
+  trend: Array<{
+    date: string;
+    avg_score: number | null;
+    count: number;
+    nps: number | null;
+  }>;
+  recent_responses: Array<{
+    user_email: string;
+    score: number;
+    comment?: string;
+    created_at: string;
+  }>;
+}
+
 interface UserInfo {
   email: string;
   name: string;
@@ -97,8 +158,11 @@ interface Team {
   }>;
 }
 
+const VALID_TABS = ['users', 'teams', 'stats', 'skills', 'feedback', 'nps', 'metrics', 'health'];
+
 function AdminPage() {
   const { status } = useSession();
+  const searchParams = useSearchParams();
   const { isAdmin } = useAdminRole();
   const [stats, setStats] = useState<AdminStats | null>(null);
   const [skillStats, setSkillStats] = useState<SkillMetricsAdmin | null>(null);
@@ -107,12 +171,28 @@ function AdminPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [updatingRole, setUpdatingRole] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState("users");
+  const initialTab = searchParams.get('tab');
+  const [activeTab, setActiveTab] = useState(
+    initialTab && VALID_TABS.includes(initialTab) ? initialTab : 'users'
+  );
   const [createTeamDialogOpen, setCreateTeamDialogOpen] = useState(false);
   const [teamDetailsOpen, setTeamDetailsOpen] = useState(false);
   const [selectedTeam, setSelectedTeam] = useState<TeamType | null>(null);
   const [teamDialogMode, setTeamDialogMode] = useState<"details" | "members">("details");
   const [deletingTeam, setDeletingTeam] = useState<string | null>(null);
+  const [feedbackData, setFeedbackData] = useState<FeedbackData | null>(null);
+  const [feedbackFilter, setFeedbackFilter] = useState<'all' | 'positive' | 'negative'>('all');
+  const [feedbackLoading, setFeedbackLoading] = useState(false);
+  const [npsData, setNpsData] = useState<NPSData | null>(null);
+  const [showCampaignForm, setShowCampaignForm] = useState(false);
+  const [campaignName, setCampaignName] = useState("");
+  const [campaignStartDate, setCampaignStartDate] = useState("");
+  const [campaignEndDate, setCampaignEndDate] = useState("");
+  const [creatingCampaign, setCreatingCampaign] = useState(false);
+  const [selectedCampaignId, setSelectedCampaignId] = useState<string | null>(null);
+  const [npsLoading, setNpsLoading] = useState(false);
+  const [stoppingCampaign, setStoppingCampaign] = useState<string | null>(null);
+  const [confirmStopCampaign, setConfirmStopCampaign] = useState<string | null>(null);
 
   useEffect(() => {
     // Only fetch admin data once the user is authenticated
@@ -126,12 +206,16 @@ function AdminPage() {
     setError(null);
 
     try {
-      // Fetch stats, users, teams, and skill metrics in parallel
-      const [statsRes, usersRes, teamsRes, skillStatsRes] = await Promise.all([
+      const feedbackOn = getConfig('feedbackEnabled');
+      const npsOn = getConfig('npsEnabled');
+      // Fetch stats, users, teams, skill metrics, feedback, and NPS in parallel
+      const [statsRes, usersRes, teamsRes, skillStatsRes, feedbackRes, npsRes] = await Promise.all([
         fetch('/api/admin/stats'),
         fetch('/api/admin/users'),
         fetch('/api/admin/teams').catch(() => null),
         fetch('/api/admin/stats/skills').catch(() => null),
+        feedbackOn ? fetch('/api/admin/feedback').catch(() => null) : null,
+        npsOn ? fetch('/api/admin/nps').catch(() => null) : null,
       ]);
 
       if (statsRes.status === 401 || usersRes.status === 401) {
@@ -168,11 +252,127 @@ function AdminPage() {
           setSkillStats(skillStatsResponse.data);
         }
       }
+
+      if (feedbackRes?.ok) {
+        const feedbackResponse = await feedbackRes.json().catch(() => ({ success: false }));
+        if (feedbackResponse.success) {
+          setFeedbackData(feedbackResponse.data);
+        }
+      }
+
+      if (npsRes?.ok) {
+        const npsResponse = await npsRes.json().catch(() => ({ success: false }));
+        if (npsResponse.success) {
+          setNpsData(npsResponse.data);
+        }
+      }
     } catch (err: any) {
       console.error('[Admin] Failed to load data:', err);
       setError(err.message || 'Failed to load admin data');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadFeedback = async (rating?: 'positive' | 'negative' | 'all', page = 1) => {
+    setFeedbackLoading(true);
+    try {
+      const params = new URLSearchParams({ page: String(page), limit: '50' });
+      if (rating && rating !== 'all') params.set('rating', rating);
+      const res = await fetch(`/api/admin/feedback?${params}`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success) setFeedbackData(data.data);
+      }
+    } catch (err) {
+      console.error('[Admin] Failed to load feedback:', err);
+    } finally {
+      setFeedbackLoading(false);
+    }
+  };
+
+  const handleFeedbackFilterChange = (filter: 'all' | 'positive' | 'negative') => {
+    setFeedbackFilter(filter);
+    loadFeedback(filter);
+  };
+
+  const loadNpsData = async (campaignId?: string | null) => {
+    setNpsLoading(true);
+    try {
+      const params = new URLSearchParams();
+      if (campaignId) params.set('campaign_id', campaignId);
+      const res = await fetch(`/api/admin/nps?${params}`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success) setNpsData(data.data);
+      }
+    } catch (err) {
+      console.error('[Admin] Failed to load NPS data:', err);
+    } finally {
+      setNpsLoading(false);
+    }
+  };
+
+  const handleCampaignSelect = (campaignId: string) => {
+    if (selectedCampaignId === campaignId) {
+      setSelectedCampaignId(null);
+      loadNpsData();
+    } else {
+      setSelectedCampaignId(campaignId);
+      loadNpsData(campaignId);
+    }
+  };
+
+  const handleCreateCampaign = async () => {
+    if (!campaignName.trim() || !campaignStartDate || !campaignEndDate) return;
+    setCreatingCampaign(true);
+    try {
+      const res = await fetch('/api/admin/nps/campaigns', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: campaignName.trim(),
+          starts_at: new Date(campaignStartDate).toISOString(),
+          ends_at: new Date(campaignEndDate).toISOString(),
+        }),
+      });
+      const result = await res.json();
+      if (!result.success) {
+        throw new Error(result.error || 'Failed to create campaign');
+      }
+      setCampaignName("");
+      setCampaignStartDate("");
+      setCampaignEndDate("");
+      setShowCampaignForm(false);
+      setSelectedCampaignId(null);
+      await loadNpsData();
+    } catch (err: any) {
+      console.error('[Admin] Failed to create campaign:', err);
+      alert(`Failed to create campaign: ${err.message}`);
+    } finally {
+      setCreatingCampaign(false);
+    }
+  };
+
+  const handleStopCampaign = async (campaignId: string) => {
+    setStoppingCampaign(campaignId);
+    setConfirmStopCampaign(null);
+    try {
+      const res = await fetch('/api/admin/nps/campaigns', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ campaign_id: campaignId }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || 'Failed to stop campaign');
+      }
+      await loadNpsData(selectedCampaignId);
+    } catch (err: any) {
+      console.error('[Admin] Failed to stop campaign:', err);
+      alert(`Failed to stop campaign: ${err.message}`);
+    } finally {
+      setStoppingCampaign(null);
     }
   };
 
@@ -348,7 +548,11 @@ function AdminPage() {
 
             {/* Tabbed Content */}
             <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
-              <TabsList className="grid w-full grid-cols-6">
+              <TabsList className={`grid w-full ${
+                getConfig('feedbackEnabled') && getConfig('npsEnabled') ? 'grid-cols-8' :
+                getConfig('feedbackEnabled') || getConfig('npsEnabled') ? 'grid-cols-7' :
+                'grid-cols-6'
+              }`}>
                 <TabsTrigger value="users" className="gap-2">
                   <Users className="h-4 w-4" />
                   Users
@@ -361,6 +565,18 @@ function AdminPage() {
                   <Layers className="h-4 w-4" />
                   Skills
                 </TabsTrigger>
+                {getConfig('feedbackEnabled') && (
+                <TabsTrigger value="feedback" className="gap-2">
+                  <ThumbsUp className="h-4 w-4" />
+                  Feedback
+                </TabsTrigger>
+                )}
+                {getConfig('npsEnabled') && (
+                <TabsTrigger value="nps" className="gap-2">
+                  <Star className="h-4 w-4" />
+                  NPS
+                </TabsTrigger>
+                )}
                 <TabsTrigger value="stats" className="gap-2">
                   <TrendingUp className="h-4 w-4" />
                   Statistics
@@ -680,6 +896,547 @@ function AdminPage() {
                   </Card>
                 )}
               </TabsContent>
+
+              {/* Feedback Tab */}
+              {getConfig('feedbackEnabled') && <TabsContent value="feedback" className="space-y-4">
+                <Card>
+                  <CardHeader>
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <CardTitle className="flex items-center gap-2">
+                          <ThumbsUp className="h-5 w-5" />
+                          User Feedback
+                        </CardTitle>
+                        <CardDescription>
+                          All feedback submitted by users on assistant responses
+                        </CardDescription>
+                      </div>
+                      <div className="flex gap-1">
+                        {(['all', 'positive', 'negative'] as const).map((f) => (
+                          <Button
+                            key={f}
+                            size="sm"
+                            variant={feedbackFilter === f ? 'default' : 'outline'}
+                            onClick={() => handleFeedbackFilterChange(f)}
+                            className="gap-1.5 h-8 text-xs capitalize"
+                          >
+                            {f === 'positive' && <ThumbsUp className="h-3 w-3" />}
+                            {f === 'negative' && <ThumbsDown className="h-3 w-3" />}
+                            {f === 'all' && <Filter className="h-3 w-3" />}
+                            {f}
+                          </Button>
+                        ))}
+                      </div>
+                    </div>
+                  </CardHeader>
+                  <CardContent>
+                    {feedbackLoading ? (
+                      <div className="flex justify-center py-8">
+                        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                      </div>
+                    ) : feedbackData?.entries?.length > 0 ? (
+                      <div className="space-y-2">
+                        <div className="grid grid-cols-7 gap-4 pb-2 border-b text-xs font-medium text-muted-foreground">
+                          <div>User</div>
+                          <div>Rating</div>
+                          <div>Reason</div>
+                          <div className="col-span-2">Message Preview</div>
+                          <div>Date</div>
+                          <div>Chat</div>
+                        </div>
+                        {feedbackData.entries.map((entry, i) => (
+                          <div key={`${entry.message_id}-${i}`} className="grid grid-cols-7 gap-4 py-2 text-sm hover:bg-muted/50 rounded px-2 items-center">
+                            <div className="truncate text-xs">{entry.submitted_by}</div>
+                            <div>
+                              <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs ${
+                                entry.rating === 'positive'
+                                  ? 'bg-green-500/10 text-green-600 dark:text-green-400'
+                                  : 'bg-red-500/10 text-red-600 dark:text-red-400'
+                              }`}>
+                                {entry.rating === 'positive' ? (
+                                  <ThumbsUp className="h-3 w-3" />
+                                ) : (
+                                  <ThumbsDown className="h-3 w-3" />
+                                )}
+                                {entry.rating}
+                              </span>
+                            </div>
+                            <div className="text-xs text-muted-foreground truncate">
+                              {entry.reason || '—'}
+                            </div>
+                            <div className="col-span-2 text-xs text-muted-foreground truncate">
+                              {entry.content_snippet || '—'}
+                            </div>
+                            <div className="text-xs text-muted-foreground">
+                              {entry.submitted_at
+                                ? new Date(entry.submitted_at).toLocaleDateString()
+                                : '—'}
+                            </div>
+                            <div>
+                              {entry.conversation_id ? (
+                                <a
+                                  href={`/chat/${entry.conversation_id}`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
+                                  title={entry.conversation_title || 'View conversation'}
+                                >
+                                  <ExternalLink className="h-3 w-3" />
+                                  {entry.conversation_title
+                                    ? entry.conversation_title.length > 20
+                                      ? entry.conversation_title.slice(0, 20) + '…'
+                                      : entry.conversation_title
+                                    : 'View'}
+                                </a>
+                              ) : (
+                                <span className="text-xs text-muted-foreground">—</span>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                        {feedbackData.pagination.total_pages > 1 && (
+                          <div className="flex justify-center gap-2 pt-4">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              disabled={feedbackData.pagination.page <= 1}
+                              onClick={() => loadFeedback(feedbackFilter, feedbackData.pagination.page - 1)}
+                            >
+                              Previous
+                            </Button>
+                            <span className="text-sm text-muted-foreground flex items-center">
+                              Page {feedbackData.pagination.page} of {feedbackData.pagination.total_pages}
+                            </span>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              disabled={feedbackData.pagination.page >= feedbackData.pagination.total_pages}
+                              onClick={() => loadFeedback(feedbackFilter, feedbackData.pagination.page + 1)}
+                            >
+                              Next
+                            </Button>
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="text-center py-12">
+                        <ThumbsUp className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+                        <h3 className="text-lg font-semibold mb-2">No Feedback Yet</h3>
+                        <p className="text-muted-foreground">
+                          User feedback will appear here once users start rating assistant responses.
+                        </p>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              </TabsContent>}
+
+              {/* NPS Tab */}
+              {getConfig('npsEnabled') && <TabsContent value="nps" className="space-y-4">
+                {/* Campaign Management */}
+                {isAdmin && (
+                  <Card>
+                    <CardHeader>
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <CardTitle className="flex items-center gap-2">
+                            <Calendar className="h-5 w-5" />
+                            NPS Campaigns
+                          </CardTitle>
+                          <CardDescription>Create and manage NPS survey campaigns</CardDescription>
+                        </div>
+                        <Button
+                          size="sm"
+                          onClick={() => setShowCampaignForm(!showCampaignForm)}
+                          className="gap-1"
+                        >
+                          <Plus className="h-4 w-4" />
+                          Launch Campaign
+                        </Button>
+                      </div>
+                    </CardHeader>
+                    <CardContent>
+                      {/* Create Campaign Form */}
+                      {showCampaignForm && (
+                        <div className="mb-4 p-4 border border-border rounded-lg bg-muted/30 space-y-3">
+                          <div>
+                            <label className="text-xs font-medium text-muted-foreground">Campaign Name</label>
+                            <input
+                              type="text"
+                              value={campaignName}
+                              onChange={(e) => setCampaignName(e.target.value)}
+                              placeholder="e.g. Q1 2026 NPS"
+                              className="mt-1 w-full px-3 py-2 text-sm bg-background border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary/50"
+                              maxLength={100}
+                            />
+                          </div>
+                          <div className="grid grid-cols-2 gap-3">
+                            <div>
+                              <label className="text-xs font-medium text-muted-foreground">Start Date</label>
+                              <input
+                                type="datetime-local"
+                                value={campaignStartDate}
+                                onChange={(e) => setCampaignStartDate(e.target.value)}
+                                className="mt-1 w-full px-3 py-2 text-sm bg-background border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary/50"
+                              />
+                            </div>
+                            <div>
+                              <label className="text-xs font-medium text-muted-foreground">End Date</label>
+                              <input
+                                type="datetime-local"
+                                value={campaignEndDate}
+                                onChange={(e) => setCampaignEndDate(e.target.value)}
+                                className="mt-1 w-full px-3 py-2 text-sm bg-background border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary/50"
+                              />
+                            </div>
+                          </div>
+                          <div className="flex gap-2 pt-1">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => setShowCampaignForm(false)}
+                            >
+                              Cancel
+                            </Button>
+                            <Button
+                              size="sm"
+                              onClick={handleCreateCampaign}
+                              disabled={!campaignName.trim() || !campaignStartDate || !campaignEndDate || creatingCampaign}
+                              className="gap-1"
+                            >
+                              {creatingCampaign && <Loader2 className="h-3 w-3 animate-spin" />}
+                              Create Campaign
+                            </Button>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Campaign List */}
+                      {npsData?.campaigns && npsData.campaigns.length > 0 ? (
+                        <div className="space-y-2">
+                          <div className="grid grid-cols-6 gap-4 pb-2 border-b text-xs font-medium text-muted-foreground">
+                            <div>Campaign</div>
+                            <div>Start</div>
+                            <div>End</div>
+                            <div>Responses</div>
+                            <div>Status</div>
+                            {isAdmin && <div></div>}
+                          </div>
+                          {npsData.campaigns.map((c) => (
+                            <div
+                              key={c._id}
+                              className={`grid grid-cols-6 gap-4 py-2 text-sm rounded px-2 items-center w-full transition-colors ${
+                                selectedCampaignId === c._id
+                                  ? 'bg-primary/10 ring-1 ring-primary/30'
+                                  : 'hover:bg-muted/50'
+                              }`}
+                            >
+                              <button
+                                onClick={() => handleCampaignSelect(c._id)}
+                                className="font-medium truncate text-left"
+                              >
+                                {c.name}
+                              </button>
+                              <button onClick={() => handleCampaignSelect(c._id)} className="text-xs text-muted-foreground text-left">
+                                {new Date(c.starts_at).toLocaleDateString()}
+                              </button>
+                              <button onClick={() => handleCampaignSelect(c._id)} className="text-xs text-muted-foreground text-left">
+                                {new Date(c.ends_at).toLocaleDateString()}
+                              </button>
+                              <button onClick={() => handleCampaignSelect(c._id)} className="text-xs text-left">
+                                {c.response_count}
+                              </button>
+                              <div>
+                                <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
+                                  c.status === 'active'
+                                    ? 'bg-green-500/10 text-green-600 dark:text-green-400'
+                                    : c.status === 'scheduled'
+                                    ? 'bg-blue-500/10 text-blue-600 dark:text-blue-400'
+                                    : 'bg-muted text-muted-foreground'
+                                }`}>
+                                  {c.status === 'active' ? 'Active' : c.status === 'scheduled' ? 'Scheduled' : 'Ended'}
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-1">
+                                {isAdmin && c.status !== 'ended' && (
+                                  stoppingCampaign === c._id ? (
+                                    <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+                                      <Loader2 className="h-3 w-3 animate-spin" />
+                                      Stopping…
+                                    </span>
+                                  ) : confirmStopCampaign === c._id ? (
+                                    <>
+                                      <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        className="h-6 px-2 text-xs text-destructive hover:text-destructive hover:bg-destructive/10"
+                                        onClick={(e) => { e.stopPropagation(); handleStopCampaign(c._id); }}
+                                      >
+                                        Confirm
+                                      </Button>
+                                      <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        className="h-6 px-2 text-xs"
+                                        onClick={(e) => { e.stopPropagation(); setConfirmStopCampaign(null); }}
+                                      >
+                                        Cancel
+                                      </Button>
+                                    </>
+                                  ) : (
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      className="h-6 px-2 text-xs text-destructive hover:text-destructive hover:bg-destructive/10"
+                                      onClick={(e) => { e.stopPropagation(); setConfirmStopCampaign(c._id); }}
+                                    >
+                                      <X className="h-3 w-3 mr-1" />
+                                      Stop
+                                    </Button>
+                                  )
+                                )}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="text-sm text-muted-foreground text-center py-4">
+                          No campaigns created yet. Launch your first NPS campaign to start collecting feedback.
+                        </p>
+                      )}
+                    </CardContent>
+                  </Card>
+                )}
+
+                {/* Campaign filter indicator */}
+                {selectedCampaignId && npsData?.campaigns && (
+                  <div className="flex items-center gap-2 px-1">
+                    <span className="text-sm text-muted-foreground">
+                      Viewing results for:
+                    </span>
+                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-primary/10 text-primary border border-primary/20">
+                      {npsData.campaigns.find((c) => c._id === selectedCampaignId)?.name || 'Campaign'}
+                    </span>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 px-2 text-xs text-muted-foreground"
+                      onClick={() => { setSelectedCampaignId(null); loadNpsData(); }}
+                    >
+                      <X className="h-3 w-3 mr-1" />
+                      Clear filter
+                    </Button>
+                  </div>
+                )}
+
+                {npsLoading ? (
+                  <div className="flex items-center justify-center py-12">
+                    <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                  </div>
+                ) : npsData && npsData.total_responses > 0 ? (
+                  <>
+                    {/* NPS Score + Breakdown */}
+                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                      {/* NPS Score Card */}
+                      <Card className="lg:col-span-1">
+                        <CardHeader>
+                          <CardTitle className="flex items-center gap-2">
+                            <Star className="h-5 w-5" />
+                            NPS Score
+                          </CardTitle>
+                          <CardDescription>Net Promoter Score (-100 to +100)</CardDescription>
+                        </CardHeader>
+                        <CardContent>
+                          <div className="text-center">
+                            <p className={`text-6xl font-bold ${
+                              npsData.nps_score >= 50 ? 'text-green-500' :
+                              npsData.nps_score >= 0 ? 'text-amber-500' :
+                              'text-red-500'
+                            }`}>
+                              {npsData.nps_score > 0 ? '+' : ''}{npsData.nps_score}
+                            </p>
+                            <p className="text-sm text-muted-foreground mt-2">
+                              Based on {npsData.total_responses} response{npsData.total_responses !== 1 ? 's' : ''}
+                            </p>
+                            <p className={`text-xs mt-1 ${
+                              npsData.nps_score >= 50 ? 'text-green-500' :
+                              npsData.nps_score >= 0 ? 'text-amber-500' :
+                              'text-red-500'
+                            }`}>
+                              {npsData.nps_score >= 70 ? 'Excellent' :
+                               npsData.nps_score >= 50 ? 'Great' :
+                               npsData.nps_score >= 0 ? 'Good' :
+                               npsData.nps_score >= -50 ? 'Needs Improvement' :
+                               'Critical'}
+                            </p>
+                          </div>
+                        </CardContent>
+                      </Card>
+
+                      {/* Breakdown Card */}
+                      <Card className="lg:col-span-2">
+                        <CardHeader>
+                          <CardTitle>Response Breakdown</CardTitle>
+                          <CardDescription>Promoters (9-10), Passives (7-8), Detractors (0-6)</CardDescription>
+                        </CardHeader>
+                        <CardContent>
+                          <div className="space-y-4">
+                            {/* Stacked bar */}
+                            <div className="h-8 flex rounded-full overflow-hidden">
+                              {npsData.breakdown.promoter_pct > 0 && (
+                                <div
+                                  className="bg-green-500 flex items-center justify-center text-white text-xs font-medium"
+                                  style={{ width: `${npsData.breakdown.promoter_pct}%` }}
+                                >
+                                  {npsData.breakdown.promoter_pct}%
+                                </div>
+                              )}
+                              {npsData.breakdown.passive_pct > 0 && (
+                                <div
+                                  className="bg-amber-500 flex items-center justify-center text-white text-xs font-medium"
+                                  style={{ width: `${npsData.breakdown.passive_pct}%` }}
+                                >
+                                  {npsData.breakdown.passive_pct}%
+                                </div>
+                              )}
+                              {npsData.breakdown.detractor_pct > 0 && (
+                                <div
+                                  className="bg-red-500 flex items-center justify-center text-white text-xs font-medium"
+                                  style={{ width: `${npsData.breakdown.detractor_pct}%` }}
+                                >
+                                  {npsData.breakdown.detractor_pct}%
+                                </div>
+                              )}
+                            </div>
+
+                            <div className="grid grid-cols-3 gap-4 text-center">
+                              <div className="p-3 rounded-lg bg-green-500/10">
+                                <p className="text-2xl font-bold text-green-500">{npsData.breakdown.promoters}</p>
+                                <p className="text-xs text-muted-foreground">Promoters (9-10)</p>
+                              </div>
+                              <div className="p-3 rounded-lg bg-amber-500/10">
+                                <p className="text-2xl font-bold text-amber-500">{npsData.breakdown.passives}</p>
+                                <p className="text-xs text-muted-foreground">Passives (7-8)</p>
+                              </div>
+                              <div className="p-3 rounded-lg bg-red-500/10">
+                                <p className="text-2xl font-bold text-red-500">{npsData.breakdown.detractors}</p>
+                                <p className="text-xs text-muted-foreground">Detractors (0-6)</p>
+                              </div>
+                            </div>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    </div>
+
+                    {/* NPS Trend Chart */}
+                    {(() => {
+                      const trendWithData = npsData.trend.filter((d) => d.count > 0);
+                      return trendWithData.length > 0 ? (
+                        <Card>
+                          <CardHeader>
+                            <CardTitle>NPS Trend (Last 30 Days)</CardTitle>
+                            <CardDescription>Daily average score and response count</CardDescription>
+                          </CardHeader>
+                          <CardContent>
+                            <SimpleLineChart
+                              data={npsData.trend
+                                .filter((d) => d.avg_score !== null)
+                                .map((d) => ({
+                                  label: new Date(d.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+                                  value: d.avg_score!,
+                                }))}
+                              height={200}
+                              color="rgb(234, 179, 8)"
+                            />
+                            <div className="mt-4 grid grid-cols-3 gap-4 text-center">
+                              <div>
+                                <p className="text-lg font-bold">
+                                  {(trendWithData.reduce((sum, d) => sum + (d.avg_score || 0), 0) / trendWithData.length).toFixed(1)}
+                                </p>
+                                <p className="text-xs text-muted-foreground">Avg Score (30d)</p>
+                              </div>
+                              <div>
+                                <p className="text-lg font-bold">
+                                  {trendWithData.reduce((sum, d) => sum + d.count, 0)}
+                                </p>
+                                <p className="text-xs text-muted-foreground">Responses (30d)</p>
+                              </div>
+                              <div>
+                                <p className="text-lg font-bold">
+                                  {(trendWithData.reduce((sum, d) => sum + d.count, 0) / 30).toFixed(1)}
+                                </p>
+                                <p className="text-xs text-muted-foreground">Avg/Day</p>
+                              </div>
+                            </div>
+                          </CardContent>
+                        </Card>
+                      ) : null;
+                    })()}
+
+                    {/* Recent NPS Responses */}
+                    <Card>
+                      <CardHeader>
+                        <CardTitle>Recent Responses</CardTitle>
+                        <CardDescription>Latest NPS survey submissions</CardDescription>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="space-y-2">
+                          <div className="grid grid-cols-4 gap-4 pb-2 border-b text-xs font-medium text-muted-foreground">
+                            <div>User</div>
+                            <div>Score</div>
+                            <div>Comment</div>
+                            <div>Date</div>
+                          </div>
+                          {npsData.recent_responses.map((resp, i) => (
+                            <div key={`${resp.user_email}-${i}`} className="grid grid-cols-4 gap-4 py-2 text-sm hover:bg-muted/50 rounded px-2 items-center">
+                              <div className="truncate text-xs">{resp.user_email}</div>
+                              <div>
+                                <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                                  resp.score >= 9 ? 'bg-green-500/10 text-green-600 dark:text-green-400' :
+                                  resp.score >= 7 ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400' :
+                                  'bg-red-500/10 text-red-600 dark:text-red-400'
+                                }`}>
+                                  {resp.score}/10
+                                </span>
+                              </div>
+                              <div className="text-xs text-muted-foreground truncate">
+                                {resp.comment || '—'}
+                              </div>
+                              <div className="text-xs text-muted-foreground">
+                                {new Date(resp.created_at).toLocaleDateString()}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </CardContent>
+                    </Card>
+                  </>
+                ) : (
+                  <Card>
+                    <CardContent className="pt-6 text-center py-12">
+                      <Star className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+                      <h3 className="text-lg font-semibold mb-2">
+                        {selectedCampaignId ? 'No Responses for This Campaign' : 'No NPS Data'}
+                      </h3>
+                      <p className="text-muted-foreground">
+                        {selectedCampaignId
+                          ? 'This campaign has not received any NPS responses yet.'
+                          : 'NPS survey responses will appear here once users start submitting them.'}
+                      </p>
+                      {selectedCampaignId && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="mt-4"
+                          onClick={() => { setSelectedCampaignId(null); loadNpsData(); }}
+                        >
+                          View All Results
+                        </Button>
+                      )}
+                    </CardContent>
+                  </Card>
+                )}
+              </TabsContent>}
 
               {/* Usage Statistics Tab */}
               <TabsContent value="stats" className="space-y-4">
