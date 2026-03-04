@@ -39,7 +39,7 @@ export function AppHeader() {
   const pathname = usePathname();
   const { data: session } = useSession();
   const { isAdmin, canViewAdmin } = useAdminRole();
-  const { isStreaming } = useChatStore();
+  const { isStreaming, streamingConversations, unviewedConversations, inputRequiredConversations } = useChatStore();
 
   // Debug logging for admin tab
   React.useEffect(() => {
@@ -139,13 +139,36 @@ export function AppHeader() {
             href="/chat"
             prefetch={true}
             className={cn(
-              "flex items-center gap-1.5 px-4 py-1.5 rounded-full text-sm font-medium transition-all",
+              "relative flex items-center gap-1.5 px-4 py-1.5 rounded-full text-sm font-medium transition-all",
               activeTab === "chat"
                 ? "bg-primary text-primary-foreground shadow-sm"
                 : "text-muted-foreground hover:text-foreground"
             )}
           >
             💬 Chat
+            {streamingConversations.size > 0 && (
+              <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                <span className="relative inline-flex items-center justify-center rounded-full h-4 w-4 bg-emerald-500 text-[9px] font-bold text-white">
+                  {streamingConversations.size}
+                </span>
+              </span>
+            )}
+            {streamingConversations.size === 0 && inputRequiredConversations.size > 0 && (
+              <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75" />
+                <span className="relative inline-flex items-center justify-center rounded-full h-4 w-4 bg-amber-500 text-[9px] font-bold text-white">
+                  {inputRequiredConversations.size}
+                </span>
+              </span>
+            )}
+            {streamingConversations.size === 0 && inputRequiredConversations.size === 0 && unviewedConversations.size > 0 && (
+              <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center">
+                <span className="relative inline-flex items-center justify-center rounded-full h-4 w-4 bg-blue-500 text-[9px] font-bold text-white">
+                  {unviewedConversations.size}
+                </span>
+              </span>
+            )}
           </Link>
           {/* Knowledge Bases tab - only show if RAG is enabled */}
           {ragEnabled && (
