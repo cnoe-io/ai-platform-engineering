@@ -78,6 +78,7 @@ skip_init_tests = os.getenv("SKIP_INIT_TESTS", "false").lower() in ("true", "1",
 max_ingestion_concurrency = int(os.getenv("MAX_INGESTION_CONCURRENCY", 30))  # max concurrent tasks during ingestion for one datasource
 ui_url = os.getenv("UI_URL", "http://localhost:9447")
 mcp_enabled = os.getenv("ENABLE_MCP", "true").lower() in ("true", "1", "yes")
+mcp_auth_enabled = os.getenv("MCP_AUTH_ENABLED", "true").lower() in ("true", "1", "yes")
 sleep_on_init_failure = int(os.getenv("SLEEP_ON_INIT_FAILURE_SECONDS", 180))  # seconds to sleep on init failure before shutdown
 max_documents_per_ingest = int(os.getenv("MAX_DOCUMENTS_PER_INGEST", 1000))  # max number of documents to ingest per ingestion request
 max_results_per_query = int(os.getenv("MAX_RESULTS_PER_QUERY", 100))  # max number of results to return per query
@@ -285,7 +286,11 @@ if mcp_enabled:
     lifespan=combined_lifespan,
     routes=[*mcp_app.routes],  # Include MCP routes
   )
-  app.add_middleware(MCPAuthMiddleware)
+  if mcp_auth_enabled:
+    app.add_middleware(MCPAuthMiddleware)
+    logger.info("MCP authentication is ENABLED")
+  else:
+    logger.info("MCP authentication is DISABLED")
 else:
   app = FastAPI(
     title="CAIPE RAG API",
