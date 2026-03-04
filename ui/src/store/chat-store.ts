@@ -1589,5 +1589,14 @@ if (typeof window !== 'undefined') {
   });
 
   // Fallback: beforeunload for older browsers and explicit tab close.
-  window.addEventListener('beforeunload', saveInflightConversations);
+  // Also prompts the user to confirm if any conversations are actively streaming,
+  // so they don't accidentally lose an in-flight response.
+  window.addEventListener('beforeunload', (e: BeforeUnloadEvent) => {
+    saveInflightConversations();
+
+    const state = useChatStore.getState();
+    if (state.streamingConversations.size > 0) {
+      e.preventDefault();
+    }
+  });
 }

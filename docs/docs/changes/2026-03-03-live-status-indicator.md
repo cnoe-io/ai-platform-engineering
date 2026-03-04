@@ -68,6 +68,10 @@ chat-store.ts                              Sidebar.tsx
 
 If streaming completes while the user is already viewing that conversation, no unviewed indicator is shown (they saw the response arrive in real time).
 
+### Refresh Guard
+
+If the user tries to refresh or close the tab while any conversation is actively streaming, the browser's native confirmation dialog appears ("Changes you made may not be saved"). This uses the standard `beforeunload` + `preventDefault` pattern — no custom modal, no annoyance when nothing is streaming. Data is still saved regardless of the user's choice.
+
 ### Collapsed Sidebar
 
 The icon container is rendered outside the `!collapsed` guard, so both the green antenna (live) and blue dot (unviewed) are visible in icon-only mode.
@@ -79,6 +83,7 @@ The icon container is rendered outside the `!collapsed` guard, so both the green
   - Added `markConversationUnviewed`, `clearConversationUnviewed`, `hasUnviewedMessages` actions
   - Updated `setConversationStreaming` to mark non-active conversations as unviewed when streaming ends
   - Updated `setActiveConversation` to clear the unviewed flag on navigation
+  - Updated `beforeunload` handler to trigger native browser confirmation when streaming is active
 
 - `ui/src/components/layout/Sidebar.tsx`
   - Added `Radio` import from lucide-react

@@ -26,11 +26,12 @@ This feature provides at-a-glance awareness of both streaming activity and unvie
 - Ensure all indicators are visible in both expanded and collapsed sidebar states
 
 ### Out of Scope
-- Sound or browser notification for live/unviewed status
+- Sound or push notifications for live/unviewed status
 - Showing streaming progress percentage
 - Per-agent streaming indicators
 - Persisting unviewed state across page reloads (ephemeral in-session tracking)
 - Unread message count badges
+- Custom modal dialogs for refresh confirmation (uses native browser dialog)
 
 ## Design
 
@@ -85,6 +86,8 @@ The icon container (`shrink-0 w-8 h-8`) is rendered outside the `!collapsed` gua
 - [x] Both indicators are visible when the sidebar is collapsed (icon-only mode)
 - [x] The live indicator transitions to unviewed (if not active) or disappears (if active)
 - [x] Non-streaming, non-unviewed conversations retain their existing appearance
+- [x] Browser confirms before refresh/close when a chat is actively streaming
+- [x] No confirmation dialog when no chats are streaming (non-annoying)
 - [x] No regressions in existing sidebar behavior (navigation, archive, share)
 - [x] TypeScript compiles clean
 
@@ -108,7 +111,13 @@ The icon container (`shrink-0 w-8 h-8`) is rendered outside the `!collapsed` gua
 - [x] Replace date text with "New response" in blue for unviewed conversations
 - [x] Apply blue background/border styling for unviewed items
 
-### Phase 3: Documentation ✅
+### Phase 3: Refresh Guard ✅
+- [x] Add `beforeunload` confirmation when conversations are actively streaming
+- [x] Uses native browser dialog (non-intrusive, familiar UX pattern)
+- [x] Only triggers when `streamingConversations.size > 0`
+- [x] Still saves in-flight data regardless of user choice
+
+### Phase 4: Documentation ✅
 - [x] Create spec in `.specify/specs/`
 - [x] Create ADR in `docs/docs/changes/`
 
