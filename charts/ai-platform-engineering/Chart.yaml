@@ -194,6 +194,6 @@ dependencies:
     alias: mongodb
   # Slack Bot Integration (client, not an agent)
   - name: slack-bot
-    version: 0.2.33-rc.helm.1 # Do NOT bump this. It will be updated automatically using the PR or release workflow
+    version: 0.2.33-rc.helm.2 # Do NOT bump this. It will be updated automatically using the PR or release workflow
     tags:
       - slack-bot
