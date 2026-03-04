@@ -32,7 +32,7 @@ interface TaskConfigState {
 
 function transformConfig(config: Record<string, unknown>): TaskConfig {
   return {
-    ...(config as TaskConfig),
+    ...(config as unknown as TaskConfig),
     created_at: new Date(config.created_at as string),
     updated_at: new Date(config.updated_at as string),
   };

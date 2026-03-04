@@ -3,13 +3,14 @@
 import React, { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
-import { Plus, Pencil, Trash2, Workflow } from "lucide-react";
+import { Plus, Pencil, Trash2, Workflow, Copy } from "lucide-react";
 import { AuthGuard } from "@/components/auth-guard";
 import { TaskBuilderCanvas } from "@/components/task-builder";
+import { WorkflowTemplateDialog, type WorkflowTemplate } from "@/components/task-builder/WorkflowTemplateDialog";
 import { useTaskConfigStore } from "@/store/task-config-store";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import type { TaskConfig } from "@/types/task-config";
+import type { TaskConfig, TaskStep } from "@/types/task-config";
 
 type ViewMode = "list" | "editor";
 
@@ -18,18 +19,46 @@ export default function TaskBuilderPage() {
   const { configs, isLoading, loadConfigs, deleteConfig } = useTaskConfigStore();
   const [viewMode, setViewMode] = useState<ViewMode>("list");
   const [editingConfig, setEditingConfig] = useState<TaskConfig | undefined>(undefined);
+  const [templateDialogOpen, setTemplateDialogOpen] = useState(false);
+  const [seedSteps, setSeedSteps] = useState<TaskStep[] | undefined>(undefined);
+  const [seedName, setSeedName] = useState<string | undefined>(undefined);
+  const [seedCategory, setSeedCategory] = useState<string | undefined>(undefined);
 
   useEffect(() => {
     loadConfigs();
   }, [loadConfigs]);
 
   const handleCreateNew = () => {
+    setTemplateDialogOpen(true);
+  };
+
+  const handleTemplateSelect = (template: WorkflowTemplate) => {
     setEditingConfig(undefined);
+    if (template.steps.length > 0) {
+      setSeedSteps(template.steps);
+      setSeedName(template.name !== "Blank Workflow" ? template.name : undefined);
+      setSeedCategory(template.category);
+    } else {
+      setSeedSteps(undefined);
+      setSeedName(undefined);
+      setSeedCategory(undefined);
+    }
+    setViewMode("editor");
+  };
+
+  const handleClone = (config: TaskConfig) => {
+    setEditingConfig(undefined);
+    setSeedSteps(config.tasks.map((t) => ({ ...t })));
+    setSeedName(`${config.name} (Copy)`);
+    setSeedCategory(config.category);
     setViewMode("editor");
   };
 
   const handleEdit = (config: TaskConfig) => {
     setEditingConfig(config);
+    setSeedSteps(undefined);
+    setSeedName(undefined);
+    setSeedCategory(undefined);
     setViewMode("editor");
   };
 
@@ -42,6 +71,9 @@ export default function TaskBuilderPage() {
   const handleBack = () => {
     setViewMode("list");
     setEditingConfig(undefined);
+    setSeedSteps(undefined);
+    setSeedName(undefined);
+    setSeedCategory(undefined);
     loadConfigs();
   };
 
@@ -120,8 +152,16 @@ export default function TaskBuilderPage() {
                                 </h3>
                                 <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                                   <button
+                                    onClick={(e) => { e.stopPropagation(); handleClone(config); }}
+                                    className="p-1 rounded hover:bg-primary/10 text-muted-foreground hover:text-primary"
+                                    title="Clone workflow"
+                                  >
+                                    <Copy className="h-3.5 w-3.5" />
+                                  </button>
+                                  <button
                                     onClick={(e) => { e.stopPropagation(); handleEdit(config); }}
                                     className="p-1 rounded hover:bg-primary/10 text-muted-foreground hover:text-primary"
+                                    title="Edit workflow"
                                   >
                                     <Pencil className="h-3.5 w-3.5" />
                                   </button>
@@ -129,6 +169,7 @@ export default function TaskBuilderPage() {
                                     <button
                                       onClick={(e) => { e.stopPropagation(); handleDelete(config); }}
                                       className="p-1 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive"
+                                      title="Delete workflow"
                                     >
                                       <Trash2 className="h-3.5 w-3.5" />
                                     </button>
@@ -174,11 +215,20 @@ export default function TaskBuilderPage() {
             >
               <TaskBuilderCanvas
                 existingConfig={editingConfig}
+                initialSteps={seedSteps}
+                initialName={seedName}
+                initialCategory={seedCategory}
                 onBack={handleBack}
               />
             </motion.div>
           )}
         </AnimatePresence>
+
+        <WorkflowTemplateDialog
+          open={templateDialogOpen}
+          onClose={() => setTemplateDialogOpen(false)}
+          onSelect={handleTemplateSelect}
+        />
       </div>
     </AuthGuard>
   );

@@ -21,6 +21,8 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { config, getLogoFilterClass } from "@/lib/config";
 import { useChatStore } from "@/store/chat-store";
+import { useUnsavedChangesStore } from "@/store/unsaved-changes-store";
+import { UnsavedChangesDialog } from "@/components/task-builder/UnsavedChangesDialog";
 import { useCAIPEHealth } from "@/hooks/use-caipe-health";
 import { useRAGHealth } from "@/hooks/use-rag-health";
 import { useVersion } from "@/hooks/use-version";
@@ -36,11 +38,64 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 
+function GuardedLink({
+  href,
+  children,
+  className,
+  prefetch,
+}: {
+  href: string;
+  children: React.ReactNode;
+  className?: string;
+  prefetch?: boolean;
+}) {
+  const { hasUnsavedChanges, requestNavigation } = useUnsavedChangesStore();
+  const pathname = usePathname();
+
+  const isOnTaskBuilderEditor =
+    pathname?.startsWith("/task-builder") && hasUnsavedChanges;
+
+  const handleClick = (e: React.MouseEvent<HTMLAnchorElement>) => {
+    if (isOnTaskBuilderEditor && href !== pathname) {
+      e.preventDefault();
+      requestNavigation(href);
+    }
+  };
+
+  return (
+    <Link href={href} prefetch={prefetch} className={className} onClick={handleClick}>
+      {children}
+    </Link>
+  );
+}
+
 export function AppHeader() {
   const pathname = usePathname();
   const { data: session } = useSession();
   const { isAdmin, canViewAdmin } = useAdminRole();
   const { isStreaming } = useChatStore();
+  const {
+    hasUnsavedChanges,
+    pendingNavigationHref,
+    cancelNavigation,
+    confirmNavigation,
+    setUnsaved,
+  } = useUnsavedChangesStore();
+
+  const isOnTaskBuilderEditor =
+    pathname?.startsWith("/task-builder") && hasUnsavedChanges;
+
+  const handleDiscard = React.useCallback(() => {
+    const href = confirmNavigation();
+    if (href) {
+      setUnsaved(false);
+      window.location.href = href;
+    }
+  }, [confirmNavigation, setUnsaved]);
+
+  const handleCancel = React.useCallback(() => {
+    cancelNavigation();
+  }, [cancelNavigation]);
 
   // Debug logging for admin tab
   React.useEffect(() => {
@@ -101,13 +156,13 @@ export function AppHeader() {
   const activeTab = getActiveTab();
 
   return (
+    <>
     <header className="h-14 border-b border-border/50 bg-card/50 backdrop-blur-xl flex items-center justify-between px-4 shrink-0 z-50">
       <div className="flex items-center gap-4">
         {/* Logo - clickable to home */}
-        <Link
+        <GuardedLink
           href="/"
           className="flex items-center gap-2.5 cursor-pointer hover:opacity-80 transition-opacity"
-          title={config.tagline}
         >
           <img
             src={config.logoUrl}
@@ -120,11 +175,11 @@ export function AppHeader() {
               {config.envBadge}
             </span>
           )}
-        </Link>
+        </GuardedLink>
 
         {/* Navigation Pills - Skills first for prominence */}
         <div className="flex items-center bg-muted/50 rounded-full p-1">
-          <Link
+          <GuardedLink
             href="/skills"
             prefetch={true}
             className={cn(
@@ -136,8 +191,8 @@ export function AppHeader() {
           >
             <Zap className="h-3.5 w-3.5" />
             Skills
-          </Link>
-          <Link
+          </GuardedLink>
+          <GuardedLink
             href="/chat"
             prefetch={true}
             className={cn(
@@ -148,8 +203,8 @@ export function AppHeader() {
             )}
           >
             💬 Chat
-          </Link>
-          <Link
+          </GuardedLink>
+          <GuardedLink
             href="/task-builder"
             prefetch={true}
             className={cn(
@@ -161,10 +216,10 @@ export function AppHeader() {
           >
             <Workflow className="h-3.5 w-3.5" />
             Task Builder
-          </Link>
+          </GuardedLink>
           {/* Knowledge Bases tab - only show if RAG is enabled */}
           {ragEnabled && (
-            <Link
+            <GuardedLink
               href="/knowledge-bases"
               prefetch={true}
               className={cn(
@@ -176,7 +231,7 @@ export function AppHeader() {
             >
               <Database className="h-3.5 w-3.5" />
               Knowledge Bases
-            </Link>
+            </GuardedLink>
           )}
           {/* Admin tab - visible to all authenticated users (readonly), admins get full access */}
           {canViewAdmin && (
@@ -184,7 +239,7 @@ export function AppHeader() {
               <Tooltip>
                 <TooltipTrigger asChild>
                   {storageMode === 'mongodb' ? (
-                    <Link
+                    <GuardedLink
                       href="/admin"
                       prefetch={true}
                       className={cn(
@@ -198,7 +253,7 @@ export function AppHeader() {
                     >
                       <Shield className="h-3.5 w-3.5" />
                       Admin
-                    </Link>
+                    </GuardedLink>
                   ) : (
                     <div
                       className={cn(
@@ -518,5 +573,14 @@ export function AppHeader() {
         </div>
       </div>
     </header>
+
+    {isOnTaskBuilderEditor && pendingNavigationHref && (
+      <UnsavedChangesDialog
+        open={!!pendingNavigationHref}
+        onDiscard={handleDiscard}
+        onCancel={handleCancel}
+      />
+    )}
+    </>
   );
 }

@@ -117,6 +117,207 @@ export interface UpdateTaskConfigInput {
   shared_with_teams?: string[];
 }
 
+// ---------------------------------------------------------------------------
+// File I/O extraction (Feature 1)
+// ---------------------------------------------------------------------------
+
+export interface FileIO {
+  reads: string[];
+  writes: string[];
+}
+
+/**
+ * Extract filesystem paths that a step reads from and writes to.
+ * Matches patterns like "Read /request.txt", "Write to /result.txt",
+ * "Save ... to /template.yml", "content to /processed_ec2.tf", etc.
+ */
+export function extractFileIO(prompt: string): FileIO {
+  const reads = new Set<string>();
+  const writes = new Set<string>();
+
+  const readPatterns = [
+    /[Rr]ead\s+(\/[\w./-]+)/g,
+    /from\s+(\/[\w./-]+)/g,
+    /content (?:of|from)\s+(\/[\w./-]+)/g,
+  ];
+  const writePatterns = [
+    /[Ww]rite\s+(?:.*?\s+)?(?:to\s+)?(\/[\w./-]+)/g,
+    /[Ss]ave\s+(?:.*?\s+)?(?:to\s+)?(\/[\w./-]+)/g,
+    /[Ww]rite\s+"[^"]*"\s+to\s+(\/[\w./-]+)/g,
+  ];
+
+  for (const pat of readPatterns) {
+    let m;
+    while ((m = pat.exec(prompt)) !== null) reads.add(m[1]);
+  }
+  for (const pat of writePatterns) {
+    let m;
+    while ((m = pat.exec(prompt)) !== null) writes.add(m[1]);
+  }
+
+  return { reads: Array.from(reads), writes: Array.from(writes) };
+}
+
+// ---------------------------------------------------------------------------
+// CAIPE form field types (Feature 2)
+// ---------------------------------------------------------------------------
+
+export interface CaipeFormField {
+  name: string;
+  required: boolean;
+  description: string;
+  default_value?: string;
+  field_values?: string[];
+  auto_filled?: boolean;
+}
+
+/**
+ * Parse existing CAIPE prompt text into structured form fields.
+ * Matches lines like:
+ *   - repo_name (required): Repository name (default: foo, field_values: ["a","b"])
+ */
+export function parseCaipeFields(prompt: string): CaipeFormField[] {
+  const fields: CaipeFormField[] = [];
+  const linePattern = /- (\w+)\s+\((required|optional)\):\s*(.+)/g;
+  let m;
+  while ((m = linePattern.exec(prompt)) !== null) {
+    const [, name, reqOpt, rest] = m;
+    let description = rest;
+    let default_value: string | undefined;
+    let field_values: string[] | undefined;
+
+    const defMatch = rest.match(/\(default:\s*([^,)]+)/);
+    if (defMatch) default_value = defMatch[1].trim();
+
+    const fvMatch = rest.match(/field_values:\s*(\[[^\]]*\])/);
+    if (fvMatch) {
+      try {
+        field_values = JSON.parse(fvMatch[1].replace(/'/g, '"'));
+      } catch { /* leave undefined */ }
+    }
+    const fvEnvMatch = rest.match(/field_values:\s*(\$\{[^}]+\})/);
+    if (fvEnvMatch) {
+      field_values = [fvEnvMatch[1]];
+    }
+
+    const descEnd = rest.indexOf("(");
+    if (descEnd > 0) description = rest.slice(0, descEnd).trim();
+
+    fields.push({
+      name,
+      required: reqOpt === "required",
+      description,
+      default_value,
+      field_values,
+      auto_filled: false,
+    });
+  }
+  return fields;
+}
+
+/**
+ * Generate a CAIPE prompt from structured form fields.
+ */
+export function generateCaipePrompt(fields: CaipeFormField[], outputFile: string): string {
+  const lines = [
+    "Collect the following information from the user and write to " + outputFile + ":",
+  ];
+  for (const f of fields) {
+    if (f.auto_filled) continue;
+    let line = `- ${f.name} (${f.required ? "required" : "optional"}): ${f.description}`;
+    const extras: string[] = [];
+    if (f.default_value) extras.push(`default: ${f.default_value}`);
+    if (f.field_values && f.field_values.length > 0) {
+      extras.push(`field_values: ${JSON.stringify(f.field_values)}`);
+    }
+    if (extras.length > 0) line += ` (${extras.join(", ")})`;
+    lines.push(line);
+  }
+  lines.push("");
+  lines.push("user_email is auto-filled from the authenticated session — do NOT include it in the form.");
+  lines.push("");
+  lines.push("Format as key=value on each line. Write to " + outputFile + ".");
+  return lines.join("\n");
+}
+
+// ---------------------------------------------------------------------------
+// Step templates (Feature 3)
+// ---------------------------------------------------------------------------
+
+export interface StepTemplate {
+  id: string;
+  label: string;
+  subagent: TaskConfigSubagent;
+  display_text: string;
+  llm_prompt: string;
+  category: string;
+}
+
+// ---------------------------------------------------------------------------
+// Environment variable registry (Feature 4)
+// ---------------------------------------------------------------------------
+
+export interface EnvVarInfo {
+  name: string;
+  description: string;
+}
+
+export const KNOWN_ENV_VARS: Record<string, string> = {
+  GITHUB_ORGS: "Comma-separated list of allowed GitHub organizations",
+  WORKFLOWS_REPO: "Repository containing GitHub Actions workflows (org/repo)",
+  JARVIS_WORKFLOWS_REPO: "Jarvis workflows repository with templates (org/repo)",
+  TERRAFORM_INFRA_REPO: "Terraform infrastructure repository (org/repo)",
+  ADMIN_REPO: "Admin repository for safe-settings (org/admin)",
+  GROUPS_AUTOMATION_REPO: "Repository for group management automation (org/repo)",
+  GROUPS_TEAMS_PATH: "Path prefix for teams directory in the automation repo",
+  ORG_MEMBERSHIP_FILE_PATTERN: "File path pattern for org membership YAML",
+  DEFAULT_AWS_REGIONS: "Comma-separated list of allowed AWS regions",
+  EMAIL_DOMAIN: "Corporate email domain (e.g., company.com)",
+  DEFAULT_GITHUB_ORG: "Default GitHub organization name",
+  JIRA_ASSIGNEE: "Default Jira ticket assignee email",
+  DEFAULT_VPC_NAME: "Default VPC name for AWS resources",
+  DEFAULT_AWS_ACCOUNT: "Default AWS account name",
+  DEFAULT_APPLICATION_NAME: "Default application name tag for AWS resources",
+  DATA_CLASSIFICATION: "Data classification tag value",
+  DATA_TAXONOMY: "Data taxonomy tag value",
+  TF_STATE_BUCKET_NONPROD: "Terraform state bucket for dev/staging",
+  TF_STATE_BUCKET_SANDBOX: "Terraform state bucket for sandbox",
+  TF_STATE_BUCKET_PROD: "Terraform state bucket for production",
+  WEBEX_TOKEN: "Webex API token",
+  WEBEX_ROOM_ID: "Default Webex room ID for notifications",
+  DEFAULT_CLUSTER_NAME: "Default Kubernetes cluster name",
+  DEFAULT_CLUSTER_ADDRESS: "Default Kubernetes cluster address",
+  MONGODB_URI: "MongoDB connection URI",
+  MONGODB_DATABASE: "MongoDB database name",
+};
+
+/**
+ * Extract env vars from all steps with step-index references.
+ */
+export function extractEnvVarsWithSteps(
+  tasks: TaskStep[]
+): { name: string; description: string; steps: number[] }[] {
+  const map = new Map<string, number[]>();
+  const envVarPattern = /\$\{([A-Z_][A-Z0-9_]*)\}/g;
+  tasks.forEach((task, i) => {
+    let m;
+    while ((m = envVarPattern.exec(task.llm_prompt)) !== null) {
+      const v = m[1];
+      if (!map.has(v)) map.set(v, []);
+      map.get(v)!.push(i);
+    }
+  });
+  return Array.from(map.entries()).map(([name, steps]) => ({
+    name,
+    description: KNOWN_ENV_VARS[name] || "Unknown variable",
+    steps,
+  }));
+}
+
+// ---------------------------------------------------------------------------
+// Original helpers
+// ---------------------------------------------------------------------------
+
 /**
  * Infer category from a workflow name (used during YAML seeding)
  */
