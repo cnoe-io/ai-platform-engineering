@@ -758,6 +758,16 @@ def handle_wrong_answer_submission(ack, body, client, view):
         logger.exception(f"Error handling wrong answer submission: {e}")
 
 
+@app.event("reaction_added")
+def handle_reaction_added(event, logger):
+    pass
+
+
+@app.event("reaction_removed")
+def handle_reaction_removed(event, logger):
+    pass
+
+
 @app.error
 def custom_error_handler(error, body, logger):
     logger.exception(f"Error: {error}, Request body: {body}")
