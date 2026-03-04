@@ -46,11 +46,13 @@ jest.mock('@/hooks/use-admin-role', () => ({
 // Mock chat store
 let mockStreamingConversations = new Map<string, any>()
 let mockUnviewedConversations = new Set<string>()
+let mockInputRequiredConversations = new Set<string>()
 jest.mock('@/store/chat-store', () => ({
   useChatStore: jest.fn(() => ({
     isStreaming: mockStreamingConversations.size > 0,
     streamingConversations: mockStreamingConversations,
     unviewedConversations: mockUnviewedConversations,
+    inputRequiredConversations: mockInputRequiredConversations,
   })),
 }))
 
@@ -185,6 +187,7 @@ describe('AppHeader — nav tabs', () => {
     mockRagStatus = 'connected'
     mockStreamingConversations = new Map()
     mockUnviewedConversations = new Set()
+    mockInputRequiredConversations = new Set()
     mockSession.status = 'authenticated' as const
     mockSession.data = { user: { name: 'Test User', email: 'test@test.com' } } as any
   })
@@ -348,6 +351,7 @@ describe('AppHeader — connection status badge', () => {
     mockRagStatus = 'connected'
     mockStreamingConversations = new Map()
     mockUnviewedConversations = new Set()
+    mockInputRequiredConversations = new Set()
     mockSession.status = 'authenticated' as const
     mockSession.data = { user: { name: 'Test User', email: 'test@test.com' } } as any
   })
@@ -597,6 +601,7 @@ describe('AppHeader — Chat tab notification dots', () => {
     mockRagStatus = 'connected'
     mockStreamingConversations = new Map()
     mockUnviewedConversations = new Set()
+    mockInputRequiredConversations = new Set()
     mockSession.status = 'authenticated' as const
     mockSession.data = { user: { name: 'Test User', email: 'test@test.com' } } as any
   })
@@ -667,13 +672,60 @@ describe('AppHeader — Chat tab notification dots', () => {
     expect(blueBadge).not.toBeInTheDocument()
   })
 
-  it('shows no notification badge when nothing is streaming or unviewed', () => {
+  it('shows amber badge with count on Chat tab when conversations need input', () => {
+    mockInputRequiredConversations = new Set(['conv-1'])
+
+    render(<AppHeader />)
+
+    const chatLink = screen.getByTestId('link-/chat')
+    const amberBadge = chatLink.querySelector('.bg-amber-500')
+    expect(amberBadge).toBeInTheDocument()
+    expect(amberBadge?.textContent).toBe('1')
+  })
+
+  it('shows amber badge with correct count for multiple input-required conversations', () => {
+    mockInputRequiredConversations = new Set(['conv-1', 'conv-2'])
+
+    render(<AppHeader />)
+
+    const chatLink = screen.getByTestId('link-/chat')
+    const amberBadge = chatLink.querySelector('.bg-amber-500')
+    expect(amberBadge?.textContent).toBe('2')
+  })
+
+  it('green badge takes priority over amber badge', () => {
+    mockStreamingConversations = new Map([
+      ['conv-1', { conversationId: 'conv-1', messageId: 'msg-1', client: {} }],
+    ])
+    mockInputRequiredConversations = new Set(['conv-2'])
+
+    render(<AppHeader />)
+
+    const chatLink = screen.getByTestId('link-/chat')
+    expect(chatLink.querySelector('.bg-emerald-500')).toBeInTheDocument()
+    expect(chatLink.querySelector('.bg-amber-500')).not.toBeInTheDocument()
+  })
+
+  it('amber badge takes priority over blue badge', () => {
+    mockInputRequiredConversations = new Set(['conv-1'])
+    mockUnviewedConversations = new Set(['conv-2'])
+
+    render(<AppHeader />)
+
+    const chatLink = screen.getByTestId('link-/chat')
+    expect(chatLink.querySelector('.bg-amber-500')).toBeInTheDocument()
+    expect(chatLink.querySelector('.bg-blue-500')).not.toBeInTheDocument()
+  })
+
+  it('shows no notification badge when nothing is streaming, input-required, or unviewed', () => {
     render(<AppHeader />)
 
     const chatLink = screen.getByTestId('link-/chat')
     const greenBadge = chatLink.querySelector('.bg-emerald-500')
+    const amberBadge = chatLink.querySelector('.bg-amber-500')
     const blueBadge = chatLink.querySelector('.bg-blue-500')
     expect(greenBadge).not.toBeInTheDocument()
+    expect(amberBadge).not.toBeInTheDocument()
     expect(blueBadge).not.toBeInTheDocument()
   })
 })

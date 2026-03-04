@@ -51,6 +51,7 @@ const mockLoadConversationsFromServer = jest.fn().mockResolvedValue(undefined)
 const mockLoadMessagesFromServer = jest.fn().mockResolvedValue(undefined)
 const mockIsConversationStreaming = jest.fn((_id: string) => false)
 const mockHasUnviewedMessages = jest.fn((_id: string) => false)
+const mockIsConversationInputRequired = jest.fn((_id: string) => false)
 
 jest.mock('@/store/chat-store', () => {
   const getState = () => ({
@@ -69,6 +70,7 @@ jest.mock('@/store/chat-store', () => {
       loadMessagesFromServer: mockLoadMessagesFromServer,
       isConversationStreaming: mockIsConversationStreaming,
       hasUnviewedMessages: mockHasUnviewedMessages,
+      isConversationInputRequired: mockIsConversationInputRequired,
     }
     return selector ? selector(state) : state
   }
@@ -82,6 +84,7 @@ jest.mock('@/store/chat-store', () => {
 
 jest.mock('lucide-react', () => ({
   MessageSquare: (props: any) => <span data-testid="icon-message-square" {...props} />,
+  MessageCircleQuestion: (props: any) => <span data-testid="icon-message-circle-question" {...props} />,
   Radio: (props: any) => <span data-testid="icon-radio" {...props} />,
   History: (props: any) => <span data-testid="icon-history" {...props} />,
   Plus: (props: any) => <span data-testid="icon-plus" {...props} />,
@@ -188,6 +191,7 @@ describe('Sidebar — Live Status Indicator', () => {
     mockActiveConversationId = null
     mockIsConversationStreaming.mockImplementation(() => false)
     mockHasUnviewedMessages.mockImplementation(() => false)
+    mockIsConversationInputRequired.mockImplementation(() => false)
   })
 
   // --------------------------------------------------------------------------
@@ -296,6 +300,67 @@ describe('Sidebar — Live Status Indicator', () => {
   })
 
   // --------------------------------------------------------------------------
+  // Input-required indicator (amber question icon)
+  // --------------------------------------------------------------------------
+
+  describe('input-required indicator', () => {
+    it('shows "Input needed" text for an input-required conversation', () => {
+      mockConversations = [makeConv('conv-1', 'HITL Chat')]
+      mockIsConversationInputRequired.mockImplementation((id: string) => id === 'conv-1')
+
+      render(<Sidebar {...defaultProps} />)
+
+      expect(screen.getByText('Input needed')).toBeInTheDocument()
+    })
+
+    it('renders MessageCircleQuestion icon for input-required conversations', () => {
+      mockConversations = [makeConv('conv-1', 'HITL Chat')]
+      mockIsConversationInputRequired.mockImplementation((id: string) => id === 'conv-1')
+
+      render(<Sidebar {...defaultProps} />)
+
+      expect(screen.getByTestId('icon-message-circle-question')).toBeInTheDocument()
+      expect(screen.queryByTestId('icon-radio')).not.toBeInTheDocument()
+      expect(screen.queryByTestId('icon-message-square')).not.toBeInTheDocument()
+    })
+
+    it('applies amber styling to the MessageCircleQuestion icon', () => {
+      mockConversations = [makeConv('conv-1', 'HITL Chat')]
+      mockIsConversationInputRequired.mockImplementation((id: string) => id === 'conv-1')
+
+      render(<Sidebar {...defaultProps} />)
+
+      const icon = screen.getByTestId('icon-message-circle-question')
+      expect(icon.className).toContain('text-amber-500')
+      expect(icon.className).toContain('animate-pulse')
+    })
+
+    it('does NOT show input-required indicator when conversation is streaming (live takes priority)', () => {
+      mockConversations = [makeConv('conv-1', 'HITL Chat')]
+      mockIsConversationStreaming.mockImplementation((id: string) => id === 'conv-1')
+      mockIsConversationInputRequired.mockImplementation((id: string) => id === 'conv-1')
+
+      render(<Sidebar {...defaultProps} />)
+
+      expect(screen.getByTestId('icon-radio')).toBeInTheDocument()
+      expect(screen.getByText('Live')).toBeInTheDocument()
+      expect(screen.queryByText('Input needed')).not.toBeInTheDocument()
+    })
+
+    it('input-required takes priority over unviewed', () => {
+      mockConversations = [makeConv('conv-1', 'HITL Chat')]
+      mockIsConversationInputRequired.mockImplementation((id: string) => id === 'conv-1')
+      mockHasUnviewedMessages.mockImplementation((id: string) => id === 'conv-1')
+
+      render(<Sidebar {...defaultProps} />)
+
+      expect(screen.getByTestId('icon-message-circle-question')).toBeInTheDocument()
+      expect(screen.getByText('Input needed')).toBeInTheDocument()
+      expect(screen.queryByText('New response')).not.toBeInTheDocument()
+    })
+  })
+
+  // --------------------------------------------------------------------------
   // Normal (idle) state
   // --------------------------------------------------------------------------
 
@@ -323,21 +388,25 @@ describe('Sidebar — Live Status Indicator', () => {
   // --------------------------------------------------------------------------
 
   describe('mixed conversation states', () => {
-    it('renders correct indicators for live, unviewed, and normal conversations', () => {
+    it('renders correct indicators for live, input-required, unviewed, and normal conversations', () => {
       mockConversations = [
         makeConv('conv-live', 'Live Chat'),
+        makeConv('conv-hitl', 'HITL Chat'),
         makeConv('conv-unviewed', 'Unviewed Chat'),
         makeConv('conv-normal', 'Normal Chat'),
       ]
       mockIsConversationStreaming.mockImplementation((id: string) => id === 'conv-live')
+      mockIsConversationInputRequired.mockImplementation((id: string) => id === 'conv-hitl')
       mockHasUnviewedMessages.mockImplementation((id: string) => id === 'conv-unviewed')
 
       render(<Sidebar {...defaultProps} />)
 
       expect(screen.getByText('Live')).toBeInTheDocument()
+      expect(screen.getByText('Input needed')).toBeInTheDocument()
       expect(screen.getByText('New response')).toBeInTheDocument()
       expect(screen.getByText('Jan 1, 2026')).toBeInTheDocument()
       expect(screen.getByTestId('icon-radio')).toBeInTheDocument()
+      expect(screen.getByTestId('icon-message-circle-question')).toBeInTheDocument()
     })
   })
 

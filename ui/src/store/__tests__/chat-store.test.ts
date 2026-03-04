@@ -108,6 +108,7 @@ function resetStore() {
     pendingMessage: null,
     selectedTurnIds: new Map(),
     unviewedConversations: new Set(),
+    inputRequiredConversations: new Set(),
   });
 }
 
@@ -2317,6 +2318,180 @@ describe('chat-store', () => {
 
   // --------------------------------------------------------------------------
   // beforeunload refresh guard
+  // --------------------------------------------------------------------------
+
+  // --------------------------------------------------------------------------
+  // inputRequiredConversations — CRUD
+  // --------------------------------------------------------------------------
+
+  describe('inputRequiredConversations', () => {
+    it('starts with empty input-required set', () => {
+      expect(useChatStore.getState().inputRequiredConversations.size).toBe(0);
+    });
+
+    it('markConversationInputRequired adds conversation to the set', () => {
+      useChatStore.getState().markConversationInputRequired('conv-a');
+
+      expect(useChatStore.getState().isConversationInputRequired('conv-a')).toBe(true);
+      expect(useChatStore.getState().inputRequiredConversations.size).toBe(1);
+    });
+
+    it('markConversationInputRequired is idempotent', () => {
+      useChatStore.getState().markConversationInputRequired('conv-a');
+      useChatStore.getState().markConversationInputRequired('conv-a');
+
+      expect(useChatStore.getState().inputRequiredConversations.size).toBe(1);
+    });
+
+    it('clearConversationInputRequired removes conversation from the set', () => {
+      useChatStore.getState().markConversationInputRequired('conv-a');
+      useChatStore.getState().markConversationInputRequired('conv-b');
+
+      useChatStore.getState().clearConversationInputRequired('conv-a');
+
+      expect(useChatStore.getState().isConversationInputRequired('conv-a')).toBe(false);
+      expect(useChatStore.getState().isConversationInputRequired('conv-b')).toBe(true);
+    });
+
+    it('clearConversationInputRequired is safe for non-existent IDs', () => {
+      useChatStore.getState().clearConversationInputRequired('nonexistent');
+
+      expect(useChatStore.getState().inputRequiredConversations.size).toBe(0);
+    });
+
+    it('isConversationInputRequired returns false for unknown conversations', () => {
+      expect(useChatStore.getState().isConversationInputRequired('unknown')).toBe(false);
+    });
+
+    it('tracks multiple input-required conversations independently', () => {
+      useChatStore.getState().markConversationInputRequired('conv-1');
+      useChatStore.getState().markConversationInputRequired('conv-2');
+      useChatStore.getState().markConversationInputRequired('conv-3');
+
+      expect(useChatStore.getState().inputRequiredConversations.size).toBe(3);
+
+      useChatStore.getState().clearConversationInputRequired('conv-2');
+
+      expect(useChatStore.getState().isConversationInputRequired('conv-1')).toBe(true);
+      expect(useChatStore.getState().isConversationInputRequired('conv-2')).toBe(false);
+      expect(useChatStore.getState().isConversationInputRequired('conv-3')).toBe(true);
+    });
+  });
+
+  // --------------------------------------------------------------------------
+  // setActiveConversation — clears input-required flag
+  // --------------------------------------------------------------------------
+
+  describe('setActiveConversation — input-required clearing', () => {
+    it('clears input-required flag when navigating to a conversation', () => {
+      useChatStore.getState().markConversationInputRequired('conv-target');
+      useChatStore.getState().markConversationInputRequired('conv-other');
+
+      useChatStore.getState().setActiveConversation('conv-target');
+
+      expect(useChatStore.getState().isConversationInputRequired('conv-target')).toBe(false);
+      expect(useChatStore.getState().isConversationInputRequired('conv-other')).toBe(true);
+    });
+
+    it('clears both unviewed and input-required when navigating', () => {
+      useChatStore.getState().markConversationUnviewed('conv-a');
+      useChatStore.getState().markConversationInputRequired('conv-a');
+
+      useChatStore.getState().setActiveConversation('conv-a');
+
+      expect(useChatStore.getState().hasUnviewedMessages('conv-a')).toBe(false);
+      expect(useChatStore.getState().isConversationInputRequired('conv-a')).toBe(false);
+    });
+  });
+
+  // --------------------------------------------------------------------------
+  // setConversationStreaming — clears input-required on resume
+  // --------------------------------------------------------------------------
+
+  describe('setConversationStreaming — input-required clearing', () => {
+    it('clears input-required when streaming starts (user submitted input)', () => {
+      useChatStore.getState().markConversationInputRequired('conv-hitl');
+
+      const conv = makeConversation({ id: 'conv-hitl' });
+      conv.messages = [makeMessage({ id: 'msg-1', content: 'test' })];
+      useChatStore.setState({ conversations: [conv] });
+
+      useChatStore.getState().setConversationStreaming('conv-hitl', {
+        conversationId: 'conv-hitl',
+        messageId: 'msg-1',
+        client: {} as any,
+      });
+
+      expect(useChatStore.getState().isConversationInputRequired('conv-hitl')).toBe(false);
+    });
+
+    it('does NOT clear input-required for other conversations when one resumes', () => {
+      useChatStore.getState().markConversationInputRequired('conv-a');
+      useChatStore.getState().markConversationInputRequired('conv-b');
+
+      const convA = makeConversation({ id: 'conv-a' });
+      convA.messages = [makeMessage({ id: 'msg-a', content: 'test' })];
+      useChatStore.setState({ conversations: [convA] });
+
+      useChatStore.getState().setConversationStreaming('conv-a', {
+        conversationId: 'conv-a',
+        messageId: 'msg-a',
+        client: {} as any,
+      });
+
+      expect(useChatStore.getState().isConversationInputRequired('conv-a')).toBe(false);
+      expect(useChatStore.getState().isConversationInputRequired('conv-b')).toBe(true);
+    });
+  });
+
+  // --------------------------------------------------------------------------
+  // addA2AEvent — marks input-required on UserInputMetaData artifact
+  // --------------------------------------------------------------------------
+
+  describe('addA2AEvent — input-required marking', () => {
+    it('marks conversation as input-required when UserInputMetaData event arrives', () => {
+      const conv = makeConversation({ id: 'conv-hitl' });
+      useChatStore.setState({
+        conversations: [conv],
+        activeConversationId: 'conv-hitl',
+      });
+
+      useChatStore.getState().addA2AEvent({
+        id: 'evt-1',
+        type: 'artifact' as any,
+        timestamp: new Date().toISOString(),
+        artifact: {
+          name: 'UserInputMetaData',
+          parts: [{ kind: 'data', data: { input_fields: [] } }],
+        } as any,
+      }, 'conv-hitl');
+
+      expect(useChatStore.getState().isConversationInputRequired('conv-hitl')).toBe(true);
+    });
+
+    it('does NOT mark as input-required for other artifact types', () => {
+      const conv = makeConversation({ id: 'conv-normal' });
+      useChatStore.setState({
+        conversations: [conv],
+        activeConversationId: 'conv-normal',
+      });
+
+      useChatStore.getState().addA2AEvent({
+        id: 'evt-2',
+        type: 'artifact' as any,
+        timestamp: new Date().toISOString(),
+        artifact: {
+          name: 'partial_result',
+          parts: [{ kind: 'text', text: 'hello' }],
+        } as any,
+      }, 'conv-normal');
+
+      expect(useChatStore.getState().isConversationInputRequired('conv-normal')).toBe(false);
+    });
+  });
+
+  // --------------------------------------------------------------------------
+  // beforeunload — refresh guard
   // --------------------------------------------------------------------------
 
   describe('beforeunload — refresh guard', () => {

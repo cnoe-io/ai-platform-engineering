@@ -27,6 +27,9 @@ interface ChatState {
   // Conversations with new responses the user hasn't viewed yet
   unviewedConversations: Set<string>;
 
+  // Conversations where the agent is waiting for user input (HITL)
+  inputRequiredConversations: Set<string>;
+
   // Actions
   createConversation: () => string;
   setActiveConversation: (id: string) => void;
@@ -59,6 +62,11 @@ interface ChatState {
   markConversationUnviewed: (conversationId: string) => void;
   clearConversationUnviewed: (conversationId: string) => void;
   hasUnviewedMessages: (conversationId: string) => boolean;
+
+  // Input-required conversation actions (HITL)
+  markConversationInputRequired: (conversationId: string) => void;
+  clearConversationInputRequired: (conversationId: string) => void;
+  isConversationInputRequired: (conversationId: string) => boolean;
 
   // Turn selection actions for per-message event tracking
   setSelectedTurn: (conversationId: string, turnId: string | null) => void;
@@ -138,6 +146,7 @@ const storeImplementation = (set: any, get: any) => ({
       pendingMessage: null,
       selectedTurnIds: new Map<string, string>(),
       unviewedConversations: new Set<string>(),
+      inputRequiredConversations: new Set<string>(),
 
       createConversation: () => {
         const id = generateId();
@@ -180,9 +189,12 @@ const storeImplementation = (set: any, get: any) => ({
         const prev = get();
         const newUnviewed = new Set(prev.unviewedConversations);
         newUnviewed.delete(id);
+        const newInputRequired = new Set(prev.inputRequiredConversations);
+        newInputRequired.delete(id);
         set({
           activeConversationId: id,
           unviewedConversations: newUnviewed,
+          inputRequiredConversations: newInputRequired,
         });
       },
 
@@ -304,12 +316,18 @@ const storeImplementation = (set: any, get: any) => ({
           const newMap = new Map(prev.streamingConversations);
           if (state) {
             newMap.set(conversationId, state);
+            // Clear input-required when streaming resumes (user submitted input)
+            const newInputRequired = new Set(prev.inputRequiredConversations);
+            newInputRequired.delete(conversationId);
             console.log(`[Store] Started streaming for conversation: ${conversationId}`);
-          } else {
-            newMap.delete(conversationId);
-            console.log(`[Store] Stopped streaming for conversation: ${conversationId}, remaining: ${newMap.size}`);
+            return {
+              streamingConversations: newMap,
+              isStreaming: true,
+              inputRequiredConversations: newInputRequired,
+            };
           }
-          // Update global isStreaming based on whether any conversation is streaming
+          newMap.delete(conversationId);
+          console.log(`[Store] Stopped streaming for conversation: ${conversationId}, remaining: ${newMap.size}`);
           const newIsStreaming = newMap.size > 0;
           console.log(`[Store] Global isStreaming: ${newIsStreaming}`);
           return {
@@ -428,6 +446,15 @@ const storeImplementation = (set: any, get: any) => ({
 
           return { a2aEvents: newGlobalEvents };
         });
+
+        // Mark conversation as input-required when a UserInputMetaData artifact arrives
+        if (convId && artifactName === 'UserInputMetaData') {
+          const current = get();
+          const newInputRequired = new Set(current.inputRequiredConversations);
+          newInputRequired.add(convId);
+          set({ inputRequiredConversations: newInputRequired });
+          console.log(`[Store] Marked conversation as input-required: ${convId.substring(0, 8)}`);
+        }
 
         // Periodic save: trigger a background save every PERIODIC_SAVE_EVENT_THRESHOLD
         // events to avoid data loss during long streaming sessions.
@@ -1261,6 +1288,26 @@ const storeImplementation = (set: any, get: any) => ({
 
       hasUnviewedMessages: (conversationId: string) => {
         return get().unviewedConversations.has(conversationId);
+      },
+
+      markConversationInputRequired: (conversationId: string) => {
+        set((prev: ChatState) => {
+          const newSet = new Set(prev.inputRequiredConversations);
+          newSet.add(conversationId);
+          return { inputRequiredConversations: newSet };
+        });
+      },
+
+      clearConversationInputRequired: (conversationId: string) => {
+        set((prev: ChatState) => {
+          const newSet = new Set(prev.inputRequiredConversations);
+          newSet.delete(conversationId);
+          return { inputRequiredConversations: newSet };
+        });
+      },
+
+      isConversationInputRequired: (conversationId: string) => {
+        return get().inputRequiredConversations.has(conversationId);
       },
 
       // Turn selection actions for per-message event tracking

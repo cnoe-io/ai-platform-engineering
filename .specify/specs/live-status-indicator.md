@@ -1,8 +1,8 @@
-# Spec: Live Status & Unviewed Message Indicators
+# Spec: Live Status, Input Required & Unviewed Message Indicators
 
 ## Overview
 
-Show a green pulsing antenna icon on sidebar chat items that are actively streaming, and a blue "New response" badge after streaming completes on conversations the user hasn't opened yet. Both indicators are always visible without hovering, even when the sidebar is collapsed.
+Show visual indicators on sidebar chat items for three conversation states: a green pulsing antenna when actively streaming, an amber pulsing question icon when the agent is waiting for user input (HITL), and a blue "New response" badge after streaming completes on conversations the user hasn't opened yet. All indicators are always visible without hovering, even when the sidebar is collapsed.
 
 ## Motivation
 
@@ -23,6 +23,10 @@ This feature provides at-a-glance awareness of both streaming activity and unvie
 - Blue dot badge on the icon and "New response" text replacing the date
 - Apply a blue-tinted background/border to unviewed conversation items
 - Clear the unviewed indicator when the user navigates to that conversation
+- Show an amber `MessageCircleQuestion` icon when the agent requests user input (HITL)
+- Amber pulsing dot, "Input needed" text, and amber-tinted background/border
+- Mark as input-required when `UserInputMetaData` artifact arrives via `addA2AEvent`
+- Clear input-required when streaming resumes or user navigates to the conversation
 - Ensure all indicators are visible in both expanded and collapsed sidebar states
 
 ### Out of Scope
@@ -40,6 +44,8 @@ This feature provides at-a-glance awareness of both streaming activity and unvie
 
 **Unviewed indicator**: Adds a new `unviewedConversations: Set<string>` to the chat store. When streaming ends (`setConversationStreaming(id, null)`) and the conversation is not the currently active one, it is added to the unviewed set. When the user navigates to a conversation (`setActiveConversation(id)`), it is removed from the set.
 
+**Input-required indicator**: Adds a new `inputRequiredConversations: Set<string>` to the chat store. When a `UserInputMetaData` artifact event is added via `addA2AEvent`, the conversation is marked as input-required. Cleared when streaming resumes (`setConversationStreaming(id, state)`) or when the user navigates to the conversation.
+
 ```
 Conversation States (priority order):
 
@@ -48,12 +54,17 @@ Conversation States (priority order):
    Background: bg-emerald-500/10, border-emerald-500/30
    Date text:  "Live" in emerald-600/400
 
-2. isUnviewed (new response, not yet viewed):
+2. isInputRequired (agent waiting for user input):
+   Icon:       MessageCircleQuestion (lucide-react) with animate-pulse + ping dot
+   Background: bg-amber-500/10, border-amber-500/30
+   Date text:  "Input needed" in amber-600/400
+
+3. isUnviewed (new response, not yet viewed):
    Icon:       MessageSquare in blue-500 + solid blue dot
    Background: bg-blue-500/5, border-blue-500/25
    Date text:  "New response" in blue-600/400
 
-3. Default:
+4. Default:
    Icon:       MessageSquare (existing behavior)
    Background: Existing active/shared/default styling
    Date text:  formatDate(conv.updatedAt)
@@ -67,9 +78,9 @@ The icon container (`shrink-0 w-8 h-8`) is rendered outside the `!collapsed` gua
 - [ ] MCP Servers
 - [ ] Knowledge Bases (`ai_platform_engineering/knowledge_bases/`)
 - [x] UI (`ui/`)
-  - `ui/src/store/chat-store.ts` — `unviewedConversations` state, mark/clear/has actions, `beforeunload` handler
-  - `ui/src/components/layout/Sidebar.tsx` — Visual rendering of both indicators
-  - `ui/src/components/layout/AppHeader.tsx` — Chat tab notification dots (green live / blue unviewed)
+  - `ui/src/store/chat-store.ts` — `unviewedConversations` + `inputRequiredConversations` state, mark/clear/has actions, `beforeunload` handler
+  - `ui/src/components/layout/Sidebar.tsx` — Visual rendering of all three indicators
+  - `ui/src/components/layout/AppHeader.tsx` — Chat tab notification badges (green live / amber input / blue unviewed)
   - `ui/src/components/layout/LiveStreamBanner.tsx` — App-wide banner warning when live chats are active
   - `ui/src/app/(app)/layout.tsx` — Mounts `LiveStreamBanner` between header and content
 - [x] Documentation (`docs/`)
@@ -94,6 +105,11 @@ The icon container (`shrink-0 w-8 h-8`) is rendered outside the `!collapsed` gua
 - [x] Chat tab in AppHeader shows green pulsing dot when any conversation is streaming
 - [x] Chat tab shows blue dot when there are unviewed responses (and nothing streaming)
 - [x] Green dot takes priority over blue dot on the Chat tab
+- [x] Conversations awaiting user input show amber pulsing `MessageCircleQuestion` icon
+- [x] "Input needed" text in amber replaces the date for input-required conversations
+- [x] Input-required indicator clears when streaming resumes or user navigates to conversation
+- [x] Input-required takes priority over unviewed but not over live
+- [x] Chat tab shows amber badge when conversations need input (between green and blue priority)
 - [x] TypeScript compiles clean
 
 ## Implementation Plan
@@ -125,17 +141,27 @@ The icon container (`shrink-0 w-8 h-8`) is rendered outside the `!collapsed` gua
 - [x] Only triggers `beforeunload` when `streamingConversations.size > 0`
 - [x] Still saves in-flight data regardless of user choice
 
-### Phase 4: Documentation ✅
+### Phase 4: Input Required Indicator ✅
+- [x] Add `inputRequiredConversations: Set<string>` to chat store state
+- [x] Add `markConversationInputRequired`, `clearConversationInputRequired`, `isConversationInputRequired` actions
+- [x] Mark as input-required in `addA2AEvent` when `UserInputMetaData` artifact arrives
+- [x] Clear in `setConversationStreaming` when streaming starts (user submitted input)
+- [x] Clear in `setActiveConversation` when user navigates to conversation
+- [x] Add amber `MessageCircleQuestion` icon with pulse animation in Sidebar
+- [x] Add amber ping dot, background, border, and "Input needed" text
+- [x] Add amber count badge on Chat tab in AppHeader
+
+### Phase 5: Documentation ✅
 - [x] Create spec in `.specify/specs/`
 - [x] Create ADR in `docs/docs/changes/`
 
 ## Testing Strategy
 
 - Unit tests:
-  - Store tests (24 tests): unviewedConversations CRUD, streaming-to-unviewed lifecycle, beforeunload guard, multi-conversation independence
-  - Sidebar component tests (17 tests): Radio/MessageSquare icon rendering, emerald/blue styling, "Live"/"New response" text, mixed states, collapsed behavior
+  - Store tests (37 tests): unviewedConversations CRUD, inputRequiredConversations CRUD, streaming-to-unviewed lifecycle, addA2AEvent marking, streaming-clears-input-required, beforeunload guard, multi-conversation independence
+  - Sidebar component tests (23 tests): Radio/MessageCircleQuestion/MessageSquare icon rendering, emerald/amber/blue styling, "Live"/"Input needed"/"New response" text, priority ordering, mixed states, collapsed behavior
   - LiveStreamBanner component tests (6 tests): hidden when idle, singular/plural messages, "refreshing will interrupt" text, accessibility attributes
-  - AppHeader Chat tab tests (4 tests): green pulsing dot for streaming, blue dot for unviewed, priority ordering, no dot when idle
+  - AppHeader Chat tab tests (10 tests): green/amber/blue badges with counts, priority ordering, no badge when idle
 - Manual verification:
   - Start a new conversation and send a message — verify green antenna during streaming
   - Verify "Live" text replaces the date
