@@ -10,12 +10,19 @@ Deployment + Service pairs have been created:
     Disabled  : {{ $profile.disabledAgents | default "none" }}
 {{- end }}
 
-ACTION REQUIRED: Configure your ingress or service mesh to route
+ACTION REQUIRED: Configure your ingress or load balancer to route
 traffic to each profile's Service based on the OAuth2 client ID.
-For Istio, use RequestAuthentication to extract the JWT "cid" claim
-into a header (e.g. x-jwt-client-id), then add VirtualService match
-rules per client ID. Example:
+The routing mechanism depends on your infrastructure:
 
+  - Istio: Use a RequestAuthentication to extract the JWT "cid"
+    claim into a header, then match on it in a VirtualService.
+  - NGINX Ingress: Use auth-url annotations with a small auth
+    service that inspects the JWT and returns routing headers.
+  - Cloud LB (ALB/NLB): Use listener rules with JWT-based conditions.
+
+Example (Istio RequestAuthentication + VirtualService):
+
+  # RequestAuthentication — extract cid claim from JWT
   jwtRules:
     - issuer: "<your-issuer>"
       jwksUri: "<your-jwks-uri>"
@@ -23,6 +30,7 @@ rules per client ID. Example:
         - header: x-jwt-client-id
           claim: cid
 
+  # VirtualService — route by extracted header
   http:
 {{- range $name, $profile := .Values.clientProfiles }}
     - match:
