@@ -20,7 +20,7 @@ from ai_platform_engineering.utils.a2a_common.base_langgraph_agent import BaseLa
 from ai_platform_engineering.utils.github_app_token_provider import get_github_token, is_github_app_mode
 from ai_platform_engineering.utils.subagent_prompts import load_subagent_prompt_config
 from ai_platform_engineering.utils.token_sanitizer import sanitize_output
-from ...tools import get_gh_cli_tool
+from agent_github.tools import get_gh_cli_tool  # type: ignore[import-untyped]
 
 logger = logging.getLogger(__name__)
 

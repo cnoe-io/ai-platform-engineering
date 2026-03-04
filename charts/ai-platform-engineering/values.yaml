@@ -28,36 +28,10 @@ global:
   # Deployment mode: "single-node" (all agents in-process) or "multi-node" (each agent as a separate pod)
   deploymentMode: "multi-node"
 
-  # Agent enable/disable toggles — used by BOTH single-node and multi-node modes.
-  #   single-node : controls which in-process agents are loaded (via ENABLE_<NAME> env vars)
-  #   multi-node  : controls which agent pods are registered with the supervisor
-  # Must be in global: because the supervisor-agent subchart reads these for
-  # prompt config volume mounts and HOST/PORT env var generation.
-  enabledSubAgents:
-    aigateway: true
-    argocd: true
-    aws: true
-    backstage: true
-    confluence: true
-    github: true
-    jira: true
-    komodor: true
-    pagerduty: true
-    rag: false
-    slack: true
-    splunk: true
-    weather: false
-    webex: true
-
   createLlmSecret: false # if true, llm secret will be created by the parent chart. Otherwise, expect existing llm secret
   llmSecrets:
     create: false # do not create llm secret in subcharts (use global or existing llm secret)
     secretName: "llm-secret"
-    # All agent env vars (secrets AND config) should go in llmSecrets — either via
-    # .data (when createLlmSecret: true) or .externalSecrets.data (for ExternalSecrets).
-    # This includes Vault AppRole credentials for the aigateway agent:
-    #   VAULT_ADDR, VAULT_NAMESPACE, VAULT_ROLE_ID, VAULT_SECRET_ID,
-    #   VAULT_MOUNT_POINT, VAULT_APPROLE_PATH, VAULT_PATH_PREFIX
   externalSecrets:
     enabled: false
     apiVersion: "v1beta1"  # API version for ExternalSecret resources. Options: "v1" or "v1beta1". Defaults to "v1beta1" if not specified.
@@ -138,6 +112,27 @@ taskConfig: ""
 # not by subcharts.
 # =============================================================================
 singleNode:
+  # Which in-process agents to load (via ENABLE_<NAME> env vars).
+  # Only used in single-node mode.  In multi-node mode the agent subcharts
+  # export their enabled state via Chart.yaml import-values into
+  # global.enabledSubAgents — do NOT put this map under global: or it will
+  # conflict with that mechanism.
+  enabledSubAgents: &singleNodeEnabledSubAgents
+    aigateway: true
+    argocd: true
+    aws: true
+    backstage: true
+    confluence: true
+    github: true
+    jira: true
+    komodor: true
+    pagerduty: true
+    rag: false
+    slack: true
+    splunk: true
+    weather: false
+    webex: true
+
   # Supervisor (parent agent) LLM model override.
   # Uses langchain's provider:model-name format (e.g. "openai:gpt-4o").
   # When empty, falls back to the LLM_PROVIDER / model-name env vars from llm-secret.
@@ -155,6 +150,11 @@ singleNode:
 
 ######### Supervisor agent configuration #########
 supervisor-agent:
+  # Passed to the supervisor-agent subchart so its deployment template
+  # can iterate enabled agents for volume mounts and envFrom in single-node mode.
+  # Linked via YAML anchor to singleNode.enabledSubAgents above.
+  singleNode:
+    enabledSubAgents: *singleNodeEnabledSubAgents
   nameOverride: "supervisor-agent"
   image:
     repository: "ghcr.io/cnoe-io/ai-platform-engineering"
@@ -188,6 +188,31 @@ supervisor-agent:
 
 ######### Sub-agent configurations #########
 # Agent configurations using aliases from Chart.yaml
+
+# AIGateway agent — not a subchart today (runs in-process in the supervisor).
+# Vault AppRole credentials for LiteLLM key management go here.
+# In single-node mode, single-node-agent-secrets.yaml creates an ExternalSecret
+# from this configuration.  A proper aigateway subchart is a follow-up.
+agent-aigateway:
+  agentSecrets:
+    secretName: "agent-aigateway-secret"
+    # externalSecrets:
+    #   data:
+    #   - secretKey: VAULT_ADDR
+    #     remoteRef: { key: path/to/vault, property: VAULT_ADDR }
+    #   - secretKey: VAULT_NAMESPACE
+    #     remoteRef: { key: path/to/vault, property: VAULT_NAMESPACE }
+    #   - secretKey: VAULT_ROLE_ID
+    #     remoteRef: { key: path/to/vault, property: VAULT_ROLE_ID }
+    #   - secretKey: VAULT_SECRET_ID
+    #     remoteRef: { key: path/to/vault, property: VAULT_SECRET_ID }
+    #   - secretKey: VAULT_MOUNT_POINT
+    #     remoteRef: { key: path/to/vault, property: VAULT_MOUNT_POINT }
+    #   - secretKey: VAULT_APPROLE_PATH
+    #     remoteRef: { key: path/to/vault, property: VAULT_APPROLE_PATH }
+    #   - secretKey: VAULT_PATH_PREFIX
+    #     remoteRef: { key: path/to/vault, property: VAULT_PATH_PREFIX }
+
 agent-argocd:
   nameOverride: "agent-argocd"
   image:

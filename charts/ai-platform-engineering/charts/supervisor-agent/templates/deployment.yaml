@@ -77,7 +77,7 @@ spec:
             {{- else }}
             - configMapRef:
                 name: {{ printf "%s-single-node-agent-env" .Release.Name }}
-            {{- range $name, $enabled := (default dict .Values.global.enabledSubAgents) }}
+            {{- range $name, $enabled := (default dict .Values.singleNode.enabledSubAgents) }}
             {{- if $enabled }}
             - secretRef:
                 name: {{ printf "agent-%s-secret" $name }}
@@ -166,7 +166,7 @@ spec:
               subPath: task_config.yaml
               readOnly: true
             {{- if eq (default "multi-node" .Values.global.deploymentMode) "single-node" }}
-            {{- range $name, $enabled := (default dict .Values.global.enabledSubAgents) }}
+            {{- range $name, $enabled := (default dict .Values.singleNode.enabledSubAgents) }}
             {{- if $enabled }}
             - name: prompt-config-{{ $name | replace "_" "-" }}
               mountPath: /app/prompt_config.{{ $name }}_agent.yaml
@@ -189,7 +189,7 @@ spec:
           configMap:
             name: task-config
         {{- if eq (default "multi-node" .Values.global.deploymentMode) "single-node" }}
-        {{- range $name, $enabled := (default dict .Values.global.enabledSubAgents) }}
+        {{- range $name, $enabled := (default dict .Values.singleNode.enabledSubAgents) }}
         {{- if $enabled }}
         - name: prompt-config-{{ $name | replace "_" "-" }}
           configMap:

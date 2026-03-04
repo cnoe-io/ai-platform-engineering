@@ -14,7 +14,7 @@ data:
   {{- if $singleNode.supervisorModel }}
   SUPERVISOR_MODEL: {{ $singleNode.supervisorModel | quote }}
   {{- end }}
-  {{- range $name, $enabled := (default dict .Values.global.enabledSubAgents) }}
+  {{- range $name, $enabled := (default dict $singleNode.enabledSubAgents) }}
   {{- $ENV := upper $name }}
   ENABLE_{{ $ENV }}: {{ ternary "true" "false" $enabled | quote }}
   {{- end }}
