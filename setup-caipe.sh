@@ -58,6 +58,7 @@ AUTO_YES=false
 NON_INTERACTIVE=false
 CREATE_CLUSTER=false
 FORCE_UPGRADE=false
+SKIP_UI_PORT_FORWARD=false
 INGEST_URLS=()
 
 cleanup_on_exit() {
@@ -73,6 +74,7 @@ cleanup_on_exit() {
 }
 trap cleanup_on_exit EXIT
 trap 'cleanup_on_exit; exit 130' INT
+trap 'cleanup_on_exit; exit 131' QUIT
 trap 'cleanup_on_exit; exit 143' TERM
 
 # ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -82,6 +84,10 @@ err()     { echo -e "${RED}  ✗${NC} $*" >&2; }
 step()    { echo -e "\n${CYAN}${BOLD}━━━ $* ━━━${NC}"; }
 header()  { echo -e "\n${BLUE}${BOLD}$*${NC}"; }
 prompt()  { echo -en "${BOLD}  ▸ $*${NC}"; }
+
+# Interruptible sleep: runs sleep in the background so trapped signals
+# (INT/QUIT/TERM) are handled immediately instead of waiting for sleep to finish.
+isleep() { sleep "$1" & wait $! 2>/dev/null || true; }
 
 ask_yn() {
   local question="$1" default="${2:-y}"
@@ -180,7 +186,7 @@ wait_for_pods() {
           _auto_heal_offer_corporate_ca "$pod (in ${ns})"
           if $INJECT_CORPORATE_CA; then
             log "[auto-heal] Corporate CA patched; pods will restart"
-            sleep 5
+            isleep 5
           fi
           break
         fi
@@ -198,13 +204,13 @@ wait_for_pods() {
             kubectl rollout restart deployment/caipe-supervisor-agent -n "$ns" &>/dev/null || true
             SUPERVISOR_RAG_RESTARTED=true
             log "[auto-heal] Supervisor restarted to reconnect to RAG"
-            sleep 5
+            isleep 5
           fi
         fi
       done
     fi
 
-    sleep "$interval"
+    isleep "$interval"
     elapsed=$((elapsed + interval))
   done
   _wfp_clear_table
@@ -1084,7 +1090,7 @@ deploy_langfuse() {
     warn "Langfuse release exists but pods are unhealthy; re-deploying"
     helm uninstall langfuse -n langfuse &>/dev/null || true
     kubectl delete pvc --all -n langfuse &>/dev/null || true
-    sleep 5
+    isleep 5
   fi
 
   helm repo add langfuse https://langfuse.github.io/langfuse-k8s &>/dev/null 2>&1 || true
@@ -1139,7 +1145,7 @@ create_langfuse_api_keys() {
   kubectl port-forward svc/langfuse-web -n langfuse "${LANGFUSE_PORT}:3000" &>/dev/null &
   disown $! 2>/dev/null || true
   PF_PIDS+=($!)
-  sleep 3
+  isleep 3
 
   local base="http://localhost:${LANGFUSE_PORT}"
   local _lf_tries=0
@@ -1156,7 +1162,7 @@ create_langfuse_api_keys() {
     kubectl port-forward svc/langfuse-web -n langfuse "${LANGFUSE_PORT}:3000" &>/dev/null &
     disown $! 2>/dev/null || true
     PF_PIDS+=($!)
-    sleep 5
+    isleep 5
   done
 
   curl -sf -X POST "${base}/api/auth/signup" \
@@ -1270,7 +1276,7 @@ prepare_corporate_ca() {
     if kubectl get pod ca-extract -n "$ns" -o jsonpath='{.status.phase}' 2>/dev/null | grep -q Running; then
       break
     fi
-    sleep 5
+    isleep 5
     retries=$((retries + 1))
   done
 
@@ -1633,7 +1639,7 @@ _wait_for_milvus() {
       log "Milvus standalone is ready"
       return 0
     fi
-    sleep "$interval"
+    isleep "$interval"
     elapsed=$((elapsed + interval))
   done
   warn "Milvus did not become ready within ${timeout}s; RAG init may retry"
@@ -1671,7 +1677,7 @@ _finalize_rag_startup() {
           log "Supervisor is ready with RAG connection"
           break
         fi
-        sleep 5
+        isleep 5
         sup_wait=$((sup_wait + 5))
       done
       return 0
@@ -1693,7 +1699,7 @@ _finalize_rag_startup() {
           if $INJECT_CORPORATE_CA; then
             log "Corporate CA patched; waiting for RAG server to restart..."
             elapsed=0
-            sleep 10
+            isleep 10
             continue
           fi
         fi
@@ -1702,7 +1708,7 @@ _finalize_rag_startup() {
     fi
 
     printf "\r${DIM}  Waiting for RAG server  (%ds)${NC}  " "$elapsed"
-    sleep 5
+    isleep 5
     elapsed=$((elapsed + 5))
   done
   echo ""
@@ -1763,7 +1769,7 @@ _wait_for_rag_api() {
       fi
     fi
     printf "\r${DIM}  Waiting for RAG server API  (%ds)${NC}  " "$elapsed"
-    sleep 5
+    isleep 5
     elapsed=$((elapsed + 5))
   done
   echo ""
@@ -2019,7 +2025,7 @@ GATEWAY_EOF
     if kubectl get deployment agentgateway-proxy -n agentgateway-system &>/dev/null; then
       kubectl rollout status deployment/agentgateway-proxy -n agentgateway-system --timeout=60s 2>/dev/null && break
     fi
-    sleep 2
+    isleep 2
     retries=$((retries + 1))
   done
 
@@ -2109,6 +2115,7 @@ deploy_caipe() {
   local helm_args=(
     --namespace caipe
     --version "$CAIPE_CHART_VERSION"
+    --set global.deploymentMode=multi-agent
     --set tags.caipe-ui=true
     --set tags.agent-weather=true
     --set tags.agent-netutils=true
@@ -2267,10 +2274,12 @@ run_validation() {
   done
 
   # ── HTTP endpoints ──
-  if check_http "http://localhost:${UI_PORT}" "CAIPE UI"; then
-    pass=$((pass + 1))
-  else
-    fail=$((fail + 1))
+  if ! $SKIP_UI_PORT_FORWARD; then
+    if check_http "http://localhost:${UI_PORT}" "CAIPE UI"; then
+      pass=$((pass + 1))
+    else
+      fail=$((fail + 1))
+    fi
   fi
   if check_http "http://localhost:${SUPERVISOR_PORT}" "Supervisor A2A"; then
     pass=$((pass + 1))
@@ -2455,14 +2464,16 @@ run_sanity_tests() {
   fi
 
   # ── Test 3: CAIPE UI serves HTML ──
-  local ui_content_type
-  ui_content_type=$(curl -sf -o /dev/null -w "%{content_type}" "http://localhost:${UI_PORT}/" --max-time 5 2>/dev/null || echo "")
-  if echo "$ui_content_type" | grep -qi "text/html"; then
-    print_result "$(date '+%H:%M:%S') ✓ [T3] CAIPE UI serves HTML content"
-    pass=$((pass + 1))
-  else
-    print_result "$(date '+%H:%M:%S') ✗ [T3] CAIPE UI content-type: ${ui_content_type:-none}"
-    fail=$((fail + 1))
+  if ! $SKIP_UI_PORT_FORWARD; then
+    local ui_content_type
+    ui_content_type=$(curl -sf -o /dev/null -w "%{content_type}" "http://localhost:${UI_PORT}/" --max-time 5 2>/dev/null || echo "")
+    if echo "$ui_content_type" | grep -qi "text/html"; then
+      print_result "$(date '+%H:%M:%S') ✓ [T3] CAIPE UI serves HTML content"
+      pass=$((pass + 1))
+    else
+      print_result "$(date '+%H:%M:%S') ✗ [T3] CAIPE UI content-type: ${ui_content_type:-none}"
+      fail=$((fail + 1))
+    fi
   fi
 
   # ── Test 4: Sub-agent direct health (in-cluster) ──
@@ -3007,7 +3018,9 @@ monitor_port_forwards() {
   PF_LAST_RESTART=()
 
   start_pf caipe-supervisor-agent caipe "$SUPERVISOR_PORT" 8000 "Supervisor A2A"
-  start_pf caipe-caipe-ui          caipe "$UI_PORT"         3000 "CAIPE UI"
+  if ! $SKIP_UI_PORT_FORWARD; then
+    start_pf caipe-caipe-ui          caipe "$UI_PORT"         3000 "CAIPE UI"
+  fi
 
   if $ENABLE_TRACING; then
     start_pf langfuse-web langfuse "$LANGFUSE_PORT" 3000 "Langfuse UI"
@@ -3022,12 +3035,14 @@ monitor_port_forwards() {
   while [[ $pf_wait -lt 15 ]]; do
     local all_up=true
     curl -sf -o /dev/null --max-time 2 "http://localhost:${SUPERVISOR_PORT}/.well-known/agent.json" 2>/dev/null || all_up=false
-    curl -sf -o /dev/null --max-time 2 "http://localhost:${UI_PORT}/" 2>/dev/null || all_up=false
+    if ! $SKIP_UI_PORT_FORWARD; then
+      curl -sf -o /dev/null --max-time 2 "http://localhost:${UI_PORT}/" 2>/dev/null || all_up=false
+    fi
     if $ENABLE_TRACING; then
       curl -sf -o /dev/null --max-time 2 "http://localhost:${LANGFUSE_PORT}/api/public/health" 2>/dev/null || all_up=false
     fi
     $all_up && break
-    sleep 2
+    isleep 2
     pf_wait=$((pf_wait + 2))
   done
 
@@ -3038,9 +3053,11 @@ monitor_port_forwards() {
   header "Services Ready"
   echo ""
   echo -e "  ${BOLD}Endpoints:${NC}"
-  echo -e "    CAIPE UI        ${CYAN}http://localhost:${UI_PORT}${NC}"
+  if ! $SKIP_UI_PORT_FORWARD; then
+    echo -e "    CAIPE UI        ${CYAN}http://localhost:${UI_PORT}${NC}"
+  fi
   echo -e "    Supervisor A2A  ${CYAN}http://localhost:${SUPERVISOR_PORT}${NC}"
-  if $ENABLE_RAG; then
+  if $ENABLE_RAG && ! $SKIP_UI_PORT_FORWARD; then
     echo -e "    RAG Server      ${CYAN}http://localhost:${UI_PORT}/api/rag${NC}  (proxied by UI)"
   fi
   if $ENABLE_TRACING; then
@@ -3134,7 +3151,7 @@ monitor_port_forwards() {
       sanity_last_run=$now
     fi
 
-    sleep 10
+    isleep 10
   done
 }
 
@@ -3371,11 +3388,13 @@ cmd_validate() {
 
   step "Port-forwarding for validation"
   start_pf caipe-supervisor-agent caipe "$SUPERVISOR_PORT" 8000 "Supervisor A2A"
-  start_pf caipe-caipe-ui          caipe "$UI_PORT"         3000 "CAIPE UI"
+  if ! $SKIP_UI_PORT_FORWARD; then
+    start_pf caipe-caipe-ui          caipe "$UI_PORT"         3000 "CAIPE UI"
+  fi
   if $ENABLE_TRACING; then
     start_pf langfuse-web langfuse "$LANGFUSE_PORT" 3000 "Langfuse UI"
   fi
-  sleep 3
+  isleep 3
 
   run_validation
   run_sanity_tests
@@ -3418,7 +3437,7 @@ ensure_healthy() {
 
     run_auto_heal
 
-    sleep "$interval"
+    isleep "$interval"
     elapsed=$((elapsed + interval))
   done
 
@@ -3564,6 +3583,8 @@ Options:
                      (implies --rag; repeatable for multiple URLs; uses sitemap crawl)
   --auto-heal        Enable auto-heal loop (default: on). Detects and fixes crashing pods,
                      broken PVCs, missing secrets, RAG misconfig (every 30s)
+  --no-ui-port-forward  Skip port-forwarding the CAIPE UI (useful when the UI
+                     is exposed via Ingress, NodePort, or another mechanism)
   --upgrade          Skip to upgrade path when CAIPE is already deployed
                      (re-collect credentials + re-deploy; skips interactive menu)
   --no-auto-heal     Disable the auto-heal loop
@@ -3654,6 +3675,7 @@ for arg in "$@"; do
     --tracing)         ENABLE_TRACING=true ;;
     --agentgateway)    ENABLE_AGENTGATEWAY=true ;;
     --upgrade)         FORCE_UPGRADE=true ;;
+    --no-ui-port-forward) SKIP_UI_PORT_FORWARD=true ;;
     --auto-heal)       AUTOHEAL_ENABLED=true ;;
     --no-auto-heal)    AUTOHEAL_ENABLED=false ;;
     --ingest-url=*)    INGEST_URLS+=("${arg#--ingest-url=}") ;;
