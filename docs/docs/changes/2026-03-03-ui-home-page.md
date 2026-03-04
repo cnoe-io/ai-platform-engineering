@@ -4,9 +4,10 @@ title: "2026-03-03: UI Home Page — Dashboard Landing Experience"
 
 # UI Home Page — Dashboard Landing Experience
 
-**Status**: 🟡 Proposal
+**Status**: Implemented
 **Category**: Features & Enhancements
 **Date**: March 3, 2026
+**Updated**: March 4, 2026
 
 ## Problem Statement
 
@@ -20,15 +21,19 @@ The CAIPE UI currently redirects `/` to `/skills` via a client-side `router.repl
 
 ## Decision
 
-Replace the `/` redirect with a proper dashboard-style home page that serves as the primary entry point. The page will surface recent chats, shared conversations (by individual, team, and everyone), platform capability cards, and a personal insights widget.
+Replace the `/` redirect with a proper dashboard-style home page that serves as the primary entry point. The page surfaces recent chats, shared conversations (by individual, team, and everyone), platform capability cards, and a personal insights widget. The page lives inside the `(app)` route group to inherit the global `AppHeader` layout.
 
 ### Why a Home Page at `/`
 
-The home page should live at `/` (not `/dashboard` or `/home`) because:
+The home page lives at `/` (not `/dashboard` or `/home`) because:
 
 - `/` is the natural entry point; the logo in AppHeader already links to `/`
 - It eliminates the redirect hop (better performance, no flash)
 - It follows standard web application conventions
+
+### Why Inside the `(app)` Route Group
+
+The page is at `src/app/(app)/page.tsx` rather than `src/app/page.tsx` because the `(app)` route group wraps children in a layout that renders `AppHeader` — the global navigation bar with Skills, Chat, Knowledge Bases, and Admin tabs. Placing the page outside this group would render it without navigation.
 
 ## Alternatives Considered
 
@@ -48,20 +53,25 @@ The home page should live at `/` (not `/dashboard` or `/home`) because:
 │  AppHeader  [Home] [Skills] [Chat] [KB] [Admin]  │
 ├──────────────────────────────────────────────────┤
 │  Welcome Banner                                  │
-│  "Welcome back, {name}"                          │
+│  "Welcome back, {firstName}"                     │
 ├──────────────────────────────────────────────────┤
-│  Capability Cards (Chat | Skills | KB)           │
+│  Capability Cards (Chat | Skills | KB*)          │
+│  * Knowledge Bases shown only if RAG_ENABLED     │
 ├──────────────────────────────────────────────────┤
-│  Recent Chats (grid)      │  Insights Widget     │
+│  Recent Chats (grid)      │  Insights Widget*    │
+│                            │  * MongoDB only      │
 ├──────────────────────────────────────────────────┤
-│  Shared Conversations (tabbed)                   │
+│  Shared Conversations* (tabbed)                  │
 │  [With me] [Team] [Everyone]                     │
+│  * MongoDB only                                  │
+├──────────────────────────────────────────────────┤
+│         ⚡ Powered by caipe.io                    │
 └──────────────────────────────────────────────────┘
 ```
 
 ### Navigation Change
 
-A "Home" pill will be added as the first item in AppHeader's navigation pills. The `getActiveTab()` function will be updated to return `"home"` when the pathname is exactly `/`.
+A "Home" pill was added as the first item in AppHeader's navigation pills. The `getActiveTab()` function was updated to return `"home"` when the pathname is exactly `/`.
 
 ### Data Flow
 
@@ -87,7 +97,7 @@ flowchart TD
 
 ### ShareDialog Enhancement
 
-The existing `ShareDialog` component (`src/components/chat/ShareDialog.tsx`) will be updated to include a "Share with everyone" toggle that sets `sharing.is_public` on the conversation. The backend field already exists and is handled by the sharing API; only the UI toggle is missing.
+The existing `ShareDialog` component (`src/components/chat/ShareDialog.tsx`) was updated to include a "Share with everyone" toggle (`role="switch"`, `data-testid="share-public-toggle"`) that sets `sharing.is_public` on the conversation. The backend field already existed; only the UI toggle was missing.
 
 ### Graceful Degradation
 
@@ -102,6 +112,7 @@ When MongoDB is unavailable (`storageMode !== 'mongodb'`):
 | Shared with team | Hidden (requires MongoDB) |
 | Shared with everyone | Hidden (requires MongoDB) |
 | Insights Widget | Hidden (requires MongoDB) |
+| "Powered by" Footer | Shown (unconditional) |
 
 ## Components Changed
 
@@ -109,25 +120,25 @@ When MongoDB is unavailable (`storageMode !== 'mongodb'`):
 
 | Component | Path | Purpose |
 |-----------|------|---------|
-| `WelcomeBanner` | `src/components/home/WelcomeBanner.tsx` | Personalized greeting with user name |
-| `CapabilityCards` | `src/components/home/CapabilityCards.tsx` | Chat / Skills / KB feature cards |
-| `RecentChats` | `src/components/home/RecentChats.tsx` | Grid of recent conversation cards |
+| `HomePage` | `src/app/(app)/page.tsx` | Dashboard home page at `/` |
+| `WelcomeBanner` | `src/components/home/WelcomeBanner.tsx` | Personalized greeting with time-of-day awareness |
+| `CapabilityCards` | `src/components/home/CapabilityCards.tsx` | Chat / Skills / KB feature cards (KB conditional on RAG_ENABLED) |
+| `RecentChats` | `src/components/home/RecentChats.tsx` | Grid of recent conversation cards with "New Chat" link |
 | `SharedConversations` | `src/components/home/SharedConversations.tsx` | Tabbed view: with me / team / everyone |
-| `InsightsWidget` | `src/components/home/InsightsWidget.tsx` | Personal stats summary |
-| `ConversationCard` | `src/components/home/ConversationCard.tsx` | Reusable card for conversation entries |
+| `InsightsWidget` | `src/components/home/InsightsWidget.tsx` | Personal stats summary with "View all" link to `/insights` |
+| `ConversationCard` | `src/components/home/ConversationCard.tsx` | Reusable card for conversation entries with relative timestamps |
 
 ### Modified Components
 
 | Component | Path | Change |
 |-----------|------|--------|
-| `Home` | `src/app/page.tsx` | Replace `router.replace("/skills")` redirect with home page rendering |
-| `AppHeader` | `src/components/layout/AppHeader.tsx` | Add "Home" nav pill; update `getActiveTab()` to detect `/` |
-| `ShareDialog` | `src/components/chat/ShareDialog.tsx` | Add "Share with everyone" toggle for `is_public` |
+| `AppHeader` | `src/components/layout/AppHeader.tsx` | Added "Home" nav pill as first tab; updated `getActiveTab()` to detect `/` |
+| `ShareDialog` | `src/components/chat/ShareDialog.tsx` | Added "Share with everyone" toggle for `is_public` |
 
 ### Existing APIs Used (No Backend Changes)
 
-| API | Client Method | Already Exists | Currently Used |
-|-----|--------------|----------------|----------------|
+| API | Client Method | Already Existed | Previously Used |
+|-----|--------------|-----------------|-----------------|
 | `GET /api/chat/conversations` | `getConversations()` | Yes | Yes (Sidebar) |
 | `GET /api/chat/shared` | `getSharedConversations()` | Yes | **No** (unused) |
 | `GET /api/users/me/stats` | `getUserStats()` | Yes | Yes (Insights page) |
@@ -135,21 +146,12 @@ When MongoDB is unavailable (`storageMode !== 'mongodb'`):
 
 ## Testing
 
-### Unit Tests (Jest)
+### Unit Tests (Jest) — 1953 tests across 82 suites
 
-- ConversationCard renders title, relative timestamp, and shared badge
-- RecentChats shows empty state when no conversations exist
-- SharedConversations tabs switch correctly between views
-- InsightsWidget renders stats and handles zero-activity state
-- CapabilityCards hides KB card when `ragEnabled` is false
-- AppHeader highlights "Home" pill when pathname is `/`
-
-### Integration / E2E
-
-- Home page fetches and renders conversations on mount
-- Clicking a conversation card navigates to `/chat/<uuid>`
-- "Share with everyone" toggle in ShareDialog updates `is_public` and conversation appears in public tab
-- MongoDB-disabled mode hides shared sections and insights
+- Home page integration tests: AuthGuard, page structure, footer, welcome banner, capability cards, recent chats, shared conversations, insights widget, localStorage mode, auth guard, error handling
+- Component tests: ConversationCard, RecentChats, SharedConversations, InsightsWidget, CapabilityCards, WelcomeBanner
+- AppHeader: Home tab visibility, link, active/inactive styling
+- ShareDialog: Public toggle rendering, ARIA, toggle on/off, store update, error handling
 
 ### Manual Verification
 
@@ -157,11 +159,12 @@ When MongoDB is unavailable (`storageMode !== 'mongodb'`):
 - Share a conversation with a user, verify it appears on their home page
 - Mark a conversation public, verify any other user sees it
 - Test across all 8 themes for visual consistency
+- Test with MongoDB disabled — shared sections hidden, capabilities and recent chats still shown
 
 ## Related
 
 - Spec: `ui/.specify/specs/ui-home-page.md`
-- Existing: `ui/src/components/chat/ShareDialog.tsx` (needs `is_public` toggle)
-- Existing: `ui/src/lib/api-client.ts` (`getSharedConversations` — line 255, `getUserStats` — line 327)
+- Existing: `ui/src/components/chat/ShareDialog.tsx` (added `is_public` toggle)
+- Existing: `ui/src/lib/api-client.ts` (`getSharedConversations`, `getUserStats`)
 - Existing: `ui/src/app/(app)/insights/page.tsx` (full insights; widget links here)
-- Existing: `ui/src/types/mongodb.ts` (`Conversation.sharing.is_public` — line 48)
+- Existing: `ui/src/types/mongodb.ts` (`Conversation.sharing.is_public`)

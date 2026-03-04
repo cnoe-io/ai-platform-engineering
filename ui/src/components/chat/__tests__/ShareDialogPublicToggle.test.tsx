@@ -192,4 +192,92 @@ describe('ShareDialog — Share with everyone toggle', () => {
       expect(toggle).toHaveAttribute('role', 'switch')
     })
   })
+
+  it('clicking toggle when on sends POST with is_public=false', async () => {
+    ;(global.fetch as jest.Mock).mockImplementation((url: string, opts?: any) => {
+      if (url.includes('/share') && (!opts || opts.method !== 'POST')) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => ({
+            data: {
+              sharing: {
+                is_public: true,
+                shared_with: [],
+                shared_with_teams: [],
+                share_link_enabled: false,
+              },
+            },
+          }),
+        })
+      }
+      if (url.includes('/share') && opts?.method === 'POST') {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => ({ data: { sharing: { is_public: false } } }),
+        })
+      }
+      return Promise.resolve({ ok: true, status: 200, json: async () => ({}) })
+    })
+
+    render(<ShareDialog {...defaultProps} />)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('share-public-toggle')).toHaveAttribute('aria-checked', 'true')
+    })
+
+    fireEvent.click(screen.getByTestId('share-public-toggle'))
+
+    await waitFor(() => {
+      const postCalls = (global.fetch as jest.Mock).mock.calls.filter(
+        ([url, opts]: [string, any]) => url.includes('/share') && opts?.method === 'POST'
+      )
+      expect(postCalls.length).toBeGreaterThan(0)
+      const body = JSON.parse(postCalls[0][1].body)
+      expect(body.is_public).toBe(false)
+    })
+  })
+
+  it('handles API failure gracefully', async () => {
+    ;(global.fetch as jest.Mock).mockImplementation((url: string, opts?: any) => {
+      if (url.includes('/share') && (!opts || opts.method !== 'POST')) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => ({
+            data: {
+              sharing: {
+                is_public: false,
+                shared_with: [],
+                shared_with_teams: [],
+                share_link_enabled: false,
+              },
+            },
+          }),
+        })
+      }
+      if (url.includes('/share') && opts?.method === 'POST') {
+        return Promise.reject(new Error('Network error'))
+      }
+      return Promise.resolve({ ok: true, status: 200, json: async () => ({}) })
+    })
+
+    const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {})
+
+    render(<ShareDialog {...defaultProps} />)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('share-public-toggle')).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByTestId('share-public-toggle'))
+
+    await waitFor(() => {
+      const toggle = screen.getByTestId('share-public-toggle')
+      expect(toggle).toHaveAttribute('aria-checked', 'false')
+    })
+
+    consoleSpy.mockRestore()
+  })
 })

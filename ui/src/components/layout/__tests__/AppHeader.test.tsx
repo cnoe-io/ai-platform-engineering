@@ -209,6 +209,39 @@ describe('AppHeader — nav tabs', () => {
     })
   })
 
+  describe('Home tab', () => {
+    function getHomeNavPill() {
+      const homeLinks = screen.getAllByTestId('link-/')
+      return homeLinks.find(el => el.textContent?.includes('Home'))!
+    }
+
+    it('shows Home tab', () => {
+      render(<AppHeader />)
+      expect(screen.getByText('Home')).toBeInTheDocument()
+    })
+
+    it('Home nav pill links to /', () => {
+      render(<AppHeader />)
+      const pill = getHomeNavPill()
+      expect(pill).toBeDefined()
+      expect(pill.getAttribute('href')).toBe('/')
+    })
+
+    it('Home has active styling when pathname is /', () => {
+      mockPathname = '/'
+      render(<AppHeader />)
+      const pill = getHomeNavPill()
+      expect(pill.className).toContain('text-white')
+    })
+
+    it('Home does not have active styling on other paths', () => {
+      mockPathname = '/chat'
+      render(<AppHeader />)
+      const pill = getHomeNavPill()
+      expect(pill.className).toContain('text-muted-foreground')
+    })
+  })
+
   describe('core tabs', () => {
     it('always shows Skills and Chat tabs', () => {
       render(<AppHeader />)

@@ -1,18 +1,18 @@
 /**
- * Unit tests for the Home Page (app/page.tsx)
+ * Unit tests for the Home Page (app/(app)/page.tsx)
  *
  * Tests:
  * - AuthGuard: wraps page in AuthGuard
- * - Loading: shows skeleton loaders while fetching
- * - MongoDB mode: renders all sections (recent chats, shared, insights)
- * - localStorage mode: hides shared conversations and insights widget
- * - Recent chats: fetches and displays conversations
- * - Recent chats: shows empty state when no conversations
- * - Shared conversations: fetches from getSharedConversations API
- * - Insights widget: fetches and renders user stats
- * - Welcome banner: shows user name from session
+ * - Page structure: data-testid, "Powered by caipe.io" footer
+ * - Welcome banner: personalized greeting, no preferences shortcut
  * - Capability cards: renders with ragEnabled from config
- * - Does not fetch when not authenticated
+ * - Recent chats (MongoDB): fetches and displays conversations
+ * - Recent chats (MongoDB): shows empty state when no conversations
+ * - Shared conversations (MongoDB): fetches from getSharedConversations API
+ * - Insights widget (MongoDB): fetches and renders user stats
+ * - localStorage mode: hides shared conversations and insights widget
+ * - localStorage mode: calls loadConversationsFromServer
+ * - Not authenticated: does not fetch
  * - Error handling: handles API failures gracefully
  */
 
@@ -77,11 +77,6 @@ jest.mock('lucide-react', () => ({
   Settings: (props: any) => <svg data-testid="icon-settings" {...props} />,
 }))
 
-jest.mock('@/components/preferences-modal', () => ({
-  PreferencesModal: ({ open }: any) =>
-    open ? <div data-testid="preferences-modal">Preferences</div> : null,
-}))
-
 jest.mock('@/lib/utils', () => ({
   cn: (...args: any[]) => args.filter(Boolean).join(' '),
 }))
@@ -95,6 +90,7 @@ let mockRagEnabled = true
 jest.mock('@/lib/config', () => ({
   config: {
     get ragEnabled() { return mockRagEnabled },
+    showPoweredBy: true,
   },
 }))
 
@@ -195,11 +191,34 @@ describe('HomePage', () => {
     mockLocalConversations.length = 0
   })
 
-  describe('AuthGuard', () => {
+  describe('page structure', () => {
     it('wraps the page in AuthGuard', () => {
       setupMockAPIs()
       render(<HomePage />)
       expect(screen.getByTestId('auth-guard')).toBeInTheDocument()
+    })
+
+    it('renders with data-testid="home-page"', () => {
+      setupMockAPIs()
+      render(<HomePage />)
+      expect(screen.getByTestId('home-page')).toBeInTheDocument()
+    })
+
+    it('renders "Powered by caipe.io" footer', () => {
+      setupMockAPIs()
+      render(<HomePage />)
+      expect(screen.getByText(/Powered by/)).toBeInTheDocument()
+      const link = screen.getByText('caipe.io')
+      expect(link).toBeInTheDocument()
+      expect(link.closest('a')).toHaveAttribute('href', 'https://caipe.io')
+      expect(link.closest('a')).toHaveAttribute('target', '_blank')
+      expect(link.closest('a')).toHaveAttribute('rel', 'noopener noreferrer')
+    })
+
+    it('does not render preferences shortcut on welcome banner', () => {
+      setupMockAPIs()
+      render(<HomePage />)
+      expect(screen.queryByTestId('preferences-shortcut')).not.toBeInTheDocument()
     })
   })
 
@@ -340,6 +359,15 @@ describe('HomePage', () => {
       setupMockAPIs()
       render(<HomePage />)
       expect(mockGetUserStats).not.toHaveBeenCalled()
+    })
+
+    it('calls loadConversationsFromServer', async () => {
+      setupMockAPIs()
+      render(<HomePage />)
+
+      await waitFor(() => {
+        expect(mockLoadConversationsFromServer).toHaveBeenCalled()
+      })
     })
 
     it('still renders recent chats', async () => {
