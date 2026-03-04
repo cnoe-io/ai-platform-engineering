@@ -13,6 +13,7 @@ import {
   Database,
   Shield,
   FileText,
+  Workflow,
 } from "lucide-react";
 import { UserMenu } from "@/components/user-menu";
 import { SettingsPanel } from "@/components/settings-panel";
@@ -91,6 +92,7 @@ export function AppHeader() {
   const getActiveTab = () => {
     if (pathname?.startsWith("/chat")) return "chat";
     if (pathname?.startsWith("/knowledge-bases")) return "knowledge";
+    if (pathname?.startsWith("/task-builder")) return "task-builder";
     if (pathname?.startsWith("/skills") || pathname?.startsWith("/use-cases")) return "skills";
     if (pathname?.startsWith("/admin")) return "admin";
     return "skills"; // Default to Skills
@@ -146,6 +148,19 @@ export function AppHeader() {
             )}
           >
             💬 Chat
+          </Link>
+          <Link
+            href="/task-builder"
+            prefetch={true}
+            className={cn(
+              "flex items-center gap-1.5 px-4 py-1.5 rounded-full text-sm font-medium transition-all",
+              activeTab === "task-builder"
+                ? "bg-primary text-primary-foreground shadow-sm"
+                : "text-muted-foreground hover:text-foreground"
+            )}
+          >
+            <Workflow className="h-3.5 w-3.5" />
+            Task Builder
           </Link>
           {/* Knowledge Bases tab - only show if RAG is enabled */}
           {ragEnabled && (

@@ -226,6 +226,14 @@ async function createIndexes(db: Db) {
     safeCreateIndex(db, 'workflow_runs', { started_at: -1 }),
     safeCreateIndex(db, 'workflow_runs', { owner_id: 1, workflow_id: 1 }),
     safeCreateIndex(db, 'workflow_runs', { owner_id: 1, started_at: -1 }),
+
+    // Task configs collection (Task Builder)
+    safeCreateIndex(db, 'task_configs', { id: 1 }, { unique: true }),
+    safeCreateIndex(db, 'task_configs', { name: 1 }, { unique: true }),
+    safeCreateIndex(db, 'task_configs', { category: 1 }),
+    safeCreateIndex(db, 'task_configs', { owner_id: 1 }),
+    safeCreateIndex(db, 'task_configs', { is_system: 1 }),
+    safeCreateIndex(db, 'task_configs', { created_at: -1 }),
   ]);
 
   console.log('✅ MongoDB indexes ensured');
