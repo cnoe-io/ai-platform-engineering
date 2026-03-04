@@ -601,7 +601,7 @@ describe('AppHeader — Chat tab notification dots', () => {
     mockSession.data = { user: { name: 'Test User', email: 'test@test.com' } } as any
   })
 
-  it('shows green pulsing dot on Chat tab when conversations are streaming', () => {
+  it('shows green badge with count on Chat tab when conversations are streaming', () => {
     mockStreamingConversations = new Map([
       ['conv-1', { conversationId: 'conv-1', messageId: 'msg-1', client: {} }],
     ])
@@ -612,19 +612,47 @@ describe('AppHeader — Chat tab notification dots', () => {
     const pingDot = chatLink.querySelector('.animate-ping')
     expect(pingDot).toBeInTheDocument()
     expect(pingDot?.className).toContain('bg-emerald-400')
+
+    const badge = chatLink.querySelector('.bg-emerald-500')
+    expect(badge).toBeInTheDocument()
+    expect(badge?.textContent).toBe('1')
   })
 
-  it('shows blue dot on Chat tab when there are unviewed conversations', () => {
+  it('shows green badge with correct count for multiple streaming conversations', () => {
+    mockStreamingConversations = new Map([
+      ['conv-1', { conversationId: 'conv-1', messageId: 'msg-1', client: {} }],
+      ['conv-2', { conversationId: 'conv-2', messageId: 'msg-2', client: {} }],
+    ])
+
+    render(<AppHeader />)
+
+    const chatLink = screen.getByTestId('link-/chat')
+    const badge = chatLink.querySelector('.bg-emerald-500')
+    expect(badge?.textContent).toBe('2')
+  })
+
+  it('shows blue badge with count on Chat tab when there are unviewed conversations', () => {
     mockUnviewedConversations = new Set(['conv-1'])
 
     render(<AppHeader />)
 
     const chatLink = screen.getByTestId('link-/chat')
-    const blueDot = chatLink.querySelector('.bg-blue-500')
-    expect(blueDot).toBeInTheDocument()
+    const blueBadge = chatLink.querySelector('.bg-blue-500')
+    expect(blueBadge).toBeInTheDocument()
+    expect(blueBadge?.textContent).toBe('1')
   })
 
-  it('green dot takes priority over blue dot when both streaming and unviewed exist', () => {
+  it('shows blue badge with correct count for multiple unviewed conversations', () => {
+    mockUnviewedConversations = new Set(['conv-1', 'conv-2', 'conv-3'])
+
+    render(<AppHeader />)
+
+    const chatLink = screen.getByTestId('link-/chat')
+    const blueBadge = chatLink.querySelector('.bg-blue-500')
+    expect(blueBadge?.textContent).toBe('3')
+  })
+
+  it('green badge takes priority over blue badge when both streaming and unviewed exist', () => {
     mockStreamingConversations = new Map([
       ['conv-1', { conversationId: 'conv-1', messageId: 'msg-1', client: {} }],
     ])
@@ -633,19 +661,19 @@ describe('AppHeader — Chat tab notification dots', () => {
     render(<AppHeader />)
 
     const chatLink = screen.getByTestId('link-/chat')
-    const greenDot = chatLink.querySelector('.bg-emerald-500')
-    const blueDot = chatLink.querySelector('.bg-blue-500')
-    expect(greenDot).toBeInTheDocument()
-    expect(blueDot).not.toBeInTheDocument()
+    const greenBadge = chatLink.querySelector('.bg-emerald-500')
+    const blueBadge = chatLink.querySelector('.bg-blue-500')
+    expect(greenBadge).toBeInTheDocument()
+    expect(blueBadge).not.toBeInTheDocument()
   })
 
-  it('shows no notification dot when nothing is streaming or unviewed', () => {
+  it('shows no notification badge when nothing is streaming or unviewed', () => {
     render(<AppHeader />)
 
     const chatLink = screen.getByTestId('link-/chat')
-    const greenDot = chatLink.querySelector('.bg-emerald-500')
-    const blueDot = chatLink.querySelector('.bg-blue-500')
-    expect(greenDot).not.toBeInTheDocument()
-    expect(blueDot).not.toBeInTheDocument()
+    const greenBadge = chatLink.querySelector('.bg-emerald-500')
+    const blueBadge = chatLink.querySelector('.bg-blue-500')
+    expect(greenBadge).not.toBeInTheDocument()
+    expect(blueBadge).not.toBeInTheDocument()
   })
 })

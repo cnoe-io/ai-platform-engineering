@@ -147,14 +147,18 @@ export function AppHeader() {
           >
             💬 Chat
             {streamingConversations.size > 0 && (
-              <span className="absolute -top-0.5 -right-0.5 flex h-2.5 w-2.5">
+              <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center">
                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
-                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500" />
+                <span className="relative inline-flex items-center justify-center rounded-full h-4 w-4 bg-emerald-500 text-[9px] font-bold text-white">
+                  {streamingConversations.size}
+                </span>
               </span>
             )}
             {streamingConversations.size === 0 && unviewedConversations.size > 0 && (
-              <span className="absolute -top-0.5 -right-0.5 flex h-2.5 w-2.5">
-                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-blue-500" />
+              <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center">
+                <span className="relative inline-flex items-center justify-center rounded-full h-4 w-4 bg-blue-500 text-[9px] font-bold text-white">
+                  {unviewedConversations.size}
+                </span>
               </span>
             )}
           </Link>
