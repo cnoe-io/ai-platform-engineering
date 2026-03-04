@@ -24,6 +24,12 @@ interface ChatState {
   // Per-turn event tracking: selectedTurnId per conversation
   selectedTurnIds: Map<string, string>; // conversationId -> turnId
 
+  // Conversations with new responses the user hasn't viewed yet
+  unviewedConversations: Set<string>;
+
+  // Conversations where the agent is waiting for user input (HITL)
+  inputRequiredConversations: Set<string>;
+
   // Actions
   createConversation: () => string;
   setActiveConversation: (id: string) => void;
@@ -51,6 +57,16 @@ interface ChatState {
   recoverInterruptedTask: (conversationId: string, messageId: string, endpoint: string, accessToken?: string) => Promise<boolean>; // Level 2: Poll tasks/get for interrupted messages
   loadMessagesFromServer: (conversationId: string, options?: { force?: boolean }) => Promise<void>; // Load messages from MongoDB when opening conversation
   evictOldMessageContent: (conversationId: string, messageIdsToEvict: string[]) => void; // Evict content from old messages to free memory
+
+  // Unviewed conversation actions
+  markConversationUnviewed: (conversationId: string) => void;
+  clearConversationUnviewed: (conversationId: string) => void;
+  hasUnviewedMessages: (conversationId: string) => boolean;
+
+  // Input-required conversation actions (HITL)
+  markConversationInputRequired: (conversationId: string) => void;
+  clearConversationInputRequired: (conversationId: string) => void;
+  isConversationInputRequired: (conversationId: string) => boolean;
 
   // Turn selection actions for per-message event tracking
   setSelectedTurn: (conversationId: string, turnId: string | null) => void;
@@ -129,6 +145,8 @@ const storeImplementation = (set: any, get: any) => ({
       a2aEvents: [],
       pendingMessage: null,
       selectedTurnIds: new Map<string, string>(),
+      unviewedConversations: new Set<string>(),
+      inputRequiredConversations: new Set<string>(),
 
       createConversation: () => {
         const id = generateId();
@@ -168,10 +186,15 @@ const storeImplementation = (set: any, get: any) => ({
       },
 
       setActiveConversation: (id: string) => {
-        // Just switch the active conversation
-        // Events are now stored per-conversation, so no need to clear global events
+        const prev = get();
+        const newUnviewed = new Set(prev.unviewedConversations);
+        newUnviewed.delete(id);
+        const newInputRequired = new Set(prev.inputRequiredConversations);
+        newInputRequired.delete(id);
         set({
           activeConversationId: id,
+          unviewedConversations: newUnviewed,
+          inputRequiredConversations: newInputRequired,
         });
       },
 
@@ -293,12 +316,18 @@ const storeImplementation = (set: any, get: any) => ({
           const newMap = new Map(prev.streamingConversations);
           if (state) {
             newMap.set(conversationId, state);
+            // Clear input-required when streaming resumes (user submitted input)
+            const newInputRequired = new Set(prev.inputRequiredConversations);
+            newInputRequired.delete(conversationId);
             console.log(`[Store] Started streaming for conversation: ${conversationId}`);
-          } else {
-            newMap.delete(conversationId);
-            console.log(`[Store] Stopped streaming for conversation: ${conversationId}, remaining: ${newMap.size}`);
+            return {
+              streamingConversations: newMap,
+              isStreaming: true,
+              inputRequiredConversations: newInputRequired,
+            };
           }
-          // Update global isStreaming based on whether any conversation is streaming
+          newMap.delete(conversationId);
+          console.log(`[Store] Stopped streaming for conversation: ${conversationId}, remaining: ${newMap.size}`);
           const newIsStreaming = newMap.size > 0;
           console.log(`[Store] Global isStreaming: ${newIsStreaming}`);
           return {
@@ -307,8 +336,17 @@ const storeImplementation = (set: any, get: any) => ({
           };
         });
 
-        // When streaming completes, save messages to MongoDB
+        // When streaming completes, save messages to MongoDB and mark unviewed
         if (!state) {
+          // Mark as unviewed if the user is looking at a different conversation
+          const current = get();
+          if (current.activeConversationId !== conversationId) {
+            const newUnviewed = new Set(current.unviewedConversations);
+            newUnviewed.add(conversationId);
+            set({ unviewedConversations: newUnviewed });
+            console.log(`[Store] Marked conversation as unviewed: ${conversationId.substring(0, 8)}`);
+          }
+
           // Reset periodic save counter for this conversation
           eventCountSinceLastSave.delete(conversationId);
           // Mark save as pending — prevents loadMessagesFromServer from
@@ -408,6 +446,15 @@ const storeImplementation = (set: any, get: any) => ({
 
           return { a2aEvents: newGlobalEvents };
         });
+
+        // Mark conversation as input-required when a UserInputMetaData artifact arrives
+        if (convId && artifactName === 'UserInputMetaData') {
+          const current = get();
+          const newInputRequired = new Set(current.inputRequiredConversations);
+          newInputRequired.add(convId);
+          set({ inputRequiredConversations: newInputRequired });
+          console.log(`[Store] Marked conversation as input-required: ${convId.substring(0, 8)}`);
+        }
 
         // Periodic save: trigger a background save every PERIODIC_SAVE_EVENT_THRESHOLD
         // events to avoid data loss during long streaming sessions.
@@ -1223,6 +1270,46 @@ const storeImplementation = (set: any, get: any) => ({
         console.log(`[ChatStore] Evicted content from ${evictedCount} messages (~${(freedChars / 1024).toFixed(0)}KB freed) for: ${conversationId.substring(0, 8)}`);
       },
 
+      markConversationUnviewed: (conversationId: string) => {
+        set((prev: ChatState) => {
+          const newSet = new Set(prev.unviewedConversations);
+          newSet.add(conversationId);
+          return { unviewedConversations: newSet };
+        });
+      },
+
+      clearConversationUnviewed: (conversationId: string) => {
+        set((prev: ChatState) => {
+          const newSet = new Set(prev.unviewedConversations);
+          newSet.delete(conversationId);
+          return { unviewedConversations: newSet };
+        });
+      },
+
+      hasUnviewedMessages: (conversationId: string) => {
+        return get().unviewedConversations.has(conversationId);
+      },
+
+      markConversationInputRequired: (conversationId: string) => {
+        set((prev: ChatState) => {
+          const newSet = new Set(prev.inputRequiredConversations);
+          newSet.add(conversationId);
+          return { inputRequiredConversations: newSet };
+        });
+      },
+
+      clearConversationInputRequired: (conversationId: string) => {
+        set((prev: ChatState) => {
+          const newSet = new Set(prev.inputRequiredConversations);
+          newSet.delete(conversationId);
+          return { inputRequiredConversations: newSet };
+        });
+      },
+
+      isConversationInputRequired: (conversationId: string) => {
+        return get().inputRequiredConversations.has(conversationId);
+      },
+
       // Turn selection actions for per-message event tracking
       setSelectedTurn: (conversationId, turnId) => {
         set((state) => {
@@ -1549,5 +1636,20 @@ if (typeof window !== 'undefined') {
   });
 
   // Fallback: beforeunload for older browsers and explicit tab close.
-  window.addEventListener('beforeunload', saveInflightConversations);
+  // Also prompts the user to confirm if any conversations are actively streaming,
+  // so they don't accidentally lose an in-flight response.
+  window.addEventListener('beforeunload', (e: BeforeUnloadEvent) => {
+    saveInflightConversations();
+
+    const state = useChatStore.getState();
+    if (state.streamingConversations.size > 0) {
+      e.preventDefault();
+      const count = state.streamingConversations.size;
+      const msg =
+        count === 1
+          ? 'You have 1 live chat receiving a response. Refreshing will interrupt it.'
+          : `You have ${count} live chats receiving responses. Refreshing will interrupt them.`;
+      e.returnValue = msg;
+    }
+  });
 }
