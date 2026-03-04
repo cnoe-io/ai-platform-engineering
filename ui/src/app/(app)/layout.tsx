@@ -2,6 +2,7 @@
 
 import React from "react";
 import { AppHeader } from "@/components/layout/AppHeader";
+import { LiveStreamBanner } from "@/components/layout/LiveStreamBanner";
 import { useUserInit } from "@/hooks/use-user-init";
 
 export default function AppLayout({
@@ -15,6 +16,7 @@ export default function AppLayout({
   return (
     <div className="h-screen flex flex-col bg-background noise-overlay">
       <AppHeader />
+      <LiveStreamBanner />
       {children}
     </div>
   );

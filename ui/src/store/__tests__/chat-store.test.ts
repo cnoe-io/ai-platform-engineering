@@ -2336,6 +2336,22 @@ describe('chat-store', () => {
       expect(preventDefaultSpy).toHaveBeenCalled();
     });
 
+    it('sets returnValue when streaming (browser-level confirmation)', () => {
+      useChatStore.setState({
+        streamingConversations: new Map([
+          ['conv-1', { conversationId: 'conv-1', messageId: 'msg-1', client: {} as any }],
+        ]),
+        isStreaming: true,
+      });
+
+      const event = new Event('beforeunload') as BeforeUnloadEvent;
+      window.dispatchEvent(event);
+
+      // jsdom coerces returnValue to boolean; in real browsers this is the
+      // descriptive string "You have 1 live chat receiving a response..."
+      expect(event.returnValue).toBeTruthy();
+    });
+
     it('does NOT call preventDefault when no conversations are streaming', () => {
       useChatStore.setState({
         streamingConversations: new Map(),

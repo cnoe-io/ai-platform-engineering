@@ -31,7 +31,6 @@ This feature provides at-a-glance awareness of both streaming activity and unvie
 - Per-agent streaming indicators
 - Persisting unviewed state across page reloads (ephemeral in-session tracking)
 - Unread message count badges
-- Custom modal dialogs for refresh confirmation (uses native browser dialog)
 
 ## Design
 
@@ -68,8 +67,10 @@ The icon container (`shrink-0 w-8 h-8`) is rendered outside the `!collapsed` gua
 - [ ] MCP Servers
 - [ ] Knowledge Bases (`ai_platform_engineering/knowledge_bases/`)
 - [x] UI (`ui/`)
-  - `ui/src/store/chat-store.ts` — `unviewedConversations` state, mark/clear/has actions
+  - `ui/src/store/chat-store.ts` — `unviewedConversations` state, mark/clear/has actions, `beforeunload` handler
   - `ui/src/components/layout/Sidebar.tsx` — Visual rendering of both indicators
+  - `ui/src/components/layout/LiveStreamBanner.tsx` — App-wide banner warning when live chats are active
+  - `ui/src/app/(app)/layout.tsx` — Mounts `LiveStreamBanner` between header and content
 - [x] Documentation (`docs/`)
   - ADR: `docs/docs/changes/2026-03-03-live-status-indicator.md`
 - [ ] Helm Charts (`charts/`)
@@ -113,8 +114,11 @@ The icon container (`shrink-0 w-8 h-8`) is rendered outside the `!collapsed` gua
 
 ### Phase 3: Refresh Guard ✅
 - [x] Add `beforeunload` confirmation when conversations are actively streaming
-- [x] Uses native browser dialog (non-intrusive, familiar UX pattern)
-- [x] Only triggers when `streamingConversations.size > 0`
+- [x] Set descriptive `returnValue` message mentioning live chats (for browsers that support it)
+- [x] Add `LiveStreamBanner` component at app layout level — visible proactive warning
+- [x] Banner shows "N live chat(s) receiving response(s) — refreshing will interrupt"
+- [x] Banner auto-hides when no conversations are streaming
+- [x] Only triggers `beforeunload` when `streamingConversations.size > 0`
 - [x] Still saves in-flight data regardless of user choice
 
 ### Phase 4: Documentation ✅
@@ -123,8 +127,10 @@ The icon container (`shrink-0 w-8 h-8`) is rendered outside the `!collapsed` gua
 
 ## Testing Strategy
 
-- Unit tests: N/A (pure UI rendering based on store state)
-- Integration tests: N/A (state transitions are simple set add/delete operations)
+- Unit tests:
+  - Store tests (24 tests): unviewedConversations CRUD, streaming-to-unviewed lifecycle, beforeunload guard, multi-conversation independence
+  - Sidebar component tests (17 tests): Radio/MessageSquare icon rendering, emerald/blue styling, "Live"/"New response" text, mixed states, collapsed behavior
+  - LiveStreamBanner component tests (6 tests): hidden when idle, singular/plural messages, "refreshing will interrupt" text, accessibility attributes
 - Manual verification:
   - Start a new conversation and send a message — verify green antenna during streaming
   - Verify "Live" text replaces the date

@@ -70,7 +70,11 @@ If streaming completes while the user is already viewing that conversation, no u
 
 ### Refresh Guard
 
-If the user tries to refresh or close the tab while any conversation is actively streaming, the browser's native confirmation dialog appears ("Changes you made may not be saved"). This uses the standard `beforeunload` + `preventDefault` pattern — no custom modal, no annoyance when nothing is streaming. Data is still saved regardless of the user's choice.
+Two-layer warning system for users who try to refresh or close while chats are streaming:
+
+1. **In-app banner** (`LiveStreamBanner`): A thin emerald bar appears at the top of the app whenever any conversation is actively streaming, showing "N live chat(s) receiving response(s) — **refreshing will interrupt**". Proactive and always visible — users see it *before* they hit Cmd-R.
+
+2. **Native browser dialog** (`beforeunload`): If the user does try to refresh/close, the browser's confirmation dialog appears. A descriptive `returnValue` message is set (e.g. "You have 1 live chat receiving a response. Refreshing will interrupt it."), though modern browsers replace it with generic text. Data is still saved regardless of the user's choice.
 
 ### Collapsed Sidebar
 
@@ -91,6 +95,14 @@ The icon container is rendered outside the `!collapsed` guard, so both the green
   - Added `isLive` and `isUnviewed` checks per conversation item
   - Three-state conditional rendering for icon, background, border, and date text
   - Blue dot badge and "New response" text for unviewed conversations
+
+- `ui/src/components/layout/LiveStreamBanner.tsx` (new)
+  - Thin emerald banner at top of app when streaming conversations exist
+  - Shows count and descriptive message ("N live chat(s) — refreshing will interrupt")
+  - Auto-hides when no streams are active; accessible with `role="status"` and `aria-live="polite"`
+
+- `ui/src/app/(app)/layout.tsx`
+  - Added `LiveStreamBanner` between `AppHeader` and page content
 
 ## Related
 

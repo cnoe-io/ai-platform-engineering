@@ -1597,6 +1597,12 @@ if (typeof window !== 'undefined') {
     const state = useChatStore.getState();
     if (state.streamingConversations.size > 0) {
       e.preventDefault();
+      const count = state.streamingConversations.size;
+      const msg =
+        count === 1
+          ? 'You have 1 live chat receiving a response. Refreshing will interrupt it.'
+          : `You have ${count} live chats receiving responses. Refreshing will interrupt them.`;
+      e.returnValue = msg;
     }
   });
 }
