@@ -360,9 +360,13 @@ export async function requireConversationAccess(
     return { conversation, access_level: 'owner' };
   }
 
-  // Check if conversation is public (shared with everyone) — always read-only
+  // Check if conversation is public (shared with everyone)
   if (conversation.sharing?.is_public) {
-    return { conversation, access_level: 'shared_readonly' };
+    const perm = conversation.sharing?.public_permission ?? 'comment';
+    return {
+      conversation,
+      access_level: perm === 'comment' ? 'shared' : 'shared_readonly',
+    };
   }
 
   // Check if conversation is shared with user directly

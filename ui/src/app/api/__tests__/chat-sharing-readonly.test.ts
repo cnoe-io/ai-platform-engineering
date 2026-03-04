@@ -186,7 +186,7 @@ describe('requireConversationAccess — readonly sharing permissions', () => {
   });
 
   describe('public shares', () => {
-    it('always returns shared_readonly for public conversations', async () => {
+    it('returns shared (comment) by default for public conversations', async () => {
       const conv = makeConversation({
         sharing: { is_public: true, shared_with: [], shared_with_teams: [] },
       });
@@ -196,7 +196,33 @@ describe('requireConversationAccess — readonly sharing permissions', () => {
 
       const result = await requireConversationAccess(conv._id, VIEWER_EMAIL, mockGetCollection);
 
+      expect(result.access_level).toBe('shared');
+    });
+
+    it('returns shared_readonly when public_permission is view', async () => {
+      const conv = makeConversation({
+        sharing: { is_public: true, public_permission: 'view', shared_with: [], shared_with_teams: [] },
+      });
+      const convsCol = createMockCollection();
+      convsCol.findOne.mockResolvedValue(conv);
+      mockCollections['conversations'] = convsCol;
+
+      const result = await requireConversationAccess(conv._id, VIEWER_EMAIL, mockGetCollection);
+
       expect(result.access_level).toBe('shared_readonly');
+    });
+
+    it('returns shared when public_permission is comment', async () => {
+      const conv = makeConversation({
+        sharing: { is_public: true, public_permission: 'comment', shared_with: [], shared_with_teams: [] },
+      });
+      const convsCol = createMockCollection();
+      convsCol.findOne.mockResolvedValue(conv);
+      mockCollections['conversations'] = convsCol;
+
+      const result = await requireConversationAccess(conv._id, VIEWER_EMAIL, mockGetCollection);
+
+      expect(result.access_level).toBe('shared');
     });
 
     it('owner still gets owner access on public conversations', async () => {

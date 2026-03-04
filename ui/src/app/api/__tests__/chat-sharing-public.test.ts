@@ -158,7 +158,7 @@ describe('requireConversationAccess — public (is_public) access', () => {
 
     expect(result).toBeDefined();
     expect(result.conversation._id).toBe(conv._id);
-    expect(result.access_level).toBe('shared_readonly');
+    expect(result.access_level).toBe('shared');
   });
 
   it('denies access when is_public is false and user has no other access', async () => {
@@ -214,7 +214,7 @@ describe('requireConversationAccess — public (is_public) access', () => {
 
     expect(result).toBeDefined();
     expect(result.conversation.sharing.is_public).toBe(true);
-    expect(result.access_level).toBe('shared_readonly');
+    expect(result.access_level).toBe('shared');
   });
 
   it('does not check teams or sharing_access when is_public is true', async () => {

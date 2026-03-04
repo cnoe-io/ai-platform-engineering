@@ -39,7 +39,8 @@ export function ShareDialog({
   const [togglingPublic, setTogglingPublic] = useState(false);
   const [userPermissions, setUserPermissions] = useState<Record<string, SharePermission>>({});
   const [teamPermissions, setTeamPermissions] = useState<Record<string, SharePermission>>({});
-  const [defaultPermission, setDefaultPermission] = useState<SharePermission>('view');
+  const [defaultPermission, setDefaultPermission] = useState<SharePermission>('comment');
+  const [publicPermission, setPublicPermission] = useState<SharePermission>('comment');
 
   const shareUrl = `${typeof window !== 'undefined' ? window.location.origin : ''}/chat/${conversationId}`;
 
@@ -74,6 +75,9 @@ export function ShareDialog({
 
         // Build per-team permission map from sharing.team_permissions
         setTeamPermissions(sharing?.team_permissions || {});
+
+        // Load public share permission
+        setPublicPermission(sharing?.public_permission || 'comment');
 
         // Update store with sharing info so Sidebar shows icon immediately
         if (sharing) {
@@ -338,6 +342,21 @@ export function ShareDialog({
     }
   };
 
+  const handlePublicPermissionChange = async (newPermission: SharePermission) => {
+    try {
+      const response = await fetch(`/api/chat/conversations/${conversationId}/share`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ is_public: true, public_permission: newPermission }),
+      });
+      if (response.ok) {
+        setPublicPermission(newPermission);
+      }
+    } catch (err) {
+      console.error('Failed to update public permission:', err);
+    }
+  };
+
   const handleTogglePublic = async () => {
     setTogglingPublic(true);
     const newPublicState = !isPublic;
@@ -487,8 +506,8 @@ export function ShareDialog({
                 <div className="text-sm font-medium">Share with everyone</div>
                 <div className="text-xs text-muted-foreground">
                   {isPublic
-                    ? 'Anyone in the organization can view this conversation'
-                    : 'Only people and teams you add can view'}
+                    ? `Anyone in the organization can ${publicPermission === 'comment' ? 'view and edit' : 'view'} this conversation`
+                    : 'Only people and teams you add can access'}
                 </div>
               </div>
             </div>
@@ -642,7 +661,14 @@ export function ShareDialog({
                       <div className="text-xs text-muted-foreground">All organization members</div>
                     </div>
                   </div>
-                  <span className="text-xs text-muted-foreground">Can view</span>
+                  <select
+                    value={publicPermission}
+                    onChange={(e) => handlePublicPermissionChange(e.target.value as SharePermission)}
+                    className="text-xs bg-transparent border border-green-500/30 rounded px-1.5 py-1 text-muted-foreground hover:text-foreground cursor-pointer focus:outline-none focus:ring-1 focus:ring-primary/50"
+                  >
+                    <option value="view">Can view</option>
+                    <option value="comment">Can edit</option>
+                  </select>
                 </div>
               )}
               {/* People */}

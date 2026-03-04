@@ -162,6 +162,10 @@ export const POST = withErrorHandler(async (
       update['sharing.is_public'] = body.is_public;
     }
 
+    if (body.public_permission) {
+      update['sharing.public_permission'] = body.public_permission;
+    }
+
     if (body.enable_link !== undefined) {
       update['sharing.share_link_enabled'] = body.enable_link;
     }
