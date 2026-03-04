@@ -352,6 +352,37 @@ describe('getServerConfig', () => {
     });
   });
 
+  // ---------- auditLogsEnabled ----------
+
+  describe('auditLogsEnabled', () => {
+    beforeEach(() => clearEnv('AUDIT_LOGS_ENABLED'));
+
+    it('should default to false (disabled)', () => {
+      expect(getServerConfig().auditLogsEnabled).toBe(false);
+    });
+
+    it('should be true when AUDIT_LOGS_ENABLED=true', () => {
+      process.env.AUDIT_LOGS_ENABLED = 'true';
+      expect(getServerConfig().auditLogsEnabled).toBe(true);
+    });
+
+    it('should be false when AUDIT_LOGS_ENABLED=false', () => {
+      process.env.AUDIT_LOGS_ENABLED = 'false';
+      expect(getServerConfig().auditLogsEnabled).toBe(false);
+    });
+
+    it('should be false for non-"true" values (only "true" enables)', () => {
+      process.env.AUDIT_LOGS_ENABLED = '1';
+      expect(getServerConfig().auditLogsEnabled).toBe(false);
+
+      process.env.AUDIT_LOGS_ENABLED = 'banana';
+      expect(getServerConfig().auditLogsEnabled).toBe(false);
+
+      process.env.AUDIT_LOGS_ENABLED = 'TRUE';
+      expect(getServerConfig().auditLogsEnabled).toBe(false);
+    });
+  });
+
   // ---------- Logo style ----------
 
   describe('logoStyle', () => {

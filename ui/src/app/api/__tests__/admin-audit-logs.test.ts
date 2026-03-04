@@ -823,3 +823,242 @@ describe('GET /api/admin/audit-logs/owners — Search', () => {
     expect(body.data.owners).toEqual(['alice@example.com']);
   });
 });
+
+// ============================================================================
+// Tests: GET /api/admin/audit-logs — Additional Filter & Edge Cases
+// ============================================================================
+
+describe('GET /api/admin/audit-logs — Filter Edge Cases', () => {
+  beforeEach(resetMocks);
+
+  it('filters by status=archived', async () => {
+    const { convCol } = setupAdminWithConversations([]);
+
+    const req = makeRequest('/api/admin/audit-logs?status=archived');
+    await listGET(req);
+
+    const pipeline = convCol.aggregate.mock.calls[0][0];
+    const matchStage = pipeline.find((s: any) => s.$match);
+    expect(matchStage.$match.is_archived).toBe(true);
+  });
+
+  it('includes deleted conversations when include_deleted=true', async () => {
+    const { convCol } = setupAdminWithConversations([]);
+
+    const req = makeRequest('/api/admin/audit-logs?include_deleted=true');
+    await listGET(req);
+
+    const pipeline = convCol.aggregate.mock.calls[0][0];
+    const matchStage = pipeline.find((s: any) => s.$match);
+    expect(matchStage.$match.$or).toBeUndefined();
+  });
+
+  it('excludes deleted by default when no status specified', async () => {
+    const { convCol } = setupAdminWithConversations([]);
+
+    const req = makeRequest('/api/admin/audit-logs');
+    await listGET(req);
+
+    const pipeline = convCol.aggregate.mock.calls[0][0];
+    const matchStage = pipeline.find((s: any) => s.$match);
+    expect(matchStage.$match.$or).toBeDefined();
+    expect(matchStage.$match.$or).toEqual([
+      { deleted_at: null },
+      { deleted_at: { $exists: false } },
+    ]);
+  });
+
+  it('applies only date_from when date_to is absent', async () => {
+    const { convCol } = setupAdminWithConversations([]);
+
+    const req = makeRequest('/api/admin/audit-logs?date_from=2026-02-01');
+    await listGET(req);
+
+    const pipeline = convCol.aggregate.mock.calls[0][0];
+    const matchStage = pipeline.find((s: any) => s.$match);
+    expect(matchStage.$match.created_at.$gte).toEqual(new Date('2026-02-01'));
+    expect(matchStage.$match.created_at.$lte).toBeUndefined();
+  });
+
+  it('applies only date_to when date_from is absent', async () => {
+    const { convCol } = setupAdminWithConversations([]);
+
+    const req = makeRequest('/api/admin/audit-logs?date_to=2026-03-15');
+    await listGET(req);
+
+    const pipeline = convCol.aggregate.mock.calls[0][0];
+    const matchStage = pipeline.find((s: any) => s.$match);
+    expect(matchStage.$match.created_at.$lte).toEqual(new Date('2026-03-15'));
+    expect(matchStage.$match.created_at.$gte).toBeUndefined();
+  });
+
+  it('combines multiple filters simultaneously', async () => {
+    const { convCol } = setupAdminWithConversations([]);
+
+    const req = makeRequest(
+      '/api/admin/audit-logs?owner_email=alice&search=deploy&status=active&date_from=2026-01-01'
+    );
+    await listGET(req);
+
+    const pipeline = convCol.aggregate.mock.calls[0][0];
+    const matchStage = pipeline.find((s: any) => s.$match);
+    expect(matchStage.$match.owner_id).toEqual({ $regex: 'alice', $options: 'i' });
+    expect(matchStage.$match.title).toEqual({ $regex: 'deploy', $options: 'i' });
+    expect(matchStage.$match.is_archived).toEqual({ $ne: true });
+    expect(matchStage.$match.created_at.$gte).toEqual(new Date('2026-01-01'));
+  });
+
+  it('uses correct default pagination (page=1, pageSize=20)', async () => {
+    const { convCol } = setupAdminWithConversations([]);
+
+    const req = makeRequest('/api/admin/audit-logs');
+    await listGET(req);
+
+    const pipeline = convCol.aggregate.mock.calls[0][0];
+    const facetStage = pipeline.find((s: any) => s.$facet);
+    const itemsPipeline = facetStage.$facet.items;
+    const skipStage = itemsPipeline.find((s: any) => s.$skip !== undefined);
+    const limitStage = itemsPipeline.find((s: any) => s.$limit !== undefined);
+    expect(skipStage.$skip).toBe(0);
+    expect(limitStage.$limit).toBe(20);
+  });
+
+  it('sorts by updated_at descending', async () => {
+    const { convCol } = setupAdminWithConversations([]);
+
+    const req = makeRequest('/api/admin/audit-logs');
+    await listGET(req);
+
+    const pipeline = convCol.aggregate.mock.calls[0][0];
+    const facetStage = pipeline.find((s: any) => s.$facet);
+    const sortStage = facetStage.$facet.items.find((s: any) => s.$sort);
+    expect(sortStage.$sort.updated_at).toBe(-1);
+  });
+});
+
+// ============================================================================
+// Tests: GET /api/admin/audit-logs/[id]/messages — Pagination
+// ============================================================================
+
+describe('GET /api/admin/audit-logs/[id]/messages — Pagination', () => {
+  beforeEach(resetMocks);
+
+  const callMessages = (url: string, id: string = 'conv-123') => {
+    const req = makeRequest(url);
+    return messagesGET(req, { params: Promise.resolve({ id }) });
+  };
+
+  it('returns has_more=true when there are more pages', async () => {
+    mockGetServerSession.mockResolvedValue(adminSession());
+
+    const now = new Date();
+    const convCol = createMockCollection();
+    convCol.findOne.mockResolvedValue({
+      _id: 'conv-123',
+      title: 'Test',
+      owner_id: 'owner@example.com',
+      created_at: now,
+      updated_at: now,
+    });
+    mockCollections['conversations'] = convCol;
+
+    const msgCol = createMockCollection();
+    msgCol.countDocuments.mockResolvedValue(50);
+    msgCol.find.mockReturnValue({
+      sort: jest.fn().mockReturnValue({
+        skip: jest.fn().mockReturnValue({
+          limit: jest.fn().mockReturnValue({
+            toArray: jest.fn().mockResolvedValue(
+              Array.from({ length: 20 }, (_, i) => ({
+                _id: `msg-${i}`,
+                role: 'user',
+                content: `Message ${i}`,
+                created_at: now,
+              }))
+            ),
+          }),
+        }),
+      }),
+    });
+    mockCollections['messages'] = msgCol;
+
+    const res = await callMessages('/api/admin/audit-logs/conv-123/messages');
+    const body = await res.json();
+
+    expect(body.data.messages.total).toBe(50);
+    expect(body.data.messages.has_more).toBe(true);
+  });
+});
+
+// ============================================================================
+// Tests: GET /api/admin/audit-logs/export — Additional CSV Edge Cases
+// ============================================================================
+
+describe('GET /api/admin/audit-logs/export — Edge Cases', () => {
+  beforeEach(resetMocks);
+
+  it('handles conversations with no tags gracefully', async () => {
+    mockGetServerSession.mockResolvedValue(adminSession());
+
+    const convCol = createMockCollection();
+    convCol.aggregate.mockReturnValue({
+      toArray: jest.fn().mockResolvedValue([
+        {
+          _id: 'conv-no-tags',
+          owner_id: 'user@example.com',
+          title: 'No Tags Chat',
+          status: 'active',
+          message_count: 3,
+          created_at: new Date(),
+          updated_at: new Date(),
+          tags: undefined,
+          sharing: undefined,
+        },
+      ]),
+    });
+    mockCollections['conversations'] = convCol;
+
+    const req = makeRequest('/api/admin/audit-logs/export');
+    const res = await exportGET(req);
+    const csv = await res.text();
+
+    expect(res.status).toBe(200);
+    expect(csv).toContain('No Tags Chat');
+    expect(csv.split('\n')).toHaveLength(2);
+  });
+
+  it('exports empty CSV when no conversations match filters', async () => {
+    mockGetServerSession.mockResolvedValue(adminSession());
+
+    const convCol = createMockCollection();
+    convCol.aggregate.mockReturnValue({
+      toArray: jest.fn().mockResolvedValue([]),
+    });
+    mockCollections['conversations'] = convCol;
+
+    const req = makeRequest('/api/admin/audit-logs/export?owner_email=nonexistent');
+    const res = await exportGET(req);
+    const csv = await res.text();
+
+    const lines = csv.split('\n');
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toContain('Conversation ID');
+  });
+
+  it('filters by status=archived in export', async () => {
+    mockGetServerSession.mockResolvedValue(adminSession());
+
+    const convCol = createMockCollection();
+    convCol.aggregate.mockReturnValue({
+      toArray: jest.fn().mockResolvedValue([]),
+    });
+    mockCollections['conversations'] = convCol;
+
+    const req = makeRequest('/api/admin/audit-logs/export?status=deleted');
+    await exportGET(req);
+
+    const pipeline = convCol.aggregate.mock.calls[0][0];
+    const matchStage = pipeline.find((s: any) => s.$match);
+    expect(matchStage.$match.deleted_at).toEqual({ $ne: null, $exists: true });
+  });
+});
