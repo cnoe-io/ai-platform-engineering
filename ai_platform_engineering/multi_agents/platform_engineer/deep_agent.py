@@ -148,6 +148,13 @@ class AIPlatformEngineerMAS:
         status["rag_enabled"] = False
       return status
 
+
+  def get_rag_tool_names(self) -> set[str]:
+    """Get the set of RAG tool names loaded from the MCP server."""
+    if not self.rag_tools:
+      return set()
+    return {t.name for t in self.rag_tools}
+
   async def _load_rag_tools(self) -> List[Any]:
     """
     Load RAG MCP tools from the server.
