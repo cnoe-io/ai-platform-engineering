@@ -117,18 +117,36 @@ The Task Builder uses `@xyflow/react` (already a project dependency) for a visua
 - **Output** (green): notification/completion steps (webex, jira close)
 
 **Layout:**
-- Left: flow canvas with connected task step nodes
-- Right: sidebar property editor for the selected node (display_text, llm_prompt code editor, subagent selector)
-- Top: toolbar with workflow metadata (name, category, description), save, export YAML, import YAML
+- Left: Step Templates palette (searchable, categorized, 154 draggable tool templates) + flow canvas with connected task step nodes (S-curve layout, bezier edges)
+- Right: sidebar property editor for the selected node (display_text, llm_prompt code editor or CAIPE Form Builder, subagent selector); Environment variable panel
+- Top: two-row toolbar with workflow metadata (name, category, description), grouped Import/Preview/Download bar, save
 
 **UX flow:**
-1. User opens `/task-builder`, sees empty canvas with "Add Step" button
-2. Add nodes; each represents a task step with display_text, subagent badge
-3. Connect nodes to define linear execution order
-4. Click a node to edit its properties in the sidebar
+1. User opens `/task-builder`, sees empty canvas with "Add Step" button (or picks a workflow template)
+2. Add nodes via drag-and-drop from Step Templates palette or "Add Step"; each represents a task step with display_text, subagent badge
+3. Connect nodes to define linear execution order (S-curve layout with bezier edges)
+4. Click a node to edit its properties in the sidebar (or CAIPE Form Builder for `caipe` subagent steps)
 5. Set workflow name, category, description in the toolbar
 6. Save → POST `/api/task-configs` → MongoDB
 7. Workflow is immediately available to the supervisor
+
+**UX Enhancements (post-initial implementation):**
+
+- **S-curve node layout**: Nodes alternate left-right in an S-curve pattern with bezier curved edges instead of a straight vertical line.
+- **Step Templates palette**: Left sidebar with 154 draggable tool templates from all integrated agents (CAIPE, GitHub, Jira, Webex, ArgoCD, AWS, AI Gateway, Backstage, Slack, PagerDuty, Splunk, Komodor, Confluence), searchable, categorized, with drag-and-drop onto canvas.
+- **CAIPE Form Builder**: Structured form editor for `caipe` subagent steps.
+- **File I/O visualization**: Nodes show file read/write badges extracted from `llm_prompt`; edges between nodes sharing files are highlighted green.
+- **Environment variable panel**: Shows env vars referenced in workflow with step locations.
+- **Unsaved changes guard**: In-app styled dialog (not browser confirm) when navigating away with unsaved changes; works on Back button AND header tab navigation via Zustand global store + `GuardedLink` wrapper in AppHeader.
+- **Import dialog**: Load saved configs from MongoDB, upload YAML file, or import from raw HTTP URL.
+- **YAML preview dialog**: Syntax-highlighted YAML preview with copy/download, line numbers.
+- **YAML export**: Download uses YAML format (js-yaml) instead of JSON.
+- **Workflow templates**: Template picker dialog when creating new workflow.
+- **Clone workflow**: Clone button on existing workflow cards.
+- **Theme-aware nodes**: Nodes use dark vibrant colors in dark mode, pastel colors in light mode via `useTheme()` runtime detection.
+- **Custom canvas controls**: Replaced React Flow default Controls with custom Panel-based controls using primary theme color.
+- **Toolbar redesign**: Two-row layout with grouped Import/Preview/Download button bar to prevent overflow.
+- **Scrollbar fix**: Transparent track with thin rounded thumb globally.
 
 ### Supervisor Integration
 
@@ -167,6 +185,21 @@ The Task Builder uses `@xyflow/react` (already a project dependency) for a visua
 - [ ] Import from YAML parses `task_config.yaml` format into nodes
 - [ ] Export to YAML generates valid `task_config.yaml` format
 - [ ] "Task Builder" link appears in app navigation
+- [ ] S-curve node layout with bezier curved edges
+- [ ] Step Templates palette (left sidebar) with 154 draggable tool templates, searchable and categorized
+- [ ] CAIPE Form Builder for structured editing of `caipe` subagent steps
+- [ ] File I/O visualization: file read/write badges on nodes, green-highlighted edges for shared files
+- [ ] Environment variable panel showing referenced env vars with step locations
+- [ ] Unsaved changes guard: in-app styled dialog on Back button and header tab navigation
+- [ ] Import dialog: load from MongoDB, upload YAML, or import from HTTP URL
+- [ ] YAML preview dialog with syntax highlighting, copy/download, line numbers
+- [ ] YAML export (js-yaml) instead of JSON
+- [ ] Workflow templates picker when creating new workflow
+- [ ] Clone workflow button on workflow cards
+- [ ] Theme-aware nodes (dark vibrant / light pastel via useTheme)
+- [ ] Custom canvas controls using primary theme color
+- [ ] Two-row toolbar with grouped Import/Preview/Download bar
+- [ ] Global scrollbar: transparent track, thin rounded thumb
 
 ### Supervisor Integration
 - [ ] `load_task_config()` reads from MongoDB when `MONGODB_URI` is set
@@ -197,6 +230,25 @@ The Task Builder uses `@xyflow/react` (already a project dependency) for a visua
 - [ ] Create `ui/src/components/task-builder/SubagentSelector.tsx` (dropdown)
 - [ ] Add "Task Builder" to navigation in `AppHeader.tsx`
 
+### Phase 2.5: UX Enhancements
+- [ ] Implement S-curve node layout with bezier edges
+- [ ] Create `StepPalette.tsx` with 154 draggable tool templates, search, categories
+- [ ] Create `step-templates.ts` data for all integrated agents
+- [ ] Create `CaipeFormBuilder.tsx` for structured `caipe` subagent step editing
+- [ ] Add file I/O badges to nodes, green-highlight edges for shared files
+- [ ] Create `EnvVarsPanel.tsx` for env var references with step locations
+- [ ] Create `unsaved-changes-store.ts` and `GuardedLink` wrapper
+- [ ] Create `UnsavedChangesDialog.tsx` (in-app styled, not browser confirm)
+- [ ] Create `ImportDialog.tsx` (MongoDB, YAML upload, HTTP URL)
+- [ ] Create `YamlPreviewDialog.tsx` with syntax highlighting, copy/download
+- [ ] Switch export to YAML (js-yaml) instead of JSON
+- [ ] Create `WorkflowTemplateDialog.tsx` for template picker
+- [ ] Add clone workflow button on workflow cards
+- [ ] Theme-aware node colors via `useTheme()`
+- [ ] Custom canvas controls (Panel-based, primary theme color)
+- [ ] Two-row toolbar redesign with grouped Import/Preview/Download
+- [ ] Global scrollbar styling (transparent track, thin rounded thumb)
+
 ### Phase 3: Supervisor MongoDB Integration
 - [ ] Create `ai_platform_engineering/utils/mongodb_client.py` (shared pymongo singleton)
 - [ ] Modify `load_task_config()` in `deep_agent_single.py` for MongoDB-first with YAML fallback
@@ -210,6 +262,7 @@ The Task Builder uses `@xyflow/react` (already a project dependency) for a visua
 - **Unit tests**: API route handlers (CRUD validation, auth, seeding), Zustand store actions, pymongo client, modified `load_task_config()` with MongoDB/YAML fallback
 - **Integration tests**: End-to-end flow from UI save → MongoDB → supervisor read
 - **Manual verification**: Create a workflow in the Task Builder UI, verify it appears in the supervisor's available tasks, execute it via chat
+- **UX verification**: Step palette drag-and-drop, CAIPE Form Builder, file I/O visualization, env vars panel, unsaved changes guard (Back + tab nav), import (MongoDB/YAML/URL), YAML preview/export, workflow templates, clone, theme-aware nodes, custom controls, toolbar layout, scrollbar styling
 
 ## Rollout Plan
 
