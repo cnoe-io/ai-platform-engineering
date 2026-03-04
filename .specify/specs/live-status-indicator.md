@@ -30,7 +30,7 @@ This feature provides at-a-glance awareness of both streaming activity and unvie
 - Showing streaming progress percentage
 - Per-agent streaming indicators
 - Persisting unviewed state across page reloads (ephemeral in-session tracking)
-- Unread message count badges
+- Unread message count badges on the tab itself
 
 ## Design
 
@@ -69,6 +69,7 @@ The icon container (`shrink-0 w-8 h-8`) is rendered outside the `!collapsed` gua
 - [x] UI (`ui/`)
   - `ui/src/store/chat-store.ts` — `unviewedConversations` state, mark/clear/has actions, `beforeunload` handler
   - `ui/src/components/layout/Sidebar.tsx` — Visual rendering of both indicators
+  - `ui/src/components/layout/AppHeader.tsx` — Chat tab notification dots (green live / blue unviewed)
   - `ui/src/components/layout/LiveStreamBanner.tsx` — App-wide banner warning when live chats are active
   - `ui/src/app/(app)/layout.tsx` — Mounts `LiveStreamBanner` between header and content
 - [x] Documentation (`docs/`)
@@ -90,6 +91,9 @@ The icon container (`shrink-0 w-8 h-8`) is rendered outside the `!collapsed` gua
 - [x] Browser confirms before refresh/close when a chat is actively streaming
 - [x] No confirmation dialog when no chats are streaming (non-annoying)
 - [x] No regressions in existing sidebar behavior (navigation, archive, share)
+- [x] Chat tab in AppHeader shows green pulsing dot when any conversation is streaming
+- [x] Chat tab shows blue dot when there are unviewed responses (and nothing streaming)
+- [x] Green dot takes priority over blue dot on the Chat tab
 - [x] TypeScript compiles clean
 
 ## Implementation Plan
@@ -131,6 +135,7 @@ The icon container (`shrink-0 w-8 h-8`) is rendered outside the `!collapsed` gua
   - Store tests (24 tests): unviewedConversations CRUD, streaming-to-unviewed lifecycle, beforeunload guard, multi-conversation independence
   - Sidebar component tests (17 tests): Radio/MessageSquare icon rendering, emerald/blue styling, "Live"/"New response" text, mixed states, collapsed behavior
   - LiveStreamBanner component tests (6 tests): hidden when idle, singular/plural messages, "refreshing will interrupt" text, accessibility attributes
+  - AppHeader Chat tab tests (4 tests): green pulsing dot for streaming, blue dot for unviewed, priority ordering, no dot when idle
 - Manual verification:
   - Start a new conversation and send a message — verify green antenna during streaming
   - Verify "Live" text replaces the date

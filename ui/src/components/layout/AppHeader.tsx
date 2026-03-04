@@ -39,7 +39,7 @@ export function AppHeader() {
   const pathname = usePathname();
   const { data: session } = useSession();
   const { isAdmin, canViewAdmin } = useAdminRole();
-  const { isStreaming } = useChatStore();
+  const { isStreaming, streamingConversations, unviewedConversations } = useChatStore();
 
   // Debug logging for admin tab
   React.useEffect(() => {
@@ -139,13 +139,24 @@ export function AppHeader() {
             href="/chat"
             prefetch={true}
             className={cn(
-              "flex items-center gap-1.5 px-4 py-1.5 rounded-full text-sm font-medium transition-all",
+              "relative flex items-center gap-1.5 px-4 py-1.5 rounded-full text-sm font-medium transition-all",
               activeTab === "chat"
                 ? "bg-primary text-primary-foreground shadow-sm"
                 : "text-muted-foreground hover:text-foreground"
             )}
           >
             💬 Chat
+            {streamingConversations.size > 0 && (
+              <span className="absolute -top-0.5 -right-0.5 flex h-2.5 w-2.5">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500" />
+              </span>
+            )}
+            {streamingConversations.size === 0 && unviewedConversations.size > 0 && (
+              <span className="absolute -top-0.5 -right-0.5 flex h-2.5 w-2.5">
+                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-blue-500" />
+              </span>
+            )}
           </Link>
           {/* Knowledge Bases tab - only show if RAG is enabled */}
           {ragEnabled && (

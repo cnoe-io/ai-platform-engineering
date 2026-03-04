@@ -80,7 +80,21 @@ Two-layer warning system for users who try to refresh or close while chats are s
 
 The icon container is rendered outside the `!collapsed` guard, so both the green antenna (live) and blue dot (unviewed) are visible in icon-only mode.
 
+### Chat Tab Notification Dots
+
+The "Chat" tab in the AppHeader nav pills shows a small notification dot to surface live/unviewed status across all pages (Skills, Knowledge Bases, Admin):
+
+- **Green pulsing dot** (with ping animation): Any conversation is actively streaming
+- **Blue solid dot**: Unviewed responses exist, but nothing is streaming
+- **No dot**: Idle — no live or unviewed conversations
+
+Green takes priority over blue when both states exist simultaneously.
+
 ## Components Changed
+
+- `ui/src/components/layout/AppHeader.tsx`
+  - Added `streamingConversations` and `unviewedConversations` from the chat store
+  - Chat tab link now has `relative` positioning and conditionally renders green (streaming) or blue (unviewed) notification dots
 
 - `ui/src/store/chat-store.ts`
   - Added `unviewedConversations: Set<string>` to store state

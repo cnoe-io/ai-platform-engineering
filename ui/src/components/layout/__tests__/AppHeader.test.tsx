@@ -44,9 +44,13 @@ jest.mock('@/hooks/use-admin-role', () => ({
 }))
 
 // Mock chat store
+let mockStreamingConversations = new Map<string, any>()
+let mockUnviewedConversations = new Set<string>()
 jest.mock('@/store/chat-store', () => ({
   useChatStore: jest.fn(() => ({
-    isStreaming: false,
+    isStreaming: mockStreamingConversations.size > 0,
+    streamingConversations: mockStreamingConversations,
+    unviewedConversations: mockUnviewedConversations,
   })),
 }))
 
@@ -179,6 +183,8 @@ describe('AppHeader — nav tabs', () => {
     mockRagEnabled = false
     mockCaipeStatus = 'connected'
     mockRagStatus = 'connected'
+    mockStreamingConversations = new Map()
+    mockUnviewedConversations = new Set()
     mockSession.status = 'authenticated' as const
     mockSession.data = { user: { name: 'Test User', email: 'test@test.com' } } as any
   })
@@ -340,6 +346,8 @@ describe('AppHeader — connection status badge', () => {
     mockRagEnabled = false
     mockCaipeStatus = 'connected'
     mockRagStatus = 'connected'
+    mockStreamingConversations = new Map()
+    mockUnviewedConversations = new Set()
     mockSession.status = 'authenticated' as const
     mockSession.data = { user: { name: 'Test User', email: 'test@test.com' } } as any
   })
@@ -570,5 +578,74 @@ describe('AppHeader — connection status badge', () => {
       expect(screen.getByText('RAG Disconnected')).toBeInTheDocument()
       expect(screen.queryByText('Connected')).not.toBeInTheDocument()
     })
+  })
+})
+
+// ============================================================================
+// Chat tab notification dot tests
+// ============================================================================
+
+describe('AppHeader — Chat tab notification dots', () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+    mockStorageMode = 'mongodb'
+    mockPathname = '/skills'
+    mockIsAdmin = false
+    mockCanViewAdmin = false
+    mockRagEnabled = false
+    mockCaipeStatus = 'connected'
+    mockRagStatus = 'connected'
+    mockStreamingConversations = new Map()
+    mockUnviewedConversations = new Set()
+    mockSession.status = 'authenticated' as const
+    mockSession.data = { user: { name: 'Test User', email: 'test@test.com' } } as any
+  })
+
+  it('shows green pulsing dot on Chat tab when conversations are streaming', () => {
+    mockStreamingConversations = new Map([
+      ['conv-1', { conversationId: 'conv-1', messageId: 'msg-1', client: {} }],
+    ])
+
+    render(<AppHeader />)
+
+    const chatLink = screen.getByTestId('link-/chat')
+    const pingDot = chatLink.querySelector('.animate-ping')
+    expect(pingDot).toBeInTheDocument()
+    expect(pingDot?.className).toContain('bg-emerald-400')
+  })
+
+  it('shows blue dot on Chat tab when there are unviewed conversations', () => {
+    mockUnviewedConversations = new Set(['conv-1'])
+
+    render(<AppHeader />)
+
+    const chatLink = screen.getByTestId('link-/chat')
+    const blueDot = chatLink.querySelector('.bg-blue-500')
+    expect(blueDot).toBeInTheDocument()
+  })
+
+  it('green dot takes priority over blue dot when both streaming and unviewed exist', () => {
+    mockStreamingConversations = new Map([
+      ['conv-1', { conversationId: 'conv-1', messageId: 'msg-1', client: {} }],
+    ])
+    mockUnviewedConversations = new Set(['conv-2'])
+
+    render(<AppHeader />)
+
+    const chatLink = screen.getByTestId('link-/chat')
+    const greenDot = chatLink.querySelector('.bg-emerald-500')
+    const blueDot = chatLink.querySelector('.bg-blue-500')
+    expect(greenDot).toBeInTheDocument()
+    expect(blueDot).not.toBeInTheDocument()
+  })
+
+  it('shows no notification dot when nothing is streaming or unviewed', () => {
+    render(<AppHeader />)
+
+    const chatLink = screen.getByTestId('link-/chat')
+    const greenDot = chatLink.querySelector('.bg-emerald-500')
+    const blueDot = chatLink.querySelector('.bg-blue-500')
+    expect(greenDot).not.toBeInTheDocument()
+    expect(blueDot).not.toBeInTheDocument()
   })
 })
