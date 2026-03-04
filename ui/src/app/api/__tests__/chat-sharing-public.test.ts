@@ -157,7 +157,8 @@ describe('requireConversationAccess — public (is_public) access', () => {
     const result = await requireConversationAccess(conv._id, STRANGER_EMAIL, mockGetCollection);
 
     expect(result).toBeDefined();
-    expect(result._id).toBe(conv._id);
+    expect(result.conversation._id).toBe(conv._id);
+    expect(result.access_level).toBe('shared');
   });
 
   it('denies access when is_public is false and user has no other access', async () => {
@@ -192,7 +193,8 @@ describe('requireConversationAccess — public (is_public) access', () => {
     const result = await requireConversationAccess(conv._id, OWNER_EMAIL, mockGetCollection);
 
     expect(result).toBeDefined();
-    expect(result._id).toBe(conv._id);
+    expect(result.conversation._id).toBe(conv._id);
+    expect(result.access_level).toBe('owner');
   });
 
   it('grants access via is_public even when shared_with and shared_with_teams are empty', async () => {
@@ -211,7 +213,8 @@ describe('requireConversationAccess — public (is_public) access', () => {
     const result = await requireConversationAccess(conv._id, VIEWER_EMAIL, mockGetCollection);
 
     expect(result).toBeDefined();
-    expect(result.sharing.is_public).toBe(true);
+    expect(result.conversation.sharing.is_public).toBe(true);
+    expect(result.access_level).toBe('shared');
   });
 
   it('does not check teams or sharing_access when is_public is true', async () => {

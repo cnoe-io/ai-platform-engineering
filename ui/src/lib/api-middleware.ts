@@ -362,7 +362,7 @@ export async function requireConversationAccess(
 
   // Check if conversation is public (shared with everyone)
   if (conversation.sharing?.is_public) {
-    return conversation;
+    return { conversation, access_level: 'shared' };
   }
 
   // Check if conversation is shared with user directly

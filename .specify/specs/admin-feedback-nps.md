@@ -138,6 +138,8 @@ interface NPSResponse {
 - [x] NPS survey appears only when an admin-created campaign is active
 - [x] NPS survey displays the campaign name
 - [x] NPS survey question: "How well does {appName} help you get your work done?"
+- [x] NPS survey shows subtle disclaimer: "Responses are tied to your account to help us follow up."
+- [x] Feedback popover shows subtle disclaimer: "Feedback is shared with your admin team to help improve the experience."
 - [x] NPS survey collects 0–10 score and optional comment
 - [x] NPS responses are stored in `nps_responses` collection linked to campaign
 - [x] Admins can create, list, and stop NPS campaigns
@@ -146,7 +148,7 @@ interface NPSResponse {
 - [x] Admin can filter NPS analytics by specific campaign
 - [x] Admin NPS tab shows: overall NPS score, breakdown, 30-day trend, recent responses, campaigns
 - [x] POST messages blocked for admin_audit access level (403)
-- [x] All new code has comprehensive tests (79 suites, 1912 tests pass)
+- [x] All new code has comprehensive tests (82 suites, 2006 tests pass)
 - [x] Linting passes
 
 ## Implementation Plan
@@ -206,7 +208,7 @@ interface NPSResponse {
 
 ## Testing Strategy
 
-### Automated Tests (1912 tests, 79 suites — all pass)
+### Automated Tests (2006 tests, 82 suites — all pass)
 - API route tests: auth, authz, MongoDB guard, feature flag guard, validation, business logic
 - Middleware tests: `requireConversationAccess` access levels
 - Config tests: `feedbackEnabled` and `npsEnabled` defaults, env var overrides, key presence

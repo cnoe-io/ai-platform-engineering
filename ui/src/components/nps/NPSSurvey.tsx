@@ -174,6 +174,10 @@ export function NPSSurvey() {
                 maxLength={1000}
               />
 
+              <p className="text-[10px] text-muted-foreground/50 mb-3 text-center">
+                Responses are tied to your account to help us follow up.
+              </p>
+
               <div className="flex gap-2">
                 <Button
                   variant="outline"

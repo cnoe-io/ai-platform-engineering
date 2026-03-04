@@ -149,12 +149,13 @@ Admin page reads `?tab=` from query params via `useSearchParams()`. Valid tabs: 
 3. **Authenticated NPS submission**: NPS submissions require a valid session; anonymous submissions are rejected
 4. **Campaign overlap prevention**: Server-side check prevents overlapping active campaigns
 5. **No PII in feedback**: Feedback reasons are pre-defined chips; free-text is optional and user-initiated
-6. **Feature gating**: Feedback is enabled by default, opt-out via `FEEDBACK_ENABLED=false`; NPS is opt-in via `NPS_ENABLED=true`; all gated endpoints return disabled responses when off
-7. **MongoDB required**: Both features require MongoDB (same as existing admin features); returns 503 if not configured
+6. **Transparency disclaimers**: Both the feedback popover and NPS survey show subtle notes informing users their responses are visible to admins
+7. **Feature gating**: Feedback is enabled by default, opt-out via `FEEDBACK_ENABLED=false`; NPS is opt-in via `NPS_ENABLED=true`; all gated endpoints return disabled responses when off
+8. **MongoDB required**: Both features require MongoDB (same as existing admin features); returns 503 if not configured
 
 ## Testing
 
-### Automated Tests (1912 tests, 79 suites — all pass)
+### Automated Tests (2006 tests, 82 suites — all pass)
 
 | Test File | Tests | Coverage |
 |-----------|-------|----------|
