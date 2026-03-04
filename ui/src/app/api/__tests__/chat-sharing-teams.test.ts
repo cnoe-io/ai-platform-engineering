@@ -478,9 +478,10 @@ describe('GET /api/chat/conversations — team sharing', () => {
     const findCall = convsCol.find.mock.calls[0][0];
     const orConditions = findCall.$or;
 
-    expect(orConditions).toHaveLength(2);
+    expect(orConditions).toHaveLength(3);
     expect(orConditions).toContainEqual({ owner_id: NON_MEMBER_EMAIL });
     expect(orConditions).toContainEqual({ 'sharing.shared_with': NON_MEMBER_EMAIL });
+    expect(orConditions).toContainEqual({ 'sharing.is_public': true });
     const teamCondition = orConditions.find(
       (c: any) => c['sharing.shared_with_teams']
     );
@@ -623,8 +624,9 @@ describe('GET /api/chat/shared — team sharing', () => {
     await GET(req);
 
     const findCall = convsCol.find.mock.calls[0][0];
-    expect(findCall.$or).toHaveLength(1);
+    expect(findCall.$or).toHaveLength(2);
     expect(findCall.$or).toContainEqual({ 'sharing.shared_with': NON_MEMBER_EMAIL });
+    expect(findCall.$or).toContainEqual({ 'sharing.is_public': true });
   });
 
   it('returns 401 when not authenticated', async () => {

@@ -21,9 +21,10 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     // Resolve user's team memberships for team-shared conversations
     const userTeamIds = await getUserTeamIds(user.email);
 
-    // Find conversations shared with user directly or via teams (not owned by user)
+    // Find conversations shared with user directly, via teams, or public (not owned by user)
     const sharedConditions: any[] = [
       { 'sharing.shared_with': user.email },
+      { 'sharing.is_public': true },
     ];
 
     if (userTeamIds.length > 0) {
