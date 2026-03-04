@@ -4,7 +4,7 @@ import React, { useState, useEffect } from "react";
 import { useSearchParams } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { motion } from "framer-motion";
-import { Users, MessageSquare, TrendingUp, Activity, Database, Share2, ShieldCheck, ShieldOff, UserPlus, Trash2, UsersIcon, Loader2, Bot, ThumbsUp, ThumbsDown, Clock, Zap, CheckCircle2, AlertCircle, Layers, Eye, Star, Filter, ExternalLink, Plus, Calendar, X } from "lucide-react";
+import { Users, MessageSquare, TrendingUp, Activity, Database, Share2, ShieldCheck, ShieldOff, UserPlus, Trash2, UsersIcon, Loader2, Bot, ThumbsUp, ThumbsDown, Clock, Zap, CheckCircle2, AlertCircle, Layers, Eye, Star, Filter, ExternalLink, Plus, Calendar, X, FileText } from "lucide-react";
 import { AuthGuard } from "@/components/auth-guard";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -23,9 +23,10 @@ import {
 } from "@/components/admin/SkillMetricsCards";
 import { CreateTeamDialog } from "@/components/admin/CreateTeamDialog";
 import { TeamDetailsDialog } from "@/components/admin/TeamDetailsDialog";
+import { AuditLogsTab } from "@/components/admin/AuditLogsTab";
 import { useAdminRole } from "@/hooks/use-admin-role";
-import { apiClient } from "@/lib/api-client";
 import { getConfig } from "@/lib/config";
+import { apiClient } from "@/lib/api-client";
 import type { Team as TeamType } from "@/types/teams";
 import type { SkillMetricsAdmin } from "@/types/agent-config";
 
@@ -164,6 +165,7 @@ function AdminPage() {
   const { status } = useSession();
   const searchParams = useSearchParams();
   const { isAdmin } = useAdminRole();
+  const auditLogsEnabled = getConfig('auditLogsEnabled');
   const [stats, setStats] = useState<AdminStats | null>(null);
   const [skillStats, setSkillStats] = useState<SkillMetricsAdmin | null>(null);
   const [users, setUsers] = useState<UserInfo[]>([]);
@@ -548,11 +550,14 @@ function AdminPage() {
 
             {/* Tabbed Content */}
             <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
-              <TabsList className={`grid w-full ${
-                getConfig('feedbackEnabled') && getConfig('npsEnabled') ? 'grid-cols-8' :
-                getConfig('feedbackEnabled') || getConfig('npsEnabled') ? 'grid-cols-7' :
-                'grid-cols-6'
-              }`}>
+              <TabsList className={`grid w-full ${(() => {
+                const n = 6
+                  + (getConfig('feedbackEnabled') ? 1 : 0)
+                  + (getConfig('npsEnabled') ? 1 : 0)
+                  + (auditLogsEnabled && isAdmin ? 1 : 0);
+                const cols: Record<number, string> = { 6: 'grid-cols-6', 7: 'grid-cols-7', 8: 'grid-cols-8', 9: 'grid-cols-9' };
+                return cols[n] ?? 'grid-cols-6';
+              })()}`}>
                 <TabsTrigger value="users" className="gap-2">
                   <Users className="h-4 w-4" />
                   Users
@@ -589,6 +594,12 @@ function AdminPage() {
                   <Database className="h-4 w-4" />
                   Health
                 </TabsTrigger>
+                {auditLogsEnabled && isAdmin && (
+                  <TabsTrigger value="audit-logs" className="gap-2">
+                    <FileText className="h-4 w-4" />
+                    Audit Logs
+                  </TabsTrigger>
+                )}
               </TabsList>
 
               {/* User Management Tab */}
@@ -1828,6 +1839,13 @@ function AdminPage() {
               <TabsContent value="health" className="space-y-4">
                 <HealthTab />
               </TabsContent>
+
+              {/* Audit Logs Tab (optional, gated by AUDIT_LOGS_ENABLED + full admin role) */}
+              {auditLogsEnabled && isAdmin && (
+                <TabsContent value="audit-logs" className="space-y-4">
+                  <AuditLogsTab isAdmin={isAdmin} />
+                </TabsContent>
+              )}
             </Tabs>
           </div>
         </ScrollArea>

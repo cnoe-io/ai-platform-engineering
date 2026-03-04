@@ -101,6 +101,12 @@ export interface Config {
    * endpoints are all disabled. Set NPS_ENABLED=true to enable.
    */
   npsEnabled: boolean;
+  /**
+   * Whether the admin audit logs feature is enabled.
+   * When false (default), the Audit Logs tab is hidden and API routes return 403.
+   * Set AUDIT_LOGS_ENABLED=true to enable.
+   */
+  auditLogsEnabled: boolean;
   /** Default font size for new users: "small" | "medium" | "large" | "x-large" */
   defaultFontSize: string;
   /** Default font family for new users: "inter" | "source-sans" | "ibm-plex" | "system" */
@@ -161,6 +167,7 @@ const DEFAULT_CONFIG: Config = {
   workflowRunnerEnabled: false,
   feedbackEnabled: true,
   npsEnabled: false,
+  auditLogsEnabled: false,
   defaultFontSize: DEFAULT_FONT_SIZE,
   defaultFontFamily: DEFAULT_FONT_FAMILY,
   defaultTheme: DEFAULT_THEME,
@@ -228,6 +235,7 @@ export function getServerConfig(): Config {
   const workflowRunnerEnabled = env('WORKFLOW_RUNNER_ENABLED') === 'true';
   const feedbackEnabled = env('FEEDBACK_ENABLED') !== 'false';
   const npsEnabled = env('NPS_ENABLED') === 'true';
+  const auditLogsEnabled = env('AUDIT_LOGS_ENABLED') === 'true';
 
   const showPoweredByEnv = env('SHOW_POWERED_BY');
   const showPoweredBy = showPoweredByEnv !== undefined ? showPoweredByEnv !== 'false' : true;
@@ -269,6 +277,7 @@ export function getServerConfig(): Config {
     workflowRunnerEnabled,
     feedbackEnabled,
     npsEnabled,
+    auditLogsEnabled,
     defaultFontSize: validated(env('DEFAULT_FONT_SIZE'), VALID_FONT_SIZES, DEFAULT_FONT_SIZE),
     defaultFontFamily: validated(env('DEFAULT_FONT_FAMILY'), VALID_FONT_FAMILIES, DEFAULT_FONT_FAMILY),
     defaultTheme: validated(env('DEFAULT_THEME'), VALID_THEMES, DEFAULT_THEME),
