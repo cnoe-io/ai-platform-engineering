@@ -208,6 +208,22 @@ Get llmSecrets.externalSecrets.secretStoreRef with global fallback
 {{- end -}}
 
 {{/*
+Validate no client ID appears in both the default OAUTH2_CLIENT_ID and a profile.
+*/}}
+{{- define "supervisorAgent.validateClientProfiles" -}}
+  {{- $defaultIds := splitList "," (default "" (index .Values.env "OAUTH2_CLIENT_ID")) -}}
+  {{- range $name, $profile := .Values.clientProfiles -}}
+    {{- if $profile.clientId -}}
+      {{- range $defaultIds -}}
+        {{- if eq (trim .) $profile.clientId -}}
+          {{- fail (printf "clientProfiles.%s.clientId '%s' also exists in default OAUTH2_CLIENT_ID. Remove it from the default list to avoid routing ambiguity." $name $profile.clientId) -}}
+        {{- end -}}
+      {{- end -}}
+    {{- end -}}
+  {{- end -}}
+{{- end -}}
+
+{{/*
 Determine if metrics are enabled - global takes precedence
 */}}
 {{- define "supervisorAgent.metrics.enabled" -}}

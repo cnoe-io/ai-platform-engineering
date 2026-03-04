@@ -166,6 +166,23 @@ slim:
   endpoint: "http://ai-platform-engineering-slim:46357"
   transport: "slim"
 
+# Per-client supervisor profiles.
+# Each profile deploys an additional supervisor Deployment + Service
+# with its own OAUTH2_CLIENT_ID and optional agent blocklist.
+# The user must manually ensure a client ID only appears in ONE place
+# (either the default supervisor's OAUTH2_CLIENT_ID or a profile, not both).
+# Helm will fail if duplicates are detected.
+# All profiles share the same sub-agent pods.
+# If empty, nothing extra is deployed (backwards-compatible).
+clientProfiles: {}
+#  slack:
+#    clientId: "0123896498213ggksjhdv"
+#    disabledAgents: "GITLAB"
+#    promptConfigName: ""    # optional: ConfigMap name for custom prompt_config.yaml
+#    env: {}                 # additional env overrides
+#    resources: {}           # optional resource overrides
+#    replicaCount: 1         # optional replica override
+
 # Prometheus metrics configuration
 # The agent exposes metrics at /metrics endpoint
 # Note: ServiceMonitor is managed at the parent chart level (one for all)

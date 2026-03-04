@@ -107,6 +107,16 @@ class AgentRegistry:
                         continue
                     logger.info(f"Env var {k} is enabled")
                     enabled_agents.append(agent_name)
+        # Apply blocklist from DISABLED_AGENTS env var (comma-separated)
+        disabled_agents_raw = os.getenv("DISABLED_AGENTS", "")
+        if disabled_agents_raw:
+            disabled_set = {a.strip().upper() for a in disabled_agents_raw.split(",") if a.strip()}
+            before_count = len(enabled_agents)
+            enabled_agents = [a for a in enabled_agents if a.upper() not in disabled_set]
+            blocked = before_count - len(enabled_agents)
+            if blocked > 0:
+                logger.info(f"DISABLED_AGENTS blocklist removed {blocked} agent(s): {disabled_set}")
+
         logger.info(f"Enabled agents: {enabled_agents}")
         return enabled_agents
 
