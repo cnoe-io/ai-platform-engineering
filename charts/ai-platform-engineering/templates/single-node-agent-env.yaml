@@ -10,7 +10,7 @@ kind: ConfigMap
 metadata:
   name: {{ printf "%s-single-node-agent-env" .Release.Name }}
 data:
-  {{- $singleNode := default dict .Values.singleNode }}
+  {{- $singleNode := (index .Values "supervisor-agent").singleNode | default dict }}
   {{- if $singleNode.supervisorModel }}
   SUPERVISOR_MODEL: {{ $singleNode.supervisorModel | quote }}
   {{- end }}

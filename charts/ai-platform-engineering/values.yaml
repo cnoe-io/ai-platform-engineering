@@ -106,55 +106,43 @@ ragPromptConfig: ""           # Custom RAG prompt config (overrides default if s
 # Default is bundled from data/task_config.yaml. Override via taskConfig value.
 taskConfig: ""
 
-# =============================================================================
-# Single-node mode configuration (only used when global.deploymentMode = "single-node")
-# These are NOT in global: because they are only consumed by parent-chart templates,
-# not by subcharts.
-# =============================================================================
-singleNode:
-  # Which in-process agents to load (via ENABLE_<NAME> env vars).
-  # Only used in single-node mode.  In multi-node mode the agent subcharts
-  # export their enabled state via Chart.yaml import-values into
-  # global.enabledSubAgents — do NOT put this map under global: or it will
-  # conflict with that mechanism.
-  enabledSubAgents: &singleNodeEnabledSubAgents
-    aigateway: true
-    argocd: true
-    aws: true
-    backstage: true
-    confluence: true
-    github: true
-    jira: true
-    komodor: true
-    pagerduty: true
-    rag: false
-    slack: true
-    splunk: true
-    weather: false
-    webex: true
-
-  # Supervisor (parent agent) LLM model override.
-  # Uses langchain's provider:model-name format (e.g. "openai:gpt-4o").
-  # When empty, falls back to the LLM_PROVIDER / model-name env vars from llm-secret.
-  supervisorModel: ""
-
-  # Per-subagent LLM model overrides.
-  # All subagents share the supervisor's LLM by default.
-  # Set a value here to override the model for a specific subagent.
-  # Values use the provider:model-name format supported by langchain's init_chat_model.
-  # Examples: "openai:gpt-4o-mini", "anthropic:claude-sonnet-4-5-20250929"
-  subagentModels: {}
-    # github: "openai:gpt-4o-mini"
-    # jira: "openai:gpt-4o"
-    # argocd: "azure_openai:gpt-5.2"
-
 ######### Supervisor agent configuration #########
 supervisor-agent:
-  # Passed to the supervisor-agent subchart so its deployment template
-  # can iterate enabled agents for volume mounts and envFrom in single-node mode.
-  # Linked via YAML anchor to singleNode.enabledSubAgents above.
+  # Single-node mode configuration (only used when global.deploymentMode = "single-node").
+  # Lives under supervisor-agent: so both the subchart deployment template AND
+  # parent-chart templates (via index .Values "supervisor-agent") read from one place.
+  # In multi-node mode the agent subcharts export their enabled state via
+  # Chart.yaml import-values into global.enabledSubAgents — do NOT put
+  # enabledSubAgents under global: or it will conflict with that mechanism.
   singleNode:
-    enabledSubAgents: *singleNodeEnabledSubAgents
+    enabledSubAgents:
+      aigateway: true
+      argocd: true
+      aws: true
+      backstage: true
+      confluence: true
+      github: true
+      jira: true
+      komodor: true
+      pagerduty: true
+      rag: false
+      slack: true
+      splunk: true
+      weather: false
+      webex: true
+    # Supervisor (parent agent) LLM model override.
+    # Uses langchain's provider:model-name format (e.g. "openai:gpt-4o").
+    # When empty, falls back to the LLM_PROVIDER / model-name env vars from llm-secret.
+    supervisorModel: ""
+    # Per-subagent LLM model overrides.
+    # All subagents share the supervisor's LLM by default.
+    # Set a value here to override the model for a specific subagent.
+    # Values use the provider:model-name format supported by langchain's init_chat_model.
+    # Examples: "openai:gpt-4o-mini", "anthropic:claude-sonnet-4-5-20250929"
+    subagentModels: {}
+      # github: "openai:gpt-4o-mini"
+      # jira: "openai:gpt-4o"
+      # argocd: "azure_openai:gpt-5.2"
   nameOverride: "supervisor-agent"
   image:
     repository: "ghcr.io/cnoe-io/ai-platform-engineering"

@@ -113,14 +113,14 @@ Get llmSecrets.externalSecrets.secretStoreRef with global fallback
 
 {{/*
 Iterate all keys in enabledSubAgents and get the agent names IF enabled is true.
-In single-node mode reads from singleNode.enabledSubAgents (values.yaml).
+In single-node mode reads from supervisor-agent.singleNode.enabledSubAgents.
 In multi-node mode reads from global.enabledSubAgents (populated by Chart.yaml import-values).
 */}}
 {{- define "ai-platform-engineering.enabledSubAgents.names" -}}
     {{- $names := list -}}
     {{- $agents := dict -}}
     {{- if eq .Values.global.deploymentMode "single-node" -}}
-        {{- $agents = (.Values.singleNode).enabledSubAgents | default dict -}}
+        {{- $agents = (index .Values "supervisor-agent").singleNode.enabledSubAgents | default dict -}}
     {{- else -}}
         {{- $agents = (.Values.global).enabledSubAgents | default dict -}}
     {{- end -}}
