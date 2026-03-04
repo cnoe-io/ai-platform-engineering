@@ -1135,14 +1135,8 @@ class AIPlatformEngineerA2ABinding:
                       accumulated_subagent_responses[tool_name].append(tool_content)
                       logging.debug(f"📦 Tracked sub-agent response from {tool_name}: {len(tool_content)} chars")
 
-                  # This is a hard-coded list for now
-                  # TODO: Fetch the rag tool names from when the deep agent is initialised
-                  rag_tool_names = {
-                      'search', 'fetch_document', 'fetch_datasources_and_entity_types',
-                      'graph_explore_ontology_entity', 'graph_explore_data_entity',
-                      'graph_fetch_data_entity_details', 'graph_shortest_path_between_entity_types',
-                      'graph_raw_query_data', 'graph_raw_query_ontology'
-                  }
+                  # Get RAG tool names dynamically from the MAS instance
+                  rag_tool_names = self._mas_instance.get_rag_tool_names()
 
                   # ResponseFormat / PlatformEngineerResponse ToolMessage — extract structured result
                   # This is the last-resort handler; prefer updates stream or AIMessage.
