@@ -21,7 +21,8 @@ import {
   Shield,
   Users,
   TrendingUp,
-  RefreshCw
+  RefreshCw,
+  Globe
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -425,10 +426,18 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
                               <TooltipProvider>
                                 <Tooltip>
                                   <TooltipTrigger asChild>
-                                    <Users2 className="h-3 w-3 text-blue-500 shrink-0" />
+                                    {conv.sharing?.is_public ? (
+                                      <Globe className="h-3 w-3 text-green-500 shrink-0" />
+                                    ) : (
+                                      <Users2 className="h-3 w-3 text-blue-500 shrink-0" />
+                                    )}
                                   </TooltipTrigger>
                                   <TooltipContent side="right">
-                                    <p className="text-xs">Shared conversation</p>
+                                    <p className="text-xs">
+                                      {conv.sharing?.is_public
+                                        ? 'Shared with everyone'
+                                        : 'Shared conversation'}
+                                    </p>
                                   </TooltipContent>
                                 </Tooltip>
                               </TooltipProvider>
