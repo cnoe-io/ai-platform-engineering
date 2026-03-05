@@ -46,8 +46,10 @@ export interface Conversation {
   };
   sharing: {
     is_public: boolean;
+    public_permission?: 'view' | 'comment'; // Permission for public shares (default: comment)
     shared_with: string[]; // Array of user emails
     shared_with_teams: string[]; // Array of team IDs
+    team_permissions?: Record<string, 'view' | 'comment'>; // Per-team permission
     share_link_enabled: boolean;
     share_link_expires?: Date;
   };
@@ -117,6 +119,11 @@ export interface UserSettings {
     context_panel_visible: boolean;
     debug_mode: boolean;
     code_theme: string;
+    memory_enabled: string;
+    debug_mode_enabled: string;
+    show_thinking_enabled: string;
+    auto_scroll_enabled: string;
+    show_timestamps_enabled: string;
   };
   notifications: {
     email_enabled: boolean;
@@ -143,6 +150,11 @@ export const DEFAULT_USER_SETTINGS: Omit<UserSettings, '_id' | 'user_id' | 'upda
     context_panel_visible: true,
     debug_mode: false,
     code_theme: 'onedark',
+    memory_enabled: 'true',
+    debug_mode_enabled: 'false',
+    show_thinking_enabled: 'true',
+    auto_scroll_enabled: 'true',
+    show_timestamps_enabled: 'false',
   },
   notifications: {
     email_enabled: true,
@@ -209,6 +221,8 @@ export interface ShareConversationRequest {
   permission: 'view' | 'comment';
   enable_link?: boolean;
   link_expires?: string; // ISO date string
+  is_public?: boolean;
+  public_permission?: 'view' | 'comment'; // Permission when is_public is true
 }
 
 // Message API
@@ -304,4 +318,23 @@ export interface UserActivity {
   resource_type: 'conversation' | 'message' | 'settings' | 'share';
   resource_id: string;
   details?: Record<string, any>;
+}
+
+// ============================================================================
+// Audit Log Types (Admin-only)
+// ============================================================================
+
+export interface AuditConversation extends Conversation {
+  message_count: number;
+  last_message_at?: Date;
+  status: 'active' | 'archived' | 'deleted';
+}
+
+export interface AuditLogFilters {
+  owner_email?: string;
+  search?: string;
+  date_from?: string;
+  date_to?: string;
+  include_deleted?: boolean;
+  status?: 'active' | 'archived' | 'deleted';
 }

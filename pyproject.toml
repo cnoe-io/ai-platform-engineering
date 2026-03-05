@@ -1,6 +1,6 @@
 [project]
 name = "ai-platform-engineering"
-version = "0.2.33"
+version = "0.2.35"
 description = "Multi-Agent Collaboration & Workflow Automation - AI agents collaborating across tools and teams to deliver high quality results"
 authors = [
   {name = "CNOE Contributors"}
@@ -16,6 +16,7 @@ dependencies = [
     "cryptography==46.0.3",
     "fastapi>=0.115.6",
     "httpx==0.28.1",
+    "hvac>=2.3.0",
     "langchain>=0.3.0",
     "langchain-core>=1.2.7",
     "langchain-mcp-adapters==0.2.1",
@@ -31,6 +32,8 @@ dependencies = [
     "deepagents>=0.3.8",
     "nest-asyncio>=1.6.0",
     "clorm>=1.4.0",
+    # MongoDB client for reading task configs from shared MongoDB
+    "pymongo>=4.7.0",
 ]
 
 [tool.pytest.ini_options]

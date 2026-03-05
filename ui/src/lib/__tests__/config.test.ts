@@ -70,7 +70,7 @@ describe('getServerConfig', () => {
         'ALLOW_DEV_ADMIN_WHEN_SSO_DISABLED', 'SHOW_POWERED_BY',
         'LOGO_STYLE', 'SPINNER_COLOR', 'TAGLINE', 'DESCRIPTION',
         'APP_NAME', 'LOGO_URL', 'GRADIENT_FROM', 'GRADIENT_TO',
-        'SUPPORT_EMAIL',
+        'SUPPORT_EMAIL', 'FEEDBACK_ENABLED', 'NPS_ENABLED', 'AUDIT_LOGS_ENABLED',
         'DEFAULT_FONT_SIZE', 'DEFAULT_FONT_FAMILY',
         'DEFAULT_THEME', 'DEFAULT_GRADIENT_THEME',
       );
@@ -88,6 +88,8 @@ describe('getServerConfig', () => {
       expect(cfg.isProd).toBe(false);
       expect(cfg.ssoEnabled).toBe(false);
       expect(cfg.ragEnabled).toBe(true); // default true
+      expect(cfg.feedbackEnabled).toBe(true); // default true
+      expect(cfg.npsEnabled).toBe(false);
       expect(cfg.mongodbEnabled).toBe(false);
       expect(cfg.tagline).toBe('Multi-Agent Workflow Automation');
       expect(cfg.description).toBe(
@@ -103,6 +105,7 @@ describe('getServerConfig', () => {
       expect(cfg.showPoweredBy).toBe(true);
       expect(cfg.supportEmail).toBe('support@example.com');
       expect(cfg.allowDevAdminWhenSsoDisabled).toBe(false);
+      expect(cfg.auditLogsEnabled).toBe(false);
       expect(cfg.storageMode).toBe('localStorage');
     });
 
@@ -123,7 +126,7 @@ describe('getServerConfig', () => {
         'gradientFrom', 'gradientTo', 'logoStyle', 'spinnerColor',
         'showPoweredBy', 'supportEmail', 'allowDevAdminWhenSsoDisabled',
         'storageMode', 'enabledIntegrationIcons', 'faviconUrl',
-        'docsUrl', 'sourceUrl', 'workflowRunnerEnabled',
+        'docsUrl', 'sourceUrl', 'workflowRunnerEnabled', 'feedbackEnabled', 'npsEnabled', 'auditLogsEnabled',
         'defaultFontSize', 'defaultFontFamily', 'defaultTheme', 'defaultGradientTheme',
       ];
       expect(Object.keys(cfg).sort()).toEqual(expectedKeys.sort());
@@ -321,6 +324,62 @@ describe('getServerConfig', () => {
     it('should be true for RAG_ENABLED=anything (only "false" disables)', () => {
       process.env.RAG_ENABLED = 'banana';
       expect(getServerConfig().ragEnabled).toBe(true);
+    });
+  });
+
+  // ---------- feedbackEnabled ----------
+
+  describe('feedbackEnabled', () => {
+    beforeEach(() => clearEnv('FEEDBACK_ENABLED'));
+
+    it('should default to true (enabled)', () => {
+      expect(getServerConfig().feedbackEnabled).toBe(true);
+    });
+
+    it('should be false when FEEDBACK_ENABLED=false', () => {
+      process.env.FEEDBACK_ENABLED = 'false';
+      expect(getServerConfig().feedbackEnabled).toBe(false);
+    });
+
+    it('should be true when FEEDBACK_ENABLED=true', () => {
+      process.env.FEEDBACK_ENABLED = 'true';
+      expect(getServerConfig().feedbackEnabled).toBe(true);
+    });
+
+    it('should be true for any value other than "false"', () => {
+      process.env.FEEDBACK_ENABLED = 'banana';
+      expect(getServerConfig().feedbackEnabled).toBe(true);
+    });
+  });
+
+  // ---------- auditLogsEnabled ----------
+
+  describe('auditLogsEnabled', () => {
+    beforeEach(() => clearEnv('AUDIT_LOGS_ENABLED'));
+
+    it('should default to false (disabled)', () => {
+      expect(getServerConfig().auditLogsEnabled).toBe(false);
+    });
+
+    it('should be true when AUDIT_LOGS_ENABLED=true', () => {
+      process.env.AUDIT_LOGS_ENABLED = 'true';
+      expect(getServerConfig().auditLogsEnabled).toBe(true);
+    });
+
+    it('should be false when AUDIT_LOGS_ENABLED=false', () => {
+      process.env.AUDIT_LOGS_ENABLED = 'false';
+      expect(getServerConfig().auditLogsEnabled).toBe(false);
+    });
+
+    it('should be false for non-"true" values (only "true" enables)', () => {
+      process.env.AUDIT_LOGS_ENABLED = '1';
+      expect(getServerConfig().auditLogsEnabled).toBe(false);
+
+      process.env.AUDIT_LOGS_ENABLED = 'banana';
+      expect(getServerConfig().auditLogsEnabled).toBe(false);
+
+      process.env.AUDIT_LOGS_ENABLED = 'TRUE';
+      expect(getServerConfig().auditLogsEnabled).toBe(false);
     });
   });
 
@@ -672,7 +731,7 @@ describe('getClientConfigScript (XSS safety)', () => {
       'gradientFrom', 'gradientTo', 'logoStyle', 'spinnerColor',
       'showPoweredBy', 'supportEmail', 'allowDevAdminWhenSsoDisabled',
       'storageMode', 'enabledIntegrationIcons', 'faviconUrl',
-      'docsUrl', 'sourceUrl', 'workflowRunnerEnabled',
+      'docsUrl', 'sourceUrl', 'workflowRunnerEnabled', 'feedbackEnabled', 'npsEnabled', 'auditLogsEnabled',
       'defaultFontSize', 'defaultFontFamily', 'defaultTheme', 'defaultGradientTheme',
     ];
     expect(Object.keys(parsed).sort()).toEqual(expectedKeys.sort());

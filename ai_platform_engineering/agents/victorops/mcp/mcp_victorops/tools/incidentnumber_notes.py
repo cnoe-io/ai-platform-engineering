@@ -47,8 +47,13 @@ async def get_api_public_v1_incidents_incident_number_notes(path_incidentNumber:
     )
 
     if not success:
-        logger.error(f"Request failed: {response.get('error')}")
-        return {"error": response.get("error", "Request failed")}
+        error_msg = response.get("error", "")
+        # VictorOps returns 404 when an incident has no notes — treat as empty
+        if "404" in error_msg:
+            logger.debug(f"No notes found for incident {path_incidentNumber}")
+            return {"notes": []}
+        logger.error(f"Request failed: {error_msg}")
+        return {"error": error_msg or "Request failed"}
     return response
 
 

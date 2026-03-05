@@ -2,11 +2,13 @@
 
 import React, { useState, useEffect } from "react";
 import { createPortal } from "react-dom";
-import { X, UserPlus, Copy, Check, Mail, Trash2, Users } from "lucide-react";
+import { X, UserPlus, Copy, Check, Mail, Trash2, Users, Globe, ChevronDown } from "lucide-react";
 import { apiClient } from "@/lib/api-client";
 import { useChatStore } from "@/store/chat-store";
 import type { UserPublicInfo } from "@/types/mongodb";
 import type { Team } from "@/types/teams";
+
+type SharePermission = 'view' | 'comment';
 
 interface ShareDialogProps {
   conversationId: string;
@@ -28,11 +30,17 @@ export function ShareDialog({
   const [searching, setSearching] = useState(false);
   const [sharedWith, setSharedWith] = useState<string[]>([]);
   const [sharedWithTeams, setSharedWithTeams] = useState<string[]>([]);
-  const [teamNames, setTeamNames] = useState<Record<string, string>>({}); // teamId -> teamName
+  const [teamNames, setTeamNames] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
   const [copied, setCopied] = useState(false);
   const [noResults, setNoResults] = useState(false);
   const [isLegacyConversation, setIsLegacyConversation] = useState(false);
+  const [isPublic, setIsPublic] = useState(false);
+  const [togglingPublic, setTogglingPublic] = useState(false);
+  const [userPermissions, setUserPermissions] = useState<Record<string, SharePermission>>({});
+  const [teamPermissions, setTeamPermissions] = useState<Record<string, SharePermission>>({});
+  const [defaultPermission, setDefaultPermission] = useState<SharePermission>('comment');
+  const [publicPermission, setPublicPermission] = useState<SharePermission>('comment');
 
   const shareUrl = `${typeof window !== 'undefined' ? window.location.origin : ''}/chat/${conversationId}`;
 
@@ -52,7 +60,24 @@ export function ShareDialog({
         setSharedWith(sharing?.shared_with || []);
         const teamIds = sharing?.shared_with_teams || [];
         setSharedWithTeams(teamIds);
+        setIsPublic(sharing?.is_public || false);
         setIsLegacyConversation(false);
+
+        // Build per-user permission map from access_list
+        const accessList = data.data?.access_list || [];
+        const userPerms: Record<string, SharePermission> = {};
+        for (const entry of accessList) {
+          if (entry.granted_to && entry.permission) {
+            userPerms[entry.granted_to] = entry.permission;
+          }
+        }
+        setUserPermissions(userPerms);
+
+        // Build per-team permission map from sharing.team_permissions
+        setTeamPermissions(sharing?.team_permissions || {});
+
+        // Load public share permission
+        setPublicPermission(sharing?.public_permission || 'comment');
 
         // Update store with sharing info so Sidebar shows icon immediately
         if (sharing) {
@@ -183,10 +208,11 @@ export function ShareDialog({
     try {
       const updatedConversation = await apiClient.shareConversation(conversationId, {
         user_emails: [email],
-        permission: "view",
+        permission: defaultPermission,
       });
 
       setSharedWith([...sharedWith, email]);
+      setUserPermissions({ ...userPermissions, [email]: defaultPermission });
       
       // Update store with new sharing info so Sidebar shows icon immediately
       if (updatedConversation?.sharing) {
@@ -226,7 +252,7 @@ export function ShareDialog({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           team_ids: [teamId],
-          permission: "view",
+          permission: defaultPermission,
         }),
       });
 
@@ -291,6 +317,85 @@ export function ShareDialog({
       setTimeout(() => setCopied(false), 2000);
     } catch (err) {
       console.error("Failed to copy:", err);
+    }
+  };
+
+  const handlePermissionChange = async (
+    target: { email?: string; team_id?: string },
+    newPermission: SharePermission
+  ) => {
+    try {
+      const response = await fetch(`/api/chat/conversations/${conversationId}/share`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...target, permission: newPermission }),
+      });
+      if (!response.ok) return;
+      if (target.email) {
+        setUserPermissions((prev) => ({ ...prev, [target.email!]: newPermission }));
+      }
+      if (target.team_id) {
+        setTeamPermissions((prev) => ({ ...prev, [target.team_id!]: newPermission }));
+      }
+    } catch (err) {
+      console.error('Failed to update permission:', err);
+    }
+  };
+
+  const handlePublicPermissionChange = async (newPermission: SharePermission) => {
+    try {
+      const response = await fetch(`/api/chat/conversations/${conversationId}/share`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ is_public: true, public_permission: newPermission }),
+      });
+      if (response.ok) {
+        setPublicPermission(newPermission);
+      }
+    } catch (err) {
+      console.error('Failed to update public permission:', err);
+    }
+  };
+
+  const handleTogglePublic = async () => {
+    setTogglingPublic(true);
+    const newPublicState = !isPublic;
+    try {
+      const response = await fetch(`/api/chat/conversations/${conversationId}/share`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ is_public: newPublicState }),
+      });
+
+      if (!response.ok) {
+        let errorMessage = 'Failed to update sharing';
+        try {
+          const errorData = await response.json();
+          errorMessage = errorData.error || errorData.message || errorMessage;
+        } catch {
+          errorMessage = response.statusText || errorMessage;
+        }
+        throw new Error(errorMessage);
+      }
+
+      const responseData = await response.json();
+      const updatedConversation = responseData.data;
+
+      setIsPublic(newPublicState);
+
+      if (updatedConversation?.sharing) {
+        updateConversationSharing(conversationId, {
+          is_public: updatedConversation.sharing.is_public,
+          shared_with: updatedConversation.sharing.shared_with,
+          shared_with_teams: updatedConversation.sharing.shared_with_teams,
+          share_link_enabled: updatedConversation.sharing.share_link_enabled,
+        });
+      }
+    } catch (err: any) {
+      console.error("Failed to toggle public sharing:", err);
+      alert(`Failed to update sharing: ${err?.message || 'Unknown error'}`);
+    } finally {
+      setTogglingPublic(false);
     }
   };
 
@@ -386,19 +491,68 @@ export function ShareDialog({
           </div>
         </div>
 
+        {/* Share with everyone toggle */}
+        <div className="mb-6">
+          <div className="flex items-center justify-between p-3 border rounded-md">
+            <div className="flex items-center gap-3">
+              <div className={`h-8 w-8 rounded-full flex items-center justify-center ${
+                isPublic
+                  ? 'bg-green-500/10 text-green-600 dark:text-green-400'
+                  : 'bg-muted text-muted-foreground'
+              }`}>
+                <Globe className="h-4 w-4" />
+              </div>
+              <div>
+                <div className="text-sm font-medium">Share with everyone</div>
+                <div className="text-xs text-muted-foreground">
+                  {isPublic
+                    ? `Anyone in the organization can ${publicPermission === 'comment' ? 'view and edit' : 'view'} this conversation`
+                    : 'Only people and teams you add can access'}
+                </div>
+              </div>
+            </div>
+            <button
+              onClick={handleTogglePublic}
+              disabled={togglingPublic}
+              className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 ${
+                isPublic ? 'bg-green-500' : 'bg-muted-foreground/30'
+              } ${togglingPublic ? 'opacity-50 cursor-not-allowed' : ''}`}
+              role="switch"
+              aria-checked={isPublic}
+              aria-label="Share with everyone"
+              data-testid="share-public-toggle"
+            >
+              <span
+                className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                  isPublic ? 'translate-x-5' : 'translate-x-0'
+                }`}
+              />
+            </button>
+          </div>
+        </div>
+
         {/* Add people and teams section */}
         <div className="mb-6">
           <label className="text-sm font-medium mb-2 block">
             People, Teams
           </label>
-          <div className="relative">
+          <div className="relative flex gap-2">
             <input
               type="text"
               placeholder="Search by email or team name..."
               value={searchInput}
               onChange={(e) => setSearchInput(e.target.value)}
-              className="w-full px-3 py-2 text-sm border rounded-md"
+              className="flex-1 px-3 py-2 text-sm border rounded-md"
             />
+            <select
+              value={defaultPermission}
+              onChange={(e) => setDefaultPermission(e.target.value as SharePermission)}
+              className="text-xs border rounded-md px-2 py-2 bg-background text-muted-foreground hover:text-foreground cursor-pointer focus:outline-none focus:ring-1 focus:ring-primary/50"
+              title="Permission for new shares"
+            >
+              <option value="view">Can view</option>
+              <option value="comment">Can edit</option>
+            </select>
             
             {/* Search results dropdown */}
             {((userResults.length > 0 || teamResults.length > 0 || noResults) && searchInput.length >= 2) && (
@@ -490,33 +644,65 @@ export function ShareDialog({
         </div>
 
         {/* People and Teams with access */}
-        {(sharedWith.length > 0 || sharedWithTeams.length > 0) && (
+        {(sharedWith.length > 0 || sharedWithTeams.length > 0 || isPublic) && (
           <div>
             <label className="text-sm font-medium mb-2 block">
-              People & Teams with Access ({sharedWith.length + sharedWithTeams.length})
+              Access ({isPublic ? 'Everyone' : `${sharedWith.length + sharedWithTeams.length} ${sharedWith.length + sharedWithTeams.length === 1 ? 'person/team' : 'people/teams'}`})
             </label>
             <div className="space-y-2 max-h-48 overflow-y-auto">
+              {/* Everyone indicator */}
+              {isPublic && (
+                <div className="flex items-center justify-between py-2 px-3 bg-green-500/5 border border-green-500/20 rounded-md">
+                  <div className="flex items-center gap-2">
+                    <div className="h-8 w-8 rounded-full bg-green-500/10 flex items-center justify-center text-green-600 dark:text-green-400">
+                      <Globe className="h-4 w-4" />
+                    </div>
+                    <div>
+                      <div className="text-sm font-medium">Everyone</div>
+                      <div className="text-xs text-muted-foreground">All organization members</div>
+                    </div>
+                  </div>
+                  <select
+                    value={publicPermission}
+                    onChange={(e) => handlePublicPermissionChange(e.target.value as SharePermission)}
+                    className="text-xs bg-transparent border border-green-500/30 rounded px-1.5 py-1 text-muted-foreground hover:text-foreground cursor-pointer focus:outline-none focus:ring-1 focus:ring-primary/50"
+                  >
+                    <option value="view">Can view</option>
+                    <option value="comment">Can edit</option>
+                  </select>
+                </div>
+              )}
               {/* People */}
               {sharedWith.map((email) => (
                 <div
                   key={email}
                   className="flex items-center justify-between py-2 px-3 bg-muted rounded-md"
                 >
-                  <div className="flex items-center gap-2">
-                    <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center text-primary font-medium text-sm">
+                  <div className="flex items-center gap-2 flex-1 min-w-0">
+                    <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center text-primary font-medium text-sm shrink-0">
                       {email.charAt(0).toUpperCase()}
                     </div>
-                    <div className="text-sm">{email}</div>
+                    <div className="text-sm truncate">{email}</div>
                   </div>
-                  <button
-                    className="text-muted-foreground hover:text-destructive"
-                    onClick={() => {
-                      // TODO: Implement remove access
-                      setSharedWith(sharedWith.filter(e => e !== email));
-                    }}
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </button>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <select
+                      value={userPermissions[email] || 'view'}
+                      onChange={(e) => handlePermissionChange({ email }, e.target.value as SharePermission)}
+                      className="text-xs bg-transparent border border-border rounded px-1.5 py-1 text-muted-foreground hover:text-foreground cursor-pointer focus:outline-none focus:ring-1 focus:ring-primary/50"
+                    >
+                      <option value="view">Can view</option>
+                      <option value="comment">Can edit</option>
+                    </select>
+                    <button
+                      className="text-muted-foreground hover:text-destructive"
+                      onClick={() => {
+                        // TODO: Implement remove access
+                        setSharedWith(sharedWith.filter(e => e !== email));
+                      }}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  </div>
                 </div>
               ))}
               {/* Teams */}
@@ -525,23 +711,33 @@ export function ShareDialog({
                   key={teamId}
                   className="flex items-center justify-between py-2 px-3 bg-muted rounded-md"
                 >
-                  <div className="flex items-center gap-2">
-                    <div className="h-8 w-8 rounded-full bg-blue-500/10 flex items-center justify-center text-blue-600 dark:text-blue-400">
+                  <div className="flex items-center gap-2 flex-1 min-w-0">
+                    <div className="h-8 w-8 rounded-full bg-blue-500/10 flex items-center justify-center text-blue-600 dark:text-blue-400 shrink-0">
                       <Users className="h-4 w-4" />
                     </div>
-                    <div className="text-sm">
+                    <div className="text-sm truncate">
                       {teamNames[teamId] || `Team: ${teamId}`}
                     </div>
                   </div>
-                  <button
-                    className="text-muted-foreground hover:text-destructive"
-                    onClick={() => {
-                      // TODO: Implement remove team access
-                      setSharedWithTeams(sharedWithTeams.filter(t => t !== teamId));
-                    }}
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </button>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <select
+                      value={teamPermissions[teamId] || 'view'}
+                      onChange={(e) => handlePermissionChange({ team_id: teamId }, e.target.value as SharePermission)}
+                      className="text-xs bg-transparent border border-border rounded px-1.5 py-1 text-muted-foreground hover:text-foreground cursor-pointer focus:outline-none focus:ring-1 focus:ring-primary/50"
+                    >
+                      <option value="view">Can view</option>
+                      <option value="comment">Can edit</option>
+                    </select>
+                    <button
+                      className="text-muted-foreground hover:text-destructive"
+                      onClick={() => {
+                        // TODO: Implement remove team access
+                        setSharedWithTeams(sharedWithTeams.filter(t => t !== teamId));
+                      }}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>

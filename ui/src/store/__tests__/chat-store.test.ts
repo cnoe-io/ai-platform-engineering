@@ -107,6 +107,8 @@ function resetStore() {
     a2aEvents: [],
     pendingMessage: null,
     selectedTurnIds: new Map(),
+    unviewedConversations: new Set(),
+    inputRequiredConversations: new Set(),
   });
 }
 
@@ -1995,6 +1997,548 @@ describe('chat-store', () => {
       // Existing conversation should be untouched
       const updated = useChatStore.getState().conversations.find(c => c.id === 'exists');
       expect(updated!.messages[0].content).toBe('data');
+    });
+  });
+
+  // --------------------------------------------------------------------------
+  // Unviewed Conversations — state management
+  // --------------------------------------------------------------------------
+
+  describe('unviewedConversations', () => {
+    it('starts with empty unviewed set', () => {
+      expect(useChatStore.getState().unviewedConversations.size).toBe(0);
+    });
+
+    it('markConversationUnviewed adds conversation to the set', () => {
+      useChatStore.getState().markConversationUnviewed('conv-a');
+
+      expect(useChatStore.getState().hasUnviewedMessages('conv-a')).toBe(true);
+      expect(useChatStore.getState().unviewedConversations.size).toBe(1);
+    });
+
+    it('markConversationUnviewed is idempotent', () => {
+      useChatStore.getState().markConversationUnviewed('conv-a');
+      useChatStore.getState().markConversationUnviewed('conv-a');
+
+      expect(useChatStore.getState().unviewedConversations.size).toBe(1);
+    });
+
+    it('clearConversationUnviewed removes conversation from the set', () => {
+      useChatStore.getState().markConversationUnviewed('conv-a');
+      useChatStore.getState().markConversationUnviewed('conv-b');
+
+      useChatStore.getState().clearConversationUnviewed('conv-a');
+
+      expect(useChatStore.getState().hasUnviewedMessages('conv-a')).toBe(false);
+      expect(useChatStore.getState().hasUnviewedMessages('conv-b')).toBe(true);
+      expect(useChatStore.getState().unviewedConversations.size).toBe(1);
+    });
+
+    it('clearConversationUnviewed is safe for non-existent IDs', () => {
+      useChatStore.getState().clearConversationUnviewed('nonexistent');
+
+      expect(useChatStore.getState().unviewedConversations.size).toBe(0);
+    });
+
+    it('hasUnviewedMessages returns false for unknown conversations', () => {
+      expect(useChatStore.getState().hasUnviewedMessages('unknown')).toBe(false);
+    });
+
+    it('tracks multiple unviewed conversations independently', () => {
+      useChatStore.getState().markConversationUnviewed('conv-1');
+      useChatStore.getState().markConversationUnviewed('conv-2');
+      useChatStore.getState().markConversationUnviewed('conv-3');
+
+      expect(useChatStore.getState().unviewedConversations.size).toBe(3);
+
+      useChatStore.getState().clearConversationUnviewed('conv-2');
+
+      expect(useChatStore.getState().hasUnviewedMessages('conv-1')).toBe(true);
+      expect(useChatStore.getState().hasUnviewedMessages('conv-2')).toBe(false);
+      expect(useChatStore.getState().hasUnviewedMessages('conv-3')).toBe(true);
+    });
+  });
+
+  // --------------------------------------------------------------------------
+  // setActiveConversation — clears unviewed flag
+  // --------------------------------------------------------------------------
+
+  describe('setActiveConversation — unviewed clearing', () => {
+    it('clears unviewed flag when navigating to an unviewed conversation', () => {
+      useChatStore.getState().markConversationUnviewed('conv-target');
+      useChatStore.getState().markConversationUnviewed('conv-other');
+
+      useChatStore.getState().setActiveConversation('conv-target');
+
+      expect(useChatStore.getState().hasUnviewedMessages('conv-target')).toBe(false);
+      expect(useChatStore.getState().hasUnviewedMessages('conv-other')).toBe(true);
+      expect(useChatStore.getState().activeConversationId).toBe('conv-target');
+    });
+
+    it('does not add to unviewed set when navigating to a viewed conversation', () => {
+      useChatStore.getState().setActiveConversation('conv-normal');
+
+      expect(useChatStore.getState().hasUnviewedMessages('conv-normal')).toBe(false);
+      expect(useChatStore.getState().unviewedConversations.size).toBe(0);
+    });
+
+    it('preserves other unviewed conversations when clearing one', () => {
+      useChatStore.getState().markConversationUnviewed('conv-a');
+      useChatStore.getState().markConversationUnviewed('conv-b');
+      useChatStore.getState().markConversationUnviewed('conv-c');
+
+      useChatStore.getState().setActiveConversation('conv-b');
+
+      expect(useChatStore.getState().unviewedConversations.size).toBe(2);
+      expect(useChatStore.getState().hasUnviewedMessages('conv-a')).toBe(true);
+      expect(useChatStore.getState().hasUnviewedMessages('conv-b')).toBe(false);
+      expect(useChatStore.getState().hasUnviewedMessages('conv-c')).toBe(true);
+    });
+  });
+
+  // --------------------------------------------------------------------------
+  // setConversationStreaming — marks unviewed on stream end
+  // --------------------------------------------------------------------------
+
+  describe('setConversationStreaming — unviewed marking', () => {
+    it('marks conversation as unviewed when streaming ends on a non-active conversation', () => {
+      const conv1 = makeConversation({ id: 'bg-conv' });
+      const conv2 = makeConversation({ id: 'active-conv' });
+      conv1.messages = [makeMessage({ id: 'bg-msg', content: 'background' })];
+
+      useChatStore.setState({
+        conversations: [conv1, conv2],
+        activeConversationId: 'active-conv',
+      });
+
+      // Start streaming on background conversation
+      useChatStore.getState().setConversationStreaming('bg-conv', {
+        conversationId: 'bg-conv',
+        messageId: 'bg-msg',
+        client: {} as any,
+      });
+
+      // Stop streaming — should mark as unviewed since user is on a different conversation
+      useChatStore.getState().setConversationStreaming('bg-conv', null);
+
+      expect(useChatStore.getState().hasUnviewedMessages('bg-conv')).toBe(true);
+    });
+
+    it('does NOT mark conversation as unviewed when streaming ends on the active conversation', () => {
+      const conv = makeConversation({ id: 'active-stream' });
+      conv.messages = [makeMessage({ id: 'active-msg', content: 'active' })];
+
+      useChatStore.setState({
+        conversations: [conv],
+        activeConversationId: 'active-stream',
+      });
+
+      // Start and stop streaming on the active conversation
+      useChatStore.getState().setConversationStreaming('active-stream', {
+        conversationId: 'active-stream',
+        messageId: 'active-msg',
+        client: {} as any,
+      });
+      useChatStore.getState().setConversationStreaming('active-stream', null);
+
+      expect(useChatStore.getState().hasUnviewedMessages('active-stream')).toBe(false);
+    });
+
+    it('does NOT mark as unviewed when streaming starts (only on stop)', () => {
+      const conv = makeConversation({ id: 'start-only' });
+
+      useChatStore.setState({
+        conversations: [conv],
+        activeConversationId: 'other-conv',
+      });
+
+      // Start streaming on a non-active conversation
+      useChatStore.getState().setConversationStreaming('start-only', {
+        conversationId: 'start-only',
+        messageId: 'msg-1',
+        client: {} as any,
+      });
+
+      expect(useChatStore.getState().hasUnviewedMessages('start-only')).toBe(false);
+    });
+
+    it('full lifecycle: live → unviewed → cleared on navigation', () => {
+      const conv1 = makeConversation({ id: 'lifecycle-conv' });
+      const conv2 = makeConversation({ id: 'user-conv' });
+      conv1.messages = [makeMessage({ id: 'lc-msg', content: 'lifecycle' })];
+
+      useChatStore.setState({
+        conversations: [conv1, conv2],
+        activeConversationId: 'user-conv',
+      });
+
+      // Phase 1: Start streaming (live)
+      useChatStore.getState().setConversationStreaming('lifecycle-conv', {
+        conversationId: 'lifecycle-conv',
+        messageId: 'lc-msg',
+        client: {} as any,
+      });
+      expect(useChatStore.getState().isConversationStreaming('lifecycle-conv')).toBe(true);
+      expect(useChatStore.getState().hasUnviewedMessages('lifecycle-conv')).toBe(false);
+
+      // Phase 2: Stop streaming (becomes unviewed because user is on user-conv)
+      useChatStore.getState().setConversationStreaming('lifecycle-conv', null);
+      expect(useChatStore.getState().isConversationStreaming('lifecycle-conv')).toBe(false);
+      expect(useChatStore.getState().hasUnviewedMessages('lifecycle-conv')).toBe(true);
+
+      // Phase 3: User navigates to the conversation (unviewed is cleared)
+      useChatStore.getState().setActiveConversation('lifecycle-conv');
+      expect(useChatStore.getState().hasUnviewedMessages('lifecycle-conv')).toBe(false);
+      expect(useChatStore.getState().activeConversationId).toBe('lifecycle-conv');
+    });
+
+    it('handles multiple background conversations completing independently', () => {
+      const conv1 = makeConversation({ id: 'bg-1' });
+      const conv2 = makeConversation({ id: 'bg-2' });
+      const conv3 = makeConversation({ id: 'user-active' });
+      conv1.messages = [makeMessage({ id: 'msg-bg1', content: 'bg1' })];
+      conv2.messages = [makeMessage({ id: 'msg-bg2', content: 'bg2' })];
+
+      useChatStore.setState({
+        conversations: [conv1, conv2, conv3],
+        activeConversationId: 'user-active',
+      });
+
+      // Start streaming on both background conversations
+      useChatStore.getState().setConversationStreaming('bg-1', {
+        conversationId: 'bg-1', messageId: 'msg-bg1', client: {} as any,
+      });
+      useChatStore.getState().setConversationStreaming('bg-2', {
+        conversationId: 'bg-2', messageId: 'msg-bg2', client: {} as any,
+      });
+
+      // bg-1 finishes first
+      useChatStore.getState().setConversationStreaming('bg-1', null);
+      expect(useChatStore.getState().hasUnviewedMessages('bg-1')).toBe(true);
+      expect(useChatStore.getState().hasUnviewedMessages('bg-2')).toBe(false);
+
+      // User views bg-1
+      useChatStore.getState().setActiveConversation('bg-1');
+      expect(useChatStore.getState().hasUnviewedMessages('bg-1')).toBe(false);
+
+      // bg-2 finishes
+      useChatStore.getState().setConversationStreaming('bg-2', null);
+      expect(useChatStore.getState().hasUnviewedMessages('bg-2')).toBe(true);
+      expect(useChatStore.getState().hasUnviewedMessages('bg-1')).toBe(false);
+    });
+  });
+
+  // --------------------------------------------------------------------------
+  // isConversationStreaming — live status indicator
+  // --------------------------------------------------------------------------
+
+  describe('isConversationStreaming — live status', () => {
+    it('returns true when conversation is actively streaming', () => {
+      const conv = makeConversation({ id: 'stream-check' });
+      useChatStore.setState({ conversations: [conv] });
+
+      useChatStore.getState().setConversationStreaming('stream-check', {
+        conversationId: 'stream-check',
+        messageId: 'msg-1',
+        client: {} as any,
+      });
+
+      expect(useChatStore.getState().isConversationStreaming('stream-check')).toBe(true);
+    });
+
+    it('returns false when conversation is not streaming', () => {
+      expect(useChatStore.getState().isConversationStreaming('not-streaming')).toBe(false);
+    });
+
+    it('returns false after streaming stops', () => {
+      const conv = makeConversation({ id: 'was-streaming' });
+      conv.messages = [makeMessage({ id: 'msg-ws', content: 'done' })];
+      useChatStore.setState({ conversations: [conv] });
+
+      useChatStore.getState().setConversationStreaming('was-streaming', {
+        conversationId: 'was-streaming',
+        messageId: 'msg-ws',
+        client: {} as any,
+      });
+      useChatStore.getState().setConversationStreaming('was-streaming', null);
+
+      expect(useChatStore.getState().isConversationStreaming('was-streaming')).toBe(false);
+    });
+
+    it('tracks multiple streaming conversations independently', () => {
+      const conv1 = makeConversation({ id: 'multi-1' });
+      const conv2 = makeConversation({ id: 'multi-2' });
+      conv1.messages = [makeMessage({ id: 'msg-m1' })];
+      conv2.messages = [makeMessage({ id: 'msg-m2' })];
+
+      useChatStore.setState({ conversations: [conv1, conv2] });
+
+      useChatStore.getState().setConversationStreaming('multi-1', {
+        conversationId: 'multi-1', messageId: 'msg-m1', client: {} as any,
+      });
+      useChatStore.getState().setConversationStreaming('multi-2', {
+        conversationId: 'multi-2', messageId: 'msg-m2', client: {} as any,
+      });
+
+      expect(useChatStore.getState().isConversationStreaming('multi-1')).toBe(true);
+      expect(useChatStore.getState().isConversationStreaming('multi-2')).toBe(true);
+
+      useChatStore.getState().setConversationStreaming('multi-1', null);
+
+      expect(useChatStore.getState().isConversationStreaming('multi-1')).toBe(false);
+      expect(useChatStore.getState().isConversationStreaming('multi-2')).toBe(true);
+    });
+
+    it('updates global isStreaming based on any active streams', () => {
+      const conv1 = makeConversation({ id: 'global-1' });
+      const conv2 = makeConversation({ id: 'global-2' });
+      conv1.messages = [makeMessage({ id: 'msg-g1' })];
+      conv2.messages = [makeMessage({ id: 'msg-g2' })];
+      useChatStore.setState({ conversations: [conv1, conv2] });
+
+      expect(useChatStore.getState().isStreaming).toBe(false);
+
+      useChatStore.getState().setConversationStreaming('global-1', {
+        conversationId: 'global-1', messageId: 'msg-g1', client: {} as any,
+      });
+      expect(useChatStore.getState().isStreaming).toBe(true);
+
+      useChatStore.getState().setConversationStreaming('global-2', {
+        conversationId: 'global-2', messageId: 'msg-g2', client: {} as any,
+      });
+      expect(useChatStore.getState().isStreaming).toBe(true);
+
+      useChatStore.getState().setConversationStreaming('global-1', null);
+      expect(useChatStore.getState().isStreaming).toBe(true);
+
+      useChatStore.getState().setConversationStreaming('global-2', null);
+      expect(useChatStore.getState().isStreaming).toBe(false);
+    });
+  });
+
+  // --------------------------------------------------------------------------
+  // beforeunload refresh guard
+  // --------------------------------------------------------------------------
+
+  // --------------------------------------------------------------------------
+  // inputRequiredConversations — CRUD
+  // --------------------------------------------------------------------------
+
+  describe('inputRequiredConversations', () => {
+    it('starts with empty input-required set', () => {
+      expect(useChatStore.getState().inputRequiredConversations.size).toBe(0);
+    });
+
+    it('markConversationInputRequired adds conversation to the set', () => {
+      useChatStore.getState().markConversationInputRequired('conv-a');
+
+      expect(useChatStore.getState().isConversationInputRequired('conv-a')).toBe(true);
+      expect(useChatStore.getState().inputRequiredConversations.size).toBe(1);
+    });
+
+    it('markConversationInputRequired is idempotent', () => {
+      useChatStore.getState().markConversationInputRequired('conv-a');
+      useChatStore.getState().markConversationInputRequired('conv-a');
+
+      expect(useChatStore.getState().inputRequiredConversations.size).toBe(1);
+    });
+
+    it('clearConversationInputRequired removes conversation from the set', () => {
+      useChatStore.getState().markConversationInputRequired('conv-a');
+      useChatStore.getState().markConversationInputRequired('conv-b');
+
+      useChatStore.getState().clearConversationInputRequired('conv-a');
+
+      expect(useChatStore.getState().isConversationInputRequired('conv-a')).toBe(false);
+      expect(useChatStore.getState().isConversationInputRequired('conv-b')).toBe(true);
+    });
+
+    it('clearConversationInputRequired is safe for non-existent IDs', () => {
+      useChatStore.getState().clearConversationInputRequired('nonexistent');
+
+      expect(useChatStore.getState().inputRequiredConversations.size).toBe(0);
+    });
+
+    it('isConversationInputRequired returns false for unknown conversations', () => {
+      expect(useChatStore.getState().isConversationInputRequired('unknown')).toBe(false);
+    });
+
+    it('tracks multiple input-required conversations independently', () => {
+      useChatStore.getState().markConversationInputRequired('conv-1');
+      useChatStore.getState().markConversationInputRequired('conv-2');
+      useChatStore.getState().markConversationInputRequired('conv-3');
+
+      expect(useChatStore.getState().inputRequiredConversations.size).toBe(3);
+
+      useChatStore.getState().clearConversationInputRequired('conv-2');
+
+      expect(useChatStore.getState().isConversationInputRequired('conv-1')).toBe(true);
+      expect(useChatStore.getState().isConversationInputRequired('conv-2')).toBe(false);
+      expect(useChatStore.getState().isConversationInputRequired('conv-3')).toBe(true);
+    });
+  });
+
+  // --------------------------------------------------------------------------
+  // setActiveConversation — clears input-required flag
+  // --------------------------------------------------------------------------
+
+  describe('setActiveConversation — input-required clearing', () => {
+    it('clears input-required flag when navigating to a conversation', () => {
+      useChatStore.getState().markConversationInputRequired('conv-target');
+      useChatStore.getState().markConversationInputRequired('conv-other');
+
+      useChatStore.getState().setActiveConversation('conv-target');
+
+      expect(useChatStore.getState().isConversationInputRequired('conv-target')).toBe(false);
+      expect(useChatStore.getState().isConversationInputRequired('conv-other')).toBe(true);
+    });
+
+    it('clears both unviewed and input-required when navigating', () => {
+      useChatStore.getState().markConversationUnviewed('conv-a');
+      useChatStore.getState().markConversationInputRequired('conv-a');
+
+      useChatStore.getState().setActiveConversation('conv-a');
+
+      expect(useChatStore.getState().hasUnviewedMessages('conv-a')).toBe(false);
+      expect(useChatStore.getState().isConversationInputRequired('conv-a')).toBe(false);
+    });
+  });
+
+  // --------------------------------------------------------------------------
+  // setConversationStreaming — clears input-required on resume
+  // --------------------------------------------------------------------------
+
+  describe('setConversationStreaming — input-required clearing', () => {
+    it('clears input-required when streaming starts (user submitted input)', () => {
+      useChatStore.getState().markConversationInputRequired('conv-hitl');
+
+      const conv = makeConversation({ id: 'conv-hitl' });
+      conv.messages = [makeMessage({ id: 'msg-1', content: 'test' })];
+      useChatStore.setState({ conversations: [conv] });
+
+      useChatStore.getState().setConversationStreaming('conv-hitl', {
+        conversationId: 'conv-hitl',
+        messageId: 'msg-1',
+        client: {} as any,
+      });
+
+      expect(useChatStore.getState().isConversationInputRequired('conv-hitl')).toBe(false);
+    });
+
+    it('does NOT clear input-required for other conversations when one resumes', () => {
+      useChatStore.getState().markConversationInputRequired('conv-a');
+      useChatStore.getState().markConversationInputRequired('conv-b');
+
+      const convA = makeConversation({ id: 'conv-a' });
+      convA.messages = [makeMessage({ id: 'msg-a', content: 'test' })];
+      useChatStore.setState({ conversations: [convA] });
+
+      useChatStore.getState().setConversationStreaming('conv-a', {
+        conversationId: 'conv-a',
+        messageId: 'msg-a',
+        client: {} as any,
+      });
+
+      expect(useChatStore.getState().isConversationInputRequired('conv-a')).toBe(false);
+      expect(useChatStore.getState().isConversationInputRequired('conv-b')).toBe(true);
+    });
+  });
+
+  // --------------------------------------------------------------------------
+  // addA2AEvent — marks input-required on UserInputMetaData artifact
+  // --------------------------------------------------------------------------
+
+  describe('addA2AEvent — input-required marking', () => {
+    it('marks conversation as input-required when UserInputMetaData event arrives', () => {
+      const conv = makeConversation({ id: 'conv-hitl' });
+      useChatStore.setState({
+        conversations: [conv],
+        activeConversationId: 'conv-hitl',
+      });
+
+      useChatStore.getState().addA2AEvent({
+        id: 'evt-1',
+        type: 'artifact' as any,
+        timestamp: new Date().toISOString(),
+        artifact: {
+          name: 'UserInputMetaData',
+          parts: [{ kind: 'data', data: { input_fields: [] } }],
+        } as any,
+      }, 'conv-hitl');
+
+      expect(useChatStore.getState().isConversationInputRequired('conv-hitl')).toBe(true);
+    });
+
+    it('does NOT mark as input-required for other artifact types', () => {
+      const conv = makeConversation({ id: 'conv-normal' });
+      useChatStore.setState({
+        conversations: [conv],
+        activeConversationId: 'conv-normal',
+      });
+
+      useChatStore.getState().addA2AEvent({
+        id: 'evt-2',
+        type: 'artifact' as any,
+        timestamp: new Date().toISOString(),
+        artifact: {
+          name: 'partial_result',
+          parts: [{ kind: 'text', text: 'hello' }],
+        } as any,
+      }, 'conv-normal');
+
+      expect(useChatStore.getState().isConversationInputRequired('conv-normal')).toBe(false);
+    });
+  });
+
+  // --------------------------------------------------------------------------
+  // beforeunload — refresh guard
+  // --------------------------------------------------------------------------
+
+  describe('beforeunload — refresh guard', () => {
+    it('calls preventDefault on beforeunload event when conversations are streaming', () => {
+      useChatStore.setState({
+        streamingConversations: new Map([
+          ['conv-1', { conversationId: 'conv-1', messageId: 'msg-1', client: {} as any }],
+        ]),
+        isStreaming: true,
+      });
+
+      const event = new Event('beforeunload') as BeforeUnloadEvent;
+      const preventDefaultSpy = jest.spyOn(event, 'preventDefault');
+
+      window.dispatchEvent(event);
+
+      expect(preventDefaultSpy).toHaveBeenCalled();
+    });
+
+    it('sets returnValue when streaming (browser-level confirmation)', () => {
+      useChatStore.setState({
+        streamingConversations: new Map([
+          ['conv-1', { conversationId: 'conv-1', messageId: 'msg-1', client: {} as any }],
+        ]),
+        isStreaming: true,
+      });
+
+      const event = new Event('beforeunload') as BeforeUnloadEvent;
+      window.dispatchEvent(event);
+
+      // jsdom coerces returnValue to boolean; in real browsers this is the
+      // descriptive string "You have 1 live chat receiving a response..."
+      expect(event.returnValue).toBeTruthy();
+    });
+
+    it('does NOT call preventDefault when no conversations are streaming', () => {
+      useChatStore.setState({
+        streamingConversations: new Map(),
+        isStreaming: false,
+      });
+
+      const event = new Event('beforeunload') as BeforeUnloadEvent;
+      const preventDefaultSpy = jest.spyOn(event, 'preventDefault');
+
+      window.dispatchEvent(event);
+
+      expect(preventDefaultSpy).not.toHaveBeenCalled();
     });
   });
 });

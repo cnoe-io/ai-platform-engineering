@@ -32,7 +32,7 @@ export const GET = withErrorHandler(async (
     );
   }
 
-  return withAuth(request, async (req, user) => {
+  return withAuth(request, async (req, user, session) => {
     const params = await context.params;
     const conversationId = params.id;
 
@@ -40,13 +40,14 @@ export const GET = withErrorHandler(async (
       throw new ApiError('Invalid conversation ID format', 400);
     }
 
-    const conversation = await requireConversationAccess(
+    const { conversation, access_level } = await requireConversationAccess(
       conversationId,
       user.email,
-      getCollection
+      getCollection,
+      session
     );
 
-    return successResponse(conversation);
+    return successResponse({ ...conversation, access_level });
   });
 });
 

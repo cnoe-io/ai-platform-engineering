@@ -44,9 +44,15 @@ jest.mock('@/hooks/use-admin-role', () => ({
 }))
 
 // Mock chat store
+let mockStreamingConversations = new Map<string, any>()
+let mockUnviewedConversations = new Set<string>()
+let mockInputRequiredConversations = new Set<string>()
 jest.mock('@/store/chat-store', () => ({
   useChatStore: jest.fn(() => ({
-    isStreaming: false,
+    isStreaming: mockStreamingConversations.size > 0,
+    streamingConversations: mockStreamingConversations,
+    unviewedConversations: mockUnviewedConversations,
+    inputRequiredConversations: mockInputRequiredConversations,
   })),
 }))
 
@@ -179,6 +185,9 @@ describe('AppHeader — nav tabs', () => {
     mockRagEnabled = false
     mockCaipeStatus = 'connected'
     mockRagStatus = 'connected'
+    mockStreamingConversations = new Map()
+    mockUnviewedConversations = new Set()
+    mockInputRequiredConversations = new Set()
     mockSession.status = 'authenticated' as const
     mockSession.data = { user: { name: 'Test User', email: 'test@test.com' } } as any
   })
@@ -197,6 +206,39 @@ describe('AppHeader — nav tabs', () => {
       // The text "Personal Insights" should NOT appear as a navigation tab
       // (UserMenu is mocked out, so it won't appear from there either)
       expect(screen.queryByTestId('link-/insights')).not.toBeInTheDocument()
+    })
+  })
+
+  describe('Home tab', () => {
+    function getHomeNavPill() {
+      const homeLinks = screen.getAllByTestId('link-/')
+      return homeLinks.find(el => el.textContent?.includes('Home'))!
+    }
+
+    it('shows Home tab', () => {
+      render(<AppHeader />)
+      expect(screen.getByText('Home')).toBeInTheDocument()
+    })
+
+    it('Home nav pill links to /', () => {
+      render(<AppHeader />)
+      const pill = getHomeNavPill()
+      expect(pill).toBeDefined()
+      expect(pill.getAttribute('href')).toBe('/')
+    })
+
+    it('Home has active styling when pathname is /', () => {
+      mockPathname = '/'
+      render(<AppHeader />)
+      const pill = getHomeNavPill()
+      expect(pill.className).toContain('text-white')
+    })
+
+    it('Home does not have active styling on other paths', () => {
+      mockPathname = '/chat'
+      render(<AppHeader />)
+      const pill = getHomeNavPill()
+      expect(pill.className).toContain('text-muted-foreground')
     })
   })
 
@@ -340,6 +382,9 @@ describe('AppHeader — connection status badge', () => {
     mockRagEnabled = false
     mockCaipeStatus = 'connected'
     mockRagStatus = 'connected'
+    mockStreamingConversations = new Map()
+    mockUnviewedConversations = new Set()
+    mockInputRequiredConversations = new Set()
     mockSession.status = 'authenticated' as const
     mockSession.data = { user: { name: 'Test User', email: 'test@test.com' } } as any
   })
@@ -570,5 +615,150 @@ describe('AppHeader — connection status badge', () => {
       expect(screen.getByText('RAG Disconnected')).toBeInTheDocument()
       expect(screen.queryByText('Connected')).not.toBeInTheDocument()
     })
+  })
+})
+
+// ============================================================================
+// Chat tab notification dot tests
+// ============================================================================
+
+describe('AppHeader — Chat tab notification dots', () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+    mockStorageMode = 'mongodb'
+    mockPathname = '/skills'
+    mockIsAdmin = false
+    mockCanViewAdmin = false
+    mockRagEnabled = false
+    mockCaipeStatus = 'connected'
+    mockRagStatus = 'connected'
+    mockStreamingConversations = new Map()
+    mockUnviewedConversations = new Set()
+    mockInputRequiredConversations = new Set()
+    mockSession.status = 'authenticated' as const
+    mockSession.data = { user: { name: 'Test User', email: 'test@test.com' } } as any
+  })
+
+  it('shows green badge with count on Chat tab when conversations are streaming', () => {
+    mockStreamingConversations = new Map([
+      ['conv-1', { conversationId: 'conv-1', messageId: 'msg-1', client: {} }],
+    ])
+
+    render(<AppHeader />)
+
+    const chatLink = screen.getByTestId('link-/chat')
+    const pingDot = chatLink.querySelector('.animate-ping')
+    expect(pingDot).toBeInTheDocument()
+    expect(pingDot?.className).toContain('bg-emerald-400')
+
+    const badge = chatLink.querySelector('.bg-emerald-500')
+    expect(badge).toBeInTheDocument()
+    expect(badge?.textContent).toBe('1')
+  })
+
+  it('shows green badge with correct count for multiple streaming conversations', () => {
+    mockStreamingConversations = new Map([
+      ['conv-1', { conversationId: 'conv-1', messageId: 'msg-1', client: {} }],
+      ['conv-2', { conversationId: 'conv-2', messageId: 'msg-2', client: {} }],
+    ])
+
+    render(<AppHeader />)
+
+    const chatLink = screen.getByTestId('link-/chat')
+    const badge = chatLink.querySelector('.bg-emerald-500')
+    expect(badge?.textContent).toBe('2')
+  })
+
+  it('shows blue badge with count on Chat tab when there are unviewed conversations', () => {
+    mockUnviewedConversations = new Set(['conv-1'])
+
+    render(<AppHeader />)
+
+    const chatLink = screen.getByTestId('link-/chat')
+    const blueBadge = chatLink.querySelector('.bg-blue-500')
+    expect(blueBadge).toBeInTheDocument()
+    expect(blueBadge?.textContent).toBe('1')
+  })
+
+  it('shows blue badge with correct count for multiple unviewed conversations', () => {
+    mockUnviewedConversations = new Set(['conv-1', 'conv-2', 'conv-3'])
+
+    render(<AppHeader />)
+
+    const chatLink = screen.getByTestId('link-/chat')
+    const blueBadge = chatLink.querySelector('.bg-blue-500')
+    expect(blueBadge?.textContent).toBe('3')
+  })
+
+  it('green badge takes priority over blue badge when both streaming and unviewed exist', () => {
+    mockStreamingConversations = new Map([
+      ['conv-1', { conversationId: 'conv-1', messageId: 'msg-1', client: {} }],
+    ])
+    mockUnviewedConversations = new Set(['conv-2'])
+
+    render(<AppHeader />)
+
+    const chatLink = screen.getByTestId('link-/chat')
+    const greenBadge = chatLink.querySelector('.bg-emerald-500')
+    const blueBadge = chatLink.querySelector('.bg-blue-500')
+    expect(greenBadge).toBeInTheDocument()
+    expect(blueBadge).not.toBeInTheDocument()
+  })
+
+  it('shows amber badge with count on Chat tab when conversations need input', () => {
+    mockInputRequiredConversations = new Set(['conv-1'])
+
+    render(<AppHeader />)
+
+    const chatLink = screen.getByTestId('link-/chat')
+    const amberBadge = chatLink.querySelector('.bg-amber-500')
+    expect(amberBadge).toBeInTheDocument()
+    expect(amberBadge?.textContent).toBe('1')
+  })
+
+  it('shows amber badge with correct count for multiple input-required conversations', () => {
+    mockInputRequiredConversations = new Set(['conv-1', 'conv-2'])
+
+    render(<AppHeader />)
+
+    const chatLink = screen.getByTestId('link-/chat')
+    const amberBadge = chatLink.querySelector('.bg-amber-500')
+    expect(amberBadge?.textContent).toBe('2')
+  })
+
+  it('green badge takes priority over amber badge', () => {
+    mockStreamingConversations = new Map([
+      ['conv-1', { conversationId: 'conv-1', messageId: 'msg-1', client: {} }],
+    ])
+    mockInputRequiredConversations = new Set(['conv-2'])
+
+    render(<AppHeader />)
+
+    const chatLink = screen.getByTestId('link-/chat')
+    expect(chatLink.querySelector('.bg-emerald-500')).toBeInTheDocument()
+    expect(chatLink.querySelector('.bg-amber-500')).not.toBeInTheDocument()
+  })
+
+  it('amber badge takes priority over blue badge', () => {
+    mockInputRequiredConversations = new Set(['conv-1'])
+    mockUnviewedConversations = new Set(['conv-2'])
+
+    render(<AppHeader />)
+
+    const chatLink = screen.getByTestId('link-/chat')
+    expect(chatLink.querySelector('.bg-amber-500')).toBeInTheDocument()
+    expect(chatLink.querySelector('.bg-blue-500')).not.toBeInTheDocument()
+  })
+
+  it('shows no notification badge when nothing is streaming, input-required, or unviewed', () => {
+    render(<AppHeader />)
+
+    const chatLink = screen.getByTestId('link-/chat')
+    const greenBadge = chatLink.querySelector('.bg-emerald-500')
+    const amberBadge = chatLink.querySelector('.bg-amber-500')
+    const blueBadge = chatLink.querySelector('.bg-blue-500')
+    expect(greenBadge).not.toBeInTheDocument()
+    expect(amberBadge).not.toBeInTheDocument()
+    expect(blueBadge).not.toBeInTheDocument()
   })
 })

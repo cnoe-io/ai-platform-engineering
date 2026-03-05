@@ -8,15 +8,18 @@
 # This docker-compose runs the CAIPE deep agent as a single container with
 # MCP tools loaded in-process via stdio transport.
 #
+# MongoDB starts by default for task config persistence.
+# The CAIPE agent reads task configs from MongoDB (primary) with YAML fallback.
+# The UI writes task configs to MongoDB via the Task Builder.
+#
 # Optional profiles:
 #   - tracing: Enable Langfuse tracing
 #   - rag: Enable RAG services
 #   - graph_rag: Enable RAG with graph database
-#   - caipe-ui: Enable CAIPE web UI
+#   - caipe-ui: Enable CAIPE web UI (Task Builder + Chat)
 #   - weather: Enable remote Weather agent
-#   - mongodb: Enable MongoDB for UI persistence
 #
-# Example: docker compose -f docker-compose.single-node.dev.yaml --profile weather up
+# Example: docker compose -f docker-compose.single-node.dev.yaml --profile caipe-ui up --build
 # ============================================================================
 
 services:
@@ -31,7 +34,7 @@ services:
     container_name: caipe-dev
     volumes:
       - ${PROMPT_CONFIG_PATH:-./charts/ai-platform-engineering/data/prompt_config.deep_agent.yaml}:/app/prompt_config.yaml
-      - ${TASK_CONFIG_PATH:-./task_config.yaml}:/app/task_config.yaml
+      - ${TASK_CONFIG_PATH:-./charts/ai-platform-engineering/data/task_config.yaml}:/app/task_config.yaml
       - ./ai_platform_engineering:/app/ai_platform_engineering
     env_file:
       - .env
@@ -42,6 +45,12 @@ services:
       - PROMPT_CONFIG_PATH=/app/prompt_config.yaml
       # Task config file path (self-service workflows)
       - TASK_CONFIG_PATH=/app/task_config.yaml
+
+      # MongoDB - primary source for task configs (UI writes here, backend reads)
+      - MONGODB_URI=mongodb://${MONGODB_ROOT_USERNAME:-admin}:${MONGODB_ROOT_PASSWORD:-changeme}@caipe-ui-mongodb:27017/${MONGODB_DATABASE:-caipe}?authSource=admin
+      - MONGODB_DATABASE=${MONGODB_DATABASE:-caipe}
+      # Disable cache so UI edits are reflected immediately in the agent
+      - TASK_CONFIG_CACHE_TTL=${TASK_CONFIG_CACHE_TTL:-0}
 
       # GitHub Token for git operations
       - GITHUB_TOKEN=${GITHUB_PERSONAL_ACCESS_TOKEN}
@@ -74,6 +83,20 @@ services:
       - DEFAULT_CLUSTER_NAME=${DEFAULT_CLUSTER_NAME:-}
       - DEFAULT_CLUSTER_ADDRESS=${DEFAULT_CLUSTER_ADDRESS:-}
 
+      # Per-subagent LLM model overrides (provider:model-name format)
+      - SUBAGENT_ARGOCD_MODEL=azure_openai:gpt-5.2
+      # LangChain AzureChatOpenAI reads OPENAI_API_VERSION (not AZURE_OPENAI_API_VERSION)
+      - OPENAI_API_VERSION=${AZURE_OPENAI_API_VERSION:-2025-03-01-preview}
+
+      # Vault configuration for secure LLM key storage
+      - VAULT_ADDR=${VAULT_ADDR:-}
+      - VAULT_NAMESPACE=${VAULT_NAMESPACE:-}
+      - VAULT_ROLE_ID=${VAULT_ROLE_ID:-}
+      - VAULT_SECRET_ID=${VAULT_SECRET_ID:-}
+      - VAULT_MOUNT_POINT=${VAULT_MOUNT_POINT:-secret}
+      - VAULT_APPROLE_PATH=${VAULT_APPROLE_PATH:-approle}
+      - VAULT_PATH_PREFIX=${VAULT_PATH_PREFIX:-}
+
       # Artifact streaming
       - ENABLE_ARTIFACT_STREAMING=true
 
@@ -84,6 +107,9 @@ services:
       - ENABLE_WEATHER=${ENABLE_WEATHER:-false}
       - WEATHER_AGENT_HOST=agent-weather
       - WEATHER_AGENT_PORT=8000
+    depends_on:
+      caipe-ui-mongodb:
+        condition: service_healthy
     command: platform-engineer-single
 
   ####################################################################################################
@@ -97,6 +123,7 @@ services:
     environment:
       - MONGO_INITDB_ROOT_USERNAME=${MONGODB_ROOT_USERNAME:-admin}
       - MONGO_INITDB_ROOT_PASSWORD=${MONGODB_ROOT_PASSWORD:-changeme}
+      - MONGO_INITDB_DATABASE=${MONGODB_DATABASE:-caipe}
     volumes:
       - mongodb_data:/data/db
     healthcheck:
@@ -105,9 +132,6 @@ services:
       timeout: 5s
       retries: 5
       start_period: 40s
-    profiles:
-      - mongodb
-      - caipe-ui
 
   ####################################################################################################
   #                               Remote A2A Agents                                                #
@@ -135,7 +159,9 @@ services:
       context: .
       dockerfile: build/Dockerfile.caipe-ui
     container_name: caipe-ui
-    ports: ["3001:3000"]
+    ports: ["3000:3000"]
+    volumes:
+      - ${TASK_CONFIG_PATH:-./charts/ai-platform-engineering/data/task_config.yaml}:/app/task_config.yaml:ro
     env_file:
       - .env
     environment:
@@ -147,13 +173,20 @@ services:
       - NEXT_PUBLIC_ENABLE_RAG=${ENABLE_RAG:-false}
       - ENABLE_RAG=${ENABLE_RAG:-false}
       - NEXTAUTH_SECRET=${NEXTAUTH_SECRET:-caipe-dev-secret-change-in-production}
-      - NEXTAUTH_URL=${NEXTAUTH_URL:-http://localhost:3001}
-      - CAIPE_UI_OIDC_ENABLED=${OIDC_ENABLED:-false}
+      - NEXTAUTH_URL=${NEXTAUTH_URL:-http://localhost:3000}
+      - SSO_ENABLED=false
+      - CAIPE_UI_OIDC_ENABLED=false
       - CAIPE_UI_OIDC_CLIENT_ID=${OIDC_CLIENT_ID:-}
       - CAIPE_UI_OIDC_CLIENT_SECRET=${OIDC_CLIENT_SECRET:-}
       - CAIPE_UI_OIDC_ISSUER=${OIDC_ISSUER:-}
+      # MongoDB for task config persistence and UI state
+      - MONGODB_URI=mongodb://${MONGODB_ROOT_USERNAME:-admin}:${MONGODB_ROOT_PASSWORD:-changeme}@caipe-ui-mongodb:27017/${MONGODB_DATABASE:-caipe}?authSource=admin
+      - MONGODB_DATABASE=${MONGODB_DATABASE:-caipe}
     depends_on:
-      - caipe
+      caipe:
+        condition: service_started
+      caipe-ui-mongodb:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/api/health"]
       interval: 30s

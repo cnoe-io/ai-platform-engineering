@@ -14,16 +14,16 @@ logger = logging.getLogger("mcp_tools")
 
 
 async def get_api_reporting_v2_incidents(
-    param_offset: Optional[int] = None,
-    param_limit: Optional[int] = None,
-    param_entityId: Optional[str] = None,
-    param_incidentNumber: Optional[str] = None,
-    param_startedAfter: Optional[str] = None,
-    param_startedBefore: Optional[str] = None,
-    param_host: Optional[str] = None,
-    param_service: Optional[str] = None,
-    param_currentPhase: Optional[str] = None,
-    param_routingKey: Optional[str] = None,
+    offset: Optional[int] = None,
+    limit: Optional[int] = None,
+    entityId: Optional[str] = None,
+    incidentNumber: Optional[str] = None,
+    startedAfter: Optional[str] = None,
+    startedBefore: Optional[str] = None,
+    host: Optional[str] = None,
+    service: Optional[str] = None,
+    currentPhase: Optional[str] = None,
+    routingKey: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
         Get/search incident history
@@ -45,26 +45,26 @@ async def get_api_reporting_v2_incidents(
 
         Args:
 
-            param_offset (int): The offset within the set of matching incidents
+            offset (int): The offset within the set of matching incidents
 
-            param_limit (int): The maximum number of matching incidents to return (100 max)
+            limit (int): The maximum number of matching incidents to return (100 max)
 
-            param_entityId (str): The entity ID involved  This is the unique identifier for the entity causing the incident.
+            entityId (str): The entity ID involved  This is the unique identifier for the entity causing the incident.
 
-            param_incidentNumber (str): The incident number as shown in VictorOps Multiple values and ranges are allowed: 4,5,20:50
+            incidentNumber (str): The incident number as shown in VictorOps Multiple values and ranges are allowed: 4,5,20:50
 
 
-            param_startedAfter (str): Return incidents started after this timestamp Specify the timestamp in ISO8601 format
+            startedAfter (str): Return incidents started after this timestamp Specify the timestamp in ISO8601 format
 
-            param_startedBefore (str): Find incidents started before this timestamp  Specify the timestamp in ISO8601 format
+            startedBefore (str): Find incidents started before this timestamp  Specify the timestamp in ISO8601 format
 
-            param_host (str): The host involved in the incident Multiple values can be separated with commas.
+            host (str): The host involved in the incident Multiple values can be separated with commas.
 
-            param_service (str): The service involved in the incident (if any) Multiple values can be separated with commas.
+            service (str): The service involved in the incident (if any) Multiple values can be separated with commas.
 
-            param_currentPhase (str): The current phase of the incident "resolved", "triggered" or "acknowledged". Multiple values can be separated with commas. By default, response contains only "resolved" incidents
+            currentPhase (str): The current phase of the incident "resolved", "triggered" or "acknowledged". Multiple values can be separated with commas. By default, response contains only "resolved" incidents
 
-            param_routingKey (str): The original routing of the incident
+            routingKey (str): The original routing of the incident
 
 
         Returns:
@@ -78,43 +78,43 @@ async def get_api_reporting_v2_incidents(
     params = {}
     data = {}
 
-    if param_offset is not None:
-        params["offset"] = str(param_offset).lower() if isinstance(param_offset, bool) else param_offset
+    if offset is not None:
+        params["offset"] = str(offset).lower() if isinstance(offset, bool) else offset
 
-    if param_limit is not None:
-        params["limit"] = str(param_limit).lower() if isinstance(param_limit, bool) else param_limit
+    if limit is not None:
+        params["limit"] = str(limit).lower() if isinstance(limit, bool) else limit
 
-    if param_entityId is not None:
-        params["entityId"] = str(param_entityId).lower() if isinstance(param_entityId, bool) else param_entityId
+    if entityId is not None:
+        params["entityId"] = str(entityId).lower() if isinstance(entityId, bool) else entityId
 
-    if param_incidentNumber is not None:
+    if incidentNumber is not None:
         params["incidentNumber"] = (
-            str(param_incidentNumber).lower() if isinstance(param_incidentNumber, bool) else param_incidentNumber
+            str(incidentNumber).lower() if isinstance(incidentNumber, bool) else incidentNumber
         )
 
-    if param_startedAfter is not None:
+    if startedAfter is not None:
         params["startedAfter"] = (
-            str(param_startedAfter).lower() if isinstance(param_startedAfter, bool) else param_startedAfter
+            str(startedAfter).lower() if isinstance(startedAfter, bool) else startedAfter
         )
 
-    if param_startedBefore is not None:
+    if startedBefore is not None:
         params["startedBefore"] = (
-            str(param_startedBefore).lower() if isinstance(param_startedBefore, bool) else param_startedBefore
+            str(startedBefore).lower() if isinstance(startedBefore, bool) else startedBefore
         )
 
-    if param_host is not None:
-        params["host"] = str(param_host).lower() if isinstance(param_host, bool) else param_host
+    if host is not None:
+        params["host"] = str(host).lower() if isinstance(host, bool) else host
 
-    if param_service is not None:
-        params["service"] = str(param_service).lower() if isinstance(param_service, bool) else param_service
+    if service is not None:
+        params["service"] = str(service).lower() if isinstance(service, bool) else service
 
-    if param_currentPhase is not None:
+    if currentPhase is not None:
         params["currentPhase"] = (
-            str(param_currentPhase).lower() if isinstance(param_currentPhase, bool) else param_currentPhase
+            str(currentPhase).lower() if isinstance(currentPhase, bool) else currentPhase
         )
 
-    if param_routingKey is not None:
-        params["routingKey"] = str(param_routingKey).lower() if isinstance(param_routingKey, bool) else param_routingKey
+    if routingKey is not None:
+        params["routingKey"] = str(routingKey).lower() if isinstance(routingKey, bool) else routingKey
 
     flat_body = {}
     data = assemble_nested_body(flat_body)
