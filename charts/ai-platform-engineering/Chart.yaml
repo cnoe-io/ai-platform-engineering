@@ -192,6 +192,10 @@ dependencies:
     version: 0.2.35
     condition: caipe-ui.mongodb.enabled
     alias: mongodb
+  # Redis Stack for LangGraph checkpoint + store persistence
+  - name: langgraph-redis
+    version: 0.2.35 # Do NOT bump this. It will be updated automatically using the PR or release workflow
+    condition: global.langgraphRedis.enabled
   # Slack Bot Integration (client, not an agent)
   - name: slack-bot
     version: 0.2.35 # Do NOT bump this. It will be updated automatically using the PR or release workflow

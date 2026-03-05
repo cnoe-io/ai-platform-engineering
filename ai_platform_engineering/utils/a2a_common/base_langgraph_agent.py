@@ -32,8 +32,9 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 import tiktoken
 
-from langgraph.checkpoint.memory import MemorySaver
 from langgraph.prebuilt import create_react_agent
+
+from ai_platform_engineering.utils.checkpointer import get_checkpointer
 
 from .context_config import get_context_limit_for_provider, get_min_messages_to_keep, is_auto_compression_enabled
 from ai_platform_engineering.utils.metrics import MetricsCallbackHandler
@@ -72,7 +73,7 @@ def debug_print(message: str, banner: bool = True):
         if banner:
             print("=" * 80)
 
-memory = MemorySaver()
+memory = get_checkpointer()
 
 
 class BaseLangGraphAgent(ABC):

@@ -50,6 +50,10 @@ global:
   agentgateway:
     enabled: false
 
+  # LangGraph Redis Stack for checkpoint and cross-thread store persistence
+  langgraphRedis:
+    enabled: false
+
 # ServiceMonitor for scraping all ai-platform-engineering components
 # For agent metrics endpoints, use global.metrics.enabled above
 metrics:
@@ -173,6 +177,14 @@ supervisor-agent:
       existingSecret: {}   # optional: { name: "my-pg-secret", key: "DATABASE_URL" }
     ttlMinutes: 10080
     enableFactExtraction: false
+  # In-thread checkpoint persistence: memory (default) | redis
+  # Persists conversation state within a thread across pod restarts.
+  checkpointPersistence:
+    type: "memory"
+    redis:
+      url: ""
+      existingSecret: {}
+    ttlMinutes: 0
 
 ######### Sub-agent configurations #########
 # Agent configurations using aliases from Chart.yaml

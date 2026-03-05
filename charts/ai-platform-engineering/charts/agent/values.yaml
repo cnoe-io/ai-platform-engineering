@@ -234,3 +234,16 @@ mcp:
 
   # Volumes for MCP container
   volumes: []
+
+# In-thread checkpoint persistence (LangGraph Checkpointer)
+# Persists conversation state within a thread across pod restarts.
+# Options: memory (in-process, default) | redis (Redis Stack required)
+checkpointPersistence:
+  # Checkpoint type: "memory" or "redis"
+  type: "memory"
+  redis:
+    url: ""
+    existingSecret:
+      name: ""
+      key: ""
+  ttlMinutes: 0
