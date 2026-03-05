@@ -19,15 +19,27 @@ draft: true
 
 ### Project summary
 
-CAIPE is an open-source, multi-agent AI system for Platform Engineering that orchestrates specialized agents across DevOps tools via the A2A and MCP protocols.
+Community AI Platform Engineering (CAIPE, pronounced “cape”) is an open-source distributed Multi-Agent System (MAS) for platform engineering and cloud-native operations. CAIPE orchestrates specialized AI agents across Kubernetes platforms, cloud-native infrastructure, DevOps tooling, and project management systems using standardized interoperability protocols such as Agent-to-Agent (A2A) and the Model Context Protocol (MCP).
+
+CAIPE integrates extensible knowledge bases that support retrieval-augmented generation (RAG), GraphRAG, and persistent agent memory. These capabilities allow agents to extract, store, and recall operational facts from documentation, system state, and previous workflows, enabling more reliable reasoning across complex Kubernetes and cloud-native environments.
+
+By combining agent orchestration, curated platform engineering skills, persistent memory, and structured workflows, CAIPE enables teams to build predictable, auditable automation across modern platform engineering stacks.
 
 ### Project description
 
-Community AI Platform Engineering (CAIPE, pronounced "cape") is an open-source Multi-Agent System (MAS) championed by the CNOE (Cloud Native Operational Excellence) forum. As platform engineering, SRE, and DevOps environments grow in complexity, traditional approaches lead to delays, increased operational overhead, and developer frustration. CAIPE addresses this by providing a secure, scalable, persona-driven reference implementation that orchestrates specialized AI agents—each integrating with a specific tool (ArgoCD, GitHub, PagerDuty, Jira, Slack, Kubernetes, and more)—through standardized protocols.
+Community AI Platform Engineering (CAIPE, pronounced “cape”) is an open source Multi-Agent System (MAS) championed by the CNOE (Cloud Native Operational Excellence) forum. As platform engineering, SRE, and DevOps environments grow in complexity, traditional approaches often lead to operational delays, fragmented tooling, and developer friction. CAIPE addresses this by providing a secure and scalable persona-driven reference implementation that orchestrates specialized AI agents. Each agent integrates securely with platform tools such as ArgoCD, Backstage, GitHub, PagerDuty, Jira, Slack, and Kubernetes using standardized interoperability protocols.
 
-Built on LangGraph and LangChain, CAIPE uses the Agent-to-Agent (A2A) protocol for inter-agent communication and the Model Context Protocol (MCP) for tool integration, enabling a loosely coupled architecture where agents can be developed, deployed, and scaled independently. The system includes a curated prompt library evaluated for accuracy in agentic workflows, a Next.js web UI, enterprise-grade security with OAuth2/JWT-based agent authentication, and production-ready deployment patterns via Docker Compose and Helm charts.
+Built on LangGraph and LangChain, CAIPE uses the Agent-to-Agent (A2A) protocol for inter-agent communication and the Model Context Protocol (MCP) for tool integration. This architecture enables agents to be developed, deployed, and scaled independently while securely interacting with Kubernetes platforms, cloud native infrastructure, and operational tooling.
 
-CAIPE fills a gap in the cloud native ecosystem by providing a vendor-neutral, community-driven reference architecture for applying agentic AI to platform operations—enabling teams to automate complex multi-tool workflows, reduce mean time to resolution, and accelerate developer self-service, all within a cloud native stack.
+The platform includes a curated prompt and skills library evaluated for reliability in agentic workflows, a modern AI-native user interface for interacting with agents, extensible integration plugins for developer platforms such as Backstage, and a command line interface for automation and developer workflows. The system also includes enterprise-grade security with OAuth2 and JWT-based agent authentication and production-ready deployment patterns using Docker Compose and Helm charts.
+
+CAIPE also provides extensible knowledge bases that support retrieval-augmented generation (RAG) and GraphRAG. These knowledge systems enable agents to reason over both unstructured documentation and structured relationships between systems, services, and operational data. In addition, CAIPE supports persistent agent memory, fact extraction, and recall. Agents can extract operational knowledge from workflows, incident investigations, and platform telemetry, store these facts in shared knowledge systems, and reuse them in future tasks.
+
+This capability allows agents to maintain contextual awareness across workflows in Kubernetes and cloud native environments. For example, agents can recall prior incidents, service dependencies, deployment history, and troubleshooting outcomes when assisting with new operational tasks. This reduces repeated investigation and improves operational efficiency.
+
+The platform also includes built-in tracing, evaluation, and workflow observability to ensure predictable and auditable automation. Curated platform engineering skills encode operational best practices for common tasks such as incident investigation, GitOps deployment workflows, and platform diagnostics.
+
+CAIPE fills a gap in the cloud native ecosystem by providing a vendor-neutral and community-driven reference architecture for applying agentic AI to platform engineering and operations. It enables teams to automate complex workflows across multiple tools, reduce mean time to resolution (MTTR), and accelerate developer self-service while maintaining transparency, governance, and operational reliability within modern Kubernetes and cloud native platforms.
 
 ---
 
@@ -54,18 +66,42 @@ https://cnoe-io.github.io/ai-platform-engineering/
 
 ### Roadmap
 
-https://github.com/orgs/cnoe-io/projects/9
+Here is a **more concise CNCF-appropriate version** while keeping the important signals (open roadmap, ecosystem alignment, knowledge systems, and community growth):
+
+---
 
 ### Roadmap context
 
-CAIPE's roadmap is organized around several key themes:
+CAIPE’s roadmap is developed openly through GitHub issues and community working groups and is tracked in the project roadmap board.
 
-1. **Agent ecosystem expansion**: Adding new sub-agents for additional cloud native tools (Crossplane, Backstage catalog, Prometheus/Grafana, cloud provider services) and supporting community-contributed agents via a plugin registry.
-2. **Enterprise hardening**: Strengthening multi-tenancy, RBAC at the agent level, audit logging, policy-based guardrails (OPA/Rego), and SOC 2-aligned operational controls.
-3. **Evaluation & observability**: Building out automated evaluation pipelines (LLM-as-judge, human-in-the-loop scoring) and deep integration with tracing systems (Langfuse, OpenTelemetry) to measure agent accuracy and reliability.
-4. **Knowledge base & RAG**: Expanding the retrieval-augmented generation capabilities with GraphRAG, ontology-driven entity extraction, and multi-source ingestion for organizational knowledge.
-5. **Standards alignment**: Continued alignment with emerging standards—A2A protocol evolution, MCP specification updates, and CNCF ecosystem interoperability patterns.
-6. **Community growth**: Expanding the contributor base through workshops (CAIPE Labs), improved onboarding docs, and cross-project collaboration within CNCF.
+Project roadmap:
+[https://github.com/orgs/cnoe-io/projects/9](https://github.com/orgs/cnoe-io/projects/9)
+
+Issues and feature discussions:
+[https://github.com/cnoe-io/ai-platform-engineering/issues](https://github.com/cnoe-io/ai-platform-engineering/issues)
+
+Key roadmap themes include:
+
+1. **Agent ecosystem expansion**
+   Adding new agents for cloud native and platform engineering tools such as Crossplane, Backstage catalog, Prometheus/Grafana, and cloud provider services, along with a plugin registry for community-contributed agents.
+
+2. **Enterprise hardening**
+   Improving multi-tenancy, agent-level RBAC, audit logging, and policy-based guardrails using technologies such as OPA/Rego.
+
+3. **Evaluation and observability**
+   Expanding automated evaluation pipelines and integrating with observability platforms such as Langfuse and OpenTelemetry to measure agent reliability and workflow execution.
+
+4. **Knowledge systems**
+   Enhancing RAG capabilities with GraphRAG, ontology-driven entity extraction, persistent memory, and multi-source ingestion of organizational knowledge.
+
+5. **Standards alignment**
+   Continued alignment with emerging agent interoperability standards such as A2A and MCP, and integration patterns across the cloud native ecosystem.
+
+6. **Community growth**
+   Expanding contributors through working groups, improved onboarding, and community workshops such as CAIPE Labs.
+
+Project documentation:
+[https://cnoe-io.github.io/ai-platform-engineering/](https://cnoe-io.github.io/ai-platform-engineering/)
 
 ### Contributing guide
 
@@ -218,7 +254,7 @@ If an individual or individual(s):
 - 77+ Architecture Decision Records documenting project evolution
 - Weekly community meetings (CNOE Agentic AI SIG) with participants from multiple organizations
 - Active Slack channel (#cnoe-sig-agentic-ai) on CNCF Slack
-- Adopters include Outshift by Cisco, Splunk, and Demandbase
+- [Adopters include Outshift by Cisco, Splunk, and Demandbase](https://github.com/cnoe-io/ai-platform-engineering/blob/main/ADOPTERS.md)
 - Comprehensive documentation site with getting-started guides, architecture docs, and workshops (CAIPE Labs)
 
 **Technical maturity indicators:**
