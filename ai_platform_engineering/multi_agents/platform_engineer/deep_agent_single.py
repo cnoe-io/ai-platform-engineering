@@ -390,6 +390,27 @@ def get_available_task_names() -> List[str]:
 # Invoke Self-Service Task Tool
 # =============================================================================
 
+@tool
+def list_self_service_workflows() -> str:
+    """List all available self-service workflows that can be invoked.
+
+    Returns the current set of workflow names from the task configuration
+    database. Call this tool to discover which workflows are available
+    before invoking one with ``invoke_self_service_task``.
+    """
+    config = load_task_config()
+    if not config:
+        return "No self-service workflows are currently configured."
+
+    names = list(config.keys())
+    lines = [f"- {name}" for name in names]
+    return (
+        f"Available self-service workflows ({len(names)}):\n"
+        + "\n".join(lines)
+        + "\n\nUse invoke_self_service_task(task_name=\"<name>\") to start one."
+    )
+
+
 def create_invoke_self_service_task_tool():
     """Create the invoke_self_service_task tool for deterministic workflow execution.
     
@@ -848,7 +869,7 @@ class PlatformEngineerDeepAgent:
         invoke_task_tool = create_invoke_self_service_task_tool()
         
         # All supervisor tools
-        all_tools = utility_tools + [invoke_task_tool]
+        all_tools = utility_tools + [list_self_service_workflows, invoke_task_tool]
         
         # RAG connectivity check and tool loading
         if self.rag_enabled and self.rag_config is None:
@@ -993,32 +1014,19 @@ When users ask questions about platform policies, procedures, or documentation:
         if rag_instructions:
             system_prompt += f"\n\n## RAG Knowledge Base\n{rag_instructions}"
         
-        # Build self-service workflow instructions with trigger patterns
-        workflow_names = list(self._task_config.keys())
-        workflow_examples = []
-        for name in workflow_names:
-            # Generate natural language trigger patterns from workflow names
-            lower_name = name.lower()
-            workflow_examples.append(f'- "{name}" or "{lower_name}"')
-        
-        # Append self-service workflow information with detailed routing instructions
-        system_prompt += f"""
+        system_prompt += """
 
 ## Self-Service Workflows (CRITICAL)
 
-**MANDATORY BEHAVIOR**: When a user requests any of the following operations, you MUST call `invoke_self_service_task` with the exact workflow name. These workflows use HITL forms to collect user input.
+**MANDATORY BEHAVIOR**: When a user requests an operation that sounds like a self-service workflow (creating resources, deploying apps, managing users, etc.), you MUST:
+1. Call `list_self_service_workflows` to get the current list of available workflows
+2. If the user's request matches a workflow name, call `invoke_self_service_task(task_name="<exact name>")` with the exact workflow name
+3. These workflows use HITL forms to collect user input — DO NOT try to perform them directly with subagents
 
-**Available Workflows:**
-{chr(10).join(workflow_examples)}
-
-**Trigger Pattern Examples:**
-- User says "Create github repo" or "create a github repository" → call `invoke_self_service_task(task_name="Create GitHub Repo")`
-- User says "create ec2 instance" or "spin up an ec2" → call `invoke_self_service_task(task_name="Create EC2 Instance")`
-- User says "create eks cluster" → call `invoke_self_service_task(task_name="Create EKS Cluster")`
-- User says "deploy to argocd" or "deploy app" → call `invoke_self_service_task(task_name="Deploy App to Common Cluster")`
-- User says "create llm api key" or "get api key" → call `invoke_self_service_task(task_name="Create LLM API Key")`
-- User says "add users to group" → call `invoke_self_service_task(task_name="Add Users to Group")`
-- User says "invite to github org" → call `invoke_self_service_task(task_name="Invite Users to GitHub Org")`
+**Examples:**
+- User says "Create github repo" → call `list_self_service_workflows`, then `invoke_self_service_task(task_name="Create GitHub Repo")`
+- User says "create ec2 instance" → call `list_self_service_workflows`, then `invoke_self_service_task(task_name="Create EC2 Instance")`
+- User says "deploy app" → call `list_self_service_workflows`, then `invoke_self_service_task(task_name="Deploy App to Common Cluster")`
 
 **Workflow Execution:**
 1. When `invoke_self_service_task` is called, it triggers a multi-step workflow

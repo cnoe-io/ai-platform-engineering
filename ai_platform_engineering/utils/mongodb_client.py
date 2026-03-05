@@ -9,13 +9,18 @@ Used by the supervisor agent to read task configs from MongoDB.
 Reuses the same MONGODB_URI / MONGODB_DATABASE env vars as the UI and Slack bot.
 """
 
+import logging
 import os
 import time
 from typing import Optional
 
-from loguru import logger
 from pymongo import MongoClient
 from pymongo.errors import PyMongoError
+
+try:
+    from loguru import logger
+except ImportError:
+    logger = logging.getLogger(__name__)
 
 _client: Optional[MongoClient] = None
 _task_config_cache: Optional[dict] = None
