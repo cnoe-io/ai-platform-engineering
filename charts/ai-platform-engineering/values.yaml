@@ -187,14 +187,23 @@ supervisor-agent:
     postgres:
       dsn: ""   # e.g. postgresql://user:pass@host:5432/dbname
       existingSecret: {}   # optional: { name: "my-pg-secret", key: "DATABASE_URL" }
+    mongodb:
+      uri: ""   # e.g. mongodb://host:27017, mongodb+srv://user:pass@cluster.example.com
+      existingSecret: {}   # optional: { name: "my-mongo-secret", key: "MONGODB_URI" }
     ttlMinutes: 10080
     enableFactExtraction: false
-  # In-thread checkpoint persistence: memory (default) | redis
+  # In-thread checkpoint persistence: memory (default) | redis | postgres | mongodb
   # Persists conversation state within a thread across pod restarts.
   checkpointPersistence:
     type: "memory"
     redis:
       url: ""
+      existingSecret: {}
+    postgres:
+      dsn: ""
+      existingSecret: {}
+    mongodb:
+      uri: ""
       existingSecret: {}
     ttlMinutes: 0
 
