@@ -120,18 +120,90 @@ def _create_memory_store():
 
 
 def _create_redis_store(redis_url: str):
-    """Create a Redis-backed store (lazy async initialization)."""
+    """Create a Redis-backed store (lazy async initialization).
+
+    Requires Redis 8.0+ or Redis Stack (RedisJSON + RediSearch modules).
+    Uses langgraph-checkpoint-redis AsyncRedisStore under the hood.
+    """
     try:
-        from langgraph.store.memory import InMemoryStore
+        import importlib.util
+        if importlib.util.find_spec("langgraph.store.redis") is None:
+            raise ImportError("langgraph-checkpoint-redis not installed")
+        masked_url = redis_url[:15] + "..." if len(redis_url) > 15 else redis_url
+        logger.info(f"LangGraph Store: Redis store configured (URL ending ...{masked_url})")
+        return _LazyAsyncRedisStore(redis_url)
+    except ImportError:
         logger.warning(
-            "Redis store for LangGraph is not yet available in langgraph-checkpoint-redis. "
-            "Using InMemoryStore as fallback. Redis checkpointer is unaffected."
+            "langgraph-checkpoint-redis not installed. "
+            "Install with: pip install langgraph-checkpoint-redis. "
+            "Falling back to InMemoryStore."
         )
-        store = InMemoryStore()
-        return store
-    except Exception as e:
-        logger.error(f"Failed to create Redis store: {e}")
-        raise
+        from langgraph.store.memory import InMemoryStore
+        return InMemoryStore()
+
+
+class _LazyAsyncRedisStore:
+    """Lazy wrapper for AsyncRedisStore that initializes on first use.
+
+    The Redis store requires async setup which can't happen at import time
+    in the synchronous _build_graph() method.
+    """
+
+    def __init__(self, redis_url: str):
+        self._redis_url = redis_url
+        self._store = None
+        self._initialized = False
+
+    async def _ensure_initialized(self):
+        if not self._initialized:
+            from langgraph.store.redis import AsyncRedisStore
+            self._store = AsyncRedisStore.from_conn_string(self._redis_url)
+            await self._store.__aenter__()
+            await self._store.setup()
+            self._initialized = True
+            logger.info("LangGraph Redis Store initialized")
+
+    async def aput(self, namespace, key, value, index=None):
+        await self._ensure_initialized()
+        return await self._store.aput(namespace, key, value, index=index)
+
+    async def aget(self, namespace, key):
+        await self._ensure_initialized()
+        return await self._store.aget(namespace, key)
+
+    async def asearch(self, namespace, **kwargs):
+        await self._ensure_initialized()
+        return await self._store.asearch(namespace, **kwargs)
+
+    async def adelete(self, namespace, key):
+        await self._ensure_initialized()
+        return await self._store.adelete(namespace, key)
+
+    async def alist_namespaces(self, **kwargs):
+        await self._ensure_initialized()
+        return await self._store.alist_namespaces(**kwargs)
+
+    def put(self, namespace, key, value, index=None):
+        raise NotImplementedError("Use async methods (aput) for Redis store")
+
+    def get(self, namespace, key):
+        raise NotImplementedError("Use async methods (aget) for Redis store")
+
+    def search(self, namespace, **kwargs):
+        raise NotImplementedError("Use async methods (asearch) for Redis store")
+
+    def delete(self, namespace, key):
+        raise NotImplementedError("Use async methods (adelete) for Redis store")
+
+    def list_namespaces(self, **kwargs):
+        raise NotImplementedError("Use async methods (alist_namespaces) for Redis store")
+
+    def batch(self, ops):
+        raise NotImplementedError("Use async methods (abatch) for Redis store")
+
+    async def abatch(self, ops):
+        await self._ensure_initialized()
+        return await self._store.abatch(ops)
 
 
 def _create_postgres_store(postgres_dsn: str):

@@ -208,3 +208,19 @@ memoryPersistence:
   ttlMinutes: 10080
   # Enable automatic fact extraction from conversations (LangMem). Default false.
   enableFactExtraction: false
+
+# In-thread checkpoint persistence (LangGraph Checkpointer)
+# Persists conversation state within a thread across pod restarts.
+# Options: memory (in-process, default) | redis (Redis Stack required)
+checkpointPersistence:
+  # Checkpoint type: "memory" or "redis"
+  type: "memory"
+  redis:
+    # Connection URL (Redis Stack with RedisJSON + RediSearch modules required)
+    url: ""
+    # Or pull URL from a Kubernetes Secret
+    existingSecret:
+      name: ""
+      key: ""
+  # TTL for checkpoints in minutes (0 = no expiry, default)
+  ttlMinutes: 0
