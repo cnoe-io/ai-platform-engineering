@@ -90,12 +90,13 @@ The feature queries existing MongoDB collections (`conversations` and `messages`
 AUDIT_LOGS_ENABLED=true
 ```
 
-No additional configuration is required. The feature inherits MongoDB connection settings and admin authorization from the existing platform configuration.
+No additional configuration is required. The feature inherits MongoDB connection settings and admin authorization from the existing platform configuration. The env var is documented in `ui/.env.example`.
 
 ## Components Changed
 
 ### Config
 - `ui/src/lib/config.ts` — Added `auditLogsEnabled: boolean` to Config interface, DEFAULT_CONFIG (false), and getServerConfig()
+- `ui/.env.example` — Documented `AUDIT_LOGS_ENABLED` env var in Feature Flags section
 
 ### Types
 - `ui/src/types/mongodb.ts` — Added `AuditConversation` (extends Conversation with `message_count`, `last_message_at`, `status`) and `AuditLogFilters`
@@ -112,7 +113,9 @@ No additional configuration is required. The feature inherits MongoDB connection
 - `ui/src/components/admin/ConversationDetailDialog.tsx` (new) — Dialog for viewing full conversation messages with scrollable layout, UUID display, copy-to-clipboard, and direct chat link
 
 ### Tests
-- `ui/src/app/api/__tests__/admin-audit-logs.test.ts` (new) — 40 tests covering authentication, authorization, feature flag enforcement, filtering, pagination, CSV export, and owner search across all 4 endpoints
+- `ui/src/app/api/__tests__/admin-audit-logs.test.ts` (new) — 52 tests covering authentication, authorization, feature flag enforcement, filtering (including edge cases for archived, include_deleted, single date bounds, combined filters), pagination, sort order, CSV export (including null tags, empty results, status filters), and owner search across all 4 endpoints
+- `ui/src/app/api/__tests__/admin-audit-access.test.ts` (new) — 8 tests for `requireConversationAccess` admin audit access levels
+- `ui/src/lib/__tests__/config.test.ts` — 4 tests added for `auditLogsEnabled` env-var behavior (default false, true/false values, non-"true" values rejected)
 
 ## Security
 
@@ -122,11 +125,14 @@ No additional configuration is required. The feature inherits MongoDB connection
 - Read-only: no mutation endpoints exposed
 - MongoDB queries use parameterized aggregation pipelines
 - CSV export response includes `Cache-Control: no-store` to prevent caching of sensitive data
+- `AUDIT_LOGS_ENABLED` defaults to false — opt-in only
 
 ## Related
 
 - Spec: `.specify/specs/admin-audit-logs.md`
-- PR: [#894](https://github.com/cnoe-io/ai-platform-engineering/pull/894)
-- Tests: `ui/src/app/api/__tests__/admin-audit-logs.test.ts`
+- PR: [#894](https://github.com/cnoe-io/ai-platform-engineering/pull/894) (initial implementation)
+- Tests: `ui/src/app/api/__tests__/admin-audit-logs.test.ts` (52 tests)
+- Tests: `ui/src/app/api/__tests__/admin-audit-access.test.ts` (8 tests)
+- Tests: `ui/src/lib/__tests__/config.test.ts` (4 `auditLogsEnabled` tests)
 - Admin dashboard: `ui/src/app/(app)/admin/page.tsx`
 - Config system: `ui/src/lib/config.ts`
