@@ -25,6 +25,9 @@ tags:
 
 # Global configuration shared across all subcharts
 global:
+  # Deployment mode: "single-node" (all agents in-process) or "multi-node" (each agent as a separate pod)
+  deploymentMode: "multi-node"
+
   createLlmSecret: false # if true, llm secret will be created by the parent chart. Otherwise, expect existing llm secret
   llmSecrets:
     create: false # do not create llm secret in subcharts (use global or existing llm secret)
@@ -105,6 +108,41 @@ taskConfig: ""
 
 ######### Supervisor agent configuration #########
 supervisor-agent:
+  # Single-node mode configuration (only used when global.deploymentMode = "single-node").
+  # Lives under supervisor-agent: so both the subchart deployment template AND
+  # parent-chart templates (via index .Values "supervisor-agent") read from one place.
+  # In multi-node mode the agent subcharts export their enabled state via
+  # Chart.yaml import-values into global.enabledSubAgents — do NOT put
+  # enabledSubAgents under global: or it will conflict with that mechanism.
+  singleNode:
+    enabledSubAgents:
+      aigateway: true
+      argocd: true
+      aws: true
+      backstage: true
+      confluence: true
+      github: true
+      jira: true
+      komodor: true
+      pagerduty: true
+      rag: false
+      slack: true
+      splunk: true
+      weather: false
+      webex: true
+    # Supervisor (parent agent) LLM model override.
+    # Uses langchain's provider:model-name format (e.g. "openai:gpt-4o").
+    # When empty, falls back to the LLM_PROVIDER / model-name env vars from llm-secret.
+    supervisorModel: ""
+    # Per-subagent LLM model overrides.
+    # All subagents share the supervisor's LLM by default.
+    # Set a value here to override the model for a specific subagent.
+    # Values use the provider:model-name format supported by langchain's init_chat_model.
+    # Examples: "openai:gpt-4o-mini", "anthropic:claude-sonnet-4-5-20250929"
+    subagentModels: {}
+      # github: "openai:gpt-4o-mini"
+      # jira: "openai:gpt-4o"
+      # argocd: "azure_openai:gpt-5.2"
   nameOverride: "supervisor-agent"
   image:
     repository: "ghcr.io/cnoe-io/ai-platform-engineering"
@@ -138,6 +176,31 @@ supervisor-agent:
 
 ######### Sub-agent configurations #########
 # Agent configurations using aliases from Chart.yaml
+
+# AIGateway agent — not a subchart today (runs in-process in the supervisor).
+# Vault AppRole credentials for LiteLLM key management go here.
+# In single-node mode, single-node-agent-secrets.yaml creates an ExternalSecret
+# from this configuration.  A proper aigateway subchart is a follow-up.
+agent-aigateway:
+  agentSecrets:
+    secretName: "agent-aigateway-secret"
+    # externalSecrets:
+    #   data:
+    #   - secretKey: VAULT_ADDR
+    #     remoteRef: { key: path/to/vault, property: VAULT_ADDR }
+    #   - secretKey: VAULT_NAMESPACE
+    #     remoteRef: { key: path/to/vault, property: VAULT_NAMESPACE }
+    #   - secretKey: VAULT_ROLE_ID
+    #     remoteRef: { key: path/to/vault, property: VAULT_ROLE_ID }
+    #   - secretKey: VAULT_SECRET_ID
+    #     remoteRef: { key: path/to/vault, property: VAULT_SECRET_ID }
+    #   - secretKey: VAULT_MOUNT_POINT
+    #     remoteRef: { key: path/to/vault, property: VAULT_MOUNT_POINT }
+    #   - secretKey: VAULT_APPROLE_PATH
+    #     remoteRef: { key: path/to/vault, property: VAULT_APPROLE_PATH }
+    #   - secretKey: VAULT_PATH_PREFIX
+    #     remoteRef: { key: path/to/vault, property: VAULT_PATH_PREFIX }
+
 agent-argocd:
   nameOverride: "agent-argocd"
   image:

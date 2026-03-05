@@ -11,7 +11,7 @@ dependencies:
   # AI Platform Engineer Multi-Agent
   - name: supervisor-agent
     # Chart version for agent subchart
-    version: 0.2.34 # Do NOT bump this. It will be updated automatically using the PR or release workflow
+    version: 0.2.34-rc.helm.1 # Do NOT bump this. It will be updated automatically using the PR or release workflow
   # Single agent chart used multiple times with different aliases
   - name: agent
     version: 0.2.34-rc.helm.1 # Do NOT bump this. It will be updated automatically using the PR or release workflow

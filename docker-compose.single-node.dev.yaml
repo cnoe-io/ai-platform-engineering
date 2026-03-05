@@ -74,6 +74,20 @@ services:
       - DEFAULT_CLUSTER_NAME=${DEFAULT_CLUSTER_NAME:-}
       - DEFAULT_CLUSTER_ADDRESS=${DEFAULT_CLUSTER_ADDRESS:-}
 
+      # Per-subagent LLM model overrides (provider:model-name format)
+      - SUBAGENT_ARGOCD_MODEL=azure_openai:gpt-5.2
+      # LangChain AzureChatOpenAI reads OPENAI_API_VERSION (not AZURE_OPENAI_API_VERSION)
+      - OPENAI_API_VERSION=${AZURE_OPENAI_API_VERSION:-2025-03-01-preview}
+
+      # Vault configuration for secure LLM key storage
+      - VAULT_ADDR=${VAULT_ADDR:-}
+      - VAULT_NAMESPACE=${VAULT_NAMESPACE:-}
+      - VAULT_ROLE_ID=${VAULT_ROLE_ID:-}
+      - VAULT_SECRET_ID=${VAULT_SECRET_ID:-}
+      - VAULT_MOUNT_POINT=${VAULT_MOUNT_POINT:-secret}
+      - VAULT_APPROLE_PATH=${VAULT_APPROLE_PATH:-approle}
+      - VAULT_PATH_PREFIX=${VAULT_PATH_PREFIX:-}
+
       # Artifact streaming
       - ENABLE_ARTIFACT_STREAMING=true
 
@@ -135,7 +149,7 @@ services:
       context: .
       dockerfile: build/Dockerfile.caipe-ui
     container_name: caipe-ui
-    ports: ["3001:3000"]
+    ports: ["3000:3000"]
     env_file:
       - .env
     environment:
@@ -147,13 +161,17 @@ services:
       - NEXT_PUBLIC_ENABLE_RAG=${ENABLE_RAG:-false}
       - ENABLE_RAG=${ENABLE_RAG:-false}
       - NEXTAUTH_SECRET=${NEXTAUTH_SECRET:-caipe-dev-secret-change-in-production}
-      - NEXTAUTH_URL=${NEXTAUTH_URL:-http://localhost:3001}
+      - NEXTAUTH_URL=${NEXTAUTH_URL:-http://localhost:3000}
       - CAIPE_UI_OIDC_ENABLED=${OIDC_ENABLED:-false}
       - CAIPE_UI_OIDC_CLIENT_ID=${OIDC_CLIENT_ID:-}
       - CAIPE_UI_OIDC_CLIENT_SECRET=${OIDC_CLIENT_SECRET:-}
       - CAIPE_UI_OIDC_ISSUER=${OIDC_ISSUER:-}
+      # MongoDB for chat persistence
+      - MONGODB_URI=${MONGODB_URI:-mongodb://admin:changeme@caipe-ui-mongodb:27017/caipe?authSource=admin}
+      - MONGODB_DATABASE=${MONGODB_DATABASE:-caipe}
     depends_on:
       - caipe
+      - caipe-ui-mongodb
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/api/health"]
       interval: 30s

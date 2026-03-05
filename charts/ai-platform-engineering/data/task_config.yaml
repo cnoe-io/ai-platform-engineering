@@ -1107,6 +1107,40 @@ Create LLM API Key:
       subagent: "aigateway"
 
 
+Rotate LLM Key:
+  tasks:
+    - display_text: "Confirm key rotation"
+      llm_prompt: >
+        Collect the following information from the user and write to /request.txt:
+        - confirm (required): Confirm you want to rotate your LLM API key. This will revoke
+          your current key and generate a new one. Your existing models and budget will be preserved.
+          (field_values: ["Yes, rotate my key", "Cancel"])
+        
+        user_email is auto-filled from the authenticated session — do NOT include it in the form.
+        
+        Format as key=value on each line. Write to /request.txt.
+      subagent: "caipe"
+
+    - display_text: "Rotate LLM key"
+      llm_prompt: >
+        Read /request.txt to get confirm and user_email.
+        
+        If confirm contains "Cancel", stop and inform the user that key rotation was cancelled.
+        
+        Use the rotate_llm_api_key tool with:
+        - user_email: {user_email}
+        - requesting_user_email: {user_email}
+        
+        The tool handles everything:
+        - Revokes the old key
+        - Generates a new key preserving existing models and budget
+        - Stores the new key securely
+        - Sends the new key with usage examples to the user via Webex
+        
+        Display the tool output directly to the user.
+      subagent: "aigateway"
+
+
 Get LLM Spend Activity:
   tasks:
     - display_text: "Collect spend query details"
