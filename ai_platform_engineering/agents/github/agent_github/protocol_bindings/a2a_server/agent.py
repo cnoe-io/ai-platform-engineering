@@ -53,9 +53,12 @@ class GitHubAgent(BaseLangGraphAgent):
            and GITHUB_APP_INSTALLATION_ID for auto-refreshing tokens.
         2. PAT (fallback): Set GITHUB_PERSONAL_ACCESS_TOKEN for static token auth.
 
-        MCP server: Uses github-mcp-server via ``go run`` over STDIO.
-        Source lives at ``ai_platform_engineering/mcp/mcp_github/``.
-        Override with ``GITHUB_MCP_SERVER_DIR`` env var if needed.
+        MCP server modes:
+        - Multi-node (HTTP): Connects to GitHub Copilot MCP API at
+          https://api.githubcopilot.com/mcp/ with token auth.
+        - Single-node (STDIO): Uses github-mcp-server via ``go run``.
+          Source lives at ``ai_platform_engineering/mcp/mcp_github/``.
+          Override with ``GITHUB_MCP_SERVER_DIR`` env var if needed.
         """
         self._use_app_auth = is_github_app_mode()
         if self._use_app_auth:
@@ -73,16 +76,26 @@ class GitHubAgent(BaseLangGraphAgent):
         return "github"
 
     def get_mcp_http_config(self) -> Dict[str, Any] | None:
-        """Return None — GitHub does not use HTTP MCP.
+        """Return GitHub Copilot MCP API config for multi-node HTTP mode.
 
-        Multi-node (MCP_MODE=http): _load_mcp_tools skips STDIO, the default
-        localhost HTTP probe finds no server, and get_additional_tools()
-        provides the gh CLI tool as the primary GitHub interface.
+        Multi-node (MCP_MODE=http): connects to the GitHub Copilot MCP API
+        at https://api.githubcopilot.com/mcp/ using the configured GitHub
+        token for authentication.
 
         Single-node (MCP_MODE=stdio): _load_mcp_tools falls through to
         get_mcp_config() which launches github-mcp-server via ``go run``.
         """
-        return None
+        token = get_github_token()
+        if not token:
+            logger.warning("No GitHub token configured for HTTP MCP — falling back to gh CLI")
+            return None
+
+        return {
+            "url": "https://api.githubcopilot.com/mcp/",
+            "headers": {
+                "Authorization": f"Bearer {token}",
+            },
+        }
 
     def _get_github_mcp_server_dir(self) -> str:
         """Resolve the github-mcp-server Go project directory.
