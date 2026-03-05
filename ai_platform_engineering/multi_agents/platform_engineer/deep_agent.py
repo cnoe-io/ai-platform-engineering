@@ -12,7 +12,6 @@ import traceback
 
 from langchain_core.messages import AIMessage, HumanMessage
 from langgraph.graph.state import CompiledStateGraph
-from langgraph.checkpoint.memory import InMemorySaver
 from cnoe_agent_utils import LLMFactory
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from typing import Optional, Dict, Any, List
@@ -47,6 +46,7 @@ from ai_platform_engineering.multi_agents.tools import (
 )
 from deepagents import async_create_deep_agent
 from ai_platform_engineering.utils.store import create_store
+from ai_platform_engineering.utils.checkpointer import create_checkpointer
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -378,14 +378,8 @@ class AIPlatformEngineerMAS:
 
     deep_agent = async_create_deep_agent(**deep_agent_kwargs)
 
-    # Check if LANGGRAPH_DEV is defined in the environment
-    if os.getenv("LANGGRAPH_DEV"):
-      checkpointer = None
-    else:
-      checkpointer = InMemorySaver()
-
-    # Attach checkpointer if desired
-    if checkpointer is not None:
+    if not os.getenv("LANGGRAPH_DEV"):
+      checkpointer = create_checkpointer()
       deep_agent.checkpointer = checkpointer
 
     # Atomically update graph and increment generation

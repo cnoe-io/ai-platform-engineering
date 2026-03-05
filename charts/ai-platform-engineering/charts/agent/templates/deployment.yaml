@@ -100,6 +100,24 @@ spec:
             - name: MCP_HOST
               value: {{ include "agent.fullname" . }}-mcp
             {{- end }}
+            {{- with .Values.checkpointPersistence }}
+            - name: LANGGRAPH_CHECKPOINT_TYPE
+              value: {{ .type | default "memory" | quote }}
+            {{- if eq (.type | default "memory") "redis" }}
+            {{- if and .redis.existingSecret .redis.existingSecret.name .redis.existingSecret.key }}
+            - name: LANGGRAPH_CHECKPOINT_REDIS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .redis.existingSecret.name | quote }}
+                  key: {{ .redis.existingSecret.key | quote }}
+            {{- else }}
+            - name: LANGGRAPH_CHECKPOINT_REDIS_URL
+              value: {{ .redis.url | default "" | quote }}
+            {{- end }}
+            {{- end }}
+            - name: LANGGRAPH_CHECKPOINT_TTL_MINUTES
+              value: {{ .ttlMinutes | default 0 | quote }}
+            {{- end }}
           {{- if not (eq (include "agent.slim.enabled" .) "true") }}
           {{- with .Values.livenessProbe }}
           livenessProbe:
