@@ -6,10 +6,12 @@ Unit tests for LangGraph Checkpointer factory.
 
 Covers:
 - Checkpointer config loading from environment variables
-- Factory creation for memory and redis types
+- Factory creation for memory, redis, postgres, and mongodb types
 - Singleton get/reset behavior
-- Fallback when Redis is unavailable or misconfigured
+- Fallback when backends are unavailable or misconfigured
 - Redis checkpointer construction with TTL
+- Postgres checkpointer construction
+- MongoDB checkpointer construction
 """
 
 from unittest.mock import MagicMock, patch
@@ -18,6 +20,8 @@ import pytest
 
 from ai_platform_engineering.utils.checkpointer import (
   CHECKPOINT_TYPE_MEMORY,
+  CHECKPOINT_TYPE_MONGODB,
+  CHECKPOINT_TYPE_POSTGRES,
   CHECKPOINT_TYPE_REDIS,
   _create_memory_checkpointer,
   create_checkpointer,
@@ -40,6 +44,8 @@ class TestGetCheckpointerConfig:
       config = get_checkpointer_config()
       assert config["type"] == CHECKPOINT_TYPE_MEMORY
       assert config["redis_url"] == ""
+      assert config["postgres_dsn"] == ""
+      assert config["mongodb_uri"] == ""
       assert config["ttl_minutes"] == 0
 
   def test_redis_config(self):
@@ -54,11 +60,61 @@ class TestGetCheckpointerConfig:
       assert config["redis_url"] == "redis://stack:6379"
       assert config["ttl_minutes"] == 60
 
+  def test_postgres_config(self):
+    env = {
+      "LANGGRAPH_CHECKPOINT_TYPE": "postgres",
+      "LANGGRAPH_CHECKPOINT_POSTGRES_DSN": "postgresql://user:pass@host:5432/db",
+    }
+    with patch.dict("os.environ", env, clear=True):
+      config = get_checkpointer_config()
+      assert config["type"] == "postgres"
+      assert config["postgres_dsn"] == "postgresql://user:pass@host:5432/db"
+
+  def test_postgres_config_fallback_env(self):
+    env = {
+      "LANGGRAPH_CHECKPOINT_TYPE": "postgres",
+      "POSTGRES_DSN": "postgresql://fallback@host/db",
+    }
+    with patch.dict("os.environ", env, clear=True):
+      config = get_checkpointer_config()
+      assert config["postgres_dsn"] == "postgresql://fallback@host/db"
+
+  def test_mongodb_config(self):
+    env = {
+      "LANGGRAPH_CHECKPOINT_TYPE": "mongodb",
+      "LANGGRAPH_CHECKPOINT_MONGODB_URI": "mongodb://host:27017",
+    }
+    with patch.dict("os.environ", env, clear=True):
+      config = get_checkpointer_config()
+      assert config["type"] == "mongodb"
+      assert config["mongodb_uri"] == "mongodb://host:27017"
+
+  def test_mongodb_config_fallback_env(self):
+    env = {
+      "LANGGRAPH_CHECKPOINT_TYPE": "mongodb",
+      "MONGODB_URI": "mongodb://fallback:27017",
+    }
+    with patch.dict("os.environ", env, clear=True):
+      config = get_checkpointer_config()
+      assert config["mongodb_uri"] == "mongodb://fallback:27017"
+
   def test_type_case_insensitive(self):
     env = {"LANGGRAPH_CHECKPOINT_TYPE": "REDIS"}
     with patch.dict("os.environ", env, clear=True):
       config = get_checkpointer_config()
       assert config["type"] == "redis"
+
+  def test_type_case_insensitive_postgres(self):
+    env = {"LANGGRAPH_CHECKPOINT_TYPE": "POSTGRES"}
+    with patch.dict("os.environ", env, clear=True):
+      config = get_checkpointer_config()
+      assert config["type"] == "postgres"
+
+  def test_type_case_insensitive_mongodb(self):
+    env = {"LANGGRAPH_CHECKPOINT_TYPE": "MongoDB"}
+    with patch.dict("os.environ", env, clear=True):
+      config = get_checkpointer_config()
+      assert config["type"] == "mongodb"
 
   def test_ttl_zero_means_no_expiry(self):
     env = {"LANGGRAPH_CHECKPOINT_TTL_MINUTES": "0"}
@@ -90,6 +146,8 @@ class TestCreateCheckpointer:
     with patch.dict("os.environ", {"LANGGRAPH_CHECKPOINT_TYPE": "something"}, clear=True):
       cp = create_checkpointer()
       assert type(cp).__name__ == "InMemorySaver"
+
+  # --- Redis ---
 
   def test_redis_without_url_falls_back_to_memory(self):
     env = {"LANGGRAPH_CHECKPOINT_TYPE": "redis"}
@@ -146,6 +204,90 @@ class TestCreateCheckpointer:
     with patch.dict("os.environ", env, clear=True):
       with patch(
         "ai_platform_engineering.utils.checkpointer._create_redis_checkpointer",
+        side_effect=ImportError("not installed"),
+      ):
+        cp = create_checkpointer()
+        assert type(cp).__name__ == "InMemorySaver"
+
+  # --- Postgres ---
+
+  def test_postgres_without_dsn_falls_back_to_memory(self):
+    env = {"LANGGRAPH_CHECKPOINT_TYPE": "postgres"}
+    with patch.dict("os.environ", env, clear=True):
+      cp = create_checkpointer()
+      assert type(cp).__name__ == "InMemorySaver"
+
+  def test_postgres_with_dsn_creates_postgres_saver(self):
+    env = {
+      "LANGGRAPH_CHECKPOINT_TYPE": "postgres",
+      "LANGGRAPH_CHECKPOINT_POSTGRES_DSN": "postgresql://user:pass@host:5432/db",
+    }
+
+    mock_saver = MagicMock()
+    mock_saver.setup = MagicMock()
+    mock_pg_saver_cls = MagicMock()
+    mock_pg_saver_cls.from_conn_string = MagicMock(return_value=mock_saver)
+
+    with patch.dict("os.environ", env, clear=True):
+      with patch.dict("sys.modules", {
+        "langgraph.checkpoint.postgres": MagicMock(PostgresSaver=mock_pg_saver_cls),
+      }):
+        cp = create_checkpointer()
+        assert cp is mock_saver
+        mock_pg_saver_cls.from_conn_string.assert_called_once_with(
+          "postgresql://user:pass@host:5432/db"
+        )
+        mock_saver.setup.assert_called_once()
+
+  def test_postgres_import_error_falls_back(self):
+    env = {
+      "LANGGRAPH_CHECKPOINT_TYPE": "postgres",
+      "LANGGRAPH_CHECKPOINT_POSTGRES_DSN": "postgresql://user:pass@host:5432/db",
+    }
+    with patch.dict("os.environ", env, clear=True):
+      with patch(
+        "ai_platform_engineering.utils.checkpointer._create_postgres_checkpointer",
+        side_effect=ImportError("not installed"),
+      ):
+        cp = create_checkpointer()
+        assert type(cp).__name__ == "InMemorySaver"
+
+  # --- MongoDB ---
+
+  def test_mongodb_without_uri_falls_back_to_memory(self):
+    env = {"LANGGRAPH_CHECKPOINT_TYPE": "mongodb"}
+    with patch.dict("os.environ", env, clear=True):
+      cp = create_checkpointer()
+      assert type(cp).__name__ == "InMemorySaver"
+
+  def test_mongodb_with_uri_creates_mongodb_saver(self):
+    env = {
+      "LANGGRAPH_CHECKPOINT_TYPE": "mongodb",
+      "LANGGRAPH_CHECKPOINT_MONGODB_URI": "mongodb://host:27017",
+    }
+
+    mock_saver = MagicMock()
+    mock_mongo_saver_cls = MagicMock()
+    mock_mongo_saver_cls.from_conn_string = MagicMock(return_value=mock_saver)
+
+    with patch.dict("os.environ", env, clear=True):
+      with patch.dict("sys.modules", {
+        "langgraph.checkpoint.mongodb": MagicMock(MongoDBSaver=mock_mongo_saver_cls),
+      }):
+        cp = create_checkpointer()
+        assert cp is mock_saver
+        mock_mongo_saver_cls.from_conn_string.assert_called_once_with(
+          "mongodb://host:27017"
+        )
+
+  def test_mongodb_import_error_falls_back(self):
+    env = {
+      "LANGGRAPH_CHECKPOINT_TYPE": "mongodb",
+      "LANGGRAPH_CHECKPOINT_MONGODB_URI": "mongodb://host:27017",
+    }
+    with patch.dict("os.environ", env, clear=True):
+      with patch(
+        "ai_platform_engineering.utils.checkpointer._create_mongodb_checkpointer",
         side_effect=ImportError("not installed"),
       ):
         cp = create_checkpointer()

@@ -133,6 +133,18 @@ spec:
               value: {{ .postgres.dsn | default "" | quote }}
             {{- end }}
             {{- end }}
+            {{- if eq (.type | default "memory") "mongodb" }}
+            {{- if and .mongodb .mongodb.existingSecret .mongodb.existingSecret.name .mongodb.existingSecret.key }}
+            - name: LANGGRAPH_STORE_MONGODB_URI
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .mongodb.existingSecret.name | quote }}
+                  key: {{ .mongodb.existingSecret.key | quote }}
+            {{- else if .mongodb }}
+            - name: LANGGRAPH_STORE_MONGODB_URI
+              value: {{ .mongodb.uri | default "" | quote }}
+            {{- end }}
+            {{- end }}
             - name: LANGGRAPH_STORE_TTL_MINUTES
               value: {{ .ttlMinutes | default 10080 | quote }}
             - name: ENABLE_FACT_EXTRACTION
@@ -151,6 +163,30 @@ spec:
             {{- else }}
             - name: LANGGRAPH_CHECKPOINT_REDIS_URL
               value: {{ .redis.url | default "" | quote }}
+            {{- end }}
+            {{- end }}
+            {{- if eq (.type | default "memory") "postgres" }}
+            {{- if and .postgres .postgres.existingSecret .postgres.existingSecret.name .postgres.existingSecret.key }}
+            - name: LANGGRAPH_CHECKPOINT_POSTGRES_DSN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .postgres.existingSecret.name | quote }}
+                  key: {{ .postgres.existingSecret.key | quote }}
+            {{- else if .postgres }}
+            - name: LANGGRAPH_CHECKPOINT_POSTGRES_DSN
+              value: {{ .postgres.dsn | default "" | quote }}
+            {{- end }}
+            {{- end }}
+            {{- if eq (.type | default "memory") "mongodb" }}
+            {{- if and .mongodb .mongodb.existingSecret .mongodb.existingSecret.name .mongodb.existingSecret.key }}
+            - name: LANGGRAPH_CHECKPOINT_MONGODB_URI
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .mongodb.existingSecret.name | quote }}
+                  key: {{ .mongodb.existingSecret.key | quote }}
+            {{- else if .mongodb }}
+            - name: LANGGRAPH_CHECKPOINT_MONGODB_URI
+              value: {{ .mongodb.uri | default "" | quote }}
             {{- end }}
             {{- end }}
             - name: LANGGRAPH_CHECKPOINT_TTL_MINUTES

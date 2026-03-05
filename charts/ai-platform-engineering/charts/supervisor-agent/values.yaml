@@ -175,14 +175,15 @@ metrics:
 
 # Cross-thread memory persistence (LangGraph Store)
 # Backend for user memories and conversation summaries across threads.
-# Options: memory (in-process, default) | redis | postgres
+# Options: memory (in-process, default) | redis | postgres | mongodb
 #
 # Bring your own (BYO) / external backends:
 # - Redis: in-cluster (e.g. rag-redis), external Redis, or AWS ElastiCache for Redis.
 #   Set redis.url or redis.existingSecret (recommended for credentials).
 # - Postgres: external or managed Postgres. Set postgres.dsn or postgres.existingSecret.
+# - MongoDB: external or managed MongoDB. Set mongodb.uri or mongodb.existingSecret.
 memoryPersistence:
-  # Store type: "memory", "redis", or "postgres"
+  # Store type: "memory", "redis", "postgres", or "mongodb"
   type: "memory"
   # Redis (type=redis): BYO / external / AWS ElastiCache for Redis
   redis:
@@ -204,6 +205,14 @@ memoryPersistence:
     existingSecret:
       name: ""   # Secret name
       key: ""   # Key in secret (e.g. DATABASE_URL or LANGGRAPH_STORE_POSTGRES_DSN)
+  # MongoDB (type=mongodb): BYO / external / managed MongoDB (Atlas, DocumentDB, etc.)
+  mongodb:
+    # Connection URI (e.g. mongodb://host:27017, mongodb+srv://user:pass@cluster.example.com)
+    uri: ""
+    # Or pull URI from a Kubernetes Secret
+    existingSecret:
+      name: ""   # Secret name
+      key: ""   # Key in secret (e.g. MONGODB_URI or LANGGRAPH_STORE_MONGODB_URI)
   # TTL for stored items in minutes (default 10080 = 7 days)
   ttlMinutes: 10080
   # Enable automatic fact extraction from conversations (LangMem). Default false.
@@ -211,14 +220,28 @@ memoryPersistence:
 
 # In-thread checkpoint persistence (LangGraph Checkpointer)
 # Persists conversation state within a thread across pod restarts.
-# Options: memory (in-process, default) | redis (Redis Stack required)
+# Options: memory (in-process, default) | redis | postgres | mongodb
 checkpointPersistence:
-  # Checkpoint type: "memory" or "redis"
+  # Checkpoint type: "memory", "redis", "postgres", or "mongodb"
   type: "memory"
   redis:
     # Connection URL (Redis Stack with RedisJSON + RediSearch modules required)
     url: ""
     # Or pull URL from a Kubernetes Secret
+    existingSecret:
+      name: ""
+      key: ""
+  postgres:
+    # DSN (e.g. postgresql://user:pass@host:5432/dbname)
+    dsn: ""
+    # Or pull DSN from a Kubernetes Secret
+    existingSecret:
+      name: ""
+      key: ""
+  mongodb:
+    # Connection URI (e.g. mongodb://host:27017)
+    uri: ""
+    # Or pull URI from a Kubernetes Secret
     existingSecret:
       name: ""
       key: ""
