@@ -86,7 +86,7 @@ Create GitHub Repo:
         - repo_name (required): Repository name (the name you want to give to the repository)
         - project_name (required): Project associated with the repository - use field_values from /projects.txt (default: action-engine)
         - org_name (required): Organization under which the repository will be created (default: ${DEFAULT_GITHUB_ORG}, field_values: ${GITHUB_ORGS})
-        - template (optional): Template repo to use, if applicable (default: None, field_values: ["None", "platform-demo", "sre-go-helloworld", "outshift-react-app", "repo-template"])
+        - template (optional): Template repo to use, if applicable (default: None, field_values: ["None", "platform-demo", "sre-go-helloworld", "react-app-template", "repo-template"])
         - jira_issue_id (optional): JIRA issue ID if applicable
         
         user_email is auto-filled from the authenticated session — do NOT include it in the form.
@@ -251,9 +251,9 @@ Create EC2 Instance:
       llm_prompt: >
         Collect the following information from the user and write to /request.txt:
         - resource_name (required): Instance name (lowercase, less than 20 characters)
-        - aws_account (required): AWS account name (field_values: ["outshift-common-dev", "eti-ci", "cisco-research"])
+        - aws_account (required): AWS account name (field_values: ["shared-dev", "ci-account", "research-account"])
         - instance_type (required): EC2 instance size (field_values: ["t2.micro", "t3.micro", "t3a.large", "m6a.large", "t3a.xlarge", "m6a.xlarge", "m6a.2xlarge"])
-        - vpc_name (required): VPC name (field_values: ["outshift-sandbox-vms", "cisco-research-vpc"])
+        - vpc_name (required): VPC name (field_values: ["sandbox-vms", "research-vpc"])
         - ami_type (required): Operating system (field_values: ["UBUNTU", "AMAZON_LINUX", "WINDOWS"])
         - region (required): AWS region (field_values: ["us-east-2", "us-west-2"])
         - jira_issue_id (optional): JIRA issue ID if applicable
@@ -426,7 +426,7 @@ Create EKS Cluster:
         - instance_type (required): Instance type for cluster nodes (default: m7a.large, field_values: ["m7a.large", "m7a.xlarge"])
         - k8s_version (required): Kubernetes version to use (field_values: ["1.31"])
         - region (required): AWS region (default: us-east-2, field_values: ["us-east-2", "us-west-2"])
-        - aws_account (required): AWS account name (default: outshift-common-dev, field_values: ["outshift-common-dev", "eti-ci", "cisco-research"])
+        - aws_account (required): AWS account name (default: shared-dev, field_values: ["shared-dev", "ci-account", "research-account"])
         - jira_issue_id (optional): JIRA issue ID if applicable
         
         user_email is auto-filled from the authenticated session — do NOT include it in the form.
@@ -597,7 +597,7 @@ Create S3 Bucket:
       llm_prompt: >
         Collect the following information from the user and write to /request.txt:
         - resource_name (required): S3 bucket name (must be lowercase, less than 63 characters)
-        - aws_account (required): AWS account name (default: outshift-common-dev, field_values: ["outshift-common-dev", "outshift-common-staging", "outshift-common-prod", "cisco-research"])
+        - aws_account (required): AWS account name (default: shared-dev, field_values: ["shared-dev", "shared-staging", "shared-prod", "research-account"])
         - region (required): AWS region (default: us-east-2, field_values: ["us-east-2", "us-west-2"])
         - data_classification (required): Data classification of the bucket (default: Cisco Restricted, field_values: ["Cisco Restricted", "Cisco Highly Confidential", "Cisco Confidential", "Cisco Public"])
         - data_taxonomy (required): Data taxonomy of the bucket (default: Administrative Data, field_values: ["Administrative Data", "Customer Data", "Entrusted Data", "Financing Data", "Support Data", "Telemetry Data", "Cisco Operations Data", "Cisco Strategic Data", "Human Resources Data"])

@@ -32,6 +32,8 @@ dependencies = [
     "deepagents>=0.3.8",
     "nest-asyncio>=1.6.0",
     "clorm>=1.4.0",
+    # MongoDB client for reading task configs from shared MongoDB
+    "pymongo>=4.7.0",
 ]
 
 [tool.pytest.ini_options]
