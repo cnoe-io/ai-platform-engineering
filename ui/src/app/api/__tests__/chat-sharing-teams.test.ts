@@ -228,7 +228,8 @@ describe('requireConversationAccess — team-based access', () => {
     const result = await requireConversationAccess(conv._id, OWNER_EMAIL, mockGetCollection);
 
     expect(result).toBeDefined();
-    expect(result._id).toBe(conv._id);
+    expect(result.conversation._id).toBe(conv._id);
+    expect(result.access_level).toBe('owner');
   });
 
   it('grants access when user is in shared_with (direct share)', async () => {
@@ -242,7 +243,8 @@ describe('requireConversationAccess — team-based access', () => {
     const result = await requireConversationAccess(conv._id, MEMBER_EMAIL, mockGetCollection);
 
     expect(result).toBeDefined();
-    expect(result._id).toBe(conv._id);
+    expect(result.conversation._id).toBe(conv._id);
+    expect(result.access_level).toBe('shared');
   });
 
   it('grants access when user belongs to a shared team', async () => {
@@ -268,7 +270,8 @@ describe('requireConversationAccess — team-based access', () => {
     const result = await requireConversationAccess(conv._id, MEMBER_EMAIL, mockGetCollection);
 
     expect(result).toBeDefined();
-    expect(result._id).toBe(conv._id);
+    expect(result.conversation._id).toBe(conv._id);
+    expect(result.access_level).toBe('shared');
   });
 
   it('denies access when user does not belong to any shared team', async () => {
@@ -347,7 +350,7 @@ describe('requireConversationAccess — team-based access', () => {
     });
     mockCollections['teams'] = teamsCol;
 
-    // But has sharing_access record
+    // But has sharing_access record with view permission → shared_readonly
     const sharingAccessCol = createMockCollection();
     sharingAccessCol.findOne.mockResolvedValue({
       conversation_id: conv._id,
@@ -359,7 +362,8 @@ describe('requireConversationAccess — team-based access', () => {
     const result = await requireConversationAccess(conv._id, MEMBER_EMAIL, mockGetCollection);
 
     expect(result).toBeDefined();
-    expect(result._id).toBe(conv._id);
+    expect(result.conversation._id).toBe(conv._id);
+    expect(result.access_level).toBe('shared_readonly');
   });
 
   it('throws 404 when conversation does not exist', async () => {
@@ -478,9 +482,10 @@ describe('GET /api/chat/conversations — team sharing', () => {
     const findCall = convsCol.find.mock.calls[0][0];
     const orConditions = findCall.$or;
 
-    expect(orConditions).toHaveLength(2);
+    expect(orConditions).toHaveLength(3);
     expect(orConditions).toContainEqual({ owner_id: NON_MEMBER_EMAIL });
     expect(orConditions).toContainEqual({ 'sharing.shared_with': NON_MEMBER_EMAIL });
+    expect(orConditions).toContainEqual({ 'sharing.is_public': true });
     const teamCondition = orConditions.find(
       (c: any) => c['sharing.shared_with_teams']
     );
@@ -623,8 +628,9 @@ describe('GET /api/chat/shared — team sharing', () => {
     await GET(req);
 
     const findCall = convsCol.find.mock.calls[0][0];
-    expect(findCall.$or).toHaveLength(1);
+    expect(findCall.$or).toHaveLength(2);
     expect(findCall.$or).toContainEqual({ 'sharing.shared_with': NON_MEMBER_EMAIL });
+    expect(findCall.$or).toContainEqual({ 'sharing.is_public': true });
   });
 
   it('returns 401 when not authenticated', async () => {

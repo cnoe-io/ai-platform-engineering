@@ -3,7 +3,7 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { useSession } from "next-auth/react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Send, Square, User, Bot, Sparkles, Copy, Check, Loader2, ChevronDown, ChevronUp, ArrowDown, RotateCcw, Gitlab, Slack, Video, Activity, MessageSquare, Clock } from "lucide-react";
+import { Send, Square, User, Bot, Sparkles, Copy, Check, Loader2, ChevronDown, ChevronUp, ArrowDown, ArrowLeft, RotateCcw, Gitlab, Slack, Video, Activity, MessageSquare, Clock, ShieldCheck } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
@@ -18,18 +18,23 @@ import { isFeatureEnabled, useFeatureFlagStore } from "@/store/feature-flag-stor
 import { cn, deduplicateByKey } from "@/lib/utils";
 import { ChatMessage as ChatMessageType, A2AEvent } from "@/types/a2a";
 import { getConfig } from "@/lib/config";
+import { apiClient } from "@/lib/api-client";
 import { FeedbackButton, Feedback } from "./FeedbackButton";
 import { DEFAULT_AGENTS, CustomCall } from "./CustomCallButtons";
 import { AGENT_LOGOS } from "@/components/shared/AgentLogos";
 import { MetadataInputForm, type UserInputMetadata, type InputField } from "./MetadataInputForm";
 
+type ReadOnlyReason = 'admin_audit' | 'shared_readonly';
+
 interface ChatPanelProps {
   endpoint: string;
   conversationId?: string; // MongoDB conversation UUID
   conversationTitle?: string;
+  readOnly?: boolean;
+  readOnlyReason?: ReadOnlyReason;
 }
 
-export function ChatPanel({ endpoint, conversationId, conversationTitle }: ChatPanelProps) {
+export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnly, readOnlyReason }: ChatPanelProps) {
   const { data: session } = useSession();
   const autoScrollEnabled = useFeatureFlagStore((s) => s.flags.autoScroll ?? true);
   const showTimestamps = useFeatureFlagStore((s) => s.flags.showTimestamps ?? false);
@@ -730,10 +735,19 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle }: ChatP
     }
   }, [activeConversationId, updateMessageFeedback]);
 
-  // Stable callback for feedback submission
+  // Stable callback for feedback submission — persist to MongoDB alongside Langfuse
   const handleFeedbackSubmit = useCallback(async (messageId: string, feedback: Feedback) => {
-    console.log("Feedback submitted:", { messageId, feedback });
-    // Future: Send to /api/feedback endpoint
+    if (!feedback.type || getConfig('storageMode') !== 'mongodb') return;
+    try {
+      await apiClient.updateMessage(messageId, {
+        feedback: {
+          rating: feedback.type === 'like' ? 'positive' : 'negative',
+          comment: feedback.reason === 'Other' ? feedback.additionalFeedback : feedback.reason,
+        },
+      });
+    } catch (err) {
+      console.error('[ChatPanel] Failed to persist feedback to MongoDB:', err);
+    }
   }, []);
 
   // Handle user input form submission via HITL resume (not plain text)
@@ -1131,6 +1145,35 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle }: ChatP
       </AnimatePresence>
 
       {/* Input Area - Fixed bottom, doesn't scroll */}
+      {readOnly ? (
+        <div className="border-t border-border bg-amber-500/10 shrink-0">
+          <div className="max-w-7xl mx-auto px-6 py-3 flex items-center justify-between">
+            <div className="flex items-center gap-2 text-amber-700 dark:text-amber-400">
+              <ShieldCheck className="h-4 w-4 shrink-0" />
+              {readOnlyReason === 'admin_audit' ? (
+                <>
+                  <span className="text-sm font-medium">Read-Only Audit Mode</span>
+                  <span className="text-xs text-amber-600 dark:text-amber-500">— You are viewing this conversation as an admin auditor.</span>
+                </>
+              ) : (
+                <>
+                  <span className="text-sm font-medium">View Only</span>
+                  <span className="text-xs text-amber-600 dark:text-amber-500">— This conversation was shared with you as read-only.</span>
+                </>
+              )}
+            </div>
+            {readOnlyReason === 'admin_audit' && (
+            <a
+              href="/admin?tab=feedback"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md bg-amber-600/20 text-amber-700 dark:text-amber-300 hover:bg-amber-600/30 transition-colors"
+            >
+              <ArrowLeft className="h-3 w-3" />
+              Back to Feedback
+            </a>
+            )}
+          </div>
+        </div>
+      ) : (
       <div className="border-t border-border bg-background shrink-0">
         <div className="max-w-7xl mx-auto px-6 py-3 space-y-2">
           {/* Queued Messages Display */}
@@ -1259,10 +1302,12 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle }: ChatP
           </div>
 
           <p className="text-xs text-muted-foreground text-center">
-            {getConfig('appName')} can make mistakes. Verify important information.
+            {getConfig('appName')} can make mistakes. Verify important info.
+            {getConfig('auditLogsEnabled') && ' · Conversations are logged for audit.'}
           </p>
         </div>
       </div>
+      )}
     </div>
   );
 }

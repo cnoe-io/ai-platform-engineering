@@ -27,6 +27,10 @@ jest.mock('next-auth/react', () => ({
   useSession: () => ({ data: { user: { email: 'test@example.com' } }, ...mockSessionStatus }),
 }));
 
+jest.mock('next/navigation', () => ({
+  useSearchParams: () => new URLSearchParams(),
+}));
+
 jest.mock('@/components/auth-guard', () => ({
   AuthGuard: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }));
@@ -150,6 +154,31 @@ const mockTeamsResponse = {
   },
 };
 
+const mockFeedbackResponse = {
+  success: true,
+  data: {
+    entries: [],
+    pagination: { page: 1, limit: 50, total: 0, total_pages: 0 },
+  },
+};
+
+const mockNpsResponse = {
+  success: true,
+  data: {
+    nps_score: 0,
+    total_responses: 0,
+    breakdown: { promoters: 0, passives: 0, detractors: 0, promoter_pct: 0, passive_pct: 0, detractor_pct: 0 },
+    trend: [],
+    recent_responses: [],
+    campaigns: [],
+  },
+};
+
+const mockConfigResponse = {
+  success: true,
+  data: { npsEnabled: false },
+};
+
 function setupFetchMock(overrides: Record<string, any> = {}) {
   (global.fetch as jest.Mock) = jest.fn((url: string) => {
     if (url.includes('/api/admin/stats') && !url.includes('skills')) {
@@ -177,6 +206,27 @@ function setupFetchMock(overrides: Record<string, any> = {}) {
       return Promise.resolve({
         ok: true,
         json: () => Promise.resolve({ success: false }),
+      });
+    }
+    if (url.includes('/api/admin/feedback')) {
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve(overrides.feedback || mockFeedbackResponse),
+      });
+    }
+    if (url.includes('/api/admin/nps')) {
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve(overrides.nps || mockNpsResponse),
+      });
+    }
+    if (url.includes('/api/config')) {
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve(overrides.config || mockConfigResponse),
       });
     }
     return Promise.resolve({

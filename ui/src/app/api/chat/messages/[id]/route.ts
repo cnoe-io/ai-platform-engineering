@@ -47,6 +47,7 @@ export const PUT = withErrorHandler(async (
         rating: body.feedback.rating,
         comment: body.feedback.comment,
         submitted_at: new Date(),
+        submitted_by: user.email,
       };
     }
 

@@ -21,7 +21,7 @@ export const GET = withErrorHandler(async (
   request: NextRequest,
   context: { params: Promise<{ id: string }> }
 ) => {
-  return withAuth(request, async (req, user) => {
+  return withAuth(request, async (req, user, session) => {
     const params = await context.params;
     const conversationId = params.id;
 
@@ -29,8 +29,8 @@ export const GET = withErrorHandler(async (
       throw new ApiError('Invalid conversation ID format', 400);
     }
 
-    // Verify user has access
-    await requireConversationAccess(conversationId, user.email, getCollection);
+    // Verify user has access (admins get read-only audit access)
+    await requireConversationAccess(conversationId, user.email, getCollection, session);
 
     const { page, pageSize, skip } = getPaginationParams(request);
 
@@ -58,7 +58,7 @@ export const POST = withErrorHandler(async (
   request: NextRequest,
   context: { params: Promise<{ id: string }> }
 ) => {
-  return withAuth(request, async (req, user) => {
+  return withAuth(request, async (req, user, session) => {
     const params = await context.params;
     const conversationId = params.id;
     const body: AddMessageRequest = await request.json();
@@ -70,7 +70,14 @@ export const POST = withErrorHandler(async (
     validateRequired(body, ['role', 'content']);
 
     // Verify user has access and get conversation for owner_id
-    await requireConversationAccess(conversationId, user.email, getCollection);
+    const { access_level } = await requireConversationAccess(
+      conversationId, user.email, getCollection, session
+    );
+
+    // Read-only access — block writes
+    if (access_level === 'admin_audit' || access_level === 'shared_readonly') {
+      throw new ApiError('Read-only access — cannot add messages', 403, 'FORBIDDEN');
+    }
 
     const conversations = await getCollection<Conversation>('conversations');
     const conversation = await conversations.findOne({ _id: conversationId });

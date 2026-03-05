@@ -206,6 +206,10 @@ export function FeedbackButton({
           )}
         </AnimatePresence>
 
+        <p className="text-[10px] text-muted-foreground/60 mb-2 text-center">
+          Feedback is shared with your platform engineering team to help improve the experience.
+        </p>
+
         {/* Submit Button */}
         <Button
           size="sm"

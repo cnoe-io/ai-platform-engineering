@@ -83,6 +83,20 @@ services:
       - DEFAULT_CLUSTER_NAME=${DEFAULT_CLUSTER_NAME:-}
       - DEFAULT_CLUSTER_ADDRESS=${DEFAULT_CLUSTER_ADDRESS:-}
 
+      # Per-subagent LLM model overrides (provider:model-name format)
+      - SUBAGENT_ARGOCD_MODEL=azure_openai:gpt-5.2
+      # LangChain AzureChatOpenAI reads OPENAI_API_VERSION (not AZURE_OPENAI_API_VERSION)
+      - OPENAI_API_VERSION=${AZURE_OPENAI_API_VERSION:-2025-03-01-preview}
+
+      # Vault configuration for secure LLM key storage
+      - VAULT_ADDR=${VAULT_ADDR:-}
+      - VAULT_NAMESPACE=${VAULT_NAMESPACE:-}
+      - VAULT_ROLE_ID=${VAULT_ROLE_ID:-}
+      - VAULT_SECRET_ID=${VAULT_SECRET_ID:-}
+      - VAULT_MOUNT_POINT=${VAULT_MOUNT_POINT:-secret}
+      - VAULT_APPROLE_PATH=${VAULT_APPROLE_PATH:-approle}
+      - VAULT_PATH_PREFIX=${VAULT_PATH_PREFIX:-}
+
       # Artifact streaming
       - ENABLE_ARTIFACT_STREAMING=true
 

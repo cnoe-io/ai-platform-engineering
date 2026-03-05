@@ -48,10 +48,10 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          echo "🔍 Fetching latest release version..."
+          echo "🔍 Fetching latest release version (including drafts)..."
 
-          # Get the latest release tag using GitHub CLI
-          LATEST_RELEASE=$(gh release view --json tagName -q '.tagName' 2>/dev/null || echo "")
+          # Get all releases including drafts, filter for stable semver tags, pick latest by version
+          LATEST_RELEASE=$(gh release list --limit 100 --json tagName --jq '.[].tagName' 2>/dev/null | grep -E '^v?[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -1 || echo "")
 
           if [[ -z "$LATEST_RELEASE" ]]; then
             # Fallback: try to get from git tags

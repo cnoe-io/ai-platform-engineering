@@ -338,8 +338,34 @@ export default function IngestView() {
       
       previousDataSourceIds.current = currentIds
       
-      for (const ds of newDataSources) {
-        await fetchJobsForDataSource(ds.datasource_id)
+      if (newDataSources.length === 0) return
+      
+      // Use bulk API instead of per-datasource fetches to reduce server load
+      // Batch in chunks of 100 (server limit)
+      const datasourceIds = newDataSources.map(ds => ds.datasource_id)
+      const BATCH_SIZE = 100
+      const chunks: string[][] = []
+      for (let i = 0; i < datasourceIds.length; i += BATCH_SIZE) {
+        chunks.push(datasourceIds.slice(i, i + BATCH_SIZE))
+      }
+      
+      // Fetch all chunks in parallel
+      try {
+        const results = await Promise.all(chunks.map(chunk => getJobsBatch(chunk)))
+        
+        setDataSourceJobs(prev => {
+          const updated = { ...prev }
+          for (const result of results) {
+            for (const [datasourceId, fetchedJobs] of Object.entries(result.jobs)) {
+              // Sort by created_at descending (newest first)
+              const sortedJobs = [...fetchedJobs].sort((a, b) => b.created_at - a.created_at)
+              updated[datasourceId] = sortedJobs
+            }
+          }
+          return updated
+        })
+      } catch (error) {
+        console.error('Failed to batch fetch jobs for new datasources:', error)
       }
     }
     if (dataSources.length > 0) {
@@ -423,8 +449,31 @@ export default function IngestView() {
       setDataSources(datasources)
       
       // Optionally refresh jobs for all datasources (on manual refresh)
-      if (alsoRefreshJobs) {
-        await Promise.all(datasources.map(ds => fetchJobsForDataSource(ds.datasource_id)))
+      // Batch in chunks of 100 (server limit)
+      if (alsoRefreshJobs && datasources.length > 0) {
+        try {
+          const datasourceIds = datasources.map(ds => ds.datasource_id)
+          const BATCH_SIZE = 100
+          const chunks: string[][] = []
+          for (let i = 0; i < datasourceIds.length; i += BATCH_SIZE) {
+            chunks.push(datasourceIds.slice(i, i + BATCH_SIZE))
+          }
+          
+          const results = await Promise.all(chunks.map(chunk => getJobsBatch(chunk)))
+          
+          setDataSourceJobs(prev => {
+            const updated = { ...prev }
+            for (const result of results) {
+              for (const [datasourceId, fetchedJobs] of Object.entries(result.jobs)) {
+                const sortedJobs = [...fetchedJobs].sort((a, b) => b.created_at - a.created_at)
+                updated[datasourceId] = sortedJobs
+              }
+            }
+            return updated
+          })
+        } catch (error) {
+          console.error('Failed to batch refresh jobs:', error)
+        }
       }
     } catch (error) {
       console.error('Failed to fetch data sources', error)

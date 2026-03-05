@@ -190,6 +190,9 @@ ENABLE_GRAPH_RAG=true
 # Enable/disable MCP tools for AI agents
 ENABLE_MCP=true
 
+# Enable/disable MCP authentication (requires OIDC configuration)
+MCP_AUTH_ENABLED=true
+
 # Skip connection tests on startup (useful for debugging)
 SKIP_INIT_TESTS=false
 ```

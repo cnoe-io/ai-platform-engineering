@@ -176,17 +176,22 @@ Get llmSecrets.externalSecrets.secretStoreRef with global fallback
 
 {{/*
 Get agentSecrets.create with global fallback
+Always false when requiresSecret is false
 */}}
 {{- define "agent.agentSecrets.create" -}}
-    {{- $create := .Values.agentSecrets.create -}}
-    {{- with .Values.global -}}
-        {{- with .agentSecrets -}}
-            {{- if hasKey . "create" -}}
-                {{- $create = .create -}}
+    {{- if not .Values.agentSecrets.requiresSecret -}}
+        {{- false -}}
+    {{- else -}}
+        {{- $create := .Values.agentSecrets.create -}}
+        {{- with .Values.global -}}
+            {{- with .agentSecrets -}}
+                {{- if hasKey . "create" -}}
+                    {{- $create = .create -}}
+                {{- end -}}
             {{- end -}}
         {{- end -}}
+        {{- $create -}}
     {{- end -}}
-    {{- $create -}}
 {{- end -}}
 
 {{/*
