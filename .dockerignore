@@ -7,6 +7,7 @@ ai_platform_engineering/agents/*/agent_*/**
 !ai_platform_engineering/agents/*/agent_*/agent_langgraph.py
 !ai_platform_engineering/agents/*/agent_*/agent_strands.py
 !ai_platform_engineering/agents/*/agent_*/tools.py
+!ai_platform_engineering/agents/*/agent_*/vault_utils.py
 !ai_platform_engineering/agents/*/agent_*/models.py
 !ai_platform_engineering/agents/*/agent_*/state.py
 !ai_platform_engineering/agents/*/agent_*/protocol_bindings/**
