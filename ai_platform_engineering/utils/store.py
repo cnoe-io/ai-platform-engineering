@@ -4,13 +4,14 @@
 """
 LangGraph Store factory for cross-thread long-term memory.
 
-Provides a pluggable store backend (InMemoryStore, Redis, Postgres) that
+Provides a pluggable store backend (InMemoryStore, Redis, Postgres, MongoDB) that
 persists user memories and conversation summaries across threads.
 
 Configuration via environment variables:
-    LANGGRAPH_STORE_TYPE: memory (default) | redis | postgres
+    LANGGRAPH_STORE_TYPE: memory (default) | redis | postgres | mongodb
     LANGGRAPH_STORE_REDIS_URL: Redis connection string (falls back to REDIS_URL)
     LANGGRAPH_STORE_POSTGRES_DSN: Postgres DSN (falls back to POSTGRES_DSN)
+    LANGGRAPH_STORE_MONGODB_URI: MongoDB connection URI (falls back to MONGODB_URI)
     LANGGRAPH_STORE_TTL_MINUTES: TTL for stored items (default 10080 = 7 days)
     LANGGRAPH_STORE_KEY_PREFIX: Optional key/namespace prefix for shared Redis (BYO);
         when set, all store keys are namespaced so multiple deployments can share one Redis.
@@ -53,6 +54,7 @@ def _store_namespace(key_prefix: str, category: str, user_id: str) -> tuple[str,
 STORE_TYPE_MEMORY = "memory"
 STORE_TYPE_REDIS = "redis"
 STORE_TYPE_POSTGRES = "postgres"
+STORE_TYPE_MONGODB = "mongodb"
 
 DEFAULT_TTL_MINUTES = 10080  # 7 days
 
@@ -63,6 +65,7 @@ def get_store_config() -> dict[str, Any]:
         "type": os.getenv("LANGGRAPH_STORE_TYPE", STORE_TYPE_MEMORY).lower(),
         "redis_url": os.getenv("LANGGRAPH_STORE_REDIS_URL") or os.getenv("REDIS_URL", ""),
         "postgres_dsn": os.getenv("LANGGRAPH_STORE_POSTGRES_DSN") or os.getenv("POSTGRES_DSN", ""),
+        "mongodb_uri": os.getenv("LANGGRAPH_STORE_MONGODB_URI") or os.getenv("MONGODB_URI", ""),
         "ttl_minutes": int(os.getenv("LANGGRAPH_STORE_TTL_MINUTES", str(DEFAULT_TTL_MINUTES))),
         "key_prefix": (os.getenv("LANGGRAPH_STORE_KEY_PREFIX") or "").strip(),
     }
@@ -99,6 +102,16 @@ def create_store():
                 )
                 return _create_memory_store()
             return _create_postgres_store(postgres_dsn)
+
+        elif store_type == STORE_TYPE_MONGODB:
+            mongodb_uri = config["mongodb_uri"]
+            if not mongodb_uri:
+                logger.warning(
+                    "LANGGRAPH_STORE_TYPE=mongodb but no MongoDB URI configured "
+                    "(set LANGGRAPH_STORE_MONGODB_URI or MONGODB_URI). Falling back to InMemoryStore."
+                )
+                return _create_memory_store()
+            return _create_mongodb_store(mongodb_uri)
 
         else:
             if store_type != STORE_TYPE_MEMORY:
@@ -286,6 +299,144 @@ class _LazyAsyncPostgresStore:
     async def abatch(self, ops):
         await self._ensure_initialized()
         return await self._store.abatch(ops)
+
+
+def _create_mongodb_store(mongodb_uri: str):
+    """Create a MongoDB-backed store (lazy async initialization).
+
+    Uses motor (async MongoDB driver) via langgraph-checkpoint-mongodb's store
+    if available, otherwise falls back to InMemoryStore.
+
+    Args:
+        mongodb_uri: MongoDB connection URI (e.g. mongodb://host:27017)
+    """
+    try:
+        import importlib.util
+
+        if importlib.util.find_spec("motor") is None:
+            raise ImportError("motor (async MongoDB driver) not installed")
+
+        masked_uri = mongodb_uri[:20] + "..." if len(mongodb_uri) > 20 else mongodb_uri
+        logger.info(f"LangGraph Store: MongoDB store configured (URI={masked_uri})")
+        return _LazyAsyncMongoDBStore(mongodb_uri)
+    except ImportError:
+        logger.warning(
+            "motor (async MongoDB driver) not installed. "
+            "Install with: pip install motor. "
+            "Falling back to InMemoryStore."
+        )
+        from langgraph.store.memory import InMemoryStore
+
+        return InMemoryStore()
+
+
+class _LazyAsyncMongoDBStore:
+    """Lazy wrapper for a MongoDB-backed store that initializes on first use.
+
+    Uses motor (async MongoDB driver) to implement the LangGraph BaseStore
+    interface against a MongoDB collection.  Documents are keyed by
+    ``(namespace, key)`` and the value is stored as a JSON-safe dict.
+    """
+
+    def __init__(self, mongodb_uri: str, db_name: str = "langgraph_store"):
+        self._mongodb_uri = mongodb_uri
+        self._db_name = db_name
+        self._collection = None
+        self._initialized = False
+
+    async def _ensure_initialized(self):
+        if not self._initialized:
+            from motor.motor_asyncio import AsyncIOMotorClient
+
+            client = AsyncIOMotorClient(self._mongodb_uri)
+            db = client[self._db_name]
+            self._collection = db["store"]
+            await self._collection.create_index(
+                [("namespace", 1), ("key", 1)], unique=True
+            )
+            self._initialized = True
+            logger.info("LangGraph MongoDB Store initialized")
+
+    async def aput(self, namespace, key, value, index=None):
+        await self._ensure_initialized()
+        ns_str = ".".join(namespace) if isinstance(namespace, tuple) else namespace
+        await self._collection.update_one(
+            {"namespace": ns_str, "key": key},
+            {"$set": {"namespace": ns_str, "key": key, "value": value}},
+            upsert=True,
+        )
+
+    async def aget(self, namespace, key):
+        await self._ensure_initialized()
+        ns_str = ".".join(namespace) if isinstance(namespace, tuple) else namespace
+        doc = await self._collection.find_one({"namespace": ns_str, "key": key})
+        if doc is None:
+            return None
+        return _MongoDBItem(value=doc.get("value", {}), key=key, namespace=namespace)
+
+    async def asearch(self, namespace, **kwargs):
+        await self._ensure_initialized()
+        ns_str = ".".join(namespace) if isinstance(namespace, tuple) else namespace
+        limit = kwargs.get("limit", 10)
+        cursor = self._collection.find({"namespace": ns_str}).limit(limit)
+        results = []
+        async for doc in cursor:
+            results.append(
+                _MongoDBItem(
+                    value=doc.get("value", {}),
+                    key=doc.get("key", ""),
+                    namespace=namespace,
+                )
+            )
+        return results
+
+    async def adelete(self, namespace, key):
+        await self._ensure_initialized()
+        ns_str = ".".join(namespace) if isinstance(namespace, tuple) else namespace
+        await self._collection.delete_one({"namespace": ns_str, "key": key})
+
+    async def alist_namespaces(self, **kwargs):
+        await self._ensure_initialized()
+        namespaces = await self._collection.distinct("namespace")
+        return [tuple(ns.split(".")) for ns in namespaces]
+
+    def put(self, namespace, key, value, index=None):
+        raise NotImplementedError("Use async methods (aput) for MongoDB store")
+
+    def get(self, namespace, key):
+        raise NotImplementedError("Use async methods (aget) for MongoDB store")
+
+    def search(self, namespace, **kwargs):
+        raise NotImplementedError("Use async methods (asearch) for MongoDB store")
+
+    def delete(self, namespace, key):
+        raise NotImplementedError("Use async methods (adelete) for MongoDB store")
+
+    def list_namespaces(self, **kwargs):
+        raise NotImplementedError("Use async methods (alist_namespaces) for MongoDB store")
+
+    def batch(self, ops):
+        raise NotImplementedError("Use async methods (abatch) for MongoDB store")
+
+    async def abatch(self, ops):
+        await self._ensure_initialized()
+        results = []
+        for op in ops:
+            method = getattr(self, f"a{op[0]}", None)
+            if method:
+                results.append(await method(*op[1:]))
+            else:
+                results.append(None)
+        return results
+
+
+class _MongoDBItem:
+    """Lightweight item wrapper matching the LangGraph store Item interface."""
+
+    def __init__(self, value: dict, key: str = "", namespace: tuple = ()):
+        self.value = value
+        self.key = key
+        self.namespace = namespace
 
 
 # ============================================================================

@@ -237,12 +237,22 @@ mcp:
 
 # In-thread checkpoint persistence (LangGraph Checkpointer)
 # Persists conversation state within a thread across pod restarts.
-# Options: memory (in-process, default) | redis (Redis Stack required)
+# Options: memory (in-process, default) | redis | postgres | mongodb
 checkpointPersistence:
-  # Checkpoint type: "memory" or "redis"
+  # Checkpoint type: "memory", "redis", "postgres", or "mongodb"
   type: "memory"
   redis:
     url: ""
+    existingSecret:
+      name: ""
+      key: ""
+  postgres:
+    dsn: ""
+    existingSecret:
+      name: ""
+      key: ""
+  mongodb:
+    uri: ""
     existingSecret:
       name: ""
       key: ""
