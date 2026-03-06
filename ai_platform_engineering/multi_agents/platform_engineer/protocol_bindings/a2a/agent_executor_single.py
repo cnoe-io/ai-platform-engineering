@@ -598,16 +598,22 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
             is_response = False
             
             for decision in decisions:
-                action_name = decision.get("action_name", "")
                 decision_type = decision.get("type", "")
+                edited_action = decision.get("edited_action") or {}
+                action_name = (
+                    decision.get("action_name", "")
+                    or edited_action.get("name", "")
+                )
                 logger.info(f"  Decision: type={decision_type}, action={action_name}")
                 
+                # Extract args: prefer edited_action.args (LangGraph HITL format),
+                # fall back to legacy decision.args.args path
+                inner_args = edited_action.get("args") or decision.get("args", {}).get("args", {})
+                
                 # Log user's form selections (passed via HITL resume mechanism)
-                if action_name == "CAIPEAgentResponse":
-                    inner_args = decision.get("args", {}).get("args", {})
+                if action_name == "CAIPEAgentResponse" and isinstance(inner_args, dict):
                     user_inputs = inner_args.get("user_inputs", {})
                     
-                    # If user_inputs not found, extract from metadata.input_fields
                     if not user_inputs:
                         meta = inner_args.get("metadata", {})
                         input_fields = meta.get("input_fields", [])
@@ -624,19 +630,16 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                         logger.info(f"  📋 Form has {len(user_inputs)} user inputs (passed via HITL resume)")
                 
                 if decision_type in ("accept", "approve"):
-                    # LangChain HITL expects "approve" not "accept"
                     responses.append({"type": "approve"})
                 elif decision_type == "edit":
-                    edited_args = decision.get("args", {}).get("args", {})
                     responses.append({
                         "type": "edit",
                         "edited_action": {
                             "name": action_name,
-                            "args": edited_args
+                            "args": inner_args,
                         }
                     })
                 elif decision_type == "reject":
-                    # Reject includes a message explaining why
                     reject_message = decision.get("message", "User rejected the request")
                     responses.append({
                         "type": "reject",
@@ -922,6 +925,16 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                     if needs_user_input:
                         state.user_input_required = True
                         logger.info("ResponseFormat tool requires user input")
+
+                        artifact = new_text_artifact(
+                            name='final_result',
+                            description='Complete result from Platform Engineer',
+                            text=content,
+                        )
+                        if state.streaming_artifact_id:
+                            artifact.artifact_id = state.streaming_artifact_id
+                        await self._send_artifact(event_queue, task, artifact, append=False, last_chunk=True)
+
                         await self._handle_user_input_required(content, task, event_queue)
                         return
 

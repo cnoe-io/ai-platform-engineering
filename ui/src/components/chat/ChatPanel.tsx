@@ -369,12 +369,12 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
     const assistantMsgId = addMessage(convId, { role: "assistant", content: "" }, turnId);
 
     // Create A2A SDK client for this request.
-    // Only include userEmail when cross-thread memory is enabled so the
-    // backend can scope fact extraction and recall to this user.
+    // userEmail is always sent so the backend can scope per-user resources
+    // (task builder workflows, memory/fact recall, etc.).
     const client = new A2ASDKClient({
       endpoint,
       accessToken,
-      userEmail: isFeatureEnabled("memory") ? (session?.user?.email ?? undefined) : undefined,
+      userEmail: session?.user?.email ?? undefined,
     });
 
     // ═══════════════════════════════════════════════════════════════
