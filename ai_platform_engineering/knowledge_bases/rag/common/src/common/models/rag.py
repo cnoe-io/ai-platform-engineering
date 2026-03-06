@@ -1,5 +1,5 @@
 # This file contains models for the RAG server
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from typing import List, Optional, Dict, Any
 
 # ============================================================================
@@ -67,7 +67,31 @@ class MCPBuiltinToolsConfig(BaseModel):
     search_enabled: bool = True
     fetch_document_enabled: bool = True
     fetch_datasources_enabled: bool = True
-    graph_tools_enabled: bool = True  # Only active when graph_rag_enabled=True on server
+    # Individual graph tool toggles (only active when graph_rag_enabled=True on server)
+    graph_explore_ontology_entity_enabled: bool = True
+    graph_explore_data_entity_enabled: bool = True
+    graph_fetch_data_entity_details_enabled: bool = True
+    graph_shortest_path_between_entity_types_enabled: bool = True
+    graph_raw_query_data_enabled: bool = True
+    graph_raw_query_ontology_enabled: bool = True
+
+    @model_validator(mode="before")
+    @classmethod
+    def _migrate_graph_tools_enabled(cls, data: Any) -> Any:
+        """Backward compat: if old 'graph_tools_enabled' key is present,
+        fan it out to the six individual flags and drop it."""
+        if isinstance(data, dict) and "graph_tools_enabled" in data:
+            val = data.pop("graph_tools_enabled")
+            for key in (
+                "graph_explore_ontology_entity_enabled",
+                "graph_explore_data_entity_enabled",
+                "graph_fetch_data_entity_details_enabled",
+                "graph_shortest_path_between_entity_types_enabled",
+                "graph_raw_query_data_enabled",
+                "graph_raw_query_ontology_enabled",
+            ):
+                data.setdefault(key, val)
+        return data
 
 
 class ParallelSearch(BaseModel):

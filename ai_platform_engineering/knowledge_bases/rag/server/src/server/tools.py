@@ -67,17 +67,18 @@ class AgentTools:
         if builtin_config.fetch_datasources_enabled:
             mcp.tool(self.list_datasources_and_entity_types)
 
-        if graph_rag_enabled and builtin_config.graph_tools_enabled:
+        if graph_rag_enabled:
             graph_tools = [
-                self.graph_explore_ontology_entity,
-                self.graph_explore_data_entity,
-                self.graph_fetch_data_entity_details,
-                self.graph_shortest_path_between_entity_types,
-                self.graph_raw_query_data,
-                self.graph_raw_query_ontology,
+                (builtin_config.graph_explore_ontology_entity_enabled, self.graph_explore_ontology_entity),
+                (builtin_config.graph_explore_data_entity_enabled, self.graph_explore_data_entity),
+                (builtin_config.graph_fetch_data_entity_details_enabled, self.graph_fetch_data_entity_details),
+                (builtin_config.graph_shortest_path_between_entity_types_enabled, self.graph_shortest_path_between_entity_types),
+                (builtin_config.graph_raw_query_data_enabled, self.graph_raw_query_data),
+                (builtin_config.graph_raw_query_ontology_enabled, self.graph_raw_query_ontology),
             ]
-            for tool in graph_tools:
-                mcp.tool(tool)
+            for enabled, tool in graph_tools:
+                if enabled:
+                    mcp.tool(tool)
 
         logger.info(f"Registered MCP tools: {list((await mcp.get_tools()).keys())}")
 
