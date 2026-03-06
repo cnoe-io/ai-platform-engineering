@@ -48,6 +48,12 @@ VLLM_GPU_COUNT="${VLLM_GPU_COUNT:-1}"
 HF_TOKEN="${HF_TOKEN:-}"
 AGENTGATEWAY_VERSION="${AGENTGATEWAY_VERSION:-v2.2.1}"
 AGENTGATEWAY_PORT=8080
+AGENTGATEWAY_UI_PORT=15000
+KEYCLOAK_PORT=7080
+KEYCLOAK_NS="keycloak"
+KEYCLOAK_IMAGE="quay.io/keycloak/keycloak:26.3"
+GITHUB_OAUTH_CLIENT_ID="${GITHUB_OAUTH_CLIENT_ID:-}"
+GITHUB_OAUTH_CLIENT_SECRET="${GITHUB_OAUTH_CLIENT_SECRET:-}"
 INJECT_CORPORATE_CA=false
 CA_SSL_FIX_PROMPTED=false
 SUPERVISOR_RAG_RESTARTED=false
@@ -58,6 +64,7 @@ AUTO_YES=false
 NON_INTERACTIVE=false
 CREATE_CLUSTER=false
 FORCE_UPGRADE=false
+SKIP_UI_PORT_FORWARD=false
 INGEST_URLS=()
 
 cleanup_on_exit() {
@@ -73,6 +80,7 @@ cleanup_on_exit() {
 }
 trap cleanup_on_exit EXIT
 trap 'cleanup_on_exit; exit 130' INT
+trap 'cleanup_on_exit; exit 131' QUIT
 trap 'cleanup_on_exit; exit 143' TERM
 
 # ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -82,6 +90,10 @@ err()     { echo -e "${RED}  ✗${NC} $*" >&2; }
 step()    { echo -e "\n${CYAN}${BOLD}━━━ $* ━━━${NC}"; }
 header()  { echo -e "\n${BLUE}${BOLD}$*${NC}"; }
 prompt()  { echo -en "${BOLD}  ▸ $*${NC}"; }
+
+# Interruptible sleep: runs sleep in the background so trapped signals
+# (INT/QUIT/TERM) are handled immediately instead of waiting for sleep to finish.
+isleep() { sleep "$1" & wait $! 2>/dev/null || true; }
 
 ask_yn() {
   local question="$1" default="${2:-y}"
@@ -180,7 +192,7 @@ wait_for_pods() {
           _auto_heal_offer_corporate_ca "$pod (in ${ns})"
           if $INJECT_CORPORATE_CA; then
             log "[auto-heal] Corporate CA patched; pods will restart"
-            sleep 5
+            isleep 5
           fi
           break
         fi
@@ -198,13 +210,13 @@ wait_for_pods() {
             kubectl rollout restart deployment/caipe-supervisor-agent -n "$ns" &>/dev/null || true
             SUPERVISOR_RAG_RESTARTED=true
             log "[auto-heal] Supervisor restarted to reconnect to RAG"
-            sleep 5
+            isleep 5
           fi
         fi
       done
     fi
 
-    sleep "$interval"
+    isleep "$interval"
     elapsed=$((elapsed + interval))
   done
   _wfp_clear_table
@@ -1084,7 +1096,7 @@ deploy_langfuse() {
     warn "Langfuse release exists but pods are unhealthy; re-deploying"
     helm uninstall langfuse -n langfuse &>/dev/null || true
     kubectl delete pvc --all -n langfuse &>/dev/null || true
-    sleep 5
+    isleep 5
   fi
 
   helm repo add langfuse https://langfuse.github.io/langfuse-k8s &>/dev/null 2>&1 || true
@@ -1139,7 +1151,7 @@ create_langfuse_api_keys() {
   kubectl port-forward svc/langfuse-web -n langfuse "${LANGFUSE_PORT}:3000" &>/dev/null &
   disown $! 2>/dev/null || true
   PF_PIDS+=($!)
-  sleep 3
+  isleep 3
 
   local base="http://localhost:${LANGFUSE_PORT}"
   local _lf_tries=0
@@ -1156,7 +1168,7 @@ create_langfuse_api_keys() {
     kubectl port-forward svc/langfuse-web -n langfuse "${LANGFUSE_PORT}:3000" &>/dev/null &
     disown $! 2>/dev/null || true
     PF_PIDS+=($!)
-    sleep 5
+    isleep 5
   done
 
   curl -sf -X POST "${base}/api/auth/signup" \
@@ -1270,7 +1282,7 @@ prepare_corporate_ca() {
     if kubectl get pod ca-extract -n "$ns" -o jsonpath='{.status.phase}' 2>/dev/null | grep -q Running; then
       break
     fi
-    sleep 5
+    isleep 5
     retries=$((retries + 1))
   done
 
@@ -1633,7 +1645,7 @@ _wait_for_milvus() {
       log "Milvus standalone is ready"
       return 0
     fi
-    sleep "$interval"
+    isleep "$interval"
     elapsed=$((elapsed + interval))
   done
   warn "Milvus did not become ready within ${timeout}s; RAG init may retry"
@@ -1671,7 +1683,7 @@ _finalize_rag_startup() {
           log "Supervisor is ready with RAG connection"
           break
         fi
-        sleep 5
+        isleep 5
         sup_wait=$((sup_wait + 5))
       done
       return 0
@@ -1693,7 +1705,7 @@ _finalize_rag_startup() {
           if $INJECT_CORPORATE_CA; then
             log "Corporate CA patched; waiting for RAG server to restart..."
             elapsed=0
-            sleep 10
+            isleep 10
             continue
           fi
         fi
@@ -1702,7 +1714,7 @@ _finalize_rag_startup() {
     fi
 
     printf "\r${DIM}  Waiting for RAG server  (%ds)${NC}  " "$elapsed"
-    sleep 5
+    isleep 5
     elapsed=$((elapsed + 5))
   done
   echo ""
@@ -1763,7 +1775,7 @@ _wait_for_rag_api() {
       fi
     fi
     printf "\r${DIM}  Waiting for RAG server API  (%ds)${NC}  " "$elapsed"
-    sleep 5
+    isleep 5
     elapsed=$((elapsed + 5))
   done
   echo ""
@@ -1966,6 +1978,231 @@ LITELLM_EOF
   log "LiteLLM proxy deployed (endpoint: http://litellm-proxy.caipe.svc.cluster.local:4000)"
 }
 
+_resolve_github_oauth_creds() {
+  if [[ -n "$GITHUB_OAUTH_CLIENT_ID" && -n "$GITHUB_OAUTH_CLIENT_SECRET" ]]; then
+    log "GitHub OAuth credentials found in environment"
+    return 0
+  fi
+
+  local env_file="${SCRIPT_DIR}/.env"
+  if [[ -f "$env_file" ]]; then
+    local cid csec
+    cid=$(grep -E '^GITHUB_OAUTH_CLIENT_ID=' "$env_file" 2>/dev/null | head -1 | cut -d= -f2- | tr -d '"' | tr -d "'" || true)
+    csec=$(grep -E '^GITHUB_OAUTH_CLIENT_SECRET=' "$env_file" 2>/dev/null | head -1 | cut -d= -f2- | tr -d '"' | tr -d "'" || true)
+    if [[ -n "$cid" && -n "$csec" ]]; then
+      GITHUB_OAUTH_CLIENT_ID="$cid"
+      GITHUB_OAUTH_CLIENT_SECRET="$csec"
+      log "GitHub OAuth credentials loaded from .env"
+      return 0
+    fi
+  fi
+
+  warn "GitHub OAuth App credentials not found in environment or .env"
+  echo ""
+  echo -e "  ${BOLD}To create a GitHub OAuth App:${NC}"
+  echo -e "  1. Go to ${CYAN}https://github.com/settings/developers${NC} > OAuth Apps > New"
+  echo -e "  2. Application name: ${DIM}CAIPE MCP Auth${NC}"
+  echo -e "  3. Homepage URL: ${DIM}http://localhost:${AGENTGATEWAY_PORT}${NC}"
+  echo -e "  4. Callback URL: ${DIM}http://localhost:${KEYCLOAK_PORT}/realms/caipe/broker/github/endpoint${NC}"
+  echo ""
+  read -rp "  GitHub OAuth Client ID: " GITHUB_OAUTH_CLIENT_ID
+  read -rsp "  GitHub OAuth Client Secret: " GITHUB_OAUTH_CLIENT_SECRET
+  echo ""
+
+  if [[ -z "$GITHUB_OAUTH_CLIENT_ID" || -z "$GITHUB_OAUTH_CLIENT_SECRET" ]]; then
+    warn "GitHub OAuth credentials not provided; Keycloak will use local users only (caipe/caipe)"
+    return 1
+  fi
+  log "GitHub OAuth credentials provided"
+  return 0
+}
+
+deploy_keycloak() {
+  step "Deploying Keycloak (MCP Auth IdP)"
+
+  if kubectl get deployment keycloak -n "$KEYCLOAK_NS" &>/dev/null; then
+    local kc_ready
+    kc_ready=$(kubectl get deployment keycloak -n "$KEYCLOAK_NS" \
+      -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo "0")
+    if [[ "${kc_ready:-0}" -ge 1 ]]; then
+      log "Keycloak already running and healthy — skipping deploy"
+      return 0
+    fi
+  fi
+
+  kubectl create namespace "$KEYCLOAK_NS" --dry-run=client -o yaml | kubectl apply -f - 2>/dev/null
+
+  kubectl create configmap keycloak-realm \
+    --from-file=caipe-realm.json="${SCRIPT_DIR}/deploy/keycloak/caipe-realm.json" \
+    -n "$KEYCLOAK_NS" --dry-run=client -o yaml | kubectl apply -f - 2>/dev/null
+
+  kubectl apply -f - <<KC_DEPLOY_EOF
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: keycloak
+  namespace: ${KEYCLOAK_NS}
+  labels:
+    app: keycloak
+    app.kubernetes.io/managed-by: setup-caipe
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: keycloak
+  template:
+    metadata:
+      labels:
+        app: keycloak
+    spec:
+      containers:
+      - name: keycloak
+        image: ${KEYCLOAK_IMAGE}
+        args:
+        - start-dev
+        - --import-realm
+        - --http-port
+        - "8080"
+        - --hostname-strict
+        - "false"
+        env:
+        - name: KEYCLOAK_ADMIN
+          value: admin
+        - name: KEYCLOAK_ADMIN_PASSWORD
+          value: admin
+        - name: KC_HEALTH_ENABLED
+          value: "true"
+        - name: KC_LOG_LEVEL
+          value: info
+        ports:
+        - containerPort: 8080
+          name: http
+        readinessProbe:
+          httpGet:
+            path: /health/ready
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        volumeMounts:
+        - name: realm-config
+          mountPath: /opt/keycloak/data/import
+          readOnly: true
+      volumes:
+      - name: realm-config
+        configMap:
+          name: keycloak-realm
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: keycloak
+  namespace: ${KEYCLOAK_NS}
+  labels:
+    app: keycloak
+    app.kubernetes.io/managed-by: setup-caipe
+spec:
+  type: ClusterIP
+  ports:
+  - port: 8080
+    targetPort: 8080
+    protocol: TCP
+    name: http
+  selector:
+    app: keycloak
+KC_DEPLOY_EOF
+
+  log "Waiting for Keycloak rollout..."
+  kubectl rollout status deployment/keycloak -n "$KEYCLOAK_NS" --timeout=180s 2>/dev/null
+
+  _configure_keycloak_github_idp
+
+  log "Keycloak deployed successfully"
+}
+
+_configure_keycloak_github_idp() {
+  if [[ -z "$GITHUB_OAUTH_CLIENT_ID" || -z "$GITHUB_OAUTH_CLIENT_SECRET" ]]; then
+    log "No GitHub OAuth credentials — skipping GitHub IdP configuration"
+    return 0
+  fi
+
+  log "Configuring Keycloak GitHub identity provider..."
+
+  kubectl port-forward svc/keycloak -n "$KEYCLOAK_NS" 17080:8080 &>/dev/null &
+  local kc_pf_pid=$!
+  isleep 3
+
+  local kc_url="http://localhost:17080"
+  local retries=0
+  while [[ $retries -lt 10 ]]; do
+    if curl -sf "${kc_url}/health/ready" --max-time 3 &>/dev/null; then
+      break
+    fi
+    isleep 2
+    retries=$((retries + 1))
+  done
+
+  local kc_token
+  kc_token=$(curl -sf -X POST "${kc_url}/realms/master/protocol/openid-connect/token" \
+    -d "client_id=admin-cli" \
+    -d "username=admin" \
+    -d "password=admin" \
+    -d "grant_type=password" --max-time 10 2>/dev/null | jq -r '.access_token' 2>/dev/null || true)
+
+  if [[ -z "$kc_token" || "$kc_token" == "null" ]]; then
+    warn "Could not obtain Keycloak admin token — GitHub IdP will use placeholder credentials"
+    kill "$kc_pf_pid" 2>/dev/null || true
+    return 0
+  fi
+
+  curl -sf -X PUT "${kc_url}/admin/realms/caipe/identity-provider/instances/github" \
+    -H "Authorization: Bearer ${kc_token}" \
+    -H "Content-Type: application/json" \
+    -d "{
+      \"alias\": \"github\",
+      \"displayName\": \"GitHub\",
+      \"providerId\": \"github\",
+      \"enabled\": true,
+      \"trustEmail\": true,
+      \"storeToken\": false,
+      \"linkOnly\": false,
+      \"firstBrokerLoginFlowAlias\": \"first broker login\",
+      \"config\": {
+        \"clientId\": \"${GITHUB_OAUTH_CLIENT_ID}\",
+        \"clientSecret\": \"${GITHUB_OAUTH_CLIENT_SECRET}\",
+        \"defaultScope\": \"user:email read:org\",
+        \"syncMode\": \"IMPORT\"
+      }
+    }" --max-time 10 2>/dev/null
+
+  log "  GitHub IdP configured with client ID: ${GITHUB_OAUTH_CLIENT_ID:0:8}..."
+
+  local trusted_hosts
+  trusted_hosts=$(curl -sf -H "Authorization: Bearer ${kc_token}" \
+    "${kc_url}/admin/realms/caipe/components?type=org.keycloak.services.clientregistration.policy.ClientRegistrationPolicy" \
+    --max-time 10 2>/dev/null \
+    | jq -r '.[] | select(.providerId=="trusted-hosts") | .id' 2>/dev/null || true)
+  if [[ -n "$trusted_hosts" ]]; then
+    curl -sf -X DELETE -H "Authorization: Bearer ${kc_token}" \
+      "${kc_url}/admin/realms/caipe/components/${trusted_hosts}" --max-time 10 2>/dev/null
+    log "  Removed trusted-hosts DCR restriction"
+  fi
+
+  local allowed_templates
+  allowed_templates=$(curl -sf -H "Authorization: Bearer ${kc_token}" \
+    "${kc_url}/admin/realms/caipe/components?type=org.keycloak.services.clientregistration.policy.ClientRegistrationPolicy" \
+    --max-time 10 2>/dev/null \
+    | jq -r '.[] | select(.providerId=="allowed-client-templates" and .subType=="anonymous") | .id' 2>/dev/null || true)
+  if [[ -n "$allowed_templates" ]]; then
+    curl -sf -X DELETE -H "Authorization: Bearer ${kc_token}" \
+      "${kc_url}/admin/realms/caipe/components/${allowed_templates}" --max-time 10 2>/dev/null
+    log "  Removed allowed-client-templates DCR restriction"
+  fi
+
+  kill "$kc_pf_pid" 2>/dev/null || true
+  log "  Keycloak GitHub IdP configuration complete"
+}
+
 deploy_agentgateway() {
   step "Deploying AgentGateway (${AGENTGATEWAY_VERSION})"
 
@@ -1978,13 +2215,16 @@ deploy_agentgateway() {
   log "Installing AgentGateway CRDs..."
   helm upgrade -i agentgateway-crds oci://ghcr.io/kgateway-dev/charts/agentgateway-crds \
     --create-namespace --namespace agentgateway-system \
-    --version "$AGENTGATEWAY_VERSION" 2>&1 | tail -1 || true
+    --version "$AGENTGATEWAY_VERSION" \
+    --set controller.image.pullPolicy=Always 2>&1 | tail -1 || true
 
   # 3. Install AgentGateway control plane
   log "Installing AgentGateway control plane..."
   if ! helm upgrade -i agentgateway oci://ghcr.io/kgateway-dev/charts/agentgateway \
     --namespace agentgateway-system \
-    --version "$AGENTGATEWAY_VERSION" 2>&1; then
+    --version "$AGENTGATEWAY_VERSION" \
+    --set controller.image.pullPolicy=Always \
+    --set controller.extraEnv.KGW_ENABLE_GATEWAY_API_EXPERIMENTAL_FEATURES=true 2>&1; then
     err "AgentGateway Helm install failed"
     return 1
   fi
@@ -2019,42 +2259,106 @@ GATEWAY_EOF
     if kubectl get deployment agentgateway-proxy -n agentgateway-system &>/dev/null; then
       kubectl rollout status deployment/agentgateway-proxy -n agentgateway-system --timeout=60s 2>/dev/null && break
     fi
-    sleep 2
+    isleep 2
     retries=$((retries + 1))
   done
 
-  # 7. Auto-discover CAIPE MCP services and create backends + routes
-  _create_agentgateway_mcp_routes
+  # 7. Auto-discover CAIPE MCP/A2A services and create backends + routes
+  _create_agentgateway_routes
 
   log "AgentGateway deployed successfully"
 }
 
-_create_agentgateway_mcp_routes() {
-  log "Discovering MCP services in caipe namespace..."
+_create_agentgateway_routes() {
+  log "Configuring AgentGateway routes..."
 
+  # ── A) Multiplexed MCP backend (all MCP services via label selector) ──
+  # Build a targets list with one entry per discovered MCP service
   local mcp_svcs
-  mcp_svcs=$(kubectl get svc -n caipe -o json 2>/dev/null \
-    | jq -r '.items[] | select(.metadata.name | endswith("-mcp")) | .metadata.name' 2>/dev/null || true)
+  mcp_svcs=$(kubectl get svc -n caipe -l app.kubernetes.io/component=mcp \
+    -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' 2>/dev/null || true)
 
-  if [[ -z "$mcp_svcs" ]]; then
-    warn "No MCP services found in caipe namespace (services ending in -mcp)"
-    warn "AgentGateway is deployed but has no MCP backends configured"
-    warn "MCP backends will be auto-configured on next run after CAIPE deploys"
-    return 0
+  local targets_yaml=""
+  local count=0
+
+  if [[ -n "$mcp_svcs" ]]; then
+    while IFS= read -r svc_name; do
+      [[ -z "$svc_name" ]] && continue
+
+      local agent_name
+      agent_name=$(echo "$svc_name" | sed 's/^caipe-//' | sed 's/^agent-//' | sed 's/-mcp$//')
+
+      local svc_label
+      svc_label=$(kubectl get svc "$svc_name" -n caipe \
+        -o jsonpath='{.metadata.labels.app\.kubernetes\.io/name}' 2>/dev/null || true)
+      [[ -z "$svc_label" ]] && continue
+
+      targets_yaml+="      - name: ${agent_name}
+        selector:
+          services:
+            matchLabels:
+              app.kubernetes.io/name: ${svc_label}
+"
+      count=$((count + 1))
+    done <<< "$mcp_svcs"
   fi
 
-  local count=0
-  while IFS= read -r svc_name; do
-    [[ -z "$svc_name" ]] && continue
+  if [[ -z "$targets_yaml" ]]; then
+    warn "No MCP services found (label: app.kubernetes.io/component=mcp)"
+    warn "MCP backends will be auto-configured on next run after CAIPE deploys"
+  else
+    log "Creating multiplexed MCP backend (${count} targets)..."
+    kubectl apply -f - <<MULTIPLEX_EOF
+---
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayBackend
+metadata:
+  name: mcp-all-backend
+  namespace: caipe
+  labels:
+    app.kubernetes.io/managed-by: setup-caipe
+    app.kubernetes.io/component: agentgateway-mcp
+spec:
+  mcp:
+    targets:
+${targets_yaml}---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: mcp-all
+  namespace: caipe
+  labels:
+    app.kubernetes.io/managed-by: setup-caipe
+    app.kubernetes.io/component: agentgateway-mcp
+spec:
+  parentRefs:
+  - name: agentgateway-proxy
+    namespace: agentgateway-system
+  rules:
+  - matches:
+    - path:
+        type: PathPrefix
+        value: /mcp
+    backendRefs:
+    - name: mcp-all-backend
+      group: agentgateway.dev
+      kind: AgentgatewayBackend
+MULTIPLEX_EOF
+    log "  Multiplexed MCP: /mcp (${count} targets auto-discovered)"
 
-    # Derive a short agent name (e.g. "caipe-agent-argocd-mcp" -> "argocd")
-    local agent_name
-    agent_name=$(echo "$svc_name" | sed 's/^caipe-//' | sed 's/^agent-//' | sed 's/-mcp$//')
+    # ── B) Per-agent MCP backends (individual label selectors) ──
+    while IFS= read -r svc_name; do
+      [[ -z "$svc_name" ]] && continue
 
-    local svc_port
-    svc_port=$(kubectl get svc "$svc_name" -n caipe -o jsonpath='{.spec.ports[0].port}' 2>/dev/null || echo "8000")
+      local agent_name
+      agent_name=$(echo "$svc_name" | sed 's/^caipe-//' | sed 's/^agent-//' | sed 's/-mcp$//')
 
-    kubectl apply -f - <<MCP_ROUTE_EOF
+      local svc_label
+      svc_label=$(kubectl get svc "$svc_name" -n caipe \
+        -o jsonpath='{.metadata.labels.app\.kubernetes\.io/name}' 2>/dev/null || true)
+      [[ -z "$svc_label" ]] && continue
+
+      kubectl apply -f - <<PER_AGENT_EOF
 ---
 apiVersion: agentgateway.dev/v1alpha1
 kind: AgentgatewayBackend
@@ -2067,11 +2371,11 @@ metadata:
 spec:
   mcp:
     targets:
-    - name: ${agent_name}
-      static:
-        host: ${svc_name}.caipe.svc.cluster.local
-        port: ${svc_port}
-        protocol: SSE
+      - name: ${agent_name}
+        selector:
+          services:
+            matchLabels:
+              app.kubernetes.io/name: ${svc_label}
 ---
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
@@ -2094,13 +2398,142 @@ spec:
     - name: mcp-${agent_name}-backend
       group: agentgateway.dev
       kind: AgentgatewayBackend
-MCP_ROUTE_EOF
+PER_AGENT_EOF
 
-    log "  MCP backend: ${agent_name} -> ${svc_name}:${svc_port} at /mcp/${agent_name}"
-    count=$((count + 1))
-  done <<< "$mcp_svcs"
+      log "  MCP backend: ${agent_name} -> selector(${svc_label}) at /mcp/${agent_name}"
+    done <<< "$mcp_svcs"
+  fi
 
-  log "Created ${count} AgentGateway MCP backend(s)"
+  # ── C) Supervisor A2A backend ──
+  local supervisor_svc
+  supervisor_svc=$(kubectl get svc -n caipe -l app.kubernetes.io/name=supervisor-agent \
+    -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
+
+  if [[ -n "$supervisor_svc" ]]; then
+    local supervisor_port
+    supervisor_port=$(kubectl get svc "$supervisor_svc" -n caipe \
+      -o jsonpath='{.spec.ports[0].port}' 2>/dev/null || echo "8000")
+
+    kubectl apply -f - <<A2A_EOF
+---
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayBackend
+metadata:
+  name: a2a-supervisor-backend
+  namespace: caipe
+  labels:
+    app.kubernetes.io/managed-by: setup-caipe
+    app.kubernetes.io/component: agentgateway-a2a
+spec:
+  static:
+    host: ${supervisor_svc}.caipe.svc.cluster.local
+    port: ${supervisor_port}
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: a2a-supervisor
+  namespace: caipe
+  labels:
+    app.kubernetes.io/managed-by: setup-caipe
+    app.kubernetes.io/component: agentgateway-a2a
+spec:
+  parentRefs:
+  - name: agentgateway-proxy
+    namespace: agentgateway-system
+  rules:
+  - matches:
+    - path:
+        type: PathPrefix
+        value: /a2a
+    backendRefs:
+    - name: a2a-supervisor-backend
+      group: agentgateway.dev
+      kind: AgentgatewayBackend
+A2A_EOF
+    log "  A2A backend: supervisor -> ${supervisor_svc}:${supervisor_port} at /a2a"
+  else
+    warn "Supervisor service not found; A2A route not created"
+  fi
+
+  log "Created AgentGateway routes: 1 multiplexed MCP + ${count} per-agent MCP + A2A supervisor"
+}
+
+_create_agentgateway_mcp_auth_policy() {
+  log "Configuring MCP Auth policy (Keycloak + AgentGateway)..."
+
+  kubectl apply -f - <<MCP_AUTH_EOF
+---
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayPolicy
+metadata:
+  name: mcp-auth
+  namespace: caipe
+  labels:
+    app.kubernetes.io/managed-by: setup-caipe
+    app.kubernetes.io/component: agentgateway-mcp-auth
+spec:
+  targetRefs:
+  - group: agentgateway.dev
+    kind: AgentgatewayBackend
+    name: mcp-all-backend
+  backend:
+    mcp:
+      authentication:
+        issuer: "http://keycloak.${KEYCLOAK_NS}.svc.cluster.local:8080/realms/caipe"
+        jwks:
+          backendRef:
+            name: keycloak
+            kind: Service
+            namespace: ${KEYCLOAK_NS}
+            port: 8080
+          jwksPath: "/realms/caipe/protocol/openid-connect/certs"
+        audiences:
+        - "http://localhost:${AGENTGATEWAY_PORT}/mcp"
+        mode: Strict
+        provider: Keycloak
+        resourceMetadata:
+          resourceMetadata:
+            resource: "http://localhost:${AGENTGATEWAY_PORT}/mcp"
+            scopesSupported:
+            - email
+            bearerMethodsSupported:
+            - header
+MCP_AUTH_EOF
+  log "  MCP Auth policy applied (targets: mcp-all-backend)"
+
+  log "Updating MCP HTTPRoute with OAuth discovery paths..."
+  kubectl apply -f - <<MCP_ROUTE_AUTH_EOF
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: mcp-all
+  namespace: caipe
+  labels:
+    app.kubernetes.io/managed-by: setup-caipe
+    app.kubernetes.io/component: agentgateway-mcp
+spec:
+  parentRefs:
+  - name: agentgateway-proxy
+    namespace: agentgateway-system
+  rules:
+  - matches:
+    - path:
+        type: PathPrefix
+        value: /mcp
+    - path:
+        type: PathPrefix
+        value: /.well-known/oauth-protected-resource/mcp
+    - path:
+        type: PathPrefix
+        value: /.well-known/oauth-authorization-server/mcp
+    backendRefs:
+    - name: mcp-all-backend
+      group: agentgateway.dev
+      kind: AgentgatewayBackend
+MCP_ROUTE_AUTH_EOF
+  log "  MCP HTTPRoute updated with OAuth discovery paths"
 }
 
 deploy_caipe() {
@@ -2109,6 +2542,7 @@ deploy_caipe() {
   local helm_args=(
     --namespace caipe
     --version "$CAIPE_CHART_VERSION"
+    --set global.deploymentMode=multi-agent
     --set tags.caipe-ui=true
     --set tags.agent-weather=true
     --set tags.agent-netutils=true
@@ -2267,10 +2701,12 @@ run_validation() {
   done
 
   # ── HTTP endpoints ──
-  if check_http "http://localhost:${UI_PORT}" "CAIPE UI"; then
-    pass=$((pass + 1))
-  else
-    fail=$((fail + 1))
+  if ! $SKIP_UI_PORT_FORWARD; then
+    if check_http "http://localhost:${UI_PORT}" "CAIPE UI"; then
+      pass=$((pass + 1))
+    else
+      fail=$((fail + 1))
+    fi
   fi
   if check_http "http://localhost:${SUPERVISOR_PORT}" "Supervisor A2A"; then
     pass=$((pass + 1))
@@ -2378,12 +2814,79 @@ run_validation() {
 
     local mcp_backend_count
     mcp_backend_count=$(kubectl get agentgatewaybackend -n caipe \
-      -l app.kubernetes.io/managed-by=setup-caipe --no-headers 2>/dev/null | wc -l | tr -d ' ')
+      -l app.kubernetes.io/managed-by=setup-caipe,app.kubernetes.io/component=agentgateway-mcp \
+      --no-headers 2>/dev/null | wc -l | tr -d ' ')
     if [[ "$mcp_backend_count" -gt 0 ]]; then
       print_result "$(date '+%H:%M:%S') ✓ ${mcp_backend_count} MCP backend(s) configured in AgentGateway"
       pass=$((pass + 1))
     else
       print_result "$(date '+%H:%M:%S') ⚠ No MCP backends configured in AgentGateway"
+      warn_count=$((warn_count + 1))
+    fi
+
+    local mcp_multiplex
+    mcp_multiplex=$(kubectl get agentgatewaybackend mcp-all-backend -n caipe \
+      -o jsonpath='{.metadata.name}' 2>/dev/null || true)
+    if [[ "$mcp_multiplex" == "mcp-all-backend" ]]; then
+      print_result "$(date '+%H:%M:%S') ✓ Multiplexed MCP backend (mcp-all-backend) exists"
+      pass=$((pass + 1))
+    else
+      print_result "$(date '+%H:%M:%S') ⚠ Multiplexed MCP backend (mcp-all-backend) not found"
+      warn_count=$((warn_count + 1))
+    fi
+
+    local mcp_route
+    mcp_route=$(kubectl get httproute mcp-all -n caipe \
+      -o jsonpath='{.spec.rules[0].matches[0].path.value}' 2>/dev/null || true)
+    if [[ "$mcp_route" == "/mcp" ]]; then
+      print_result "$(date '+%H:%M:%S') ✓ Multiplexed MCP HTTPRoute at /mcp"
+      pass=$((pass + 1))
+    else
+      print_result "$(date '+%H:%M:%S') ⚠ Multiplexed MCP HTTPRoute (/mcp) not found"
+      warn_count=$((warn_count + 1))
+    fi
+
+    local a2a_backend
+    a2a_backend=$(kubectl get agentgatewaybackend a2a-supervisor-backend -n caipe \
+      -o jsonpath='{.metadata.name}' 2>/dev/null || true)
+    if [[ "$a2a_backend" == "a2a-supervisor-backend" ]]; then
+      print_result "$(date '+%H:%M:%S') ✓ A2A supervisor backend configured"
+      pass=$((pass + 1))
+    else
+      print_result "$(date '+%H:%M:%S') ⚠ A2A supervisor backend not configured"
+      warn_count=$((warn_count + 1))
+    fi
+
+    local a2a_route
+    a2a_route=$(kubectl get httproute a2a-supervisor -n caipe \
+      -o jsonpath='{.spec.rules[0].matches[0].path.value}' 2>/dev/null || true)
+    if [[ "$a2a_route" == "/a2a" ]]; then
+      print_result "$(date '+%H:%M:%S') ✓ A2A supervisor HTTPRoute at /a2a"
+      pass=$((pass + 1))
+    else
+      print_result "$(date '+%H:%M:%S') ⚠ A2A supervisor HTTPRoute (/a2a) not found"
+      warn_count=$((warn_count + 1))
+    fi
+
+    local kc_ready
+    kc_ready=$(kubectl get deployment keycloak -n "$KEYCLOAK_NS" \
+      -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo "0")
+    if [[ "${kc_ready:-0}" -ge 1 ]]; then
+      print_result "$(date '+%H:%M:%S') ✓ Keycloak is running"
+      pass=$((pass + 1))
+    else
+      print_result "$(date '+%H:%M:%S') ✗ Keycloak is not ready"
+      fail=$((fail + 1))
+    fi
+
+    local mcp_auth_policy
+    mcp_auth_policy=$(kubectl get agentgatewaypolicy mcp-auth -n caipe \
+      -o jsonpath='{.metadata.name}' 2>/dev/null || true)
+    if [[ "$mcp_auth_policy" == "mcp-auth" ]]; then
+      print_result "$(date '+%H:%M:%S') ✓ MCP Auth policy (mcp-auth) configured"
+      pass=$((pass + 1))
+    else
+      print_result "$(date '+%H:%M:%S') ⚠ MCP Auth policy (mcp-auth) not found"
       warn_count=$((warn_count + 1))
     fi
   fi
@@ -2455,14 +2958,16 @@ run_sanity_tests() {
   fi
 
   # ── Test 3: CAIPE UI serves HTML ──
-  local ui_content_type
-  ui_content_type=$(curl -sf -o /dev/null -w "%{content_type}" "http://localhost:${UI_PORT}/" --max-time 5 2>/dev/null || echo "")
-  if echo "$ui_content_type" | grep -qi "text/html"; then
-    print_result "$(date '+%H:%M:%S') ✓ [T3] CAIPE UI serves HTML content"
-    pass=$((pass + 1))
-  else
-    print_result "$(date '+%H:%M:%S') ✗ [T3] CAIPE UI content-type: ${ui_content_type:-none}"
-    fail=$((fail + 1))
+  if ! $SKIP_UI_PORT_FORWARD; then
+    local ui_content_type
+    ui_content_type=$(curl -sf -o /dev/null -w "%{content_type}" "http://localhost:${UI_PORT}/" --max-time 5 2>/dev/null || echo "")
+    if echo "$ui_content_type" | grep -qi "text/html"; then
+      print_result "$(date '+%H:%M:%S') ✓ [T3] CAIPE UI serves HTML content"
+      pass=$((pass + 1))
+    else
+      print_result "$(date '+%H:%M:%S') ✗ [T3] CAIPE UI content-type: ${ui_content_type:-none}"
+      fail=$((fail + 1))
+    fi
   fi
 
   # ── Test 4: Sub-agent direct health (in-cluster) ──
@@ -2942,8 +3447,10 @@ PF_LAST_RESTART=()  # epoch of last restart per forward
 
 start_pf() {
   local svc="$1" ns="$2" local_port="$3" remote_port="$4" label="$5"
+  local resource="${svc}"
+  [[ "$svc" != */* ]] && resource="svc/${svc}"
   kill_port_on "$local_port"
-  kubectl port-forward "svc/${svc}" -n "$ns" "${local_port}:${remote_port}" &>/dev/null &
+  kubectl port-forward "$resource" -n "$ns" "${local_port}:${remote_port}" &>/dev/null &
   local pid=$!
   disown "$pid" 2>/dev/null || true
   PF_PIDS+=($pid)
@@ -2955,9 +3462,17 @@ start_pf() {
 
 _pf_svc_ready() {
   local svc="$1" ns="$2"
-  local ready
-  ready=$(kubectl get endpoints "$svc" -n "$ns" -o jsonpath='{.subsets[0].addresses[0].ip}' 2>/dev/null || true)
-  [[ -n "$ready" ]]
+  if [[ "$svc" == deployment/* ]]; then
+    local deploy_name="${svc#deployment/}"
+    local ready_replicas
+    ready_replicas=$(kubectl get deployment "$deploy_name" -n "$ns" \
+      -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo "0")
+    [[ "${ready_replicas:-0}" -ge 1 ]]
+  else
+    local ready
+    ready=$(kubectl get endpoints "$svc" -n "$ns" -o jsonpath='{.subsets[0].addresses[0].ip}' 2>/dev/null || true)
+    [[ -n "$ready" ]]
+  fi
 }
 
 restart_pf() {
@@ -2978,9 +3493,11 @@ restart_pf() {
     return 1
   fi
 
+  local resource="${svc}"
+  [[ "$svc" != */* ]] && resource="svc/${svc}"
   kill_port_on "$local_port"
   sleep 1
-  kubectl port-forward "svc/${svc}" -n "$ns" "${local_port}:${remote_port}" &>/dev/null &
+  kubectl port-forward "$resource" -n "$ns" "${local_port}:${remote_port}" &>/dev/null &
   local pid=$!
   disown "$pid" 2>/dev/null || true
   PF_PIDS[$idx]=$pid
@@ -3007,14 +3524,18 @@ monitor_port_forwards() {
   PF_LAST_RESTART=()
 
   start_pf caipe-supervisor-agent caipe "$SUPERVISOR_PORT" 8000 "Supervisor A2A"
-  start_pf caipe-caipe-ui          caipe "$UI_PORT"         3000 "CAIPE UI"
+  if ! $SKIP_UI_PORT_FORWARD; then
+    start_pf caipe-caipe-ui          caipe "$UI_PORT"         3000 "CAIPE UI"
+  fi
 
   if $ENABLE_TRACING; then
     start_pf langfuse-web langfuse "$LANGFUSE_PORT" 3000 "Langfuse UI"
   fi
 
   if $ENABLE_AGENTGATEWAY; then
-    start_pf agentgateway-proxy agentgateway-system "$AGENTGATEWAY_PORT" 80 "AgentGateway MCP"
+    start_pf deployment/agentgateway-proxy agentgateway-system "$AGENTGATEWAY_PORT" 80 "AgentGateway MCP"
+    start_pf deployment/agentgateway-proxy agentgateway-system "$AGENTGATEWAY_UI_PORT" 15000 "AgentGateway UI"
+    start_pf svc/keycloak "$KEYCLOAK_NS" "$KEYCLOAK_PORT" 8080 "Keycloak"
   fi
 
   # Wait for port-forwards to become responsive before running tests
@@ -3022,12 +3543,14 @@ monitor_port_forwards() {
   while [[ $pf_wait -lt 15 ]]; do
     local all_up=true
     curl -sf -o /dev/null --max-time 2 "http://localhost:${SUPERVISOR_PORT}/.well-known/agent.json" 2>/dev/null || all_up=false
-    curl -sf -o /dev/null --max-time 2 "http://localhost:${UI_PORT}/" 2>/dev/null || all_up=false
+    if ! $SKIP_UI_PORT_FORWARD; then
+      curl -sf -o /dev/null --max-time 2 "http://localhost:${UI_PORT}/" 2>/dev/null || all_up=false
+    fi
     if $ENABLE_TRACING; then
       curl -sf -o /dev/null --max-time 2 "http://localhost:${LANGFUSE_PORT}/api/public/health" 2>/dev/null || all_up=false
     fi
     $all_up && break
-    sleep 2
+    isleep 2
     pf_wait=$((pf_wait + 2))
   done
 
@@ -3038,9 +3561,11 @@ monitor_port_forwards() {
   header "Services Ready"
   echo ""
   echo -e "  ${BOLD}Endpoints:${NC}"
-  echo -e "    CAIPE UI        ${CYAN}http://localhost:${UI_PORT}${NC}"
+  if ! $SKIP_UI_PORT_FORWARD; then
+    echo -e "    CAIPE UI        ${CYAN}http://localhost:${UI_PORT}${NC}"
+  fi
   echo -e "    Supervisor A2A  ${CYAN}http://localhost:${SUPERVISOR_PORT}${NC}"
-  if $ENABLE_RAG; then
+  if $ENABLE_RAG && ! $SKIP_UI_PORT_FORWARD; then
     echo -e "    RAG Server      ${CYAN}http://localhost:${UI_PORT}/api/rag${NC}  (proxied by UI)"
   fi
   if $ENABLE_TRACING; then
@@ -3048,20 +3573,35 @@ monitor_port_forwards() {
     echo -e "      Login: ${DIM}lab@lab.com / Lab12345!${NC}"
   fi
   if $ENABLE_AGENTGATEWAY; then
-    echo -e "    AgentGateway    ${CYAN}http://localhost:${AGENTGATEWAY_PORT}${NC}"
+    echo -e "    AgentGateway UI ${CYAN}http://localhost:${AGENTGATEWAY_UI_PORT}${NC}"
+    echo -e "    Keycloak Admin  ${CYAN}http://localhost:${KEYCLOAK_PORT}/admin${NC}  ${DIM}(admin/admin)${NC}"
+    echo -e "    Keycloak Realm  ${CYAN}http://localhost:${KEYCLOAK_PORT}/realms/caipe${NC}"
     echo ""
-    echo -e "  ${BOLD}MCP Client URLs (via AgentGateway):${NC}"
-    local ag_svcs
-    ag_svcs=$(kubectl get agentgatewaybackend -n caipe \
-      -l app.kubernetes.io/managed-by=setup-caipe \
+    echo -e "  ${BOLD}MCP Client URLs (via AgentGateway on port ${AGENTGATEWAY_PORT}):${NC}"
+    echo -e "    All MCP tools   ${CYAN}http://localhost:${AGENTGATEWAY_PORT}/mcp${NC}  ${DIM}(multiplexed)${NC}"
+    local ag_mcp_backends
+    ag_mcp_backends=$(kubectl get agentgatewaybackend -n caipe \
+      -l app.kubernetes.io/managed-by=setup-caipe,app.kubernetes.io/component=agentgateway-mcp \
       -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' 2>/dev/null || true)
-    if [[ -n "$ag_svcs" ]]; then
+    if [[ -n "$ag_mcp_backends" ]]; then
       while IFS= read -r backend_name; do
         [[ -z "$backend_name" ]] && continue
+        [[ "$backend_name" == "mcp-all-backend" ]] && continue
         local agent_short
         agent_short=$(echo "$backend_name" | sed 's/^mcp-//' | sed 's/-backend$//')
-        echo -e "    ${DIM}http://localhost:${AGENTGATEWAY_PORT}/mcp/${agent_short}${NC}"
-      done <<< "$ag_svcs"
+        echo -e "    ${agent_short}$(printf '%*s' $((16 - ${#agent_short})) '')${CYAN}http://localhost:${AGENTGATEWAY_PORT}/mcp/${agent_short}${NC}"
+      done <<< "$ag_mcp_backends"
+    fi
+    echo ""
+    echo -e "  ${BOLD}A2A (via AgentGateway):${NC}"
+    local ag_a2a_backends
+    ag_a2a_backends=$(kubectl get agentgatewaybackend -n caipe \
+      -l app.kubernetes.io/managed-by=setup-caipe,app.kubernetes.io/component=agentgateway-a2a \
+      -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' 2>/dev/null || true)
+    if [[ -n "$ag_a2a_backends" ]]; then
+      echo -e "    Supervisor      ${CYAN}http://localhost:${AGENTGATEWAY_PORT}/a2a${NC}"
+    else
+      echo -e "    ${DIM}(supervisor A2A backend not configured yet)${NC}"
     fi
   fi
   echo ""
@@ -3134,7 +3674,7 @@ monitor_port_forwards() {
       sanity_last_run=$now
     fi
 
-    sleep 10
+    isleep 10
   done
 }
 
@@ -3162,7 +3702,7 @@ cmd_cleanup() {
   check_prerequisites
 
   # Kill any port-forwards on known ports
-  for port in "$LANGFUSE_PORT" "$SUPERVISOR_PORT" "$UI_PORT" "$AGENTGATEWAY_PORT"; do
+  for port in "$LANGFUSE_PORT" "$SUPERVISOR_PORT" "$UI_PORT" "$AGENTGATEWAY_PORT" "$AGENTGATEWAY_UI_PORT" "$KEYCLOAK_PORT"; do
     kill_port_on "$port"
   done
 
@@ -3371,11 +3911,13 @@ cmd_validate() {
 
   step "Port-forwarding for validation"
   start_pf caipe-supervisor-agent caipe "$SUPERVISOR_PORT" 8000 "Supervisor A2A"
-  start_pf caipe-caipe-ui          caipe "$UI_PORT"         3000 "CAIPE UI"
+  if ! $SKIP_UI_PORT_FORWARD; then
+    start_pf caipe-caipe-ui          caipe "$UI_PORT"         3000 "CAIPE UI"
+  fi
   if $ENABLE_TRACING; then
     start_pf langfuse-web langfuse "$LANGFUSE_PORT" 3000 "Langfuse UI"
   fi
-  sleep 3
+  isleep 3
 
   run_validation
   run_sanity_tests
@@ -3418,7 +3960,7 @@ ensure_healthy() {
 
     run_auto_heal
 
-    sleep "$interval"
+    isleep "$interval"
     elapsed=$((elapsed + interval))
   done
 
@@ -3521,7 +4063,10 @@ cmd_setup() {
 
   # AgentGateway runs after CAIPE so MCP services exist for auto-discovery
   if $ENABLE_AGENTGATEWAY; then
+    _resolve_github_oauth_creds || true
+    deploy_keycloak
     deploy_agentgateway
+    _create_agentgateway_mcp_auth_policy
   fi
 
   if [[ ${#INGEST_URLS[@]} -gt 0 ]]; then
@@ -3564,6 +4109,8 @@ Options:
                      (implies --rag; repeatable for multiple URLs; uses sitemap crawl)
   --auto-heal        Enable auto-heal loop (default: on). Detects and fixes crashing pods,
                      broken PVCs, missing secrets, RAG misconfig (every 30s)
+  --no-ui-port-forward  Skip port-forwarding the CAIPE UI (useful when the UI
+                     is exposed via Ingress, NodePort, or another mechanism)
   --upgrade          Skip to upgrade path when CAIPE is already deployed
                      (re-collect credentials + re-deploy; skips interactive menu)
   --no-auto-heal     Disable the auto-heal loop
@@ -3654,6 +4201,7 @@ for arg in "$@"; do
     --tracing)         ENABLE_TRACING=true ;;
     --agentgateway)    ENABLE_AGENTGATEWAY=true ;;
     --upgrade)         FORCE_UPGRADE=true ;;
+    --no-ui-port-forward) SKIP_UI_PORT_FORWARD=true ;;
     --auto-heal)       AUTOHEAL_ENABLED=true ;;
     --no-auto-heal)    AUTOHEAL_ENABLED=false ;;
     --ingest-url=*)    INGEST_URLS+=("${arg#--ingest-url=}") ;;
