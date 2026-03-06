@@ -402,7 +402,12 @@ export interface MCPBuiltinToolsConfig {
   search_enabled: boolean;
   fetch_document_enabled: boolean;
   fetch_datasources_enabled: boolean;
-  graph_tools_enabled: boolean;
+  graph_explore_ontology_entity_enabled: boolean;
+  graph_explore_data_entity_enabled: boolean;
+  graph_fetch_data_entity_details_enabled: boolean;
+  graph_shortest_path_between_entity_types_enabled: boolean;
+  graph_raw_query_data_enabled: boolean;
+  graph_raw_query_ontology_enabled: boolean;
 }
 
 export async function getMCPTools(): Promise<MCPToolConfig[]> {
