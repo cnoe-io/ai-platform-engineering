@@ -377,13 +377,17 @@ def _load_task_config_from_yaml() -> dict:
         return {}
 
 
-def load_task_config() -> dict:
+def load_task_config(user_email: Optional[str] = None) -> dict:
     """Load task configs from MongoDB (primary), YAML file (fallback).
 
     When MONGODB_URI is configured, reads from the ``task_configs`` MongoDB
     collection via a shared pymongo client with an in-memory TTL cache.
     Falls back to reading ``task_config.yaml`` from disk when MongoDB is
     unavailable or the collection is empty.
+
+    When *user_email* is provided, only configs visible to that user are
+    returned (system/global configs + configs owned by the user).  When
+    ``None``, only system/global configs are returned from MongoDB.
 
     Environment variable substitution (``${VAR_NAME}``) is applied to YAML-
     sourced configs. MongoDB-sourced configs are assumed to already have their
@@ -393,10 +397,10 @@ def load_task_config() -> dict:
     if mongodb_uri:
         try:
             from ai_platform_engineering.utils.mongodb_client import (
-                get_task_configs_from_mongodb,
+                get_task_configs_for_user,
             )
 
-            configs = get_task_configs_from_mongodb()
+            configs = get_task_configs_for_user(user_email)
             if configs:
                 return configs
         except Exception as e:
@@ -405,9 +409,9 @@ def load_task_config() -> dict:
     return _load_task_config_from_yaml()
 
 
-def get_available_task_names() -> List[str]:
+def get_available_task_names(user_email: Optional[str] = None) -> List[str]:
     """Get list of available task names from config."""
-    config = load_task_config()
+    config = load_task_config(user_email=user_email)
     return list(config.keys())
 
 
@@ -416,14 +420,17 @@ def get_available_task_names() -> List[str]:
 # =============================================================================
 
 @tool
-def list_self_service_workflows() -> str:
+def list_self_service_workflows(
+    state: Annotated[dict, InjectedState],
+) -> str:
     """List all available self-service workflows that can be invoked.
 
     Returns the current set of workflow names from the task configuration
     database. Call this tool to discover which workflows are available
     before invoking one with ``invoke_self_service_task``.
     """
-    config = load_task_config()
+    user_email = state.get("user_email") if isinstance(state, dict) else None
+    config = load_task_config(user_email=user_email)
     if not config:
         return "No self-service workflows are currently configured."
 
@@ -474,7 +481,8 @@ def create_invoke_self_service_task_tool():
         Returns:
             Command that sets up state for deterministic execution.
         """
-        config = load_task_config()
+        user_email = state.get("user_email") if isinstance(state, dict) else None
+        config = load_task_config(user_email=user_email)
         
         if task_name not in config:
             available = ", ".join(config.keys())

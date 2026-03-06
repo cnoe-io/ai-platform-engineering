@@ -61,10 +61,11 @@ def get_mongodb_client() -> Optional[MongoClient]:
 
 
 def get_task_configs_from_mongodb() -> Optional[dict]:
-    """Fetch all task configs from MongoDB and return in task_config.yaml dict format.
+    """Fetch all task configs from MongoDB with ownership metadata.
 
-    Returns a dict keyed by workflow name with ``{tasks: [...]}`` values,
-    matching the structure that ``invoke_self_service_task`` expects.
+    Returns a dict keyed by workflow name with ``{tasks, owner_id, is_system,
+    visibility}`` values.  The extra ownership fields enable per-user filtering
+    via :func:`get_task_configs_for_user`.
 
     Uses an in-memory cache with configurable TTL to avoid per-request queries.
 
@@ -85,7 +86,19 @@ def get_task_configs_from_mongodb() -> Optional[dict]:
         db = client[database]
         collection = db["task_configs"]
 
-        docs = list(collection.find({}, {"_id": 0, "name": 1, "tasks": 1}))
+        docs = list(
+            collection.find(
+                {},
+                {
+                    "_id": 0,
+                    "name": 1,
+                    "tasks": 1,
+                    "owner_id": 1,
+                    "is_system": 1,
+                    "visibility": 1,
+                },
+            )
+        )
         if not docs:
             return None
 
@@ -102,7 +115,10 @@ def get_task_configs_from_mongodb() -> Optional[dict]:
                             "subagent": t.get("subagent", "caipe"),
                         }
                         for t in tasks
-                    ]
+                    ],
+                    "owner_id": doc.get("owner_id", "system"),
+                    "is_system": doc.get("is_system", True),
+                    "visibility": doc.get("visibility", "global"),
                 }
 
         if result:
@@ -115,6 +131,35 @@ def get_task_configs_from_mongodb() -> Optional[dict]:
     except PyMongoError as e:
         logger.warning(f"Failed to read task configs from MongoDB: {e}")
         return None
+
+
+def get_task_configs_for_user(user_email: Optional[str] = None) -> Optional[dict]:
+    """Return task configs visible to *user_email*.
+
+    Fetches the full (cached) config set, then filters:
+      - ``is_system=True`` or ``visibility="global"`` configs are always included.
+      - When *user_email* is provided, configs owned by that user are included.
+      - When *user_email* is ``None``, only system/global configs are returned.
+
+    The returned dict has the same shape as :func:`get_task_configs_from_mongodb`
+    (workflow-name -> ``{tasks, owner_id, is_system, visibility}``).
+    """
+    all_configs = get_task_configs_from_mongodb()
+    if not all_configs:
+        return None
+
+    filtered: dict = {}
+    for name, entry in all_configs.items():
+        is_system = entry.get("is_system", True)
+        visibility = entry.get("visibility", "global")
+        owner_id = entry.get("owner_id", "system")
+
+        if is_system or visibility == "global":
+            filtered[name] = entry
+        elif user_email and owner_id == user_email:
+            filtered[name] = entry
+
+    return filtered if filtered else None
 
 
 def invalidate_task_config_cache() -> None:

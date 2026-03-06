@@ -6,9 +6,13 @@ fallback) on every model call and appends the current workflow list
 directly into the system prompt.  The result is cached via the existing
 ``load_task_config`` TTL cache, so there is no extra DB round-trip on
 successive calls within the same cache window.
+
+Workflows are scoped per-user: system/global workflows are always shown,
+while custom workflows are only visible to the user who created them.
 """
 
 import logging
+from typing import Optional
 
 try:
     from langchain.agents.middleware.types import AgentMiddleware, AgentState, ModelRequest
@@ -24,14 +28,14 @@ logger = logging.getLogger(__name__)
 class SelfServiceWorkflowMiddleware(AgentMiddleware):
     """Dynamically injects available self-service workflow names into the system prompt."""
 
-    def _build_workflow_prompt_section(self) -> str:
-        """Query MongoDB/YAML for workflow names and build a prompt section."""
+    def _build_workflow_prompt_section(self, user_email: Optional[str] = None) -> str:
+        """Query MongoDB/YAML for workflow names visible to *user_email*."""
         try:
             from ai_platform_engineering.multi_agents.platform_engineer.deep_agent_single import (
                 load_task_config,
             )
 
-            config = load_task_config()
+            config = load_task_config(user_email=user_email)
             if not config:
                 return ""
 
@@ -55,7 +59,13 @@ class SelfServiceWorkflowMiddleware(AgentMiddleware):
     def modify_model_request(
         self, request: ModelRequest, agent_state: AgentState
     ) -> ModelRequest:
-        section = self._build_workflow_prompt_section()
+        user_email = None
+        if isinstance(agent_state, dict):
+            user_email = agent_state.get("user_email")
+        elif hasattr(agent_state, "user_email"):
+            user_email = getattr(agent_state, "user_email", None)
+
+        section = self._build_workflow_prompt_section(user_email=user_email)
         if section and hasattr(request, "system_prompt") and request.system_prompt:
             request.system_prompt = request.system_prompt + section
         return request
