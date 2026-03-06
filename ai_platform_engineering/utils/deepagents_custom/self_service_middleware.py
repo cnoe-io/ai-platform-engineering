@@ -75,8 +75,7 @@ class SelfServiceWorkflowMiddleware(AgentMiddleware):
                 f"There are **{len(names)}** workflows available:\n"
                 + "\n".join(lines)
                 + "\n\nWhen a user's request matches one of these, call "
-                "`invoke_self_service_task(task_name=\"<exact name>\")` immediately. "
-                "Do NOT call `list_self_service_workflows` first."
+                "`invoke_self_service_task(task_name=\"<exact name>\")` immediately."
             )
         except Exception as exc:
             logger.warning(f"SelfServiceWorkflowMiddleware: failed to load workflows: {exc}")
