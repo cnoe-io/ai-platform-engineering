@@ -41,6 +41,10 @@ from ai_platform_engineering.utils.deepagents_custom.policy_middleware import (
     CLORM_AVAILABLE,
 )
 
+from ai_platform_engineering.utils.deepagents_custom.self_service_middleware import (
+    SelfServiceWorkflowMiddleware,
+)
+
 # Export custom tools
 from ai_platform_engineering.utils.deepagents_custom.tools import (
     tool_result_to_file,
@@ -73,6 +77,7 @@ __all__ = [
     "CALL_TOOL_WITH_FILE_ARG_SYSTEM_PROMPT",
     "PolicyMiddleware",
     "CLORM_AVAILABLE",
+    "SelfServiceWorkflowMiddleware",
     # Legacy aliases
     "QuickActionTasksAnnouncementMiddleware",
     "SubAgentExecutionMiddleware",

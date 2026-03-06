@@ -112,6 +112,9 @@ from ai_platform_engineering.utils.deepagents_custom.file_arg_middleware import 
 from ai_platform_engineering.utils.deepagents_custom.policy_middleware import (
     PolicyMiddleware,
 )
+from ai_platform_engineering.utils.deepagents_custom.self_service_middleware import (
+    SelfServiceWorkflowMiddleware,
+)
 from ai_platform_engineering.utils.deepagents_custom.tools import (
     tool_result_to_file,
     wait,
@@ -942,7 +945,7 @@ class PlatformEngineerDeepAgent:
         invoke_task_tool = create_invoke_self_service_task_tool()
         
         # All supervisor tools
-        all_tools = utility_tools + [list_self_service_workflows, invoke_task_tool]
+        all_tools = utility_tools + [invoke_task_tool]
         
         # RAG connectivity check and tool loading
         if self.rag_enabled and self.rag_config is None:
@@ -1088,15 +1091,10 @@ When users ask questions about platform policies, procedures, or documentation:
 
 ## Self-Service Workflows (CRITICAL)
 
-**MANDATORY BEHAVIOR**: When a user requests an operation that sounds like a self-service workflow (creating resources, deploying apps, managing users, etc.), you MUST:
-1. Call `list_self_service_workflows` to get the current list of available workflows
-2. If the user's request matches a workflow name, call `invoke_self_service_task(task_name="<exact name>")` with the exact workflow name
-3. These workflows use HITL forms to collect user input — DO NOT try to perform them directly with subagents
-
-**Examples:**
-- User says "Create github repo" → call `list_self_service_workflows`, then `invoke_self_service_task(task_name="Create GitHub Repo")`
-- User says "create ec2 instance" → call `list_self_service_workflows`, then `invoke_self_service_task(task_name="Create EC2 Instance")`
-- User says "deploy app" → call `list_self_service_workflows`, then `invoke_self_service_task(task_name="Deploy App to Common Cluster")`
+**MANDATORY BEHAVIOR**: When a user requests an operation that matches one of the available
+self-service workflows (listed at the end of this prompt), you MUST call
+`invoke_self_service_task(task_name="<exact name>")` with the exact workflow name.
+DO NOT try to perform these operations directly with subagents.
 
 **Workflow Execution:**
 1. When `invoke_self_service_task` is called, it triggers a multi-step workflow
@@ -1104,7 +1102,7 @@ When users ask questions about platform policies, procedures, or documentation:
 3. After user submits the form, subsequent steps execute automatically (GitHub, AWS, ArgoCD, etc.)
 4. A notification is sent to the user via Webex upon completion
 
-**DO NOT skip `invoke_self_service_task`** for these operations. DO NOT try to perform these operations directly with subagents.
+**DO NOT skip `invoke_self_service_task`** for these operations.
 
 ## Task Planning (write_todos format)
 
@@ -1145,6 +1143,7 @@ This format is required so the UI can display agent stickers next to each task.
                 PolicyMiddleware(agent_name="platform_engineer", agent_type="deep_agent"),
                 DeterministicTaskMiddleware(),
                 CallToolWithFileArgMiddleware(),
+                SelfServiceWorkflowMiddleware(),
             ],
         )
 
