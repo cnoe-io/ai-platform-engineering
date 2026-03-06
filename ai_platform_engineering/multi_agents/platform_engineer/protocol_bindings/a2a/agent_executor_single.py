@@ -925,6 +925,16 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                     if needs_user_input:
                         state.user_input_required = True
                         logger.info("ResponseFormat tool requires user input")
+
+                        artifact = new_text_artifact(
+                            name='final_result',
+                            description='Complete result from Platform Engineer',
+                            text=content,
+                        )
+                        if state.streaming_artifact_id:
+                            artifact.artifact_id = state.streaming_artifact_id
+                        await self._send_artifact(event_queue, task, artifact, append=False, last_chunk=True)
+
                         await self._handle_user_input_required(content, task, event_queue)
                         return
 
