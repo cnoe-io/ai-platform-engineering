@@ -34,6 +34,14 @@ dependencies = [
     "clorm>=1.4.0",
     # MongoDB client for reading task configs from shared MongoDB
     "pymongo>=4.7.0",
+    # Redis checkpoint saver and store for LangGraph persistence
+    "langgraph-checkpoint-redis>=0.3.5",
+    # Postgres checkpoint saver and store for LangGraph persistence
+    "langgraph-checkpoint-postgres>=2.0.0",
+    # MongoDB checkpoint saver for LangGraph persistence
+    "langgraph-checkpoint-mongodb>=0.3.0",
+    # Async MongoDB driver for MongoDB store
+    "motor>=3.4.0",
 ]
 
 [tool.pytest.ini_options]
