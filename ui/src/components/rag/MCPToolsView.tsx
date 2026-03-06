@@ -561,7 +561,9 @@ function BuiltinConfigSection({ config, canEdit, onUpdate }: BuiltinConfigSectio
     }
   };
 
-  const items: { key: keyof MCPBuiltinToolsConfig; label: string; description: string }[] = [
+  type ToolItem = { key: keyof MCPBuiltinToolsConfig; label: string; description: string };
+
+  const generalTools: ToolItem[] = [
     {
       key: "search_enabled",
       label: "search",
@@ -577,12 +579,67 @@ function BuiltinConfigSection({ config, canEdit, onUpdate }: BuiltinConfigSectio
       label: "list_datasources_and_entity_types",
       description: "List available datasources and graph entity types",
     },
+  ];
+
+  const graphTools: ToolItem[] = [
     {
-      key: "graph_tools_enabled",
-      label: "Graph tools",
-      description: "Explore ontology, entity relationships, and run raw graph queries (requires Graph RAG)",
+      key: "graph_explore_ontology_entity_enabled",
+      label: "graph_explore_ontology_entity",
+      description: "Explore an ontology entity and its neighborhood",
+    },
+    {
+      key: "graph_explore_data_entity_enabled",
+      label: "graph_explore_data_entity",
+      description: "Explore a data entity and its neighborhood",
+    },
+    {
+      key: "graph_fetch_data_entity_details_enabled",
+      label: "graph_fetch_data_entity_details",
+      description: "Fetch details of a single data entity with all properties and relations",
+    },
+    {
+      key: "graph_shortest_path_between_entity_types_enabled",
+      label: "graph_shortest_path_between_entity_types",
+      description: "Find shortest relationship paths between two entity types",
+    },
+    {
+      key: "graph_raw_query_data_enabled",
+      label: "graph_raw_query_data",
+      description: "Execute a raw read-only query on the data graph",
+    },
+    {
+      key: "graph_raw_query_ontology_enabled",
+      label: "graph_raw_query_ontology",
+      description: "Execute a raw read-only query on the ontology graph",
     },
   ];
+
+  const renderToggleRow = ({ key, label, description }: ToolItem) => (
+    <div key={key} className="flex items-center justify-between gap-4 py-1">
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-mono">{label}</p>
+        <p className="text-xs text-muted-foreground truncate">{description}</p>
+      </div>
+      <button
+        onClick={() => toggle(key)}
+        disabled={!canEdit || saving}
+        className={cn(
+          "relative w-10 rounded-full transition-colors shrink-0",
+          "disabled:cursor-not-allowed disabled:opacity-50",
+          local[key] ? "bg-primary" : "bg-muted"
+        )}
+        style={{ height: "22px" }}
+        title={canEdit ? undefined : "Admin access required"}
+      >
+        <span
+          className={cn(
+            "absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-all",
+            local[key] ? "left-[calc(100%-18px)]" : "left-0.5"
+          )}
+        />
+      </button>
+    </div>
+  );
 
   return (
     <div className="rounded-xl border border-border/50 bg-card/50 p-4 space-y-3">
@@ -591,32 +648,14 @@ function BuiltinConfigSection({ config, canEdit, onUpdate }: BuiltinConfigSectio
         {saving && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
       </div>
       <div className="space-y-2">
-        {items.map(({ key, label, description }) => (
-          <div key={key} className="flex items-center justify-between gap-4 py-1">
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-mono">{label}</p>
-              <p className="text-xs text-muted-foreground truncate">{description}</p>
-            </div>
-            <button
-              onClick={() => toggle(key)}
-              disabled={!canEdit || saving}
-              className={cn(
-                "relative w-10 rounded-full transition-colors shrink-0",
-                "disabled:cursor-not-allowed disabled:opacity-50",
-                local[key] ? "bg-primary" : "bg-muted"
-              )}
-              style={{ height: "22px" }}
-              title={canEdit ? undefined : "Admin access required"}
-            >
-              <span
-                className={cn(
-                  "absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-all",
-                  local[key] ? "left-[calc(100%-18px)]" : "left-0.5"
-                )}
-              />
-            </button>
-          </div>
-        ))}
+        {generalTools.map(renderToggleRow)}
+      </div>
+      <div className="border-t border-border/40 pt-3 space-y-2">
+        <div>
+          <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Graph RAG Tools</p>
+          <p className="text-xs text-muted-foreground/70">Requires Graph RAG to be enabled</p>
+        </div>
+        {graphTools.map(renderToggleRow)}
       </div>
     </div>
   );
@@ -789,7 +828,12 @@ export default function MCPToolsView() {
     search_enabled: true,
     fetch_document_enabled: true,
     fetch_datasources_enabled: true,
-    graph_tools_enabled: true,
+    graph_explore_ontology_entity_enabled: true,
+    graph_explore_data_entity_enabled: true,
+    graph_fetch_data_entity_details_enabled: true,
+    graph_shortest_path_between_entity_types_enabled: true,
+    graph_raw_query_data_enabled: true,
+    graph_raw_query_ontology_enabled: true,
   });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
