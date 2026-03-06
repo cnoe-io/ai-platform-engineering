@@ -16,6 +16,11 @@ spec:
       maxUnavailable: 1
   template:
     metadata:
+      annotations:
+        checksum/config: {{ .Values.botConfig | toYaml | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
       labels:
         {{- include "slack-bot.selectorLabels" . | nindent 8 }}
     spec:

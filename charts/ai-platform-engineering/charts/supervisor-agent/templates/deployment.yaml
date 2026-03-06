@@ -14,10 +14,12 @@ spec:
       {{- include "supervisorAgent.selectorLabels" . | nindent 6 }}
   template:
     metadata:
-      {{- with .Values.podAnnotations }}
       annotations:
+        checksum/prompt-config: {{ .Values.promptConfig | default (.Files.Get (printf "data/prompt_config.%s.yaml" (.Values.promptConfigName | default "deep_agent"))) | sha256sum }}
+        checksum/prompt-config-rag: {{ .Values.ragPromptConfig | default (.Files.Get "data/prompt_config.rag.yaml") | sha256sum }}
+        {{- with .Values.podAnnotations }}
         {{- toYaml . | nindent 8 }}
-      {{- end }}
+        {{- end }}
       labels:
         {{- include "supervisorAgent.labels" . | nindent 8 }}
         {{- with .Values.podLabels }}

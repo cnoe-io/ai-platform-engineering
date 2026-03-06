@@ -15,10 +15,11 @@ spec:
       {{- include "agent.selectorLabels" . | nindent 6 }}
   template:
     metadata:
-      {{- with .Values.podAnnotations }}
       annotations:
+        checksum/prompt-config: {{ .Values.customPromptConfig | default (.Files.Get (printf "data/prompt_config.%s_agent.yaml" (include "agent.simpleName" .))) | sha256sum }}
+        {{- with .Values.podAnnotations }}
         {{- toYaml . | nindent 8 }}
-      {{- end }}
+        {{- end }}
       labels:
         {{- include "agent.labels" . | nindent 8 }}
         {{- with .Values.podLabels }}
