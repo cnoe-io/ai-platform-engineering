@@ -34,12 +34,19 @@ jobs:
         with:
           egress-policy: audit
 
+      - name: 🔑 Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+
       - name: 📥 Checkout repository (with synced Chart.yaml files)
         uses: actions/checkout@v6.0.2
         with:
           ref: main
           fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ steps.app-token.outputs.token }}
 
       - name: ✅ Validate version format
         run: |
@@ -173,7 +180,7 @@ jobs:
 
       - name: 🔄 Trigger fresh CI builds for release
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
           NEW_VERSION="${{ github.event.inputs.version }}"
           echo "🔄 Triggering fresh CI builds for release $NEW_VERSION..."
@@ -229,7 +236,7 @@ jobs:
 
       - name: 🚀 Create GitHub Release (Draft)
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
           NEW_VERSION="${{ github.event.inputs.version }}"
           echo "🔄 Creating DRAFT GitHub Release for $NEW_VERSION..."
