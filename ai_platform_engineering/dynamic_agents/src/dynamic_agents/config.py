@@ -7,7 +7,22 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    """Application settings loaded from environment variables."""
+    """Application settings loaded from environment variables.
+
+    Tracing (Langfuse) Configuration:
+        The following environment variables are read by cnoe-agent-utils.TracingManager
+        to enable Langfuse tracing for LLM calls and agent execution:
+
+        - ENABLE_TRACING: Set to "true" to enable tracing (default: disabled)
+        - LANGFUSE_PUBLIC_KEY: Langfuse project public key (e.g., "pk-lf-xxx")
+        - LANGFUSE_SECRET_KEY: Langfuse project secret key (e.g., "sk-lf-xxx")
+        - LANGFUSE_HOST: Langfuse server URL (e.g., "http://langfuse-web:3000")
+
+        When enabled, traces are grouped by session_id (conversation) and include:
+        - LLM inputs/outputs with token counts
+        - Tool calls as nested spans
+        - Agent metadata (name, config_id, user_id)
+    """
 
     model_config = SettingsConfigDict(
         env_file=".env",

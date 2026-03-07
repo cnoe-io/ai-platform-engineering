@@ -146,6 +146,7 @@ class ChatRequest(BaseModel):
     message: str = Field(..., description="User message")
     conversation_id: str = Field(..., description="Conversation/session ID")
     agent_id: str = Field(..., description="Dynamic agent config ID")
+    trace_id: str | None = Field(None, description="Optional trace ID for Langfuse tracing")
 
 
 class ChatEvent(BaseModel):

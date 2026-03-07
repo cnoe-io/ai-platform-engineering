@@ -11,6 +11,7 @@ from collections.abc import AsyncGenerator
 from typing import Any
 
 from cnoe_agent_utils import LLMFactory
+from cnoe_agent_utils.tracing import TracingManager
 from deepagents import create_deep_agent
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from langgraph.checkpoint.memory import InMemorySaver
@@ -122,6 +123,8 @@ class AgentRuntime:
         self._mcp_client: MultiServerMCPClient | None = None
         self._initialized = False
         self._created_at = time.time()
+        self.tracing = TracingManager()
+        self._current_trace_id: str | None = None
 
     async def initialize(self) -> None:
         """Build the DeepAgent graph with tools and instructions."""
@@ -217,6 +220,7 @@ class AgentRuntime:
         message: str,
         session_id: str,
         user_id: str,
+        trace_id: str | None = None,
     ) -> AsyncGenerator[dict[str, Any], None]:
         """Stream agent response for a user message.
 
@@ -232,6 +236,7 @@ class AgentRuntime:
             message: User's input message
             session_id: Conversation/session ID for checkpointing
             user_id: User's email/identifier
+            trace_id: Optional trace ID for Langfuse tracing
 
         Yields:
             SSE-compatible event dicts
@@ -239,16 +244,43 @@ class AgentRuntime:
         if not self._initialized:
             await self.initialize()
 
-        config = {
-            "configurable": {
-                "thread_id": session_id,
-            },
-            "context": AgentContext(
-                user_id=user_id,
-                agent_config_id=self.config.id,
-                session_id=session_id,
-            ),
-        }
+        # Create tracing config using TracingManager for Langfuse integration
+        config = self.tracing.create_config(session_id)
+
+        # Ensure configurable exists and set thread_id
+        if "configurable" not in config:
+            config["configurable"] = {}
+        config["configurable"]["thread_id"] = session_id
+
+        # Add agent context
+        config["context"] = AgentContext(
+            user_id=user_id,
+            agent_config_id=self.config.id,
+            session_id=session_id,
+        )
+
+        # Ensure metadata exists
+        if "metadata" not in config:
+            config["metadata"] = {}
+
+        # Add user_id and agent info to metadata for tracing
+        config["metadata"]["user_id"] = user_id
+        config["metadata"]["agent_config_id"] = self.config.id
+        config["metadata"]["agent_name"] = self.config.name
+
+        # Add trace_id to metadata for distributed tracing
+        if trace_id:
+            config["metadata"]["trace_id"] = trace_id
+            logger.info(f"Using provided trace_id: {trace_id}")
+        else:
+            # Try to get trace_id from TracingManager context
+            current_trace_id = self.tracing.get_trace_id()
+            if current_trace_id:
+                config["metadata"]["trace_id"] = current_trace_id
+                logger.debug(f"Using trace_id from TracingManager context: {current_trace_id}")
+
+        # Store trace_id for final_result event
+        self._current_trace_id = config.get("metadata", {}).get("trace_id")
 
         # Track tool calls for execution plan synthesis
         tool_tracker = _ToolTracker(agent_name=self.config.name)
@@ -273,6 +305,10 @@ class AgentRuntime:
                         "name": "final_result",
                         "description": "Final result from dynamic agent",
                         "parts": [{"kind": "text", "text": final_text}],
+                        "metadata": {
+                            "trace_id": self._current_trace_id,
+                            "agent_name": self.config.name,
+                        },
                     },
                 },
             }
