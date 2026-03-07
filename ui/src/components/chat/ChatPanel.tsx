@@ -14,6 +14,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useChatStore } from "@/store/chat-store";
 import { A2ASDKClient, type ParsedA2AEvent, type HITLDecision, toStoreEvent } from "@/lib/a2a-sdk-client";
+import { DynamicAgentClient } from "@/lib/dynamic-agent-client";
 import { isFeatureEnabled, useFeatureFlagStore } from "@/store/feature-flag-store";
 import { cn, deduplicateByKey } from "@/lib/utils";
 import { ChatMessage as ChatMessageType, A2AEvent } from "@/types/a2a";
@@ -32,9 +33,11 @@ interface ChatPanelProps {
   conversationTitle?: string;
   readOnly?: boolean;
   readOnlyReason?: ReadOnlyReason;
+  /** When set, use DynamicAgentClient instead of A2ASDKClient */
+  selectedAgentId?: string;
 }
 
-export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnly, readOnlyReason }: ChatPanelProps) {
+export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnly, readOnlyReason, selectedAgentId }: ChatPanelProps) {
   const { data: session } = useSession();
   const autoScrollEnabled = useFeatureFlagStore((s) => s.flags.autoScroll ?? true);
   const showTimestamps = useFeatureFlagStore((s) => s.flags.showTimestamps ?? false);
@@ -368,14 +371,31 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
     // Add assistant message placeholder with same turnId
     const assistantMsgId = addMessage(convId, { role: "assistant", content: "" }, turnId);
 
-    // Create A2A SDK client for this request.
-    // Only include userEmail when cross-thread memory is enabled so the
-    // backend can scope fact extraction and recall to this user.
-    const client = new A2ASDKClient({
-      endpoint,
-      accessToken,
-      userEmail: isFeatureEnabled("memory") ? (session?.user?.email ?? undefined) : undefined,
-    });
+    // Create the appropriate client and stream based on whether a dynamic agent is selected.
+    // Both clients yield ParsedA2AEvent objects, so the for-await loop body is identical.
+    let abortFn: () => void;
+    let eventStream: AsyncIterable<ParsedA2AEvent>;
+
+    if (selectedAgentId) {
+      // Dynamic agent: use lightweight SSE client via proxy route
+      const dynClient = new DynamicAgentClient({
+        proxyUrl: "/api/dynamic-agents/chat/stream",
+        accessToken,
+      });
+      abortFn = () => dynClient.abort();
+      eventStream = dynClient.sendMessageStream(messageToSend, convId, selectedAgentId);
+    } else {
+      // Default supervisor: use A2A SDK client
+      // Only include userEmail when cross-thread memory is enabled so the
+      // backend can scope fact extraction and recall to this user.
+      const a2aClient = new A2ASDKClient({
+        endpoint,
+        accessToken,
+        userEmail: isFeatureEnabled("memory") ? (session?.user?.email ?? undefined) : undefined,
+      });
+      abortFn = () => a2aClient.abort();
+      eventStream = a2aClient.sendMessageStream(messageToSend, convId);
+    }
 
     // ═══════════════════════════════════════════════════════════════
     // AGENT-FORGE PATTERN: Use local variables for streaming state
@@ -397,14 +417,15 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
     setConversationStreaming(convId, {
       conversationId: convId,
       messageId: assistantMsgId,
-      client: { abort: () => client.abort() } as ReturnType<typeof setConversationStreaming> extends void ? never : Parameters<typeof setConversationStreaming>[1] extends { client: infer C } ? C : never,
+      client: { abort: abortFn } as ReturnType<typeof setConversationStreaming> extends void ? never : Parameters<typeof setConversationStreaming>[1] extends { client: infer C } ? C : never,
     });
 
     try {
       // ═══════════════════════════════════════════════════════════════
       // AGENT-FORGE PATTERN: for await loop over async generator
+      // Both A2ASDKClient and DynamicAgentClient yield ParsedA2AEvent
       // ═══════════════════════════════════════════════════════════════
-      for await (const event of client.sendMessageStream(messageToSend, convId)) {
+      for await (const event of eventStream) {
         eventCounter++;
         const eventNum = eventCounter;
 
@@ -651,7 +672,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
       appendToMessage(convId, assistantMsgId, `\n\n**Error:** ${(error as Error).message || "Failed to connect to A2A endpoint"}`);
       setConversationStreaming(convId, null);
     }
-  }, [isThisConversationStreaming, activeConversationId, endpoint, accessToken, createConversation, clearA2AEvents, addMessage, appendToMessage, updateMessage, addEventToMessage, addA2AEvent, setConversationStreaming]);
+  }, [isThisConversationStreaming, activeConversationId, endpoint, accessToken, selectedAgentId, createConversation, clearA2AEvents, addMessage, appendToMessage, updateMessage, addEventToMessage, addA2AEvent, setConversationStreaming]);
 
   // Handle queued messages after streaming completes
   useEffect(() => {
