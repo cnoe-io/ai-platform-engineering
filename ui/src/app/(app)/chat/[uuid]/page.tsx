@@ -23,9 +23,7 @@ function ChatUUIDPage() {
   const uuid = params.uuid as string;
 
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [selectedAgentId, setSelectedAgentId] = useState<string | undefined>(undefined);
-  const [agentIdInitialized, setAgentIdInitialized] = useState(false);
-  const [agentInfo, setAgentInfo] = useState<{ name?: string; description?: string } | null>(null);
+  const [agentInfo, setAgentInfo] = useState<DynamicAgentConfig | null>(null);
 
   // Only subscribe to stable functions — NOT to `conversations`.
   // Subscribing to `conversations` caused this effect to re-run on every
@@ -34,6 +32,13 @@ function ChatUUIDPage() {
   // in-memory state with stale MongoDB data. Instead, we read conversations
   // imperatively inside the effect via useChatStore.getState().
   const { setActiveConversation, loadMessagesFromServer } = useChatStore();
+
+  // Subscribe reactively to agent_id for this conversation.
+  // This ensures we re-render when agent_id becomes available after MongoDB load.
+  const selectedAgentId = useChatStore(
+    (s) => s.conversations.find((c) => c.id === uuid)?.agent_id
+  );
+
   const caipeUrl = getConfig('caipeUrl');
   const dynamicAgentsUrl = getConfig('dynamicAgentsUrl');
   const dynamicAgentsEnabled = getConfig('dynamicAgentsEnabled');
@@ -179,6 +184,7 @@ function ChatUUIDPage() {
               updatedAt: new Date(conv.updated_at),
               messages: [], // Will be loaded below via loadMessagesFromServer
               a2aEvents: [],
+              agent_id: conv.agent_id, // Preserve dynamic agent ID
             };
 
             // Add to Zustand store so ContextPanel can find it
@@ -281,17 +287,9 @@ function ChatUUIDPage() {
     // overwrote correct final content with stale MongoDB data during streaming.
   }, [uuid, storageMode, setActiveConversation, loadMessagesFromServer]);
 
-  // Initialize selectedAgentId from conversation's agent_id once loaded
-  useEffect(() => {
-    if (!conversation || agentIdInitialized) return;
-
-    // Extract agent_id from conversation (works for both MongoDB and local types)
-    const agentId = ('agent_id' in conversation) ? conversation.agent_id : undefined;
-    setSelectedAgentId(agentId);
-    setAgentIdInitialized(true);
-  }, [conversation, agentIdInitialized]);
-
   // Fetch agent info when a dynamic agent is selected
+  // selectedAgentId is now a reactive Zustand selector, so this effect
+  // re-runs automatically when agent_id becomes available after MongoDB load.
   useEffect(() => {
     if (!selectedAgentId || !dynamicAgentsEnabled) {
       setAgentInfo(null);
@@ -304,10 +302,7 @@ function ChatUUIDPage() {
         if (response.ok) {
           const data = await response.json();
           const agent = data.data as DynamicAgentConfig;
-          setAgentInfo({
-            name: agent.name,
-            description: agent.description,
-          });
+          setAgentInfo(agent);
         }
       } catch (err) {
         console.error("Failed to fetch agent info:", err);
@@ -394,6 +389,9 @@ function ChatUUIDPage() {
           selectedAgentId={selectedAgentId}
           agentName={agentInfo?.name}
           agentDescription={agentInfo?.description}
+          agentModel={agentInfo?.model_id}
+          agentVisibility={agentInfo?.visibility}
+          allowedTools={agentInfo?.allowed_tools}
           readOnly={isReadOnly}
           readOnlyReason={readOnlyReason}
         />

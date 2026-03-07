@@ -18,6 +18,12 @@ interface DynamicAgentChatViewProps {
   agentName?: string;
   /** Agent description for display in context panel */
   agentDescription?: string;
+  /** Agent model ID */
+  agentModel?: string;
+  /** Agent visibility (private, team, global) */
+  agentVisibility?: string;
+  /** Map of server_id -> tool names */
+  allowedTools?: Record<string, string[]>;
   /** Whether the chat is read-only */
   readOnly?: boolean;
   /** Reason for read-only mode */
@@ -35,6 +41,9 @@ export function DynamicAgentChatView({
   selectedAgentId,
   agentName,
   agentDescription,
+  agentModel,
+  agentVisibility,
+  allowedTools,
   readOnly,
   readOnlyReason,
 }: DynamicAgentChatViewProps) {
@@ -64,6 +73,9 @@ export function DynamicAgentChatView({
       <DynamicAgentContext
         agentName={agentName}
         agentDescription={agentDescription}
+        agentModel={agentModel}
+        agentVisibility={agentVisibility}
+        allowedTools={allowedTools}
         collapsed={contextPanelCollapsed}
         onCollapse={setContextPanelCollapsed}
       />
