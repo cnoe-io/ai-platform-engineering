@@ -115,6 +115,10 @@ export interface Config {
   defaultTheme: string;
   /** Default gradient theme: "default" | "minimal" | "professional" | "ocean" | "sunset" | "cyberpunk" | "tron" | "matrix" */
   defaultGradientTheme: string;
+  /** Dynamic Agents server URL for custom agent chat */
+  dynamicAgentsUrl: string;
+  /** Whether dynamic agents feature is enabled */
+  dynamicAgentsEnabled: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -172,6 +176,8 @@ const DEFAULT_CONFIG: Config = {
   defaultFontFamily: DEFAULT_FONT_FAMILY,
   defaultTheme: DEFAULT_THEME,
   defaultGradientTheme: DEFAULT_GRADIENT_THEME,
+  dynamicAgentsUrl: 'http://localhost:8100',
+  dynamicAgentsEnabled: false,
 };
 
 // ---------------------------------------------------------------------------
@@ -236,6 +242,10 @@ export function getServerConfig(): Config {
   const feedbackEnabled = env('FEEDBACK_ENABLED') !== 'false';
   const npsEnabled = env('NPS_ENABLED') === 'true';
   const auditLogsEnabled = env('AUDIT_LOGS_ENABLED') === 'true';
+  const dynamicAgentsEnabled = env('DYNAMIC_AGENTS_ENABLED') === 'true';
+
+  const dynamicAgentsUrl = env('DYNAMIC_AGENTS_URL')
+    || (isProduction ? 'http://dynamic-agents:8100' : 'http://localhost:8100');
 
   const showPoweredByEnv = env('SHOW_POWERED_BY');
   const showPoweredBy = showPoweredByEnv !== undefined ? showPoweredByEnv !== 'false' : true;
@@ -282,6 +292,8 @@ export function getServerConfig(): Config {
     defaultFontFamily: validated(env('DEFAULT_FONT_FAMILY'), VALID_FONT_FAMILIES, DEFAULT_FONT_FAMILY),
     defaultTheme: validated(env('DEFAULT_THEME'), VALID_THEMES, DEFAULT_THEME),
     defaultGradientTheme: validated(env('DEFAULT_GRADIENT_THEME'), VALID_GRADIENT_THEMES, DEFAULT_GRADIENT_THEME),
+    dynamicAgentsUrl,
+    dynamicAgentsEnabled,
   };
 }
 

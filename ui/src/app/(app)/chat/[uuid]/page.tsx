@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { motion } from "framer-motion";
@@ -13,6 +13,7 @@ import { apiClient } from "@/lib/api-client";
 import { useChatStore } from "@/store/chat-store";
 import { getStorageMode } from "@/lib/storage-config";
 import { CAIPESpinner } from "@/components/ui/caipe-spinner";
+import { AgentSelector } from "@/components/chat/AgentSelector";
 import type { Conversation } from "@/types/mongodb";
 import type { Conversation as LocalConversation } from "@/types/a2a";
 
@@ -26,6 +27,7 @@ function ChatUUIDPage() {
   const [contextPanelVisible, setContextPanelVisible] = useState(true);
   const [contextPanelCollapsed, setContextPanelCollapsed] = useState(false);
   const [debugMode, setDebugMode] = useState(false);
+  const [selectedAgentId, setSelectedAgentId] = useState<string | undefined>(undefined);
 
   // Only subscribe to stable functions — NOT to `conversations`.
   // Subscribing to `conversations` caused this effect to re-run on every
@@ -35,6 +37,18 @@ function ChatUUIDPage() {
   // imperatively inside the effect via useChatStore.getState().
   const { setActiveConversation, loadMessagesFromServer } = useChatStore();
   const caipeUrl = getConfig('caipeUrl');
+  const dynamicAgentsUrl = getConfig('dynamicAgentsUrl');
+  const dynamicAgentsEnabled = getConfig('dynamicAgentsEnabled');
+
+  // Compute the endpoint based on selected agent
+  const chatEndpoint = useMemo(() => {
+    if (selectedAgentId && dynamicAgentsEnabled) {
+      // Dynamic agent uses the dynamic agents server with the agent ID
+      return `${dynamicAgentsUrl}/agents/${selectedAgentId}/chat`;
+    }
+    // Default supervisor
+    return caipeUrl;
+  }, [selectedAgentId, dynamicAgentsEnabled, dynamicAgentsUrl, caipeUrl]);
 
   const handleTabChange = (tab: "chat" | "gallery" | "knowledge" | "admin") => {
     if (tab === "chat") {
@@ -345,6 +359,19 @@ function ChatUUIDPage() {
 
       {/* Chat Panel with conversation ID */}
       <div className="flex-1 min-w-0 flex flex-col">
+        {/* Agent Selector Header - only show if dynamic agents are enabled */}
+        {dynamicAgentsEnabled && (
+          <div className="shrink-0 border-b border-border bg-background/80 backdrop-blur-sm px-4 py-2 flex items-center justify-between overflow-visible relative z-10">
+            <div className="flex items-center gap-3 overflow-visible">
+              <span className="text-sm text-muted-foreground">Agent:</span>
+              <AgentSelector
+                selectedAgentId={selectedAgentId}
+                onSelectAgent={setSelectedAgentId}
+                disabled={accessLevel === 'admin_audit' || accessLevel === 'shared_readonly'}
+              />
+            </div>
+          </div>
+        )}
         <motion.div
           key="chat"
           initial={{ opacity: 0 }}
@@ -353,11 +380,12 @@ function ChatUUIDPage() {
           className="h-full flex flex-col"
         >
           <ChatPanel
-            endpoint={caipeUrl}
+            endpoint={chatEndpoint}
             conversationId={uuid}
             conversationTitle={conversationTitle}
             readOnly={accessLevel === 'admin_audit' || accessLevel === 'shared_readonly'}
             readOnlyReason={accessLevel === 'admin_audit' ? 'admin_audit' : accessLevel === 'shared_readonly' ? 'shared_readonly' : undefined}
+            selectedAgentId={selectedAgentId}
           />
         </motion.div>
       </div>
