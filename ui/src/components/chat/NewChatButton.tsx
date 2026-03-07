@@ -34,7 +34,7 @@ export function NewChatButton({ collapsed, onNewChat }: NewChatButtonProps) {
           throw new Error("Failed to fetch agents");
         }
         const data = await response.json();
-        setAgents(data.agents || []);
+        setAgents(data.data || []);
       } catch (err) {
         console.error("Error fetching dynamic agents:", err);
         setError("Failed to load agents");
