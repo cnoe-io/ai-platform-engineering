@@ -753,6 +753,7 @@ const storeImplementation = (set: any, get: any) => ({
               // being viewed (prevents race with concurrent loadMessagesFromServer)
               messages: (isStreaming || hasLoadedMessages || isActive) && localConv ? localConv.messages : [],
               a2aEvents: (isStreaming || hasLoadedMessages || isActive) && localConv ? localConv.a2aEvents : [],
+              agent_id: conv.agent_id, // Dynamic agent ID; undefined = Platform Engineer
               owner_id: conv.owner_id,
               sharing: conv.sharing,
             };
