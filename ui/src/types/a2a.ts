@@ -163,6 +163,8 @@ export interface Conversation {
   messages: ChatMessage[];
   /** A2A events for this conversation (for debug panel, tasks, output) */
   a2aEvents: A2AEvent[];
+  /** Dynamic agent ID; undefined = Platform Engineer (default) */
+  agent_id?: string;
   /** Owner email (only for MongoDB conversations) */
   owner_id?: string;
   /** Sharing information (optional, only for MongoDB conversations) */

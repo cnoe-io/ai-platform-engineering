@@ -1,7 +1,8 @@
 "use client";
 
 import React from "react";
-import { Bot, ChevronDown, Check, Loader2 } from "lucide-react";
+import { Bot, ChevronDown, Check, Loader2, Lock } from "lucide-react";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import type { DynamicAgentConfig } from "@/types/dynamic-agent";
 
 interface AgentSelectorProps {
@@ -114,25 +115,44 @@ export function AgentSelector({ selectedAgentId, onSelectAgent, disabled }: Agen
   return (
     <div ref={containerRef} className="relative inline-flex">
       {/* Trigger button */}
-      <button
-        type="button"
-        onClick={() => setOpen(!open)}
-        disabled={disabled || loading}
-        className="inline-flex items-center justify-center whitespace-nowrap text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 border border-input bg-background hover:bg-accent hover:text-accent-foreground rounded-md px-3 gap-2 h-8"
-      >
-        {loading ? (
-          <Loader2 className="h-4 w-4 animate-spin" />
-        ) : (
-          <>
-            <Bot className="h-4 w-4" />
-            <span className="max-w-[150px] truncate">{selectedOption?.name}</span>
-            <ChevronDown className="h-3 w-3 opacity-50" />
-          </>
-        )}
-      </button>
+      <TooltipProvider delayDuration={300}>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              onClick={() => !disabled && setOpen(!open)}
+              disabled={loading}
+              className={`inline-flex items-center justify-center whitespace-nowrap text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 border border-input bg-background rounded-md px-3 gap-2 h-8 ${
+                disabled
+                  ? "cursor-default opacity-70"
+                  : "hover:bg-accent hover:text-accent-foreground cursor-pointer"
+              }`}
+            >
+              {loading ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <>
+                  <Bot className="h-4 w-4" />
+                  <span className="max-w-[150px] truncate">{selectedOption?.name}</span>
+                  {disabled ? (
+                    <Lock className="h-3 w-3 opacity-50" />
+                  ) : (
+                    <ChevronDown className="h-3 w-3 opacity-50" />
+                  )}
+                </>
+              )}
+            </button>
+          </TooltipTrigger>
+          {disabled && (
+            <TooltipContent side="bottom" sideOffset={8}>
+              <p className="text-xs">Agent is locked for this conversation</p>
+            </TooltipContent>
+          )}
+        </Tooltip>
+      </TooltipProvider>
 
-      {/* Dropdown */}
-      {open && (
+      {/* Dropdown - only show when open and not disabled */}
+      {open && !disabled && (
         <div
           className="absolute top-full left-0 mt-2 z-50 w-72 p-1 max-h-80 overflow-y-auto rounded-lg bg-popover text-popover-foreground shadow-lg border border-border animate-in fade-in-0 zoom-in-95 slide-in-from-top-2"
         >

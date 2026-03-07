@@ -28,6 +28,7 @@ function ChatUUIDPage() {
   const [contextPanelCollapsed, setContextPanelCollapsed] = useState(false);
   const [debugMode, setDebugMode] = useState(false);
   const [selectedAgentId, setSelectedAgentId] = useState<string | undefined>(undefined);
+  const [agentIdInitialized, setAgentIdInitialized] = useState(false);
 
   // Only subscribe to stable functions — NOT to `conversations`.
   // Subscribing to `conversations` caused this effect to re-run on every
@@ -292,6 +293,24 @@ function ChatUUIDPage() {
     // overwrote correct final content with stale MongoDB data during streaming.
   }, [uuid, storageMode, setActiveConversation, loadMessagesFromServer]);
 
+  // Initialize selectedAgentId from conversation's agent_id once loaded
+  useEffect(() => {
+    if (!conversation || agentIdInitialized) return;
+
+    // Extract agent_id from conversation (works for both MongoDB and local types)
+    const agentId = ('agent_id' in conversation) ? conversation.agent_id : undefined;
+    setSelectedAgentId(agentId);
+    setAgentIdInitialized(true);
+  }, [conversation, agentIdInitialized]);
+
+  // Determine if agent is locked (conversation has messages)
+  const isAgentLocked = useMemo(() => {
+    if (!conversation) return false;
+    // Check messages in local state
+    const conv = useChatStore.getState().conversations.find((c) => c.id === uuid);
+    return !!(conv?.messages && conv.messages.length > 0);
+  }, [conversation, uuid, storeHasMessages]); // storeHasMessages is reactive trigger
+
   // Show loading spinner when:
   // 1. The async fetch is still in flight, OR
   // 2. The fetch completed but a concurrent Sidebar refresh wiped the messages
@@ -367,7 +386,7 @@ function ChatUUIDPage() {
               <AgentSelector
                 selectedAgentId={selectedAgentId}
                 onSelectAgent={setSelectedAgentId}
-                disabled={accessLevel === 'admin_audit' || accessLevel === 'shared_readonly'}
+                disabled={isAgentLocked || accessLevel === 'admin_audit' || accessLevel === 'shared_readonly'}
               />
             </div>
           </div>

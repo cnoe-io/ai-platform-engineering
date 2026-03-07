@@ -31,7 +31,7 @@ interface ChatState {
   inputRequiredConversations: Set<string>;
 
   // Actions
-  createConversation: () => string;
+  createConversation: (agentId?: string) => string;
   setActiveConversation: (id: string) => void;
   addMessage: (conversationId: string, message: Omit<ChatMessage, "id" | "timestamp" | "events">, turnId?: string) => string;
   updateMessage: (conversationId: string, messageId: string, updates: Partial<ChatMessage>) => void;
@@ -148,7 +148,7 @@ const storeImplementation = (set: any, get: any) => ({
       unviewedConversations: new Set<string>(),
       inputRequiredConversations: new Set<string>(),
 
-      createConversation: () => {
+      createConversation: (agentId?: string) => {
         const id = generateId();
         const newConversation: Conversation = {
           id,
@@ -157,6 +157,7 @@ const storeImplementation = (set: any, get: any) => ({
           updatedAt: new Date(),
           messages: [],
           a2aEvents: [], // Initialize with empty events
+          agent_id: agentId, // Dynamic agent ID; undefined = Platform Engineer
         };
 
         const storageMode = getStorageMode();
@@ -168,6 +169,7 @@ const storeImplementation = (set: any, get: any) => ({
           apiClient.createConversation({
             id,
             title: newConversation.title,
+            agent_id: agentId, // Pass agent_id to MongoDB
           }).then(() => {
             console.log('[ChatStore] Created conversation in MongoDB:', id);
           }).catch((error) => {
