@@ -3,10 +3,9 @@
 import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
-import { motion } from "framer-motion";
 import { Sidebar } from "@/components/layout/Sidebar";
-import { ChatPanel } from "@/components/chat/ChatPanel";
-import { ContextPanel } from "@/components/a2a/ContextPanel";
+import { PlatformEngineerChatView } from "@/components/chat/PlatformEngineerChatView";
+import { DynamicAgentChatView } from "@/components/dynamic-agents/DynamicAgentChatView";
 import { AuthGuard } from "@/components/auth-guard";
 import { getConfig } from "@/lib/config";
 import { apiClient } from "@/lib/api-client";
@@ -15,6 +14,7 @@ import { getStorageMode } from "@/lib/storage-config";
 import { CAIPESpinner } from "@/components/ui/caipe-spinner";
 import type { Conversation } from "@/types/mongodb";
 import type { Conversation as LocalConversation } from "@/types/a2a";
+import type { DynamicAgentConfig } from "@/types/dynamic-agent";
 
 function ChatUUIDPage() {
   const params = useParams();
@@ -23,11 +23,9 @@ function ChatUUIDPage() {
   const uuid = params.uuid as string;
 
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [contextPanelVisible, setContextPanelVisible] = useState(true);
-  const [contextPanelCollapsed, setContextPanelCollapsed] = useState(false);
-  const [debugMode, setDebugMode] = useState(false);
   const [selectedAgentId, setSelectedAgentId] = useState<string | undefined>(undefined);
   const [agentIdInitialized, setAgentIdInitialized] = useState(false);
+  const [agentInfo, setAgentInfo] = useState<{ name?: string; description?: string } | null>(null);
 
   // Only subscribe to stable functions — NOT to `conversations`.
   // Subscribing to `conversations` caused this effect to re-run on every
@@ -87,15 +85,6 @@ function ChatUUIDPage() {
   // "still loading" from "genuinely empty / new conversation".
   const [fetchDone, setFetchDone] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  // Memoized callbacks (must be before early returns to maintain hooks order)
-  const handleDebugModeChange = useCallback((enabled: boolean) => {
-    setDebugMode(enabled);
-  }, []);
-
-  const handleContextPanelCollapse = useCallback((collapsed: boolean) => {
-    setContextPanelCollapsed(collapsed);
-  }, []);
 
   // Load conversation from MongoDB or localStorage
   useEffect(() => {
@@ -302,6 +291,32 @@ function ChatUUIDPage() {
     setAgentIdInitialized(true);
   }, [conversation, agentIdInitialized]);
 
+  // Fetch agent info when a dynamic agent is selected
+  useEffect(() => {
+    if (!selectedAgentId || !dynamicAgentsEnabled) {
+      setAgentInfo(null);
+      return;
+    }
+
+    async function fetchAgentInfo() {
+      try {
+        const response = await fetch(`/api/dynamic-agents/agents/${selectedAgentId}`);
+        if (response.ok) {
+          const data = await response.json();
+          const agent = data.data as DynamicAgentConfig;
+          setAgentInfo({
+            name: agent.name,
+            description: agent.description,
+          });
+        }
+      } catch (err) {
+        console.error("Failed to fetch agent info:", err);
+      }
+    }
+
+    fetchAgentInfo();
+  }, [selectedAgentId, dynamicAgentsEnabled]);
+
   // Show loading spinner when:
   // 1. The async fetch is still in flight, OR
   // 2. The fetch completed but a concurrent Sidebar refresh wiped the messages
@@ -357,6 +372,9 @@ function ChatUUIDPage() {
     ? ('_id' in conversation ? conversation.title : conversation.title)
     : undefined;
 
+  const isReadOnly = accessLevel === 'admin_audit' || accessLevel === 'shared_readonly';
+  const readOnlyReason = accessLevel === 'admin_audit' ? 'admin_audit' : accessLevel === 'shared_readonly' ? 'shared_readonly' : undefined;
+
   return (
     <div className="flex-1 flex overflow-hidden">
       {/* Sidebar - with conversation history */}
@@ -367,33 +385,25 @@ function ChatUUIDPage() {
         onCollapse={setSidebarCollapsed}
       />
 
-      {/* Chat Panel with conversation ID */}
-      <div className="flex-1 min-w-0 flex flex-col">
-        <motion.div
-          key="chat"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ duration: 0.2 }}
-          className="h-full flex flex-col"
-        >
-          <ChatPanel
-            endpoint={chatEndpoint}
-            conversationId={uuid}
-            conversationTitle={conversationTitle}
-            readOnly={accessLevel === 'admin_audit' || accessLevel === 'shared_readonly'}
-            readOnlyReason={accessLevel === 'admin_audit' ? 'admin_audit' : accessLevel === 'shared_readonly' ? 'shared_readonly' : undefined}
-            selectedAgentId={selectedAgentId}
-          />
-        </motion.div>
-      </div>
-
-      {/* Context/Output Panel - kept in DOM tree, only visibility changes */}
-      {contextPanelVisible && (
-        <ContextPanel
-          debugMode={debugMode}
-          onDebugModeChange={handleDebugModeChange}
-          collapsed={contextPanelCollapsed}
-          onCollapse={handleContextPanelCollapse}
+      {/* Chat View - different component based on agent type */}
+      {selectedAgentId && dynamicAgentsEnabled ? (
+        <DynamicAgentChatView
+          endpoint={chatEndpoint}
+          conversationId={uuid}
+          conversationTitle={conversationTitle}
+          selectedAgentId={selectedAgentId}
+          agentName={agentInfo?.name}
+          agentDescription={agentInfo?.description}
+          readOnly={isReadOnly}
+          readOnlyReason={readOnlyReason}
+        />
+      ) : (
+        <PlatformEngineerChatView
+          endpoint={chatEndpoint}
+          conversationId={uuid}
+          conversationTitle={conversationTitle}
+          readOnly={isReadOnly}
+          readOnlyReason={readOnlyReason}
         />
       )}
     </div>
