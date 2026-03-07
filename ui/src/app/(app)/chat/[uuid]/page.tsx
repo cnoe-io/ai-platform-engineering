@@ -1,8 +1,7 @@
 "use client";
 
-import React, { useState, useEffect, useCallback, useMemo } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { Sidebar } from "@/components/layout/Sidebar";
 import { PlatformEngineerChatView } from "@/components/chat/PlatformEngineerChatView";
 import { DynamicAgentChatView } from "@/components/dynamic-agents/DynamicAgentChatView";
 import { AuthGuard } from "@/components/auth-guard";
@@ -20,7 +19,6 @@ function ChatUUIDPage() {
   const router = useRouter();
   const uuid = params.uuid as string;
 
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [agentInfo, setAgentInfo] = useState<DynamicAgentConfig | null>(null);
 
   // Only subscribe to stable functions — NOT to `conversations`.
@@ -51,18 +49,6 @@ function ChatUUIDPage() {
     return caipeUrl;
   }, [selectedAgentId, dynamicAgentsEnabled, dynamicAgentsUrl, caipeUrl]);
 
-  const handleTabChange = (tab: "chat" | "gallery" | "knowledge" | "admin") => {
-    if (tab === "chat") {
-      router.push("/chat");
-    } else if (tab === "gallery") {
-      router.push("/use-cases");
-    } else if (tab === "admin") {
-      router.push("/admin");
-    } else {
-      router.push("/knowledge-bases");
-    }
-  };
-
   const storageMode = getStorageMode();
 
   // Reactive selector: true when the store has messages for this UUID.
@@ -76,17 +62,24 @@ function ChatUUIDPage() {
     }
   );
 
+  // Check store imperatively for initial state — avoids flash for cached conversations.
+  // The reactive `storeHasMessages` selector is for re-renders, but useState only
+  // captures the initial value once. We need a synchronous check here.
   const existingConv = useChatStore.getState().conversations.find((c) => c.id === uuid);
+  const existingHasMessages = !!(existingConv?.messages && existingConv.messages.length > 0);
 
   const [conversation, setConversation] = useState<Conversation | LocalConversation | null>(existingConv || null);
   const [accessLevel, setAccessLevel] = useState<string | null>(null);
   // Track whether the async fetch is still in flight.
+  // Use imperative check (existingHasMessages) for initial state to avoid spinner flash
+  // for conversations already loaded in memory.
   const [fetchInProgress, setFetchInProgress] = useState(
-    storageMode === 'mongodb' && !storeHasMessages
+    storageMode === 'mongodb' && !existingHasMessages
   );
   // Track whether the fetch has completed at least once — used to distinguish
   // "still loading" from "genuinely empty / new conversation".
-  const [fetchDone, setFetchDone] = useState(false);
+  // If we already have messages, consider the fetch "done" to avoid spinner flash.
+  const [fetchDone, setFetchDone] = useState(existingHasMessages);
   const [error, setError] = useState<string | null>(null);
 
   // Load conversation from MongoDB or localStorage
@@ -308,39 +301,23 @@ function ChatUUIDPage() {
 
   if (showSpinner) {
     return (
-      <div className="flex-1 flex overflow-hidden">
-        <Sidebar
-          activeTab="chat"
-          onTabChange={handleTabChange}
-          collapsed={sidebarCollapsed}
-          onCollapse={setSidebarCollapsed}
-        />
-        <div className="flex-1 flex items-center justify-center">
-          <CAIPESpinner size="lg" message="Loading conversation..." />
-        </div>
+      <div className="flex-1 flex items-center justify-center">
+        <CAIPESpinner size="lg" message="Loading conversation..." />
       </div>
     );
   }
 
   if (error) {
     return (
-      <div className="flex-1 flex overflow-hidden">
-        <Sidebar
-          activeTab="chat"
-          onTabChange={handleTabChange}
-          collapsed={sidebarCollapsed}
-          onCollapse={setSidebarCollapsed}
-        />
-        <div className="flex-1 flex items-center justify-center">
-          <div className="flex flex-col items-center gap-4">
-            <p className="text-sm text-destructive">{error}</p>
-            <button
-              onClick={() => router.push("/chat")}
-              className="text-sm text-primary hover:underline"
-            >
-              Go to new conversation
-            </button>
-          </div>
+      <div className="flex-1 flex items-center justify-center">
+        <div className="flex flex-col items-center gap-4">
+          <p className="text-sm text-destructive">{error}</p>
+          <button
+            onClick={() => router.push("/chat")}
+            className="text-sm text-primary hover:underline"
+          >
+            Go to new conversation
+          </button>
         </div>
       </div>
     );
@@ -353,41 +330,30 @@ function ChatUUIDPage() {
   const isReadOnly = accessLevel === 'admin_audit' || accessLevel === 'shared_readonly';
   const readOnlyReason = accessLevel === 'admin_audit' ? 'admin_audit' : accessLevel === 'shared_readonly' ? 'shared_readonly' : undefined;
 
-  return (
-    <div className="flex-1 flex overflow-hidden">
-      {/* Sidebar - with conversation history */}
-      <Sidebar
-        activeTab="chat"
-        onTabChange={handleTabChange}
-        collapsed={sidebarCollapsed}
-        onCollapse={setSidebarCollapsed}
-      />
-
-      {/* Chat View - different component based on agent type */}
-      {selectedAgentId && dynamicAgentsEnabled ? (
-        <DynamicAgentChatView
-          endpoint={chatEndpoint}
-          conversationId={uuid}
-          conversationTitle={conversationTitle}
-          selectedAgentId={selectedAgentId}
-          agentName={agentInfo?.name}
-          agentDescription={agentInfo?.description}
-          agentModel={agentInfo?.model_id}
-          agentVisibility={agentInfo?.visibility}
-          allowedTools={agentInfo?.allowed_tools}
-          readOnly={isReadOnly}
-          readOnlyReason={readOnlyReason}
-        />
-      ) : (
-        <PlatformEngineerChatView
-          endpoint={chatEndpoint}
-          conversationId={uuid}
-          conversationTitle={conversationTitle}
-          readOnly={isReadOnly}
-          readOnlyReason={readOnlyReason}
-        />
-      )}
-    </div>
+  // Chat View - different component based on agent type
+  // Sidebar is rendered in the layout, not here
+  return selectedAgentId && dynamicAgentsEnabled ? (
+    <DynamicAgentChatView
+      endpoint={chatEndpoint}
+      conversationId={uuid}
+      conversationTitle={conversationTitle}
+      selectedAgentId={selectedAgentId}
+      agentName={agentInfo?.name}
+      agentDescription={agentInfo?.description}
+      agentModel={agentInfo?.model_id}
+      agentVisibility={agentInfo?.visibility}
+      allowedTools={agentInfo?.allowed_tools}
+      readOnly={isReadOnly}
+      readOnlyReason={readOnlyReason}
+    />
+  ) : (
+    <PlatformEngineerChatView
+      endpoint={chatEndpoint}
+      conversationId={uuid}
+      conversationTitle={conversationTitle}
+      readOnly={isReadOnly}
+      readOnlyReason={readOnlyReason}
+    />
   );
 }
 
