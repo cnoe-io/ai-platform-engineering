@@ -38,6 +38,10 @@ interface ToolCall {
 interface DynamicAgentContextProps {
   agentName?: string;
   agentDescription?: string;
+  agentModel?: string;
+  agentVisibility?: string;
+  /** Map of server_id -> tool names (empty array = all tools from server) */
+  allowedTools?: Record<string, string[]>;
   collapsed?: boolean;
   onCollapse?: (collapsed: boolean) => void;
 }
@@ -49,6 +53,9 @@ interface DynamicAgentContextProps {
 export function DynamicAgentContext({
   agentName,
   agentDescription,
+  agentModel,
+  agentVisibility,
+  allowedTools,
   collapsed = false,
   onCollapse,
 }: DynamicAgentContextProps) {
@@ -202,6 +209,9 @@ export function DynamicAgentContext({
               <AgentInfoContent
                 agentName={agentName}
                 agentDescription={agentDescription}
+                agentModel={agentModel}
+                agentVisibility={agentVisibility}
+                allowedTools={allowedTools}
               />
             )}
           </div>
@@ -330,9 +340,33 @@ function ToolCard({ tool }: { tool: ToolCall }) {
 interface AgentInfoContentProps {
   agentName?: string;
   agentDescription?: string;
+  agentModel?: string;
+  agentVisibility?: string;
+  allowedTools?: Record<string, string[]>;
 }
 
-function AgentInfoContent({ agentName, agentDescription }: AgentInfoContentProps) {
+function AgentInfoContent({
+  agentName,
+  agentDescription,
+  agentModel,
+  agentVisibility,
+  allowedTools,
+}: AgentInfoContentProps) {
+  // Count total tools across all MCP servers
+  const toolCount = allowedTools
+    ? Object.entries(allowedTools).reduce((sum, [, tools]) => {
+        // Empty array means "all tools" from that server
+        return sum + (tools.length > 0 ? tools.length : 1);
+      }, 0)
+    : 0;
+
+  const serverCount = allowedTools ? Object.keys(allowedTools).length : 0;
+
+  // Format visibility for display
+  const visibilityDisplay = agentVisibility
+    ? agentVisibility.charAt(0).toUpperCase() + agentVisibility.slice(1)
+    : "Private";
+
   return (
     <div className="space-y-4">
       {/* Agent header */}
@@ -358,63 +392,147 @@ function AgentInfoContent({ agentName, agentDescription }: AgentInfoContentProps
         </div>
       )}
 
-      {/* Placeholder for future: system prompt preview, allowed tools, etc */}
-      <div className="pt-2 border-t border-border/50">
-        <p className="text-xs text-muted-foreground">
-          This agent uses custom tools and prompts configured in the Dynamic Agents admin panel.
-        </p>
+      {/* Agent details */}
+      <div className="space-y-2 pt-2 border-t border-border/50">
+        <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+          Configuration
+        </h4>
+
+        <div className="grid grid-cols-2 gap-2 text-sm">
+          {/* Model */}
+          <div className="space-y-0.5">
+            <span className="text-xs text-muted-foreground">Model</span>
+            <p className="font-medium truncate" title={agentModel || "Default"}>
+              {agentModel || "Default"}
+            </p>
+          </div>
+
+          {/* Visibility */}
+          <div className="space-y-0.5">
+            <span className="text-xs text-muted-foreground">Visibility</span>
+            <p className="font-medium">{visibilityDisplay}</p>
+          </div>
+
+          {/* MCP Servers */}
+          <div className="space-y-0.5">
+            <span className="text-xs text-muted-foreground">MCP Servers</span>
+            <p className="font-medium">{serverCount}</p>
+          </div>
+
+          {/* Tools */}
+          <div className="space-y-0.5">
+            <span className="text-xs text-muted-foreground">Tools</span>
+            <p className="font-medium">
+              {serverCount > 0
+                ? toolCount > 0
+                  ? `${toolCount}+`
+                  : "All"
+                : "None"}
+            </p>
+          </div>
+        </div>
       </div>
+
+      {/* MCP Server list */}
+      {serverCount > 0 && (
+        <div className="space-y-2">
+          <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+            Connected MCP Servers
+          </h4>
+          <div className="space-y-1">
+            {Object.keys(allowedTools || {}).map((serverId) => (
+              <div
+                key={serverId}
+                className="text-xs px-2 py-1 rounded bg-muted/50 font-mono truncate"
+                title={serverId}
+              >
+                {serverId}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
 // ═══════════════════════════════════════════════════════════════
 // Helper: Parse tool calls from A2A events
+// Same logic as ContextPanel.parseToolCalls() - parses plain text,
+// not JSON, since backend sends human-readable text in artifacts.
 // ═══════════════════════════════════════════════════════════════
 
 function parseToolCalls(events: A2AEvent[]): ToolCall[] {
-  const toolMap = new Map<string, ToolCall>();
+  const toolsMap = new Map<string, ToolCall>();
 
-  for (const event of events) {
-    const artifactName = event.artifact?.name;
-    if (!artifactName) continue;
+  events.forEach((event, idx) => {
+    // Check event type (set by toStoreEvent) or artifact name
+    const isToolStart = event.type === "tool_start" || event.artifact?.name === "tool_notification_start";
+    const isToolEnd = event.type === "tool_end" || event.artifact?.name === "tool_notification_end";
 
-    if (artifactName === "tool_notification_start") {
-      const text = event.artifact?.parts?.[0]?.text || "";
-      try {
-        const data = JSON.parse(text);
-        const toolId = data.call_id || `tool-${Date.now()}`;
-        toolMap.set(toolId, {
-          id: toolId,
-          tool: data.tool_name || "Unknown tool",
-          agent: data.agent_name,
-          status: "running",
-          startTime: event.timestamp,
-        });
-      } catch {
-        // Ignore parse errors
+    if (isToolStart) {
+      // Try to get tool name from artifact description (most reliable)
+      // Format: "Tool call started: {tool_name}"
+      const description = event.artifact?.description || "";
+      const text = event.displayContent || event.artifact?.parts?.[0]?.text || "";
+
+      let toolName = "Unknown Tool";
+      let agentName: string | undefined;
+
+      // Parse from description: "Tool call started: list_pull_requests"
+      const descMatch = description.match(/Tool call (?:started|completed):\s*(.+)/i);
+      if (descMatch) {
+        toolName = descMatch[1].trim();
       }
-    }
 
-    if (artifactName === "tool_notification_end") {
-      const text = event.artifact?.parts?.[0]?.text || "";
-      try {
-        const data = JSON.parse(text);
-        const toolId = data.call_id;
-        if (toolId && toolMap.has(toolId)) {
-          const existing = toolMap.get(toolId)!;
-          toolMap.set(toolId, {
-            ...existing,
-            status: "completed",
-            endTime: event.timestamp,
-            result: data.result,
-          });
+      // Try to get agent from displayContent: "AgentName: Calling tool: tool_name"
+      const agentMatch = text.match(/^(\w+):\s*(?:Calling|Tool)/i);
+      if (agentMatch) {
+        agentName = agentMatch[1];
+      }
+
+      // Also try pattern: "AgentName: Calling tool: ToolName"
+      const fullMatch = text.match(/^(\w+):\s*(?:Calling\s+)?(?:tool:\s*)?(\w+)/i);
+      if (fullMatch) {
+        agentName = fullMatch[1];
+        if (!descMatch) {
+          toolName = fullMatch[2];
         }
-      } catch {
-        // Ignore parse errors
+      }
+
+      const toolId = `tool-${event.id || idx}`;
+      toolsMap.set(toolId, {
+        id: toolId,
+        agent: agentName,
+        tool: toolName,
+        status: "running",
+        startTime: event.timestamp,
+      });
+    }
+
+    if (isToolEnd) {
+      // Get tool name from artifact description
+      const description = event.artifact?.description || "";
+      const descMatch = description.match(/Tool call (?:completed|started):\s*(.+)/i);
+      const toolName = descMatch ? descMatch[1].trim().toLowerCase() : "";
+
+      // Mark matching running tool as complete
+      for (const [, tool] of toolsMap) {
+        if (tool.status === "running") {
+          // Match by tool name if available, otherwise just mark the oldest running tool
+          if (toolName && tool.tool.toLowerCase() === toolName) {
+            tool.status = "completed";
+            tool.endTime = event.timestamp;
+            break;
+          } else if (!toolName) {
+            tool.status = "completed";
+            tool.endTime = event.timestamp;
+            break;
+          }
+        }
       }
     }
-  }
+  });
 
-  return Array.from(toolMap.values());
+  return Array.from(toolsMap.values());
 }
