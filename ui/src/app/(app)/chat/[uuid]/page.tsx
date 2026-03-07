@@ -13,7 +13,6 @@ import { apiClient } from "@/lib/api-client";
 import { useChatStore } from "@/store/chat-store";
 import { getStorageMode } from "@/lib/storage-config";
 import { CAIPESpinner } from "@/components/ui/caipe-spinner";
-import { AgentSelector } from "@/components/chat/AgentSelector";
 import type { Conversation } from "@/types/mongodb";
 import type { Conversation as LocalConversation } from "@/types/a2a";
 
@@ -303,14 +302,6 @@ function ChatUUIDPage() {
     setAgentIdInitialized(true);
   }, [conversation, agentIdInitialized]);
 
-  // Determine if agent is locked (conversation has messages)
-  const isAgentLocked = useMemo(() => {
-    if (!conversation) return false;
-    // Check messages in local state
-    const conv = useChatStore.getState().conversations.find((c) => c.id === uuid);
-    return !!(conv?.messages && conv.messages.length > 0);
-  }, [conversation, uuid, storeHasMessages]); // storeHasMessages is reactive trigger
-
   // Show loading spinner when:
   // 1. The async fetch is still in flight, OR
   // 2. The fetch completed but a concurrent Sidebar refresh wiped the messages
@@ -378,19 +369,6 @@ function ChatUUIDPage() {
 
       {/* Chat Panel with conversation ID */}
       <div className="flex-1 min-w-0 flex flex-col">
-        {/* Agent Selector Header - only show if dynamic agents are enabled */}
-        {dynamicAgentsEnabled && (
-          <div className="shrink-0 border-b border-border bg-background/80 backdrop-blur-sm px-4 py-2 flex items-center justify-between overflow-visible relative z-10">
-            <div className="flex items-center gap-3 overflow-visible">
-              <span className="text-sm text-muted-foreground">Agent:</span>
-              <AgentSelector
-                selectedAgentId={selectedAgentId}
-                onSelectAgent={setSelectedAgentId}
-                disabled={isAgentLocked || accessLevel === 'admin_audit' || accessLevel === 'shared_readonly'}
-              />
-            </div>
-          </div>
-        )}
         <motion.div
           key="chat"
           initial={{ opacity: 0 }}
