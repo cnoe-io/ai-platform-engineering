@@ -68,6 +68,16 @@ export interface MCPServerProbeResult {
 // Dynamic Agent Types
 // =============================================================================
 
+/**
+ * Reference to another dynamic agent to use as a subagent.
+ * When configured, the parent agent can delegate tasks to this subagent.
+ */
+export interface SubAgentRef {
+  agent_id: string;     // MongoDB ObjectId of the subagent
+  name: string;         // Routing identifier (e.g., 'code-reviewer')
+  description: string;  // Description for LLM routing decisions
+}
+
 export interface DynamicAgentConfig {
   _id: string;
   name: string;
@@ -79,6 +89,7 @@ export interface DynamicAgentConfig {
   model_id?: string;
   visibility: VisibilityType;
   shared_with_teams?: string[];
+  subagents: SubAgentRef[];  // Other dynamic agents that can be delegated to
   enabled: boolean;
   owner_id: string;
   is_system: boolean;
@@ -96,6 +107,7 @@ export interface DynamicAgentConfigCreate {
   model_id?: string;
   visibility?: VisibilityType;
   shared_with_teams?: string[];
+  subagents?: SubAgentRef[];
   enabled?: boolean;
 }
 
@@ -109,7 +121,17 @@ export interface DynamicAgentConfigUpdate {
   model_id?: string;
   visibility?: VisibilityType;
   shared_with_teams?: string[];
+  subagents?: SubAgentRef[];
   enabled?: boolean;
+}
+
+/**
+ * Available agent for subagent selection (returned by available-subagents endpoint)
+ */
+export interface AvailableSubagent {
+  id: string;
+  name: string;
+  description?: string;
 }
 
 // =============================================================================

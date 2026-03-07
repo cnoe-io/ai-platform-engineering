@@ -12,8 +12,10 @@ import type {
   DynamicAgentConfigCreate,
   DynamicAgentConfigUpdate,
   VisibilityType,
+  SubAgentRef,
 } from "@/types/dynamic-agent";
 import { AllowedToolsPicker } from "./AllowedToolsPicker";
+import { SubagentPicker } from "./SubagentPicker";
 
 interface DynamicAgentEditorProps {
   agent: DynamicAgentConfig | null; // null = creating new
@@ -55,12 +57,15 @@ export function DynamicAgentEditor({ agent, onSave, onCancel }: DynamicAgentEdit
   const [allowedTools, setAllowedTools] = React.useState<Record<string, string[]>>(
     agent?.allowed_tools || {}
   );
+  const [subagents, setSubagents] = React.useState<SubAgentRef[]>(
+    agent?.subagents || []
+  );
 
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
   // Tabs for the form sections
-  const [activeSection, setActiveSection] = React.useState<"basic" | "instructions" | "tools">("basic");
+  const [activeSection, setActiveSection] = React.useState<"basic" | "instructions" | "tools" | "subagents">("basic");
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -78,6 +83,7 @@ export function DynamicAgentEditor({ agent, onSave, onCancel }: DynamicAgentEdit
           extension_prompt: extensionPrompt || undefined,
           visibility,
           allowed_tools: allowedTools,
+          subagents: subagents.length > 0 ? subagents : undefined,
         };
 
         const response = await fetch(`/api/dynamic-agents?id=${agent._id}`, {
@@ -100,6 +106,7 @@ export function DynamicAgentEditor({ agent, onSave, onCancel }: DynamicAgentEdit
           extension_prompt: extensionPrompt || undefined,
           visibility,
           allowed_tools: allowedTools,
+          subagents: subagents.length > 0 ? subagents : undefined,
         };
 
         const response = await fetch("/api/dynamic-agents", {
@@ -128,6 +135,7 @@ export function DynamicAgentEditor({ agent, onSave, onCancel }: DynamicAgentEdit
     { id: "basic" as const, label: "Basic Info" },
     { id: "instructions" as const, label: "Instructions" },
     { id: "tools" as const, label: "Tools" },
+    { id: "subagents" as const, label: "Subagents" },
   ];
 
   return (
@@ -297,6 +305,26 @@ export function DynamicAgentEditor({ agent, onSave, onCancel }: DynamicAgentEdit
             </div>
           )}
 
+          {/* Subagents Section */}
+          {activeSection === "subagents" && (
+            <div className="space-y-4">
+              <div>
+                <Label>Subagent Delegation</Label>
+                <p className="text-xs text-muted-foreground mb-4">
+                  Configure other dynamic agents that this agent can delegate tasks to.
+                  The LLM will automatically decide when to use each subagent based on the description you provide.
+                </p>
+              </div>
+
+              <SubagentPicker
+                agentId={agent?._id || null}
+                value={subagents}
+                onChange={setSubagents}
+                disabled={loading}
+              />
+            </div>
+          )}
+
           {/* Error */}
           {error && (
             <div className="rounded-lg bg-destructive/10 border border-destructive/30 p-3">
@@ -307,13 +335,9 @@ export function DynamicAgentEditor({ agent, onSave, onCancel }: DynamicAgentEdit
           {/* Actions */}
           <div className="flex items-center justify-between pt-4 border-t">
             <div className="text-sm text-muted-foreground">
-              {Object.keys(allowedTools).length === 0 ? (
-                <span>No tools selected</span>
-              ) : (
-                <span>
-                  {Object.keys(allowedTools).length} server(s) selected
-                </span>
-              )}
+              <span>
+                {Object.keys(allowedTools).length} server(s), {subagents.length} subagent(s)
+              </span>
             </div>
             <div className="flex items-center gap-2">
               <Button type="button" variant="outline" onClick={onCancel} disabled={loading}>

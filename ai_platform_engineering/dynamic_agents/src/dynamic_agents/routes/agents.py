@@ -158,6 +158,94 @@ async def delete_agent(
     return ApiResponse(success=True, data={"deleted": agent_id})
 
 
+@router.get("/{agent_id}/available-subagents", response_model=ApiResponse)
+async def list_available_subagents(
+    agent_id: str,
+    user: UserContext = Depends(require_admin),
+    mongo: MongoDBService = Depends(get_mongo_service),
+) -> ApiResponse:
+    """List agents that can be configured as subagents for the given agent.
+
+    Returns all enabled agents except:
+    - The agent itself (can't delegate to itself)
+    - Agents that would create a circular reference
+
+    Requires admin role.
+    """
+    # Get the parent agent
+    parent_agent = mongo.get_agent(agent_id)
+    if not parent_agent:
+        raise HTTPException(status_code=404, detail="Agent not found")
+
+    # Get all enabled agents
+    all_agents = mongo.list_agents(
+        user_id=user.email,
+        user_teams=user.groups,
+        include_disabled=False,
+        admin_view=True,
+    )
+
+    # Find agents that would create a cycle
+    ancestors = _get_ancestor_agent_ids(agent_id, mongo)
+
+    # Filter out self and ancestors
+    available = []
+    for agent in all_agents:
+        if agent.id == agent_id:
+            continue  # Can't delegate to self
+        if agent.id in ancestors:
+            continue  # Would create a cycle
+        available.append(
+            {
+                "id": agent.id,
+                "name": agent.name,
+                "description": agent.description,
+            }
+        )
+
+    return ApiResponse(
+        success=True,
+        data={"agents": available},
+    )
+
+
+def _get_ancestor_agent_ids(agent_id: str, mongo: MongoDBService) -> set[str]:
+    """Get all agent IDs that have this agent as a subagent (directly or indirectly).
+
+    Used for cycle detection - we can't add an ancestor as a subagent because
+    it would create A -> B -> A cycle.
+    """
+    ancestors: set[str] = set()
+
+    # Get all agents and build a reverse lookup
+    all_agents = mongo.list_agents(admin_view=True, include_disabled=True)
+
+    # Build a map: child_id -> set of parent_ids
+    child_to_parents: dict[str, set[str]] = {}
+    for agent in all_agents:
+        for subagent_ref in agent.subagents:
+            if subagent_ref.agent_id not in child_to_parents:
+                child_to_parents[subagent_ref.agent_id] = set()
+            child_to_parents[subagent_ref.agent_id].add(agent.id)
+
+    # BFS to find all ancestors
+    queue = [agent_id]
+    visited: set[str] = set()
+
+    while queue:
+        current = queue.pop(0)
+        if current in visited:
+            continue
+        visited.add(current)
+
+        parents = child_to_parents.get(current, set())
+        for parent_id in parents:
+            ancestors.add(parent_id)
+            queue.append(parent_id)
+
+    return ancestors
+
+
 def _can_view_agent(agent: DynamicAgentConfig, user: UserContext) -> bool:
     """Check if user can view the agent."""
     # Admin can see all

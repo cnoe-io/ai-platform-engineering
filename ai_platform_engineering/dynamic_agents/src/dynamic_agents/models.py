@@ -80,6 +80,27 @@ class MCPServerProbeResult(BaseModel):
 
 
 # =============================================================================
+# SubAgent Reference
+# =============================================================================
+
+
+class SubAgentRef(BaseModel):
+    """Reference to another dynamic agent to use as a subagent.
+
+    When a dynamic agent has subagents configured, the deepagents framework
+    automatically creates a `task` tool that the parent agent can use to
+    delegate work. The LLM decides when to delegate based on the description.
+    """
+
+    agent_id: str = Field(..., description="MongoDB ObjectId of the subagent")
+    name: str = Field(..., description="Routing identifier (e.g., 'code-reviewer')")
+    description: str = Field(
+        ...,
+        description="Description for LLM routing decisions (e.g., 'Reviews code for bugs and best practices')",
+    )
+
+
+# =============================================================================
 # Dynamic Agent Config
 # =============================================================================
 
@@ -99,6 +120,10 @@ class DynamicAgentConfigBase(BaseModel):
     model_id: str | None = Field(None, description="LLM model override (uses default if not set)")
     visibility: VisibilityType = Field(VisibilityType.PRIVATE, description="Visibility scope")
     shared_with_teams: list[str] | None = Field(None, description="Team IDs when visibility=team")
+    subagents: list[SubAgentRef] = Field(
+        default_factory=list,
+        description="Other dynamic agents that can be delegated to as subagents",
+    )
     enabled: bool = Field(True, description="Whether the agent is active")
 
 
@@ -120,6 +145,7 @@ class DynamicAgentConfigUpdate(BaseModel):
     model_id: str | None = None
     visibility: VisibilityType | None = None
     shared_with_teams: list[str] | None = None
+    subagents: list[SubAgentRef] | None = None
     enabled: bool | None = None
 
 

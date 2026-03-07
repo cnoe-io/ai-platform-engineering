@@ -8,7 +8,7 @@ import re
 import time
 import uuid
 from collections.abc import AsyncGenerator
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from cnoe_agent_utils import LLMFactory
 from cnoe_agent_utils.tracing import TracingManager
@@ -17,12 +17,15 @@ from langchain_mcp_adapters.client import MultiServerMCPClient
 from langgraph.checkpoint.memory import InMemorySaver
 
 from dynamic_agents.config import Settings, get_settings
-from dynamic_agents.models import AgentContext, DynamicAgentConfig, MCPServerConfig
+from dynamic_agents.models import AgentContext, DynamicAgentConfig, MCPServerConfig, SubAgentRef
 from dynamic_agents.prompts.extension import get_default_extension_prompt
 from dynamic_agents.services.mcp_client import (
     build_mcp_connections,
     filter_tools_by_allowed,
 )
+
+if TYPE_CHECKING:
+    from dynamic_agents.services.mongo import MongoDBService
 
 logger = logging.getLogger(__name__)
 
@@ -115,10 +118,12 @@ class AgentRuntime:
         config: DynamicAgentConfig,
         mcp_servers: list[MCPServerConfig],
         settings: Settings | None = None,
+        mongo_service: "MongoDBService | None" = None,
     ):
         self.config = config
         self.mcp_servers = mcp_servers
         self.settings = settings or get_settings()
+        self._mongo_service = mongo_service
         self._graph = None
         self._mcp_client: MultiServerMCPClient | None = None
         self._initialized = False
@@ -178,7 +183,14 @@ class AgentRuntime:
             )
         llm = LLMFactory().get_llm()
 
-        # 7. Create the agent graph
+        # 7. Resolve subagents (other dynamic agents that this agent can delegate to)
+        subagents = await self._resolve_subagents(self.config.subagents)
+        if subagents:
+            logger.info(
+                f"Agent '{self.config.name}': resolved {len(subagents)} subagents: {[s['name'] for s in subagents]}"
+            )
+
+        # 8. Create the agent graph
         # Sanitize agent name for use as OpenAI message `name` field.
         # deepagents middleware (subagents.py) propagates this into message
         # name fields, which OpenAI validates against ^[^\s<|\\/>]+$.
@@ -190,6 +202,7 @@ class AgentRuntime:
             context_schema=AgentContext,
             checkpointer=InMemorySaver(),
             name=safe_name,
+            subagents=subagents if subagents else None,
         )
 
         self._initialized = True
@@ -210,6 +223,127 @@ class AgentRuntime:
         # Extension prompt (platform guidelines)
         extension = (
             self.config.extension_prompt or self.settings.default_extension_prompt or get_default_extension_prompt()
+        )
+        parts.append("\n\n" + extension)
+
+        return "\n".join(parts)
+
+    async def _resolve_subagents(
+        self,
+        refs: list[SubAgentRef],
+        visited: set[str] | None = None,
+    ) -> list[dict[str, Any]]:
+        """Resolve SubAgentRef list into deepagents SubAgent dicts.
+
+        Loads each referenced dynamic agent from MongoDB and converts it to
+        the SubAgent dict format expected by create_deep_agent().
+
+        Args:
+            refs: List of subagent references from parent agent config
+            visited: Set of agent IDs already in the call chain (for cycle detection)
+
+        Returns:
+            List of SubAgent dicts with name, description, prompt, tools
+        """
+        if not refs:
+            return []
+
+        if not self._mongo_service:
+            logger.warning(f"Agent '{self.config.name}': Cannot resolve subagents - no MongoDB service available")
+            return []
+
+        # Initialize visited set for cycle detection
+        if visited is None:
+            visited = set()
+        visited.add(self.config.id)
+
+        subagents: list[dict[str, Any]] = []
+
+        for ref in refs:
+            # Cycle detection: skip if this agent is already in the call chain
+            if ref.agent_id in visited:
+                logger.warning(
+                    f"Agent '{self.config.name}': Skipping subagent '{ref.name}' (agent_id={ref.agent_id}) "
+                    f"- circular reference detected"
+                )
+                continue
+
+            # Load subagent config from MongoDB
+            subagent_config = self._mongo_service.get_agent(ref.agent_id)
+            if not subagent_config:
+                logger.warning(f"Agent '{self.config.name}': Subagent '{ref.name}' not found (agent_id={ref.agent_id})")
+                continue
+
+            if not subagent_config.enabled:
+                logger.warning(f"Agent '{self.config.name}': Subagent '{ref.name}' is disabled, skipping")
+                continue
+
+            # Build MCP tools for subagent
+            subagent_tools = await self._build_subagent_tools(subagent_config)
+
+            # Build system prompt for subagent
+            subagent_prompt = self._build_subagent_prompt(subagent_config)
+
+            # Create SubAgent dict in deepagents format
+            subagent_dict: dict[str, Any] = {
+                "name": _sanitize_agent_name(ref.name),
+                "description": ref.description,
+                "system_prompt": subagent_prompt,
+                "tools": subagent_tools,
+            }
+
+            # Note: Nested subagents (subagent of subagent) are not supported in this MVP.
+            # If needed in the future, we could recursively resolve subagent_config.subagents
+            # by passing the updated visited set.
+
+            subagents.append(subagent_dict)
+            logger.info(f"Agent '{self.config.name}': Resolved subagent '{ref.name}' with {len(subagent_tools)} tools")
+
+        return subagents
+
+    async def _build_subagent_tools(self, subagent_config: DynamicAgentConfig) -> list:
+        """Build MCP tools for a subagent.
+
+        Args:
+            subagent_config: The subagent's configuration
+
+        Returns:
+            List of LangChain tools from MCP servers
+        """
+        server_ids = list(subagent_config.allowed_tools.keys())
+        if not server_ids:
+            return []
+
+        connections = build_mcp_connections(self.mcp_servers, server_ids)
+        if not connections:
+            return []
+
+        # Create MCP client for subagent
+        mcp_client = MultiServerMCPClient(connections, tool_name_prefix=True)
+        all_tools = await mcp_client.get_tools()
+
+        # Filter tools based on subagent's allowed_tools config
+        tools, _ = filter_tools_by_allowed(all_tools, subagent_config.allowed_tools)
+        return tools
+
+    def _build_subagent_prompt(self, subagent_config: DynamicAgentConfig) -> str:
+        """Build system prompt for a subagent.
+
+        Args:
+            subagent_config: The subagent's configuration
+
+        Returns:
+            System prompt string
+        """
+        parts = [subagent_config.system_prompt]
+
+        if subagent_config.agents_md:
+            parts.append("\n\n# Project Instructions (AGENTS.md)\n")
+            parts.append(subagent_config.agents_md)
+
+        # Use subagent's extension prompt or default
+        extension = (
+            subagent_config.extension_prompt or self.settings.default_extension_prompt or get_default_extension_prompt()
         )
         parts.append("\n\n" + extension)
 
@@ -340,7 +474,6 @@ class AgentRuntime:
 
         elif kind == "on_tool_start":
             tool_name = event.get("name", "unknown")
-            tool_input = event.get("data", {}).get("input", {})
 
             # Register tool with tracker and emit execution plan update
             tool_tracker.start_tool(tool_name)
@@ -372,7 +505,6 @@ class AgentRuntime:
 
         elif kind == "on_tool_end":
             tool_name = event.get("name", "unknown")
-            tool_output = str(event.get("data", {}).get("output", ""))
 
             # Mark tool as complete and emit updated execution plan
             tool_tracker.end_tool(tool_name)
@@ -420,9 +552,18 @@ class AgentRuntime:
 class AgentRuntimeCache:
     """Cache for AgentRuntime instances with TTL-based cleanup."""
 
-    def __init__(self, ttl_seconds: int = 3600):
+    def __init__(self, ttl_seconds: int = 3600, mongo_service: "MongoDBService | None" = None):
         self._cache: dict[str, AgentRuntime] = {}
         self._ttl = ttl_seconds
+        self._mongo_service = mongo_service
+
+    def set_mongo_service(self, mongo_service: "MongoDBService") -> None:
+        """Set the MongoDB service for subagent resolution.
+
+        This is called after the cache is created, since the MongoDB service
+        may not be available at cache creation time.
+        """
+        self._mongo_service = mongo_service
 
     def _make_key(self, agent_id: str, session_id: str) -> str:
         """Create cache key from agent and session IDs."""
@@ -456,8 +597,8 @@ class AgentRuntimeCache:
                 await runtime.cleanup()
                 del self._cache[key]
 
-        # Create new runtime
-        runtime = AgentRuntime(agent_config, mcp_servers)
+        # Create new runtime with MongoDB service for subagent resolution
+        runtime = AgentRuntime(agent_config, mcp_servers, mongo_service=self._mongo_service)
         await runtime.initialize()
         self._cache[key] = runtime
 

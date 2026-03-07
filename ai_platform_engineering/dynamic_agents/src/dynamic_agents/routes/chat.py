@@ -50,9 +50,14 @@ async def _generate_sse_events(
     session_id: str,
     user_id: str,
     trace_id: str | None = None,
+    mongo: MongoDBService | None = None,
 ) -> AsyncGenerator[str, None]:
     """Generate SSE events from agent streaming."""
     cache = get_runtime_cache()
+
+    # Set MongoDB service for subagent resolution
+    if mongo:
+        cache.set_mongo_service(mongo)
 
     try:
         # Get or create runtime
@@ -124,6 +129,7 @@ async def chat_stream(
             session_id=request.conversation_id,
             user_id=user.email,
             trace_id=request.trace_id,
+            mongo=mongo,
         ),
         media_type="text/event-stream",
         headers={
@@ -164,6 +170,10 @@ async def chat_invoke(
 
     # Collect all content from streaming
     cache = get_runtime_cache()
+
+    # Set MongoDB service for subagent resolution
+    cache.set_mongo_service(mongo)
+
     runtime = await cache.get_or_create(agent, mcp_servers, request.conversation_id)
 
     content_parts = []

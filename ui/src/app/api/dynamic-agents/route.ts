@@ -98,6 +98,7 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
       model_id: body.model_id,
       visibility: body.visibility || "private",
       shared_with_teams: body.shared_with_teams,
+      subagents: body.subagents || [],
       enabled: body.enabled ?? true,
       owner_id: user.email,
       is_system: false,
@@ -151,6 +152,7 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
     if (body.model_id !== undefined) updateFields.model_id = body.model_id;
     if (body.visibility !== undefined) updateFields.visibility = body.visibility;
     if (body.shared_with_teams !== undefined) updateFields.shared_with_teams = body.shared_with_teams;
+    if (body.subagents !== undefined) updateFields.subagents = body.subagents;
     if (body.enabled !== undefined) updateFields.enabled = body.enabled;
 
     await collection.updateOne({ _id: id }, { $set: updateFields });
