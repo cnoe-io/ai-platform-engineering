@@ -49,6 +49,7 @@ async def _generate_sse_events(
     message: str,
     session_id: str,
     user_id: str,
+    trace_id: str | None = None,
 ) -> AsyncGenerator[str, None]:
     """Generate SSE events from agent streaming."""
     cache = get_runtime_cache()
@@ -57,8 +58,8 @@ async def _generate_sse_events(
         # Get or create runtime
         runtime = await cache.get_or_create(agent_config, mcp_servers, session_id)
 
-        # Stream response
-        async for event in runtime.stream(message, session_id, user_id):
+        # Stream response with trace_id for Langfuse tracing
+        async for event in runtime.stream(message, session_id, user_id, trace_id):
             event_type = event.get("type", "event")
             event_data = event.get("data", "")
 
@@ -111,7 +112,8 @@ async def chat_stream(
 
     logger.info(
         f"Chat request: agent={agent.name}, user={user.email}, "
-        f"session={request.conversation_id}, servers={len(mcp_servers)}"
+        f"session={request.conversation_id}, servers={len(mcp_servers)}, "
+        f"trace_id={request.trace_id or 'auto'}"
     )
 
     return StreamingResponse(
@@ -121,6 +123,7 @@ async def chat_stream(
             message=request.message,
             session_id=request.conversation_id,
             user_id=user.email,
+            trace_id=request.trace_id,
         ),
         media_type="text/event-stream",
         headers={
@@ -154,7 +157,10 @@ async def chat_invoke(
     server_ids = list(agent.allowed_tools.keys())
     mcp_servers = mongo.get_servers_by_ids(server_ids) if server_ids else []
 
-    logger.info(f"Invoke request: agent={agent.name}, user={user.email}, session={request.conversation_id}")
+    logger.info(
+        f"Invoke request: agent={agent.name}, user={user.email}, "
+        f"session={request.conversation_id}, trace_id={request.trace_id or 'auto'}"
+    )
 
     # Collect all content from streaming
     cache = get_runtime_cache()
@@ -162,8 +168,9 @@ async def chat_invoke(
 
     content_parts = []
     tool_calls = []
+    trace_id = None
 
-    async for event in runtime.stream(request.message, request.conversation_id, user.email):
+    async for event in runtime.stream(request.message, request.conversation_id, user.email, request.trace_id):
         event_type = event.get("type", "")
         event_data = event.get("data", "")
 
@@ -171,6 +178,11 @@ async def chat_invoke(
             content_parts.append(str(event_data))
         elif event_type == "tool_start":
             tool_calls.append(event_data)
+        elif event_type == "final_result":
+            # Extract trace_id from final_result metadata
+            artifact = event_data.get("artifact", {}) if isinstance(event_data, dict) else {}
+            metadata = artifact.get("metadata", {})
+            trace_id = metadata.get("trace_id")
 
     return {
         "success": True,
@@ -178,4 +190,5 @@ async def chat_invoke(
         "tool_calls": tool_calls,
         "agent_id": agent.id,
         "conversation_id": request.conversation_id,
+        "trace_id": trace_id,
     }

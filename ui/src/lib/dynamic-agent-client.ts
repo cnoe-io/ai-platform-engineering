@@ -42,6 +42,12 @@ export class DynamicAgentClient {
   private accessToken?: string;
   private abortController: AbortController | null = null;
 
+  /**
+   * The trace_id from the last completed stream (from final_result metadata).
+   * Can be used for feedback integration with Langfuse.
+   */
+  public lastTraceId: string | null = null;
+
   constructor(config: DynamicAgentClientConfig) {
     this.proxyUrl = config.proxyUrl;
     this.accessToken = config.accessToken;
@@ -241,6 +247,12 @@ export class DynamicAgentClient {
         if (event === "tool_notification_end") a2aType = "artifact";
 
         const isFinal = event === "final_result";
+
+        // Capture trace_id from final_result for potential feedback integration
+        if (isFinal && artifact.metadata?.trace_id) {
+          this.lastTraceId = artifact.metadata.trace_id;
+          console.log(`[DynamicAgent] Captured trace_id: ${this.lastTraceId}`);
+        }
 
         // Build raw object that toStoreEvent() can extract artifact from
         const rawEvent = {
