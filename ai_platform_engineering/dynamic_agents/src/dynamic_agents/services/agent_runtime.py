@@ -394,11 +394,13 @@ class AgentRuntime:
         accumulated_content: list[str] = []
 
         logger.info(f"[stream] Starting stream for agent '{self.config.name}': user={user_id}, session={session_id}")
+        logger.info(f"[stream] _missing_tools={self._missing_tools}, _warned_sessions={self._warned_sessions}")
 
         # Emit warning about missing tools once per session
         if self._missing_tools and session_id not in self._warned_sessions:
             self._warned_sessions.add(session_id)
             tools_list = ", ".join(self._missing_tools)
+            logger.info(f"[stream] Emitting warning event for missing tools: {tools_list}")
             yield {
                 "type": "warning",
                 "data": {

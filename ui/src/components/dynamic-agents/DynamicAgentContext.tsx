@@ -185,6 +185,13 @@ export function DynamicAgentContext({
       .map((e) => e.displayContent || e.content || "An unknown error occurred");
   }, [conversationEvents]);
 
+  // Extract warning messages from warning events
+  const warningMessages = useMemo(() => {
+    return conversationEvents
+      .filter((e) => e.type === "warning")
+      .map((e) => e.displayContent || e.warningData?.message || "An unknown warning occurred");
+  }, [conversationEvents]);
+
   const totalToolCalls = activeToolCalls.length + completedToolCalls.length;
   const totalSubagentCalls = activeSubagentCalls.length + completedSubagentCalls.length;
   const totalActivityCount = totalToolCalls + totalSubagentCalls + todos.length;
@@ -307,6 +314,7 @@ export function DynamicAgentContext({
                 onToolsCollapse={setToolsCollapsed}
                 isStreaming={isActuallyStreaming}
                 errorMessages={errorMessages}
+                warningMessages={warningMessages}
               />
             )}
 
@@ -354,6 +362,7 @@ interface EventsContentProps {
   onToolsCollapse: (collapsed: boolean) => void;
   isStreaming: boolean;
   errorMessages: string[];
+  warningMessages: string[];
 }
 
 function EventsContent({
@@ -367,6 +376,7 @@ function EventsContent({
   onToolsCollapse,
   isStreaming,
   errorMessages,
+  warningMessages,
 }: EventsContentProps) {
   const [subagentsCollapsed, setSubagentsCollapsed] = useState(false);
 
@@ -377,7 +387,8 @@ function EventsContent({
     builtinToolCalls.length === 0 &&
     activeSubagentCalls.length === 0 &&
     completedSubagentCalls.length === 0 &&
-    errorMessages.length === 0;
+    errorMessages.length === 0 &&
+    warningMessages.length === 0;
 
   if (hasNoActivity) {
     return (
@@ -412,6 +423,34 @@ function EventsContent({
                     Agent Error
                   </p>
                   <p className="text-sm text-red-300 leading-relaxed break-words">
+                    {message}
+                  </p>
+                </div>
+              </div>
+            </motion.div>
+          ))}
+        </div>
+      )}
+
+      {/* Warning Messages */}
+      {warningMessages.length > 0 && (
+        <div className="space-y-2">
+          {warningMessages.map((message, idx) => (
+            <motion.div
+              key={`warning-${idx}`}
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="rounded-lg border-2 border-amber-500/60 bg-gradient-to-br from-amber-500/15 to-amber-600/10 p-3 shadow-lg shadow-amber-500/10"
+            >
+              <div className="flex items-start gap-2.5">
+                <div className="p-1.5 rounded-full bg-amber-500/20 shrink-0">
+                  <AlertTriangle className="h-4 w-4 text-amber-500" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-semibold text-amber-500 uppercase tracking-wide mb-1.5">
+                    Agent Warning
+                  </p>
+                  <p className="text-sm text-amber-300 leading-relaxed break-words">
                     {message}
                   </p>
                 </div>

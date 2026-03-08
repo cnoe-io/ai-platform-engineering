@@ -128,6 +128,11 @@ export class DynamicAgentClient {
       for await (const rawEvent of this.parseSSEStream(response)) {
         eventCount++;
 
+        // Debug: log warning events
+        if (rawEvent.event === "warning") {
+          console.log(`[DynamicAgent] ⚠️ Received warning event:`, rawEvent.data);
+        }
+
         const agentEvent = this.mapToAgentEvent(rawEvent);
         if (!agentEvent) continue;
 
