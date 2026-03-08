@@ -129,23 +129,33 @@ async function deleteAgentConfigFromMongoDB(
   user: { email: string; role?: string }
 ): Promise<void> {
   const collection = await getCollection<AgentConfig>("agent_configs");
-  
+
   const existing = await collection.findOne({ id });
   if (!existing) {
     throw new ApiError("Agent config not found", 404);
   }
-  
+
   // System configs can only be deleted by admins
   if (existing.is_system && !isUserAdmin(user)) {
     throw new ApiError("Only admins can delete system configurations", 403);
   }
-  
+
   // Non-system configs can only be deleted by owner
   if (!existing.is_system && existing.owner_id !== user.email) {
     throw new ApiError("You don't have permission to delete this configuration", 403);
   }
-  
+
   await collection.deleteOne({ id });
+
+  // Track deleted system configs so the seeder doesn't re-insert them
+  if (existing.is_system) {
+    const deletedCollection = await getCollection<{ config_id: string; deleted_at: Date; deleted_by: string }>("deleted_system_configs");
+    await deletedCollection.updateOne(
+      { config_id: id },
+      { $set: { config_id: id, deleted_at: new Date(), deleted_by: user.email } },
+      { upsert: true }
+    );
+  }
 }
 
 async function getAgentConfigsFromMongoDB(ownerEmail: string): Promise<AgentConfig[]> {

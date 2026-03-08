@@ -227,6 +227,9 @@ async function createIndexes(db: Db) {
     safeCreateIndex(db, 'workflow_runs', { owner_id: 1, workflow_id: 1 }),
     safeCreateIndex(db, 'workflow_runs', { owner_id: 1, started_at: -1 }),
 
+    // Deleted system configs (tracks intentionally deleted built-in skills)
+    safeCreateIndex(db, 'deleted_system_configs', { config_id: 1 }, { unique: true }),
+
     // Task configs collection (Task Builder)
     safeCreateIndex(db, 'task_configs', { id: 1 }, { unique: true }),
     safeCreateIndex(db, 'task_configs', { name: 1 }, { unique: true }),

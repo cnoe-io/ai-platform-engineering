@@ -20,6 +20,13 @@ import { BUILTIN_QUICK_START_TEMPLATES } from "@/types/agent-config";
  * Checks if seeding is needed (returns { needsSeeding: boolean, count: number })
  */
 
+// Load IDs of system configs that were intentionally deleted by admins
+async function getDeletedSystemConfigIds(): Promise<Set<string>> {
+  const deletedCollection = await getCollection<{ config_id: string }>("deleted_system_configs");
+  const docs = await deletedCollection.find({}).toArray();
+  return new Set(docs.map(d => d.config_id));
+}
+
 // Check if seeding is needed
 async function checkSeedingStatus(): Promise<{ needsSeeding: boolean; existingCount: number; templateCount: number }> {
   if (!isMongoDBConfigured) {
@@ -27,14 +34,18 @@ async function checkSeedingStatus(): Promise<{ needsSeeding: boolean; existingCo
   }
 
   const collection = await getCollection<AgentConfig>("agent_configs");
-  
+  const deletedIds = await getDeletedSystemConfigIds();
+
+  // Only count templates that haven't been intentionally deleted
+  const activeTemplateCount = BUILTIN_QUICK_START_TEMPLATES.filter(t => !deletedIds.has(t.id)).length;
+
   // Check how many system templates exist
   const existingSystemConfigs = await collection.countDocuments({ is_system: true });
-  
+
   return {
-    needsSeeding: existingSystemConfigs < BUILTIN_QUICK_START_TEMPLATES.length,
+    needsSeeding: existingSystemConfigs < activeTemplateCount,
     existingCount: existingSystemConfigs,
-    templateCount: BUILTIN_QUICK_START_TEMPLATES.length,
+    templateCount: activeTemplateCount,
   };
 }
 
@@ -45,14 +56,21 @@ async function seedBuiltinTemplates(): Promise<{ seeded: number; skipped: number
   }
 
   const collection = await getCollection<AgentConfig>("agent_configs");
-  
+  const deletedIds = await getDeletedSystemConfigIds();
+
   let seeded = 0;
   let skipped = 0;
 
   for (const template of BUILTIN_QUICK_START_TEMPLATES) {
+    // Skip templates that were intentionally deleted
+    if (deletedIds.has(template.id)) {
+      skipped++;
+      continue;
+    }
+
     // Check if this template already exists
     const existing = await collection.findOne({ id: template.id });
-    
+
     if (existing) {
       skipped++;
       continue;
