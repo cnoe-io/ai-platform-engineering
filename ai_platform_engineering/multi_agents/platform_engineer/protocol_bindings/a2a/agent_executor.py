@@ -1,6 +1,7 @@
 # Copyright 2025 CNOE
 # SPDX-License-Identifier: Apache-2.0
 
+import inspect
 import logging
 import uuid
 from dataclasses import dataclass, field
@@ -726,7 +727,9 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
 
         try:
             self.agent._pending_user_email = user_email
-            async for event in self.agent.stream(query, context_id, trace_id, user_id=user_id):
+            stream_params = inspect.signature(self.agent.stream).parameters
+            stream_kwargs = {"user_id": user_id} if "user_id" in stream_params else {}
+            async for event in self.agent.stream(query, context_id, trace_id, **stream_kwargs):
                 # FIX for A2A Streaming Duplication (Retry/Fallback):
                 # When the agent encounters an error (e.g., orphaned tool calls) and retries,
                 # the executor may have already accumulated content from the failed attempt.
