@@ -72,6 +72,8 @@ class AgentRuntime:
         self._created_at = time.time()
         self.tracing = TracingManager()
         self._current_trace_id: str | None = None
+        self._missing_tools: list[str] = []
+        self._warned_sessions: set[str] = set()
 
     async def initialize(self) -> None:
         """Build the DeepAgent graph with tools and instructions."""
@@ -103,6 +105,7 @@ class AgentRuntime:
 
                 if missing:
                     logger.warning(f"Agent '{self.config.name}': tools not found: {missing}")
+                    self._missing_tools = missing
 
                 logger.info(
                     f"Agent '{self.config.name}': loaded {len(tools)} tools from {len(connections)} MCP servers"
@@ -387,6 +390,18 @@ class AgentRuntime:
         accumulated_content: list[str] = []
 
         logger.info(f"[stream] Starting stream for agent '{self.config.name}': user={user_id}, session={session_id}")
+
+        # Emit warning about missing tools once per session
+        if self._missing_tools and session_id not in self._warned_sessions:
+            self._warned_sessions.add(session_id)
+            tools_list = ", ".join(self._missing_tools)
+            yield {
+                "type": "warning",
+                "data": {
+                    "message": f"Some configured tools are unavailable and will be skipped: {tools_list}",
+                    "missing_tools": self._missing_tools,
+                },
+            }
 
         # Stream with subgraphs=True and both messages and updates modes
         async for chunk in self._graph.astream(

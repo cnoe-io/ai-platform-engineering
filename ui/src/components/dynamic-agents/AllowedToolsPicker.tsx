@@ -13,6 +13,7 @@ import {
   ChevronRight,
   Search,
   Info,
+  AlertTriangle,
 } from "lucide-react";
 import {
   Tooltip,
@@ -42,6 +43,12 @@ export function AllowedToolsPicker({ value, onChange, disabled }: AllowedToolsPi
   const [probeStates, setProbeStates] = React.useState<Record<string, ProbeState>>({});
   const [expandedServers, setExpandedServers] = React.useState<Set<string>>(new Set());
   const [searchQueries, setSearchQueries] = React.useState<Record<string, string>>({});
+  const [missingTools, setMissingTools] = React.useState<Record<string, string[]>>({});
+
+  // Compute total missing tools for warning banner
+  const totalMissingTools = React.useMemo(() => {
+    return Object.values(missingTools).flat().length;
+  }, [missingTools]);
 
   // Fetch available MCP servers
   React.useEffect(() => {
@@ -77,10 +84,29 @@ export function AllowedToolsPicker({ value, onChange, disabled }: AllowedToolsPi
       });
       const data = await response.json();
       if (data.success) {
+        const tools = data.data.tools as MCPToolInfo[];
         setProbeStates((prev) => ({
           ...prev,
-          [serverId]: { loading: false, tools: data.data.tools },
+          [serverId]: { loading: false, tools },
         }));
+        
+        // Detect missing tools - tools in config but not returned by probe
+        const configuredTools = value[serverId] || [];
+        if (configuredTools.length > 0) {
+          const availableToolNames = new Set(tools.map((t) => t.name));
+          const missing = configuredTools.filter((t) => !availableToolNames.has(t));
+          if (missing.length > 0) {
+            setMissingTools((prev) => ({ ...prev, [serverId]: missing }));
+          } else {
+            // Clear any previous missing tools for this server
+            setMissingTools((prev) => {
+              const newMissing = { ...prev };
+              delete newMissing[serverId];
+              return newMissing;
+            });
+          }
+        }
+        
         // Auto-expand after successful probe
         setExpandedServers((prev) => new Set([...prev, serverId]));
       } else {
@@ -181,6 +207,11 @@ export function AllowedToolsPicker({ value, onChange, disabled }: AllowedToolsPi
         newSet.delete(serverId);
       } else {
         newSet.add(serverId);
+        // Auto-probe if not already probed and not currently loading
+        const probe = probeStates[serverId];
+        if (!probe?.tools && !probe?.loading) {
+          handleProbe(serverId);
+        }
       }
       return newSet;
     });
@@ -238,6 +269,18 @@ export function AllowedToolsPicker({ value, onChange, disabled }: AllowedToolsPi
 
   return (
     <div className="space-y-2">
+      {/* Warning banner for missing tools */}
+      {totalMissingTools > 0 && (
+        <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 mb-2">
+          <div className="flex items-center gap-2">
+            <AlertTriangle className="h-4 w-4 text-amber-500 shrink-0" />
+            <p className="text-sm text-amber-600 dark:text-amber-400">
+              Some configured tools are no longer available on their servers. They will be skipped at runtime.
+            </p>
+          </div>
+        </div>
+      )}
+
       {servers.map((server) => {
         const probe = probeStates[server._id];
         const isSelected = isServerSelected(server._id);
@@ -276,15 +319,24 @@ export function AllowedToolsPicker({ value, onChange, disabled }: AllowedToolsPi
                 <button
                   type="button"
                   onClick={() => toggleExpanded(server._id)}
-                  className="flex items-center gap-2"
+                  className="flex flex-col items-start"
                 >
-                  {isExpanded ? (
-                    <ChevronDown className="h-4 w-4 text-muted-foreground" />
-                  ) : (
-                    <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                  <div className="flex items-center gap-2">
+                    {isExpanded ? (
+                      <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                    ) : (
+                      <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                    )}
+                    <Server className="h-4 w-4 text-blue-500" />
+                    <span className="font-medium text-sm">{server.name}</span>
+                  </div>
+                  {/* Show loading indicator when probing */}
+                  {probe?.loading && (
+                    <span className="text-xs text-muted-foreground ml-6 flex items-center gap-1">
+                      <Loader2 className="h-3 w-3 animate-spin" />
+                      Refreshing tool list...
+                    </span>
                   )}
-                  <Server className="h-4 w-4 text-blue-500" />
-                  <span className="font-medium text-sm">{server.name}</span>
                 </button>
               </div>
 
@@ -359,14 +411,15 @@ export function AllowedToolsPicker({ value, onChange, disabled }: AllowedToolsPi
                     <div className="grid grid-cols-2 gap-1">
                       {filteredTools.map((tool) => {
                         const selected = isToolSelected(server._id, tool.name);
+                        const isMissing = missingTools[server._id]?.includes(tool.name);
                         return (
                           <div
                             key={tool.namespaced_name}
                             className={cn(
                               "flex items-start gap-1.5 p-1.5 rounded text-left transition-colors text-xs",
-                              selected
-                                ? "bg-primary/10 border border-primary/30"
-                                : "bg-muted/30 hover:bg-muted/50 border border-transparent"
+                              selected && !isMissing && "bg-primary/10 border border-primary/30",
+                              selected && isMissing && "bg-amber-500/10 border border-amber-500/30",
+                              !selected && "bg-muted/30 hover:bg-muted/50 border border-transparent"
                             )}
                           >
                             {/* Checkbox */}
@@ -391,18 +444,17 @@ export function AllowedToolsPicker({ value, onChange, disabled }: AllowedToolsPi
                               disabled={disabled}
                               className="flex-1 min-w-0 text-left"
                             >
-                              <span className="font-mono truncate block">
+                              <span className="font-mono truncate block flex items-center gap-1">
+                                {isMissing && <AlertTriangle className="h-3 w-3 text-amber-500 shrink-0" />}
                                 {tool.name}
                               </span>
-                              {tool.description && (
-                                <span className="text-[10px] text-muted-foreground truncate block">
-                                  {tool.description}
-                                </span>
-                              )}
+                              <span className="text-[10px] text-muted-foreground truncate block">
+                                {isMissing ? "Tool not found on server" : (tool.description || "")}
+                              </span>
                             </button>
 
                             {/* Info tooltip for full description */}
-                            {tool.description && (
+                            {tool.description && !isMissing && (
                               <TooltipProvider delayDuration={200}>
                                 <Tooltip>
                                   <TooltipTrigger asChild>
@@ -420,6 +472,50 @@ export function AllowedToolsPicker({ value, onChange, disabled }: AllowedToolsPi
                                 </Tooltip>
                               </TooltipProvider>
                             )}
+                          </div>
+                        );
+                      })}
+
+                      {/* Render missing tools that aren't in the probe results */}
+                      {missingTools[server._id]?.filter(
+                        (toolName) => !filteredTools.find((t) => t.name === toolName)
+                      ).map((toolName) => {
+                        const selected = isToolSelected(server._id, toolName);
+                        return (
+                          <div
+                            key={`missing-${toolName}`}
+                            className="flex items-start gap-1.5 p-1.5 rounded text-left transition-colors text-xs bg-amber-500/10 border border-amber-500/30"
+                          >
+                            {/* Checkbox */}
+                            <button
+                              type="button"
+                              onClick={() => toggleTool(server._id, toolName)}
+                              disabled={disabled}
+                              className={cn(
+                                "h-3 w-3 rounded border flex items-center justify-center flex-shrink-0 mt-0.5",
+                                selected
+                                  ? "bg-primary border-primary text-primary-foreground"
+                                  : "border-muted-foreground/30"
+                              )}
+                            >
+                              {selected && <Check className="h-2 w-2" />}
+                            </button>
+                            
+                            {/* Tool name and description */}
+                            <button
+                              type="button"
+                              onClick={() => toggleTool(server._id, toolName)}
+                              disabled={disabled}
+                              className="flex-1 min-w-0 text-left"
+                            >
+                              <span className="font-mono truncate block flex items-center gap-1">
+                                <AlertTriangle className="h-3 w-3 text-amber-500 shrink-0" />
+                                {toolName}
+                              </span>
+                              <span className="text-[10px] text-amber-600 dark:text-amber-400 truncate block">
+                                Tool not found on server
+                              </span>
+                            </button>
                           </div>
                         );
                       })}

@@ -61,6 +61,11 @@ export const AgentStreamBox = React.memo(function AgentStreamBox({
         continue;
       }
 
+      // Skip warning events - they're shown in the warning box
+      if (event.type === "warning") {
+        continue;
+      }
+
       // Handle both A2A events (displayContent) and SSE events (content/displayContent)
       const content = 'displayContent' in event ? event.displayContent : ('content' in event ? event.content : undefined);
       if (content) {
@@ -91,6 +96,21 @@ export const AgentStreamBox = React.memo(function AgentStreamBox({
       }
     }
     return errors;
+  }, [events]);
+
+  // Extract warning messages from warning events
+  const warningMessages = useMemo(() => {
+    const warnings: string[] = [];
+    for (const event of events) {
+      if (event.type === "warning") {
+        // SSE events have displayContent or warningData.message
+        const content = 'displayContent' in event ? event.displayContent : undefined;
+        if (content) {
+          warnings.push(content);
+        }
+      }
+    }
+    return warnings;
   }, [events]);
 
   // Determine agent status
@@ -300,6 +320,25 @@ export const AgentStreamBox = React.memo(function AgentStreamBox({
                 <span className="text-sm">Waiting for {agentInfo.displayName} response...</span>
               </div>
             ) : null}
+
+            {/* Warning Box - shown below content when warnings occur */}
+            {warningMessages.length > 0 && (
+              <div className="mx-4 mb-4 mt-2">
+                <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-4">
+                  <div className="flex items-start gap-3">
+                    <AlertTriangle className="h-5 w-5 text-amber-500 shrink-0 mt-0.5" />
+                    <div className="flex-1 space-y-2">
+                      <p className="text-sm font-medium text-amber-500">Agent Warning</p>
+                      {warningMessages.map((msg, idx) => (
+                        <p key={idx} className="text-sm text-amber-400/90">
+                          {msg}
+                        </p>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* Error Box - shown below content when errors occur */}
             {errorMessages.length > 0 && (

@@ -64,6 +64,12 @@ export interface SubagentEventData {
   parent_agent: string;
 }
 
+/** Warning data from warning events */
+export interface WarningEventData {
+  message: string;
+  missing_tools?: string[];
+}
+
 // ═══════════════════════════════════════════════════════════════
 // HITL (Human-in-the-Loop) Types
 // ═══════════════════════════════════════════════════════════════
@@ -100,6 +106,7 @@ export type SSEEventType =
   | "subagent_start" // Subagent invocation started
   | "subagent_end" // Subagent invocation completed
   | "final_result" // Final agent response
+  | "warning" // Warning event (e.g., missing tools)
   | "error"; // Error event
 
 /**
@@ -134,6 +141,9 @@ export interface SSEAgentEvent {
 
   /** Subagent data for subagent_start/subagent_end */
   subagentData?: SubagentEventData;
+
+  /** Warning data for warning events */
+  warningData?: WarningEventData;
 
   // ─── Content ─────────────────────────────────────────────────
   /** Content text for content/final_result events */
@@ -242,6 +252,13 @@ export function createSSEAgentEvent(
         sourceAgent: artifact?.metadata?.agent_name as string | undefined,
       };
     }
+
+    case "warning":
+      return {
+        ...base,
+        warningData: data as WarningEventData,
+        displayContent: (data as WarningEventData).message,
+      };
 
     default:
       return base;
