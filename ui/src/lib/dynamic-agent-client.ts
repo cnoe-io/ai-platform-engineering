@@ -210,7 +210,7 @@ export class DynamicAgentClient {
   private mapToAgentEvent(raw: RawSSEEvent): SSEAgentEvent | null {
     const { event, data } = raw;
 
-    // ─── Structured events: content, tool_*, todo_update, subagent_*, final_result ───
+    // ─── Structured events: content, tool_*, todo_update, subagent_*, final_result, warning ───
     if (
       event === "content" ||
       event === "tool_start" ||
@@ -218,7 +218,8 @@ export class DynamicAgentClient {
       event === "todo_update" ||
       event === "subagent_start" ||
       event === "subagent_end" ||
-      event === "final_result"
+      event === "final_result" ||
+      event === "warning"
     ) {
       try {
         // content events have data as plain string, others are JSON
