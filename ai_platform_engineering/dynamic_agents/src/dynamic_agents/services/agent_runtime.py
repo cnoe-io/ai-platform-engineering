@@ -7,6 +7,7 @@ import logging
 import re
 import time
 from collections.abc import AsyncGenerator
+from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
 from cnoe_agent_utils import LLMFactory
@@ -74,6 +75,9 @@ class AgentRuntime:
         self._current_trace_id: str | None = None
         self._missing_tools: list[str] = []
         self._warned_sessions: set[str] = set()
+        # Track config timestamps for cache invalidation
+        self._config_updated_at: datetime = config.updated_at
+        self._mcp_servers_updated_at: datetime = max((s.updated_at for s in mcp_servers), default=datetime.min)
 
     async def initialize(self) -> None:
         """Build the DeepAgent graph with tools and instructions."""
@@ -573,6 +577,23 @@ class AgentRuntime:
         """Get the age of this runtime in seconds."""
         return time.time() - self._created_at
 
+    def is_stale(
+        self,
+        agent_config: DynamicAgentConfig,
+        mcp_servers: list[MCPServerConfig],
+    ) -> bool:
+        """Check if cached runtime is stale due to config changes.
+
+        Returns True if either the agent config or any MCP server has been
+        updated since this runtime was created.
+        """
+        if agent_config.updated_at != self._config_updated_at:
+            return True
+        current_mcp_max = max((s.updated_at for s in mcp_servers), default=datetime.min)
+        if current_mcp_max != self._mcp_servers_updated_at:
+            return True
+        return False
+
 
 class AgentRuntimeCache:
     """Cache for AgentRuntime instances with TTL-based cleanup."""
@@ -615,12 +636,20 @@ class AgentRuntimeCache:
         # Check if we have a cached runtime
         if key in self._cache:
             runtime = self._cache[key]
-            if runtime.age_seconds < self._ttl:
-                return runtime
-            else:
+            # Invalidate if config has changed or TTL expired
+            if runtime.is_stale(agent_config, mcp_servers):
+                logger.info(
+                    "Runtime cache invalidated due to config change for agent %s",
+                    agent_config.id,
+                )
+                await runtime.cleanup()
+                del self._cache[key]
+            elif runtime.age_seconds >= self._ttl:
                 # TTL expired, cleanup and recreate
                 await runtime.cleanup()
                 del self._cache[key]
+            else:
+                return runtime
 
         # Create new runtime with MongoDB service for subagent resolution
         runtime = AgentRuntime(agent_config, mcp_servers, mongo_service=self._mongo_service)
