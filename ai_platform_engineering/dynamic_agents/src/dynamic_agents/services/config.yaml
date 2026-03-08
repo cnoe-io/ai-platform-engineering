@@ -13,7 +13,7 @@
 #
 # Format:
 #   models:
-#     - id: <model-id>           # The model identifier passed to the LLM provider
+#     - model: <model-id>        # The model passed to the LLM provider
 #       name: <display-name>     # Human-readable name shown in the UI
 #       provider: <provider>     # Provider name (must match LLMFactory.SUPPORTED_PROVIDERS)
 #       description: <desc>      # Optional description

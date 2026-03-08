@@ -141,6 +141,9 @@ export function DynamicAgentEditor({ agent, onSave, onCancel }: DynamicAgentEdit
   const [description, setDescription] = React.useState(agent?.description || "");
   const [systemPrompt, setSystemPrompt] = React.useState(agent?.system_prompt || "");
   const [visibility, setVisibility] = React.useState<VisibilityType>(agent?.visibility || "private");
+  const [sharedWithTeams, setSharedWithTeams] = React.useState<string[]>(
+    agent?.shared_with_teams || []
+  );
   const [allowedTools, setAllowedTools] = React.useState<Record<string, string[]>>(
     agent?.allowed_tools || {}
   );
@@ -159,6 +162,9 @@ export function DynamicAgentEditor({ agent, onSave, onCancel }: DynamicAgentEdit
     { model: string; name: string; provider: string; description: string }[]
   >([]);
   const [modelsLoading, setModelsLoading] = React.useState(false);
+  const [availableTeams, setAvailableTeams] = React.useState<
+    { _id: string; name: string; description?: string }[]
+  >([]);
 
   // ID generation and validation
   const generatedId = React.useMemo(() => generateSlug(name), [name]);
@@ -235,6 +241,22 @@ export function DynamicAgentEditor({ agent, onSave, onCancel }: DynamicAgentEdit
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // Run once on mount - agent prop is stable
 
+  // Fetch available teams for team visibility sharing
+  React.useEffect(() => {
+    async function fetchTeams() {
+      try {
+        const response = await fetch("/api/dynamic-agents/teams");
+        const data = await response.json();
+        if (data.success && Array.isArray(data.data)) {
+          setAvailableTeams(data.data);
+        }
+      } catch (err) {
+        console.error("Failed to fetch teams:", err);
+      }
+    }
+    fetchTeams();
+  }, []);
+
   // Step wizard state
   const [activeStep, setActiveStep] = React.useState<StepId>("basic");
   const currentStepIndex = STEPS.findIndex((s) => s.id === activeStep);
@@ -286,6 +308,7 @@ export function DynamicAgentEditor({ agent, onSave, onCancel }: DynamicAgentEdit
           description: description || undefined,
           system_prompt: systemPrompt,
           visibility,
+          shared_with_teams: visibility === "team" ? sharedWithTeams : undefined,
           allowed_tools: allowedTools,
           builtin_tools: builtinTools,
           subagents: subagents.length > 0 ? subagents : undefined,
@@ -311,6 +334,7 @@ export function DynamicAgentEditor({ agent, onSave, onCancel }: DynamicAgentEdit
           description: description || undefined,
           system_prompt: systemPrompt,
           visibility,
+          shared_with_teams: visibility === "team" ? sharedWithTeams : undefined,
           allowed_tools: allowedTools,
           builtin_tools: builtinTools,
           subagents: subagents.length > 0 ? subagents : undefined,
@@ -474,6 +498,45 @@ export function DynamicAgentEditor({ agent, onSave, onCancel }: DynamicAgentEdit
                     </button>
                   ))}
                 </div>
+
+                {/* Team selector - shown when visibility is "team" */}
+                {visibility === "team" && (
+                  <div className="mt-4 p-3 rounded-lg border bg-muted/30">
+                    <Label className="text-sm">Share with Teams</Label>
+                    <p className="text-xs text-muted-foreground mb-3">
+                      Select which teams can access this agent.
+                    </p>
+                    {availableTeams.length === 0 ? (
+                      <p className="text-xs text-muted-foreground italic">
+                        You are not a member of any teams.
+                      </p>
+                    ) : (
+                      <div className="space-y-2">
+                        {availableTeams.map((team) => (
+                          <label
+                            key={team._id}
+                            className="flex items-center gap-2 cursor-pointer"
+                          >
+                            <input
+                              type="checkbox"
+                              checked={sharedWithTeams.includes(team._id)}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  setSharedWithTeams([...sharedWithTeams, team._id]);
+                                } else {
+                                  setSharedWithTeams(sharedWithTeams.filter((id) => id !== team._id));
+                                }
+                              }}
+                              disabled={loading}
+                              className="rounded border-muted"
+                            />
+                            <span className="text-sm">{team.name}</span>
+                          </label>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
           )}
