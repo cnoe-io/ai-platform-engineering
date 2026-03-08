@@ -34,7 +34,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
 
     // Build query for agents visible to this user:
     // 1. Global agents (anyone can see)
-    // 2. Team agents where user is a member
+    // 2. Team agents where user is a member OR owned by user
     // 3. Private agents owned by this user
     // Use type assertion to satisfy MongoDB's strict Filter types
     const query: Filter<DynamicAgentConfig> = {
@@ -42,6 +42,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
       $or: [
         { visibility: "global" as const },
         { visibility: "team" as const, shared_with_teams: { $in: userTeams } },
+        { visibility: "team" as const, owner_id: userEmail },
         { visibility: "private" as const, owner_id: userEmail },
       ],
     };
