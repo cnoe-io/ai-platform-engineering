@@ -188,19 +188,19 @@ export function DynamicAgentsTab() {
                 className="grid grid-cols-12 gap-4 py-3 px-2 rounded-lg hover:bg-muted/50 items-center"
               >
                 <div className="col-span-4">
-                  <div className="flex items-center gap-3">
-                    <div className="h-9 w-9 rounded-lg bg-purple-500/10 flex items-center justify-center">
-                      <Bot className="h-5 w-5 text-purple-500" />
+                    <div className="flex items-center gap-3">
+                      <div className="h-9 w-9 rounded-lg bg-purple-500/10 flex items-center justify-center shrink-0">
+                        <Bot className="h-5 w-5 text-purple-500" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="font-medium text-sm truncate">{agent.name}</div>
+                        {agent.description && (
+                          <div className="text-xs text-muted-foreground truncate">
+                            {agent.description}
+                          </div>
+                        )}
+                      </div>
                     </div>
-                    <div>
-                      <div className="font-medium text-sm">{agent.name}</div>
-                      {agent.description && (
-                        <div className="text-xs text-muted-foreground truncate max-w-[200px]">
-                          {agent.description}
-                        </div>
-                      )}
-                    </div>
-                  </div>
                 </div>
 
                 <div className="col-span-2">
