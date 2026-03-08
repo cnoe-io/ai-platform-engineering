@@ -167,9 +167,12 @@ async def probe_server_tools(server: MCPServerConfig) -> list[dict[str, Any]]:
         raise RuntimeError(f"Failed to probe MCP server: {error_msg}") from e
 
     # Convert tools to serializable dicts
+    # Use removeprefix to only strip the server prefix, not all occurrences
+    # (e.g., "argocd_search_argocd_resources" -> "search_argocd_resources", not "search_resources")
+    prefix = f"{server.id}_"
     return [
         {
-            "name": tool.name.replace(f"{server.id}_", ""),  # Remove prefix
+            "name": tool.name.removeprefix(prefix),
             "namespaced_name": tool.name,
             "description": getattr(tool, "description", ""),
         }
