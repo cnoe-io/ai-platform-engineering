@@ -280,6 +280,8 @@ services:
       - A2A_TRANSPORT=${A2A_TRANSPORT:-p2p}
       - MCP_MODE=http
       - CUSTOM_CA_BUNDLE=${CUSTOM_CA_BUNDLE:-/app/certs/ca-bundle.pem}
+      - SSL_CERT_FILE=${CUSTOM_CA_BUNDLE:-/app/certs/ca-bundle.pem}
+      - REQUESTS_CA_BUNDLE=${CUSTOM_CA_BUNDLE:-/app/certs/ca-bundle.pem}
       - SLIM_ENDPOINT=${SLIM_ENDPOINT:-http://slim-dataplane:46357}
       - ENABLE_TRACING=${ENABLE_TRACING:-false}
       - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
@@ -1511,7 +1513,7 @@ services:
   slack-bot:
     build:
       context: .
-      dockerfile: ai_platform_engineering/integrations/slack_bot/Dockerfile
+      dockerfile: build/Dockerfile.slack-bot
     container_name: slack-bot
     volumes:
       - ./ai_platform_engineering/integrations/slack_bot:/app
@@ -1519,8 +1521,8 @@ services:
     ports: ["8030:3000"]  # Only used in HTTP mode (SLACK_INTEGRATION_BOT_MODE=http)
     environment:
       - SLACK_INTEGRATION_APP_NAME=${SLACK_INTEGRATION_APP_NAME:-CAIPE}
-      - SLACK_INTEGRATION_BOT_TOKEN=${SLACK_INTEGRATION_BOT_TOKEN}
-      - SLACK_INTEGRATION_APP_TOKEN=${SLACK_INTEGRATION_APP_TOKEN}
+      - SLACK_INTEGRATION_BOT_TOKEN=${SLACK_INTEGRATION_BOT_TOKEN:-${SLACK_BOT_TOKEN}}
+      - SLACK_INTEGRATION_APP_TOKEN=${SLACK_INTEGRATION_APP_TOKEN:-${SLACK_APP_TOKEN}}
       - SLACK_INTEGRATION_SIGNING_SECRET=${SLACK_INTEGRATION_SIGNING_SECRET:-}
       - SLACK_INTEGRATION_BOT_MODE=${SLACK_INTEGRATION_BOT_MODE:-socket}
       - SLACK_INTEGRATION_BOT_CONFIG=${SLACK_INTEGRATION_BOT_CONFIG}
@@ -1534,6 +1536,11 @@ services:
       - MONGODB_URI=mongodb://admin:changeme@caipe-ui-mongodb:27017
       - MONGODB_DATABASE=caipe
       - CAIPE_UI_BASE_URL=${CAIPE_UI_BASE_URL:-http://localhost:3000}
+      - LANGFUSE_SCORING_ENABLED=${LANGFUSE_SCORING_ENABLED:-false}
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY:-}
+      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
+      - SLACK_WORKSPACE_URL=${SLACK_WORKSPACE_URL:-}
     depends_on:
       - caipe-supervisor
       - caipe-ui-mongodb

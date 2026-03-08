@@ -208,6 +208,7 @@ class AIPlatformEngineerA2ABinding:
 
       inputs = {'messages': [('user', query)]}
       config = self.tracing.create_config(context_id)
+      config['recursion_limit'] = 100
 
       # Ensure metadata exists in config for tools to access
       if 'metadata' not in config:

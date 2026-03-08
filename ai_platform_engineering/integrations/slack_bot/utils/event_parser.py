@@ -44,6 +44,8 @@ class ToolNotification:
     result: Optional[str] = None
     error: Optional[str] = None
     metadata: Optional[Dict[str, Any]] = None
+    source_agent: Optional[str] = None
+    purpose: Optional[str] = None
 
 
 @dataclass
@@ -209,7 +211,7 @@ def _classify_artifact_type(artifact_name: str) -> EventType:
         return EventType.TOOL_NOTIFICATION_END
     elif "execution_plan" in name_lower:
         return EventType.EXECUTION_PLAN
-    elif "caipe_form" in name_lower or "form" in name_lower:
+    elif "caipe_form" in name_lower or "form" in name_lower or "userinput" in name_lower:
         return EventType.CAIPE_FORM
 
     return EventType.OTHER_ARTIFACT
@@ -306,23 +308,82 @@ def _extract_tool_notification(artifact: Dict[str, Any], event_type: EventType) 
 
     result = _extract_text_from_parts(parts)
 
+    source_agent = metadata.get("sourceAgent")
+    purpose = None
+    tool_update = metadata.get("tool_update")
+    if isinstance(tool_update, dict):
+        purpose = tool_update.get("purpose")
+
     return ToolNotification(
         tool_name=tool_name,
         tool_id=tool_id,
         status=status,
         result=result,
         metadata=metadata,
+        source_agent=source_agent,
+        purpose=purpose,
     )
 
 
+def _map_supervisor_field_type(field_type: str) -> str:
+    """Map supervisor field types to HITL handler field types."""
+    mapping = {
+        "text": "text",
+        "textarea": "textarea",
+        "select": "select",
+        "multiselect": "multiselect",
+        "boolean": "select",
+        "number": "text",
+        "url": "text",
+        "email": "text",
+    }
+    return mapping.get(field_type, "text")
+
+
+def _normalize_input_fields(raw_fields: list) -> list:
+    """Convert supervisor input_fields format to the HITL handler's expected schema.
+
+    Supervisor sends:  field_name, field_label, field_description, field_type,
+                       field_values (List[str]), placeholder, required, default_value
+    HITL handler expects: id, label, type, options (List[{"label","value"}]),
+                          placeholder, required, default
+    """
+    normalized = []
+    for f in raw_fields:
+        mapped_type = _map_supervisor_field_type(f.get("field_type", "text"))
+
+        options = None
+        field_values = f.get("field_values")
+        if field_values and isinstance(field_values, list):
+            options = [{"label": v, "value": v} for v in field_values]
+        elif mapped_type == "select" and f.get("field_type") == "boolean":
+            options = [{"label": "Yes", "value": "Yes"}, {"label": "No", "value": "No"}]
+
+        normalized.append({
+            "id": f.get("field_name", ""),
+            "name": f.get("field_name", ""),
+            "label": f.get("field_label", f.get("field_name", "")),
+            "type": mapped_type,
+            "placeholder": f.get("placeholder"),
+            "required": f.get("required", True),
+            "default": f.get("default_value"),
+            "options": options,
+        })
+    return normalized
+
+
 def _extract_form_data(artifact: Dict[str, Any]) -> Dict[str, Any]:
-    """Extract HITL form data from artifact"""
+    """Extract HITL form data from artifact.
+
+    Handles both the original caipe_form format (fields) and the supervisor's
+    UserInputMetaData format (input_fields with input_title/input_description).
+    """
     parts = artifact.get("parts", [])
     metadata = artifact.get("metadata", {})
 
     form_data = {
-        "title": metadata.get("title", "Action Required"),
-        "description": metadata.get("description", ""),
+        "title": metadata.get("input_title", metadata.get("title", "Action Required")),
+        "description": metadata.get("input_description", metadata.get("description", "")),
         "fields": [],
         "actions": [],
     }
@@ -330,13 +391,19 @@ def _extract_form_data(artifact: Dict[str, Any]) -> Dict[str, Any]:
     for part in parts:
         if part.get("kind") == "data":
             data = part.get("data", {})
-            if "fields" in data:
+            if "input_fields" in data:
+                form_data["fields"] = _normalize_input_fields(data["input_fields"])
+            elif "fields" in data:
                 form_data["fields"] = data["fields"]
             if "actions" in data:
                 form_data["actions"] = data["actions"]
-            if "title" in data:
+            if "input_title" in data:
+                form_data["title"] = data["input_title"]
+            elif "title" in data:
                 form_data["title"] = data["title"]
-            if "description" in data:
+            if "input_description" in data:
+                form_data["description"] = data["input_description"]
+            elif "description" in data:
                 form_data["description"] = data["description"]
         elif part.get("kind") == "text":
             if not form_data["description"]:
