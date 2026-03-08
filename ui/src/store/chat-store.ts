@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
 import { Conversation, ChatMessage, A2AEvent, MessageFeedback } from "@/types/a2a";
+import { SSEAgentEvent } from "@/components/dynamic-agents/sse-types";
 import { generateId } from "@/lib/utils";
 import { A2AClient } from "@/lib/a2a-client";
 import { apiClient } from "@/lib/api-client";
@@ -44,6 +45,10 @@ interface ChatState {
   addA2AEvent: (event: A2AEvent, conversationId?: string) => void;
   clearA2AEvents: (conversationId?: string) => void;
   getConversationEvents: (conversationId: string) => A2AEvent[];
+  // SSE Agent events (for Dynamic Agents)
+  addSSEEvent: (event: SSEAgentEvent, conversationId?: string) => void;
+  clearSSEEvents: (conversationId?: string) => void;
+  getConversationSSEEvents: (conversationId: string) => SSEAgentEvent[];
   deleteConversation: (id: string) => Promise<void>;
   clearAllConversations: () => void;
   getActiveConversation: () => Conversation | undefined;
@@ -157,6 +162,7 @@ const storeImplementation = (set: any, get: any) => ({
           updatedAt: new Date(),
           messages: [],
           a2aEvents: [], // Initialize with empty events
+          sseEvents: [], // Initialize with empty SSE events for Dynamic Agents
           agent_id: agentId, // Dynamic agent ID; undefined = Platform Engineer
         };
 
@@ -500,6 +506,40 @@ const storeImplementation = (set: any, get: any) => ({
         return conv?.a2aEvents || [];
       },
 
+      // ═══════════════════════════════════════════════════════════════
+      // SSE Agent Events (for Dynamic Agents)
+      // ═══════════════════════════════════════════════════════════════
+
+      addSSEEvent: (event: SSEAgentEvent, conversationId?: string) => {
+        const convId = conversationId || get().activeConversationId;
+        if (!convId) return;
+
+        set((prev: ChatState) => ({
+          conversations: prev.conversations.map((c: Conversation) =>
+            c.id === convId
+              ? { ...c, sseEvents: [...(c.sseEvents || []), event] }
+              : c
+          ),
+        }));
+      },
+
+      clearSSEEvents: (conversationId?: string) => {
+        if (conversationId) {
+          set((prev: ChatState) => ({
+            conversations: prev.conversations.map((conv: Conversation) =>
+              conv.id === conversationId
+                ? { ...conv, sseEvents: [] }
+                : conv
+            ),
+          }));
+        }
+      },
+
+      getConversationSSEEvents: (conversationId: string) => {
+        const conv = get().conversations.find((c: Conversation) => c.id === conversationId);
+        return conv?.sseEvents || [];
+      },
+
       deleteConversation: async (id: string) => {
         const storageMode = await getStorageMode();
 
@@ -753,6 +793,7 @@ const storeImplementation = (set: any, get: any) => ({
               // being viewed (prevents race with concurrent loadMessagesFromServer)
               messages: (isStreaming || hasLoadedMessages || isActive) && localConv ? localConv.messages : [],
               a2aEvents: (isStreaming || hasLoadedMessages || isActive) && localConv ? localConv.a2aEvents : [],
+              sseEvents: (isStreaming || hasLoadedMessages || isActive) && localConv ? (localConv.sseEvents || []) : [],
               agent_id: conv.agent_id, // Dynamic agent ID; undefined = Platform Engineer
               owner_id: conv.owner_id,
               sharing: conv.sharing,
@@ -1408,6 +1449,7 @@ export const useChatStore = shouldUseLocalStorage()
           conversations: state.conversations.map((conv) => ({
             ...conv,
             a2aEvents: [], // Don't persist events (too large)
+            sseEvents: [], // Don't persist SSE events (too large)
             messages: conv.messages.map((msg) => ({
               ...msg,
               events: [], // Don't persist events
@@ -1423,6 +1465,7 @@ export const useChatStore = shouldUseLocalStorage()
               createdAt: new Date(conv.createdAt),
               updatedAt: new Date(conv.updatedAt),
               a2aEvents: [],
+              sseEvents: [],
               messages: conv.messages.map((msg, idx, allMsgs) => {
                 // CRASH RECOVERY: Mark non-final assistant messages as interrupted.
                 // After a page crash/reload, streamingConversations is empty (not persisted),

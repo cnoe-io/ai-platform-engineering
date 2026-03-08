@@ -1,6 +1,8 @@
 // A2A Protocol Types - Spec Conformant
 // Based on https://github.com/google/A2A
 
+import type { SSEAgentEvent } from "@/components/dynamic-agents/sse-types";
+
 export interface A2AMessage {
   jsonrpc: "2.0";
   id: string;
@@ -117,7 +119,15 @@ export interface ArtifactPart {
 export interface A2AEvent {
   id: string;
   timestamp: Date;
-  type: "task" | "artifact" | "status" | "message" | "tool_start" | "tool_end" | "execution_plan" | "error";
+  type:
+    | "task"
+    | "artifact"
+    | "status"
+    | "message"
+    | "tool_start"
+    | "tool_end"
+    | "execution_plan"
+    | "error";
   raw: A2AMessage;
 
   // Parsed fields
@@ -163,6 +173,8 @@ export interface Conversation {
   messages: ChatMessage[];
   /** A2A events for this conversation (for debug panel, tasks, output) */
   a2aEvents: A2AEvent[];
+  /** SSE events for Dynamic Agents (separate from A2A) */
+  sseEvents: SSEAgentEvent[];
   /** Dynamic agent ID; undefined = Platform Engineer (default) */
   agent_id?: string;
   /** Owner email (only for MongoDB conversations) */

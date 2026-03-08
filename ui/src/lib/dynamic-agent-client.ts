@@ -3,23 +3,27 @@
  *
  * Lightweight SSE streaming client for Dynamic Agents.
  * POSTs to the UI proxy route and parses SSE events, yielding
- * ParsedA2AEvent-compatible objects so ChatPanel can use the same
- * accumulation/update logic as A2ASDKClient.
+ * SSEAgentEvent objects for ChatPanel to process.
  *
- * Unlike A2ASDKClient which uses the @a2a-js/sdk and JSON-RPC transport,
- * this client speaks plain SSE with a simple REST POST.
+ * This client is intentionally separate from A2ASDKClient to maintain
+ * clean architectural separation between A2A and Dynamic Agents.
  *
- * SSE event types from the backend:
+ * SSE event types from the backend (stream_events.py):
  *   - content: streaming text token (data is a string)
- *   - tool_notification_start: tool started (data is JSON with artifact shape)
- *   - tool_notification_end: tool ended (data is JSON with artifact shape)
- *   - execution_plan_update: task list update (data is JSON with artifact shape)
+ *   - tool_start: tool invocation started (data is structured JSON)
+ *   - tool_end: tool invocation completed (data is structured JSON)
+ *   - todo_update: task list update (data is structured JSON)
+ *   - subagent_start: subagent delegation started (data is structured JSON)
+ *   - subagent_end: subagent completed (data is structured JSON)
  *   - final_result: completion with final content (data is JSON with artifact shape)
  *   - error: error message (data is JSON with error field)
  *   - done: stream complete (data is empty JSON)
  */
 
-import type { ParsedA2AEvent } from "@/lib/a2a-sdk-client";
+import {
+  type SSEAgentEvent,
+  createSSEAgentEvent,
+} from "@/components/dynamic-agents/sse-types";
 
 export interface DynamicAgentClientConfig {
   /** Proxy route URL (e.g. /api/dynamic-agents/chat/stream) */
@@ -28,14 +32,14 @@ export interface DynamicAgentClientConfig {
   accessToken?: string;
 }
 
-interface SSEEvent {
+interface RawSSEEvent {
   event: string;
   data: string;
 }
 
 /**
  * Dynamic Agent Client — streams responses from the Dynamic Agents backend
- * via a UI proxy route, yielding ParsedA2AEvent objects.
+ * via a UI proxy route, yielding SSEAgentEvent objects directly.
  */
 export class DynamicAgentClient {
   private proxyUrl: string;
@@ -64,7 +68,7 @@ export class DynamicAgentClient {
   }
 
   /**
-   * Send a message and stream the response as ParsedA2AEvent objects.
+   * Send a message and stream the response as SSEAgentEvent objects.
    *
    * @param message User message text
    * @param conversationId Conversation/session ID
@@ -74,7 +78,7 @@ export class DynamicAgentClient {
     message: string,
     conversationId: string,
     agentId: string,
-  ): AsyncGenerator<ParsedA2AEvent, void, undefined> {
+  ): AsyncGenerator<SSEAgentEvent, void, undefined> {
     // Abort any previous request
     if (this.abortController) {
       this.abortController.abort();
@@ -83,7 +87,7 @@ export class DynamicAgentClient {
 
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
-      "Accept": "text/event-stream",
+      Accept: "text/event-stream",
     };
     if (this.accessToken) {
       headers["Authorization"] = `Bearer ${this.accessToken}`;
@@ -111,26 +115,26 @@ export class DynamicAgentClient {
         if (response.status === 401) {
           throw new Error(
             "Session expired: Your authentication token has expired. " +
-            "Please save your work and log in again."
+              "Please save your work and log in again.",
           );
         }
         const errorBody = await response.text().catch(() => "");
         throw new Error(
-          `HTTP error: ${response.status} ${response.statusText}. ${errorBody || "(empty)"}`
+          `HTTP error: ${response.status} ${response.statusText}. ${errorBody || "(empty)"}`,
         );
       }
 
       // Parse SSE stream using getReader (Safari-compatible)
-      for await (const sseEvent of this.parseSSEStream(response)) {
+      for await (const rawEvent of this.parseSSEStream(response)) {
         eventCount++;
 
-        const parsed = this.mapToA2AEvent(sseEvent, eventCount);
-        if (!parsed) continue;
+        const agentEvent = this.mapToAgentEvent(rawEvent);
+        if (!agentEvent) continue;
 
-        yield parsed;
+        yield agentEvent;
 
         // Check for terminal events
-        if (sseEvent.event === "done" || sseEvent.event === "error") {
+        if (rawEvent.event === "done" || rawEvent.event === "error") {
           break;
         }
       }
@@ -151,7 +155,9 @@ export class DynamicAgentClient {
   /**
    * Parse SSE stream from a fetch Response using getReader (Safari-compatible).
    */
-  private async *parseSSEStream(response: Response): AsyncGenerator<SSEEvent, void, undefined> {
+  private async *parseSSEStream(
+    response: Response,
+  ): AsyncGenerator<RawSSEEvent, void, undefined> {
     const reader = response.body?.getReader();
     if (!reader) {
       throw new Error("Response body is not readable");
@@ -198,78 +204,43 @@ export class DynamicAgentClient {
   }
 
   /**
-   * Map a backend SSE event into a ParsedA2AEvent for ChatPanel consumption.
-   *
-   * The goal is to produce the same shape that A2ASDKClient.parseEvent() returns,
-   * so ChatPanel's submitMessage() can use identical accumulation logic.
+   * Map a backend SSE event into an SSEAgentEvent.
+   * Uses the new structured event format from stream_events.py.
    */
-  private mapToA2AEvent(sse: SSEEvent, eventNum: number): ParsedA2AEvent | null {
-    const { event, data } = sse;
+  private mapToAgentEvent(raw: RawSSEEvent): SSEAgentEvent | null {
+    const { event, data } = raw;
 
-    // ─── content: streaming text token ───────────────────────────────
-    if (event === "content") {
-      return {
-        raw: { kind: "message" } as never,
-        type: "message",
-        displayContent: data,
-        isFinal: false,
-        shouldAppend: true,
-      };
-    }
-
-    // ─── Artifact-shaped events (tool_notification_*, execution_plan_*, final_result) ───
+    // ─── Structured events: content, tool_*, todo_update, subagent_*, final_result ───
     if (
-      event === "tool_notification_start" ||
-      event === "tool_notification_end" ||
-      event === "execution_plan_update" ||
-      event === "execution_plan_status_update" ||
+      event === "content" ||
+      event === "tool_start" ||
+      event === "tool_end" ||
+      event === "todo_update" ||
+      event === "subagent_start" ||
+      event === "subagent_end" ||
       event === "final_result"
     ) {
       try {
-        const parsed = JSON.parse(data);
-        const artifact = parsed.artifact;
-
-        if (!artifact) {
-          console.warn(`[DynamicAgent] ${event} event missing artifact`, data);
-          return null;
+        // content events have data as plain string, others are JSON
+        let parsedData: unknown;
+        if (event === "content") {
+          parsedData = data;
+        } else {
+          parsedData = JSON.parse(data);
         }
 
-        // Extract text content from artifact parts
-        const textContent =
-          artifact.parts
-            ?.filter((p: { kind: string }) => p.kind === "text")
-            .map((p: { text: string }) => p.text || "")
-            .join("") || "";
+        const agentEvent = createSSEAgentEvent(
+          { type: event, data: parsedData },
+          undefined, // taskId could be added later for crash recovery
+        );
 
-        // Map SSE event type to A2AEvent type
-        let a2aType: ParsedA2AEvent["type"] = "artifact";
-        if (event === "tool_notification_start") a2aType = "artifact";
-        if (event === "tool_notification_end") a2aType = "artifact";
-
-        const isFinal = event === "final_result";
-
-        // Capture trace_id from final_result for potential feedback integration
-        if (isFinal && artifact.metadata?.trace_id) {
-          this.lastTraceId = artifact.metadata.trace_id;
+        // Capture trace_id from final_result for feedback integration
+        if (event === "final_result" && agentEvent.artifact?.metadata?.trace_id) {
+          this.lastTraceId = agentEvent.artifact.metadata.trace_id as string;
           console.log(`[DynamicAgent] Captured trace_id: ${this.lastTraceId}`);
         }
 
-        // Build raw object that toStoreEvent() can extract artifact from
-        const rawEvent = {
-          kind: "artifact-update" as const,
-          artifact,
-          append: true,
-        };
-
-        return {
-          raw: rawEvent as never,
-          type: a2aType,
-          artifactName: artifact.name,
-          displayContent: textContent,
-          isFinal,
-          shouldAppend: true,
-          sourceAgent: artifact.metadata?.sourceAgent,
-        };
+        return agentEvent;
       } catch (e) {
         console.error(`[DynamicAgent] Failed to parse ${event} data:`, e, data);
         return null;
@@ -278,13 +249,10 @@ export class DynamicAgentClient {
 
     // ─── done: stream complete ───────────────────────────────────────
     if (event === "done") {
-      return {
-        raw: { kind: "status-update", status: { state: "completed" }, final: true } as never,
-        type: "status",
-        displayContent: "Stream complete",
-        isFinal: true,
-        shouldAppend: false,
-      };
+      return createSSEAgentEvent(
+        { type: "final_result", data: {} },
+        undefined,
+      );
     }
 
     // ─── error: agent error ──────────────────────────────────────────
@@ -293,19 +261,21 @@ export class DynamicAgentClient {
         const parsed = JSON.parse(data);
         const errorMsg = parsed.error || "Unknown error";
         return {
-          raw: { kind: "status-update", status: { state: "failed" }, final: true } as never,
-          type: "status",
-          displayContent: `Error: ${errorMsg}`,
+          id: `sse-error-${Date.now()}`,
+          timestamp: new Date(),
+          type: "error",
+          raw: { event, data: parsed },
+          content: `Error: ${errorMsg}`,
           isFinal: true,
-          shouldAppend: false,
         };
       } catch {
         return {
-          raw: { kind: "status-update", status: { state: "failed" }, final: true } as never,
-          type: "status",
-          displayContent: `Error: ${data}`,
+          id: `sse-error-${Date.now()}`,
+          timestamp: new Date(),
+          type: "error",
+          raw: { event, data },
+          content: `Error: ${data}`,
           isFinal: true,
-          shouldAppend: false,
         };
       }
     }

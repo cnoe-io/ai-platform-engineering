@@ -15,6 +15,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { useChatStore } from "@/store/chat-store";
 import { A2ASDKClient, type ParsedA2AEvent, type HITLDecision, toStoreEvent } from "@/lib/a2a-sdk-client";
 import { DynamicAgentClient } from "@/lib/dynamic-agent-client";
+import { type SSEAgentEvent } from "@/components/dynamic-agents/sse-types";
 import { isFeatureEnabled, useFeatureFlagStore } from "@/store/feature-flag-store";
 import { cn, deduplicateByKey } from "@/lib/utils";
 import { ChatMessage as ChatMessageType, A2AEvent } from "@/types/a2a";
@@ -89,6 +90,8 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
     addEventToMessage,
     addA2AEvent,
     clearA2AEvents,
+    addSSEEvent,
+    clearSSEEvents,
     setConversationStreaming,
     isConversationStreaming,
     cancelConversationRequest,
@@ -349,11 +352,18 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
       convId = createConversation();
     }
 
-    // Clear previous turn's events (tasks, tool completions, A2A stream events)
-    console.log(`[A2A-DEBUG] 🧹 clearA2AEvents() called for conv=${convId} — starting new turn`);
-    const preCleanConv = useChatStore.getState().conversations.find((c: any) => c.id === convId);
-    console.log(`[A2A-DEBUG] 🧹 PRE-CLEAR event count: ${preCleanConv?.a2aEvents?.length ?? 0}`, preCleanConv?.a2aEvents?.map((e: any) => `${e.type}/${e.artifact?.name || 'n/a'}`));
-    clearA2AEvents(convId);
+    // Clear previous turn's events (tasks, tool completions, stream events)
+    // Dynamic agents use SSE events, default supervisor uses A2A events
+    const isDynamicAgent = !!selectedAgentId;
+    if (isDynamicAgent) {
+      console.log(`[SSE-DEBUG] 🧹 clearSSEEvents() called for conv=${convId} — starting new turn`);
+      clearSSEEvents(convId);
+    } else {
+      console.log(`[A2A-DEBUG] 🧹 clearA2AEvents() called for conv=${convId} — starting new turn`);
+      const preCleanConv = useChatStore.getState().conversations.find((c: any) => c.id === convId);
+      console.log(`[A2A-DEBUG] 🧹 PRE-CLEAR event count: ${preCleanConv?.a2aEvents?.length ?? 0}`, preCleanConv?.a2aEvents?.map((e: any) => `${e.type}/${e.artifact?.name || 'n/a'}`));
+      clearA2AEvents(convId);
+    }
     const postCleanConv = useChatStore.getState().conversations.find((c: any) => c.id === convId);
     console.log(`[A2A-DEBUG] 🧹 POST-CLEAR event count: ${postCleanConv?.a2aEvents?.length ?? 0}`);
 
@@ -372,9 +382,9 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
     const assistantMsgId = addMessage(convId, { role: "assistant", content: "" }, turnId);
 
     // Create the appropriate client and stream based on whether a dynamic agent is selected.
-    // Both clients yield ParsedA2AEvent objects, so the for-await loop body is identical.
+    // Dynamic agents use SSE events, default supervisor uses A2A events.
     let abortFn: () => void;
-    let eventStream: AsyncIterable<ParsedA2AEvent>;
+    let eventStream: AsyncIterable<ParsedA2AEvent | SSEAgentEvent>;
 
     if (selectedAgentId) {
       // Dynamic agent: use lightweight SSE client via proxy route
@@ -408,10 +418,22 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
     let lastUIUpdate = 0;
     let capturedTaskId: string | undefined; // Capture taskId from first event for crash recovery
     const UI_UPDATE_INTERVAL = 100; // Throttle UI updates to max 10/sec
-    // Buffer A2A events locally and flush on the same throttle as UI updates.
+    // Buffer events locally and flush on the same throttle as UI updates.
     // Previously, addA2AEvent was called on EVERY token, causing a Zustand set()
     // per token — hundreds of store updates/sec that saturated React's render pipeline.
-    const eventBuffer: Parameters<typeof addA2AEvent>[0][] = [];
+    const eventBuffer: (A2AEvent | SSEAgentEvent)[] = [];
+
+    // Helper to add buffered event to the correct store
+    const flushEventBuffer = () => {
+      for (const bufferedEvent of eventBuffer) {
+        if (isDynamicAgent) {
+          addSSEEvent(bufferedEvent as SSEAgentEvent, convId!);
+        } else {
+          addA2AEvent(bufferedEvent as A2AEvent, convId!);
+        }
+      }
+      eventBuffer.length = 0;
+    };
 
     // Mark this conversation as streaming
     setConversationStreaming(convId, {
@@ -423,14 +445,28 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
     try {
       // ═══════════════════════════════════════════════════════════════
       // AGENT-FORGE PATTERN: for await loop over async generator
-      // Both A2ASDKClient and DynamicAgentClient yield ParsedA2AEvent
+      // A2ASDKClient yields ParsedA2AEvent, DynamicAgentClient yields SSEAgentEvent
       // ═══════════════════════════════════════════════════════════════
       for await (const event of eventStream) {
         eventCounter++;
         const eventNum = eventCounter;
 
-        const artifactName = event.artifactName || "";
-        const newContent = event.displayContent;
+        // Normalize event properties for unified processing
+        // A2A events have: artifactName, displayContent, shouldAppend
+        // SSE events have: type, content, artifact?.name
+        const isSSEEvent = isDynamicAgent;
+        const sseEvent = event as SSEAgentEvent;
+        const a2aEvent = event as ParsedA2AEvent;
+
+        // Extract common properties
+        const artifactName = isSSEEvent
+          ? (sseEvent.type === "final_result" ? "final_result" : sseEvent.artifact?.name || sseEvent.type)
+          : (a2aEvent.artifactName || "");
+        const newContent = isSSEEvent
+          ? (sseEvent.content || "")
+          : (a2aEvent.displayContent || "");
+        const eventIsFinal = isSSEEvent ? sseEvent.isFinal : a2aEvent.isFinal;
+        const eventType = isSSEEvent ? sseEvent.type : a2aEvent.type;
 
         // LEVEL 2 CRASH RECOVERY: Capture taskId from the first event that has one.
         // This is persisted on the assistant message so that if the tab crashes,
@@ -441,27 +477,43 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
         }
 
         // Buffer event for batched store update (flushed on UI_UPDATE_INTERVAL)
-        const storeEvent = toStoreEvent(event, `event-${eventNum}-${Date.now()}`);
-        eventBuffer.push(storeEvent as Parameters<typeof addA2AEvent>[0]);
+        // Use appropriate conversion function based on agent type
+        if (isDynamicAgent) {
+          // SSE events from DynamicAgentClient are already SSEAgentEvent objects
+          eventBuffer.push(event as SSEAgentEvent);
+        } else {
+          const storeEvent = toStoreEvent(event as ParsedA2AEvent, `event-${eventNum}-${Date.now()}`);
+          eventBuffer.push(storeEvent as A2AEvent);
+        }
 
         // Flush buffer immediately for important events that update the Tasks panel
         // (execution plans, tool notifications, final results, user input forms)
-        const isImportantArtifact =
-          artifactName === "execution_plan_update" ||
-          artifactName === "execution_plan_status_update" ||
-          artifactName === "tool_notification_start" ||
-          artifactName === "tool_notification_end" ||
-          artifactName === "partial_result" ||
-          artifactName === "final_result" ||
-          artifactName === "complete_result" ||
-          artifactName === "UserInputMetaData";
+        // For SSE events, map new event types to importance
+        const isImportantArtifact = isSSEEvent
+          ? (sseEvent.type === "tool_start" ||
+             sseEvent.type === "tool_end" ||
+             sseEvent.type === "todo_update" ||
+             sseEvent.type === "subagent_start" ||
+             sseEvent.type === "subagent_end" ||
+             sseEvent.type === "final_result")
+          : (artifactName === "execution_plan_update" ||
+             artifactName === "execution_plan_status_update" ||
+             artifactName === "tool_notification_start" ||
+             artifactName === "tool_notification_end" ||
+             artifactName === "subagent_start" ||
+             artifactName === "subagent_content" ||
+             artifactName === "subagent_end" ||
+             artifactName === "partial_result" ||
+             artifactName === "final_result" ||
+             artifactName === "complete_result" ||
+             artifactName === "UserInputMetaData");
 
         // Log important artifacts in detail
         if (isImportantArtifact) {
           // Access artifact from the raw A2A event (ParsedA2AEvent wraps it)
           const rawArtifact = (event.raw as any)?.artifact;
-          const artifactText = rawArtifact?.parts?.[0]?.text?.substring(0, 200) || event.displayContent?.substring(0, 200) || '';
-          console.log(`[A2A-DEBUG] ⚡ IMPORTANT ARTIFACT #${eventNum}: ${artifactName}`, {
+          const artifactText = rawArtifact?.parts?.[0]?.text?.substring(0, 200) || newContent?.substring(0, 200) || '';
+          console.log(`[Agent-DEBUG] ⚡ IMPORTANT EVENT #${eventNum}: ${artifactName}`, {
             convId,
             artifactId: rawArtifact?.artifactId,
             text: artifactText,
@@ -471,29 +523,26 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
         }
 
         if (isImportantArtifact && eventBuffer.length > 0) {
-          console.log(`[A2A-DEBUG] 📤 FLUSH buffer (${eventBuffer.length} events) for important artifact: ${artifactName}`);
-          for (const bufferedEvent of eventBuffer) {
-            addA2AEvent(bufferedEvent, convId!);
-          }
-          eventBuffer.length = 0;
+          console.log(`[Agent-DEBUG] 📤 FLUSH buffer (${eventBuffer.length} events) for important event: ${artifactName}`);
+          flushEventBuffer();
           // Log store state right after flush
           const storeConv = useChatStore.getState().conversations.find((c: any) => c.id === convId);
-          console.log(`[A2A-DEBUG] 📊 POST-FLUSH store event count: ${storeConv?.a2aEvents?.length ?? 0}`);
+          console.log(`[Agent-DEBUG] 📊 POST-FLUSH store event count: ${isDynamicAgent ? storeConv?.sseEvents?.length ?? 0 : storeConv?.a2aEvents?.length ?? 0}`);
         }
 
         // ═══════════════════════════════════════════════════════════════
-        // DETECT USER INPUT FORM REQUEST
+        // DETECT USER INPUT FORM REQUEST (A2A only - SSE uses different HITL)
         // ═══════════════════════════════════════════════════════════════
-        if (artifactName === "UserInputMetaData" && event.metadata) {
+        if (!isSSEEvent && artifactName === "UserInputMetaData" && a2aEvent.metadata) {
           console.log(`[ChatPanel] 📝 USER INPUT FORM REQUESTED - Event #${eventNum}`);
-          const metadata = event.metadata as UserInputMetadata;
+          const metadata = a2aEvent.metadata as UserInputMetadata;
           if (metadata.input_fields && metadata.input_fields.length > 0) {
             console.log(`[ChatPanel] 📝 Form has ${metadata.input_fields.length} fields:`, metadata.input_fields.map(f => f.field_name));
             hitlFormRequested = true;
             setPendingUserInput({
               messageId: assistantMsgId,
               metadata,
-              contextId: event.contextId || convId,
+              contextId: a2aEvent.contextId || convId,
             });
             if (metadata.response) {
               accumulatedText = metadata.response;
@@ -504,9 +553,9 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
 
         // 🔍 DEBUG: Condensed logging
         const isImportantEvent = artifactName === "final_result" || artifactName === "partial_result" ||
-                                  artifactName === "complete_result" || event.type === "status" || artifactName === "UserInputMetaData";
+                                  artifactName === "complete_result" || eventType === "error" || artifactName === "UserInputMetaData";
         if (isImportantEvent || eventNum % 50 === 0) {
-          console.log(`[A2A SDK] #${eventNum} ${event.type}/${artifactName} len=${newContent?.length || 0} final=${event.isFinal} buf=${accumulatedText.length}`);
+          console.log(`[Agent] #${eventNum} ${eventType}/${artifactName} len=${newContent?.length || 0} final=${eventIsFinal} buf=${accumulatedText.length}`);
         }
 
         // ═══════════════════════════════════════════════════════════════
@@ -564,22 +613,24 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
         // ═══════════════════════════════════════════════════════════════
         // ACCUMULATE RAW STREAM CONTENT (always append, never reset)
         // This captures streaming output for the "Streaming Output" view
-        // NOTE: Tool notifications and execution plans are shown in the Tasks panel,
-        // so we exclude them from raw stream to avoid duplication
+        // NOTE: Tool notifications, execution plans, and subagent notifications
+        // are shown in the Tasks/Tools panel, so we exclude them from raw stream
         // ═══════════════════════════════════════════════════════════════
-        const isToolOrPlanArtifact =
+        const isToolOrPlanOrSubagentArtifact =
           artifactName === "tool_notification_start" ||
           artifactName === "tool_notification_end" ||
           artifactName === "execution_plan_update" ||
-          artifactName === "execution_plan_status_update";
+          artifactName === "execution_plan_status_update" ||
+          artifactName === "subagent_start" ||
+          artifactName === "subagent_end";
 
-        if ((event.type === "message" || event.type === "artifact") && !isToolOrPlanArtifact) {
-          // Only accumulate actual streaming content (not tool notifications)
+        if ((event.type === "message" || event.type === "artifact") && !isToolOrPlanOrSubagentArtifact) {
+          // Only accumulate actual streaming content (not tool/subagent notifications)
           rawStreamContent += newContent;
         }
 
-        // Skip tool notifications and execution plans from FINAL content (shown in Tasks panel)
-        if (isToolOrPlanArtifact) {
+        // Skip tool/plan/subagent notifications from FINAL content (shown in Tasks panel)
+        if (isToolOrPlanOrSubagentArtifact) {
           continue;
         }
 
@@ -603,14 +654,11 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
           // so the store only gets ONE batched update per interval, not per token.
           const now = Date.now();
           if (now - lastUIUpdate >= UI_UPDATE_INTERVAL) {
-            // Flush buffered A2A events first
+            // Flush buffered events first
             if (eventBuffer.length > 0) {
               console.log(`[A2A-DEBUG] 📤 THROTTLE-FLUSH buffer (${eventBuffer.length} events) at interval`);
+              flushEventBuffer();
             }
-            for (const bufferedEvent of eventBuffer) {
-              addA2AEvent(bufferedEvent, convId!);
-            }
-            eventBuffer.length = 0;
             updateMessage(convId!, assistantMsgId, { content: accumulatedText, rawStreamContent });
             lastUIUpdate = now;
           }
@@ -624,11 +672,8 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
       // Flush any remaining buffered events
       if (eventBuffer.length > 0) {
         console.log(`[A2A-DEBUG] 📤 FINAL-FLUSH remaining buffer (${eventBuffer.length} events)`);
+        flushEventBuffer();
       }
-      for (const bufferedEvent of eventBuffer) {
-        addA2AEvent(bufferedEvent, convId!);
-      }
-      eventBuffer.length = 0;
 
       // Log final event state
       const finalConv = useChatStore.getState().conversations.find((c: any) => c.id === convId);
@@ -672,7 +717,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
       appendToMessage(convId, assistantMsgId, `\n\n**Error:** ${(error as Error).message || "Failed to connect to A2A endpoint"}`);
       setConversationStreaming(convId, null);
     }
-  }, [isThisConversationStreaming, activeConversationId, endpoint, accessToken, selectedAgentId, createConversation, clearA2AEvents, addMessage, appendToMessage, updateMessage, addEventToMessage, addA2AEvent, setConversationStreaming]);
+  }, [isThisConversationStreaming, activeConversationId, endpoint, accessToken, selectedAgentId, createConversation, clearA2AEvents, clearSSEEvents, addMessage, appendToMessage, updateMessage, addEventToMessage, addA2AEvent, addSSEEvent, setConversationStreaming]);
 
   // Handle queued messages after streaming completes
   useEffect(() => {

@@ -236,6 +236,7 @@ describe("ChatUUID Page", () => {
         updatedAt: new Date(),
         messages: [{ id: "m1", role: "user", content: "hello" }],
         a2aEvents: [],
+        sseEvents: [],
       },
     ];
 
@@ -256,6 +257,7 @@ describe("ChatUUID Page", () => {
         updatedAt: new Date(),
         messages: [],
         a2aEvents: [],
+        sseEvents: [],
       },
     ];
 
@@ -331,6 +333,7 @@ describe("ChatUUID Page", () => {
         updatedAt: new Date(),
         messages: [],
         a2aEvents: [],
+        sseEvents: [],
       },
     ];
 
@@ -395,6 +398,7 @@ describe("ChatUUID Page", () => {
         updatedAt: new Date(),
         messages: [{ id: "m1", role: "user", content: "hi" }],
         a2aEvents: [],
+        sseEvents: [],
       },
     ];
 
@@ -412,6 +416,7 @@ describe("ChatUUID Page", () => {
         updatedAt: new Date(),
         messages: [],
         a2aEvents: [],
+        sseEvents: [],
       },
     ];
 
@@ -455,6 +460,7 @@ describe("ChatUUID Page", () => {
           { id: "m2", role: "assistant", content: "hi there" },
         ],
         a2aEvents: [],
+        sseEvents: [],
       },
     ];
 
@@ -480,6 +486,7 @@ describe("ChatUUID Page", () => {
         updatedAt: new Date(),
         messages: [{ id: "m1", role: "user", content: "test" }],
         a2aEvents: [],
+        sseEvents: [],
       },
     ];
 
@@ -503,6 +510,7 @@ describe("ChatUUID Page", () => {
         updatedAt: new Date(),
         messages: [],
         a2aEvents: [],
+        sseEvents: [],
       },
     ];
 
@@ -551,6 +559,7 @@ describe("ChatUUID Page", () => {
         updatedAt: new Date(),
         messages: [],
         a2aEvents: [],
+        sseEvents: [],
       },
     ];
 
@@ -593,6 +602,7 @@ describe("ChatUUID Page", () => {
         updatedAt: new Date(),
         messages: [{ id: "m1", role: "user", content: "appeared" }],
         a2aEvents: [],
+        sseEvents: [],
       },
     ];
 
@@ -640,6 +650,7 @@ describe("ChatUUID Page", () => {
         updatedAt: new Date(),
         messages: [{ id: "m1", role: "user", content: "test" }],
         a2aEvents: [],
+        sseEvents: [],
       },
     ];
 
@@ -667,6 +678,7 @@ describe("ChatUUID Page", () => {
         updatedAt: new Date(),
         messages: [{ id: "m1", role: "user", content: "x" }],
         a2aEvents: [],
+        sseEvents: [],
       },
     ];
 
@@ -689,6 +701,7 @@ describe("ChatUUID Page", () => {
         updatedAt: new Date(),
         messages: [{ id: "m1", role: "user", content: "other" }],
         a2aEvents: [],
+        sseEvents: [],
       },
     ];
 
@@ -760,6 +773,7 @@ describe("ChatUUID Page", () => {
           updatedAt: new Date(),
           messages,
           a2aEvents: [],
+        sseEvents: [],
         },
       ];
 
@@ -783,6 +797,7 @@ describe("ChatUUID Page", () => {
           updatedAt: new Date(),
           messages,
           a2aEvents: [],
+        sseEvents: [],
         },
       ];
 
@@ -827,6 +842,7 @@ describe("ChatUUID Page", () => {
           updatedAt: new Date(),
           messages: [],
           a2aEvents: [],
+        sseEvents: [],
         },
       ];
 
@@ -863,6 +879,7 @@ describe("ChatUUID Page", () => {
           updatedAt: new Date(),
           messages,
           a2aEvents: [],
+        sseEvents: [],
         },
       ];
 
@@ -896,6 +913,7 @@ describe("ChatUUID Page", () => {
           updatedAt: new Date(),
           messages: [],
           a2aEvents: [],
+        sseEvents: [],
         },
       ];
 
@@ -933,6 +951,7 @@ describe("ChatUUID Page", () => {
           updatedAt: new Date(),
           messages,
           a2aEvents: [],
+        sseEvents: [],
         },
       ];
 

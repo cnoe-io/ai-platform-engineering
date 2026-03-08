@@ -177,6 +177,7 @@ function ChatUUIDPage() {
               updatedAt: new Date(conv.updated_at),
               messages: [], // Will be loaded below via loadMessagesFromServer
               a2aEvents: [],
+              sseEvents: [], // SSE events for Dynamic Agents
               agent_id: conv.agent_id, // Preserve dynamic agent ID
             };
 
@@ -218,6 +219,7 @@ function ChatUUIDPage() {
               updatedAt: new Date(),
               messages: [],
               a2aEvents: [],
+              sseEvents: [], // SSE events for Dynamic Agents
             };
 
             // Add to Zustand store
@@ -237,6 +239,7 @@ function ChatUUIDPage() {
             updatedAt: new Date(),
             messages: [],
             a2aEvents: [],
+            sseEvents: [], // SSE events for Dynamic Agents
           };
 
           // Add to Zustand store
@@ -256,6 +259,7 @@ function ChatUUIDPage() {
           updatedAt: new Date(),
           messages: [],
           a2aEvents: [],
+          sseEvents: [], // SSE events for Dynamic Agents
         };
 
         // Add to Zustand store

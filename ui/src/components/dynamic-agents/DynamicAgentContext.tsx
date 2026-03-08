@@ -1,16 +1,18 @@
 "use client";
 
 import React, { useState, useMemo } from "react";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 import {
   Loader2,
   CheckCircle,
   ChevronDown,
   ChevronUp,
   ChevronLeft,
-  Wrench,
   Bot,
   Info,
+  Users,
+  ListTodo,
+  Activity,
 } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
@@ -18,21 +20,36 @@ import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useChatStore } from "@/store/chat-store";
 import { cn } from "@/lib/utils";
-import { A2AEvent } from "@/types/a2a";
+import {
+  SSEAgentEvent,
+  EMPTY_SSE_EVENTS,
+} from "./sse-types";
 import { useShallow } from "zustand/react/shallow";
-
-// Stable empty array to avoid infinite re-render loops in selectors
-const EMPTY_EVENTS: A2AEvent[] = [];
 
 // Tool call from events
 interface ToolCall {
   id: string;
   tool: string;
+  args?: Record<string, unknown>;
   agent?: string;
   status: "running" | "completed";
-  startTime?: Date;
-  endTime?: Date;
-  result?: string;
+  isBuiltin: boolean;
+}
+
+// Subagent call from events
+interface SubagentCall {
+  id: string;
+  name: string;
+  purpose?: string;
+  parentAgent?: string;
+  status: "running" | "completed";
+}
+
+// Todo item from todo_update events
+interface TodoItem {
+  id: string;
+  content: string;
+  status: "pending" | "in_progress" | "completed";
 }
 
 interface DynamicAgentContextProps {
@@ -68,14 +85,14 @@ export function DynamicAgentContext({
 
   const conversations = useChatStore((s) => s.conversations);
 
-  // Derive conversation events
+  // Derive conversation SSE events (Dynamic Agents use sseEvents, not a2aEvents)
   const conversationEvents = useMemo(() => {
-    if (!activeConversationId) return EMPTY_EVENTS;
+    if (!activeConversationId) return EMPTY_SSE_EVENTS;
     const conv = conversations.find((c) => c.id === activeConversationId);
-    return conv?.a2aEvents || EMPTY_EVENTS;
+    return conv?.sseEvents || EMPTY_SSE_EVENTS;
   }, [activeConversationId, conversations]);
 
-  const [activeTab, setActiveTab] = useState<"tools" | "info">("tools");
+  const [activeTab, setActiveTab] = useState<"events" | "info">("events");
   const [toolsCollapsed, setToolsCollapsed] = useState(false);
 
   // Check if streaming is active
@@ -90,27 +107,71 @@ export function DynamicAgentContext({
     return true;
   }, [isStreaming, conversation]);
 
-  // Parse tool calls from events
-  const { activeToolCalls, completedToolCalls } = useMemo(() => {
+  // Parse tool calls from structured events
+  const { activeToolCalls, completedToolCalls, builtinToolCalls } = useMemo(() => {
     const allTools = parseToolCalls(conversationEvents);
+    const builtinTools = allTools.filter((t) => t.isBuiltin);
+    const regularTools = allTools.filter((t) => !t.isBuiltin);
+    
     if (isActuallyStreaming) {
       return {
-        activeToolCalls: allTools.filter((t) => t.status === "running"),
-        completedToolCalls: allTools.filter((t) => t.status === "completed"),
+        activeToolCalls: regularTools.filter((t) => t.status === "running"),
+        completedToolCalls: regularTools.filter((t) => t.status === "completed"),
+        builtinToolCalls: builtinTools,
       };
     } else {
-      const completedTools = allTools.map((t) => ({
+      const completedTools = regularTools.map((t) => ({
         ...t,
         status: "completed" as const,
       }));
       return {
         activeToolCalls: [],
         completedToolCalls: completedTools,
+        builtinToolCalls: builtinTools,
       };
     }
   }, [conversationEvents, isActuallyStreaming]);
 
+  // Parse subagent calls from structured events
+  const { activeSubagentCalls, completedSubagentCalls } = useMemo(() => {
+    const allSubagents = parseSubagentCalls(conversationEvents);
+    if (isActuallyStreaming) {
+      return {
+        activeSubagentCalls: allSubagents.filter((s) => s.status === "running"),
+        completedSubagentCalls: allSubagents.filter((s) => s.status === "completed"),
+      };
+    } else {
+      const completedSubagents = allSubagents.map((s) => ({
+        ...s,
+        status: "completed" as const,
+      }));
+      return {
+        activeSubagentCalls: [],
+        completedSubagentCalls: completedSubagents,
+      };
+    }
+  }, [conversationEvents, isActuallyStreaming]);
+
+  // Parse todos from structured events (replaces execution plan)
+  const hasFinalResult = useMemo(() => {
+    return conversationEvents.some((e) => e.type === "final_result");
+  }, [conversationEvents]);
+
+  const todos = useMemo(() => {
+    const parsedTodos = parseTodos(conversationEvents);
+    // Only force-mark as completed when the agent finished (final_result received)
+    if (!isActuallyStreaming && hasFinalResult && parsedTodos.length > 0) {
+      return parsedTodos.map((todo) => ({
+        ...todo,
+        status: "completed" as const,
+      }));
+    }
+    return parsedTodos;
+  }, [conversationEvents, isActuallyStreaming, hasFinalResult]);
+
   const totalToolCalls = activeToolCalls.length + completedToolCalls.length;
+  const totalSubagentCalls = activeSubagentCalls.length + completedSubagentCalls.length;
+  const totalActivityCount = totalToolCalls + totalSubagentCalls + todos.length;
 
   return (
     <motion.div
@@ -142,24 +203,24 @@ export function DynamicAgentContext({
             <>
               <Tabs
                 value={activeTab}
-                onValueChange={(v) => setActiveTab(v as "tools" | "info")}
+                onValueChange={(v) => setActiveTab(v as "events" | "info")}
               >
                 <TabsList className="h-8 bg-muted/50">
                   <TabsTrigger
-                    value="tools"
+                    value="events"
                     className={cn(
                       "text-xs gap-1.5 h-7 px-3",
-                      activeTab === "tools" && "text-purple-400"
+                      activeTab === "events" && "text-purple-400"
                     )}
                   >
-                    <Wrench className="h-3.5 w-3.5" />
-                    Tools
-                    {totalToolCalls > 0 && (
+                    <Activity className="h-3.5 w-3.5" />
+                    Events
+                    {totalActivityCount > 0 && (
                       <Badge
                         variant="secondary"
                         className="ml-1 h-4 px-1 text-[10px] bg-purple-500/20 text-purple-400"
                       >
-                        {totalToolCalls}
+                        {totalActivityCount}
                       </Badge>
                     )}
                   </TabsTrigger>
@@ -195,10 +256,14 @@ export function DynamicAgentContext({
       {!collapsed && (
         <ScrollArea className="flex-1">
           <div className="p-3 space-y-4">
-            {activeTab === "tools" && (
-              <ToolsContent
+            {activeTab === "events" && (
+              <EventsContent
+                todos={todos}
                 activeToolCalls={activeToolCalls}
                 completedToolCalls={completedToolCalls}
+                builtinToolCalls={builtinToolCalls}
+                activeSubagentCalls={activeSubagentCalls}
+                completedSubagentCalls={completedSubagentCalls}
                 toolsCollapsed={toolsCollapsed}
                 onToolsCollapse={setToolsCollapsed}
                 isStreaming={isActuallyStreaming}
@@ -221,10 +286,10 @@ export function DynamicAgentContext({
       {/* Collapsed state indicator */}
       {collapsed && (
         <div className="flex-1 flex flex-col items-center justify-center gap-2 text-muted-foreground">
-          <Wrench className="h-5 w-5" />
-          {totalToolCalls > 0 && (
+          <Activity className="h-5 w-5" />
+          {totalActivityCount > 0 && (
             <Badge variant="secondary" className="text-[10px]">
-              {totalToolCalls}
+              {totalActivityCount}
             </Badge>
           )}
         </div>
@@ -234,38 +299,185 @@ export function DynamicAgentContext({
 }
 
 // ═══════════════════════════════════════════════════════════════
-// Tools Content
+// Events Content
 // ═══════════════════════════════════════════════════════════════
 
-interface ToolsContentProps {
+interface EventsContentProps {
+  todos: TodoItem[];
   activeToolCalls: ToolCall[];
   completedToolCalls: ToolCall[];
+  builtinToolCalls: ToolCall[];
+  activeSubagentCalls: SubagentCall[];
+  completedSubagentCalls: SubagentCall[];
   toolsCollapsed: boolean;
   onToolsCollapse: (collapsed: boolean) => void;
   isStreaming: boolean;
 }
 
-function ToolsContent({
+function EventsContent({
+  todos,
   activeToolCalls,
   completedToolCalls,
+  builtinToolCalls,
+  activeSubagentCalls,
+  completedSubagentCalls,
   toolsCollapsed,
   onToolsCollapse,
   isStreaming,
-}: ToolsContentProps) {
-  if (activeToolCalls.length === 0 && completedToolCalls.length === 0) {
+}: EventsContentProps) {
+  const [subagentsCollapsed, setSubagentsCollapsed] = useState(false);
+
+  const hasNoActivity =
+    todos.length === 0 &&
+    activeToolCalls.length === 0 &&
+    completedToolCalls.length === 0 &&
+    builtinToolCalls.length === 0 &&
+    activeSubagentCalls.length === 0 &&
+    completedSubagentCalls.length === 0;
+
+  if (hasNoActivity) {
     return (
       <div className="text-center py-8 text-muted-foreground">
-        <Wrench className="h-8 w-8 mx-auto mb-3 opacity-40" />
-        <p className="text-sm">No tool calls yet</p>
+        <Activity className="h-8 w-8 mx-auto mb-3 opacity-40" />
+        <p className="text-sm">No events yet</p>
         <p className="text-xs mt-1 opacity-70">
-          Tools will appear here as the agent uses them
+          Events will appear here as the agent runs
         </p>
       </div>
     );
   }
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-4">
+      {/* Todos (replaces Execution Plan) */}
+      {todos.length > 0 && (
+        <div className="space-y-2">
+          {/* Progress Header */}
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2 text-xs text-foreground">
+              <ListTodo className="h-4 w-4 text-sky-400 shrink-0" />
+              <span className="font-medium whitespace-nowrap">Tasks</span>
+            </div>
+            <span className="text-xs font-medium text-foreground/80 whitespace-nowrap">
+              {todos.filter((t) => t.status === "completed").length}/{todos.length}
+            </span>
+          </div>
+
+          {/* Progress Bar */}
+          <div className="h-1.5 bg-muted/50 rounded-full overflow-hidden">
+            <motion.div
+              initial={{ width: 0 }}
+              animate={{
+                width: `${(todos.filter((t) => t.status === "completed").length / todos.length) * 100}%`,
+              }}
+              transition={{ duration: 0.5, ease: "easeOut" }}
+              className="h-full bg-gradient-to-r from-green-500 to-emerald-400 rounded-full"
+            />
+          </div>
+
+          {/* Todo Items */}
+          <div className="space-y-1.5">
+            <AnimatePresence mode="popLayout">
+              {todos.map((todo, idx) => (
+                <motion.div
+                  key={todo.id}
+                  initial={{ opacity: 0, x: -10 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ delay: idx * 0.05 }}
+                  className={cn(
+                    "flex items-start gap-2 p-2 rounded-lg border text-xs transition-all",
+                    todo.status === "completed" && "bg-emerald-500/10 border-emerald-500/30",
+                    todo.status === "in_progress" && "bg-sky-500/10 border-sky-500/30",
+                    todo.status === "pending" && "bg-muted/30 border-border/50",
+                  )}
+                >
+                  {/* Status Indicator */}
+                  <div className="mt-0.5 shrink-0">
+                    {todo.status === "completed" ? (
+                      <CheckCircle className="h-3.5 w-3.5 text-emerald-500" />
+                    ) : todo.status === "in_progress" ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin text-sky-500" />
+                    ) : (
+                      <div className="h-3.5 w-3.5 rounded-full border-2 border-muted-foreground/40" />
+                    )}
+                  </div>
+
+                  {/* Todo Content */}
+                  <div className="flex-1 min-w-0">
+                    <p
+                      className={cn(
+                        "leading-relaxed line-clamp-2",
+                        todo.status === "completed" && "text-muted-foreground line-through opacity-60",
+                        todo.status === "in_progress" && "text-foreground font-medium",
+                        todo.status === "pending" && "text-foreground/80",
+                      )}
+                    >
+                      {todo.content}
+                    </p>
+                  </div>
+                </motion.div>
+              ))}
+            </AnimatePresence>
+          </div>
+        </div>
+      )}
+
+      {/* Builtin tool calls - compact inline chips */}
+      {builtinToolCalls.length > 0 && (
+        <div className="flex flex-wrap gap-1">
+          {builtinToolCalls.map((tool) => (
+            <span
+              key={tool.id}
+              className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] text-muted-foreground"
+            >
+              {tool.status === "completed" ? (
+                <CheckCircle className="h-2.5 w-2.5 text-green-400" />
+              ) : (
+                <Loader2 className="h-2.5 w-2.5 animate-spin" />
+              )}
+              {tool.tool}
+            </span>
+          ))}
+        </div>
+      )}
+
+      {/* Active subagent calls */}
+      {activeSubagentCalls.length > 0 && (
+        <div className="space-y-2">
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <Loader2 className="h-3 w-3 animate-spin text-blue-400" />
+            <Users className="h-3 w-3 text-blue-400" />
+            <span>Running Subagents ({activeSubagentCalls.length})</span>
+          </div>
+          {activeSubagentCalls.map((subagent) => (
+            <SubagentCard key={subagent.id} subagent={subagent} />
+          ))}
+        </div>
+      )}
+
+      {/* Completed subagent calls */}
+      {completedSubagentCalls.length > 0 && (
+        <div className="space-y-2">
+          <button
+            onClick={() => setSubagentsCollapsed(!subagentsCollapsed)}
+            className="flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground transition-colors w-full"
+          >
+            <CheckCircle className="h-3 w-3 text-blue-400" />
+            <Users className="h-3 w-3 text-blue-400" />
+            <span>Completed Subagents ({completedSubagentCalls.length})</span>
+            {subagentsCollapsed ? (
+              <ChevronDown className="h-3 w-3 ml-auto" />
+            ) : (
+              <ChevronUp className="h-3 w-3 ml-auto" />
+            )}
+          </button>
+          {!subagentsCollapsed &&
+            completedSubagentCalls.map((subagent) => (
+              <SubagentCard key={subagent.id} subagent={subagent} />
+            ))}
+        </div>
+      )}
+
       {/* Active tool calls */}
       {activeToolCalls.length > 0 && (
         <div className="space-y-2">
@@ -327,6 +539,46 @@ function ToolCard({ tool }: { tool: ToolCall }) {
       {tool.agent && (
         <div className="text-xs text-muted-foreground mt-1 pl-5.5">
           via {tool.agent}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SubagentCard({ subagent }: { subagent: SubagentCall }) {
+  const isRunning = subagent.status === "running";
+
+  return (
+    <div
+      className={cn(
+        "rounded-lg border p-2.5 text-sm",
+        isRunning
+          ? "border-blue-500/30 bg-blue-500/5"
+          : "border-border/50 bg-muted/30",
+      )}
+    >
+      {/* Subagent header */}
+      <div className="flex items-center gap-2">
+        {isRunning ? (
+          <Loader2 className="h-3.5 w-3.5 animate-spin text-blue-400 shrink-0" />
+        ) : (
+          <CheckCircle className="h-3.5 w-3.5 text-blue-400 shrink-0" />
+        )}
+        <Bot className="h-3.5 w-3.5 text-blue-400 shrink-0" />
+        <span className="font-medium truncate">{subagent.name}</span>
+      </div>
+
+      {/* Purpose - why this subagent was called */}
+      {subagent.purpose && (
+        <div className="text-xs text-muted-foreground mt-1.5 pl-6 line-clamp-2">
+          {subagent.purpose}
+        </div>
+      )}
+
+      {/* Parent agent info */}
+      {subagent.parentAgent && (
+        <div className="text-[10px] text-muted-foreground mt-1 pl-6">
+          via {subagent.parentAgent}
         </div>
       )}
     </div>
@@ -457,82 +709,84 @@ function AgentInfoContent({
 }
 
 // ═══════════════════════════════════════════════════════════════
-// Helper: Parse tool calls from A2A events
-// Same logic as ContextPanel.parseToolCalls() - parses plain text,
-// not JSON, since backend sends human-readable text in artifacts.
+// Helper: Parse todos from SSE events (uses structured todoData)
 // ═══════════════════════════════════════════════════════════════
 
-function parseToolCalls(events: A2AEvent[]): ToolCall[] {
+function parseTodos(events: SSEAgentEvent[]): TodoItem[] {
+  // Get the latest todo_update event (it contains the full todo list)
+  const todoEvents = events.filter((e) => e.type === "todo_update" && e.todoData);
+  if (todoEvents.length === 0) return [];
+
+  const latestTodoEvent = todoEvents[todoEvents.length - 1];
+  const todos = latestTodoEvent.todoData?.todos || [];
+
+  return todos.map((todo, idx) => ({
+    id: `todo-${idx}`,
+    content: todo.content,
+    status: todo.status,
+  }));
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Helper: Parse tool calls from SSE events (uses structured toolData)
+// ═══════════════════════════════════════════════════════════════
+
+function parseToolCalls(events: SSEAgentEvent[]): ToolCall[] {
   const toolsMap = new Map<string, ToolCall>();
 
-  events.forEach((event, idx) => {
-    // Check event type (set by toStoreEvent) or artifact name
-    const isToolStart = event.type === "tool_start" || event.artifact?.name === "tool_notification_start";
-    const isToolEnd = event.type === "tool_end" || event.artifact?.name === "tool_notification_end";
-
-    if (isToolStart) {
-      // Try to get tool name from artifact description (most reliable)
-      // Format: "Tool call started: {tool_name}"
-      const description = event.artifact?.description || "";
-      const text = event.displayContent || event.artifact?.parts?.[0]?.text || "";
-
-      let toolName = "Unknown Tool";
-      let agentName: string | undefined;
-
-      // Parse from description: "Tool call started: list_pull_requests"
-      const descMatch = description.match(/Tool call (?:started|completed):\s*(.+)/i);
-      if (descMatch) {
-        toolName = descMatch[1].trim();
-      }
-
-      // Try to get agent from displayContent: "AgentName: Calling tool: tool_name"
-      const agentMatch = text.match(/^(\w+):\s*(?:Calling|Tool)/i);
-      if (agentMatch) {
-        agentName = agentMatch[1];
-      }
-
-      // Also try pattern: "AgentName: Calling tool: ToolName"
-      const fullMatch = text.match(/^(\w+):\s*(?:Calling\s+)?(?:tool:\s*)?(\w+)/i);
-      if (fullMatch) {
-        agentName = fullMatch[1];
-        if (!descMatch) {
-          toolName = fullMatch[2];
-        }
-      }
-
-      const toolId = `tool-${event.id || idx}`;
-      toolsMap.set(toolId, {
-        id: toolId,
-        agent: agentName,
-        tool: toolName,
+  events.forEach((event) => {
+    if (event.type === "tool_start" && event.toolData) {
+      const { tool_name, tool_call_id, args, agent, is_builtin } = event.toolData;
+      toolsMap.set(tool_call_id, {
+        id: tool_call_id,
+        tool: tool_name,
+        args,
+        agent,
         status: "running",
-        startTime: event.timestamp,
+        isBuiltin: is_builtin,
       });
     }
 
-    if (isToolEnd) {
-      // Get tool name from artifact description
-      const description = event.artifact?.description || "";
-      const descMatch = description.match(/Tool call (?:completed|started):\s*(.+)/i);
-      const toolName = descMatch ? descMatch[1].trim().toLowerCase() : "";
-
-      // Mark matching running tool as complete
-      for (const [, tool] of toolsMap) {
-        if (tool.status === "running") {
-          // Match by tool name if available, otherwise just mark the oldest running tool
-          if (toolName && tool.tool.toLowerCase() === toolName) {
-            tool.status = "completed";
-            tool.endTime = event.timestamp;
-            break;
-          } else if (!toolName) {
-            tool.status = "completed";
-            tool.endTime = event.timestamp;
-            break;
-          }
-        }
+    if (event.type === "tool_end" && event.toolData) {
+      const { tool_call_id } = event.toolData;
+      const tool = toolsMap.get(tool_call_id);
+      if (tool) {
+        tool.status = "completed";
       }
     }
   });
 
   return Array.from(toolsMap.values());
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Helper: Parse subagent calls from SSE events (uses structured subagentData)
+// ═══════════════════════════════════════════════════════════════
+
+function parseSubagentCalls(events: SSEAgentEvent[]): SubagentCall[] {
+  const subagentsMap = new Map<string, SubagentCall>();
+
+  events.forEach((event, idx) => {
+    if (event.type === "subagent_start" && event.subagentData) {
+      const { subagent_name, purpose, parent_agent } = event.subagentData;
+      const subagentId = `subagent-${event.id || idx}`;
+      subagentsMap.set(subagent_name, {
+        id: subagentId,
+        name: subagent_name,
+        purpose,
+        parentAgent: parent_agent,
+        status: "running",
+      });
+    }
+
+    if (event.type === "subagent_end" && event.subagentData) {
+      const { subagent_name } = event.subagentData;
+      const subagent = subagentsMap.get(subagent_name);
+      if (subagent) {
+        subagent.status = "completed";
+      }
+    }
+  });
+
+  return Array.from(subagentsMap.values());
 }

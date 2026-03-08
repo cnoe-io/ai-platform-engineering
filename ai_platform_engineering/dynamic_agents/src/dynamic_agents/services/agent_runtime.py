@@ -6,7 +6,6 @@ Creates and manages DeepAgent instances with MCP tools.
 import logging
 import re
 import time
-import uuid
 from collections.abc import AsyncGenerator
 from typing import TYPE_CHECKING, Any
 
@@ -23,16 +22,20 @@ from dynamic_agents.services.mcp_client import (
     build_mcp_connections,
     filter_tools_by_allowed,
 )
+from dynamic_agents.services.stream_events import (
+    make_content_event,
+    make_final_result_event,
+)
+from dynamic_agents.services.stream_trackers import (
+    SubagentTracker,
+    TodoTracker,
+    ToolTracker,
+)
 
 if TYPE_CHECKING:
     from dynamic_agents.services.mongo import MongoDBService
 
 logger = logging.getLogger(__name__)
-
-
-def _make_artifact_id() -> str:
-    """Generate a unique artifact ID."""
-    return f"artifact-{uuid.uuid4().hex[:12]}"
 
 
 def _sanitize_agent_name(name: str) -> str:
@@ -46,68 +49,6 @@ def _sanitize_agent_name(name: str) -> str:
     We replace disallowed characters with underscores.
     """
     return re.sub(r"[\s<|\\/>]+", "_", name)
-
-
-class _ToolTracker:
-    """Tracks tool calls during a single streaming session.
-
-    Synthesizes execution_plan_update events that the ContextPanel can render
-    as a task list with progress indicators.
-
-    The plan format uses emoji + [AgentName] lines, which is Pattern 1 in
-    ContextPanel's parseExecutionTasks:
-        ⏳ [AgentName] description   (pending)
-        🔄 [AgentName] description   (in_progress)
-        ✅ [AgentName] description   (completed)
-    """
-
-    def __init__(self, agent_name: str):
-        self.agent_name = agent_name
-        # Ordered list of (tool_name, status) tuples
-        self._tools: list[tuple[str, str]] = []  # (name, "pending"|"in_progress"|"completed")
-
-    def start_tool(self, tool_name: str) -> None:
-        """Register a tool call starting."""
-        # Mark any previously in_progress tools as completed
-        # (LangGraph sends start/end sequentially per tool)
-        self._tools = [(name, "completed" if status == "in_progress" else status) for name, status in self._tools]
-        self._tools.append((tool_name, "in_progress"))
-
-    def end_tool(self, tool_name: str) -> None:
-        """Mark a tool call as completed."""
-        self._tools = [
-            (name, "completed" if name == tool_name and status == "in_progress" else status)
-            for name, status in self._tools
-        ]
-
-    def make_execution_plan_event(self) -> dict[str, Any]:
-        """Build an execution_plan_update event from current tool state."""
-        emoji_map = {
-            "pending": "⏳",
-            "in_progress": "🔄",
-            "completed": "✅",
-        }
-
-        lines = []
-        for tool_name, status in self._tools:
-            emoji = emoji_map.get(status, "⏳")
-            # Format: "✅ [AgentName] tool_name" — matches ContextPanel Pattern 1
-            lines.append(f"{emoji} [{self.agent_name}] {tool_name}")
-
-        plan_text = "\n".join(lines)
-
-        return {
-            "type": "execution_plan_update",
-            "data": {
-                "artifact": {
-                    "artifactId": _make_artifact_id(),
-                    "name": "execution_plan_update",
-                    "description": "Dynamic agent execution plan",
-                    "parts": [{"kind": "text", "text": plan_text}],
-                    "metadata": {"sourceAgent": self.agent_name},
-                },
-            },
-        }
 
 
 class AgentRuntime:
@@ -358,13 +299,14 @@ class AgentRuntime:
     ) -> AsyncGenerator[dict[str, Any], None]:
         """Stream agent response for a user message.
 
-        Emits SSE events shaped to be compatible with the ContextPanel UI:
+        Emits structured SSE events for the UI:
         - content: Streaming text tokens
-        - tool_notification_start: Tool invocation started (with artifact shape)
-        - tool_notification_end: Tool invocation completed (with artifact shape)
-        - execution_plan_update: Synthetic execution plan from tool sequence
+        - tool_start: Tool call started (with args)
+        - tool_end: Tool call completed
+        - todo_update: Task list updated (from write_todos)
+        - subagent_start: Subagent delegation started (task tool)
+        - subagent_end: Subagent delegation completed
         - final_result: Completion signal with final content
-        - error: Error events
 
         Args:
             message: User's input message
@@ -416,122 +358,162 @@ class AgentRuntime:
         # Store trace_id for final_result event
         self._current_trace_id = config.get("metadata", {}).get("trace_id")
 
-        # Track tool calls for execution plan synthesis
-        tool_tracker = _ToolTracker(agent_name=self.config.name)
-        accumulated_content = []
+        # Initialize trackers
+        tool_tracker = ToolTracker(agent_name=self.config.name)
+        todo_tracker = TodoTracker(agent_name=self.config.name)
+        subagent_tracker = SubagentTracker(parent_agent_name=self.config.name)
+        accumulated_content: list[str] = []
 
-        async for event in self._graph.astream_events(
+        # Stream with subgraphs=True and both messages and updates modes
+        async for chunk in self._graph.astream(
             {"messages": [{"role": "user", "content": message}]},
             config=config,
-            version="v2",
+            stream_mode=["messages", "updates"],
+            subgraphs=True,
         ):
-            for transformed in self._transform_event(event, tool_tracker, accumulated_content):
-                yield transformed
+            for event in self._transform_stream_chunk(
+                chunk, tool_tracker, todo_tracker, subagent_tracker, accumulated_content
+            ):
+                yield event
 
         # Emit final_result with accumulated content
         final_text = "".join(accumulated_content)
         if final_text:
-            yield {
-                "type": "final_result",
-                "data": {
-                    "artifact": {
-                        "artifactId": _make_artifact_id(),
-                        "name": "final_result",
-                        "description": "Final result from dynamic agent",
-                        "parts": [{"kind": "text", "text": final_text}],
-                        "metadata": {
-                            "trace_id": self._current_trace_id,
-                            "agent_name": self.config.name,
-                        },
-                    },
-                },
-            }
+            yield make_final_result_event(
+                content=final_text,
+                agent=self.config.name,
+                trace_id=self._current_trace_id,
+            )
 
-    def _transform_event(
+    def _transform_stream_chunk(
         self,
-        event: dict[str, Any],
-        tool_tracker: "_ToolTracker",
+        chunk: tuple,
+        tool_tracker: ToolTracker,
+        todo_tracker: TodoTracker,
+        subagent_tracker: SubagentTracker,
         accumulated_content: list[str],
     ) -> list[dict[str, Any]]:
-        """Transform a single LangGraph event into ContextPanel-compatible SSE events.
+        """Transform astream() chunks into structured SSE events.
 
-        May return zero or more events per input (e.g. tool_start also emits
-        an execution_plan_update).
+        Handles the multi-mode streaming format from astream() with subgraphs=True.
+        Chunks come as tuples: (namespace, mode, data)
 
-        Events are shaped so the frontend DynamicAgentClient can map them
-        directly into A2AEvent objects for the Zustand store.
+        Args:
+            chunk: Raw chunk from astream()
+            tool_tracker: Tracks tool calls
+            todo_tracker: Parses write_todos output
+            subagent_tracker: Tracks task tool calls
+            accumulated_content: List to accumulate final content
+
+        Returns:
+            List of SSE event dicts
         """
         results: list[dict[str, Any]] = []
-        kind = event.get("event", "")
 
-        if kind == "on_chat_model_stream":
-            chunk = event.get("data", {}).get("chunk")
-            if chunk:
-                content = getattr(chunk, "content", "")
+        # Parse chunk format: (namespace, mode, data) or (mode, data)
+        if len(chunk) == 3:
+            namespace, mode, data = chunk
+        elif len(chunk) == 2:
+            mode, data = chunk
+            namespace = ()
+        else:
+            logger.warning(f"Unexpected chunk format: {chunk}")
+            return results
+
+        # Only process parent agent events (namespace = empty tuple)
+        # Subagent events from task tool are handled differently (see below)
+        if len(namespace) > 0:
+            # Ignore subgraph events - we track subagents via task tool calls
+            return results
+
+        if mode == "messages":
+            # Token streaming from LLM
+            if isinstance(data, tuple) and len(data) == 2:
+                msg_chunk, _metadata = data
+
+                # Skip ToolMessage/ToolMessageChunk content - these are tool results
+                # (e.g., RAG search JSON) that should NOT be shown in chat.
+                # We only want AIMessage/AIMessageChunk content for the final answer.
+                msg_type = type(msg_chunk).__name__
+                if "ToolMessage" in msg_type:
+                    return results
+
+                # Also skip if the chunk has tool_calls - this is an AIMessageChunk
+                # that's invoking tools, not generating content for the user
+                if getattr(msg_chunk, "tool_calls", None):
+                    return results
+
+                raw_content = getattr(msg_chunk, "content", "")
+
+                # Normalize content to string
+                if isinstance(raw_content, list):
+                    content = "".join(
+                        block.get("text", "") if isinstance(block, dict) else str(block) for block in raw_content
+                    )
+                else:
+                    content = raw_content if isinstance(raw_content, str) else ""
+
                 if content:
                     accumulated_content.append(content)
-                    results.append({"type": "content", "data": content})
+                    results.append(make_content_event(content))
 
-        elif kind == "on_tool_start":
-            tool_name = event.get("name", "unknown")
+        elif mode == "updates":
+            # State updates - detect tool calls and results
+            if isinstance(data, dict):
+                for _node_name, node_data in data.items():
+                    if not isinstance(node_data, dict):
+                        continue
 
-            # Register tool with tracker and emit execution plan update
-            tool_tracker.start_tool(tool_name)
+                    messages = node_data.get("messages", [])
+                    if not isinstance(messages, list):
+                        continue
 
-            # Emit execution plan update (shows task list in ContextPanel)
-            plan_event = tool_tracker.make_execution_plan_event()
-            results.append(plan_event)
+                    for msg in messages:
+                        # Handle AIMessage with tool_calls
+                        tool_calls = getattr(msg, "tool_calls", None)
+                        if tool_calls:
+                            for tc in tool_calls:
+                                tool_name = (
+                                    tc.get("name", "unknown")
+                                    if isinstance(tc, dict)
+                                    else getattr(tc, "name", "unknown")
+                                )
+                                tool_call_id = tc.get("id", "") if isinstance(tc, dict) else getattr(tc, "id", "")
+                                args = tc.get("args", {}) if isinstance(tc, dict) else getattr(tc, "args", {})
 
-            # Emit tool_notification_start (shows active tool call)
-            results.append(
-                {
-                    "type": "tool_notification_start",
-                    "data": {
-                        "artifact": {
-                            "artifactId": _make_artifact_id(),
-                            "name": "tool_notification_start",
-                            "description": f"Tool call started: {tool_name}",
-                            "parts": [
-                                {
-                                    "kind": "text",
-                                    "text": f"{self.config.name}: Calling tool: {tool_name}",
-                                }
-                            ],
-                            "metadata": {"sourceAgent": self.config.name},
-                        },
-                    },
-                }
-            )
+                                # Check if this is a subagent invocation (task tool)
+                                if subagent_tracker.is_task_tool(tool_name):
+                                    subagent_type = args.get("subagent_type", "unknown")
+                                    # The task tool uses "description" arg, not "prompt"
+                                    purpose = args.get("description", "")
+                                    results.append(
+                                        subagent_tracker.start_subagent(tool_call_id, subagent_type, purpose)
+                                    )
+                                else:
+                                    # Regular tool call
+                                    results.append(tool_tracker.start_tool(tool_name, tool_call_id, args))
 
-        elif kind == "on_tool_end":
-            tool_name = event.get("name", "unknown")
+                                    # Check for todo updates from write_todos args (primary method)
+                                    # This is more reliable than parsing markdown from ToolMessage
+                                    todo_event = todo_tracker.process_tool_call(tool_name, args)
+                                    if todo_event:
+                                        results.append(todo_event)
 
-            # Mark tool as complete and emit updated execution plan
-            tool_tracker.end_tool(tool_name)
+                        # Handle ToolMessage (tool results)
+                        tool_call_id = getattr(msg, "tool_call_id", None)
+                        if tool_call_id:
+                            content = getattr(msg, "content", "")
 
-            plan_event = tool_tracker.make_execution_plan_event()
-            results.append(plan_event)
-
-            # Emit tool_notification_end
-            results.append(
-                {
-                    "type": "tool_notification_end",
-                    "data": {
-                        "artifact": {
-                            "artifactId": _make_artifact_id(),
-                            "name": "tool_notification_end",
-                            "description": f"Tool call completed: {tool_name}",
-                            "parts": [
-                                {
-                                    "kind": "text",
-                                    "text": f"{self.config.name}: Tool completed: {tool_name}",
-                                }
-                            ],
-                            "metadata": {"sourceAgent": self.config.name},
-                        },
-                    },
-                }
-            )
+                            # Check if this is a subagent result
+                            if subagent_tracker.get_active_subagent(tool_call_id):
+                                event = subagent_tracker.end_subagent(tool_call_id)
+                                if event:
+                                    results.append(event)
+                            else:
+                                # Regular tool result - emit tool_end
+                                event = tool_tracker.end_tool(tool_call_id)
+                                if event:
+                                    results.append(event)
 
         return results
 
