@@ -82,6 +82,10 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
       throw new ApiError("Missing required fields: name, system_prompt", 400);
     }
 
+    if (!body.model_id || !body.model_provider) {
+      throw new ApiError("Missing required fields: model_id, model_provider", 400);
+    }
+
     const collection = await getCollection<DynamicAgentConfig>(COLLECTION_NAME);
 
     const now = new Date().toISOString();
@@ -97,6 +101,7 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
       allowed_tools: body.allowed_tools || {},
       builtin_tools: body.builtin_tools,
       model_id: body.model_id,
+      model_provider: body.model_provider,
       visibility: body.visibility || "private",
       shared_with_teams: body.shared_with_teams,
       subagents: body.subagents || [],

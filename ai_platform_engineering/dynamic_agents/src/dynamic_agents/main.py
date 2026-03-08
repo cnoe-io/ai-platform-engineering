@@ -1,8 +1,45 @@
 """Dynamic Agents FastAPI Application."""
 
 import logging
+import sys
 from contextlib import asynccontextmanager
 
+
+# Configure logging for dynamic_agents BEFORE importing cnoe-agent-utils
+# This prevents cnoe-agent-utils from capturing our logs with their format
+def _setup_logging() -> logging.Logger:
+    """Configure logging for the dynamic_agents package.
+
+    Sets up a dedicated handler for the 'dynamic_agents' logger that:
+    - Uses our own format with [dynamic_agents] prefix
+    - Does not propagate to root logger (avoids cnoe-agent-utils format)
+    """
+    # Create logger for our package
+    pkg_logger = logging.getLogger("dynamic_agents")
+    pkg_logger.setLevel(logging.INFO)
+
+    # Only add handler if not already configured (avoid duplicates on reload)
+    if not pkg_logger.handlers:
+        handler = logging.StreamHandler(sys.stderr)
+        handler.setLevel(logging.INFO)
+        formatter = logging.Formatter(
+            "%(asctime)s %(levelname)s [dynamic_agents] %(message)s",
+            datefmt="%Y-%m-%d %H:%M:%S",
+        )
+        handler.setFormatter(formatter)
+        pkg_logger.addHandler(handler)
+
+    # Don't propagate to root logger (cnoe-agent-utils configures root with [llm_factory])
+    pkg_logger.propagate = False
+
+    return pkg_logger
+
+
+# Setup logging before other imports that trigger cnoe-agent-utils
+logger = _setup_logging()
+
+# ruff: noqa: E402
+# Imports must be after logging setup to ensure our format is used
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -10,13 +47,6 @@ from dynamic_agents.config import get_settings
 from dynamic_agents.routes import agents, chat, health, mcp_servers
 from dynamic_agents.services.agent_runtime import get_runtime_cache
 from dynamic_agents.services.mongo import get_mongo_service
-
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-)
-logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager

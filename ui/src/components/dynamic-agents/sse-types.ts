@@ -139,6 +139,9 @@ export interface SSEAgentEvent {
   /** Content text for content/final_result events */
   content?: string;
 
+  /** Display content (for error events and UI display) */
+  displayContent?: string;
+
   /** Source agent name */
   sourceAgent?: string;
 

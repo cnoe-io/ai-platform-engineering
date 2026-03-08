@@ -65,9 +65,39 @@ export function DynamicAgentEditor({ agent, onSave, onCancel }: DynamicAgentEdit
   const [subagents, setSubagents] = React.useState<SubAgentRef[]>(
     agent?.subagents || []
   );
+  const [modelId, setModelId] = React.useState(agent?.model_id || "");
+  const [modelProvider, setModelProvider] = React.useState(agent?.model_provider || "");
 
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+  const [availableModels, setAvailableModels] = React.useState<
+    { id: string; name: string; provider: string; description: string }[]
+  >([]);
+  const [modelsLoading, setModelsLoading] = React.useState(false);
+
+  // Fetch available models on mount
+  React.useEffect(() => {
+    async function fetchModels() {
+      setModelsLoading(true);
+      try {
+        const response = await fetch("/api/dynamic-agents/models");
+        const data = await response.json();
+        if (data.success && Array.isArray(data.data)) {
+          setAvailableModels(data.data);
+          // If creating a new agent (no existing model), default to first model
+          if (!agent?.model_id && data.data.length > 0) {
+            setModelId(data.data[0].id);
+            setModelProvider(data.data[0].provider);
+          }
+        }
+      } catch (err) {
+        console.error("Failed to fetch models:", err);
+      } finally {
+        setModelsLoading(false);
+      }
+    }
+    fetchModels();
+  }, [agent?.model_id]);
 
   // Tabs for the form sections
   const [activeSection, setActiveSection] = React.useState<"basic" | "instructions" | "tools" | "subagents">("basic");
@@ -76,6 +106,13 @@ export function DynamicAgentEditor({ agent, onSave, onCancel }: DynamicAgentEdit
     e.preventDefault();
     setLoading(true);
     setError(null);
+
+    // Validate required fields
+    if (!modelId || !modelProvider) {
+      setError("Model selection is required");
+      setLoading(false);
+      return;
+    }
 
     try {
       if (isEditing) {
@@ -90,6 +127,8 @@ export function DynamicAgentEditor({ agent, onSave, onCancel }: DynamicAgentEdit
           allowed_tools: allowedTools,
           builtin_tools: builtinTools,
           subagents: subagents.length > 0 ? subagents : undefined,
+          model_id: modelId,
+          model_provider: modelProvider,
         };
 
         const response = await fetch(`/api/dynamic-agents?id=${agent._id}`, {
@@ -114,6 +153,8 @@ export function DynamicAgentEditor({ agent, onSave, onCancel }: DynamicAgentEdit
           allowed_tools: allowedTools,
           builtin_tools: builtinTools,
           subagents: subagents.length > 0 ? subagents : undefined,
+          model_id: modelId,
+          model_provider: modelProvider,
         };
 
         const response = await fetch("/api/dynamic-agents", {
@@ -233,6 +274,38 @@ export function DynamicAgentEditor({ agent, onSave, onCancel }: DynamicAgentEdit
                     </button>
                   ))}
                 </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="modelId">LLM Model</Label>
+                <select
+                  id="modelId"
+                  value={modelId}
+                  onChange={(e) => {
+                    const selectedId = e.target.value;
+                    setModelId(selectedId);
+                    // Also set the provider from the selected model
+                    const selectedModel = availableModels.find((m) => m.id === selectedId);
+                    setModelProvider(selectedModel?.provider || "");
+                  }}
+                  disabled={loading || modelsLoading}
+                  className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {modelsLoading ? (
+                    <option value="">Loading models...</option>
+                  ) : availableModels.length === 0 ? (
+                    <option value="">Platform Default</option>
+                  ) : (
+                    availableModels.map((model) => (
+                      <option key={model.id} value={model.id}>
+                        {model.name}{model.provider && model.provider !== "default" ? ` (${model.provider})` : ""}
+                      </option>
+                    ))
+                  )}
+                </select>
+                <p className="text-xs text-muted-foreground">
+                  Select the LLM model this agent will use. Leave as Platform Default to use the system configuration.
+                </p>
               </div>
             </div>
           )}

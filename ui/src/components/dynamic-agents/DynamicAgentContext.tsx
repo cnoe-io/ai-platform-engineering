@@ -13,6 +13,7 @@ import {
   Users,
   ListTodo,
   Activity,
+  AlertTriangle,
 } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
@@ -169,6 +170,13 @@ export function DynamicAgentContext({
     return parsedTodos;
   }, [conversationEvents, isActuallyStreaming, hasFinalResult]);
 
+  // Extract error messages from error events
+  const errorMessages = useMemo(() => {
+    return conversationEvents
+      .filter((e) => e.type === "error")
+      .map((e) => e.displayContent || e.content || "An unknown error occurred");
+  }, [conversationEvents]);
+
   const totalToolCalls = activeToolCalls.length + completedToolCalls.length;
   const totalSubagentCalls = activeSubagentCalls.length + completedSubagentCalls.length;
   const totalActivityCount = totalToolCalls + totalSubagentCalls + todos.length;
@@ -267,6 +275,7 @@ export function DynamicAgentContext({
                 toolsCollapsed={toolsCollapsed}
                 onToolsCollapse={setToolsCollapsed}
                 isStreaming={isActuallyStreaming}
+                errorMessages={errorMessages}
               />
             )}
 
@@ -312,6 +321,7 @@ interface EventsContentProps {
   toolsCollapsed: boolean;
   onToolsCollapse: (collapsed: boolean) => void;
   isStreaming: boolean;
+  errorMessages: string[];
 }
 
 function EventsContent({
@@ -324,6 +334,7 @@ function EventsContent({
   toolsCollapsed,
   onToolsCollapse,
   isStreaming,
+  errorMessages,
 }: EventsContentProps) {
   const [subagentsCollapsed, setSubagentsCollapsed] = useState(false);
 
@@ -333,7 +344,8 @@ function EventsContent({
     completedToolCalls.length === 0 &&
     builtinToolCalls.length === 0 &&
     activeSubagentCalls.length === 0 &&
-    completedSubagentCalls.length === 0;
+    completedSubagentCalls.length === 0 &&
+    errorMessages.length === 0;
 
   if (hasNoActivity) {
     return (
@@ -349,6 +361,34 @@ function EventsContent({
 
   return (
     <div className="space-y-4">
+      {/* Error Messages */}
+      {errorMessages.length > 0 && (
+        <div className="space-y-2">
+          {errorMessages.map((message, idx) => (
+            <motion.div
+              key={`error-${idx}`}
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="rounded-lg border-2 border-red-500/60 bg-gradient-to-br from-red-500/15 to-red-600/10 p-3 shadow-lg shadow-red-500/10"
+            >
+              <div className="flex items-start gap-2.5">
+                <div className="p-1.5 rounded-full bg-red-500/20 shrink-0">
+                  <AlertTriangle className="h-4 w-4 text-red-500" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-semibold text-red-500 uppercase tracking-wide mb-1.5">
+                    Agent Error
+                  </p>
+                  <p className="text-sm text-red-300 leading-relaxed break-words">
+                    {message}
+                  </p>
+                </div>
+              </div>
+            </motion.div>
+          ))}
+        </div>
+      )}
+
       {/* Todos (replaces Execution Plan) */}
       {todos.length > 0 && (
         <div className="space-y-2">

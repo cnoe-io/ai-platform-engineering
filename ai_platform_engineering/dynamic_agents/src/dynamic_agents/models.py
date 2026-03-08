@@ -145,7 +145,10 @@ class DynamicAgentConfigBase(BaseModel):
         default_factory=dict,
         description="Map of server_id -> tool names (empty list = all tools)",
     )
-    model_id: str | None = Field(None, description="LLM model override (uses default if not set)")
+    model_id: str = Field(..., description="LLM model identifier (e.g., 'claude-sonnet-4-20250514')")
+    model_provider: str = Field(
+        ..., description="LLM provider (anthropic-claude, openai, azure-openai, aws-bedrock, etc.)"
+    )
     visibility: VisibilityType = Field(VisibilityType.PRIVATE, description="Visibility scope")
     shared_with_teams: list[str] | None = Field(None, description="Team IDs when visibility=team")
     subagents: list[SubAgentRef] = Field(
@@ -175,6 +178,7 @@ class DynamicAgentConfigUpdate(BaseModel):
     extension_prompt: str | None = None
     allowed_tools: dict[str, list[str]] | None = None
     model_id: str | None = None
+    model_provider: str | None = None
     visibility: VisibilityType | None = None
     shared_with_teams: list[str] | None = None
     subagents: list[SubAgentRef] | None = None

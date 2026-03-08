@@ -257,23 +257,28 @@ export class DynamicAgentClient {
 
     // ─── error: agent error ──────────────────────────────────────────
     if (event === "error") {
+      console.log(`[DynamicAgent] ❌ Received error event:`, data);
       try {
         const parsed = JSON.parse(data);
         const errorMsg = parsed.error || "Unknown error";
+        console.log(`[DynamicAgent] ❌ Parsed error message:`, errorMsg);
         return {
           id: `sse-error-${Date.now()}`,
           timestamp: new Date(),
           type: "error",
           raw: { event, data: parsed },
+          displayContent: `Error: ${errorMsg}`,
           content: `Error: ${errorMsg}`,
           isFinal: true,
         };
       } catch {
+        console.log(`[DynamicAgent] ❌ Failed to parse error, using raw data`);
         return {
           id: `sse-error-${Date.now()}`,
           timestamp: new Date(),
           type: "error",
           raw: { event, data },
+          displayContent: `Error: ${data}`,
           content: `Error: ${data}`,
           isFinal: true,
         };

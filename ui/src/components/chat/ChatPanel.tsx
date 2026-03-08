@@ -463,7 +463,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
           ? (sseEvent.type === "final_result" ? "final_result" : sseEvent.artifact?.name || sseEvent.type)
           : (a2aEvent.artifactName || "");
         const newContent = isSSEEvent
-          ? (sseEvent.content || "")
+          ? (sseEvent.displayContent || sseEvent.content || "")
           : (a2aEvent.displayContent || "");
         const eventIsFinal = isSSEEvent ? sseEvent.isFinal : a2aEvent.isFinal;
         const eventType = isSSEEvent ? sseEvent.type : a2aEvent.type;
@@ -495,7 +495,8 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
              sseEvent.type === "todo_update" ||
              sseEvent.type === "subagent_start" ||
              sseEvent.type === "subagent_end" ||
-             sseEvent.type === "final_result")
+             sseEvent.type === "final_result" ||
+             sseEvent.type === "error")
           : (artifactName === "execution_plan_update" ||
              artifactName === "execution_plan_status_update" ||
              artifactName === "tool_notification_start" ||
@@ -629,6 +630,11 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
           rawStreamContent += newContent;
         }
 
+        // Log error events for debugging (errors are displayed in dedicated UI, not accumulated)
+        if (event.type === "error") {
+          console.log(`[A2A SDK] ❌ ERROR EVENT received:`, { newContent, event });
+        }
+
         // Skip tool/plan/subagent notifications from FINAL content (shown in Tasks panel)
         if (isToolOrPlanOrSubagentArtifact) {
           continue;
@@ -641,7 +647,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
         // ACCUMULATE FINAL CONTENT (Agent-forge pattern)
         // ═══════════════════════════════════════════════════════════════
         if (event.type === "message" || event.type === "artifact") {
-          if (event.shouldAppend === false) {
+          if ('shouldAppend' in event && event.shouldAppend === false) {
             // append=false means start fresh for final content
             console.log(`[A2A SDK] append=false - starting fresh with new content`);
             accumulatedText = newContent;
@@ -1482,6 +1488,7 @@ function StreamingView({ message, showRawStream, setShowRawStream, isStreaming =
           </AnimatePresence>
         </motion.div>
       )}
+
     </div>
   );
 }

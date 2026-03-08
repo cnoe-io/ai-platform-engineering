@@ -2,16 +2,20 @@
 
 import React, { useState, useRef, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { ChevronDown, ChevronUp, Copy, Check, Radio, Loader2, CheckCircle, XCircle } from "lucide-react";
+import { ChevronDown, ChevronUp, Copy, Check, Radio, Loader2, CheckCircle, XCircle, AlertTriangle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { A2AEvent } from "@/types/a2a";
+import { SSEAgentEvent } from "@/components/dynamic-agents/sse-types";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { AgentLogo, getAgentLogo } from "@/components/shared/AgentLogos";
 
+// Union type to support both A2A and SSE events
+type AgentEvent = A2AEvent | SSEAgentEvent;
+
 interface AgentStreamBoxProps {
   agentName: string;
-  events: A2AEvent[];
+  events: AgentEvent[];
   isStreaming?: boolean;
   className?: string;
 }
@@ -52,8 +56,15 @@ export const AgentStreamBox = React.memo(function AgentStreamBox({
         continue;
       }
 
-      if (event.displayContent) {
-        textParts.push(event.displayContent);
+      // Skip error events - they're shown in the error box
+      if (event.type === "error") {
+        continue;
+      }
+
+      // Handle both A2A events (displayContent) and SSE events (content/displayContent)
+      const content = 'displayContent' in event ? event.displayContent : ('content' in event ? event.content : undefined);
+      if (content) {
+        textParts.push(content);
       }
     }
 
@@ -66,6 +77,21 @@ export const AgentStreamBox = React.memo(function AgentStreamBox({
 
     return full;
   }, [events, isStreaming]);
+
+  // Extract error messages from error events
+  const errorMessages = useMemo(() => {
+    const errors: string[] = [];
+    for (const event of events) {
+      if (event.type === "error") {
+        // SSE events have displayContent or content
+        const content = 'displayContent' in event ? event.displayContent : ('content' in event ? event.content : undefined);
+        if (content) {
+          errors.push(content);
+        }
+      }
+    }
+    return errors;
+  }, [events]);
 
   // Determine agent status
   const agentStatus = useMemo(() => {
@@ -108,8 +134,8 @@ export const AgentStreamBox = React.memo(function AgentStreamBox({
     setTimeout(() => setCopied(false), 2000);
   };
 
-  // Don't render if no content and not streaming
-  if (!streamContent && !isStreaming && agentStatus === "idle") {
+  // Don't render if no content, no errors, and not streaming
+  if (!streamContent && !isStreaming && agentStatus === "idle" && errorMessages.length === 0) {
     return null;
   }
 
@@ -274,6 +300,25 @@ export const AgentStreamBox = React.memo(function AgentStreamBox({
                 <span className="text-sm">Waiting for {agentInfo.displayName} response...</span>
               </div>
             ) : null}
+
+            {/* Error Box - shown below content when errors occur */}
+            {errorMessages.length > 0 && (
+              <div className="mx-4 mb-4 mt-2">
+                <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-4">
+                  <div className="flex items-start gap-3">
+                    <AlertTriangle className="h-5 w-5 text-red-500 shrink-0 mt-0.5" />
+                    <div className="flex-1 space-y-2">
+                      <p className="text-sm font-medium text-red-500">Agent Error</p>
+                      {errorMessages.map((msg, idx) => (
+                        <p key={idx} className="text-sm text-red-400/90">
+                          {msg}
+                        </p>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
           </motion.div>
         )}
       </AnimatePresence>

@@ -113,7 +113,8 @@ export interface DynamicAgentConfig {
   extension_prompt?: string;
   allowed_tools: Record<string, string[]>;  // server_id -> tool names (empty = all)
   builtin_tools?: BuiltinToolsConfig;  // Built-in tools configuration
-  model_id?: string;
+  model_id: string;  // Required: LLM model identifier
+  model_provider: string;  // Required: LLM provider (anthropic-claude, openai, etc.)
   visibility: VisibilityType;
   shared_with_teams?: string[];
   subagents: SubAgentRef[];  // Other dynamic agents that can be delegated to
@@ -132,7 +133,8 @@ export interface DynamicAgentConfigCreate {
   extension_prompt?: string;
   allowed_tools?: Record<string, string[]>;
   builtin_tools?: BuiltinToolsConfig;
-  model_id?: string;
+  model_id: string;  // Required: LLM model identifier
+  model_provider: string;  // Required: LLM provider
   visibility?: VisibilityType;
   shared_with_teams?: string[];
   subagents?: SubAgentRef[];
@@ -148,6 +150,7 @@ export interface DynamicAgentConfigUpdate {
   allowed_tools?: Record<string, string[]>;
   builtin_tools?: BuiltinToolsConfig;
   model_id?: string;
+  model_provider?: string;
   visibility?: VisibilityType;
   shared_with_teams?: string[];
   subagents?: SubAgentRef[];

@@ -81,7 +81,42 @@ async def _generate_sse_events(
 
     except Exception as e:
         logger.exception(f"Error streaming from agent '{agent_config.name}'")
-        error_data = json.dumps({"error": str(e)})
+        error_str = str(e).lower()
+
+        # Detect LLM-related errors based on error message content
+        llm_keywords = [
+            "deployment",
+            "model",
+            "not found",
+            "does not exist",
+            "invalid_request",
+            "authentication",
+            "unauthorized",
+            "api key",
+            "rate limit",
+            "quota",
+            "openai",
+            "azure",
+            "bedrock",
+            "anthropic",
+            "gemini",
+            "vertex",
+        ]
+        is_llm_error = any(keyword in error_str for keyword in llm_keywords)
+
+        if is_llm_error:
+            # Build context info: provider and model
+            context_parts = []
+            if agent_config.model_provider:
+                context_parts.append(f"provider: {agent_config.model_provider}")
+            if agent_config.model_id:
+                context_parts.append(f"model: {agent_config.model_id}")
+            context_info = f" ({', '.join(context_parts)})" if context_parts else ""
+            error_msg = f"LLM Connection Error{context_info}: {e}"
+        else:
+            error_msg = str(e)
+
+        error_data = json.dumps({"error": error_msg})
         yield f"event: error\ndata: {error_data}\n\n"
 
 
@@ -116,8 +151,10 @@ async def chat_stream(
     mcp_servers = mongo.get_servers_by_ids(server_ids) if server_ids else []
 
     logger.info(
-        f"Chat request: agent={agent.name}, user={user.email}, "
-        f"session={request.conversation_id}, servers={len(mcp_servers)}, "
+        f"[chat] Starting chat request: "
+        f"agent='{agent.name}', user={user.email}, "
+        f"provider={agent.model_provider}, model={agent.model_id}, "
+        f"session={request.conversation_id}, mcp_servers={len(mcp_servers)}, "
         f"trace_id={request.trace_id or 'auto'}"
     )
 

@@ -271,7 +271,7 @@ wheels = [
 
 [[package]]
 name = "cnoe-agent-utils"
-version = "0.3.12"
+version = "0.3.13"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "boto3" },
@@ -293,9 +293,9 @@ dependencies = [
     { name = "tiktoken" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/1a/40/62148e52629cf7cb106b261207f0ce4b01926b12f9dbf93f0e1d49595924/cnoe_agent_utils-0.3.12.tar.gz", hash = "sha256:98fe127193e2e835a270356736f20ec88767cb03e05a5bfcf36aff8ba6e0b707", size = 198584, upload-time = "2026-02-26T17:47:57.631Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/0d/07/c9d34ce8d3024aa8ac8d30236e8bfc3011944b1090041a22933699216648/cnoe_agent_utils-0.3.13.tar.gz", hash = "sha256:c55bdc075fb1bb94971ac5a9bd59cb67c21933576439c82cff49d17cb3f71e6c", size = 198748, upload-time = "2026-03-08T15:40:32.103Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/49/5c/bf0520c7770449d386c56da851148654585f1bff95464acfec57853eb946/cnoe_agent_utils-0.3.12-py3-none-any.whl", hash = "sha256:f24cd97d91c7c9bbca3be94350046fc4dfe2743c7137331ece0d3bb1b658e2b9", size = 60643, upload-time = "2026-02-26T17:47:56.032Z" },
+    { url = "https://files.pythonhosted.org/packages/14/ac/bd2028bced54383c54121e6bda4ddbcfba0670459a3ca644f35f29bc251a/cnoe_agent_utils-0.3.13-py3-none-any.whl", hash = "sha256:884ac9efce9276fba101f0fe57fb0af1b2d6171e3eba989c2c8d2513d6b56d64", size = 60760, upload-time = "2026-03-08T15:40:30.498Z" },
 ]
 
 [[package]]
@@ -507,7 +507,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "beautifulsoup4", specifier = ">=4.12.0" },
-    { name = "cnoe-agent-utils", specifier = ">=0.1.0" },
+    { name = "cnoe-agent-utils", specifier = ">=0.3.13" },
     { name = "deepagents", specifier = "==0.4.7" },
     { name = "fastapi", specifier = ">=0.115.0" },
     { name = "httpx", specifier = ">=0.27.0" },

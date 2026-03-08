@@ -1,0 +1,77 @@
+# Dynamic Agents Configuration
+#
+# This file contains configuration for the Dynamic Agents service.
+# In Kubernetes, this file can be mounted as a ConfigMap to customize
+# settings per environment.
+#
+# =============================================================================
+# Available LLM Models
+# =============================================================================
+#
+# Defines which models are available in the model selector dropdown
+# when creating or editing dynamic agents.
+#
+# Format:
+#   models:
+#     - id: <model-id>           # The model identifier passed to the LLM provider
+#       name: <display-name>     # Human-readable name shown in the UI
+#       provider: <provider>     # Provider name (must match LLMFactory.SUPPORTED_PROVIDERS)
+#       description: <desc>      # Optional description
+#
+# Supported providers:
+#   - anthropic-claude
+#   - openai
+#   - azure-openai
+#   - aws-bedrock
+#   - google-gemini
+#   - gcp-vertexai
+#   - groq
+#
+# The "id" field is passed to LLMFactory.get_llm(model=id).
+# An empty id ("") means use the platform default configuration.
+
+models:
+  # Anthropic Models (direct API)
+  - id: "claude-sonnet-4-20250514"
+    name: "Claude Sonnet 4"
+    provider: "anthropic-claude"
+    description: "Latest Claude Sonnet model - balanced performance and speed"
+
+  - id: "claude-3-5-sonnet-20241022"
+    name: "Claude 3.5 Sonnet"
+    provider: "anthropic-claude"
+    description: "High capability model with excellent reasoning"
+
+  - id: "claude-3-5-haiku-20241022"
+    name: "Claude 3.5 Haiku"
+    provider: "anthropic-claude"
+    description: "Fast and efficient for simpler tasks"
+
+  # OpenAI Models (direct API)
+  - id: "gpt-4o"
+    name: "GPT-4o"
+    provider: "openai"
+    description: "OpenAI's most capable model"
+
+  - id: "gpt-4o-mini"
+    name: "GPT-4o Mini"
+    provider: "openai"
+    description: "Smaller, faster GPT-4o variant"
+
+  # AWS Bedrock Models
+  # - id: "anthropic.claude-3-5-sonnet-20241022-v2:0"
+  #   name: "Claude 3.5 Sonnet (Bedrock)"
+  #   provider: "aws-bedrock"
+  #   description: "Claude 3.5 Sonnet via AWS Bedrock"
+
+  # Google Gemini Models
+  # - id: "gemini-1.5-pro"
+  #   name: "Gemini 1.5 Pro"
+  #   provider: "google-gemini"
+  #   description: "Google's Gemini 1.5 Pro model"
+
+  # Azure OpenAI Models
+  # - id: "gpt-4o-deployment"
+  #   name: "GPT-4o (Azure)"
+  #   provider: "azure-openai"
+  #   description: "GPT-4o via Azure OpenAI"

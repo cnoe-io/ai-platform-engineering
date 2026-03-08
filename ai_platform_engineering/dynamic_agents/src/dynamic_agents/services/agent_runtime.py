@@ -121,18 +121,13 @@ class AgentRuntime:
         system_prompt = self._build_system_prompt()
 
         # 6. Create the LLM
-        # LLMFactory reads the model from provider-specific env vars (e.g.
-        # AZURE_OPENAI_DEPLOYMENT, OPENAI_MODEL_NAME, AWS_BEDROCK_MODEL_ID).
-        # Passing model_id as a kwarg only works for the AWS Bedrock provider;
-        # for all other providers it leaks into model_kwargs and causes
-        # "unexpected keyword argument 'model_id'" at API call time.
-        # For the MVP, dynamic agents inherit the platform default LLM.
-        if self.config.model_id:
-            logger.info(
-                f"Agent '{self.config.name}': model_id='{self.config.model_id}' is stored "
-                "but per-agent model override is not yet supported — using platform default LLM"
-            )
-        llm = LLMFactory().get_llm()
+        # model_id and model_provider are required fields - no fallback to env vars
+        logger.info(
+            f"[llm] Instantiating LLM for agent '{self.config.name}': "
+            f"provider={self.config.model_provider}, model={self.config.model_id}"
+        )
+        llm = LLMFactory(provider=self.config.model_provider).get_llm(model=self.config.model_id)
+        logger.info(f"[llm] LLM instantiated for agent '{self.config.name}': type={type(llm).__name__}")
 
         # 7. Resolve subagents (other dynamic agents that this agent can delegate to)
         subagents = await self._resolve_subagents(self.config.subagents)
@@ -157,7 +152,10 @@ class AgentRuntime:
         )
 
         self._initialized = True
-        logger.info(f"Agent '{self.config.name}' initialized successfully")
+        logger.info(
+            f"[agent] Agent '{self.config.name}' initialized: "
+            f"tools={len(tools)}, subagents={len(subagents) if subagents else 0}"
+        )
 
     def _build_system_prompt(self) -> str:
         """Assemble the full system prompt from config."""
@@ -401,6 +399,8 @@ class AgentRuntime:
         subagent_tracker = SubagentTracker(parent_agent_name=self.config.name)
         accumulated_content: list[str] = []
 
+        logger.info(f"[stream] Starting stream for agent '{self.config.name}': user={user_id}, session={session_id}")
+
         # Stream with subgraphs=True and both messages and updates modes
         async for chunk in self._graph.astream(
             {"messages": [{"role": "user", "content": message}]},
@@ -416,6 +416,10 @@ class AgentRuntime:
         # Emit final_result with accumulated content
         final_text = "".join(accumulated_content)
         if final_text:
+            logger.info(
+                f"[stream] Completed stream for agent '{self.config.name}': "
+                f"session={session_id}, content_length={len(final_text)}"
+            )
             yield make_final_result_event(
                 content=final_text,
                 agent=self.config.name,
