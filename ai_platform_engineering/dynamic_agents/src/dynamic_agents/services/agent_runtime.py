@@ -18,6 +18,7 @@ from langgraph.checkpoint.memory import InMemorySaver
 from dynamic_agents.config import Settings, get_settings
 from dynamic_agents.models import AgentContext, DynamicAgentConfig, MCPServerConfig, SubAgentRef
 from dynamic_agents.prompts.extension import get_default_extension_prompt
+from dynamic_agents.services.builtin_tools import create_fetch_url_tool
 from dynamic_agents.services.mcp_client import (
     build_mcp_connections,
     filter_tools_by_allowed,
@@ -107,6 +108,15 @@ class AgentRuntime:
                     f"Agent '{self.config.name}': loaded {len(tools)} tools from {len(connections)} MCP servers"
                 )
 
+        # 4.5 Add built-in tools based on config
+        builtin_tools_to_add = self._build_builtin_tools()
+        if builtin_tools_to_add:
+            tools = tools + builtin_tools_to_add
+            logger.info(
+                f"Agent '{self.config.name}': added {len(builtin_tools_to_add)} built-in tools: "
+                f"{[t.name for t in builtin_tools_to_add]}"
+            )
+
         # 5. Assemble system prompt
         system_prompt = self._build_system_prompt()
 
@@ -168,6 +178,33 @@ class AgentRuntime:
         parts.append("\n\n" + extension)
 
         return "\n".join(parts)
+
+    def _build_builtin_tools(self) -> list:
+        """Build list of built-in tools based on agent config.
+
+        Returns:
+            List of LangChain tools to add to the agent.
+        """
+        tools = []
+
+        if not self.config.builtin_tools:
+            return tools
+
+        # fetch_url tool
+        fetch_url_config = self.config.builtin_tools.fetch_url
+        if fetch_url_config and fetch_url_config.enabled:
+            allowed_domains = fetch_url_config.allowed_domains or "*"
+            fetch_url_tool = create_fetch_url_tool(allowed_domains=allowed_domains)
+            tools.append(fetch_url_tool)
+
+            # Log domain restrictions
+            if allowed_domains == "*":
+                logger.debug(f"Agent '{self.config.name}': fetch_url enabled (all domains allowed)")
+            else:
+                domain_count = len([d.strip() for d in allowed_domains.split(",") if d.strip()])
+                logger.debug(f"Agent '{self.config.name}': fetch_url enabled with {domain_count} domain pattern(s)")
+
+        return tools
 
     async def _resolve_subagents(
         self,

@@ -65,6 +65,32 @@ export interface MCPServerProbeResult {
 }
 
 // =============================================================================
+// Built-in Tools Types
+// =============================================================================
+
+/**
+ * Configuration for the fetch_url built-in tool.
+ */
+export interface FetchUrlToolConfig {
+  enabled: boolean;
+  /** 
+   * Comma-separated domain patterns.
+   * - "*" allows all domains
+   * - "*.cisco.com" allows any subdomain of cisco.com
+   * - "cisco.com" allows only the exact domain
+   * - Empty string blocks all domains
+   */
+  allowed_domains: string;
+}
+
+/**
+ * Configuration for all built-in tools available to dynamic agents.
+ */
+export interface BuiltinToolsConfig {
+  fetch_url?: FetchUrlToolConfig;
+}
+
+// =============================================================================
 // Dynamic Agent Types
 // =============================================================================
 
@@ -86,6 +112,7 @@ export interface DynamicAgentConfig {
   agents_md?: string;
   extension_prompt?: string;
   allowed_tools: Record<string, string[]>;  // server_id -> tool names (empty = all)
+  builtin_tools?: BuiltinToolsConfig;  // Built-in tools configuration
   model_id?: string;
   visibility: VisibilityType;
   shared_with_teams?: string[];
@@ -104,6 +131,7 @@ export interface DynamicAgentConfigCreate {
   agents_md?: string;
   extension_prompt?: string;
   allowed_tools?: Record<string, string[]>;
+  builtin_tools?: BuiltinToolsConfig;
   model_id?: string;
   visibility?: VisibilityType;
   shared_with_teams?: string[];
@@ -118,6 +146,7 @@ export interface DynamicAgentConfigUpdate {
   agents_md?: string;
   extension_prompt?: string;
   allowed_tools?: Record<string, string[]>;
+  builtin_tools?: BuiltinToolsConfig;
   model_id?: string;
   visibility?: VisibilityType;
   shared_with_teams?: string[];

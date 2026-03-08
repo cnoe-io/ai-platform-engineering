@@ -20,7 +20,16 @@ SUBAGENT_END = "subagent_end"
 FINAL_RESULT = "final_result"
 
 # Deepagents built-in tools (render compactly in UI)
-BUILTIN_TOOLS = frozenset({"write_todos", "read_file", "write_file", "edit_file", "ls"})
+BUILTIN_TOOLS = frozenset(
+    {
+        "write_todos",
+        "read_file",
+        "write_file",
+        "edit_file",
+        "ls",
+        "fetch_url",  # Dynamic agents built-in with domain ACL
+    }
+)
 
 
 # ═══════════════════════════════════════════════════════════════

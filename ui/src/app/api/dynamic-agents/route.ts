@@ -95,6 +95,7 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
       agents_md: body.agents_md,
       extension_prompt: body.extension_prompt,
       allowed_tools: body.allowed_tools || {},
+      builtin_tools: body.builtin_tools,
       model_id: body.model_id,
       visibility: body.visibility || "private",
       shared_with_teams: body.shared_with_teams,
@@ -149,6 +150,7 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
     if (body.agents_md !== undefined) updateFields.agents_md = body.agents_md;
     if (body.extension_prompt !== undefined) updateFields.extension_prompt = body.extension_prompt;
     if (body.allowed_tools !== undefined) updateFields.allowed_tools = body.allowed_tools;
+    if (body.builtin_tools !== undefined) updateFields.builtin_tools = body.builtin_tools;
     if (body.model_id !== undefined) updateFields.model_id = body.model_id;
     if (body.visibility !== undefined) updateFields.visibility = body.visibility;
     if (body.shared_with_teams !== undefined) updateFields.shared_with_teams = body.shared_with_teams;

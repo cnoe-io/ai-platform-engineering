@@ -13,8 +13,10 @@ import type {
   DynamicAgentConfigUpdate,
   VisibilityType,
   SubAgentRef,
+  BuiltinToolsConfig,
 } from "@/types/dynamic-agent";
 import { AllowedToolsPicker } from "./AllowedToolsPicker";
+import { BuiltinToolsPicker } from "./BuiltinToolsPicker";
 import { SubagentPicker } from "./SubagentPicker";
 
 interface DynamicAgentEditorProps {
@@ -57,6 +59,9 @@ export function DynamicAgentEditor({ agent, onSave, onCancel }: DynamicAgentEdit
   const [allowedTools, setAllowedTools] = React.useState<Record<string, string[]>>(
     agent?.allowed_tools || {}
   );
+  const [builtinTools, setBuiltinTools] = React.useState<BuiltinToolsConfig | undefined>(
+    agent?.builtin_tools
+  );
   const [subagents, setSubagents] = React.useState<SubAgentRef[]>(
     agent?.subagents || []
   );
@@ -83,6 +88,7 @@ export function DynamicAgentEditor({ agent, onSave, onCancel }: DynamicAgentEdit
           extension_prompt: extensionPrompt || undefined,
           visibility,
           allowed_tools: allowedTools,
+          builtin_tools: builtinTools,
           subagents: subagents.length > 0 ? subagents : undefined,
         };
 
@@ -106,6 +112,7 @@ export function DynamicAgentEditor({ agent, onSave, onCancel }: DynamicAgentEdit
           extension_prompt: extensionPrompt || undefined,
           visibility,
           allowed_tools: allowedTools,
+          builtin_tools: builtinTools,
           subagents: subagents.length > 0 ? subagents : undefined,
         };
 
@@ -288,20 +295,30 @@ export function DynamicAgentEditor({ agent, onSave, onCancel }: DynamicAgentEdit
 
           {/* Tools Section */}
           {activeSection === "tools" && (
-            <div className="space-y-4">
-              <div>
-                <Label>MCP Tool Access</Label>
-                <p className="text-xs text-muted-foreground mb-4">
-                  Select which MCP servers and tools this agent can use. If no servers are selected,
-                  the agent will have no tool access.
-                </p>
-              </div>
-
-              <AllowedToolsPicker
-                value={allowedTools}
-                onChange={setAllowedTools}
+            <div className="space-y-6">
+              {/* Built-in Tools */}
+              <BuiltinToolsPicker
+                value={builtinTools}
+                onChange={setBuiltinTools}
                 disabled={loading}
               />
+
+              {/* MCP Tools */}
+              <div className="space-y-4">
+                <div>
+                  <Label>MCP Tool Access</Label>
+                  <p className="text-xs text-muted-foreground mb-4">
+                    Select which MCP servers and tools this agent can use. If no servers are selected,
+                    the agent will have no external tool access.
+                  </p>
+                </div>
+
+                <AllowedToolsPicker
+                  value={allowedTools}
+                  onChange={setAllowedTools}
+                  disabled={loading}
+                />
+              </div>
             </div>
           )}
 
@@ -336,7 +353,8 @@ export function DynamicAgentEditor({ agent, onSave, onCancel }: DynamicAgentEdit
           <div className="flex items-center justify-between pt-4 border-t">
             <div className="text-sm text-muted-foreground">
               <span>
-                {Object.keys(allowedTools).length} server(s), {subagents.length} subagent(s)
+                {builtinTools?.fetch_url?.enabled ? "1 built-in, " : ""}
+                {Object.keys(allowedTools).length} MCP server(s), {subagents.length} subagent(s)
               </span>
             </div>
             <div className="flex items-center gap-2">

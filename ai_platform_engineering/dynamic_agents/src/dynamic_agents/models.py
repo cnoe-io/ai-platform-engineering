@@ -101,6 +101,34 @@ class SubAgentRef(BaseModel):
 
 
 # =============================================================================
+# Built-in Tools Config
+# =============================================================================
+
+
+class FetchUrlToolConfig(BaseModel):
+    """Configuration for the fetch_url built-in tool."""
+
+    enabled: bool = Field(False, description="Whether the tool is enabled")
+    allowed_domains: str = Field(
+        default="*",
+        description=(
+            "Comma-separated domain patterns. "
+            "Use * for all, *.domain.com for subdomains, or exact domain. "
+            "Empty string blocks all domains."
+        ),
+    )
+
+
+class BuiltinToolsConfig(BaseModel):
+    """Configuration for built-in tools available to dynamic agents."""
+
+    fetch_url: FetchUrlToolConfig | None = Field(
+        None,
+        description="Configuration for the fetch_url tool (fetches content from URLs)",
+    )
+
+
+# =============================================================================
 # Dynamic Agent Config
 # =============================================================================
 
@@ -124,6 +152,10 @@ class DynamicAgentConfigBase(BaseModel):
         default_factory=list,
         description="Other dynamic agents that can be delegated to as subagents",
     )
+    builtin_tools: BuiltinToolsConfig | None = Field(
+        None,
+        description="Configuration for built-in tools (fetch_url, etc.)",
+    )
     enabled: bool = Field(True, description="Whether the agent is active")
 
 
@@ -146,6 +178,7 @@ class DynamicAgentConfigUpdate(BaseModel):
     visibility: VisibilityType | None = None
     shared_with_teams: list[str] | None = None
     subagents: list[SubAgentRef] | None = None
+    builtin_tools: BuiltinToolsConfig | None = None
     enabled: bool | None = None
 
 
