@@ -475,8 +475,8 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
                             {isLive ? "Live" : isInputRequired ? "Input needed" : isUnviewed ? "New response" : formatDate(conv.updatedAt)}
                             {/* Dynamic Agent indicator */}
                             {conv.agent_id && (
-                              <span className="ml-1.5 text-[10px] text-purple-500 dark:text-purple-400" title={agentNameMap[conv.agent_id] || 'Custom Agent'}>
-                                • {truncateText(agentNameMap[conv.agent_id] || 'Custom', 20)}
+                              <span className="ml-1.5 text-[10px] text-purple-500 dark:text-purple-400" title={agentNameMap[conv.agent_id] || 'Unknown Agent'}>
+                                • {truncateText(agentNameMap[conv.agent_id] || 'Unknown', 20)}
                               </span>
                             )}
                           </p>
