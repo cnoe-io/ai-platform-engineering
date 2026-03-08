@@ -21,9 +21,60 @@ import type {
   DynamicAgentConfig,
   DynamicAgentConfigCreate,
   DynamicAgentConfigUpdate,
+  SubAgentRef,
+  VisibilityType,
 } from "@/types/dynamic-agent";
+import type { Collection } from "mongodb";
 
 const COLLECTION_NAME = "dynamic_agents";
+
+/**
+ * Validate that subagents have compatible visibility with the parent agent.
+ * 
+ * Rules:
+ * - Private agent → can use private, team, or global subagents
+ * - Team agent → can use team or global subagents  
+ * - Global agent → can only use global subagents
+ */
+async function validateSubagentVisibility(
+  parentVisibility: VisibilityType,
+  subagents: SubAgentRef[],
+  collection: Collection<DynamicAgentConfig>
+): Promise<{ valid: boolean; error?: string }> {
+  if (!subagents || subagents.length === 0) {
+    return { valid: true };
+  }
+
+  for (const subagent of subagents) {
+    const subagentConfig = await collection.findOne({ _id: subagent.agent_id });
+    if (!subagentConfig) {
+      return { valid: false, error: `Subagent "${subagent.agent_id}" not found` };
+    }
+
+    const subVis = subagentConfig.visibility;
+
+    // Global parent can only use global subagents
+    if (parentVisibility === "global" && subVis !== "global") {
+      return {
+        valid: false,
+        error: `Global agents can only use global subagents. "${subagentConfig.name}" is ${subVis}.`,
+      };
+    }
+
+    // Team parent can use team or global subagents
+    if (parentVisibility === "team" && subVis === "private") {
+      return {
+        valid: false,
+        error: `Team agents can only use team or global subagents. "${subagentConfig.name}" is private.`,
+      };
+    }
+
+    // Private parent can use any visibility (private, team, or global)
+    // No restrictions needed
+  }
+
+  return { valid: true };
+}
 
 /**
  * GET /api/dynamic-agents
@@ -103,6 +154,19 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
       throw new ApiError(`Agent with ID "${body.id}" already exists`, 409);
     }
 
+    // Validate subagent visibility compatibility
+    if (body.subagents && body.subagents.length > 0) {
+      const parentVisibility = body.visibility || "private";
+      const validationResult = await validateSubagentVisibility(
+        parentVisibility,
+        body.subagents,
+        collection
+      );
+      if (!validationResult.valid) {
+        throw new ApiError(validationResult.error!, 400);
+      }
+    }
+
     const now = new Date().toISOString();
 
     const newAgent: DynamicAgentConfig = {
@@ -110,8 +174,6 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
       name: body.name,
       description: body.description,
       system_prompt: body.system_prompt,
-      agents_md: body.agents_md,
-      extension_prompt: body.extension_prompt,
       allowed_tools: body.allowed_tools || {},
       builtin_tools: body.builtin_tools,
       model_id: body.model_id,
@@ -157,6 +219,22 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
       throw new ApiError("Agent not found", 404);
     }
 
+    // Determine final values for visibility validation
+    const finalVisibility = body.visibility ?? existing.visibility;
+    const finalSubagents = body.subagents ?? existing.subagents;
+
+    // Validate subagent visibility compatibility
+    if (finalSubagents && finalSubagents.length > 0) {
+      const validationResult = await validateSubagentVisibility(
+        finalVisibility,
+        finalSubagents,
+        collection
+      );
+      if (!validationResult.valid) {
+        throw new ApiError(validationResult.error!, 400);
+      }
+    }
+
     // Build update
     const updateFields: any = {
       updated_at: new Date().toISOString(),
@@ -166,8 +244,6 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
     if (body.name !== undefined) updateFields.name = body.name;
     if (body.description !== undefined) updateFields.description = body.description;
     if (body.system_prompt !== undefined) updateFields.system_prompt = body.system_prompt;
-    if (body.agents_md !== undefined) updateFields.agents_md = body.agents_md;
-    if (body.extension_prompt !== undefined) updateFields.extension_prompt = body.extension_prompt;
     if (body.allowed_tools !== undefined) updateFields.allowed_tools = body.allowed_tools;
     if (body.builtin_tools !== undefined) updateFields.builtin_tools = body.builtin_tools;
     if (body.model_id !== undefined) updateFields.model_id = body.model_id;

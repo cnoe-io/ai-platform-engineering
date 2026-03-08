@@ -164,15 +164,8 @@ class AgentRuntime:
         # User instructions (required)
         parts.append(self.config.system_prompt)
 
-        # AGENTS.md content (optional, stored inline)
-        if self.config.agents_md:
-            parts.append("\n\n# Project Instructions (AGENTS.md)\n")
-            parts.append(self.config.agents_md)
-
         # Extension prompt (platform guidelines)
-        extension = (
-            self.config.extension_prompt or self.settings.default_extension_prompt or get_default_extension_prompt()
-        )
+        extension = self.settings.default_extension_prompt or get_default_extension_prompt()
         parts.append("\n\n" + extension)
 
         return "\n".join(parts)
@@ -313,14 +306,8 @@ class AgentRuntime:
         """
         parts = [subagent_config.system_prompt]
 
-        if subagent_config.agents_md:
-            parts.append("\n\n# Project Instructions (AGENTS.md)\n")
-            parts.append(subagent_config.agents_md)
-
-        # Use subagent's extension prompt or default
-        extension = (
-            subagent_config.extension_prompt or self.settings.default_extension_prompt or get_default_extension_prompt()
-        )
+        # Use default extension prompt
+        extension = self.settings.default_extension_prompt or get_default_extension_prompt()
         parts.append("\n\n" + extension)
 
         return "\n".join(parts)

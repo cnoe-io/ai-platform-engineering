@@ -109,8 +109,6 @@ export interface DynamicAgentConfig {
   name: string;
   description?: string;
   system_prompt: string;
-  agents_md?: string;
-  extension_prompt?: string;
   allowed_tools: Record<string, string[]>;  // server_id -> tool names (empty = all)
   builtin_tools?: BuiltinToolsConfig;  // Built-in tools configuration
   model_id: string;  // Required: LLM model identifier
@@ -130,8 +128,6 @@ export interface DynamicAgentConfigCreate {
   name: string;
   description?: string;
   system_prompt: string;
-  agents_md?: string;
-  extension_prompt?: string;
   allowed_tools?: Record<string, string[]>;
   builtin_tools?: BuiltinToolsConfig;
   model_id: string;  // Required: LLM model identifier
@@ -146,8 +142,6 @@ export interface DynamicAgentConfigUpdate {
   name?: string;
   description?: string;
   system_prompt?: string;
-  agents_md?: string;
-  extension_prompt?: string;
   allowed_tools?: Record<string, string[]>;
   builtin_tools?: BuiltinToolsConfig;
   model_id?: string;
@@ -165,6 +159,7 @@ export interface AvailableSubagent {
   id: string;
   name: string;
   description?: string;
+  visibility: VisibilityType;
 }
 
 // =============================================================================

@@ -38,7 +38,7 @@ export default function DynamicAgentsPage() {
               <CardTitle>Access Denied</CardTitle>
             </div>
             <CardDescription>
-              You need admin privileges to access the Dynamic Agents configuration.
+              You need admin privileges to access the Custom Agents configuration.
             </CardDescription>
           </CardHeader>
         </Card>
@@ -52,7 +52,7 @@ export default function DynamicAgentsPage() {
         <div className="p-6 space-y-6 max-w-7xl mx-auto">
           {/* Header */}
           <div className="space-y-1">
-            <h1 className="text-2xl font-bold tracking-tight">Dynamic Agents</h1>
+            <h1 className="text-2xl font-bold tracking-tight">Custom Agents</h1>
             <p className="text-muted-foreground">
               Create and configure custom AI agents with MCP tool integrations.
             </p>

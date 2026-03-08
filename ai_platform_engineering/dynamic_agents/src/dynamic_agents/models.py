@@ -139,8 +139,6 @@ class DynamicAgentConfigBase(BaseModel):
     name: str = Field(..., description="Display name")
     description: str | None = Field(None, description="Optional description")
     system_prompt: str = Field(..., description="Main system prompt / instructions")
-    agents_md: str | None = Field(None, description="Optional AGENTS.md content")
-    extension_prompt: str | None = Field(None, description="Platform extension prompt (uses default if not set)")
     allowed_tools: dict[str, list[str]] = Field(
         default_factory=dict,
         description="Map of server_id -> tool names (empty list = all tools)",
@@ -174,8 +172,6 @@ class DynamicAgentConfigUpdate(BaseModel):
     name: str | None = None
     description: str | None = None
     system_prompt: str | None = None
-    agents_md: str | None = None
-    extension_prompt: str | None = None
     allowed_tools: dict[str, list[str]] | None = None
     model_id: str | None = None
     model_provider: str | None = None

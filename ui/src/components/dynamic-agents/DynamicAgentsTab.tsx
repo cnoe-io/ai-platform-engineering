@@ -129,7 +129,7 @@ export function DynamicAgentsTab() {
       <CardHeader>
         <div className="flex items-center justify-between">
           <div>
-            <CardTitle>Dynamic Agents</CardTitle>
+            <CardTitle>Custom Agents</CardTitle>
             <CardDescription>
               Configure AI agents with custom instructions and MCP tool access.
             </CardDescription>

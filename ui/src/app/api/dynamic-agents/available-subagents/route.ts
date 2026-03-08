@@ -61,6 +61,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
         id: agent._id,
         name: agent.name,
         description: agent.description,
+        visibility: agent.visibility,
       }));
 
     return successResponse({ agents: available });

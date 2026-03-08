@@ -702,7 +702,7 @@ function AgentInfoContent({
         </div>
         <div className="min-w-0">
           <h3 className="font-semibold truncate">{agentName || "Custom Agent"}</h3>
-          <p className="text-xs text-muted-foreground">Dynamic Agent</p>
+          <p className="text-xs text-muted-foreground">Custom Agent</p>
         </div>
       </div>
 

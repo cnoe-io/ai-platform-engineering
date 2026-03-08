@@ -11,6 +11,7 @@ from dynamic_agents.models import (
     DynamicAgentConfigCreate,
     DynamicAgentConfigUpdate,
     PaginatedResponse,
+    SubAgentRef,
     VisibilityType,
 )
 from dynamic_agents.services.mongo import MongoDBService, get_mongo_service
@@ -18,6 +19,50 @@ from dynamic_agents.services.mongo import MongoDBService, get_mongo_service
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/agents", tags=["agents"])
+
+
+def validate_subagent_visibility(
+    parent_visibility: VisibilityType,
+    subagents: list[SubAgentRef],
+    mongo: MongoDBService,
+) -> tuple[bool, str | None]:
+    """Validate that subagents have compatible visibility with parent.
+
+    Rules:
+    - Private agent → can use private, team, or global subagents
+    - Team agent → can use team or global subagents
+    - Global agent → can only use global subagents
+
+    Returns:
+        Tuple of (is_valid, error_message)
+    """
+    if not subagents:
+        return True, None
+
+    for subagent_ref in subagents:
+        subagent = mongo.get_agent(subagent_ref.agent_id)
+        if not subagent:
+            return False, f'Subagent "{subagent_ref.agent_id}" not found'
+
+        sub_vis = subagent.visibility
+
+        # Global parent can only use global subagents
+        if parent_visibility == VisibilityType.GLOBAL and sub_vis != VisibilityType.GLOBAL:
+            return (
+                False,
+                f'Global agents can only use global subagents. "{subagent.name}" is {sub_vis.value}.',
+            )
+
+        # Team parent can use team or global subagents
+        if parent_visibility == VisibilityType.TEAM and sub_vis == VisibilityType.PRIVATE:
+            return (
+                False,
+                f'Team agents can only use team or global subagents. "{subagent.name}" is private.',
+            )
+
+        # Private parent can use any visibility - no restrictions
+
+    return True, None
 
 
 @router.get("", response_model=PaginatedResponse)
@@ -69,6 +114,16 @@ async def create_agent(
 
     Requires admin role.
     """
+    # Validate subagent visibility compatibility
+    if config.subagents:
+        is_valid, error = validate_subagent_visibility(
+            config.visibility,
+            config.subagents,
+            mongo,
+        )
+        if not is_valid:
+            raise HTTPException(status_code=400, detail=error)
+
     agent = mongo.create_agent(config, owner_id=user.email)
     logger.info(f"Created dynamic agent '{config.name}' ({agent.id}) by {user.email}")
 
@@ -142,6 +197,20 @@ async def update_agent(
 
     if not agent:
         raise HTTPException(status_code=404, detail="Agent not found")
+
+    # Determine final values for visibility validation
+    final_visibility = update.visibility if update.visibility is not None else agent.visibility
+    final_subagents = update.subagents if update.subagents is not None else agent.subagents
+
+    # Validate subagent visibility compatibility
+    if final_subagents:
+        is_valid, error = validate_subagent_visibility(
+            final_visibility,
+            final_subagents,
+            mongo,
+        )
+        if not is_valid:
+            raise HTTPException(status_code=400, detail=error)
 
     updated = mongo.update_agent(agent_id, update)
     if not updated:
@@ -227,6 +296,7 @@ async def list_available_subagents(
                 "id": agent.id,
                 "name": agent.name,
                 "description": agent.description,
+                "visibility": agent.visibility.value,
             }
         )
 

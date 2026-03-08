@@ -6,7 +6,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { ArrowLeft, Loader2, Globe, Users, Lock } from "lucide-react";
+import { ArrowLeft, Loader2, Globe, Users, Lock, ChevronLeft, ChevronRight } from "lucide-react";
+import { cn } from "@/lib/utils";
 import type {
   DynamicAgentConfig,
   DynamicAgentConfigCreate,
@@ -61,6 +62,77 @@ const VISIBILITY_OPTIONS: { value: VisibilityType; label: string; icon: React.Re
   },
 ];
 
+// Step definitions for the wizard
+const STEPS = [
+  { 
+    id: "basic" as const, 
+    label: "Basic Info", 
+    hint: "Define your agent's identity and access level" 
+  },
+  { 
+    id: "instructions" as const, 
+    label: "Instructions", 
+    hint: "Configure how your agent behaves" 
+  },
+  { 
+    id: "tools" as const, 
+    label: "Tools", 
+    hint: "Select which tools your agent can use" 
+  },
+  { 
+    id: "subagents" as const, 
+    label: "Subagents", 
+    hint: "Delegate tasks to other agents (optional)" 
+  },
+];
+
+type StepId = typeof STEPS[number]["id"];
+
+/**
+ * Horizontal step indicator component
+ */
+function StepIndicator({ 
+  steps, 
+  currentStep, 
+  onStepClick 
+}: { 
+  steps: typeof STEPS; 
+  currentStep: StepId; 
+  onStepClick: (stepId: StepId) => void;
+}) {
+  return (
+    <div className="flex items-center justify-center gap-0 py-4">
+      {steps.map((step, index) => (
+        <React.Fragment key={step.id}>
+          {index > 0 && (
+            <div className="w-8 h-0.5 bg-border mx-1" />
+          )}
+          <button
+            type="button"
+            onClick={() => onStepClick(step.id)}
+            className={cn(
+              "flex flex-col items-center gap-1 px-3 py-2 rounded-lg transition-colors min-w-[80px]",
+              currentStep === step.id 
+                ? "bg-primary/10 text-primary" 
+                : "hover:bg-muted text-muted-foreground"
+            )}
+          >
+            <div className={cn(
+              "w-7 h-7 rounded-full flex items-center justify-center text-xs font-medium",
+              currentStep === step.id 
+                ? "bg-primary text-primary-foreground" 
+                : "bg-muted"
+            )}>
+              {index + 1}
+            </div>
+            <span className="text-xs font-medium">{step.label}</span>
+          </button>
+        </React.Fragment>
+      ))}
+    </div>
+  );
+}
+
 export function DynamicAgentEditor({ agent, onSave, onCancel }: DynamicAgentEditorProps) {
   const isEditing = !!agent;
 
@@ -68,8 +140,6 @@ export function DynamicAgentEditor({ agent, onSave, onCancel }: DynamicAgentEdit
   const [name, setName] = React.useState(agent?.name || "");
   const [description, setDescription] = React.useState(agent?.description || "");
   const [systemPrompt, setSystemPrompt] = React.useState(agent?.system_prompt || "");
-  const [agentsMd, setAgentsMd] = React.useState(agent?.agents_md || "");
-  const [extensionPrompt, setExtensionPrompt] = React.useState(agent?.extension_prompt || "");
   const [visibility, setVisibility] = React.useState<VisibilityType>(agent?.visibility || "private");
   const [allowedTools, setAllowedTools] = React.useState<Record<string, string[]>>(
     agent?.allowed_tools || {}
@@ -161,8 +231,22 @@ export function DynamicAgentEditor({ agent, onSave, onCancel }: DynamicAgentEdit
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // Run once on mount - agent prop is stable
 
-  // Tabs for the form sections
-  const [activeSection, setActiveSection] = React.useState<"basic" | "instructions" | "tools" | "subagents">("basic");
+  // Step wizard state
+  const [activeStep, setActiveStep] = React.useState<StepId>("basic");
+  const currentStepIndex = STEPS.findIndex((s) => s.id === activeStep);
+  const currentStepConfig = STEPS.find((s) => s.id === activeStep);
+
+  const goToPreviousStep = () => {
+    if (currentStepIndex > 0) {
+      setActiveStep(STEPS[currentStepIndex - 1].id);
+    }
+  };
+
+  const goToNextStep = () => {
+    if (currentStepIndex < STEPS.length - 1) {
+      setActiveStep(STEPS[currentStepIndex + 1].id);
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -197,8 +281,6 @@ export function DynamicAgentEditor({ agent, onSave, onCancel }: DynamicAgentEdit
           name,
           description: description || undefined,
           system_prompt: systemPrompt,
-          agents_md: agentsMd || undefined,
-          extension_prompt: extensionPrompt || undefined,
           visibility,
           allowed_tools: allowedTools,
           builtin_tools: builtinTools,
@@ -224,8 +306,6 @@ export function DynamicAgentEditor({ agent, onSave, onCancel }: DynamicAgentEdit
           name,
           description: description || undefined,
           system_prompt: systemPrompt,
-          agents_md: agentsMd || undefined,
-          extension_prompt: extensionPrompt || undefined,
           visibility,
           allowed_tools: allowedTools,
           builtin_tools: builtinTools,
@@ -254,55 +334,43 @@ export function DynamicAgentEditor({ agent, onSave, onCancel }: DynamicAgentEdit
     }
   };
 
-  const isValid = name.trim() && systemPrompt.trim();
-
-  const sections = [
-    { id: "basic" as const, label: "Basic Info" },
-    { id: "instructions" as const, label: "Instructions" },
-    { id: "tools" as const, label: "Tools" },
-    { id: "subagents" as const, label: "Subagents" },
-  ];
+  const isValid = name.trim() && systemPrompt.trim() && modelId;
 
   return (
     <Card>
-      <CardHeader>
+      <CardHeader className="pb-2">
         <div className="flex items-center gap-4">
           <Button variant="ghost" size="icon" onClick={onCancel}>
             <ArrowLeft className="h-4 w-4" />
           </Button>
           <div>
-            <CardTitle>{isEditing ? "Edit Agent" : "Create Agent"}</CardTitle>
+            <CardTitle>{isEditing ? "Edit Custom Agent" : "Create Custom Agent"}</CardTitle>
             <CardDescription>
               {isEditing
                 ? "Update the agent configuration"
-                : "Configure a new dynamic AI agent"}
+                : "Configure a new custom AI agent"}
             </CardDescription>
           </div>
         </div>
       </CardHeader>
       <CardContent>
-        <form onSubmit={handleSubmit} className="space-y-6">
-          {/* Section tabs */}
-          <div className="flex gap-1 border-b">
-            {sections.map((section) => (
-              <button
-                key={section.id}
-                type="button"
-                onClick={() => setActiveSection(section.id)}
-                className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
-                  activeSection === section.id
-                    ? "border-primary text-primary"
-                    : "border-transparent text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                {section.label}
-              </button>
-            ))}
+        <form onSubmit={handleSubmit} className="space-y-4">
+          {/* Step Indicator */}
+          <StepIndicator 
+            steps={STEPS} 
+            currentStep={activeStep} 
+            onStepClick={setActiveStep} 
+          />
+
+          {/* Step hint */}
+          <div className="text-center pb-2 border-b">
+            <h3 className="font-medium">Step {currentStepIndex + 1}: {currentStepConfig?.label}</h3>
+            <p className="text-sm text-muted-foreground">{currentStepConfig?.hint}</p>
           </div>
 
-          {/* Basic Info Section */}
-          {activeSection === "basic" && (
-            <div className="space-y-4">
+          {/* Basic Info Step */}
+          {activeStep === "basic" && (
+            <div className="space-y-4 pt-2">
               <div className="space-y-2">
                 <Label htmlFor="name">
                   Agent Name <span className="text-destructive">*</span>
@@ -341,6 +409,44 @@ export function DynamicAgentEditor({ agent, onSave, onCancel }: DynamicAgentEdit
                 />
               </div>
 
+              {/* LLM Model - Prominent selection */}
+              <div className="space-y-2">
+                <Label htmlFor="modelId">
+                  LLM Model <span className="text-destructive">*</span>
+                </Label>
+                <div className="p-3 rounded-lg border-2 border-primary/20 bg-primary/5">
+                  <select
+                    id="modelId"
+                    value={modelId}
+                    onChange={(e) => {
+                      const selectedId = e.target.value;
+                      const selectedModel = availableModels.find((m) => m.id === selectedId);
+                      if (selectedModel) {
+                        setModelId(selectedModel.id);
+                        setModelProvider(selectedModel.provider);
+                      }
+                    }}
+                    disabled={loading || modelsLoading}
+                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm font-medium shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {modelsLoading ? (
+                      <option value="">Loading models...</option>
+                    ) : availableModels.length === 0 ? (
+                      <option value="">Platform Default</option>
+                    ) : (
+                      availableModels.map((model) => (
+                        <option key={model.id} value={model.id}>
+                          {model.name}{model.provider && model.provider !== "default" ? ` (${model.provider})` : ""}
+                        </option>
+                      ))
+                    )}
+                  </select>
+                  <p className="text-xs text-muted-foreground mt-2">
+                    The language model that powers this agent&apos;s reasoning.
+                  </p>
+                </div>
+              </div>
+
               <div className="space-y-2">
                 <Label>Visibility</Label>
                 <div className="grid grid-cols-3 gap-2">
@@ -365,101 +471,36 @@ export function DynamicAgentEditor({ agent, onSave, onCancel }: DynamicAgentEdit
                   ))}
                 </div>
               </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="modelId">LLM Model</Label>
-                <select
-                  id="modelId"
-                  value={modelId}
-                  onChange={(e) => {
-                    const selectedId = e.target.value;
-                    const selectedModel = availableModels.find((m) => m.id === selectedId);
-                    if (selectedModel) {
-                      setModelId(selectedModel.id);
-                      setModelProvider(selectedModel.provider);
-                    }
-                  }}
-                  disabled={loading || modelsLoading}
-                  className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  {modelsLoading ? (
-                    <option value="">Loading models...</option>
-                  ) : availableModels.length === 0 ? (
-                    <option value="">Platform Default</option>
-                  ) : (
-                    availableModels.map((model) => (
-                      <option key={model.id} value={model.id}>
-                        {model.name}{model.provider && model.provider !== "default" ? ` (${model.provider})` : ""}
-                      </option>
-                    ))
-                  )}
-                </select>
-                <p className="text-xs text-muted-foreground">
-                  Select the LLM model this agent will use. Leave as Platform Default to use the system configuration.
-                </p>
-              </div>
             </div>
           )}
 
-          {/* Instructions Section */}
-          {activeSection === "instructions" && (
-            <div className="space-y-4">
+          {/* Instructions Step */}
+          {activeStep === "instructions" && (
+            <div className="space-y-4 pt-2">
               <div className="space-y-2">
                 <Label htmlFor="systemPrompt">
                   System Prompt <span className="text-destructive">*</span>
                 </Label>
                 <Textarea
                   id="systemPrompt"
-                  placeholder="You are a helpful AI assistant that..."
                   value={systemPrompt}
                   onChange={(e) => setSystemPrompt(e.target.value)}
-                  disabled={loading}
-                  rows={8}
+                  rows={16}
                   className="font-mono text-sm"
-                />
-                <p className="text-xs text-muted-foreground">
-                  The main instructions for the agent. This defines its behavior and capabilities.
-                </p>
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="agentsMd">AGENTS.md (Optional)</Label>
-                <Textarea
-                  id="agentsMd"
-                  placeholder="# Agent Instructions&#10;&#10;Additional context about the codebase, workflows, etc."
-                  value={agentsMd}
-                  onChange={(e) => setAgentsMd(e.target.value)}
+                  placeholder="You are a helpful AI assistant that specializes in..."
                   disabled={loading}
-                  rows={6}
-                  className="font-mono text-sm"
                 />
-                <p className="text-xs text-muted-foreground">
-                  Additional markdown instructions, similar to an AGENTS.md file. Can include project context,
-                  coding standards, or workflow information.
-                </p>
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="extensionPrompt">Extension Prompt (Optional)</Label>
-                <Textarea
-                  id="extensionPrompt"
-                  placeholder="Additional instructions appended to the system prompt..."
-                  value={extensionPrompt}
-                  onChange={(e) => setExtensionPrompt(e.target.value)}
-                  disabled={loading}
-                  rows={4}
-                  className="font-mono text-sm"
-                />
-                <p className="text-xs text-muted-foreground">
-                  Platform-level instructions appended after the system prompt. Leave empty to use defaults.
+                <p className="text-sm text-muted-foreground">
+                  Define your agent's behavior, personality, and capabilities. 
+                  You can paste content from an AGENTS.md file here.
                 </p>
               </div>
             </div>
           )}
 
-          {/* Tools Section */}
-          {activeSection === "tools" && (
-            <div className="space-y-6">
+          {/* Tools Step */}
+          {activeStep === "tools" && (
+            <div className="space-y-6 pt-2">
               {/* Built-in Tools */}
               <BuiltinToolsPicker
                 value={builtinTools}
@@ -486,14 +527,17 @@ export function DynamicAgentEditor({ agent, onSave, onCancel }: DynamicAgentEdit
             </div>
           )}
 
-          {/* Subagents Section */}
-          {activeSection === "subagents" && (
-            <div className="space-y-4">
+          {/* Subagents Step */}
+          {activeStep === "subagents" && (
+            <div className="space-y-4 pt-2">
               <div>
                 <Label>Subagent Delegation</Label>
-                <p className="text-xs text-muted-foreground mb-4">
-                  Configure other dynamic agents that this agent can delegate tasks to.
+                <p className="text-xs text-muted-foreground mb-2">
+                  Configure other custom agents that this agent can delegate tasks to.
                   The LLM will automatically decide when to use each subagent based on the description you provide.
+                </p>
+                <p className="text-xs text-amber-600 dark:text-amber-400 mb-4">
+                  Note: Subagents cannot be nested. The agents you add here will not have access to their own subagents when invoked.
                 </p>
               </div>
 
@@ -502,6 +546,7 @@ export function DynamicAgentEditor({ agent, onSave, onCancel }: DynamicAgentEdit
                 value={subagents}
                 onChange={setSubagents}
                 disabled={loading}
+                parentVisibility={visibility}
               />
             </div>
           )}
@@ -513,34 +558,54 @@ export function DynamicAgentEditor({ agent, onSave, onCancel }: DynamicAgentEdit
             </div>
           )}
 
-          {/* Actions */}
-          <div className="flex items-center justify-between pt-4 border-t">
-            <div className="text-sm text-muted-foreground">
-              <span>
-                {builtinTools?.fetch_url?.enabled ? "1 built-in, " : ""}
-                {Object.keys(allowedTools).length} MCP server(s), {subagents.length} subagent(s)
-              </span>
-            </div>
-            <div className="flex items-center gap-2">
-              <Button type="button" variant="outline" onClick={onCancel} disabled={loading}>
-                Cancel
-              </Button>
-              <Button type="submit" disabled={loading || !isValid}>
-                {loading ? (
-                  <>
-                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                    {isEditing ? "Saving..." : "Creating..."}
-                  </>
-                ) : isEditing ? (
-                  "Save Changes"
-                ) : (
-                  "Create Agent"
-                )}
-              </Button>
-            </div>
+          {/* Step Navigation - Right aligned */}
+          <div className="flex items-center justify-end gap-2 pt-4 border-t">
+            <Button 
+              type="button" 
+              variant="outline" 
+              onClick={goToPreviousStep}
+              disabled={currentStepIndex === 0 || loading}
+              size="sm"
+            >
+              <ChevronLeft className="h-4 w-4 mr-1" />
+              Previous
+            </Button>
+            <Button 
+              type="button" 
+              variant="outline" 
+              onClick={goToNextStep}
+              disabled={currentStepIndex === STEPS.length - 1 || loading}
+              size="sm"
+            >
+              Next
+              <ChevronRight className="h-4 w-4 ml-1" />
+            </Button>
           </div>
         </form>
       </CardContent>
+
+      {/* Action Buttons - Outside the card content */}
+      <div className="flex items-center gap-2 px-6 py-4 border-t bg-muted/30">
+        <div className="text-xs text-muted-foreground mr-auto hidden sm:block">
+          {builtinTools?.fetch_url?.enabled ? "1 built-in, " : ""}
+          {Object.keys(allowedTools).length} MCP server(s), {subagents.length} subagent(s)
+        </div>
+        <Button type="button" variant="outline" onClick={onCancel} disabled={loading}>
+          Cancel
+        </Button>
+        <Button onClick={handleSubmit} disabled={loading || !isValid}>
+          {loading ? (
+            <>
+              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              {isEditing ? "Saving..." : "Creating..."}
+            </>
+          ) : isEditing ? (
+            "Save Changes"
+          ) : (
+            "Create Agent"
+          )}
+        </Button>
+      </div>
     </Card>
   );
 }

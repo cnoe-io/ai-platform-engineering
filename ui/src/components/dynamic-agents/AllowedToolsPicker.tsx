@@ -3,16 +3,24 @@
 import React from "react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import {
   Server,
   Loader2,
   Zap,
   Check,
-  X,
   ChevronDown,
   ChevronRight,
+  Search,
+  Info,
 } from "lucide-react";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import { cn } from "@/lib/utils";
 import type { MCPServerConfig, MCPToolInfo } from "@/types/dynamic-agent";
 
 interface AllowedToolsPickerProps {
@@ -33,6 +41,7 @@ export function AllowedToolsPicker({ value, onChange, disabled }: AllowedToolsPi
   const [error, setError] = React.useState<string | null>(null);
   const [probeStates, setProbeStates] = React.useState<Record<string, ProbeState>>({});
   const [expandedServers, setExpandedServers] = React.useState<Set<string>>(new Set());
+  const [searchQueries, setSearchQueries] = React.useState<Record<string, string>>({});
 
   // Fetch available MCP servers
   React.useEffect(() => {
@@ -188,6 +197,17 @@ export function AllowedToolsPicker({ value, onChange, disabled }: AllowedToolsPi
     return tools.length;
   };
 
+  // Filter tools by search query
+  const getFilteredTools = (serverId: string, tools: MCPToolInfo[]): MCPToolInfo[] => {
+    const query = searchQueries[serverId]?.toLowerCase();
+    if (!query) return tools;
+    return tools.filter(
+      (tool) =>
+        tool.name.toLowerCase().includes(query) ||
+        tool.description?.toLowerCase().includes(query)
+    );
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center py-8">
@@ -217,155 +237,211 @@ export function AllowedToolsPicker({ value, onChange, disabled }: AllowedToolsPi
   }
 
   return (
-    <div className="space-y-3">
-      <p className="text-xs text-muted-foreground">
-        Select MCP servers and tools this agent can access. Probe servers to discover available tools.
-      </p>
-
+    <div className="space-y-2">
       {servers.map((server) => {
         const probe = probeStates[server._id];
         const isSelected = isServerSelected(server._id);
         const isExpanded = expandedServers.has(server._id);
         const toolsCount = getSelectedToolsCount(server._id);
+        const filteredTools = probe?.tools ? getFilteredTools(server._id, probe.tools) : [];
+        const showSearch = probe?.tools && probe.tools.length > 5;
 
         return (
-          <Card
+          <div
             key={server._id}
-            className={`transition-colors ${isSelected ? "border-primary bg-primary/5" : ""}`}
+            className={cn(
+              "border rounded-lg transition-colors",
+              isSelected ? "border-primary bg-primary/5" : "border-border"
+            )}
           >
-            <CardHeader className="py-3 px-4">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <button
-                    type="button"
-                    onClick={() => toggleServer(server._id)}
-                    disabled={disabled}
-                    className={`h-5 w-5 rounded border flex items-center justify-center transition-colors ${
-                      isSelected
-                        ? "bg-primary border-primary text-primary-foreground"
-                        : "border-muted-foreground/30 hover:border-primary"
-                    }`}
-                  >
-                    {isSelected && <Check className="h-3 w-3" />}
-                  </button>
-                  <div
-                    className="flex items-center gap-2 cursor-pointer"
-                    onClick={() => toggleExpanded(server._id)}
-                  >
-                    {isExpanded ? (
-                      <ChevronDown className="h-4 w-4 text-muted-foreground" />
-                    ) : (
-                      <ChevronRight className="h-4 w-4 text-muted-foreground" />
-                    )}
-                    <div className="h-8 w-8 rounded bg-blue-500/10 flex items-center justify-center">
-                      <Server className="h-4 w-4 text-blue-500" />
-                    </div>
-                    <div>
-                      <CardTitle className="text-sm">{server.name}</CardTitle>
-                      <p className="text-xs text-muted-foreground font-mono">{server._id}</p>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-2">
-                  {isSelected && (
-                    <Badge variant="secondary" className="text-xs">
-                      {toolsCount === "all" ? "All tools" : `${toolsCount} tool(s)`}
-                    </Badge>
+            {/* Server Header Row */}
+            <div className="flex items-center justify-between p-3">
+              <div className="flex items-center gap-2">
+                {/* Checkbox */}
+                <button
+                  type="button"
+                  onClick={() => toggleServer(server._id)}
+                  disabled={disabled}
+                  className={cn(
+                    "h-4 w-4 rounded border flex items-center justify-center transition-colors flex-shrink-0",
+                    isSelected
+                      ? "bg-primary border-primary text-primary-foreground"
+                      : "border-muted-foreground/30 hover:border-primary"
                   )}
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => handleProbe(server._id)}
-                    disabled={disabled || probe?.loading}
-                  >
-                    {probe?.loading ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : (
-                      <>
-                        <Zap className="h-4 w-4 mr-1" />
-                        Probe
-                      </>
-                    )}
-                  </Button>
-                </div>
-              </div>
-            </CardHeader>
+                >
+                  {isSelected && <Check className="h-2.5 w-2.5" />}
+                </button>
 
+                {/* Expand/Collapse */}
+                <button
+                  type="button"
+                  onClick={() => toggleExpanded(server._id)}
+                  className="flex items-center gap-2"
+                >
+                  {isExpanded ? (
+                    <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                  ) : (
+                    <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                  )}
+                  <Server className="h-4 w-4 text-blue-500" />
+                  <span className="font-medium text-sm">{server.name}</span>
+                </button>
+              </div>
+
+              <div className="flex items-center gap-2">
+                {isSelected && (
+                  <Badge variant="secondary" className="text-xs">
+                    {toolsCount === "all" ? "All" : toolsCount}
+                  </Badge>
+                )}
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => handleProbe(server._id)}
+                  disabled={disabled || probe?.loading}
+                  className="h-7 px-2"
+                >
+                  {probe?.loading ? (
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                  ) : (
+                    <>
+                      <Zap className="h-3 w-3 mr-1" />
+                      <span className="text-xs">Probe</span>
+                    </>
+                  )}
+                </Button>
+              </div>
+            </div>
+
+            {/* Expanded Content */}
             {isExpanded && (
-              <CardContent className="pt-0 pb-3 px-4">
+              <div className="border-t px-3 pb-3 pt-2">
                 {probe?.error ? (
-                  <p className="text-sm text-destructive">{probe.error}</p>
+                  <p className="text-xs text-destructive">{probe.error}</p>
                 ) : probe?.tools && probe.tools.length > 0 ? (
                   <div className="space-y-2">
-                    {/* All tools toggle */}
-                    <div className="flex items-center justify-between py-1 border-b">
-                      <span className="text-xs font-medium text-muted-foreground">
-                        {probe.tools.length} tools available
-                      </span>
+                    {/* Search and "Select All" row */}
+                    <div className="flex items-center justify-between gap-2">
+                      {showSearch ? (
+                        <div className="relative flex-1">
+                          <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground" />
+                          <Input
+                            placeholder="Search tools..."
+                            value={searchQueries[server._id] || ""}
+                            onChange={(e) =>
+                              setSearchQueries((prev) => ({
+                                ...prev,
+                                [server._id]: e.target.value,
+                              }))
+                            }
+                            className="h-7 text-xs pl-7"
+                          />
+                        </div>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">
+                          {probe.tools.length} tools
+                        </span>
+                      )}
                       {isSelected && (
                         <button
                           type="button"
                           onClick={() => toggleAllTools(server._id)}
                           disabled={disabled}
-                          className="text-xs text-primary hover:underline"
+                          className="text-xs text-primary hover:underline whitespace-nowrap"
                         >
                           {isAllToolsSelected(server._id) ? "All selected" : "Select all"}
                         </button>
                       )}
                     </div>
 
-                    {/* Tool list */}
-                    <div className="grid gap-1.5">
-                      {probe.tools.map((tool) => {
+                    {/* Tool Grid - 2 columns */}
+                    <div className="grid grid-cols-2 gap-1">
+                      {filteredTools.map((tool) => {
                         const selected = isToolSelected(server._id, tool.name);
                         return (
-                          <button
+                          <div
                             key={tool.namespaced_name}
-                            type="button"
-                            onClick={() => toggleTool(server._id, tool.name)}
-                            disabled={disabled}
-                            className={`flex items-start gap-2 p-2 rounded text-left transition-colors ${
+                            className={cn(
+                              "flex items-start gap-1.5 p-1.5 rounded text-left transition-colors text-xs",
                               selected
                                 ? "bg-primary/10 border border-primary/30"
                                 : "bg-muted/30 hover:bg-muted/50 border border-transparent"
-                            }`}
+                            )}
                           >
-                            <div
-                              className={`mt-0.5 h-4 w-4 rounded border flex items-center justify-center flex-shrink-0 ${
+                            {/* Checkbox */}
+                            <button
+                              type="button"
+                              onClick={() => toggleTool(server._id, tool.name)}
+                              disabled={disabled}
+                              className={cn(
+                                "h-3 w-3 rounded border flex items-center justify-center flex-shrink-0 mt-0.5",
                                 selected
                                   ? "bg-primary border-primary text-primary-foreground"
                                   : "border-muted-foreground/30"
-                              }`}
-                            >
-                              {selected && <Check className="h-2.5 w-2.5" />}
-                            </div>
-                            <div className="min-w-0 flex-1">
-                              <div className="font-mono text-xs font-medium truncate">
-                                {tool.name}
-                              </div>
-                              {tool.description && (
-                                <div className="text-xs text-muted-foreground line-clamp-2">
-                                  {tool.description}
-                                </div>
                               )}
-                            </div>
-                          </button>
+                            >
+                              {selected && <Check className="h-2 w-2" />}
+                            </button>
+                            
+                            {/* Tool name and description */}
+                            <button
+                              type="button"
+                              onClick={() => toggleTool(server._id, tool.name)}
+                              disabled={disabled}
+                              className="flex-1 min-w-0 text-left"
+                            >
+                              <span className="font-mono truncate block">
+                                {tool.name}
+                              </span>
+                              {tool.description && (
+                                <span className="text-[10px] text-muted-foreground truncate block">
+                                  {tool.description}
+                                </span>
+                              )}
+                            </button>
+
+                            {/* Info tooltip for full description */}
+                            {tool.description && (
+                              <TooltipProvider delayDuration={200}>
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <button
+                                      type="button"
+                                      onClick={(e) => e.stopPropagation()}
+                                      className="flex-shrink-0 text-muted-foreground hover:text-foreground mt-0.5"
+                                    >
+                                      <Info className="h-3 w-3" />
+                                    </button>
+                                  </TooltipTrigger>
+                                  <TooltipContent side="top" className="max-w-xs whitespace-normal">
+                                    <p className="text-xs">{tool.description}</p>
+                                  </TooltipContent>
+                                </Tooltip>
+                              </TooltipProvider>
+                            )}
+                          </div>
                         );
                       })}
                     </div>
+
+                    {/* No results message */}
+                    {filteredTools.length === 0 && searchQueries[server._id] && (
+                      <p className="text-xs text-muted-foreground text-center py-2">
+                        No tools match &quot;{searchQueries[server._id]}&quot;
+                      </p>
+                    )}
                   </div>
                 ) : probe?.tools && probe.tools.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">No tools found on this server</p>
+                  <p className="text-xs text-muted-foreground">No tools found</p>
                 ) : (
-                  <p className="text-sm text-muted-foreground">
-                    Click &quot;Probe&quot; to discover available tools
+                  <p className="text-xs text-muted-foreground">
+                    Click &quot;Probe&quot; to discover tools
                   </p>
                 )}
-              </CardContent>
+              </div>
             )}
-          </Card>
+          </div>
         );
       })}
     </div>
