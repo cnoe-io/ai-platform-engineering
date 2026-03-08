@@ -21,7 +21,7 @@ DEFAULT_CONFIG_PATH = Path(__file__).parent / "config.yaml"
 class ModelInfo:
     """Information about an available LLM model."""
 
-    id: str
+    model: str
     name: str
     provider: str
     description: str = ""
@@ -43,44 +43,24 @@ def load_models_config(config_path: Path | str | None = None) -> list[ModelInfo]
     config_path = Path(config_path)
 
     if not config_path.exists():
-        logger.warning(f"Models config not found at {config_path}, returning default only")
-        return [
+        raise FileNotFoundError(f"Models config not found at {config_path}")
+
+    with open(config_path) as f:
+        config = yaml.safe_load(f)
+
+    models = []
+    for item in config.get("models", []):
+        models.append(
             ModelInfo(
-                id="",
-                name="Platform Default",
-                provider="default",
-                description="Uses the platform's default LLM configuration",
+                model=item.get("model", ""),
+                name=item.get("name", "Unknown"),
+                provider=item.get("provider", "unknown"),
+                description=item.get("description", ""),
             )
-        ]
+        )
 
-    try:
-        with open(config_path) as f:
-            config = yaml.safe_load(f)
-
-        models = []
-        for item in config.get("models", []):
-            models.append(
-                ModelInfo(
-                    id=item.get("id", ""),
-                    name=item.get("name", "Unknown"),
-                    provider=item.get("provider", "unknown"),
-                    description=item.get("description", ""),
-                )
-            )
-
-        logger.info(f"Loaded {len(models)} models from {config_path}")
-        return models
-
-    except Exception as e:
-        logger.error(f"Failed to load models config from {config_path}: {e}")
-        return [
-            ModelInfo(
-                id="",
-                name="Platform Default",
-                provider="default",
-                description="Uses the platform's default LLM configuration",
-            )
-        ]
+    logger.info(f"Loaded {len(models)} models from {config_path}")
+    return models
 
 
 @lru_cache

@@ -27,51 +27,51 @@
 #   - gcp-vertexai
 #   - groq
 #
-# The "id" field is passed to LLMFactory.get_llm(model=id).
-# An empty id ("") means use the platform default configuration.
+# The "model" field is passed to LLMFactory.get_llm(model=model).
+# An empty model ("") means use the platform default configuration.
 
 models:
   # Anthropic Models (direct API)
-  - id: "claude-sonnet-4-20250514"
+  - model: "claude-sonnet-4-20250514"
     name: "Claude Sonnet 4"
     provider: "anthropic-claude"
     description: "Latest Claude Sonnet model - balanced performance and speed"
 
-  - id: "claude-3-5-sonnet-20241022"
+  - model: "claude-3-5-sonnet-20241022"
     name: "Claude 3.5 Sonnet"
     provider: "anthropic-claude"
     description: "High capability model with excellent reasoning"
 
-  - id: "claude-3-5-haiku-20241022"
+  - model: "claude-3-5-haiku-20241022"
     name: "Claude 3.5 Haiku"
     provider: "anthropic-claude"
     description: "Fast and efficient for simpler tasks"
 
   # OpenAI Models (direct API)
-  - id: "gpt-4o"
+  - model: "gpt-4o"
     name: "GPT-4o"
     provider: "openai"
     description: "OpenAI's most capable model"
 
-  - id: "gpt-4o-mini"
+  - model: "gpt-4o-mini"
     name: "GPT-4o Mini"
     provider: "openai"
     description: "Smaller, faster GPT-4o variant"
 
   # AWS Bedrock Models
-  # - id: "anthropic.claude-3-5-sonnet-20241022-v2:0"
+  # - model: "anthropic.claude-3-5-sonnet-20241022-v2:0"
   #   name: "Claude 3.5 Sonnet (Bedrock)"
   #   provider: "aws-bedrock"
   #   description: "Claude 3.5 Sonnet via AWS Bedrock"
 
   # Google Gemini Models
-  # - id: "gemini-1.5-pro"
+  # - model: "gemini-1.5-pro"
   #   name: "Gemini 1.5 Pro"
   #   provider: "google-gemini"
   #   description: "Google's Gemini 1.5 Pro model"
 
   # Azure OpenAI Models
-  # - id: "gpt-4o-deployment"
-  #   name: "GPT-4o (Azure)"
-  #   provider: "azure-openai"
-  #   description: "GPT-4o via Azure OpenAI"
+  - model: "gpt-4o"
+    name: "GPT-4o (Azure)"
+    provider: "azure-openai"
+    description: "GPT-4o via Azure OpenAI"
