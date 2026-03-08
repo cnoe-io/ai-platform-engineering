@@ -25,6 +25,21 @@ interface DynamicAgentEditorProps {
   onCancel: () => void;
 }
 
+/**
+ * Generate a URL-safe slug from an agent name.
+ * e.g., "Knowledge Agent" -> "knowledge_agent"
+ */
+function generateSlug(name: string): string {
+  return name
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9\s-]/g, "") // Remove special characters
+    .replace(/\s+/g, "_")          // Replace spaces with underscores
+    .replace(/-+/g, "_")           // Replace hyphens with underscores
+    .replace(/_+/g, "_")           // Collapse multiple underscores
+    .replace(/^_|_$/g, "");        // Trim leading/trailing underscores
+}
+
 const VISIBILITY_OPTIONS: { value: VisibilityType; label: string; icon: React.ReactNode; description: string }[] = [
   { 
     value: "private", 
@@ -75,6 +90,37 @@ export function DynamicAgentEditor({ agent, onSave, onCancel }: DynamicAgentEdit
   >([]);
   const [modelsLoading, setModelsLoading] = React.useState(false);
 
+  // ID generation and validation
+  const generatedId = React.useMemo(() => generateSlug(name), [name]);
+  const [existingIds, setExistingIds] = React.useState<Set<string>>(new Set());
+
+  // Check if the generated ID clashes with existing agents
+  const idClash = React.useMemo(() => {
+    if (isEditing) return false; // When editing, ID doesn't change
+    if (!generatedId) return false;
+    return existingIds.has(generatedId);
+  }, [isEditing, generatedId, existingIds]);
+
+  // Fetch existing agent IDs for clash detection
+  React.useEffect(() => {
+    if (isEditing) return; // No need to check when editing
+
+    async function fetchExistingIds() {
+      try {
+        const response = await fetch("/api/dynamic-agents");
+        const data = await response.json();
+        // API returns paginated response: {success, data: {items: [...], ...}}
+        if (data.success && data.data?.items && Array.isArray(data.data.items)) {
+          const ids = new Set<string>(data.data.items.map((a: DynamicAgentConfig) => a._id));
+          setExistingIds(ids);
+        }
+      } catch (err) {
+        console.error("Failed to fetch existing agent IDs:", err);
+      }
+    }
+    fetchExistingIds();
+  }, [isEditing]);
+
   // Fetch available models on mount
   React.useEffect(() => {
     async function fetchModels() {
@@ -84,8 +130,23 @@ export function DynamicAgentEditor({ agent, onSave, onCancel }: DynamicAgentEdit
         const data = await response.json();
         if (data.success && Array.isArray(data.data)) {
           setAvailableModels(data.data);
-          // If creating a new agent (no existing model), default to first model
-          if (!agent?.model_id && data.data.length > 0) {
+          
+          if (agent?.model_id) {
+            // Editing existing agent - verify model exists and sync provider
+            const existingModel = data.data.find((m: { id: string; provider: string }) => m.id === agent.model_id);
+            if (existingModel) {
+              // Model exists - ensure provider is in sync with config
+              setModelProvider(existingModel.provider);
+            } else {
+              // Model no longer available - reset to first available
+              console.warn(`Agent model "${agent.model_id}" no longer available, resetting to default`);
+              if (data.data.length > 0) {
+                setModelId(data.data[0].id);
+                setModelProvider(data.data[0].provider);
+              }
+            }
+          } else if (data.data.length > 0) {
+            // Creating new agent - default to first model
             setModelId(data.data[0].id);
             setModelProvider(data.data[0].provider);
           }
@@ -97,7 +158,8 @@ export function DynamicAgentEditor({ agent, onSave, onCancel }: DynamicAgentEdit
       }
     }
     fetchModels();
-  }, [agent?.model_id]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Run once on mount - agent prop is stable
 
   // Tabs for the form sections
   const [activeSection, setActiveSection] = React.useState<"basic" | "instructions" | "tools" | "subagents">("basic");
@@ -112,6 +174,20 @@ export function DynamicAgentEditor({ agent, onSave, onCancel }: DynamicAgentEdit
       setError("Model selection is required");
       setLoading(false);
       return;
+    }
+
+    // Validate ID for new agents
+    if (!isEditing) {
+      if (!generatedId) {
+        setError("Agent name is required to generate ID");
+        setLoading(false);
+        return;
+      }
+      if (idClash) {
+        setError(`Agent ID "${generatedId}" already exists. Please use a different name.`);
+        setLoading(false);
+        return;
+      }
     }
 
     try {
@@ -144,6 +220,7 @@ export function DynamicAgentEditor({ agent, onSave, onCancel }: DynamicAgentEdit
       } else {
         // Create new agent
         const createData: DynamicAgentConfigCreate = {
+          id: generatedId,
           name,
           description: description || undefined,
           system_prompt: systemPrompt,
@@ -237,6 +314,19 @@ export function DynamicAgentEditor({ agent, onSave, onCancel }: DynamicAgentEdit
                   onChange={(e) => setName(e.target.value)}
                   disabled={loading}
                 />
+                {/* Show generated ID */}
+                {isEditing ? (
+                  <p className="text-xs text-muted-foreground">
+                    id: <code className="bg-muted px-1 py-0.5 rounded">{agent._id}</code>
+                  </p>
+                ) : generatedId ? (
+                  <p className={`text-xs ${idClash ? "text-destructive" : "text-muted-foreground"}`}>
+                    id: <code className={`px-1 py-0.5 rounded ${idClash ? "bg-destructive/10" : "bg-muted"}`}>
+                      {generatedId}
+                    </code>
+                    {idClash && <span className="ml-1 font-medium">- already exists, choose a different name</span>}
+                  </p>
+                ) : null}
               </div>
 
               <div className="space-y-2">
@@ -283,10 +373,11 @@ export function DynamicAgentEditor({ agent, onSave, onCancel }: DynamicAgentEdit
                   value={modelId}
                   onChange={(e) => {
                     const selectedId = e.target.value;
-                    setModelId(selectedId);
-                    // Also set the provider from the selected model
                     const selectedModel = availableModels.find((m) => m.id === selectedId);
-                    setModelProvider(selectedModel?.provider || "");
+                    if (selectedModel) {
+                      setModelId(selectedModel.id);
+                      setModelProvider(selectedModel.provider);
+                    }
                   }}
                   disabled={loading || modelsLoading}
                   className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"

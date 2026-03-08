@@ -22,6 +22,8 @@ function ChatUUIDPage() {
   const uuid = params.uuid as string;
 
   const [agentInfo, setAgentInfo] = useState<DynamicAgentConfig | null>(null);
+  // Track when a dynamic agent has been deleted but conversation still references it
+  const [agentNotFound, setAgentNotFound] = useState(false);
 
   // Only subscribe to stable functions — NOT to `conversations`.
   // Subscribing to `conversations` caused this effect to re-run on every
@@ -290,6 +292,7 @@ function ChatUUIDPage() {
   useEffect(() => {
     if (!selectedAgentId || !dynamicAgentsEnabled) {
       setAgentInfo(null);
+      setAgentNotFound(false);
       return;
     }
 
@@ -300,9 +303,22 @@ function ChatUUIDPage() {
           const data = await response.json();
           const agent = data.data as DynamicAgentConfig;
           setAgentInfo(agent);
+          setAgentNotFound(false);
+        } else if (response.status === 404) {
+          // Agent has been deleted but conversation still references it
+          console.warn(`[ChatUUID] Agent ${selectedAgentId} not found (deleted)`);
+          setAgentInfo(null);
+          setAgentNotFound(true);
+        } else {
+          // Other error - don't mark as not found, might be temporary
+          console.error(`[ChatUUID] Failed to fetch agent info: ${response.status}`);
+          setAgentInfo(null);
+          setAgentNotFound(false);
         }
       } catch (err) {
         console.error("Failed to fetch agent info:", err);
+        setAgentInfo(null);
+        setAgentNotFound(false);
       }
     }
 
@@ -364,6 +380,8 @@ function ChatUUIDPage() {
       agentModel={agentInfo?.model_id}
       agentVisibility={agentInfo?.visibility}
       allowedTools={agentInfo?.allowed_tools}
+      subagents={agentInfo?.subagents}
+      agentNotFound={agentNotFound}
       readOnly={isReadOnly}
       readOnlyReason={readOnlyReason}
     />

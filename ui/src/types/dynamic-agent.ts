@@ -126,6 +126,7 @@ export interface DynamicAgentConfig {
 }
 
 export interface DynamicAgentConfigCreate {
+  id: string;  // Required: User-friendly slug ID derived from name
   name: string;
   description?: string;
   system_prompt: string;

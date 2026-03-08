@@ -14,6 +14,7 @@ import {
   ListTodo,
   Activity,
   AlertTriangle,
+  Trash2,
 } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
@@ -25,6 +26,7 @@ import {
   SSEAgentEvent,
   EMPTY_SSE_EVENTS,
 } from "./sse-types";
+import type { SubAgentRef } from "@/types/dynamic-agent";
 import { useShallow } from "zustand/react/shallow";
 
 // Tool call from events
@@ -60,6 +62,10 @@ interface DynamicAgentContextProps {
   agentVisibility?: string;
   /** Map of server_id -> tool names (empty array = all tools from server) */
   allowedTools?: Record<string, string[]>;
+  /** Configured subagents for delegation */
+  subagents?: SubAgentRef[];
+  /** Whether the agent has been deleted */
+  agentNotFound?: boolean;
   collapsed?: boolean;
   onCollapse?: (collapsed: boolean) => void;
 }
@@ -74,6 +80,8 @@ export function DynamicAgentContext({
   agentModel,
   agentVisibility,
   allowedTools,
+  subagents,
+  agentNotFound,
   collapsed = false,
   onCollapse,
 }: DynamicAgentContextProps) {
@@ -264,6 +272,29 @@ export function DynamicAgentContext({
       {!collapsed && (
         <ScrollArea className="flex-1">
           <div className="p-3 space-y-4">
+            {/* Agent Not Found Warning */}
+            {agentNotFound && (
+              <motion.div
+                initial={{ opacity: 0, y: -10 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="rounded-lg border-2 border-amber-500/60 bg-gradient-to-br from-amber-500/15 to-orange-600/10 p-4 shadow-lg shadow-amber-500/10"
+              >
+                <div className="flex items-start gap-3">
+                  <div className="p-2 rounded-full bg-amber-500/20 shrink-0">
+                    <Trash2 className="h-5 w-5 text-amber-500" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold text-amber-400 mb-1">
+                      Agent No Longer Exists
+                    </p>
+                    <p className="text-xs text-amber-300/80 leading-relaxed">
+                      This agent has been deleted. You can view the conversation history, but new messages cannot be sent.
+                    </p>
+                  </div>
+                </div>
+              </motion.div>
+            )}
+
             {activeTab === "events" && (
               <EventsContent
                 todos={todos}
@@ -286,6 +317,7 @@ export function DynamicAgentContext({
                 agentModel={agentModel}
                 agentVisibility={agentVisibility}
                 allowedTools={allowedTools}
+                subagents={subagents}
               />
             )}
           </div>
@@ -635,6 +667,7 @@ interface AgentInfoContentProps {
   agentModel?: string;
   agentVisibility?: string;
   allowedTools?: Record<string, string[]>;
+  subagents?: SubAgentRef[];
 }
 
 function AgentInfoContent({
@@ -643,6 +676,7 @@ function AgentInfoContent({
   agentModel,
   agentVisibility,
   allowedTools,
+  subagents,
 }: AgentInfoContentProps) {
   // Count total tools across all MCP servers
   const toolCount = allowedTools
@@ -739,6 +773,35 @@ function AgentInfoContent({
                 title={serverId}
               >
                 {serverId}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Configured Subagents */}
+      {subagents && subagents.length > 0 && (
+        <div className="space-y-2">
+          <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+            Configured Subagents
+          </h4>
+          <div className="space-y-1.5">
+            {subagents.map((subagent) => (
+              <div
+                key={subagent.agent_id}
+                className="rounded-lg border border-border/50 bg-muted/30 p-2"
+              >
+                <div className="flex items-center gap-2">
+                  <Bot className="h-3.5 w-3.5 text-blue-400 shrink-0" />
+                  <span className="text-xs font-medium truncate" title={subagent.name}>
+                    {subagent.name}
+                  </span>
+                </div>
+                {subagent.description && (
+                  <p className="text-[10px] text-muted-foreground mt-1 pl-5.5 line-clamp-2">
+                    {subagent.description}
+                  </p>
+                )}
               </div>
             ))}
           </div>

@@ -26,7 +26,7 @@ import { DEFAULT_AGENTS, CustomCall } from "./CustomCallButtons";
 import { AGENT_LOGOS } from "@/components/shared/AgentLogos";
 import { MetadataInputForm, type UserInputMetadata, type InputField } from "./MetadataInputForm";
 
-type ReadOnlyReason = 'admin_audit' | 'shared_readonly';
+type ReadOnlyReason = 'admin_audit' | 'shared_readonly' | 'agent_deleted';
 
 interface ChatPanelProps {
   endpoint: string;
@@ -1218,14 +1218,19 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
 
       {/* Input Area - Fixed bottom, doesn't scroll */}
       {readOnly ? (
-        <div className="border-t border-border bg-amber-500/10 shrink-0">
+        <div className={`border-t border-border shrink-0 ${readOnlyReason === 'agent_deleted' ? 'bg-red-500/10' : 'bg-amber-500/10'}`}>
           <div className="max-w-7xl mx-auto px-6 py-3 flex items-center justify-between">
-            <div className="flex items-center gap-2 text-amber-700 dark:text-amber-400">
+            <div className={`flex items-center gap-2 ${readOnlyReason === 'agent_deleted' ? 'text-red-700 dark:text-red-400' : 'text-amber-700 dark:text-amber-400'}`}>
               <ShieldCheck className="h-4 w-4 shrink-0" />
               {readOnlyReason === 'admin_audit' ? (
                 <>
                   <span className="text-sm font-medium">Read-Only Audit Mode</span>
                   <span className="text-xs text-amber-600 dark:text-amber-500">— You are viewing this conversation as an admin auditor.</span>
+                </>
+              ) : readOnlyReason === 'agent_deleted' ? (
+                <>
+                  <span className="text-sm font-medium">Agent No Longer Exists</span>
+                  <span className="text-xs text-red-600 dark:text-red-500">— This agent has been deleted. You can view the history but cannot send new messages.</span>
                 </>
               ) : (
                 <>

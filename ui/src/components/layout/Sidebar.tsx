@@ -70,6 +70,9 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
   const [recycleBinOpen, setRecycleBinOpen] = useState(false);
   const { toast } = useToast();
 
+  // Agent name lookup for dynamic agent conversations
+  const [agentNameMap, setAgentNameMap] = useState<Record<string, string>>({});
+
   // Load conversations from server when sidebar mounts (MongoDB mode only)
   // Also re-sync when tab becomes visible (user switches back from another browser/tab)
   useEffect(() => {
@@ -95,6 +98,26 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab, storageMode]); // Intentionally exclude loadConversationsFromServer to prevent re-runs
+
+  // Fetch dynamic agents for name lookup in conversation list
+  useEffect(() => {
+    const fetchAgents = async () => {
+      try {
+        const response = await fetch("/api/dynamic-agents/available");
+        const data = await response.json();
+        if (data.success && Array.isArray(data.data)) {
+          const map: Record<string, string> = {};
+          data.data.forEach((agent: { _id: string; name: string }) => {
+            map[agent._id] = agent.name;
+          });
+          setAgentNameMap(map);
+        }
+      } catch (err) {
+        console.error('[Sidebar] Failed to fetch agents for name lookup:', err);
+      }
+    };
+    fetchAgents();
+  }, []);
 
   // Handle mouse move for resizing
   useEffect(() => {
@@ -452,8 +475,8 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
                             {isLive ? "Live" : isInputRequired ? "Input needed" : isUnviewed ? "New response" : formatDate(conv.updatedAt)}
                             {/* Dynamic Agent indicator */}
                             {conv.agent_id && (
-                              <span className="ml-1.5 text-[10px] text-purple-500 dark:text-purple-400">
-                                • Custom
+                              <span className="ml-1.5 text-[10px] text-purple-500 dark:text-purple-400" title={agentNameMap[conv.agent_id] || 'Custom Agent'}>
+                                • {truncateText(agentNameMap[conv.agent_id] || 'Custom', 20)}
                               </span>
                             )}
                           </p>

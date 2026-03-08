@@ -78,6 +78,10 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
     const body: DynamicAgentConfigCreate = await request.json();
 
     // Validate required fields
+    if (!body.id) {
+      throw new ApiError("Missing required field: id", 400);
+    }
+
     if (!body.name || !body.system_prompt) {
       throw new ApiError("Missing required fields: name, system_prompt", 400);
     }
@@ -86,13 +90,23 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
       throw new ApiError("Missing required fields: model_id, model_provider", 400);
     }
 
+    // Validate ID format (alphanumeric and underscores only)
+    if (!/^[a-z0-9_]+$/.test(body.id)) {
+      throw new ApiError("Invalid ID format: must be lowercase alphanumeric with underscores", 400);
+    }
+
     const collection = await getCollection<DynamicAgentConfig>(COLLECTION_NAME);
 
+    // Check for ID clash
+    const existing = await collection.findOne({ _id: body.id });
+    if (existing) {
+      throw new ApiError(`Agent with ID "${body.id}" already exists`, 409);
+    }
+
     const now = new Date().toISOString();
-    const agentId = `agent-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`;
 
     const newAgent: DynamicAgentConfig = {
-      _id: agentId,
+      _id: body.id,
       name: body.name,
       description: body.description,
       system_prompt: body.system_prompt,
@@ -157,6 +171,7 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
     if (body.allowed_tools !== undefined) updateFields.allowed_tools = body.allowed_tools;
     if (body.builtin_tools !== undefined) updateFields.builtin_tools = body.builtin_tools;
     if (body.model_id !== undefined) updateFields.model_id = body.model_id;
+    if (body.model_provider !== undefined) updateFields.model_provider = body.model_provider;
     if (body.visibility !== undefined) updateFields.visibility = body.visibility;
     if (body.shared_with_teams !== undefined) updateFields.shared_with_teams = body.shared_with_teams;
     if (body.subagents !== undefined) updateFields.subagents = body.subagents;

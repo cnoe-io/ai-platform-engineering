@@ -4,6 +4,7 @@ import React, { useState } from "react";
 import { motion } from "framer-motion";
 import { ChatPanel } from "@/components/chat/ChatPanel";
 import { DynamicAgentContext } from "./DynamicAgentContext";
+import type { SubAgentRef } from "@/types/dynamic-agent";
 
 interface DynamicAgentChatViewProps {
   /** The dynamic agent backend endpoint */
@@ -24,6 +25,10 @@ interface DynamicAgentChatViewProps {
   agentVisibility?: string;
   /** Map of server_id -> tool names */
   allowedTools?: Record<string, string[]>;
+  /** Configured subagents */
+  subagents?: SubAgentRef[];
+  /** Whether the agent has been deleted */
+  agentNotFound?: boolean;
   /** Whether the chat is read-only */
   readOnly?: boolean;
   /** Reason for read-only mode */
@@ -44,6 +49,8 @@ export function DynamicAgentChatView({
   agentModel,
   agentVisibility,
   allowedTools,
+  subagents,
+  agentNotFound,
   readOnly,
   readOnlyReason,
 }: DynamicAgentChatViewProps) {
@@ -63,8 +70,8 @@ export function DynamicAgentChatView({
           endpoint={endpoint}
           conversationId={conversationId}
           conversationTitle={conversationTitle}
-          readOnly={readOnly}
-          readOnlyReason={readOnlyReason}
+          readOnly={readOnly || agentNotFound}
+          readOnlyReason={agentNotFound ? 'agent_deleted' : readOnlyReason}
           selectedAgentId={selectedAgentId}
         />
       </motion.div>
@@ -76,6 +83,8 @@ export function DynamicAgentChatView({
         agentModel={agentModel}
         agentVisibility={agentVisibility}
         allowedTools={allowedTools}
+        subagents={subagents}
+        agentNotFound={agentNotFound}
         collapsed={contextPanelCollapsed}
         onCollapse={setContextPanelCollapsed}
       />
