@@ -43,7 +43,7 @@ export function PlatformEngineerChatView({
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         transition={{ duration: 0.2 }}
-        className="flex-1 min-w-0 flex flex-col"
+        className="flex-1 min-w-0 flex flex-col overflow-hidden"
       >
         <ChatPanel
           endpoint={endpoint}
