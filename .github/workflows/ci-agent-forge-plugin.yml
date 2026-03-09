@@ -164,7 +164,7 @@ jobs:
             type=sha,format=short
 
       - name: Build and push Docker image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: community-plugins
           file: community-plugins/Dockerfile
@@ -292,7 +292,7 @@ jobs:
 
       - name: 🔨 Build and Push (fallback)
         if: steps.retag-or-build.outputs.needs_build == 'true'
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: community-plugins
           file: community-plugins/Dockerfile

@@ -165,7 +165,7 @@ jobs:
           fi
 
       - name: Build and Push MCP Docker image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: ${{ steps.dockerfile.outputs.path }}

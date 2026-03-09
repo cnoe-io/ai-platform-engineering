@@ -67,7 +67,7 @@ jobs:
         uses: docker/setup-qemu-action@v3
 
       - name: Build and Push Slack Bot Docker image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: build/Dockerfile.slack-bot
