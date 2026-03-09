@@ -71,6 +71,17 @@ export interface WarningEventData {
   failed_servers?: string[];
 }
 
+/** Final result data from final_result events */
+export interface FinalResultEventData {
+  content?: string;
+  agent_name?: string;
+  trace_id?: string;
+  /** MCP servers that failed to connect */
+  failed_servers?: string[];
+  /** Tools that were configured but unavailable */
+  missing_tools?: string[];
+}
+
 // ═══════════════════════════════════════════════════════════════
 // HITL (Human-in-the-Loop) Types
 // ═══════════════════════════════════════════════════════════════
@@ -145,6 +156,9 @@ export interface SSEAgentEvent {
 
   /** Warning data for warning events */
   warningData?: WarningEventData;
+
+  /** Final result data for final_result events */
+  finalResultData?: FinalResultEventData;
 
   // ─── Content ─────────────────────────────────────────────────
   /** Content text for content/final_result events */
@@ -245,12 +259,21 @@ export function createSSEAgentEvent(
       const resultData = data as { artifact?: SSEArtifact };
       const artifact = resultData.artifact;
       const textPart = artifact?.parts?.find((p) => p.kind === "text");
+      const metadata = artifact?.metadata as Record<string, unknown> | undefined;
+
       return {
         ...base,
         isFinal: true,
         artifact,
         content: textPart?.text,
-        sourceAgent: artifact?.metadata?.agent_name as string | undefined,
+        sourceAgent: metadata?.agent_name as string | undefined,
+        finalResultData: {
+          content: textPart?.text,
+          agent_name: metadata?.agent_name as string | undefined,
+          trace_id: metadata?.trace_id as string | undefined,
+          failed_servers: metadata?.failed_servers as string[] | undefined,
+          missing_tools: metadata?.missing_tools as string[] | undefined,
+        },
       };
     }
 

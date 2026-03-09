@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useMemo, useCallback } from "react";
+import React, { useState, useMemo, useCallback, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Loader2,
@@ -17,6 +17,7 @@ import {
   Trash2,
   RefreshCw,
   XCircle,
+  HelpCircle,
 } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
@@ -91,10 +92,11 @@ export function DynamicAgentContext({
   onCollapse,
 }: DynamicAgentContextProps) {
   const { data: session } = useSession();
-  const { isStreaming, activeConversationId } = useChatStore(
+  const { isStreaming, activeConversationId, clearSSEEvents } = useChatStore(
     useShallow((s) => ({
       isStreaming: s.isStreaming,
       activeConversationId: s.activeConversationId,
+      clearSSEEvents: s.clearSSEEvents,
     }))
   );
 
@@ -198,19 +200,30 @@ export function DynamicAgentContext({
       .map((e) => e.displayContent || e.warningData?.message || "An unknown warning occurred");
   }, [conversationEvents]);
 
-  // Extract failed servers from warning events (for Agent tab status display)
-  const failedServers = useMemo(() => {
-    const failedSet = new Set<string>();
-    conversationEvents
-      .filter((e) => e.type === "warning" && e.warningData?.failed_servers)
-      .forEach((e) => {
-        e.warningData?.failed_servers?.forEach((server) => failedSet.add(server));
-      });
-    return Array.from(failedSet);
-  }, [conversationEvents]);
+  // Get runtime status from conversation (persists across event clearing)
+  // This is set when final_result events arrive and persists across clearSSEEvents()
+  const runtimeStatus = conversation?.runtimeStatus;
+
+  // Check if we have runtime status info (i.e., at least one message was sent and completed)
+  const hasRuntimeStatus = runtimeStatus?.initialized ?? false;
+
+  // Extract failed servers from persisted runtime status
+  const failedServers = runtimeStatus?.failedServers ?? [];
+
+  // Extract missing tools from persisted runtime status
+  const missingTools = runtimeStatus?.missingTools ?? [];
 
   // Restart runtime handler
   const [isRestarting, setIsRestarting] = useState(false);
+  const [runtimeRestarted, setRuntimeRestarted] = useState(false);
+
+  // Clear restart notification when new events arrive
+  useEffect(() => {
+    if (runtimeRestarted && conversationEvents.length > 0) {
+      setRuntimeRestarted(false);
+    }
+  }, [runtimeRestarted, conversationEvents.length]);
+
   const handleRestartRuntime = useCallback(async () => {
     if (!agentId || !activeConversationId || isRestarting) return;
     
@@ -228,7 +241,12 @@ export function DynamicAgentContext({
         }),
       });
       
-      if (!response.ok) {
+      if (response.ok) {
+        // Clear SSE events AND runtime status to reset server status to "unknown"
+        clearSSEEvents(activeConversationId, { clearRuntimeStatus: true });
+        // Show restart notification
+        setRuntimeRestarted(true);
+      } else {
         console.error("Failed to restart runtime:", await response.text());
       }
     } catch (error) {
@@ -236,7 +254,7 @@ export function DynamicAgentContext({
     } finally {
       setIsRestarting(false);
     }
-  }, [agentId, activeConversationId, session?.accessToken, isRestarting]);
+  }, [agentId, activeConversationId, session?.accessToken, isRestarting, clearSSEEvents]);
 
   const totalToolCalls = activeToolCalls.length + completedToolCalls.length;
   const totalSubagentCalls = activeSubagentCalls.length + completedSubagentCalls.length;
@@ -361,6 +379,9 @@ export function DynamicAgentContext({
                 isStreaming={isActuallyStreaming}
                 errorMessages={errorMessages}
                 warningMessages={warningMessages}
+                runtimeRestarted={runtimeRestarted}
+                failedServers={failedServers}
+                missingTools={missingTools}
               />
             )}
 
@@ -373,6 +394,8 @@ export function DynamicAgentContext({
                 allowedTools={allowedTools}
                 subagents={subagents}
                 failedServers={failedServers}
+                missingTools={missingTools}
+                hasRuntimeStatus={hasRuntimeStatus}
                 agentId={agentId}
                 sessionId={activeConversationId}
                 onRestartRuntime={handleRestartRuntime}
@@ -414,6 +437,12 @@ interface EventsContentProps {
   isStreaming: boolean;
   errorMessages: string[];
   warningMessages: string[];
+  /** Whether the runtime was just restarted */
+  runtimeRestarted?: boolean;
+  /** Failed MCP servers from runtimeStatus (persists across messages) */
+  failedServers?: string[];
+  /** Missing tools from runtimeStatus (persists across messages) */
+  missingTools?: string[];
 }
 
 function EventsContent({
@@ -428,8 +457,14 @@ function EventsContent({
   isStreaming,
   errorMessages,
   warningMessages,
+  runtimeRestarted,
+  failedServers = [],
+  missingTools = [],
 }: EventsContentProps) {
   const [subagentsCollapsed, setSubagentsCollapsed] = useState(false);
+
+  // Derive persistent warning from runtimeStatus
+  const hasPersistentWarning = failedServers.length > 0 || missingTools.length > 0;
 
   const hasNoActivity =
     todos.length === 0 &&
@@ -439,7 +474,9 @@ function EventsContent({
     activeSubagentCalls.length === 0 &&
     completedSubagentCalls.length === 0 &&
     errorMessages.length === 0 &&
-    warningMessages.length === 0;
+    warningMessages.length === 0 &&
+    !runtimeRestarted &&
+    !hasPersistentWarning;
 
   if (hasNoActivity) {
     return (
@@ -455,6 +492,29 @@ function EventsContent({
 
   return (
     <div className="space-y-4">
+      {/* Runtime Restarted Notification */}
+      {runtimeRestarted && (
+        <motion.div
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="rounded-lg border-2 border-blue-500/60 bg-gradient-to-br from-blue-500/15 to-blue-600/10 p-3 shadow-lg shadow-blue-500/10"
+        >
+          <div className="flex items-start gap-2.5">
+            <div className="p-1.5 rounded-full bg-blue-500/20 shrink-0">
+              <RefreshCw className="h-4 w-4 text-blue-500" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-xs font-semibold text-blue-500 uppercase tracking-wide mb-1.5">
+                Runtime Restarted
+              </p>
+              <p className="text-sm text-blue-300 leading-relaxed">
+                Send a message to create the runtime and reconnect to MCP servers.
+              </p>
+            </div>
+          </div>
+        </motion.div>
+      )}
+
       {/* Error Messages */}
       {errorMessages.length > 0 && (
         <div className="space-y-2">
@@ -483,7 +543,7 @@ function EventsContent({
         </div>
       )}
 
-      {/* Warning Messages */}
+      {/* Warning Messages (ephemeral, from server) */}
       {warningMessages.length > 0 && (
         <div className="space-y-2">
           {warningMessages.map((message, idx) => (
@@ -509,6 +569,38 @@ function EventsContent({
             </motion.div>
           ))}
         </div>
+      )}
+
+      {/* Persistent Warning Banner (from runtimeStatus - survives across messages) */}
+      {hasPersistentWarning && (
+        <motion.div
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="rounded-lg border-2 border-amber-500/60 bg-gradient-to-br from-amber-500/15 to-amber-600/10 p-3 shadow-lg shadow-amber-500/10"
+        >
+          <div className="flex items-start gap-2.5">
+            <div className="p-1.5 rounded-full bg-amber-500/20 shrink-0">
+              <AlertTriangle className="h-4 w-4 text-amber-500" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-xs font-semibold text-amber-500 uppercase tracking-wide mb-1.5">
+                Configuration Issues
+              </p>
+              <div className="text-sm text-amber-300 leading-relaxed space-y-1">
+                {failedServers.length > 0 && (
+                  <p>
+                    {failedServers.length} MCP server{failedServers.length > 1 ? 's' : ''} failed to connect: {failedServers.join(', ')}
+                  </p>
+                )}
+                {missingTools.length > 0 && (
+                  <p>
+                    {missingTools.length} tool{missingTools.length > 1 ? 's' : ''} unavailable: {missingTools.join(', ')}
+                  </p>
+                )}
+              </div>
+            </div>
+          </div>
+        </motion.div>
       )}
 
       {/* Todos (replaces Execution Plan) */}
@@ -760,6 +852,10 @@ interface AgentInfoContentProps {
   subagents?: SubAgentRef[];
   /** List of MCP server IDs that failed to connect */
   failedServers?: string[];
+  /** List of tool names that were configured but unavailable */
+  missingTools?: string[];
+  /** Whether runtime status is known (at least one message was sent) */
+  hasRuntimeStatus?: boolean;
   /** Agent ID for restart runtime */
   agentId?: string;
   /** Session ID for restart runtime */
@@ -778,6 +874,8 @@ function AgentInfoContent({
   allowedTools,
   subagents,
   failedServers = [],
+  missingTools = [],
+  hasRuntimeStatus = false,
   agentId,
   sessionId,
   onRestartRuntime,
@@ -873,18 +971,27 @@ function AgentInfoContent({
           <div className="space-y-1">
             {Object.keys(allowedTools || {}).map((serverId) => {
               const isFailed = failedServers.includes(serverId);
+              // Determine status: unknown (no runtime yet), connected, or failed
+              const status = !hasRuntimeStatus ? 'unknown' : isFailed ? 'failed' : 'connected';
+
               return (
                 <div
                   key={serverId}
                   className={cn(
                     "flex items-center gap-2 text-xs px-2 py-1.5 rounded font-mono",
-                    isFailed 
-                      ? "bg-red-500/10 border border-red-500/30" 
-                      : "bg-emerald-500/10 border border-emerald-500/30"
+                    status === 'unknown' && "bg-muted/30 border border-border/50",
+                    status === 'connected' && "bg-emerald-500/10 border border-emerald-500/30",
+                    status === 'failed' && "bg-red-500/10 border border-red-500/30"
                   )}
-                  title={isFailed ? `${serverId} - Connection failed` : `${serverId} - Connected`}
+                  title={
+                    status === 'unknown' ? `${serverId} - Status unknown (send a message to connect)`
+                    : status === 'failed' ? `${serverId} - Connection failed`
+                    : `${serverId} - Connected`
+                  }
                 >
-                  {isFailed ? (
+                  {status === 'unknown' ? (
+                    <HelpCircle className="h-3 w-3 text-muted-foreground shrink-0" />
+                  ) : status === 'failed' ? (
                     <XCircle className="h-3 w-3 text-red-500 shrink-0" />
                   ) : (
                     <CheckCircle className="h-3 w-3 text-emerald-500 shrink-0" />
@@ -893,6 +1000,27 @@ function AgentInfoContent({
                 </div>
               );
             })}
+          </div>
+        </div>
+      )}
+
+      {/* Missing Tools */}
+      {missingTools.length > 0 && (
+        <div className="space-y-2">
+          <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+            Unavailable Tools
+          </h4>
+          <div className="space-y-1">
+            {missingTools.map((toolName) => (
+              <div
+                key={toolName}
+                className="flex items-center gap-2 text-xs px-2 py-1.5 rounded font-mono bg-amber-500/10 border border-amber-500/30"
+                title={`${toolName} - Tool not available from MCP server`}
+              >
+                <AlertTriangle className="h-3 w-3 text-amber-500 shrink-0" />
+                <span className="truncate">{toolName}</span>
+              </div>
+            ))}
           </div>
         </div>
       )}

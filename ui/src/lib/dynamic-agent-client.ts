@@ -254,11 +254,13 @@ export class DynamicAgentClient {
     }
 
     // ─── done: stream complete ───────────────────────────────────────
+    // NOTE: We return null here instead of creating an empty final_result,
+    // because the real final_result event has already been emitted by the backend
+    // with the correct metadata (failed_servers, missing_tools, etc.).
+    // Creating another final_result here would overwrite that data.
     if (event === "done") {
-      return createSSEAgentEvent(
-        { type: "final_result", data: {} },
-        undefined,
-      );
+      console.log(`[DynamicAgent] Stream done event received`);
+      return null;
     }
 
     // ─── error: agent error ──────────────────────────────────────────

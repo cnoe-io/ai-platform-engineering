@@ -154,8 +154,18 @@ def make_final_result_event(
     content: str,
     agent: str,
     trace_id: str | None = None,
+    failed_servers: list[str] | None = None,
+    missing_tools: list[str] | None = None,
 ) -> dict[str, Any]:
-    """Final result from agent."""
+    """Final result from agent.
+
+    Args:
+        content: The final text content from the agent.
+        agent: The agent name.
+        trace_id: Optional trace ID for observability.
+        failed_servers: List of MCP server IDs that failed to connect.
+        missing_tools: List of tool names that were configured but unavailable.
+    """
     return {
         "type": FINAL_RESULT,
         "data": {
@@ -167,6 +177,8 @@ def make_final_result_event(
                 "metadata": {
                     "trace_id": trace_id,
                     "agent_name": agent,
+                    "failed_servers": failed_servers or [],
+                    "missing_tools": missing_tools or [],
                 },
             },
         },

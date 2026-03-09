@@ -77,7 +77,6 @@ class AgentRuntime:
         self._missing_tools: list[str] = []
         self._failed_servers: list[str] = []  # Just server names
         self._failed_servers_error: str = ""  # Error message for display
-        self._warned_sessions: set[str] = set()
         # Track config timestamps for cache invalidation
         self._config_updated_at: datetime = config.updated_at
         self._mcp_servers_updated_at: datetime = max((s.updated_at for s in mcp_servers), default=datetime.min)
@@ -408,36 +407,12 @@ class AgentRuntime:
         accumulated_content: list[str] = []
 
         logger.info(f"[stream] Starting stream for agent '{self.config.name}': user={user_id}, session={session_id}")
-        logger.info(f"[stream] _missing_tools={self._missing_tools}, _warned_sessions={self._warned_sessions}")
+        logger.info(f"[stream] _failed_servers={self._failed_servers}, _missing_tools={self._missing_tools}")
 
-        # Emit warning about failed MCP servers once per session
-        if self._failed_servers and session_id not in self._warned_sessions:
-            servers_list = ", ".join(self._failed_servers)
-            error_info = f" ({self._failed_servers_error})" if self._failed_servers_error else ""
-            logger.info(f"[stream] Emitting warning event for failed MCP servers: {servers_list}")
-            yield {
-                "type": "warning",
-                "data": {
-                    "message": f"Failed to connect to MCP servers: {servers_list}{error_info}. Tools from these servers are unavailable.",
-                    "failed_servers": self._failed_servers,
-                },
-            }
-
-        # Emit warning about missing tools once per session
-        if self._missing_tools and session_id not in self._warned_sessions:
-            tools_list = ", ".join(self._missing_tools)
-            logger.info(f"[stream] Emitting warning event for missing tools: {tools_list}")
-            yield {
-                "type": "warning",
-                "data": {
-                    "message": f"Some configured tools are unavailable and will be skipped: {tools_list}",
-                    "missing_tools": self._missing_tools,
-                },
-            }
-
-        # Mark session as warned (for both failed servers and missing tools)
-        if self._failed_servers or self._missing_tools:
-            self._warned_sessions.add(session_id)
+        # NOTE: Warning events for failed MCP servers and missing tools have been removed.
+        # This information is now included in the final_result event metadata (failed_servers,
+        # missing_tools) and the UI derives a persistent warning banner from runtimeStatus.
+        # See: make_final_result_event() and ui/src/components/dynamic-agents/DynamicAgentContext.tsx
 
         # Stream with subgraphs=True and both messages and updates modes
         async for chunk in self._graph.astream(
@@ -462,6 +437,8 @@ class AgentRuntime:
                 content=final_text,
                 agent=self.config.name,
                 trace_id=self._current_trace_id,
+                failed_servers=self._failed_servers,
+                missing_tools=self._missing_tools,
             )
 
     def _transform_stream_chunk(
