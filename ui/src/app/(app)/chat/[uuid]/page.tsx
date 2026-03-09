@@ -382,6 +382,7 @@ function ChatUUIDPage() {
       allowedTools={agentInfo?.allowed_tools}
       subagents={agentInfo?.subagents}
       agentNotFound={agentNotFound}
+      agentDisabled={agentInfo?.enabled === false}
       readOnly={isReadOnly}
       readOnlyReason={readOnlyReason}
     />

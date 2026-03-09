@@ -79,11 +79,16 @@ async function validateSubagentVisibility(
 /**
  * GET /api/dynamic-agents
  * List dynamic agents visible to the current user.
+ * 
+ * Query params:
+ * - enabled_only=true: Only return enabled agents (useful for subagent selection)
  */
 export const GET = withErrorHandler(async (request: NextRequest) => {
   return await withAuth(request, async (req, user, session) => {
     const collection = await getCollection<DynamicAgentConfig>(COLLECTION_NAME);
     const { page, pageSize, skip } = getPaginationParams(request);
+    const { searchParams } = new URL(request.url);
+    const enabledOnly = searchParams.get("enabled_only") === "true";
 
     // Build visibility filter
     let query: any = {};
@@ -94,7 +99,8 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
       
       query = {
         $and: [
-          { enabled: true },
+          // enabled: true OR enabled field doesn't exist (defaults to true)
+          { $or: [{ enabled: true }, { enabled: { $exists: false } }] },
           {
             $or: [
               { owner_id: user.email },
@@ -106,6 +112,10 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
           },
         ],
       };
+    } else if (enabledOnly) {
+      // Admin with enabled_only flag (e.g., for subagent selection)
+      // enabled: true OR enabled field doesn't exist (defaults to true)
+      query = { $or: [{ enabled: true }, { enabled: { $exists: false } }] };
     }
 
     const [items, total] = await Promise.all([

@@ -71,6 +71,8 @@ interface DynamicAgentContextProps {
   subagents?: SubAgentRef[];
   /** Whether the agent has been deleted */
   agentNotFound?: boolean;
+  /** Whether the agent is disabled */
+  agentDisabled?: boolean;
   collapsed?: boolean;
   onCollapse?: (collapsed: boolean) => void;
 }
@@ -88,6 +90,7 @@ export function DynamicAgentContext({
   allowedTools,
   subagents,
   agentNotFound,
+  agentDisabled,
   collapsed = false,
   onCollapse,
 }: DynamicAgentContextProps) {
@@ -400,6 +403,8 @@ export function DynamicAgentContext({
                 sessionId={activeConversationId}
                 onRestartRuntime={handleRestartRuntime}
                 isRestarting={isRestarting}
+                agentNotFound={agentNotFound}
+                agentDisabled={agentDisabled}
               />
             )}
           </div>
@@ -864,6 +869,10 @@ interface AgentInfoContentProps {
   onRestartRuntime?: () => void;
   /** Whether a restart is in progress */
   isRestarting?: boolean;
+  /** Whether the agent has been deleted */
+  agentNotFound?: boolean;
+  /** Whether the agent is disabled */
+  agentDisabled?: boolean;
 }
 
 function AgentInfoContent({
@@ -880,6 +889,8 @@ function AgentInfoContent({
   sessionId,
   onRestartRuntime,
   isRestarting,
+  agentNotFound,
+  agentDisabled,
 }: AgentInfoContentProps) {
   // Count total tools across all MCP servers
   const toolCount = allowedTools
@@ -1065,7 +1076,7 @@ function AgentInfoContent({
               variant="outline"
               size="sm"
               onClick={onRestartRuntime}
-              disabled={isRestarting}
+              disabled={isRestarting || agentNotFound || agentDisabled}
               className="w-full justify-center gap-2 text-xs"
             >
               {isRestarting ? (

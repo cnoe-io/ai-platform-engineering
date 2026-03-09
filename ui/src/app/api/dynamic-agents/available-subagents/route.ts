@@ -44,8 +44,10 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
       throw new ApiError("Agent not found", 404);
     }
 
-    // Get all enabled agents
-    const allAgents = await collection.find({ enabled: true }).toArray();
+    // Get all enabled agents (enabled: true OR enabled field doesn't exist, which defaults to true)
+    const allAgents = await collection.find({ 
+      $or: [{ enabled: true }, { enabled: { $exists: false } }] 
+    }).toArray();
 
     // Find agents that would create a cycle
     const ancestors = getAncestorAgentIds(agentId, allAgents);

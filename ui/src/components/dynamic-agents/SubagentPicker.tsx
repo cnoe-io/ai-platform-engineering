@@ -81,7 +81,8 @@ export function SubagentPicker({ agentId, value, onChange, disabled, parentVisib
     setLoading(true);
     setError(null);
     try {
-      const response = await fetch("/api/dynamic-agents");
+      // Use enabled_only=true to filter out disabled agents (important for admins)
+      const response = await fetch("/api/dynamic-agents?enabled_only=true");
       const data = await response.json();
       if (data.success && data.data?.items) {
         setAvailableAgents(

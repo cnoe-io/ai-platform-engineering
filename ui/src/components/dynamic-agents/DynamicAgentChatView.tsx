@@ -29,6 +29,8 @@ interface DynamicAgentChatViewProps {
   subagents?: SubAgentRef[];
   /** Whether the agent has been deleted */
   agentNotFound?: boolean;
+  /** Whether the agent is disabled */
+  agentDisabled?: boolean;
   /** Whether the chat is read-only */
   readOnly?: boolean;
   /** Reason for read-only mode */
@@ -51,6 +53,7 @@ export function DynamicAgentChatView({
   allowedTools,
   subagents,
   agentNotFound,
+  agentDisabled,
   readOnly,
   readOnlyReason,
 }: DynamicAgentChatViewProps) {
@@ -70,8 +73,8 @@ export function DynamicAgentChatView({
           endpoint={endpoint}
           conversationId={conversationId}
           conversationTitle={conversationTitle}
-          readOnly={readOnly || agentNotFound}
-          readOnlyReason={agentNotFound ? 'agent_deleted' : readOnlyReason}
+          readOnly={readOnly || agentNotFound || agentDisabled}
+          readOnlyReason={agentNotFound ? 'agent_deleted' : agentDisabled ? 'agent_disabled' : readOnlyReason}
           selectedAgentId={selectedAgentId}
         />
       </motion.div>
@@ -86,6 +89,7 @@ export function DynamicAgentChatView({
         allowedTools={allowedTools}
         subagents={subagents}
         agentNotFound={agentNotFound}
+        agentDisabled={agentDisabled}
         collapsed={contextPanelCollapsed}
         onCollapse={setContextPanelCollapsed}
       />
