@@ -21,6 +21,7 @@ from dynamic_agents.models import AgentContext, DynamicAgentConfig, MCPServerCon
 from dynamic_agents.prompts.extension import get_default_extension_prompt
 from dynamic_agents.services.builtin_tools import create_fetch_url_tool
 from dynamic_agents.services.mcp_client import (
+    _extract_error_message,
     build_mcp_connections,
     filter_tools_by_allowed,
 )
@@ -74,6 +75,7 @@ class AgentRuntime:
         self.tracing = TracingManager()
         self._current_trace_id: str | None = None
         self._missing_tools: list[str] = []
+        self._failed_servers: list[str] = []
         self._warned_sessions: set[str] = set()
         # Track config timestamps for cache invalidation
         self._config_updated_at: datetime = config.updated_at
@@ -102,12 +104,25 @@ class AgentRuntime:
                 self._mcp_client = MultiServerMCPClient(connections, tool_name_prefix=True)
 
                 # 3. Get all tools from connected servers
-                all_tools = await self._mcp_client.get_tools()
+                # Handle connection errors gracefully - continue without failed servers
+                try:
+                    all_tools = await self._mcp_client.get_tools()
+                except BaseException as e:
+                    # Extract user-friendly error message
+                    error_msg = _extract_error_message(e)
+                    failed_servers = list(connections.keys())
+                    logger.warning(
+                        f"Agent '{self.config.name}': Failed to connect to MCP servers {failed_servers}: {error_msg}"
+                    )
+                    self._failed_servers = [f"{s} ({error_msg})" for s in failed_servers]
+                    all_tools = []
 
                 # 4. Filter tools based on allowed_tools config
                 tools, missing = filter_tools_by_allowed(all_tools, self.config.allowed_tools)
 
-                if missing:
+                # Only report missing tools if we successfully connected to servers
+                # (if connection failed, missing tools are expected and already reported as failed servers)
+                if missing and not self._failed_servers:
                     logger.warning(f"Agent '{self.config.name}': tools not found: {missing}")
                     self._missing_tools = missing
 
@@ -396,9 +411,20 @@ class AgentRuntime:
         logger.info(f"[stream] Starting stream for agent '{self.config.name}': user={user_id}, session={session_id}")
         logger.info(f"[stream] _missing_tools={self._missing_tools}, _warned_sessions={self._warned_sessions}")
 
+        # Emit warning about failed MCP servers once per session
+        if self._failed_servers and session_id not in self._warned_sessions:
+            servers_list = ", ".join(self._failed_servers)
+            logger.info(f"[stream] Emitting warning event for failed MCP servers: {servers_list}")
+            yield {
+                "type": "warning",
+                "data": {
+                    "message": f"Failed to connect to MCP servers: {servers_list}. Tools from these servers are unavailable.",
+                    "failed_servers": self._failed_servers,
+                },
+            }
+
         # Emit warning about missing tools once per session
         if self._missing_tools and session_id not in self._warned_sessions:
-            self._warned_sessions.add(session_id)
             tools_list = ", ".join(self._missing_tools)
             logger.info(f"[stream] Emitting warning event for missing tools: {tools_list}")
             yield {
@@ -408,6 +434,10 @@ class AgentRuntime:
                     "missing_tools": self._missing_tools,
                 },
             }
+
+        # Mark session as warned (for both failed servers and missing tools)
+        if self._failed_servers or self._missing_tools:
+            self._warned_sessions.add(session_id)
 
         # Stream with subgraphs=True and both messages and updates modes
         async for chunk in self._graph.astream(
