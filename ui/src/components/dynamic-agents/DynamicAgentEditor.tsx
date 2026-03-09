@@ -445,13 +445,17 @@ export function DynamicAgentEditor({ agent, onSave, onCancel }: DynamicAgentEdit
                 <div className="p-3 rounded-lg border-2 border-primary/20 bg-primary/5">
                   <select
                     id="modelId"
-                    value={`${modelId}:${modelProvider}`}
+                    value={`${modelId}::${modelProvider}`}
                     onChange={(e) => {
-                      // Parse composite key "model_id:provider"
-                      const [selectedId, selectedProvider] = e.target.value.split(":");
-                      if (selectedId && selectedProvider) {
-                        setModelId(selectedId);
-                        setModelProvider(selectedProvider);
+                      // Parse composite key "model_id::provider" (using :: as delimiter since model IDs may contain :)
+                      const lastDelimiter = e.target.value.lastIndexOf("::");
+                      if (lastDelimiter > 0) {
+                        const selectedId = e.target.value.slice(0, lastDelimiter);
+                        const selectedProvider = e.target.value.slice(lastDelimiter + 2);
+                        if (selectedId && selectedProvider) {
+                          setModelId(selectedId);
+                          setModelProvider(selectedProvider);
+                        }
                       }
                     }}
                     disabled={loading || modelsLoading}
@@ -463,7 +467,7 @@ export function DynamicAgentEditor({ agent, onSave, onCancel }: DynamicAgentEdit
                       <option value="">Platform Default</option>
                     ) : (
                       availableModels.map((model) => (
-                        <option key={`${model.model}:${model.provider}`} value={`${model.model}:${model.provider}`}>
+                        <option key={`${model.model}::${model.provider}`} value={`${model.model}::${model.provider}`}>
                           {model.name}{model.provider && model.provider !== "default" ? ` (${model.provider})` : ""}
                         </option>
                       ))
