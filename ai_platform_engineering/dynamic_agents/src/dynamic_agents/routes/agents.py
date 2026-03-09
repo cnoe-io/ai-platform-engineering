@@ -14,6 +14,7 @@ from dynamic_agents.models import (
     SubAgentRef,
     VisibilityType,
 )
+from dynamic_agents.services.models_config import get_available_models
 from dynamic_agents.services.mongo import MongoDBService, get_mongo_service
 
 logger = logging.getLogger(__name__)
@@ -143,8 +144,6 @@ async def list_available_models(
     a dynamic agent. The list is loaded from a YAML configuration file
     that can be mounted as a ConfigMap in Kubernetes.
     """
-    from dynamic_agents.services.models_config import get_available_models
-
     models = get_available_models()
     return ApiResponse(
         success=True,

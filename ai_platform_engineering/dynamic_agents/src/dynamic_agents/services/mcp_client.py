@@ -1,7 +1,10 @@
 """MCP Client wrapper for Dynamic Agents."""
 
+import asyncio
 import logging
 from typing import Any
+
+from langchain_mcp_adapters.client import MultiServerMCPClient
 
 from dynamic_agents.models import MCPServerConfig, TransportType
 
@@ -153,9 +156,6 @@ async def get_tools_with_resilience(
         - failed_servers: List of server IDs that failed to connect
         - failed_errors: Dict mapping server_id to error message
     """
-    import asyncio
-
-    from langchain_mcp_adapters.client import MultiServerMCPClient
 
     async def connect_single_server(
         server_id: str, connection_config: dict[str, Any]
@@ -205,8 +205,6 @@ async def probe_server_tools(server: MCPServerConfig) -> list[dict[str, Any]]:
     Raises:
         Exception with user-friendly message if probing fails
     """
-    from langchain_mcp_adapters.client import MultiServerMCPClient
-
     connection = build_mcp_connection_config(server)
     connections = {server.id: connection}
 
