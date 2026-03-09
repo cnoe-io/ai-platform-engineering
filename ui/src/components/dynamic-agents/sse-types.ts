@@ -68,6 +68,7 @@ export interface SubagentEventData {
 export interface WarningEventData {
   message: string;
   missing_tools?: string[];
+  failed_servers?: string[];
 }
 
 // ═══════════════════════════════════════════════════════════════

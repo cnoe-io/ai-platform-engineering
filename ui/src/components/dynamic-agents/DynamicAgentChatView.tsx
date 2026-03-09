@@ -78,6 +78,7 @@ export function DynamicAgentChatView({
 
       {/* Context Panel - Dynamic Agent variant */}
       <DynamicAgentContext
+        agentId={selectedAgentId}
         agentName={agentName}
         agentDescription={agentDescription}
         agentModel={agentModel}

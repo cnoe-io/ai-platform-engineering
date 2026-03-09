@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Loader2,
@@ -15,6 +15,8 @@ import {
   Activity,
   AlertTriangle,
   Trash2,
+  RefreshCw,
+  XCircle,
 } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
@@ -28,6 +30,7 @@ import {
 } from "./sse-types";
 import type { SubAgentRef } from "@/types/dynamic-agent";
 import { useShallow } from "zustand/react/shallow";
+import { useSession } from "next-auth/react";
 
 // Tool call from events
 interface ToolCall {
@@ -56,6 +59,7 @@ interface TodoItem {
 }
 
 interface DynamicAgentContextProps {
+  agentId?: string;
   agentName?: string;
   agentDescription?: string;
   agentModel?: string;
@@ -75,6 +79,7 @@ interface DynamicAgentContextProps {
  * Shows tool calls and agent info - no A2A debug panel.
  */
 export function DynamicAgentContext({
+  agentId,
   agentName,
   agentDescription,
   agentModel,
@@ -85,6 +90,7 @@ export function DynamicAgentContext({
   collapsed = false,
   onCollapse,
 }: DynamicAgentContextProps) {
+  const { data: session } = useSession();
   const { isStreaming, activeConversationId } = useChatStore(
     useShallow((s) => ({
       isStreaming: s.isStreaming,
@@ -191,6 +197,46 @@ export function DynamicAgentContext({
       .filter((e) => e.type === "warning")
       .map((e) => e.displayContent || e.warningData?.message || "An unknown warning occurred");
   }, [conversationEvents]);
+
+  // Extract failed servers from warning events (for Agent tab status display)
+  const failedServers = useMemo(() => {
+    const failedSet = new Set<string>();
+    conversationEvents
+      .filter((e) => e.type === "warning" && e.warningData?.failed_servers)
+      .forEach((e) => {
+        e.warningData?.failed_servers?.forEach((server) => failedSet.add(server));
+      });
+    return Array.from(failedSet);
+  }, [conversationEvents]);
+
+  // Restart runtime handler
+  const [isRestarting, setIsRestarting] = useState(false);
+  const handleRestartRuntime = useCallback(async () => {
+    if (!agentId || !activeConversationId || isRestarting) return;
+    
+    setIsRestarting(true);
+    try {
+      const response = await fetch("/api/dynamic-agents/chat/restart-runtime", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(session?.accessToken ? { Authorization: `Bearer ${session.accessToken}` } : {}),
+        },
+        body: JSON.stringify({
+          agent_id: agentId,
+          session_id: activeConversationId,
+        }),
+      });
+      
+      if (!response.ok) {
+        console.error("Failed to restart runtime:", await response.text());
+      }
+    } catch (error) {
+      console.error("Failed to restart runtime:", error);
+    } finally {
+      setIsRestarting(false);
+    }
+  }, [agentId, activeConversationId, session?.accessToken, isRestarting]);
 
   const totalToolCalls = activeToolCalls.length + completedToolCalls.length;
   const totalSubagentCalls = activeSubagentCalls.length + completedSubagentCalls.length;
@@ -326,6 +372,11 @@ export function DynamicAgentContext({
                 agentVisibility={agentVisibility}
                 allowedTools={allowedTools}
                 subagents={subagents}
+                failedServers={failedServers}
+                agentId={agentId}
+                sessionId={activeConversationId}
+                onRestartRuntime={handleRestartRuntime}
+                isRestarting={isRestarting}
               />
             )}
           </div>
@@ -707,6 +758,16 @@ interface AgentInfoContentProps {
   agentVisibility?: string;
   allowedTools?: Record<string, string[]>;
   subagents?: SubAgentRef[];
+  /** List of MCP server IDs that failed to connect */
+  failedServers?: string[];
+  /** Agent ID for restart runtime */
+  agentId?: string;
+  /** Session ID for restart runtime */
+  sessionId?: string;
+  /** Callback to restart the runtime */
+  onRestartRuntime?: () => void;
+  /** Whether a restart is in progress */
+  isRestarting?: boolean;
 }
 
 function AgentInfoContent({
@@ -716,6 +777,11 @@ function AgentInfoContent({
   agentVisibility,
   allowedTools,
   subagents,
+  failedServers = [],
+  agentId,
+  sessionId,
+  onRestartRuntime,
+  isRestarting,
 }: AgentInfoContentProps) {
   // Count total tools across all MCP servers
   const toolCount = allowedTools
@@ -802,18 +868,31 @@ function AgentInfoContent({
       {serverCount > 0 && (
         <div className="space-y-2">
           <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-            Connected MCP Servers
+            MCP Servers
           </h4>
           <div className="space-y-1">
-            {Object.keys(allowedTools || {}).map((serverId) => (
-              <div
-                key={serverId}
-                className="text-xs px-2 py-1 rounded bg-muted/50 font-mono truncate"
-                title={serverId}
-              >
-                {serverId}
-              </div>
-            ))}
+            {Object.keys(allowedTools || {}).map((serverId) => {
+              const isFailed = failedServers.includes(serverId);
+              return (
+                <div
+                  key={serverId}
+                  className={cn(
+                    "flex items-center gap-2 text-xs px-2 py-1.5 rounded font-mono",
+                    isFailed 
+                      ? "bg-red-500/10 border border-red-500/30" 
+                      : "bg-emerald-500/10 border border-emerald-500/30"
+                  )}
+                  title={isFailed ? `${serverId} - Connection failed` : `${serverId} - Connected`}
+                >
+                  {isFailed ? (
+                    <XCircle className="h-3 w-3 text-red-500 shrink-0" />
+                  ) : (
+                    <CheckCircle className="h-3 w-3 text-emerald-500 shrink-0" />
+                  )}
+                  <span className="truncate">{serverId}</span>
+                </div>
+              );
+            })}
           </div>
         </div>
       )}
@@ -843,6 +922,34 @@ function AgentInfoContent({
                 )}
               </div>
             ))}
+          </div>
+        </div>
+      )}
+
+      {/* Advanced Section */}
+      {agentId && sessionId && onRestartRuntime && (
+        <div className="space-y-2 pt-2 border-t border-border/50">
+          <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+            Advanced
+          </h4>
+          <div className="space-y-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={onRestartRuntime}
+              disabled={isRestarting}
+              className="w-full justify-center gap-2 text-xs"
+            >
+              {isRestarting ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <RefreshCw className="h-3.5 w-3.5" />
+              )}
+              {isRestarting ? "Restarting..." : "Restart Agent Session"}
+            </Button>
+            <p className="text-[10px] text-muted-foreground leading-relaxed">
+              This will restart the session. MCP servers will be checked again. Chat history will be preserved.
+            </p>
           </div>
         </div>
       )}

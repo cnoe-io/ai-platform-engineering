@@ -135,6 +135,64 @@ def _extract_error_message(exc: BaseException) -> str:
     return str(exc)
 
 
+async def get_tools_with_resilience(
+    connections: dict[str, dict[str, Any]],
+) -> tuple[list, list[str], dict[str, str]]:
+    """Get tools from MCP servers with per-server error handling.
+
+    Unlike MultiServerMCPClient.get_tools(), this connects to each server
+    independently so that one failing server doesn't prevent others from
+    connecting. Connections are made concurrently for performance.
+
+    Args:
+        connections: Dict mapping server_id to connection config
+
+    Returns:
+        Tuple of:
+        - all_tools: List of tools from successfully connected servers
+        - failed_servers: List of server IDs that failed to connect
+        - failed_errors: Dict mapping server_id to error message
+    """
+    import asyncio
+
+    from langchain_mcp_adapters.client import MultiServerMCPClient
+
+    async def connect_single_server(
+        server_id: str, connection_config: dict[str, Any]
+    ) -> tuple[str, list | BaseException]:
+        """Connect to a single server and return its tools or exception."""
+        try:
+            single_client = MultiServerMCPClient(
+                {server_id: connection_config},
+                tool_name_prefix=True,
+            )
+            server_tools = await single_client.get_tools()
+            return server_id, server_tools
+        except BaseException as e:
+            return server_id, e
+
+    # Connect to all servers concurrently
+    tasks = [connect_single_server(server_id, config) for server_id, config in connections.items()]
+    results = await asyncio.gather(*tasks)
+
+    # Process results
+    all_tools: list = []
+    failed_servers: list[str] = []
+    failed_errors: dict[str, str] = {}
+
+    for server_id, result in results:
+        if isinstance(result, BaseException):
+            error_msg = _extract_error_message(result)
+            logger.warning(f"Failed to connect to MCP server '{server_id}': {error_msg}")
+            failed_servers.append(server_id)
+            failed_errors[server_id] = error_msg
+        else:
+            all_tools.extend(result)
+            logger.info(f"Connected to MCP server '{server_id}': {len(result)} tools")
+
+    return all_tools, failed_servers, failed_errors
+
+
 async def probe_server_tools(server: MCPServerConfig) -> list[dict[str, Any]]:
     """Probe an MCP server for its available tools.
 

@@ -21,9 +21,9 @@ from dynamic_agents.models import AgentContext, DynamicAgentConfig, MCPServerCon
 from dynamic_agents.prompts.extension import get_default_extension_prompt
 from dynamic_agents.services.builtin_tools import create_fetch_url_tool
 from dynamic_agents.services.mcp_client import (
-    _extract_error_message,
     build_mcp_connections,
     filter_tools_by_allowed,
+    get_tools_with_resilience,
 )
 from dynamic_agents.services.stream_events import (
     make_content_event,
@@ -75,7 +75,8 @@ class AgentRuntime:
         self.tracing = TracingManager()
         self._current_trace_id: str | None = None
         self._missing_tools: list[str] = []
-        self._failed_servers: list[str] = []
+        self._failed_servers: list[str] = []  # Just server names
+        self._failed_servers_error: str = ""  # Error message for display
         self._warned_sessions: set[str] = set()
         # Track config timestamps for cache invalidation
         self._config_updated_at: datetime = config.updated_at
@@ -98,36 +99,34 @@ class AgentRuntime:
                 logger.warning(f"Agent '{self.config.name}': no valid MCP connections found")
                 tools = []
             else:
-                # 2. Create MCP client with tool_name_prefix=True
-                # As of langchain-mcp-adapters 0.1.0, MultiServerMCPClient cannot be used
-                # as a context manager. Use get_tools() directly instead.
-                self._mcp_client = MultiServerMCPClient(connections, tool_name_prefix=True)
+                # 2. Get tools from MCP servers with per-server error handling
+                # This connects to each server independently so one failure doesn't affect others
+                all_tools, failed_servers, failed_errors = await get_tools_with_resilience(connections)
 
-                # 3. Get all tools from connected servers
-                # Handle connection errors gracefully - continue without failed servers
-                try:
-                    all_tools = await self._mcp_client.get_tools()
-                except BaseException as e:
-                    # Extract user-friendly error message
-                    error_msg = _extract_error_message(e)
-                    failed_servers = list(connections.keys())
-                    logger.warning(
-                        f"Agent '{self.config.name}': Failed to connect to MCP servers {failed_servers}: {error_msg}"
-                    )
-                    self._failed_servers = [f"{s} ({error_msg})" for s in failed_servers]
-                    all_tools = []
+                # Store failed servers for warning events
+                if failed_servers:
+                    self._failed_servers = failed_servers
+                    # Combine error messages for display
+                    error_parts = [f"{s}: {failed_errors.get(s, 'Unknown error')}" for s in failed_servers]
+                    self._failed_servers_error = "; ".join(error_parts)
 
-                # 4. Filter tools based on allowed_tools config
+                # 3. Filter tools based on allowed_tools config
                 tools, missing = filter_tools_by_allowed(all_tools, self.config.allowed_tools)
 
-                # Only report missing tools if we successfully connected to servers
-                # (if connection failed, missing tools are expected and already reported as failed servers)
-                if missing and not self._failed_servers:
-                    logger.warning(f"Agent '{self.config.name}': tools not found: {missing}")
-                    self._missing_tools = missing
+                # Only report missing tools for servers that connected successfully
+                # (tools from failed servers are expected to be missing)
+                if missing:
+                    # Filter out tools from failed servers
+                    missing_from_connected = [
+                        t for t in missing if not any(t.startswith(f"{s}_") for s in failed_servers)
+                    ]
+                    if missing_from_connected:
+                        logger.warning(f"Agent '{self.config.name}': tools not found: {missing_from_connected}")
+                        self._missing_tools = missing_from_connected
 
+                connected_count = len(connections) - len(failed_servers)
                 logger.info(
-                    f"Agent '{self.config.name}': loaded {len(tools)} tools from {len(connections)} MCP servers"
+                    f"Agent '{self.config.name}': loaded {len(tools)} tools from {connected_count}/{len(connections)} MCP servers"
                 )
 
         # 4.5 Add built-in tools based on config
@@ -414,11 +413,12 @@ class AgentRuntime:
         # Emit warning about failed MCP servers once per session
         if self._failed_servers and session_id not in self._warned_sessions:
             servers_list = ", ".join(self._failed_servers)
+            error_info = f" ({self._failed_servers_error})" if self._failed_servers_error else ""
             logger.info(f"[stream] Emitting warning event for failed MCP servers: {servers_list}")
             yield {
                 "type": "warning",
                 "data": {
-                    "message": f"Failed to connect to MCP servers: {servers_list}. Tools from these servers are unavailable.",
+                    "message": f"Failed to connect to MCP servers: {servers_list}{error_info}. Tools from these servers are unavailable.",
                     "failed_servers": self._failed_servers,
                 },
             }
@@ -706,6 +706,24 @@ class AgentRuntimeCache:
         for runtime in self._cache.values():
             await runtime.cleanup()
         self._cache.clear()
+
+    async def invalidate(self, agent_id: str, session_id: str) -> bool:
+        """Invalidate a specific runtime from the cache.
+
+        Args:
+            agent_id: Agent configuration ID
+            session_id: Conversation/session ID
+
+        Returns:
+            True if a runtime was invalidated, False if not found
+        """
+        key = self._make_key(agent_id, session_id)
+        runtime = self._cache.pop(key, None)
+        if runtime:
+            await runtime.cleanup()
+            logger.info(f"Runtime cache invalidated for agent={agent_id}, session={session_id}")
+            return True
+        return False
 
 
 # Singleton cache instance

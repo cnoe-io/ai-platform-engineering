@@ -6,7 +6,9 @@ from typing import AsyncGenerator
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
 
+from dynamic_agents.main import session_id_var
 from dynamic_agents.middleware.auth import UserContext, get_current_user
 from dynamic_agents.models import ChatRequest, DynamicAgentConfig, VisibilityType
 from dynamic_agents.services.agent_runtime import get_runtime_cache
@@ -15,6 +17,13 @@ from dynamic_agents.services.mongo import MongoDBService, get_mongo_service
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/chat", tags=["chat"])
+
+
+class RestartRuntimeRequest(BaseModel):
+    """Request body for restarting agent runtime."""
+
+    agent_id: str
+    session_id: str
 
 
 def _can_use_agent(agent: DynamicAgentConfig, user: UserContext) -> bool:
@@ -53,6 +62,9 @@ async def _generate_sse_events(
     mongo: MongoDBService | None = None,
 ) -> AsyncGenerator[str, None]:
     """Generate SSE events from agent streaming."""
+    # Set session context for logging
+    session_id_var.set(session_id)
+
     cache = get_runtime_cache()
 
     # Set MongoDB service for subagent resolution
@@ -137,6 +149,9 @@ async def chat_stream(
     - error: Error occurred
     - done: Streaming complete
     """
+    # Set session context for logging
+    session_id_var.set(request.conversation_id)
+
     # Get agent config
     agent = mongo.get_agent(request.agent_id)
     if not agent:
@@ -154,7 +169,7 @@ async def chat_stream(
         f"[chat] Starting chat request: "
         f"agent='{agent.name}', user={user.email}, "
         f"provider={agent.model_provider}, model={agent.model_id}, "
-        f"session={request.conversation_id}, mcp_servers={len(mcp_servers)}, "
+        f"mcp_servers={len(mcp_servers)}, "
         f"trace_id={request.trace_id or 'auto'}"
     )
 
@@ -187,6 +202,9 @@ async def chat_invoke(
 
     Returns the complete response after processing.
     """
+    # Set session context for logging
+    session_id_var.set(request.conversation_id)
+
     # Get agent config
     agent = mongo.get_agent(request.agent_id)
     if not agent:
@@ -200,10 +218,7 @@ async def chat_invoke(
     server_ids = list(agent.allowed_tools.keys())
     mcp_servers = mongo.get_servers_by_ids(server_ids) if server_ids else []
 
-    logger.info(
-        f"Invoke request: agent={agent.name}, user={user.email}, "
-        f"session={request.conversation_id}, trace_id={request.trace_id or 'auto'}"
-    )
+    logger.info(f"Invoke request: agent={agent.name}, user={user.email}, trace_id={request.trace_id or 'auto'}")
 
     # Collect all content from streaming
     cache = get_runtime_cache()
@@ -238,4 +253,41 @@ async def chat_invoke(
         "agent_id": agent.id,
         "conversation_id": request.conversation_id,
         "trace_id": trace_id,
+    }
+
+
+@router.post("/restart-runtime")
+async def restart_runtime(
+    request: RestartRuntimeRequest,
+    user: UserContext = Depends(get_current_user),
+    mongo: MongoDBService = Depends(get_mongo_service),
+) -> dict:
+    """Restart the agent runtime by invalidating the cache.
+
+    This forces the agent to reconnect to MCP servers on the next message.
+    Useful when MCP servers come back online after being unavailable.
+    """
+    # Set session context for logging
+    session_id_var.set(request.session_id)
+
+    # Get agent config to verify access
+    agent = mongo.get_agent(request.agent_id)
+    if not agent:
+        raise HTTPException(status_code=404, detail="Agent not found")
+
+    # Check access - only users who can use the agent can restart it
+    if not _can_use_agent(agent, user):
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    # Invalidate the runtime cache
+    cache = get_runtime_cache()
+    invalidated = await cache.invalidate(request.agent_id, request.session_id)
+
+    logger.info(f"Runtime restart requested: agent={agent.name}, user={user.email}, invalidated={invalidated}")
+
+    return {
+        "success": True,
+        "invalidated": invalidated,
+        "agent_id": request.agent_id,
+        "session_id": request.session_id,
     }
