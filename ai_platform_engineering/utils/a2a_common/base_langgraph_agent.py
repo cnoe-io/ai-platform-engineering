@@ -42,7 +42,7 @@ from ai_platform_engineering.utils.metrics import MetricsCallbackHandler
 logger = logging.getLogger(__name__)
 
 # LangMem utilities for intelligent message summarization
-from .langmem_utils import summarize_messages
+from .langmem_utils import summarize_messages, _find_safe_summarization_boundary, _estimate_tokens
 
 if not MCP_AVAILABLE:
     logger.warning("langchain_mcp_adapters not available - MCP functionality will be disabled for agents using this base class")
@@ -606,18 +606,26 @@ Use this as the reference point for all date calculations. When users say "today
 
     def _truncate_tool_output(self, output: Any, tool_name: str, max_size: int = 10000) -> tuple[Any, bool]:
         """
-        Truncate large tool outputs to prevent context overflow.
+        Handle large tool outputs to prevent context overflow.
 
-        Handles both simple strings and tuple outputs (content, artifact) format.
+        For outputs that far exceed the limit (> 3x max_size), the agent is
+        instructed to refine its query rather than receiving blindly truncated
+        data.  For moderately large outputs (between max_size and 3x), a
+        traditional truncation with notice is applied.
+
+        Handles both simple strings and tuple outputs (content, artifact).
 
         Args:
-            output: Tool output to truncate (string or tuple)
+            output: Tool output to check (string or tuple)
             tool_name: Name of the tool
             max_size: Maximum size in characters (default 10KB)
 
         Returns:
-            Tuple of (truncated_output, was_truncated)
+            Tuple of (processed_output, was_truncated_or_rejected)
         """
+        refine_threshold = max_size * 3
+        agent_name = self.get_agent_name()
+
         # Handle tuple outputs from response_format='content_and_artifact'
         if isinstance(output, tuple) and len(output) == 2:
             content, artifact = output
@@ -626,12 +634,26 @@ Use this as the reference point for all date calculations. When users say "today
             if len(content_str) <= max_size:
                 return output, False
 
-            # Truncate content only, preserve artifact
+            if len(content_str) > refine_threshold:
+                refine_msg = self._build_refine_query_message(
+                    tool_name, content_str, max_size
+                )
+                logger.warning(
+                    f"{agent_name}: {tool_name} output too large "
+                    f"({len(content_str):,} chars > {refine_threshold:,}). "
+                    f"Asking agent to refine query."
+                )
+                return (refine_msg, artifact), True
+
             truncated = content_str[:max_size]
             remaining = len(content_str) - max_size
-            truncation_notice = f"\n\n... (truncated {remaining} characters to prevent context overflow)"
-
-            logger.warning(f"{self.get_agent_name()}: Truncated {tool_name} output from {len(content_str)} to {max_size} chars")
+            truncation_notice = (
+                f"\n\n... (truncated {remaining} characters to prevent context overflow)"
+            )
+            logger.warning(
+                f"{agent_name}: Truncated {tool_name} output "
+                f"from {len(content_str)} to {max_size} chars"
+            )
             return (truncated + truncation_notice, artifact), True
 
         # Handle simple string/other outputs
@@ -640,13 +662,58 @@ Use this as the reference point for all date calculations. When users say "today
         if len(output_str) <= max_size:
             return output, False
 
-        # Truncate with notice
+        if len(output_str) > refine_threshold:
+            refine_msg = self._build_refine_query_message(
+                tool_name, output_str, max_size
+            )
+            logger.warning(
+                f"{agent_name}: {tool_name} output too large "
+                f"({len(output_str):,} chars > {refine_threshold:,}). "
+                f"Asking agent to refine query."
+            )
+            return refine_msg, True
+
         truncated = output_str[:max_size]
         remaining = len(output_str) - max_size
-        truncation_notice = f"\n\n... (truncated {remaining} characters to prevent context overflow)"
-
-        logger.warning(f"{self.get_agent_name()}: Truncated {tool_name} output from {len(output_str)} to {max_size} chars")
+        truncation_notice = (
+            f"\n\n... (truncated {remaining} characters to prevent context overflow)"
+        )
+        logger.warning(
+            f"{agent_name}: Truncated {tool_name} output "
+            f"from {len(output_str)} to {max_size} chars"
+        )
         return truncated + truncation_notice, True
+
+    @staticmethod
+    def _build_refine_query_message(
+        tool_name: str, output_str: str, max_size: int
+    ) -> str:
+        """Build an instructional message telling the agent to refine its query.
+
+        Args:
+            tool_name: Name of the tool that produced the oversized output
+            output_str: The raw output string (used for size info and preview)
+            max_size: The maximum allowed output size in characters
+
+        Returns:
+            A message instructing the agent to narrow down its query
+        """
+        estimated_tokens = len(output_str) // 4
+        preview = output_str[:500]
+
+        return (
+            f"TOOL OUTPUT TOO LARGE: '{tool_name}' returned {len(output_str):,} "
+            f"characters (~{estimated_tokens:,} tokens) which is too large for "
+            f"the context window (limit: {max_size:,} chars).\n\n"
+            f"You MUST refine your query to return fewer results. Suggestions:\n"
+            f"- Add more specific filters or search criteria\n"
+            f"- Use pagination (e.g., maxResults, limit, startAt)\n"
+            f"- Narrow the date range, project scope, or status filters\n"
+            f"- Search for more specific terms instead of broad queries\n"
+            f"- Request only the fields you need\n\n"
+            f"Preview of first 500 characters of the result:\n{preview}\n\n"
+            f"Do NOT repeat the same query. Refine it to return less data."
+        )
 
     def _filter_mcp_tools(self, tools: list) -> list:
         """
@@ -794,6 +861,93 @@ Use this as the reference point for all date calculations. When users say "today
 
         logger.info(f"Wrapped {len(wrapped_tools)} {self.get_agent_name()} MCP tools with error handling and sync support")
         return wrapped_tools
+
+    def _build_pre_model_hook(self) -> Callable:
+        """Build a pre_model_hook that compresses context between tool iterations.
+
+        The hook runs before every LLM call in the react loop (including after
+        tool results are appended), giving us the chance to summarize older
+        messages when the context is approaching the provider's limit.
+
+        Returns:
+            An async callable suitable for ``create_react_agent(pre_model_hook=...)``.
+        """
+        agent_name = self.get_agent_name()
+        max_context_tokens = self.max_context_tokens
+        min_messages_to_keep = self.min_messages_to_keep
+        enable_compression = self.enable_auto_compression
+        model = self.model
+        system_prompt = self._get_system_instruction_with_date()
+
+        async def _pre_model_hook(state: dict) -> dict:
+            if not enable_compression:
+                return {}
+
+            messages = state.get("messages", [])
+            if not messages:
+                return {}
+
+            system_tokens = len(system_prompt) // 4
+            history_tokens = _estimate_tokens(messages)
+            tool_count = len(self.tools_info) if self.tools_info else 40
+            tool_schema_tokens = tool_count * 500
+
+            total_estimated = system_tokens + history_tokens + tool_schema_tokens
+            threshold = int(max_context_tokens * 0.8)
+
+            if total_estimated <= threshold:
+                return {}
+
+            logger.warning(
+                f"{agent_name}: pre_model_hook detected context approaching limit: "
+                f"{total_estimated:,} / {max_context_tokens:,} tokens "
+                f"(threshold: {threshold:,}). Compressing..."
+            )
+
+            safe_cut = _find_safe_summarization_boundary(messages, min_messages_to_keep)
+            to_summarize = messages[:safe_cut]
+            to_keep = messages[safe_cut:]
+
+            if not to_summarize:
+                logger.info(
+                    f"{agent_name}: pre_model_hook: not enough messages to summarize "
+                    f"(keeping all {len(messages)})"
+                )
+                return {}
+
+            result = await summarize_messages(
+                messages=to_summarize,
+                model=model,
+                agent_name=f"{agent_name}-pre_model_hook",
+            )
+
+            if result.success and result.summary_message:
+                remove_commands = []
+                for msg in to_summarize:
+                    msg_id = getattr(msg, "id", None)
+                    if msg_id:
+                        remove_commands.append(RemoveMessage(id=msg_id))
+
+                kept_messages = [result.summary_message] + to_keep
+                new_tokens = _estimate_tokens(kept_messages) + tool_schema_tokens
+                logger.info(
+                    f"{agent_name}: pre_model_hook compressed context: "
+                    f"{total_estimated:,} -> {new_tokens:,} tokens, "
+                    f"summarized {len(to_summarize)} messages. "
+                    f"LangMem used: {result.used_langmem}"
+                )
+
+                if remove_commands:
+                    return {
+                        "messages": remove_commands + [result.summary_message],
+                    }
+
+            logger.warning(
+                f"{agent_name}: pre_model_hook summarization failed, passing through"
+            )
+            return {}
+
+        return _pre_model_hook
 
     async def _setup_mcp_and_graph(self, config: RunnableConfig) -> None:
         """
@@ -967,15 +1121,26 @@ Use this as the reference point for all date calculations. When users say "today
             metadata={"agent_name": agent_name}
         )
 
+        create_agent_kwargs: Dict[str, Any] = {
+            "checkpointer": memory,
+            "prompt": self._get_system_instruction_with_date(),
+            "response_format": (
+                self.get_response_format_instruction(),
+                self.get_response_format_class(),
+            ),
+        }
+
+        if self.enable_auto_compression:
+            create_agent_kwargs["pre_model_hook"] = self._build_pre_model_hook()
+            logger.info(
+                f"{agent_name}: pre_model_hook enabled for inter-iteration "
+                f"context compression (threshold: {int(self.max_context_tokens * 0.8):,} tokens)"
+            )
+
         self.graph = create_react_agent(
             model_with_name,
             tools,
-            checkpointer=memory,
-            prompt=self._get_system_instruction_with_date(),
-            response_format=(
-                self.get_response_format_instruction(),
-                self.get_response_format_class()
-            ),
+            **create_agent_kwargs,
         )
 
         # Agent initialization complete
