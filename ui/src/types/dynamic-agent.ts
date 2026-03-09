@@ -24,6 +24,7 @@ export interface MCPServerConfig {
   args?: string[];    // For stdio transport
   env?: Record<string, string>;  // For stdio transport
   enabled: boolean;
+  config_driven?: boolean;  // Whether loaded from config.yaml (not editable)
   created_at: string;
   updated_at: string;
 }
@@ -119,6 +120,7 @@ export interface DynamicAgentConfig {
   enabled: boolean;
   owner_id: string;
   is_system: boolean;
+  config_driven?: boolean;  // Whether loaded from config.yaml (not editable)
   created_at: string;
   updated_at: string;
 }

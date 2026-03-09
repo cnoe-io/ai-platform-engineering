@@ -16,6 +16,7 @@ import {
   ToggleLeft,
   ToggleRight,
   RefreshCw,
+  Ban,
 } from "lucide-react";
 import type { DynamicAgentConfig } from "@/types/dynamic-agent";
 import { DynamicAgentEditor } from "./DynamicAgentEditor";
@@ -221,8 +222,10 @@ export function DynamicAgentsTab() {
 
                 <div className="col-span-2">
                   <button
-                    onClick={() => handleToggleEnabled(agent)}
-                    className="flex items-center gap-1.5"
+                    onClick={() => !agent.config_driven && handleToggleEnabled(agent)}
+                    className={`flex items-center gap-1.5 ${agent.config_driven ? "cursor-not-allowed opacity-60" : ""}`}
+                    disabled={agent.config_driven}
+                    title={agent.config_driven ? "Config-driven agents cannot be modified" : undefined}
                   >
                     {agent.enabled ? (
                       <>
@@ -239,15 +242,27 @@ export function DynamicAgentsTab() {
                 </div>
 
                 <div className="col-span-2 flex items-center justify-end gap-1">
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-8 w-8"
-                    onClick={() => setEditingAgent(agent)}
-                  >
-                    <Pencil className="h-4 w-4" />
-                  </Button>
-                  {!agent.is_system && (
+                  {agent.config_driven && (
+                    <Badge
+                      variant="outline"
+                      className="gap-1 mr-1 bg-gray-500/10 text-gray-600 dark:text-gray-400 border-gray-500/30"
+                      title="Loaded from config.yaml - cannot be edited"
+                    >
+                      <Ban className="h-3 w-3" />
+                      Config
+                    </Badge>
+                  )}
+                  {!agent.config_driven && (
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8"
+                      onClick={() => setEditingAgent(agent)}
+                    >
+                      <Pencil className="h-4 w-4" />
+                    </Button>
+                  )}
+                  {!agent.is_system && !agent.config_driven && (
                     <Button
                       variant="ghost"
                       size="icon"

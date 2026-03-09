@@ -61,6 +61,7 @@ from dynamic_agents.config import get_settings
 from dynamic_agents.routes import agents, chat, health, mcp_servers
 from dynamic_agents.services.agent_runtime import get_runtime_cache
 from dynamic_agents.services.mongo import get_mongo_service
+from dynamic_agents.services.seed_config import apply_seed_config
 
 
 @asynccontextmanager
@@ -75,6 +76,9 @@ async def lifespan(app: FastAPI):
         logger.error("Failed to connect to MongoDB")
     else:
         logger.info(f"Connected to MongoDB: {settings.mongodb_database}")
+
+        # Apply seed configuration (agents and MCP servers from config.yaml)
+        apply_seed_config(mongo)
 
     yield
 

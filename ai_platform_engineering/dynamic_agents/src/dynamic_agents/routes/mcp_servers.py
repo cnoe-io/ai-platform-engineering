@@ -110,12 +110,19 @@ async def update_mcp_server(
 ) -> ApiResponse:
     """Update an MCP server configuration.
 
-    Requires admin role.
+    Requires admin role. Config-driven servers cannot be updated.
     """
     server = mongo.get_server(server_id)
 
     if not server:
         raise HTTPException(status_code=404, detail="MCP server not found")
+
+    # Block updates to config-driven servers
+    if server.config_driven:
+        raise HTTPException(
+            status_code=403,
+            detail="Config-driven MCP servers cannot be modified. Update config.yaml instead.",
+        )
 
     updated = mongo.update_server(server_id, update)
     if not updated:
@@ -137,12 +144,19 @@ async def delete_mcp_server(
 ) -> ApiResponse:
     """Delete an MCP server configuration.
 
-    Requires admin role.
+    Requires admin role. Config-driven servers cannot be deleted.
     """
     server = mongo.get_server(server_id)
 
     if not server:
         raise HTTPException(status_code=404, detail="MCP server not found")
+
+    # Block deletion of config-driven servers
+    if server.config_driven:
+        raise HTTPException(
+            status_code=403,
+            detail="Config-driven MCP servers cannot be deleted. Remove from config.yaml instead.",
+        )
 
     deleted = mongo.delete_server(server_id)
     if not deleted:

@@ -64,6 +64,7 @@ class MCPServerConfig(MCPServerConfigBase):
     """Full MCP server config as stored in MongoDB."""
 
     id: str = Field(..., alias="_id", description="Unique slug ID")
+    config_driven: bool = Field(False, description="Whether this server was loaded from config.yaml")
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 
@@ -188,6 +189,7 @@ class DynamicAgentConfig(DynamicAgentConfigBase):
     id: str = Field(..., alias="_id", description="Unique ID")
     owner_id: str = Field(..., description="Creator's email")
     is_system: bool = Field(False, description="System-provided agent (non-deletable)")
+    config_driven: bool = Field(False, description="Whether this agent was loaded from config.yaml")
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 

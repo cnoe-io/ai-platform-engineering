@@ -19,6 +19,7 @@ import {
   Globe,
   AlertCircle,
   CheckCircle2,
+  Ban,
 } from "lucide-react";
 import type { MCPServerConfig, MCPToolInfo } from "@/types/dynamic-agent";
 import { MCPServerEditor } from "./MCPServerEditor";
@@ -296,8 +297,10 @@ export function MCPServersTab() {
 
                     <div className="col-span-2">
                       <button
-                        onClick={() => handleToggleEnabled(server)}
-                        className="flex items-center gap-1.5"
+                        onClick={() => !server.config_driven && handleToggleEnabled(server)}
+                        className={`flex items-center gap-1.5 ${server.config_driven ? "cursor-not-allowed opacity-60" : ""}`}
+                        disabled={server.config_driven}
+                        title={server.config_driven ? "Config-driven servers cannot be modified" : undefined}
                       >
                         {server.enabled ? (
                           <>
@@ -330,22 +333,36 @@ export function MCPServersTab() {
                           <Zap className="h-4 w-4" />
                         )}
                       </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8"
-                        onClick={() => setEditingServer(server)}
-                      >
-                        <Pencil className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8 text-destructive hover:text-destructive"
-                        onClick={() => handleDelete(server._id)}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
+                      {server.config_driven && (
+                        <Badge
+                          variant="outline"
+                          className="gap-1 bg-gray-500/10 text-gray-600 dark:text-gray-400 border-gray-500/30"
+                          title="Loaded from config.yaml - cannot be edited"
+                        >
+                          <Ban className="h-3 w-3" />
+                          Config
+                        </Badge>
+                      )}
+                      {!server.config_driven && (
+                        <>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8"
+                            onClick={() => setEditingServer(server)}
+                          >
+                            <Pencil className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8 text-destructive hover:text-destructive"
+                            onClick={() => handleDelete(server._id)}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </>
+                      )}
                     </div>
                   </div>
 

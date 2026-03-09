@@ -47,6 +47,11 @@ models:
     provider: "anthropic-claude"
     description: "Fast and efficient for simpler tasks"
 
+  - model: "global.anthropic.claude-haiku-4-5-20251001-v1:0"
+    name: "Claude 4.5 Haiku (AWS Bedrock)"
+    provider: "aws-bedrock"
+    description: "Smaller, faster Claude 4.5 model"
+
   # OpenAI Models (direct API)
   - model: "gpt-4o"
     name: "GPT-4o"
@@ -75,3 +80,125 @@ models:
     name: "GPT-4o (Azure)"
     provider: "azure-openai"
     description: "GPT-4o via Azure OpenAI"
+
+# =============================================================================
+# Seed MCP Servers
+# =============================================================================
+#
+# MCP servers defined here are loaded at startup and marked as config_driven.
+# Config-driven servers cannot be edited or deleted via the UI - modify this
+# file instead and restart the service.
+#
+# Format:
+#   mcp_servers:
+#     - id: <unique-slug>          # Required: Unique identifier (e.g., 'github')
+#       name: <display-name>       # Required: Human-readable name
+#       description: <desc>        # Optional: Description shown in UI
+#       transport: <type>          # Required: 'stdio', 'sse', or 'http'
+#       command: <cmd>             # For stdio: Command to run
+#       args: [<arg1>, <arg2>]     # For stdio: Command arguments
+#       env:                       # For stdio: Environment variables
+#         VAR_NAME: "value"        # Supports ${ENV_VAR} and ${ENV_VAR:-default}
+#       endpoint: <url>            # For sse/http: Server URL
+#       enabled: true              # Optional: Whether server is active (default: true)
+#
+# Environment variable expansion:
+#   ${VAR_NAME}           - Expands to env var value (empty if not set)
+#   ${VAR_NAME:-default}  - Expands to env var value or 'default' if not set
+
+mcp_servers:
+  # Mock MCP server for testing config-driven functionality
+  - id: "mock-server"
+    name: "Mock Server"
+    description: "A mock MCP server for testing config-driven seeding"
+    transport: "stdio"
+    command: "echo"
+    args: ["mock-mcp-server"]
+    enabled: false  # Disabled by default since it's just for testing
+
+  # Example: GitHub MCP Server
+  # - id: "github"
+  #   name: "GitHub"
+  #   description: "GitHub operations via MCP"
+  #   transport: "stdio"
+  #   command: "uvx"
+  #   args: ["mcp-server-github"]
+  #   env:
+  #     GITHUB_PERSONAL_ACCESS_TOKEN: "${GITHUB_TOKEN}"
+  #   enabled: true
+
+  # Example: Filesystem MCP Server
+  # - id: "filesystem"
+  #   name: "Filesystem"
+  #   description: "Local filesystem access"
+  #   transport: "stdio"
+  #   command: "npx"
+  #   args: ["-y", "@modelcontextprotocol/server-filesystem", "/workspace"]
+  #   enabled: true
+
+# =============================================================================
+# Seed Agents
+# =============================================================================
+#
+# Agents defined here are loaded at startup and marked as config_driven.
+# Config-driven agents cannot be edited or deleted via the UI - modify this
+# file instead and restart the service.
+#
+# Format:
+#   agents:
+#     - id: <unique-slug>          # Required: Unique identifier
+#       name: <display-name>       # Required: Human-readable name
+#       description: <desc>        # Optional: Description shown in UI
+#       system_prompt: |           # Required: Agent instructions (multiline)
+#         Your instructions here...
+#       model_id: <model>          # Required: LLM model ID from models section
+#       model_provider: <provider> # Required: LLM provider
+#       visibility: <scope>        # Optional: 'private', 'team', 'global' (default: global)
+#       allowed_tools:             # Optional: MCP servers and tools to use
+#         server_id: []            # Empty list = all tools from server
+#         server_id: ["tool1"]     # Specific tools only
+#       subagents: []              # Optional: Other agents to delegate to
+#       builtin_tools:             # Optional: Built-in tools configuration
+#         fetch_url:
+#           enabled: true
+#           allowed_domains: "*"
+#       enabled: true              # Optional: Whether agent is active (default: true)
+
+agents:
+  # Mock agent for testing config-driven functionality
+  - id: "mock-agent"
+    name: "Mock Agent"
+    description: "A mock agent for testing config-driven seeding"
+    system_prompt: |
+      You are a mock agent used for testing the config-driven agent seeding feature.
+      This agent was loaded from config.yaml and cannot be edited or deleted via the UI.
+      
+      When a user interacts with you, explain that you are a test agent and demonstrate
+      that config-driven agents work correctly.
+    model_id: "claude-sonnet-4-20250514"
+    model_provider: "anthropic-claude"
+    visibility: "global"
+    allowed_tools:
+      mock-server: []  # Use all tools from the mock server
+    builtin_tools:
+      fetch_url:
+        enabled: true
+        allowed_domains: "*"
+    enabled: false
+
+  # Example: Code Reviewer Agent
+  # - id: "code-reviewer"
+  #   name: "Code Reviewer"
+  #   description: "Reviews code for best practices and potential issues"
+  #   system_prompt: |
+  #     You are an expert code reviewer. When given code to review:
+  #     1. Check for bugs and potential issues
+  #     2. Suggest improvements for readability and maintainability
+  #     3. Identify security concerns
+  #     4. Recommend best practices
+  #   model_id: "claude-sonnet-4-20250514"
+  #   model_provider: "anthropic-claude"
+  #   visibility: "global"
+  #   allowed_tools:
+  #     github: []
+  #   enabled: true

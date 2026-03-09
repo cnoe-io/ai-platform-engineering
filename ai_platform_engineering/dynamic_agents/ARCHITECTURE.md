@@ -8,6 +8,7 @@ This document provides detailed architecture documentation for the Dynamic Agent
 - [Agent Runtime Architecture](#agent-runtime-architecture)
 - [Data Flow](#data-flow)
 - [MongoDB Storage](#mongodb-storage)
+- [Config-Driven Seeding](#config-driven-seeding)
 - [UI Integration](#ui-integration)
 - [API Flow](#api-flow)
 - [Session-Based Logging](#session-based-logging)
@@ -574,6 +575,7 @@ Stores agent configurations.
   "enabled": true,
   "owner_id": "admin@example.com",
   "is_system": false,  // System agents cannot be deleted
+  "config_driven": false,  // If true, loaded from config.yaml (not editable via UI)
   "created_at": ISODate("2024-02-28T12:00:00Z"),
   "updated_at": ISODate("2024-02-28T12:00:00Z")
 }
@@ -601,6 +603,7 @@ Stores MCP server configurations.
   // "args": ["-y", "@modelcontextprotocol/server-github"],
   // "env": {"GITHUB_TOKEN": "..."},
   "enabled": true,
+  "config_driven": false,  // If true, loaded from config.yaml (not editable via UI)
   "created_at": ISODate("2024-02-28T12:00:00Z"),
   "updated_at": ISODate("2024-02-28T12:00:00Z")
 }
@@ -650,6 +653,50 @@ Note: The UI also stores conversations in MongoDB with an `agent_id` field
 that references the Dynamic Agent used for that conversation. This is stored
 by the UI, not the Dynamic Agents service.
 ```
+
+---
+
+## Config-Driven Seeding
+
+Agents and MCP servers can be pre-configured in `config.yaml` and loaded at server startup. These "config-driven" entities are managed as infrastructure rather than through the UI.
+
+### How It Works
+
+1. **Startup**: `apply_seed_config()` reads `config.yaml` and upserts agents/servers to MongoDB
+2. **Upsert**: Existing entities with the same ID are overwritten; `created_at` is preserved
+3. **Protection**: Config-driven entities have `config_driven: true` and cannot be edited/deleted via API (returns 403)
+4. **UI**: Shows a "Config" badge and hides edit/delete buttons for these entities
+
+### Config Format
+
+```yaml
+# config.yaml
+mcp_servers:
+  - id: "github"                    # Required: unique ID
+    name: "GitHub"
+    transport: "stdio"
+    command: "uvx"
+    args: ["mcp-server-github"]
+    env:
+      GITHUB_TOKEN: "${GITHUB_TOKEN}"  # Env var expansion supported
+    enabled: true
+
+agents:
+  - id: "code-reviewer"             # Required: unique ID
+    name: "Code Reviewer"
+    system_prompt: |
+      You are an expert code reviewer...
+    model_id: "claude-sonnet-4-20250514"
+    model_provider: "anthropic-claude"
+    visibility: "global"
+    allowed_tools:
+      github: []                    # Empty = all tools from server
+    enabled: true
+```
+
+### Environment Variable Expansion
+
+Config values support `${VAR}` and `${VAR:-default}` syntax for environment variable substitution at startup.
 
 ---
 

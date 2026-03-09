@@ -181,6 +181,35 @@ class MongoDBService:
         result = self._get_agents_collection().delete_one({"_id": agent_id})
         return result.deleted_count > 0
 
+    def upsert_agent(self, agent_id: str, doc: dict[str, Any]) -> DynamicAgentConfig:
+        """Upsert a dynamic agent config by ID.
+
+        If the agent exists, it updates the document while preserving created_at.
+        If it doesn't exist, it creates a new document.
+
+        Args:
+            agent_id: The agent ID
+            doc: The document to upsert (should include all fields except created_at handling)
+
+        Returns:
+            The upserted DynamicAgentConfig
+        """
+        now = datetime.utcnow()
+        collection = self._get_agents_collection()
+
+        # Check if document exists to preserve created_at
+        existing = collection.find_one({"_id": agent_id})
+        if existing:
+            doc["created_at"] = existing.get("created_at", now)
+        else:
+            doc["created_at"] = now
+
+        doc["_id"] = agent_id
+        doc["updated_at"] = now
+
+        collection.replace_one({"_id": agent_id}, doc, upsert=True)
+        return DynamicAgentConfig(**doc)
+
     def can_user_modify_agent(self, agent: DynamicAgentConfig, user_id: str, is_admin: bool) -> bool:
         """Check if user can modify an agent."""
         if is_admin:
@@ -244,6 +273,35 @@ class MongoDBService:
         """Delete an MCP server config. Returns True if deleted."""
         result = self._get_servers_collection().delete_one({"_id": server_id})
         return result.deleted_count > 0
+
+    def upsert_server(self, server_id: str, doc: dict[str, Any]) -> MCPServerConfig:
+        """Upsert an MCP server config by ID.
+
+        If the server exists, it updates the document while preserving created_at.
+        If it doesn't exist, it creates a new document.
+
+        Args:
+            server_id: The server ID
+            doc: The document to upsert (should include all fields except created_at handling)
+
+        Returns:
+            The upserted MCPServerConfig
+        """
+        now = datetime.utcnow()
+        collection = self._get_servers_collection()
+
+        # Check if document exists to preserve created_at
+        existing = collection.find_one({"_id": server_id})
+        if existing:
+            doc["created_at"] = existing.get("created_at", now)
+        else:
+            doc["created_at"] = now
+
+        doc["_id"] = server_id
+        doc["updated_at"] = now
+
+        collection.replace_one({"_id": server_id}, doc, upsert=True)
+        return MCPServerConfig(**doc)
 
     def get_servers_by_ids(self, server_ids: list[str]) -> list[MCPServerConfig]:
         """Get multiple MCP servers by their IDs."""

@@ -190,12 +190,19 @@ async def update_agent(
 ) -> ApiResponse:
     """Update a dynamic agent configuration.
 
-    Requires admin role.
+    Requires admin role. Config-driven agents cannot be updated.
     """
     agent = mongo.get_agent(agent_id)
 
     if not agent:
         raise HTTPException(status_code=404, detail="Agent not found")
+
+    # Block updates to config-driven agents
+    if agent.config_driven:
+        raise HTTPException(
+            status_code=403,
+            detail="Config-driven agents cannot be modified. Update config.yaml instead.",
+        )
 
     # Determine final values for visibility validation
     final_visibility = update.visibility if update.visibility is not None else agent.visibility
@@ -231,7 +238,7 @@ async def delete_agent(
 ) -> ApiResponse:
     """Delete a dynamic agent configuration.
 
-    Requires admin role. System agents cannot be deleted.
+    Requires admin role. System agents and config-driven agents cannot be deleted.
     """
     agent = mongo.get_agent(agent_id)
 
@@ -242,6 +249,12 @@ async def delete_agent(
         raise HTTPException(
             status_code=400,
             detail="System agents cannot be deleted",
+        )
+
+    if agent.config_driven:
+        raise HTTPException(
+            status_code=403,
+            detail="Config-driven agents cannot be deleted. Remove from config.yaml instead.",
         )
 
     deleted = mongo.delete_agent(agent_id)
