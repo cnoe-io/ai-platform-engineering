@@ -20,11 +20,13 @@ import time
 import yaml
 import httpx
 from pathlib import Path
-from typing import Optional, Dict, Any, List, Annotated
+from typing import Optional, Dict, Any, List, Annotated, Union
 import operator
 
 from langchain_core.messages import AIMessage, ToolMessage
+from langchain_core.language_models import LanguageModelLike
 from langchain_core.tools import tool, StructuredTool, InjectedToolCallId
+from langchain_openai import ChatOpenAI
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.types import Command
@@ -165,21 +167,44 @@ RAG_CONNECTIVITY_RETRIES = 5
 RAG_CONNECTIVITY_WAIT_SECONDS = 10
 
 
-def _get_subagent_model(name: str) -> Optional[str]:
+def _get_subagent_model(name: str) -> Optional[Union[str, LanguageModelLike]]:
     """Resolve a per-subagent LLM model override from environment variables.
 
     Checks for SUBAGENT_<NAME>_MODEL env var (e.g. SUBAGENT_GITHUB_MODEL).
-    The value should be a provider:model-name string supported by
-    langchain's init_chat_model (e.g. "openai:gpt-4o-mini").
+
+    When only SUBAGENT_<NAME>_MODEL is set, the value is returned as a
+    provider:model-name string for langchain's init_chat_model
+    (e.g. "openai:gpt-4o-mini").  The global OPENAI_API_KEY is used.
+
+    When SUBAGENT_<NAME>_API_KEY is also set, a fully configured ChatOpenAI
+    instance is returned so that the subagent uses its own credentials.
+    SUBAGENT_<NAME>_API_BASE can optionally override the endpoint.
 
     Returns None when no override is configured, which causes the
     deepagents library to fall back to the parent agent's model.
     """
-    env_var = f"SUBAGENT_{name.upper()}_MODEL"
-    value = os.getenv(env_var)
-    if value:
-        logger.info(f"Per-subagent model override: {env_var}={value}")
-    return value or None
+    env_prefix = f"SUBAGENT_{name.upper()}"
+    model = os.getenv(f"{env_prefix}_MODEL")
+    if not model:
+        return None
+
+    api_key = os.getenv(f"{env_prefix}_API_KEY")
+    if api_key:
+        api_base = os.getenv(f"{env_prefix}_API_BASE")
+        logger.info(
+            f"Per-subagent model+key override: {env_prefix}_MODEL={model}, "
+            f"API_BASE={api_base or '(default)'}"
+        )
+        kwargs: Dict[str, Any] = {
+            "model": model,
+            "api_key": api_key,
+        }
+        if api_base:
+            kwargs["base_url"] = api_base
+        return ChatOpenAI(**kwargs)
+
+    logger.info(f"Per-subagent model override: {env_prefix}_MODEL={model}")
+    return model
 
 # Structured Response Configuration
 # When enabled, LLM uses ResponseFormat tool for final answers instead of [FINAL ANSWER] marker
@@ -912,12 +937,31 @@ class PlatformEngineerDeepAgent:
         """Build the deep agent graph with subagents (async to load MCP tools)."""
         logger.info(f"Building deep agent (generation {self._graph_generation + 1})...")
         
-        # Resolve the supervisor model.  Prefer SUPERVISOR_MODEL env var using
-        # langchain's provider:model-name format (e.g. "openai:gpt-4o").
-        # Falls back to LLMFactory for backward compatibility with existing
+        # Resolve the supervisor model.
+        # When SUPERVISOR_API_KEY is set alongside SUPERVISOR_MODEL, a
+        # dedicated ChatOpenAI instance is created so the supervisor can
+        # use its own credentials / endpoint (SUPERVISOR_API_BASE).
+        # When only SUPERVISOR_MODEL is set, the value is treated as a
+        # provider:model-name string (e.g. "openai:gpt-4o") and the
+        # global OPENAI_API_KEY is used.
+        # Falls back to LLMFactory for backward compatibility with
         # LLM_PROVIDER / OPENAI_MODEL_NAME style env vars.
         supervisor_model_str = os.getenv("SUPERVISOR_MODEL")
-        if supervisor_model_str:
+        supervisor_api_key = os.getenv("SUPERVISOR_API_KEY")
+        if supervisor_api_key and supervisor_model_str:
+            sv_kwargs: Dict[str, Any] = {
+                "model": supervisor_model_str,
+                "api_key": supervisor_api_key,
+            }
+            supervisor_api_base = os.getenv("SUPERVISOR_API_BASE")
+            if supervisor_api_base:
+                sv_kwargs["base_url"] = supervisor_api_base
+            base_model = ChatOpenAI(**sv_kwargs)
+            logger.info(
+                f"Supervisor model+key override: SUPERVISOR_MODEL={supervisor_model_str}, "
+                f"API_BASE={supervisor_api_base or '(default)'}"
+            )
+        elif supervisor_model_str:
             base_model = supervisor_model_str
             logger.info(f"Supervisor model override: SUPERVISOR_MODEL={supervisor_model_str}")
         else:
