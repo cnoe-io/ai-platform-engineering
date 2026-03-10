@@ -2,7 +2,7 @@
 
 import React from "react";
 import Link from "next/link";
-import { MessageSquare, Zap, Database, ArrowRight } from "lucide-react";
+import { MessageSquare, Zap, Database, Workflow, ArrowRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface CapabilityCardsProps {
@@ -31,6 +31,17 @@ const capabilities = [
     color: "text-amber-400",
     bgColor: "bg-amber-500/10",
     borderColor: "hover:border-amber-500/30",
+  },
+  {
+    id: "task-builder",
+    title: "Task Builder",
+    description:
+      "Create and manage self-service workflows that chain agent actions into repeatable multi-step tasks.",
+    icon: Workflow,
+    href: "/task-builder",
+    color: "text-violet-400",
+    bgColor: "bg-violet-500/10",
+    borderColor: "hover:border-violet-500/30",
   },
   {
     id: "knowledge-bases",

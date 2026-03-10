@@ -2,7 +2,7 @@
  * Unit tests for CapabilityCards component
  *
  * Tests:
- * - Renders Chat, Skills, and Knowledge Bases cards when RAG is enabled
+ * - Renders Chat, Skills, Task Builder, and Knowledge Bases cards when RAG is enabled
  * - Hides Knowledge Bases card when RAG is disabled
  * - Each card links to the correct route
  * - Each card renders title and description
@@ -28,6 +28,7 @@ jest.mock('next/link', () => {
 jest.mock('lucide-react', () => ({
   MessageSquare: (props: any) => <svg data-testid="icon-message-square" {...props} />,
   Zap: (props: any) => <svg data-testid="icon-zap" {...props} />,
+  Workflow: (props: any) => <svg data-testid="icon-workflow" {...props} />,
   Database: (props: any) => <svg data-testid="icon-database" {...props} />,
   ArrowRight: (props: any) => <svg data-testid="icon-arrow-right" {...props} />,
 }))
@@ -48,10 +49,11 @@ import { CapabilityCards } from '../CapabilityCards'
 
 describe('CapabilityCards', () => {
   describe('with RAG enabled', () => {
-    it('renders all 3 capability cards', () => {
+    it('renders all 4 capability cards', () => {
       render(<CapabilityCards ragEnabled={true} />)
       expect(screen.getByTestId('capability-card-chat')).toBeInTheDocument()
       expect(screen.getByTestId('capability-card-skills')).toBeInTheDocument()
+      expect(screen.getByTestId('capability-card-task-builder')).toBeInTheDocument()
       expect(screen.getByTestId('capability-card-knowledge-bases')).toBeInTheDocument()
     })
 
@@ -68,6 +70,11 @@ describe('CapabilityCards', () => {
     it('Skills card links to /skills', () => {
       render(<CapabilityCards ragEnabled={true} />)
       expect(screen.getByTestId('capability-card-skills')).toHaveAttribute('href', '/skills')
+    })
+
+    it('Task Builder card links to /task-builder', () => {
+      render(<CapabilityCards ragEnabled={true} />)
+      expect(screen.getByTestId('capability-card-task-builder')).toHaveAttribute('href', '/task-builder')
     })
 
     it('Knowledge Bases card links to /knowledge-bases', () => {
@@ -87,6 +94,12 @@ describe('CapabilityCards', () => {
       expect(screen.getByText(/Browse and run pre-built agent workflows/)).toBeInTheDocument()
     })
 
+    it('renders Task Builder card title and description', () => {
+      render(<CapabilityCards ragEnabled={true} />)
+      expect(screen.getByText('Task Builder')).toBeInTheDocument()
+      expect(screen.getByText(/Create and manage self-service workflows/)).toBeInTheDocument()
+    })
+
     it('renders Knowledge Bases card title and description', () => {
       render(<CapabilityCards ragEnabled={true} />)
       expect(screen.getByText('Knowledge Bases')).toBeInTheDocument()
@@ -100,10 +113,11 @@ describe('CapabilityCards', () => {
   })
 
   describe('with RAG disabled', () => {
-    it('renders only Chat and Skills cards', () => {
+    it('renders Chat, Skills, and Task Builder cards but not Knowledge Bases', () => {
       render(<CapabilityCards ragEnabled={false} />)
       expect(screen.getByTestId('capability-card-chat')).toBeInTheDocument()
       expect(screen.getByTestId('capability-card-skills')).toBeInTheDocument()
+      expect(screen.getByTestId('capability-card-task-builder')).toBeInTheDocument()
       expect(screen.queryByTestId('capability-card-knowledge-bases')).not.toBeInTheDocument()
     })
 
