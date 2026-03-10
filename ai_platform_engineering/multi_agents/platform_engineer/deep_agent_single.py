@@ -263,14 +263,10 @@ def create_caipe_agent_response_tool():
             missing_names = [f.field_name for f in required_missing]
             return f"ERROR: Missing required fields: {', '.join(missing_names)}. Keep calling this tool until all required fields are provided."
         
-        # All required fields provided - return data
-        result = ""
-        for f in required_with_values:
-            result += f"  {f.field_name}: {f.value}\n"
-        
-        if optional_with_values:
-            for f in optional_with_values:
-                result += f"  {f.field_name}: {f.value}\n"
+        # All required fields provided — user has submitted the form
+        result = "USER_FORM_SUBMITTED\n"
+        for f in required_with_values + optional_with_values:
+            result += f"  {f.field_name}={f.value}\n"
         
         return result.strip()
     
