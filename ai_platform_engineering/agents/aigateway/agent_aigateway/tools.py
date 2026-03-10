@@ -453,7 +453,11 @@ async def _update_key_models(token: str, new_model: str) -> dict:
 
 
 async def _generate_key(user_id: str, user_email: str, models: list[str], max_budget: float = 100.0) -> dict:
-  """Generate a virtual key for the user and store it in Vault."""
+  """Generate a virtual key for the user and store it in Vault.
+
+  If the key alias already exists (race condition from parallel tool calls),
+  fetches the existing key and adds the requested models to it instead.
+  """
   headers = _litellm_headers()
   username = user_email.split("@")[0] if "@" in user_email else user_email
 
@@ -468,7 +472,7 @@ async def _generate_key(user_id: str, user_email: str, models: list[str], max_bu
     },
   }
 
-  async with httpx.AsyncClient() as client:
+  async with httpx.AsyncClient(timeout=30) as client:
     response = await client.post(
       f"{LITELLM_API_URL}/key/generate",
       headers=headers,
@@ -483,9 +487,32 @@ async def _generate_key(user_id: str, user_email: str, models: list[str], max_bu
         _vault_store(user_email, generated_key, {"user_id": user_id})
 
       return data
-    else:
-      logger.error(f"Failed to generate key: {response.text}")
-      return {"error": response.text}
+
+    # Handle "alias already exists" — race condition from parallel tool calls
+    resp_text = response.text
+    if response.status_code == 400 and "already exists" in resp_text.lower():
+      logger.info(f"Key alias '{username}' already exists, falling back to update existing key")
+      existing = await _get_existing_key(user_email)
+      if existing:
+        token = existing.get("key") or existing.get("token", "")
+        if token:
+          for model in models:
+            result = await _update_key_models(token, model)
+            if result.get("error") or result.get("key_not_found"):
+              logger.error(f"Failed to add model {model} to existing key: {result}")
+              return {"error": f"Key exists but failed to add models: {result.get('message', 'unknown')}"}
+          updated_info = await _get_key_info(token)
+          return {
+            "key": token,
+            "models": updated_info.get("models", models) if updated_info else models,
+            "existing_key_updated": True,
+          }
+
+      logger.error(f"Key alias exists but could not retrieve existing key for {user_email}")
+      return {"error": resp_text}
+
+    logger.error(f"Failed to generate key: {resp_text}")
+    return {"error": resp_text}
 
 
 async def _delete_user_keys_from_litellm(user_email: str) -> bool:
