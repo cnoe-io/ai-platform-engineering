@@ -28,7 +28,6 @@ jest.mock("lucide-react", () => ({
   Send: () => <span data-testid="icon-send" />,
   AlertCircle: () => <span data-testid="icon-alert" />,
   ChevronDown: () => <span data-testid="icon-chevron" />,
-  X: () => <span data-testid="icon-x" />,
 }));
 
 jest.mock("@/components/ui/button", () => ({

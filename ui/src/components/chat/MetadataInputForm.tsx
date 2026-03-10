@@ -2,7 +2,7 @@
 
 import React, { useState, useCallback } from "react";
 import { motion } from "framer-motion";
-import { Send, AlertCircle, ChevronDown, X } from "lucide-react";
+import { Send, AlertCircle, ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
@@ -147,23 +147,11 @@ export function MetadataInputForm({
       className="mt-4 p-4 rounded-xl bg-amber-500/10 border border-amber-500/30"
     >
       {/* Header */}
-      <div className="flex items-center justify-between mb-4">
-        <div className="flex items-center gap-2">
-          <AlertCircle className="h-4 w-4 text-amber-400" />
-          <span className="text-sm font-medium text-amber-400">
-            {title}
-          </span>
-        </div>
-        {onCancel && (
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-6 w-6 text-muted-foreground hover:text-foreground"
-            onClick={onCancel}
-          >
-            <X className="h-3.5 w-3.5" />
-          </Button>
-        )}
+      <div className="flex items-center gap-2 mb-4">
+        <AlertCircle className="h-4 w-4 text-amber-400" />
+        <span className="text-sm font-medium text-amber-400">
+          {title}
+        </span>
       </div>
 
       {/* Description */}
