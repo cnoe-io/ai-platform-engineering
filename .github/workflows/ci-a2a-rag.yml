@@ -224,7 +224,7 @@ jobs:
           df -h
 
       - name: Build and Push Docker image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: ai_platform_engineering/knowledge_bases/rag
           file: ${{ env.DOCKERFILE }}
@@ -399,7 +399,7 @@ jobs:
 
       - name: 🔨 Build and Push (fallback)
         if: steps.retag-or-build.outputs.needs_build == 'true'
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: ai_platform_engineering/knowledge_bases/rag
           file: ${{ env.DOCKERFILE }}

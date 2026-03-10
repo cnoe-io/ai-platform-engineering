@@ -161,7 +161,7 @@ jobs:
         uses: docker/setup-qemu-action@v3
 
       - name: Build and Push A2A Docker image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: ./build/Dockerfile
@@ -269,7 +269,7 @@ jobs:
 
       - name: 🔨 Build and Push (fallback)
         if: steps.retag-or-build.outputs.needs_build == 'true'
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: ./build/Dockerfile

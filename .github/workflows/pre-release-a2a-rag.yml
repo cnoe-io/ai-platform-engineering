@@ -170,7 +170,7 @@ jobs:
           df -h
 
       - name: Build and Push Docker image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: ${{ env.BUILD_CTX }}
           file: ${{ env.DOCKERFILE }}
