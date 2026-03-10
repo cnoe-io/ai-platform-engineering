@@ -716,7 +716,7 @@ async def get_user_spend_activity(
   days_back: int = 7,
 ) -> str:
   """
-  Get user's LLM usage and spending activity.
+  Get user's LLM usage and spending activity, filtered by their API key.
 
   Args:
       user_email: User's corporate email address
@@ -739,7 +739,7 @@ async def get_user_spend_activity(
 
     headers = _litellm_headers()
 
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(timeout=30) as client:
       user_response = await client.get(
         f"{LITELLM_API_URL}/user/info",
         headers=headers,
@@ -751,8 +751,12 @@ async def get_user_spend_activity(
 
       user_data = user_response.json()
       user_info = user_data.get("user_info", user_data)
-      max_budget = user_info.get("max_budget", 100.0)
-      current_spend = user_info.get("spend", 0)
+      max_budget = user_info.get("max_budget") if user_info.get("max_budget") is not None else user_data.get("max_budget", 100.0)
+      current_spend = user_info.get("spend", user_data.get("spend", 0))
+      budget_duration = user_info.get("budget_duration", user_data.get("budget_duration"))
+      budget_reset_at = user_info.get("budget_reset_at", user_data.get("budget_reset_at"))
+
+      api_key_token = await _get_user_api_key_token(client, headers, user_email)
 
       params: dict = {}
       if start_date:
@@ -766,13 +770,15 @@ async def get_user_spend_activity(
         params=params,
       )
 
-      budget_section = f"""## LLM Usage Report for {user_email}
-
-### Budget Status
-- **Max Budget**: ${max_budget}/month
-- **Current Spend**: ${current_spend:.2f}
-- **Remaining**: ${(max_budget - current_spend):.2f}
-"""
+      budget_section = f"## LLM Usage Report for {user_email}\n\n"
+      budget_section += "### Budget Status\n"
+      budget_section += f"- **Max Budget**: ${max_budget}/month\n"
+      budget_section += f"- **Current Spend**: ${current_spend:.2f}\n"
+      budget_section += f"- **Remaining**: ${(max_budget - current_spend):.2f}\n"
+      if budget_duration:
+        budget_section += f"- **Budget Duration**: {budget_duration}\n"
+      if budget_reset_at:
+        budget_section += f"- **Budget Resets**: {budget_reset_at}\n"
 
       if activity_response.status_code != 200:
         return budget_section + "\n_Note: Detailed activity data not available._\n"
@@ -780,32 +786,33 @@ async def get_user_spend_activity(
       activity_data = activity_response.json()
       results = activity_data.get("results", [])
 
+      user_activity = _extract_user_activity_from_results(results, api_key_token)
+
       message = budget_section + "\n### Recent Activity\n"
 
-      if not results:
+      if not user_activity["daily_breakdown"]:
         message += "\n_No activity recorded in the selected period._"
       else:
-        total_requests = 0
-        total_tokens = 0
-        for day in results[:7]:
-          date = day.get("date", "unknown")
-          metrics = day.get("metrics", {})
-          requests = metrics.get("api_requests", 0)
-          tokens = metrics.get("prompt_tokens", 0) + metrics.get("completion_tokens", 0)
-          spend = metrics.get("spend", 0)
+        for day in user_activity["daily_breakdown"]:
+          if day["api_requests"] > 0:
+            message += (
+              f"\n- **{day['date']}**: {day['api_requests']} requests, "
+              f"{day['total_tokens']:,} tokens, ${day['spend']:.4f}"
+            )
 
-          total_requests += requests
-          total_tokens += tokens
+        if user_activity["by_model"]:
+          message += "\n\n### By Model\n"
+          for model_name, model_stats in sorted(user_activity["by_model"].items()):
+            message += (
+              f"\n- **{model_name}**: {model_stats['api_requests']} requests, "
+              f"{model_stats['total_tokens']:,} tokens, ${model_stats['spend']:.4f}"
+            )
 
-          if requests > 0:
-            message += f"\n- **{date}**: {requests} requests, {tokens:,} tokens, ${spend:.4f}"
-
-        message += f"""
-
-### Summary
-- **Total Requests**: {total_requests:,}
-- **Total Tokens**: {total_tokens:,}
-"""
+        summary = user_activity["summary"]
+        message += "\n\n### Summary\n"
+        message += f"- **Total Requests**: {summary['total_requests']:,}\n"
+        message += f"- **Total Tokens**: {summary['total_tokens']:,}\n"
+        message += f"- **Total Spend**: ${summary['total_spend']:.4f}\n"
 
       return message
 
@@ -813,6 +820,120 @@ async def get_user_spend_activity(
     error_msg = f"Failed to get user activity: {e}"
     logger.error(error_msg)
     return error_msg
+
+
+async def _get_user_api_key_token(
+  client: httpx.AsyncClient,
+  headers: dict,
+  user_email: str,
+) -> Optional[str]:
+  """Look up the user's API key token for filtering activity data."""
+  vault_data = _vault_retrieve(user_email)
+  if vault_data and vault_data.get("key"):
+    return vault_data["key"]
+
+  try:
+    response = await client.get(
+      f"{LITELLM_API_URL}/key/list",
+      headers=headers,
+      params={"user_id": user_email},
+    )
+    if response.status_code == 200:
+      data = response.json()
+      keys = data.get("keys", data.get("data", []))
+      if keys:
+        key_info = keys[0]
+        if isinstance(key_info, str):
+          return key_info
+        if isinstance(key_info, dict):
+          return key_info.get("key") or key_info.get("token")
+  except Exception as e:
+    logger.warning(f"Error looking up API key for {user_email}: {e}")
+
+  return None
+
+
+def _extract_user_activity_from_results(
+  results: list,
+  api_key_token: Optional[str],
+) -> dict:
+  """Extract per-user activity from /user/daily/activity, filtered by API key.
+
+  If api_key_token is None (user has no key), returns empty activity.
+  """
+  total_spend = 0.0
+  total_prompt_tokens = 0
+  total_completion_tokens = 0
+  total_requests = 0
+  by_model: dict[str, dict] = {}
+  daily_breakdown = []
+
+  if not api_key_token:
+    return {
+      "summary": {"total_spend": 0, "total_tokens": 0, "total_requests": 0},
+      "by_model": {},
+      "daily_breakdown": [],
+    }
+
+  for day_data in results:
+    date = day_data.get("date", "unknown")
+    breakdown = day_data.get("breakdown", {})
+    api_keys_breakdown = breakdown.get("api_keys", {})
+
+    user_key_data = api_keys_breakdown.get(api_key_token)
+    if not user_key_data:
+      continue
+
+    metrics = user_key_data.get("metrics", {})
+    day_spend = float(metrics.get("spend", 0) or 0)
+    day_prompt = int(metrics.get("prompt_tokens", 0) or 0)
+    day_completion = int(metrics.get("completion_tokens", 0) or 0)
+    day_requests = int(metrics.get("api_requests", 0) or 0)
+
+    total_spend += day_spend
+    total_prompt_tokens += day_prompt
+    total_completion_tokens += day_completion
+    total_requests += day_requests
+
+    models_breakdown = breakdown.get("models", {})
+    for model_name, model_data in models_breakdown.items():
+      m = model_data.get("metrics", model_data) if isinstance(model_data, dict) else {}
+      model_metrics = {
+        "spend": round(float(m.get("spend", 0) or 0), 6),
+        "prompt_tokens": int(m.get("prompt_tokens", 0) or 0),
+        "completion_tokens": int(m.get("completion_tokens", 0) or 0),
+        "total_tokens": int(m.get("prompt_tokens", 0) or 0) + int(m.get("completion_tokens", 0) or 0),
+        "api_requests": int(m.get("api_requests", 0) or 0),
+      }
+      if model_name not in by_model:
+        by_model[model_name] = {"spend": 0.0, "prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0, "api_requests": 0}
+      for k in by_model[model_name]:
+        by_model[model_name][k] += model_metrics[k]
+
+    daily_breakdown.append({
+      "date": date,
+      "spend": round(day_spend, 6),
+      "prompt_tokens": day_prompt,
+      "completion_tokens": day_completion,
+      "total_tokens": day_prompt + day_completion,
+      "api_requests": day_requests,
+    })
+
+  daily_breakdown.sort(key=lambda x: x["date"], reverse=True)
+  for model_name in by_model:
+    by_model[model_name]["spend"] = round(by_model[model_name]["spend"], 6)
+
+  return {
+    "summary": {
+      "total_spend": round(total_spend, 6),
+      "total_prompt_tokens": total_prompt_tokens,
+      "total_completion_tokens": total_completion_tokens,
+      "total_tokens": total_prompt_tokens + total_completion_tokens,
+      "total_requests": total_requests,
+    },
+    "by_model": by_model,
+    "daily_breakdown": daily_breakdown,
+  }
 
 
 @tool

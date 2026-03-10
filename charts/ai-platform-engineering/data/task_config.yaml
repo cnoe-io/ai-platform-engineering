@@ -1146,21 +1146,24 @@ Get LLM Spend Activity:
     - display_text: "Collect spend query details"
       llm_prompt: >
         Collect the following information from the user and write to /request.txt:
-        - user_email (required): Email address to check spend for
         - start_date (optional): Start date in YYYY-MM-DD format
         - end_date (optional): End date in YYYY-MM-DD format
+        - days_back (optional): Number of days to look back if no start_date (default: 7, field_values: ["7", "14", "30", "60", "90"])
+        
+        user_email is auto-filled from the authenticated session — do NOT include it in the form.
         
         Format as key=value on each line. Write to /request.txt.
       subagent: "caipe"
 
     - display_text: "Get spend report"
       llm_prompt: >
-        Read /request.txt to get user_email, start_date, end_date.
+        Read /request.txt to get user_email, start_date, end_date, days_back.
         
         Use the get_user_spend_activity tool with:
         - user_email: {user_email}
         - start_date: {start_date} (if provided)
         - end_date: {end_date} (if provided)
+        - days_back: {days_back} (if provided, otherwise defaults to 7)
         
         The tool returns a formatted report with budget status and recent activity.
         Display the tool output directly to the user.
@@ -1207,8 +1210,31 @@ Add Users to Group:
         4. Commit the updated file to the branch.
         5. Open a PR to main with the list of added users in the body.
         
+        Write the PR URL to /pr_result.txt:
+        - pr_url={PR_URL}
+        
         Display the PR URL and note that changes take effect after PR approval and merge.
       subagent: "github"
+
+    - display_text: "Send Webex approval notification"
+      llm_prompt: >
+        Read /request.txt to get group_name, user_emails, user_email.
+        Read /pr_result.txt to get pr_url.
+        
+        Send a notification to the Webex room using the post_message tool with:
+        - room_id: ${WEBEX_ROOM_ID}
+        - text: "Approval request: MyID Groups Change - {group_name} by {user_email} - PR: {pr_url}"
+        - markdown: |
+            ## Approval Request: MyID Groups Change
+            
+            **Group:** {group_name}
+            **Users to Add:** {user_emails}
+            **Requested By:** {user_email}
+            
+            **PR:** {pr_url}
+            
+            Please review and approve the PR to apply the group membership change.
+      subagent: "webex"
 
 
 Invite Users to GitHub Org:
@@ -1247,9 +1273,34 @@ Invite Users to GitHub Org:
         6. Send direct GitHub org invitations using invite_user_to_org for each
            email address. Track success/failure for each (422 = already invited).
         
+        Write results to /invite_result.txt:
+        - pr_url={PR_URL}
+        - invite_results={per-user invitation results}
+        
         Display: invitation results per user, PR URL, and note that the PR keeps
         the groups repo in sync alongside the direct invitations.
       subagent: "github"
+
+    - display_text: "Send Webex approval notification"
+      llm_prompt: >
+        Read /request.txt to get org_name, user_emails, user_email.
+        Read /invite_result.txt to get pr_url and invite_results.
+        
+        Send a notification to the Webex room using the post_message tool with:
+        - room_id: ${WEBEX_ROOM_ID}
+        - text: "Approval request: Invite GitHub {org_name} by {user_email} - PR: {pr_url}"
+        - markdown: |
+            ## Approval Request: GitHub Org Invitation
+            
+            **Organization:** {org_name}
+            **Users to Invite:** {user_emails}
+            **Requested By:** {user_email}
+            
+            **PR:** {pr_url}
+            **Invitation Results:** {invite_results}
+            
+            Please review and approve the PR to finalize the org membership update.
+      subagent: "webex"
 
 
 List Groups:
