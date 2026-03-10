@@ -1085,6 +1085,58 @@ services:
       - caipe-ui
 
   ####################################################################################################
+  #                                      Dynamic Agents                                              #
+  ####################################################################################################
+  # Dynamic Agents - Standalone agent builder service using deepagents library
+  # Creates ephemeral AI agents configured through the UI with MCP tool support
+  #
+  # Configuration:
+  #   - Requires MongoDB for agent/MCP server configuration storage
+  #   - Supports OIDC authentication (same config as CAIPE UI)
+  #   - MCP servers can be configured via UI or seed config
+  #
+  # Ports:
+  #   - 8100: Dynamic Agents API (proxied via UI at /api/dynamic-agents)
+  dynamic-agents:
+    build:
+      context: ./ai_platform_engineering/dynamic_agents
+      dockerfile: build/Dockerfile
+    container_name: dynamic-agents
+    ports: ["8100:8001"]
+    volumes:
+      # Mount source for hot reload in development
+      - ./ai_platform_engineering/dynamic_agents/src:/app/dynamic_agents/src
+    env_file: [.env]
+    environment:
+      # MongoDB (same as CAIPE UI)
+      - MONGODB_URI=${MONGODB_URI:-mongodb://${MONGODB_ROOT_USERNAME:-admin}:${MONGODB_ROOT_PASSWORD:-changeme}@caipe-ui-mongodb:27017/${MONGODB_DATABASE:-caipe}?authSource=admin}
+      - MONGODB_DATABASE=${MONGODB_DATABASE:-caipe}
+      # Authentication (same OIDC config as CAIPE UI)
+      - AUTH_ENABLED=${AUTH_ENABLED:-false}
+      - OIDC_ISSUER=${OIDC_ISSUER:-}
+      - OIDC_CLIENT_ID=${OIDC_CLIENT_ID:-}
+      - OIDC_DISCOVERY_URL=${OIDC_DISCOVERY_URL:-}
+      - OIDC_GROUP_CLAIM=${OIDC_GROUP_CLAIM:-}
+      - OIDC_REQUIRED_ADMIN_GROUP=${OIDC_REQUIRED_ADMIN_GROUP:-}
+      # Tracing (Langfuse)
+      - ENABLE_TRACING=${ENABLE_TRACING:-false}
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY:-}
+      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
+      # Runtime configuration
+      - AGENT_RUNTIME_TTL_SECONDS=${AGENT_RUNTIME_TTL_SECONDS:-3600}
+      - CORS_ORIGINS=${DYNAMIC_AGENTS_CORS_ORIGINS:-*}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+    profiles:
+      - dynamic-agents
+
+  ####################################################################################################
   #                                      RAG Services                                                #
   ####################################################################################################
   rag_server:
