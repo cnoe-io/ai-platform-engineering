@@ -60,6 +60,7 @@ self_service_tool(create_or_update_file).
 self_service_tool(push_files).
 self_service_tool(fork_repository).
 self_service_tool(merge_pull_request).
+self_service_tool(invite_user_to_org).
 self_service_tool(gh_cli_execute).
 
 % === Built-in Deep Agent Tools (Always Allowed) ===

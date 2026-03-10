@@ -661,10 +661,81 @@ async def create_subagent_def(agent_instance, name: str, description: str, promp
 
 
 async def create_github_subagent_def(prompt_config: dict = None) -> dict:
-    """Create GitHub subagent definition with shared filesystem and terraform_fmt."""
+    """Create GitHub subagent definition with local MCP server and gh CLI fallback.
+
+    Tool loading bypasses the base _load_mcp_tools because:
+    1. It prefers get_mcp_http_config() → Copilot HTTP API (not wanted in single-node)
+    2. Its STDIO path auto-derives a Python server_path that doesn't exist
+       (GitHub MCP is a Go project at mcp/mcp_github/, not Python)
+
+    Instead, we call get_mcp_config() directly which launches the local
+    Go MCP server via ``go run``. The gh CLI tool is always added alongside
+    MCP tools — policy.lp controls which tools are allowed:
+    - readonly MCP tools (get_file_contents, etc.) are always allowed
+    - write MCP tools (push_files, create_branch, etc.) require self_service_mode
+    - gh_cli_execute is allowed in both modes (policy marks it readonly + self_service)
+    """
     agent = GitHubAgent()
-    subagent_def = await create_subagent_def(agent, "github", "GitHub: repository operations, workflows, PRs", prompt_config)
-    subagent_def["tools"].append(terraform_fmt)
+    name = "github"
+
+    mcp_tools = []
+    try:
+        mcp_config = agent.get_mcp_config()
+        client = MultiServerMCPClient({name: mcp_config})
+        try:
+            mcp_tools = await client.get_tools()
+        except ExceptionGroup:
+            # Go MCP servers often raise cleanup errors after tools are loaded.
+            # Retry with the base class helper that suppresses these.
+            mcp_tools = await agent._load_mcp_tools_with_cleanup_handling(client, name)
+        mcp_tools = agent._filter_mcp_tools(mcp_tools)
+        logger.info(f"{name}: {len(mcp_tools)} MCP tools loaded via local go run")
+    except (ValueError, FileNotFoundError) as e:
+        logger.warning(f"{name}: Cannot start local MCP server: {e}")
+    except Exception as e:
+        logger.warning(f"{name}: Failed to load MCP tools from local server: {e}", exc_info=True)
+
+    tools = list(mcp_tools)
+
+    # gh CLI as fallback for when MCP is unavailable or for simple operations
+    gh_tool = agent.get_additional_tools()
+    if gh_tool:
+        tools.extend(gh_tool)
+        logger.info(f"{name}: Added gh CLI fallback tool")
+
+    tools.extend([tool_result_to_file, wait, terraform_fmt])
+
+    # Build subagent def (prompt, middleware, model override) without re-loading tools
+    system_prompt = None
+    if prompt_config:
+        agent_prompts = prompt_config.get("agent_prompts", {})
+        agent_config = agent_prompts.get(name, {})
+        system_prompt = agent_config.get("system_prompt")
+        if system_prompt:
+            logger.info(f"📝 Using prompt_config system_prompt for {name} subagent")
+    if not system_prompt:
+        system_prompt = agent._get_system_instruction_with_date()
+        logger.info(f"📝 Using built-in system_prompt for {name} subagent")
+
+    subagent_def = {
+        "name": name,
+        "description": "GitHub: repository operations, workflows, PRs",
+        "system_prompt": system_prompt,
+        "tools": tools,
+        "middleware": [
+            PolicyMiddleware(agent_name=name, agent_type="subagent"),
+        ],
+    }
+
+    model_override = _get_subagent_model(name)
+    if model_override:
+        subagent_def["model"] = model_override
+
+    logger.info(
+        f"📦 Created SubAgent def for {name} with {len(tools)} tools "
+        f"({len(mcp_tools)} MCP + {len(gh_tool)} CLI)"
+        f"{f', model={model_override}' if model_override else ''}"
+    )
     return subagent_def
 
 
