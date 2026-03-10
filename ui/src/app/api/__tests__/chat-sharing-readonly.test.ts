@@ -186,7 +186,7 @@ describe('requireConversationAccess — readonly sharing permissions', () => {
   });
 
   describe('public shares', () => {
-    it('returns shared (comment) by default for public conversations', async () => {
+    it('returns shared_readonly (view) by default for public conversations', async () => {
       const conv = makeConversation({
         sharing: { is_public: true, shared_with: [], shared_with_teams: [] },
       });
@@ -196,7 +196,7 @@ describe('requireConversationAccess — readonly sharing permissions', () => {
 
       const result = await requireConversationAccess(conv._id, VIEWER_EMAIL, mockGetCollection);
 
-      expect(result.access_level).toBe('shared');
+      expect(result.access_level).toBe('shared_readonly');
     });
 
     it('returns shared_readonly when public_permission is view', async () => {
