@@ -200,3 +200,10 @@ This survives `clearSSEEvents()` and persists across messages:
 4. Update `A2AEventPanel.tsx` to display new data
 
 **Do NOT mix concerns between the two systems.**
+
+---
+
+## Related Documentation
+
+- [Server Architecture](../../../../ai_platform_engineering/dynamic_agents/ARCHITECTURE.md) - Backend runtime, caching, MongoDB storage, and request flow diagrams
+- [SSE Events](../../../../ai_platform_engineering/dynamic_agents/SSE_EVENTS.md) - Detailed SSE event types and streaming protocol

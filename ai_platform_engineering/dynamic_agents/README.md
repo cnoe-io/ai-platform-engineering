@@ -297,18 +297,16 @@ data: {}
 
 ## SSE Event Types
 
-| Event Type | Description | Data Format |
-|------------|-------------|-------------|
-| `content` | LLM token streaming | `string` (raw text) |
-| `tool_start` | Tool invocation started | `{tool_name, tool_call_id, args, agent, is_builtin}` |
-| `tool_end` | Tool invocation completed | `{tool_name, tool_call_id, agent, is_builtin}` |
-| `todo_update` | Task list updated | `{todos: [{content, status}], agent}` |
-| `subagent_start` | Subagent delegation started | `{subagent_name, purpose, parent_agent}` |
-| `subagent_end` | Subagent completed | `{subagent_name, parent_agent}` |
-| `warning` | Warning message | `{message, missing_tools?}` |
-| `final_result` | Final agent response | `{artifact: {artifactId, parts, metadata}}` |
-| `error` | Error occurred | `{error: string}` |
-| `done` | Stream complete | `{}` |
+For detailed documentation of all SSE event types including JSON structures, field descriptions, and implementation details, see **[SSE_EVENTS.md](./SSE_EVENTS.md)**.
+
+Quick reference:
+- `content` - LLM token streaming
+- `tool_start` / `tool_end` - Tool invocation lifecycle
+- `todo_update` - Task list updates
+- `subagent_start` / `subagent_end` - Subagent delegation lifecycle
+- `final_result` - Final agent response
+- `warning` / `error` - Warnings and errors
+- `done` - Stream complete |
 
 ## Testing
 
@@ -369,5 +367,6 @@ dynamic_agents/
 ## Related Documentation
 
 - [ARCHITECTURE.md](./ARCHITECTURE.md) - Detailed architecture documentation
+- [SSE_EVENTS.md](./SSE_EVENTS.md) - SSE event types and streaming protocol
 - [UI Integration](../../ui/src/components/dynamic-agents/) - Frontend components
 - [MCP Protocol](https://modelcontextprotocol.io/) - Model Context Protocol specification

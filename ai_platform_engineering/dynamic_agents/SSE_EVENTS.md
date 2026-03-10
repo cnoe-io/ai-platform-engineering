@@ -1,67 +1,60 @@
 # Dynamic Agents SSE Event System
 
-## Overview
-
 This document describes the SSE (Server-Sent Events) streaming protocol between the Dynamic Agents backend and the UI frontend. The system uses structured JSON events to communicate agent activity in real-time.
 
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────────────┐
-│                              BACKEND                                     │
-│                                                                          │
-│  ┌─────────────────┐    ┌──────────────────┐    ┌───────────────────┐   │
-│  │  deepagents     │───▶│  agent_runtime   │───▶│  stream_events    │   │
-│  │  library        │    │  .py             │    │  .py              │   │
-│  │  (read-only)    │    │                  │    │  Event builders   │   │
-│  └─────────────────┘    │  - stream()      │    └───────────────────┘   │
-│         │               │  - trackers      │              │              │
-│         │               └──────────────────┘              │              │
-│         │                        │                        │              │
-│         │               ┌──────────────────┐              │              │
-│         └──────────────▶│  stream_trackers │◀─────────────┘              │
-│                         │  .py             │                             │
-│                         │  - ToolTracker   │                             │
-│                         │  - TodoTracker   │                             │
-│                         │  - SubagentTracker│                            │
-│                         └──────────────────┘                             │
-│                                  │                                       │
-│                                  ▼ SSE Stream                            │
-└─────────────────────────────────────────────────────────────────────────┘
-                                   │
-                                   │ HTTP POST /api/dynamic-agents/chat/stream
-                                   │ Content-Type: text/event-stream
-                                   ▼
-┌─────────────────────────────────────────────────────────────────────────┐
-│                              FRONTEND                                    │
-│                                                                          │
-│  ┌─────────────────────┐    ┌──────────────────────┐                    │
-│  │  dynamic-agent-     │───▶│  sse-types.ts        │                    │
-│  │  client.ts          │    │                      │                    │
-│  │  - parseSSEStream() │    │  - SSEAgentEvent     │                    │
-│  │  - mapToAgentEvent()│    │  - createSSEAgentEvent│                   │
-│  └─────────────────────┘    └──────────────────────┘                    │
-│           │                          │                                   │
-│           │                          ▼                                   │
-│           │                 ┌──────────────────────┐                    │
-│           └────────────────▶│  DynamicAgentContext │                    │
-│                             │  .tsx                │                    │
-│                             │  - parseTodos()      │                    │
-│                             │  - parseToolCalls()  │                    │
-│                             │  - parseSubagentCalls│                    │
-│                             └──────────────────────┘                    │
-│                                      │                                   │
-│                                      ▼                                   │
-│                             ┌──────────────────────┐                    │
-│                             │  Events Panel UI     │                    │
-│                             │  - Todos list        │                    │
-│                             │  - Tool cards        │                    │
-│                             │  - Subagent cards    │                    │
-│                             └──────────────────────┘                    │
-└─────────────────────────────────────────────────────────────────────────┘
+                              BACKEND
+  ┌─────────────────┐    ┌──────────────────┐    ┌───────────────────┐
+  │  deepagents     │───>│  agent_runtime   │───>│  stream_events    │
+  │  library        │    │  .py             │    │  .py              │
+  │  (read-only)    │    │                  │    │  Event builders   │
+  └─────────────────┘    │  - stream()      │    └───────────────────┘
+         │               │  - trackers      │              │
+         │               └──────────────────┘              │
+         │                        │                        │
+         │               ┌──────────────────┐              │
+         └──────────────>│  stream_trackers │<─────────────┘
+                         │  .py             │
+                         │  - ToolTracker   │
+                         │  - TodoTracker   │
+                         │  - SubagentTracker│
+                         └──────────────────┘
+                                  │
+                                  v SSE Stream
+                                  │
+                 HTTP POST /api/dynamic-agents/chat/stream
+                 Content-Type: text/event-stream
+                                  │
+                                  v
+                              FRONTEND
+  ┌─────────────────────┐    ┌──────────────────────┐
+  │  dynamic-agent-     │───>│  sse-types.ts        │
+  │  client.ts          │    │                      │
+  │  - parseSSEStream() │    │  - SSEAgentEvent     │
+  │  - mapToAgentEvent()│    │  - createSSEAgentEvent│
+  └─────────────────────┘    └──────────────────────┘
+           │                          │
+           │                          v
+           │                 ┌──────────────────────┐
+           └────────────────>│  DynamicAgentContext │
+                             │  .tsx                │
+                             │  - parseTodos()      │
+                             │  - parseToolCalls()  │
+                             │  - parseSubagentCalls│
+                             └──────────────────────┘
+                                      │
+                                      v
+                             ┌──────────────────────┐
+                             │  Events Panel UI     │
+                             │  - Todos list        │
+                             │  - Tool cards        │
+                             │  - Subagent cards    │
+                             └──────────────────────┘
 ```
 
-## Event Types
+## Event Format
 
 All events are sent as SSE with the format:
 ```
@@ -69,6 +62,23 @@ event: <event_type>
 data: <json_payload>
 
 ```
+
+## Event Types
+
+| Event Type | Description |
+|------------|-------------|
+| `content` | LLM token streaming |
+| `tool_start` | Tool invocation started |
+| `tool_end` | Tool invocation completed |
+| `todo_update` | Task list updated |
+| `subagent_start` | Subagent invocation started |
+| `subagent_end` | Subagent invocation completed |
+| `final_result` | Agent response complete |
+| `error` | Error occurred |
+| `warning` | Non-fatal warning |
+| `done` | Stream complete |
+
+---
 
 ### `content` - LLM Token Streaming
 
@@ -82,6 +92,8 @@ Streaming text content from the LLM.
 ```
 
 **Backend source:** `stream_events.make_content_event()`
+
+---
 
 ### `tool_start` - Tool Invocation Started
 
@@ -101,13 +113,17 @@ Emitted when the agent calls a tool.
 ```
 
 **Fields:**
-- `tool_name`: Name of the tool being called
-- `tool_call_id`: Unique ID for this tool invocation (used to match with `tool_end`)
-- `args`: Tool arguments (string values truncated to 100 chars)
-- `agent`: Name of the agent making the call
-- `is_builtin`: Whether this is a deepagents builtin tool (affects UI rendering)
+| Field | Description |
+|-------|-------------|
+| `tool_name` | Name of the tool being called |
+| `tool_call_id` | Unique ID for this tool invocation (used to match with `tool_end`) |
+| `args` | Tool arguments (string values truncated to 100 chars) |
+| `agent` | Name of the agent making the call |
+| `is_builtin` | Whether this is a deepagents builtin tool (affects UI rendering) |
 
 **Backend source:** `stream_events.make_tool_start_event()`, `stream_trackers.ToolTracker`
+
+---
 
 ### `tool_end` - Tool Invocation Completed
 
@@ -126,6 +142,8 @@ Emitted when a tool call completes.
 ```
 
 **Backend source:** `stream_events.make_tool_end_event()`, `stream_trackers.ToolTracker`
+
+---
 
 ### `todo_update` - Task List Updated
 
@@ -146,13 +164,17 @@ Emitted when the agent calls `write_todos`. Contains the full todo list state.
 ```
 
 **Fields:**
-- `todos[].content`: Description of the task
-- `todos[].status`: One of `"pending"`, `"in_progress"`, `"completed"`
-- `agent`: Name of the agent
+| Field | Description |
+|-------|-------------|
+| `todos[].content` | Description of the task |
+| `todos[].status` | One of `"pending"`, `"in_progress"`, `"completed"` |
+| `agent` | Name of the agent |
 
 **Backend source:** `stream_events.make_todo_update_event()`, `stream_trackers.TodoTracker`
 
 **Note:** The TodoTracker parses the markdown output from the `write_todos` tool because we cannot modify the deepagents library to emit structured data directly.
+
+---
 
 ### `subagent_start` - Subagent Invocation Started
 
@@ -170,11 +192,15 @@ Emitted when the agent calls the `task` tool to delegate work to a subagent.
 ```
 
 **Fields:**
-- `subagent_name`: Name of the subagent being invoked
-- `purpose`: Description of what the subagent is doing (truncated to 100 chars)
-- `parent_agent`: Name of the agent that invoked this subagent
+| Field | Description |
+|-------|-------------|
+| `subagent_name` | Name of the subagent being invoked |
+| `purpose` | Description of what the subagent is doing (truncated to 100 chars) |
+| `parent_agent` | Name of the agent that invoked this subagent |
 
 **Backend source:** `stream_events.make_subagent_start_event()`, `stream_trackers.SubagentTracker`
+
+---
 
 ### `subagent_end` - Subagent Invocation Completed
 
@@ -191,6 +217,8 @@ Emitted when a subagent completes its work.
 ```
 
 **Backend source:** `stream_events.make_subagent_end_event()`, `stream_trackers.SubagentTracker`
+
+---
 
 ### `final_result` - Agent Response Complete
 
@@ -216,6 +244,8 @@ Emitted when the agent produces its final response.
 
 **Backend source:** `stream_events.make_final_result_event()`
 
+---
+
 ### `error` - Error Event
 
 Emitted when an error occurs during processing.
@@ -229,6 +259,23 @@ Emitted when an error occurs during processing.
 }
 ```
 
+---
+
+### `warning` - Warning Event
+
+Emitted for non-fatal warnings during processing.
+
+```json
+{
+  "type": "warning",
+  "data": {
+    "message": "Tool execution took longer than expected"
+  }
+}
+```
+
+---
+
 ### `done` - Stream Complete
 
 Terminal event indicating the stream has ended.
@@ -237,6 +284,8 @@ Terminal event indicating the stream has ended.
 event: done
 data: {}
 ```
+
+---
 
 ## Builtin Tools
 
@@ -249,8 +298,8 @@ The following tools are considered "builtin" and render as compact inline chips 
 - `ls`
 
 This list is defined in:
-- Backend: `stream_events.BUILTIN_TOOLS`
-- Frontend: `sse-types.BUILTIN_TOOLS`
+- **Backend:** `stream_events.BUILTIN_TOOLS`
+- **Frontend:** `sse-types.BUILTIN_TOOLS`
 
 ## File Reference
 
@@ -276,51 +325,51 @@ This list is defined in:
 
 ```
 ┌─────────────────────────────────────┐
-│ Events                        [▼]  │
+│ Events                        [v]   │
 ├─────────────────────────────────────┤
 │                                     │
-│ 📋 Tasks                    2/3     │
+│ Tasks                        2/3    │
 │ ┌─────────────────────────────────┐ │
-│ │ ✅ Search for tickets           │ │
+│ │ [x] Search for tickets          │ │
 │ ├─────────────────────────────────┤ │
-│ │ 🔄 Analyze results              │ │
+│ │ [~] Analyze results             │ │
 │ ├─────────────────────────────────┤ │
-│ │ ⏳ Generate report              │ │
+│ │ [ ] Generate report             │ │
 │ └─────────────────────────────────┘ │
 │                                     │
-│ ✓ read_file  ✓ edit_file  ✓ ls     │  ← Builtin tools (compact chips)
+│ [v] read_file  [v] edit_file  [v] ls│  <- Builtin tools (compact chips)
 │                                     │
-│ 🔧 Running (1)                      │
+│ Running (1)                         │
 │ ┌─────────────────────────────────┐ │
-│ │ ⏳ search_jira                  │ │
+│ │ [~] search_jira                 │ │
 │ │   query: "user tickets..."      │ │
 │ └─────────────────────────────────┘ │
 │                                     │
-│ ✓ Completed (2)               [▼]  │
+│ Completed (2)                  [v]  │
 │ ┌─────────────────────────────────┐ │
-│ │ ✓ list_applications            │ │
+│ │ [v] list_applications           │ │
 │ └─────────────────────────────────┘ │
 │                                     │
-│ 🤖 Subagents (1)              [▼]  │
+│ Subagents (1)                  [v]  │
 │ ┌─────────────────────────────────┐ │
-│ │ ✓ research-agent                │ │
+│ │ [v] research-agent              │ │
 │ │   "Find documentation..."       │ │
 │ └─────────────────────────────────┘ │
 │                                     │
 └─────────────────────────────────────┘
 ```
 
-## Constraints
+## Implementation Constraints
 
 1. **Cannot modify deepagents library** - The deepagents package is read-only. We must work with its existing `write_todos` and `task` tool implementations.
 
 2. **Todos parsed from ToolMessage** - Since `write_todos` outputs markdown-formatted text, the `TodoTracker` parses this format to extract structured todo data:
    ```
-   📋 **Task Progress:**
+   **Task Progress:**
    
-   - ⏳ Task description 1
-   - 🔄 Task description 2
-   - ✅ Task description 3
+   - [ ] Task description 1
+   - [~] Task description 2
+   - [x] Task description 3
    ```
 
 3. **Subagents use ainvoke()** - The `task` tool in deepagents uses `ainvoke()` which doesn't emit streaming events. We detect `task` tool calls to track subagent activity.

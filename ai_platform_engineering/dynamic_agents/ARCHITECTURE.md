@@ -5,6 +5,9 @@ This document provides detailed architecture documentation for the Dynamic Agent
 ## Table of Contents
 
 - [System Overview](#system-overview)
+- [Code Structure](#code-structure)
+- [Application Startup](#application-startup)
+- [Message Flow](#message-flow)
 - [Agent Runtime Architecture](#agent-runtime-architecture)
 - [Data Flow](#data-flow)
 - [MongoDB Storage](#mongodb-storage)
@@ -65,6 +68,245 @@ Dynamic Agents is a standalone FastAPI service that runs independently from the 
 │  │  LLM Providers (Anthropic, OpenAI, Azure, Bedrock, etc.)                │ │
 │  └─────────────────────────────────────────────────────────────────────────┘ │
 └──────────────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Code Structure
+
+The Dynamic Agents service is organized as follows:
+
+```
+src/dynamic_agents/
+├── main.py                 # FastAPI application entry point
+├── config.py               # Settings (env vars, defaults)
+├── models.py               # Pydantic models (request/response schemas)
+├── models_config.yaml      # LLM model definitions
+│
+├── routes/                 # API endpoints
+│   ├── health.py           # GET /health, /ready
+│   ├── agents.py           # CRUD for /api/v1/agents/*
+│   ├── mcp_servers.py      # CRUD for /api/v1/mcp-servers/*
+│   └── chat.py             # POST /api/v1/chat/stream, /invoke, /restart-runtime
+│
+├── services/               # Business logic
+│   ├── agent_runtime.py    # AgentRuntime class, AgentRuntimeCache
+│   ├── mongo.py            # MongoDBService (CRUD operations)
+│   ├── mcp_client.py       # MCP server connections, tool filtering
+│   ├── builtin_tools.py    # Built-in tools (fetch_url)
+│   ├── stream_events.py    # SSE event builders (make_*_event)
+│   ├── stream_trackers.py  # ToolTracker, TodoTracker, SubagentTracker
+│   └── seed_config.py      # Config-driven agent/server seeding
+│
+├── middleware/
+│   └── auth.py             # JWT authentication, UserContext
+│
+└── prompts/
+    └── extension.py        # Default extension prompt
+```
+
+### Key Files
+
+| File | Purpose |
+|------|---------|
+| `main.py` | Application entry point. Creates FastAPI app, sets up logging, registers routes, handles startup/shutdown lifecycle |
+| `config.py` | `Settings` class with environment variables (MongoDB, auth, CORS, runtime TTL) |
+| `routes/chat.py` | Chat endpoint that receives messages and streams SSE responses |
+| `services/agent_runtime.py` | Core runtime logic: builds agents, manages cache, streams responses |
+| `services/stream_events.py` | Creates structured SSE events (`content`, `tool_start`, `final_result`, etc.) |
+| `services/stream_trackers.py` | Tracks tool calls, todos, and subagent invocations during streaming |
+
+---
+
+## Application Startup
+
+When the service starts, the following sequence occurs:
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                         Application Startup Flow                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+1. main.py executed (via uvicorn or __main__)
+        │
+        ▼
+2. _setup_logging()
+   • Creates 'dynamic_agents' logger
+   • Adds SessionContextFilter for request tracing
+   • Disables propagation to root logger (isolates from cnoe-agent-utils)
+        │
+        ▼
+3. create_app()
+   • Creates FastAPI instance with lifespan handler
+   • Adds CORS middleware
+   • Mounts route modules:
+     - health.router → /health, /ready
+     - agents.router → /api/v1/agents/*
+     - mcp_servers.router → /api/v1/mcp-servers/*
+     - chat.router → /api/v1/chat/*
+        │
+        ▼
+4. lifespan() startup
+   • Loads settings from environment
+   • Connects to MongoDB (get_mongo_service())
+   • Applies seed configuration (agents/servers from config.yaml)
+        │
+        ▼
+5. Server ready, listening on port 8001 (default)
+        │
+        ▼
+    ... handles requests ...
+        │
+        ▼
+6. lifespan() shutdown
+   • Clears agent runtime cache
+   • Disconnects MongoDB
+```
+
+**Startup command:**
+```bash
+# Direct execution
+python -m dynamic_agents.main
+
+# Or via uvicorn
+uvicorn dynamic_agents.main:app --host 0.0.0.0 --port 8001
+```
+
+---
+
+## Message Flow
+
+When a user sends a chat message, here's what happens step by step:
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                         Message Flow (Detailed)                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+Browser sends: POST /api/dynamic-agents/chat/stream
+               Body: { agent_id, message, conversation_id, trace_id? }
+               Headers: Authorization: Bearer <jwt>
+        │
+        ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  Next.js API Route: /api/dynamic-agents/chat/stream                          │
+│  Proxies request to Dynamic Agents service                                   │
+└─────────────────────────────────────────────────────────────────────────────┘
+        │
+        ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  routes/chat.py: chat_stream()                                               │
+│                                                                              │
+│  1. Set session_id_var for logging context                                   │
+│  2. Extract user from JWT via get_current_user()                             │
+│  3. Load agent config from MongoDB: mongo.get_agent(agent_id)                │
+│  4. Check access: _can_use_agent(agent, user)                                │
+│  5. Load MCP server configs: mongo.get_servers_by_ids(server_ids)            │
+│  6. Return StreamingResponse with _generate_sse_events()                     │
+└─────────────────────────────────────────────────────────────────────────────┘
+        │
+        ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  routes/chat.py: _generate_sse_events()                                      │
+│                                                                              │
+│  1. Get AgentRuntimeCache singleton                                          │
+│  2. Get or create runtime: cache.get_or_create(agent_config, mcp_servers)    │
+│  3. Stream response: runtime.stream(message, session_id, user_id)            │
+│  4. Format each event as SSE: "event: {type}\ndata: {json}\n\n"              │
+│  5. Yield "event: done\ndata: {}\n\n" when complete                          │
+└─────────────────────────────────────────────────────────────────────────────┘
+        │
+        ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  services/agent_runtime.py: AgentRuntimeCache.get_or_create()                │
+│                                                                              │
+│  Cache key: "{agent_id}:{session_id}"                                        │
+│                                                                              │
+│  1. Check if runtime exists in cache                                         │
+│  2. If exists, check is_stale() (config or MCP server changed?)              │
+│  3. If stale or missing, create new AgentRuntime                             │
+│  4. Return runtime                                                           │
+└─────────────────────────────────────────────────────────────────────────────┘
+        │
+        ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  services/agent_runtime.py: AgentRuntime.initialize()                        │
+│  (Called automatically on first stream() if not initialized)                 │
+│                                                                              │
+│  1. Build MCP connections: mcp_client.build_mcp_connections()                │
+│  2. Get tools with resilience: mcp_client.get_tools_with_resilience()        │
+│     → Connects to each MCP server independently                              │
+│     → Failed servers tracked in self._failed_servers                         │
+│  3. Filter tools: mcp_client.filter_tools_by_allowed()                       │
+│     → Only include tools in agent's allowed_tools config                     │
+│     → Missing tools tracked in self._missing_tools                           │
+│  4. Build system prompt from config + extension prompt                       │
+│  5. Create LLM via LLMFactory(provider).get_llm(model)                       │
+│  6. Resolve subagents (load from MongoDB, recursively build tools)           │
+│  7. Create graph: create_deep_agent(model, tools, system_prompt, ...)        │
+│     → Uses deepagents library with InMemorySaver for checkpointing           │
+└─────────────────────────────────────────────────────────────────────────────┘
+        │
+        ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  services/agent_runtime.py: AgentRuntime.stream()                            │
+│                                                                              │
+│  1. Create tracing config (Langfuse integration)                             │
+│  2. Set thread_id = session_id for conversation checkpointing                │
+│  3. Initialize trackers: ToolTracker, TodoTracker, SubagentTracker           │
+│  4. Call self._graph.astream() with stream_mode=["messages", "updates"]      │
+│  5. For each chunk, call _transform_stream_chunk() to emit events:           │
+│                                                                              │
+│     "messages" mode chunks:                                                  │
+│       → AIMessageChunk with content → emit "content" event                   │
+│       → Skip ToolMessage (internal results, not for user)                    │
+│                                                                              │
+│     "updates" mode chunks:                                                   │
+│       → AIMessage with tool_calls → emit "tool_start" events                 │
+│       → ToolMessage (tool result) → emit "tool_end" events                   │
+│       → write_todos result → emit "todo_update" event                        │
+│       → task tool call → emit "subagent_start" event                         │
+│       → task tool result → emit "subagent_end" event                         │
+│                                                                              │
+│  6. After stream ends, emit "final_result" with accumulated content          │
+│     → Includes trace_id, failed_servers, missing_tools in metadata           │
+└─────────────────────────────────────────────────────────────────────────────┘
+        │
+        ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  SSE Events sent to browser (via StreamingResponse)                          │
+│                                                                              │
+│  event: content                                                              │
+│  data: "Hello, I'll help you..."                                             │
+│                                                                              │
+│  event: tool_start                                                           │
+│  data: {"tool_name":"search_jira","tool_call_id":"call_123",...}             │
+│                                                                              │
+│  event: tool_end                                                             │
+│  data: {"tool_name":"search_jira","tool_call_id":"call_123",...}             │
+│                                                                              │
+│  event: final_result                                                         │
+│  data: {"artifact":{"artifactId":"...","parts":[...],"metadata":{...}}}      │
+│                                                                              │
+│  event: done                                                                 │
+│  data: {}                                                                    │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Error Handling
+
+If an error occurs during streaming:
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  Error during stream (in _generate_sse_events)                               │
+│                                                                              │
+│  1. Exception caught in try/except                                           │
+│  2. Check if LLM-related (deployment, model, auth keywords)                  │
+│  3. Build error message with context (provider, model)                       │
+│  4. Yield: event: error                                                      │
+│           data: {"error": "LLM Connection Error (provider: azure): ..."}     │
+└─────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
@@ -805,39 +1047,9 @@ The UI uses a unified `ChatPanel` component that switches between two streaming 
 
 ### SSE Event Types (Frontend)
 
-```typescript
-// From: ui/src/components/dynamic-agents/sse-types.ts
+For detailed documentation of all SSE event types, JSON structures, and implementation details, see **[SSE_EVENTS.md](./SSE_EVENTS.md)**.
 
-export type SSEEventType =
-  | "content"        // LLM token streaming
-  | "tool_start"     // Tool invocation started
-  | "tool_end"       // Tool invocation completed
-  | "todo_update"    // Task list update
-  | "subagent_start" // Subagent invocation started
-  | "subagent_end"   // Subagent invocation completed
-  | "final_result"   // Final agent response
-  | "warning"        // Warning event (e.g., missing tools)
-  | "error";         // Error event
-
-export interface SSEAgentEvent {
-  id: string;
-  timestamp: Date;
-  type: SSEEventType;
-  raw: unknown;
-  taskId?: string;           // For crash recovery
-  artifact?: SSEArtifact;    // For final_result
-  isFinal?: boolean;
-  
-  // Structured data by event type
-  toolData?: ToolEventData;
-  todoData?: TodoUpdateData;
-  subagentData?: SubagentEventData;
-  warningData?: WarningEventData;
-  content?: string;
-  displayContent?: string;
-  sourceAgent?: string;
-}
-```
+The frontend TypeScript types are defined in `ui/src/components/dynamic-agents/sse-types.ts`.
 
 ### State Management (Zustand)
 
@@ -1167,3 +1379,11 @@ Dynamic Agents provides a flexible, admin-configurable agent system that:
 4. **Supports hierarchy**: Subagent delegation with cycle detection and visibility rules
 5. **Stores persistently**: MongoDB for configurations, in-memory checkpointing for conversation state
 6. **Streams responsively**: Structured SSE events for real-time UI updates
+
+---
+
+## Related Documentation
+
+- [SSE_EVENTS.md](./SSE_EVENTS.md) - Detailed SSE event types and streaming protocol
+- [README.md](./README.md) - Quick start and API reference
+- [UI Architecture](../../ui/src/components/dynamic-agents/ARCHITECTURE.md) - Frontend component architecture and event handling
