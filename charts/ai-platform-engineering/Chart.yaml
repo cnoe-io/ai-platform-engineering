@@ -189,7 +189,7 @@ dependencies:
       - caipe-ui
   # Dynamic Agents - Standalone agent builder with MCP tool support
   - name: dynamic-agents
-    version: 0.2.35 # Do NOT bump this. It will be updated automatically using the PR or release workflow
+    version: 0.2.36 # Do NOT bump this. It will be updated automatically using the PR or release workflow
     tags:
       - dynamic-agents
   # MongoDB for CAIPE UI persistence
