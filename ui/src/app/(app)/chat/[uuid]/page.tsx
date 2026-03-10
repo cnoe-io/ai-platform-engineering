@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
+import { useSession } from "next-auth/react";
 import { motion } from "framer-motion";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { ChatPanel } from "@/components/chat/ChatPanel";
@@ -18,6 +19,7 @@ import type { Conversation as LocalConversation } from "@/types/a2a";
 function ChatUUIDPage() {
   const params = useParams();
   const router = useRouter();
+  const { data: session } = useSession();
   const uuid = params.uuid as string;
 
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -104,6 +106,21 @@ function ChatUUIDPage() {
       if (localConv) {
         setConversation(localConv);
         setActiveConversation(uuid);
+
+        // Derive access level from store data when the conversation was loaded
+        // by loadConversationsFromServer (which skips the per-conversation API
+        // call that normally returns access_level). Without this, shared/public
+        // conversations appear writable — users can send A2A requests with the
+        // shared conversation's UUID as context_id even though MongoDB rejects
+        // the subsequent message save (403 shared_readonly).
+        if (localConv.owner_id && session?.user?.email && localConv.owner_id !== session.user.email) {
+          if (localConv.sharing?.is_public) {
+            setAccessLevel('shared_readonly');
+          } else if (localConv.sharing?.shared_with?.includes(session.user.email) ||
+                     (localConv.sharing?.shared_with_teams?.length ?? 0) > 0) {
+            setAccessLevel('shared_readonly');
+          }
+        }
 
         const hasMessages = localConv.messages && localConv.messages.length > 0;
 

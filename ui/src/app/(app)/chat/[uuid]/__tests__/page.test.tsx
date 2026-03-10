@@ -39,6 +39,10 @@ jest.mock("next/navigation", () => ({
   useRouter: () => ({ push: mockPush, replace: mockReplace }),
 }));
 
+jest.mock("next-auth/react", () => ({
+  useSession: () => ({ data: { user: { email: "test@example.com" } }, status: "authenticated" }),
+}));
+
 jest.mock("@/lib/config", () => ({
   getConfig: jest.fn((key: string) => {
     if (key === "caipeUrl") return "http://localhost:8000";
