@@ -373,6 +373,24 @@ def _load_task_config_from_yaml() -> dict:
         return {}
 
 
+def _substitute_env_vars_in_configs(configs: dict) -> dict:
+    """Apply env var substitution to llm_prompt fields in task configs.
+
+    System workflows seeded from task_config.yaml into MongoDB retain
+    ``${VAR_NAME}`` placeholders.  This resolves them at load time using
+    the supervisor's environment, matching the YAML-loaded behaviour.
+    """
+    for task_def in configs.values():
+        tasks = task_def.get("tasks")
+        if not tasks:
+            continue
+        for task in tasks:
+            prompt = task.get("llm_prompt")
+            if prompt and "${" in prompt:
+                task["llm_prompt"] = _substitute_env_vars(prompt)
+    return configs
+
+
 def load_task_config(user_email: Optional[str] = None) -> dict:
     """Load task configs from MongoDB (primary), YAML file (fallback).
 
@@ -385,9 +403,9 @@ def load_task_config(user_email: Optional[str] = None) -> dict:
     returned (system/global configs + configs owned by the user).  When
     ``None``, only system/global configs are returned from MongoDB.
 
-    Environment variable substitution (``${VAR_NAME}``) is applied to YAML-
-    sourced configs. MongoDB-sourced configs are assumed to already have their
-    prompts resolved (the UI stores them as-is).
+    Environment variable substitution (``${VAR_NAME}``) is applied to both
+    YAML-sourced and MongoDB-sourced configs so that system workflows seeded
+    with ``${JARVIS_WORKFLOWS_REPO}`` etc. resolve at runtime.
     """
     mongodb_uri = os.getenv("MONGODB_URI")
     if mongodb_uri:
@@ -398,7 +416,7 @@ def load_task_config(user_email: Optional[str] = None) -> dict:
 
             configs = get_task_configs_for_user(user_email)
             if configs:
-                return configs
+                return _substitute_env_vars_in_configs(configs)
         except Exception as e:
             logger.warning(f"MongoDB unavailable, falling back to YAML: {e}")
 
