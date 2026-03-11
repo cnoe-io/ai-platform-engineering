@@ -152,6 +152,9 @@ function TaskBuilderCanvasInner({
   const [name, setName] = useState(existingConfig?.name || initialName || "");
   const [category, setCategory] = useState(existingConfig?.category || initialCategory || "Custom");
   const [description, setDescription] = useState(existingConfig?.description || "");
+  const [allowedTools, setAllowedTools] = useState<string[] | undefined>(
+    existingConfig?.metadata?.allowed_tools
+  );
   const [isSaving, setIsSaving] = useState(false);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [importOpen, setImportOpen] = useState(false);
@@ -450,6 +453,9 @@ function TaskBuilderCanvasInner({
         description: description || undefined,
         tasks: steps,
         visibility: "global",
+        metadata: {
+          ...(allowedTools && allowedTools.length > 0 ? { allowed_tools: allowedTools } : {}),
+        },
       };
 
       if (existingConfig) {
@@ -465,7 +471,7 @@ function TaskBuilderCanvasInner({
     } finally {
       setIsSaving(false);
     }
-  }, [name, category, description, nodes, existingConfig, createConfig, updateConfig, onBack]);
+  }, [name, category, description, nodes, existingConfig, createConfig, updateConfig, onBack, allowedTools]);
 
   const buildYamlString = useCallback(() => {
     const steps = nodesToSteps(nodes);
@@ -576,6 +582,9 @@ function TaskBuilderCanvasInner({
           stepIndex={selectedStepIndex}
           onChange={handleStepChange}
           allSteps={currentSteps}
+          isSystemWorkflow={existingConfig?.is_system ?? false}
+          allowedTools={allowedTools}
+          onAllowedToolsChange={(tools) => { markDirty(); setAllowedTools(tools); }}
         />
       </div>
 

@@ -1,9 +1,10 @@
 "use client";
 
 import React, { useMemo, useState } from "react";
-import { ChevronDown, ChevronLeft, ChevronRight, GripVertical, Search } from "lucide-react";
+import { ChevronDown, ChevronLeft, ChevronRight, GripVertical, Loader2, Search } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { STEP_TEMPLATES } from "./step-templates";
+import { useAgentTools } from "@/hooks/use-agent-tools";
 import type { StepTemplate } from "@/types/task-config";
 
 const SUBAGENT_COLORS: Record<string, string> = {
@@ -30,6 +31,7 @@ export function StepPalette({ onAddTemplate }: StepPaletteProps) {
   const [collapsed, setCollapsed] = useState(false);
   const [query, setQuery] = useState("");
   const [collapsedCats, setCollapsedCats] = useState<Set<string>>(new Set());
+  const { toolsMap, loading, error, errorMessage, refresh } = useAgentTools();
 
   const toggleCat = (cat: string) =>
     setCollapsedCats((prev) => {
@@ -38,17 +40,24 @@ export function StepPalette({ onAddTemplate }: StepPaletteProps) {
       return next;
     });
 
+  const availableAgents = useMemo(() => {
+    const keys = new Set(Object.keys(toolsMap));
+    keys.add("caipe"); // always available
+    return keys;
+  }, [toolsMap]);
+
   const filtered = useMemo(() => {
-    if (!query.trim()) return STEP_TEMPLATES;
+    const base = STEP_TEMPLATES.filter((t) => availableAgents.has(t.subagent));
+    if (!query.trim()) return base;
     const q = query.toLowerCase();
-    return STEP_TEMPLATES.filter(
+    return base.filter(
       (t) =>
         t.label.toLowerCase().includes(q) ||
         t.subagent.toLowerCase().includes(q) ||
         t.category.toLowerCase().includes(q) ||
         t.display_text.toLowerCase().includes(q)
     );
-  }, [query]);
+  }, [query, availableAgents]);
 
   const grouped = useMemo(() => {
     return filtered.reduce<Record<string, StepTemplate[]>>((acc, t) => {
@@ -85,9 +94,13 @@ export function StepPalette({ onAddTemplate }: StepPaletteProps) {
           Tools
         </span>
         <div className="flex items-center gap-1">
-          <span className="text-[9px] text-muted-foreground font-mono">
-            {filtered.length}
-          </span>
+          {loading ? (
+            <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
+          ) : (
+            <span className="text-[9px] text-muted-foreground font-mono">
+              {filtered.length}
+            </span>
+          )}
           <button
             onClick={() => setCollapsed(true)}
             className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground"
@@ -116,10 +129,21 @@ export function StepPalette({ onAddTemplate }: StepPaletteProps) {
 
       {/* Scrollable list */}
       <div className="flex-1 overflow-y-auto px-1.5 py-1.5 space-y-0.5 scrollbar-thin">
-        {Object.keys(grouped).length === 0 && (
-          <p className="text-xs text-muted-foreground text-center py-6">
-            No tools match &ldquo;{query}&rdquo;
-          </p>
+        {Object.keys(grouped).length === 0 && !loading && (
+          <div className="text-xs text-muted-foreground text-center py-6 space-y-2">
+            {query ? (
+              <p>No tools match &ldquo;{query}&rdquo;</p>
+            ) : error ? (
+              <>
+                <p className="text-destructive">{errorMessage || "Could not load agents"}</p>
+                <button onClick={refresh} className="text-primary hover:underline text-xs">
+                  Retry
+                </button>
+              </>
+            ) : (
+              <p>No agents available. Ensure the supervisor is running.</p>
+            )}
+          </div>
         )}
 
         {Object.entries(grouped).map(([category, templates]) => {

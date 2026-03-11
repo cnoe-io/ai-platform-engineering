@@ -156,6 +156,7 @@ supervisor-agent:
     AGENT_CONNECTIVITY_ENABLE_BACKGROUND: "true"
     USE_STRUCTURED_RESPONSE: "true" # Set to "true" to enforce agent to always use structured response format as the final output
     TASK_CONFIG_PATH: "/app/task_config.yaml"
+    POLICY_FILE_PATH: "/app/policy.lp"
   multiAgentConfig:
     protocol: "a2a"
     port: "8000"

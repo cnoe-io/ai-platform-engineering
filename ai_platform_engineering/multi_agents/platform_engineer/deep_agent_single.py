@@ -517,22 +517,26 @@ def create_invoke_self_service_task_tool():
         # Build step list for display
         step_list = "\n".join([f"{i+1}. {t.get('display_text', 'Step')}" for i, t in enumerate(tasks)])
         
-        # Return Command that ONLY sets up state - no AIMessage injection!
-        # The before_model hook will inject the task call and short-circuit
-        return Command(
-            update={
-                "tasks": tasks,
-                "todos": todos,
-                "task_execution_pending": True,  # Signal for before_model
-                "messages": [
-                    ToolMessage(
-                        content=f"Starting workflow: {task_name}\n\nThe following {len(tasks)} steps will be executed:\n{step_list}",
-                        tool_call_id=tool_call_id,
-                    ),
-                ],
-            },
-            # NO goto - let it go back to model where before_model will intercept
-        )
+        # Determine if this is a system workflow or custom with tool restrictions
+        is_system = task_def.get("is_system", True)
+        allowed_tools = task_def.get("allowed_tools") if not is_system else None
+        
+        update_dict: dict = {
+            "tasks": tasks,
+            "todos": todos,
+            "task_execution_pending": True,
+            "messages": [
+                ToolMessage(
+                    content=f"Starting workflow: {task_name}\n\nThe following {len(tasks)} steps will be executed:\n{step_list}",
+                    tool_call_id=tool_call_id,
+                ),
+            ],
+        }
+        
+        if allowed_tools:
+            update_dict["task_allowed_tools"] = allowed_tools
+        
+        return Command(update=update_dict)
     
     return invoke_self_service_task
 
@@ -885,6 +889,7 @@ class PlatformEngineerDeepAgent:
         self._graph = None
         self._graph_generation = 0
         self._initialized = False
+        self._subagent_tools: Dict[str, List[str]] = {}
         
         # RAG-related instance variables
         self.rag_enabled = ENABLE_RAG
@@ -951,6 +956,11 @@ class PlatformEngineerDeepAgent:
         if not self.rag_tools:
             return set()
         return {t.name for t in self.rag_tools}
+
+    def get_subagent_tools(self) -> Dict[str, List[str]]:
+        """Return tool names per subagent, captured at graph build time."""
+        with self._graph_lock:
+            return dict(self._subagent_tools)
 
     async def _load_rag_tools(self) -> List[Any]:
         """Load RAG MCP tools from the server."""
@@ -1118,6 +1128,15 @@ class PlatformEngineerDeepAgent:
                 logger.info("🌤️ Weather remote A2A subagent enabled")
             except Exception as e:
                 logger.warning(f"Failed to create weather remote subagent: {e}")
+        
+        # Capture tool names per subagent for the /tools API
+        subagent_tools_snapshot: Dict[str, List[str]] = {}
+        for sd in subagent_defs:
+            sa_name = sd.get("name")
+            sa_tools = sd.get("tools", [])
+            if sa_name and sa_tools:
+                subagent_tools_snapshot[sa_name] = [t.name for t in sa_tools]
+        self._subagent_tools = subagent_tools_snapshot
         
         # Build agents_for_prompt dict for generating system prompt
         agents_for_prompt = {}

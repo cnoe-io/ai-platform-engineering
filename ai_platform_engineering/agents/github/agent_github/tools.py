@@ -48,6 +48,32 @@ def is_self_service_mode() -> bool:
     return getattr(_thread_local, 'self_service_mode', False)
 
 
+# ---------------------------------------------------------------------------
+# Per-task allowed tools — set by DeterministicTaskMiddleware for custom workflows
+# None = allow all (default); list = only these tools are permitted
+# ---------------------------------------------------------------------------
+_task_allowed_tools_ctx: contextvars.ContextVar[Optional[list]] = contextvars.ContextVar(
+    'task_allowed_tools', default=None
+)
+
+
+def set_task_allowed_tools(tools: Optional[list]) -> None:
+    """Set the allowed tools list for the current custom workflow execution."""
+    _task_allowed_tools_ctx.set(tools)
+    _thread_local.task_allowed_tools = tools
+
+
+def get_task_allowed_tools() -> Optional[list]:
+    """Get the allowed tools list for the current task, or None if unrestricted."""
+    try:
+        val = _task_allowed_tools_ctx.get()
+        if val is not None:
+            return val
+    except LookupError:
+        pass
+    return getattr(_thread_local, 'task_allowed_tools', None)
+
+
 # Dangerous commands that should be blocked by default
 BLOCKED_COMMAND_PATTERNS = [
     r"delete\s",

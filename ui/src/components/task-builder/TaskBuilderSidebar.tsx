@@ -7,36 +7,51 @@ import { Textarea } from "@/components/ui/textarea";
 import { SubagentSelector } from "./SubagentSelector";
 import { CaipeFormBuilder } from "./CaipeFormBuilder";
 import { EnvVarsPanel } from "./EnvVarsPanel";
+import { PolicyPanel } from "./PolicyPanel";
 import { FileInput, FileOutput } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { extractFileIO, type TaskStep } from "@/types/task-config";
 
-type SidebarTab = "properties" | "files" | "envvars";
+type SidebarTab = "properties" | "files" | "envvars" | "policy";
 
 interface TaskBuilderSidebarProps {
   step: TaskStep | null;
   stepIndex: number;
   onChange: (updates: Partial<TaskStep>) => void;
   allSteps: TaskStep[];
+  isSystemWorkflow: boolean;
+  allowedTools?: string[];
+  onAllowedToolsChange: (tools: string[] | undefined) => void;
 }
 
-export function TaskBuilderSidebar({ step, stepIndex, onChange, allSteps }: TaskBuilderSidebarProps) {
+export function TaskBuilderSidebar({
+  step,
+  stepIndex,
+  onChange,
+  allSteps,
+  isSystemWorkflow,
+  allowedTools,
+  onAllowedToolsChange,
+}: TaskBuilderSidebarProps) {
   const [tab, setTab] = useState<SidebarTab>("properties");
 
   if (!step) {
     return (
       <div className="w-80 border-l border-border bg-card/50 flex flex-col">
-        <div className="flex-1 flex items-center justify-center p-6">
-          <p className="text-sm text-muted-foreground text-center">
-            Select a step on the canvas to edit its properties
-          </p>
-        </div>
         <SidebarFooter tab={tab} setTab={setTab} />
-        {tab === "envvars" && (
-          <div className="border-t border-border p-4 max-h-[40vh] overflow-y-auto">
-            <EnvVarsPanel tasks={allSteps} />
-          </div>
-        )}
+        <div className="flex-1 overflow-y-auto">
+          {tab === "envvars" ? (
+            <div className="p-4">
+              <EnvVarsPanel tasks={allSteps} />
+            </div>
+          ) : (
+            <div className="flex items-center justify-center p-6 h-full">
+              <p className="text-sm text-muted-foreground text-center">
+                Select a step on the canvas to edit its properties
+              </p>
+            </div>
+          )}
+        </div>
       </div>
     );
   }
@@ -131,6 +146,17 @@ export function TaskBuilderSidebar({ step, stepIndex, onChange, allSteps }: Task
             <EnvVarsPanel tasks={allSteps} />
           </div>
         )}
+
+        {tab === "policy" && (
+          <div className="p-4">
+            <PolicyPanel
+              isSystemWorkflow={isSystemWorkflow}
+              subagent={step.subagent}
+              allowedTools={allowedTools}
+              onChange={onAllowedToolsChange}
+            />
+          </div>
+        )}
       </div>
     </div>
   );
@@ -147,6 +173,7 @@ function SidebarFooter({
     { id: "properties", label: "Properties" },
     { id: "files", label: "Files" },
     { id: "envvars", label: "Env Vars" },
+    { id: "policy", label: "Policy" },
   ];
 
   return (

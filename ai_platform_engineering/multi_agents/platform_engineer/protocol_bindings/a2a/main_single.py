@@ -17,6 +17,9 @@ from ai_platform_engineering.utils.logging_config import configure_logging
 from ai_platform_engineering.utils.metrics import PrometheusMetricsMiddleware, agent_metrics
 
 from starlette.middleware.cors import CORSMiddleware
+from starlette.requests import Request
+from starlette.responses import JSONResponse
+from starlette.routing import Route
 
 # Import single-node specific executor (uses original class name for compatibility)
 from ai_platform_engineering.multi_agents.platform_engineer.protocol_bindings.a2a.agent_executor_single import (
@@ -148,6 +151,41 @@ a2a_server = A2AStarletteApplication(
 )
 
 app = a2a_server.build()
+
+################################################################################
+# Eager initialisation — load MCP tools at startup, not on first request
+################################################################################
+_binding = request_handler.agent_executor.agent
+
+
+async def _startup_initialize():
+    logger.info("Initialising agent (loading MCP tools)...")
+    try:
+        await _binding.ensure_initialized()
+        logger.info("Agent initialised successfully")
+    except Exception:
+        logger.exception("Agent initialisation failed — will retry on first request")
+
+
+app.add_event_handler("startup", _startup_initialize)
+
+################################################################################
+# /tools endpoint – returns tool names per subagent from the running MAS
+################################################################################
+
+
+async def _tools_endpoint(request: Request) -> JSONResponse:
+    """Return dynamically discovered tool names grouped by subagent."""
+    try:
+        if not _binding._initialized:
+            await _binding.ensure_initialized()
+        return JSONResponse({"tools": _binding._mas_instance.get_subagent_tools()})
+    except Exception as e:
+        logger.warning(f"/tools endpoint error: {e}")
+        return JSONResponse({"tools": {}, "error": str(e)}, status_code=500)
+
+
+app.routes.append(Route("/tools", _tools_endpoint, methods=["GET"]))
 
 ################################################################################
 # Add authentication middleware if enabled

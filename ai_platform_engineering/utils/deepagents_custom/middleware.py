@@ -59,17 +59,20 @@ try:
     from ai_platform_engineering.agents.github.agent_github.tools import (
         set_self_service_mode,
         is_self_service_mode,
+        set_task_allowed_tools,
     )
 except ImportError:
-    # Fallback: create our own simple functions if import fails
     _self_service_mode_fallback = False
-    
+
     def set_self_service_mode(value: bool) -> None:
         global _self_service_mode_fallback
         _self_service_mode_fallback = value
-    
+
     def is_self_service_mode() -> bool:
         return _self_service_mode_fallback
+
+    def set_task_allowed_tools(tools) -> None:
+        pass
 
 
 class Todo(TypedDict):
@@ -324,9 +327,9 @@ class DeterministicTaskMiddleware(AgentMiddleware):
                 "current_task_id": None,
                 "pending_task_tool_call_id": None,
                 "task_execution_pending": False,
+                "task_allowed_tools": None,
             }
             
-            # Include final files state
             if files_state:
                 update_dict["files"] = files_state
             
@@ -350,17 +353,16 @@ class DeterministicTaskMiddleware(AgentMiddleware):
         if tool_name == "task" and pending_id and tool_call_id == pending_id:
             logger.info(f"[DeterministicTaskMiddleware] Executing task {current_task_id} via wrap_tool_call (sync)")
             
-            # Enable self-service mode for policy authorization
-            # This allows write operations (create_branch, push_files, etc.) during self-service workflows
             set_self_service_mode(True)
+            task_tools = state.get("task_allowed_tools")
+            set_task_allowed_tools(task_tools)
             logger.info(f"[DeterministicTaskMiddleware] Enabled self_service_mode=True for task {current_task_id}")
             
             try:
-                # Execute the task
                 result = handler(request)
             finally:
-                # Always reset self-service mode after task execution
                 set_self_service_mode(False)
+                set_task_allowed_tools(None)
                 logger.debug(f"[DeterministicTaskMiddleware] Disabled self_service_mode after task {current_task_id}")
             
             # Extract the ToolMessage content and files state
@@ -422,17 +424,16 @@ class DeterministicTaskMiddleware(AgentMiddleware):
             description = task_args.get("description", "")[:100]
             logger.info(f"[DeterministicTaskMiddleware] Executing task {current_task_id} via awrap_tool_call: subagent={subagent_type}, desc={description}...")
             
-            # Enable self-service mode for policy authorization
-            # This allows write operations (create_branch, push_files, etc.) during self-service workflows
             set_self_service_mode(True)
+            task_tools = state.get("task_allowed_tools")
+            set_task_allowed_tools(task_tools)
             logger.info(f"[DeterministicTaskMiddleware] Enabled self_service_mode=True for task {current_task_id}")
             
             try:
-                # Execute the task asynchronously
                 result = await handler(request)
             finally:
-                # Always reset self-service mode after task execution
                 set_self_service_mode(False)
+                set_task_allowed_tools(None)
                 logger.debug(f"[DeterministicTaskMiddleware] Disabled self_service_mode after task {current_task_id}")
             
             # Log the result type and content
