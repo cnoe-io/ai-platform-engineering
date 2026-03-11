@@ -135,14 +135,14 @@ seedConfig:
   #   description: "Latest Claude Sonnet model"
 
   # MCP server configurations
-  # Transport types: stdio, sse, http
+  # Transport types: stdio, streamable-http, sse (legacy)
   mcp_servers: []
-  # Example for HTTP MCP server:
+  # Example for Streamable HTTP MCP server:
   # - id: "argocd"
   #   name: "ArgoCD"
   #   description: "ArgoCD operations via MCP"
-  #   transport: "sse"
-  #   endpoint: "http://agent-argocd-mcp:8000/sse"
+  #   transport: "streamable-http"
+  #   endpoint: "http://agent-argocd-mcp:8000/mcp"
   #   enabled: true
   #
   # Example for stdio MCP server:
