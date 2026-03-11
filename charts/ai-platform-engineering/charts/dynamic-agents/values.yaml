@@ -106,6 +106,10 @@ config:
 # the same secret or create a separate one with the connection string
 existingSecret: ""
 
+# LLM secret containing LLM_PROVIDER, API keys, and model configuration
+# This secret is typically shared across CAIPE components
+llmSecret: ""
+
 # External Secrets configuration
 externalSecrets:
   enabled: false

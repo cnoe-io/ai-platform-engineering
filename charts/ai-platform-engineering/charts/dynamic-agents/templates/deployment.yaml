@@ -63,6 +63,10 @@ spec:
             - secretRef:
                 name: {{ .Values.existingSecret }}
             {{- end }}
+            {{- if .Values.llmSecret }}
+            - secretRef:
+                name: {{ .Values.llmSecret }}
+            {{- end }}
             {{- if .Values.externalSecrets.enabled }}
             - secretRef:
                 name: {{ include "dynamic-agents.fullname" . }}-secret
