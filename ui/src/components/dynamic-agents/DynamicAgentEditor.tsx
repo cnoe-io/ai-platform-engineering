@@ -159,7 +159,7 @@ export function DynamicAgentEditor({ agent, onSave, onCancel }: DynamicAgentEdit
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [availableModels, setAvailableModels] = React.useState<
-    { model: string; name: string; provider: string; description: string }[]
+    { model_id: string; name: string; provider: string; description: string }[]
   >([]);
   const [modelsLoading, setModelsLoading] = React.useState(false);
   const [availableTeams, setAvailableTeams] = React.useState<
@@ -211,8 +211,8 @@ export function DynamicAgentEditor({ agent, onSave, onCancel }: DynamicAgentEdit
             // Editing existing agent - verify model exists using both model AND provider
             // (same model can exist for different providers, e.g., gpt-4o for openai and azure-openai)
             const existingModel = data.data.find(
-              (m: { model: string; provider: string }) => 
-                m.model === agent.model_id && m.provider === agent.model_provider
+              (m: { model_id: string; provider: string }) => 
+                m.model_id === agent.model_id && m.provider === agent.model_provider
             );
             if (existingModel) {
               // Model exists - ensure provider is in sync with config
@@ -221,13 +221,13 @@ export function DynamicAgentEditor({ agent, onSave, onCancel }: DynamicAgentEdit
               // Model no longer available - reset to first available
               console.warn(`Agent model "${agent.model_id}" no longer available, resetting to default`);
               if (data.data.length > 0) {
-                setModelId(data.data[0].model);
+                setModelId(data.data[0].model_id);
                 setModelProvider(data.data[0].provider);
               }
             }
           } else if (data.data.length > 0) {
             // Creating new agent - default to first model
-            setModelId(data.data[0].model);
+            setModelId(data.data[0].model_id);
             setModelProvider(data.data[0].provider);
           }
         }
@@ -467,7 +467,7 @@ export function DynamicAgentEditor({ agent, onSave, onCancel }: DynamicAgentEdit
                       <option value="">Platform Default</option>
                     ) : (
                       availableModels.map((model) => (
-                        <option key={`${model.model}::${model.provider}`} value={`${model.model}::${model.provider}`}>
+                        <option key={`${model.model_id}::${model.provider}`} value={`${model.model_id}::${model.provider}`}>
                           {model.name}{model.provider && model.provider !== "default" ? ` (${model.provider})` : ""}
                         </option>
                       ))

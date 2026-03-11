@@ -149,7 +149,7 @@ async def list_available_models(
         success=True,
         data=[
             {
-                "model": m.model,
+                "model_id": m.model_id,
                 "name": m.name,
                 "provider": m.provider,
                 "description": m.description,

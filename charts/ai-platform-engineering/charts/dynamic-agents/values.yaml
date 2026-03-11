@@ -129,7 +129,7 @@ seedConfig:
   # Available LLM models for the model selector
   models: []
   # Example:
-  # - model: "claude-sonnet-4-20250514"
+  # - model_id: "claude-sonnet-4-20250514"
   #   name: "Claude Sonnet 4"
   #   provider: "anthropic-claude"
   #   description: "Latest Claude Sonnet model"

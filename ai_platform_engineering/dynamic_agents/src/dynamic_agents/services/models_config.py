@@ -21,7 +21,7 @@ DEFAULT_CONFIG_PATH = Path(__file__).parent / "config.yaml"
 class ModelInfo:
     """Information about an available LLM model."""
 
-    model: str
+    model_id: str
     name: str
     provider: str
     description: str = ""
@@ -52,7 +52,7 @@ def load_models_config(config_path: Path | str | None = None) -> list[ModelInfo]
     for item in config.get("models", []):
         models.append(
             ModelInfo(
-                model=item.get("model", ""),
+                model_id=item.get("model_id", ""),
                 name=item.get("name", "Unknown"),
                 provider=item.get("provider", "unknown"),
                 description=item.get("description", ""),
