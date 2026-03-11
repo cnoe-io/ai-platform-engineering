@@ -3,7 +3,7 @@
 import React, { useMemo, useState } from "react";
 import { ChevronDown, ChevronLeft, ChevronRight, GripVertical, Loader2, Search } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { STEP_TEMPLATES } from "./step-templates";
+import { getStepTemplates } from "./step-templates";
 import { useAgentTools } from "@/hooks/use-agent-tools";
 import type { StepTemplate } from "@/types/task-config";
 
@@ -47,7 +47,7 @@ export function StepPalette({ onAddTemplate }: StepPaletteProps) {
   }, [toolsMap]);
 
   const filtered = useMemo(() => {
-    const base = STEP_TEMPLATES.filter((t) => availableAgents.has(t.subagent));
+    const base = getStepTemplates().filter((t) => availableAgents.has(t.subagent));
     if (!query.trim()) return base;
     const q = query.toLowerCase();
     return base.filter(

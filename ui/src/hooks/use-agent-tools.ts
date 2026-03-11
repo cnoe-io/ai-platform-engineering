@@ -1,13 +1,14 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import { getConfig } from "@/lib/config";
 
 /**
  * Canonical display labels for known subagent identifiers.
  * Unknown agents get a capitalised version of their key.
+ * "caipe" is handled dynamically in {@link labelFor} via APP_NAME.
  */
 const KNOWN_LABELS: Record<string, string> = {
-  caipe: "User Input (CAIPE)",
   github: "GitHub",
   backstage: "Backstage",
   aws: "AWS",
@@ -53,7 +54,8 @@ interface FetchResult {
 let _cache: FetchResult | null = null;
 let _fetchPromise: Promise<FetchResult> | null = null;
 
-function labelFor(key: string): string {
+export function labelFor(key: string): string {
+  if (key === "caipe") return `User Input (${getConfig("appName")})`;
   return KNOWN_LABELS[key] ?? key.charAt(0).toUpperCase() + key.slice(1);
 }
 

@@ -3,6 +3,7 @@
 import React from "react";
 import { FileText, GitBranch, Cloud, Zap, X } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { labelFor } from "@/hooks/use-agent-tools";
 import type { TaskStep, TaskConfigCategory } from "@/types/task-config";
 
 export interface WorkflowTemplate {
@@ -268,7 +269,7 @@ export function WorkflowTemplateDialog({
                       key={a}
                       className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-muted text-muted-foreground"
                     >
-                      {a}
+                      {labelFor(a)}
                     </span>
                   ))}
                 </div>
