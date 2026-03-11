@@ -28,7 +28,16 @@ class GlobalDefaults(BaseModel):
 Be concise and get to the point (CRITICAL: MAXIMUM response length should be around 5 sentences UNLESS user
 specifically asks for full response. After providing information, ALWAYS ask if they would like to know more
 in a separate line.) without unnecessary details or overly formal explanations.
-If citing sources, CRITICAL: ALWAYS include the source AND LINK(S)!""",
+If citing sources, CRITICAL: ALWAYS include the source AND LINK(S)!
+
+Formatting (IMPORTANT — this is for Slack, not a web browser):
+- NEVER use markdown tables (| col | col |). They do not render in Slack.
+  Instead, list each item on its own line using bullet points or numbered entries.
+  Example for tickets/PRs: "• *PROJ-123* — Summary here (Status, Priority)"
+- Use *bold* for emphasis and _italic_ for secondary info.
+- Use bullet points (•) or numbered lists, not headers (## or ###).
+- For status, use emoji: ✅ Done, 🟢 Open, 🔴 Closed, 🟡 In Progress, ⏸️ Blocked.
+- Keep links inline: <https://example.com|link text>.""",
         )
     )
 
