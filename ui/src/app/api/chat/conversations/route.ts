@@ -110,6 +110,7 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
       _id: body.id || uuidv4(), // Use client-provided ID if given, otherwise generate
       title: body.title,
       owner_id: user.email,
+      agent_id: body.agent_id, // Dynamic agent ID; undefined = Platform Engineer
       created_at: now,
       updated_at: now,
       metadata: {

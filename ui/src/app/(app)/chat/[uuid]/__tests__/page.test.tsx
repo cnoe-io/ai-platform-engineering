@@ -146,6 +146,26 @@ jest.mock("@/components/a2a/ContextPanel", () => ({
   ContextPanel: () => <div data-testid="context-panel">Context</div>,
 }));
 
+// Mock the new view components that replaced direct Sidebar/ChatPanel/ContextPanel usage
+// Note: Sidebar is now rendered by the layout, not these view components
+jest.mock("@/components/chat/PlatformEngineerChatView", () => ({
+  PlatformEngineerChatView: ({ conversationId }: { conversationId: string }) => (
+    <div>
+      <div data-testid="chat-panel">Chat: {conversationId}</div>
+      <div data-testid="context-panel">Context</div>
+    </div>
+  ),
+}));
+
+jest.mock("@/components/dynamic-agents/DynamicAgentChatView", () => ({
+  DynamicAgentChatView: ({ conversationId }: { conversationId: string }) => (
+    <div>
+      <div data-testid="chat-panel">Chat: {conversationId}</div>
+      <div data-testid="context-panel">Context</div>
+    </div>
+  ),
+}));
+
 jest.mock("framer-motion", () => ({
   motion: {
     div: ({
@@ -185,10 +205,12 @@ describe("ChatUUID Page", () => {
     expect(logo).toHaveAttribute("src", "/logo.svg");
   });
 
-  it("shows sidebar alongside the spinner during loading", () => {
+  it("shows only spinner during loading (sidebar is in layout, not page)", () => {
     render(<ChatUUID />);
 
-    expect(screen.getByTestId("sidebar")).toBeInTheDocument();
+    // Sidebar is now rendered by the layout, not the page
+    // The page should only show the spinner during loading
+    expect(screen.queryByTestId("sidebar")).not.toBeInTheDocument();
     expect(screen.getByText("Loading conversation...")).toBeInTheDocument();
   });
 
@@ -236,6 +258,7 @@ describe("ChatUUID Page", () => {
         updatedAt: new Date(),
         messages: [{ id: "m1", role: "user", content: "hello" }],
         a2aEvents: [],
+        sseEvents: [],
       },
     ];
 
@@ -256,6 +279,7 @@ describe("ChatUUID Page", () => {
         updatedAt: new Date(),
         messages: [],
         a2aEvents: [],
+        sseEvents: [],
       },
     ];
 
@@ -331,6 +355,7 @@ describe("ChatUUID Page", () => {
         updatedAt: new Date(),
         messages: [],
         a2aEvents: [],
+        sseEvents: [],
       },
     ];
 
@@ -395,6 +420,7 @@ describe("ChatUUID Page", () => {
         updatedAt: new Date(),
         messages: [{ id: "m1", role: "user", content: "hi" }],
         a2aEvents: [],
+        sseEvents: [],
       },
     ];
 
@@ -412,6 +438,7 @@ describe("ChatUUID Page", () => {
         updatedAt: new Date(),
         messages: [],
         a2aEvents: [],
+        sseEvents: [],
       },
     ];
 
@@ -455,6 +482,7 @@ describe("ChatUUID Page", () => {
           { id: "m2", role: "assistant", content: "hi there" },
         ],
         a2aEvents: [],
+        sseEvents: [],
       },
     ];
 
@@ -480,6 +508,7 @@ describe("ChatUUID Page", () => {
         updatedAt: new Date(),
         messages: [{ id: "m1", role: "user", content: "test" }],
         a2aEvents: [],
+        sseEvents: [],
       },
     ];
 
@@ -503,6 +532,7 @@ describe("ChatUUID Page", () => {
         updatedAt: new Date(),
         messages: [],
         a2aEvents: [],
+        sseEvents: [],
       },
     ];
 
@@ -551,6 +581,7 @@ describe("ChatUUID Page", () => {
         updatedAt: new Date(),
         messages: [],
         a2aEvents: [],
+        sseEvents: [],
       },
     ];
 
@@ -593,6 +624,7 @@ describe("ChatUUID Page", () => {
         updatedAt: new Date(),
         messages: [{ id: "m1", role: "user", content: "appeared" }],
         a2aEvents: [],
+        sseEvents: [],
       },
     ];
 
@@ -640,6 +672,7 @@ describe("ChatUUID Page", () => {
         updatedAt: new Date(),
         messages: [{ id: "m1", role: "user", content: "test" }],
         a2aEvents: [],
+        sseEvents: [],
       },
     ];
 
@@ -647,7 +680,8 @@ describe("ChatUUID Page", () => {
 
     expect(screen.getByTestId("chat-panel")).toBeInTheDocument();
     expect(screen.getByTestId("context-panel")).toBeInTheDocument();
-    expect(screen.getByTestId("sidebar")).toBeInTheDocument();
+    // Sidebar is now rendered by the layout, not the page
+    expect(screen.queryByTestId("sidebar")).not.toBeInTheDocument();
   });
 
   it("does not render context panel or chat panel while spinner is showing", () => {
@@ -667,6 +701,7 @@ describe("ChatUUID Page", () => {
         updatedAt: new Date(),
         messages: [{ id: "m1", role: "user", content: "x" }],
         a2aEvents: [],
+        sseEvents: [],
       },
     ];
 
@@ -689,6 +724,7 @@ describe("ChatUUID Page", () => {
         updatedAt: new Date(),
         messages: [{ id: "m1", role: "user", content: "other" }],
         a2aEvents: [],
+        sseEvents: [],
       },
     ];
 
@@ -760,6 +796,7 @@ describe("ChatUUID Page", () => {
           updatedAt: new Date(),
           messages,
           a2aEvents: [],
+        sseEvents: [],
         },
       ];
 
@@ -783,6 +820,7 @@ describe("ChatUUID Page", () => {
           updatedAt: new Date(),
           messages,
           a2aEvents: [],
+        sseEvents: [],
         },
       ];
 
@@ -827,6 +865,7 @@ describe("ChatUUID Page", () => {
           updatedAt: new Date(),
           messages: [],
           a2aEvents: [],
+        sseEvents: [],
         },
       ];
 
@@ -863,6 +902,7 @@ describe("ChatUUID Page", () => {
           updatedAt: new Date(),
           messages,
           a2aEvents: [],
+        sseEvents: [],
         },
       ];
 
@@ -896,6 +936,7 @@ describe("ChatUUID Page", () => {
           updatedAt: new Date(),
           messages: [],
           a2aEvents: [],
+        sseEvents: [],
         },
       ];
 
@@ -933,6 +974,7 @@ describe("ChatUUID Page", () => {
           updatedAt: new Date(),
           messages,
           a2aEvents: [],
+        sseEvents: [],
         },
       ];
 

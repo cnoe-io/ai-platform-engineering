@@ -1,0 +1,171 @@
+# Default values for dynamic-agents
+# This is a YAML-formatted file.
+
+# Override the chart name
+nameOverride: ""
+fullnameOverride: ""
+
+# Container image configuration
+image:
+  repository: "ghcr.io/cnoe-io/caipe-dynamic-agents"
+  pullPolicy: "Always"
+  # tag defaults to .Chart.AppVersion when not specified
+  tag: ""
+
+# Secrets for pulling images from private repositories
+imagePullSecrets: []
+
+# Service account configuration
+serviceAccount:
+  create: true
+  automount: true
+  annotations: {}
+  name: ""
+
+# Pod annotations and labels
+podAnnotations: {}
+podLabels: {}
+
+podSecurityContext: {}
+securityContext: {}
+
+# Service configuration
+service:
+  type: ClusterIP
+  port: 8001
+
+# Ingress configuration
+ingress:
+  enabled: false
+  className: "nginx"
+  annotations: {}
+  hosts:
+    - host: dynamic-agents.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+
+# Replica configuration
+replicaCount: 1
+revisionHistoryLimit: 3
+
+# Resource limits and requests
+resources: {}
+
+# Health probes
+livenessProbe:
+  httpGet:
+    path: /healthz
+    port: http
+  initialDelaySeconds: 30
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 3
+
+readinessProbe:
+  httpGet:
+    path: /healthz
+    port: http
+  initialDelaySeconds: 5
+  periodSeconds: 5
+  timeoutSeconds: 3
+  failureThreshold: 3
+
+# Autoscaling configuration
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 80
+
+volumes: []
+volumeMounts: []
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+# Environment variables (direct injection)
+env: {}
+
+# ConfigMap for non-sensitive configuration
+config:
+  # MongoDB database name (uses same DB as CAIPE UI)
+  MONGODB_DATABASE: "caipe"
+  # Authentication
+  AUTH_ENABLED: "false"
+  # Agent runtime TTL in seconds
+  AGENT_RUNTIME_TTL_SECONDS: "3600"
+  # CORS origins (JSON array format for Pydantic)
+  CORS_ORIGINS: '["*"]'
+  # Tracing disabled by default
+  ENABLE_TRACING: "false"
+
+# Pre-existing secret with MONGODB_URI and other sensitive values
+# Dynamic-agents uses the same MongoDB as CAIPE UI, so you can reference
+# the same secret or create a separate one with the connection string
+existingSecret: ""
+
+# LLM secret containing LLM_PROVIDER, API keys, and model configuration
+# This secret is typically shared across CAIPE components
+llmSecret: ""
+
+# External Secrets configuration
+externalSecrets:
+  enabled: false
+  apiVersion: "v1beta1"
+  secretStoreRef:
+    name: "vault"
+    kind: "ClusterSecretStore"
+  data: []
+
+# Seed configuration for MCP servers and agents
+# These are loaded at startup and marked as config_driven (cannot be edited via UI)
+# Environment variables in values support ${VAR_NAME} and ${VAR_NAME:-default} syntax
+seedConfig:
+  # Enable seed config ConfigMap creation and mounting
+  enabled: false
+
+  # Available LLM models for the model selector
+  models: []
+  # Example:
+  # - model_id: "claude-sonnet-4-20250514"
+  #   name: "Claude Sonnet 4"
+  #   provider: "anthropic-claude"
+  #   description: "Latest Claude Sonnet model"
+
+  # MCP server configurations
+  # Transport types: stdio, sse, http
+  mcp_servers: []
+  # Example for HTTP MCP server (Streamable HTTP):
+  # - id: "argocd"
+  #   name: "ArgoCD"
+  #   description: "ArgoCD operations via MCP"
+  #   transport: "http"
+  #   endpoint: "http://agent-argocd-mcp:8000/mcp"
+  #   enabled: true
+  #
+  # Example for stdio MCP server:
+  # - id: "github"
+  #   name: "GitHub"
+  #   transport: "stdio"
+  #   command: "uvx"
+  #   args: ["mcp-server-github"]
+  #   env:
+  #     GITHUB_TOKEN: "${GITHUB_PERSONAL_ACCESS_TOKEN}"
+  #   enabled: true
+
+  # Agent configurations
+  agents: []
+  # Example:
+  # - id: "code-reviewer"
+  #   name: "Code Reviewer"
+  #   description: "Reviews code for best practices"
+  #   system_prompt: |
+  #     You are an expert code reviewer...
+  #   model_id: "claude-sonnet-4-20250514"
+  #   model_provider: "anthropic-claude"
+  #   visibility: "global"
+  #   allowed_tools:
+  #     github: []
+  #   enabled: true

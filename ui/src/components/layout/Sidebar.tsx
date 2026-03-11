@@ -32,6 +32,7 @@ import { cn, formatDate, truncateText } from "@/lib/utils";
 import { UseCaseBuilderDialog } from "@/components/gallery/UseCaseBuilder";
 import { RecycleBinDialog } from "@/components/chat/RecycleBinDialog";
 import { ShareButton } from "@/components/chat/ShareButton";
+import { NewChatButton } from "@/components/chat/NewChatButton";
 import { useToast } from "@/components/ui/toast";
 import { useSession } from "next-auth/react";
 import { getStorageMode, getStorageModeDisplay } from "@/lib/storage-config";
@@ -69,6 +70,9 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
   const [recycleBinOpen, setRecycleBinOpen] = useState(false);
   const { toast } = useToast();
 
+  // Agent name lookup for dynamic agent conversations
+  const [agentNameMap, setAgentNameMap] = useState<Record<string, string>>({});
+
   // Load conversations from server when sidebar mounts (MongoDB mode only)
   // Also re-sync when tab becomes visible (user switches back from another browser/tab)
   useEffect(() => {
@@ -94,6 +98,26 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab, storageMode]); // Intentionally exclude loadConversationsFromServer to prevent re-runs
+
+  // Fetch dynamic agents for name lookup in conversation list
+  useEffect(() => {
+    const fetchAgents = async () => {
+      try {
+        const response = await fetch("/api/dynamic-agents/available");
+        const data = await response.json();
+        if (data.success && Array.isArray(data.data)) {
+          const map: Record<string, string> = {};
+          data.data.forEach((agent: { _id: string; name: string }) => {
+            map[agent._id] = agent.name;
+          });
+          setAgentNameMap(map);
+        }
+      } catch (err) {
+        console.error('[Sidebar] Failed to fetch agents for name lookup:', err);
+      }
+    };
+    fetchAgents();
+  }, []);
 
   // Handle mouse move for resizing
   useEffect(() => {
@@ -136,13 +160,14 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
     }
   };
 
-  const handleNewChat = async () => {
+  const handleNewChat = async (agentId?: string) => {
     try {
       if (storageMode === 'mongodb') {
         // MongoDB mode: Create conversation on server
         const { apiClient } = await import('@/lib/api-client');
         const conversation = await apiClient.createConversation({
           title: "New Conversation",
+          agent_id: agentId, // Pass agent_id to server
         });
 
         // Add to local store immediately
@@ -153,6 +178,8 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
           updatedAt: new Date(conversation.updated_at),
           messages: [],
           a2aEvents: [],
+          sseEvents: [], // SSE events for Dynamic Agents
+          agent_id: conversation.agent_id, // Include agent_id in local store
         };
 
         // Update store and wait for it to propagate
@@ -170,7 +197,7 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
         });
       } else {
         // Create conversation in localStorage
-        const conversationId = createConversation();
+        const conversationId = createConversation(agentId);
 
         // Use React transition for smooth navigation
         startTransition(() => {
@@ -181,7 +208,7 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
       console.error('[Sidebar] Failed to create conversation:', error);
 
       // Fallback to localStorage
-      const conversationId = createConversation();
+      const conversationId = createConversation(agentId);
       startTransition(() => {
         router.push(`/chat/${conversationId}`);
       });
@@ -222,18 +249,10 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
       {/* New Chat Button */}
       {activeTab === "chat" && (
         <div className="px-2 pb-2 shrink-0">
-          <Button
-            onClick={handleNewChat}
-            className={cn(
-              "w-full gap-2 bg-primary/10 hover:bg-primary/20 text-primary border border-primary/30 hover-glow",
-              collapsed && "px-2"
-            )}
-            variant="ghost"
-            size={collapsed ? "icon" : "default"}
-          >
-            <Plus className="h-4 w-4 shrink-0" />
-            {!collapsed && <span className="whitespace-nowrap">New Chat</span>}
-          </Button>
+          <NewChatButton
+            collapsed={collapsed}
+            onNewChat={handleNewChat}
+          />
         </div>
       )}
 
@@ -454,6 +473,12 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
                                   : "text-muted-foreground"
                           )}>
                             {isLive ? "Live" : isInputRequired ? "Input needed" : isUnviewed ? "New response" : formatDate(conv.updatedAt)}
+                            {/* Dynamic Agent indicator */}
+                            {conv.agent_id && (
+                              <span className="ml-1.5 text-[10px] text-purple-500 dark:text-purple-400" title={agentNameMap[conv.agent_id] || 'Unknown Agent'}>
+                                • {truncateText(agentNameMap[conv.agent_id] || 'Unknown', 20)}
+                              </span>
+                            )}
                           </p>
                         </div>
 
@@ -572,7 +597,7 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
 
               {/* Custom Query Button */}
               <Button
-                onClick={handleNewChat}
+                onClick={() => handleNewChat()}
                 variant="ghost"
                 size="icon"
                 className="h-10 w-10 hover:bg-primary/10 hover:text-primary"
@@ -614,7 +639,7 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
 
               {/* Quick Start Button */}
               <Button
-                onClick={handleNewChat}
+                onClick={() => handleNewChat()}
                 variant="outline"
                 className="w-full gap-2 border-dashed border-primary/30 hover:border-primary hover:bg-primary/5"
               >
