@@ -1,48 +1,27 @@
-## 0.2.36 (2026-03-09)
-
-## 0.2.35-rc.6 (2026-03-09)
+## 0.2.37 (2026-03-11)
 
 ### Fix
 
-- **a2a**: make user_id passing conditional in agent executor (#937)
+- prevent auto-redirect to shared/public conversations leaking context_id across users
 
-## 0.2.35-rc.5 (2026-03-09)
+## 0.2.36-rc.1 (2026-03-09)
 
 ### Feat
 
 - sub-agent to use context summarisation + refine search req
-
-## 0.2.35-rc.4 (2026-03-06)
-
-### Fix
-
-- **single-node**: send text artifact before input_required status
-- **single-node**: robust HITL resume parsing and local MongoDB support
-
-## 0.2.35-rc.3 (2026-03-06)
-
-### Feat
-
 - **rag**: replace single graph_tools_enabled toggle with individual per-tool flags
 - use Github app to bypass branch protection rule during release
 - **task-builder**: scope custom workflows per-user
 - **supervisor**: inject self-service workflows into prompt via middleware
-
-### Fix
-
-- **supervisor**: port Phase 1/Phase 2 error recovery to single-node agent
-- **docker**: include vault_utils.py in supervisor image
-
-## 0.2.35-rc.1 (2026-03-05)
-
-### Feat
-
 - **agent-github**: connect to GitHub Copilot MCP API in multi-node mode (#907)
 
-## 0.2.35-rc.2 (2026-03-05)
-
 ### Fix
 
+- **a2a**: make user_id passing conditional in agent executor (#937)
+- **single-node**: send text artifact before input_required status
+- **single-node**: robust HITL resume parsing and local MongoDB support
+- **supervisor**: port Phase 1/Phase 2 error recovery to single-node agent
+- **docker**: include vault_utils.py in supervisor image
 - resolve merge conflicts with main
 
 ## 0.2.35 (2026-03-05)
