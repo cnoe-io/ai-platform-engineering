@@ -23,11 +23,13 @@ jobs:
       version: ${{ github.event.inputs.version }}
     secrets: inherit
 
-  # Then: Create the release
-  release:
-    name: Create Release
+  # Then: Commit pyproject.toml version bump, changelog, and tag
+  commit-release:
+    name: Commit Release
     needs: sync-chart-versions
     runs-on: ubuntu-latest
+    outputs:
+      current_version: ${{ steps.validate.outputs.current_version }}
     steps:
       - name: 🔒 Harden runner
         uses: step-security/harden-runner@58077d3c7e43986b6b15fba718e8ea69e387dfcc  # v2.15.1
@@ -178,6 +180,19 @@ jobs:
           echo ""
           echo "🏷️ Tag '$NEW_VERSION' created and pushed"
 
+  # Then: Trigger CI builds and create draft release
+  publish-and-trigger-ci:
+    name: Publish Release & Trigger CI
+    needs: commit-release
+    runs-on: ubuntu-latest
+    steps:
+      - name: 🔑 Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+
       - name: 🔄 Trigger fresh CI builds for release
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
@@ -253,7 +268,7 @@ jobs:
       - name: 📊 Summary
         run: |
           NEW_VERSION="${{ github.event.inputs.version }}"
-          CURRENT_VERSION="${{ steps.validate.outputs.current_version }}"
+          CURRENT_VERSION="${{ needs.commit-release.outputs.current_version }}"
 
           echo "## Release Summary" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
