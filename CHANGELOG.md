@@ -1,4 +1,14 @@
-## 0.2.37 (2026-03-11)
+## 0.2.38 (2026-03-11)
+
+### Feat
+
+- improve manual release by splitting steps for easier retry
+
+### Fix
+
+- **ci**: github action to trigger ci properly in a new step
+
+## 0.2.37-rc.1 (2026-03-11)
 
 ### Fix
 
