@@ -228,7 +228,7 @@ jobs:
               ARGS="$ARGS -f build_all=true"
             fi
 
-            if ERROR=$(gh workflow run "$WF" --ref "$NEW_VERSION" $ARGS 2>&1); then
+            if ERROR=$(gh workflow run "$WF" --repo "${{ github.repository }}" --ref "$NEW_VERSION" $ARGS 2>&1); then
               echo "✅"
               ((SUCCESS++)) || true
             else
@@ -257,6 +257,7 @@ jobs:
           echo "🔄 Creating DRAFT GitHub Release for $NEW_VERSION..."
 
           gh release create "$NEW_VERSION" \
+            --repo "${{ github.repository }}" \
             --title "Release $NEW_VERSION" \
             --generate-notes \
             --draft
