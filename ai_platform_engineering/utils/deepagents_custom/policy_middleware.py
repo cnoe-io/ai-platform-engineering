@@ -201,6 +201,9 @@ class PolicyMiddleware(AgentMiddleware):
             logger.debug(f"MongoDB policy load failed, falling back to file: {exc}")
 
         if os.path.exists(self.policy_path):
+            if os.path.getsize(self.policy_path) == 0:
+                logger.warning(f"Policy file is empty: {self.policy_path}. Allowing all tool calls.")
+                return False
             ctrl.load(self.policy_path)
             return True
 
