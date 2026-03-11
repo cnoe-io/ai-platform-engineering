@@ -19,6 +19,10 @@ jest.mock("next/navigation", () => ({
   useRouter: () => ({ replace: mockReplace, push: jest.fn() }),
 }));
 
+jest.mock("next-auth/react", () => ({
+  useSession: () => ({ data: { user: { email: "test@example.com" } }, status: "authenticated" }),
+}));
+
 jest.mock("@/lib/config", () => ({
   getConfig: jest.fn((key: string) => {
     if (key === "logoUrl") return "/logo.svg";

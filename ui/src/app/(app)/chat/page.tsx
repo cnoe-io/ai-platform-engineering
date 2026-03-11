@@ -2,6 +2,7 @@
 
 import React, { useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
+import { useSession } from "next-auth/react";
 import { useChatStore } from "@/store/chat-store";
 import { getStorageMode } from "@/lib/storage-config";
 import { AuthGuard } from "@/components/auth-guard";
@@ -13,15 +14,19 @@ import { CAIPESpinner } from "@/components/ui/caipe-spinner";
  *
  * Priority order:
  *  1. activeConversationId from the store (remembers the user's last selection
- *     across tab switches — e.g. Chat → Skills → Chat).
- *  2. The most recent conversation in the list (first visit / active was deleted).
+ *     across tab switches — e.g. Chat → Skills → Chat), only if owned.
+ *  2. The most recent OWNED conversation (first visit / active was deleted).
  *  3. Create a brand-new conversation (empty history).
  *
- * This ensures the URL always contains a conversation UUID, which is required
- * for proper ChatPanel/ContextPanel rendering and MongoDB persistence.
+ * Only conversations owned by the current user are considered for auto-redirect.
+ * Shared/public conversations are excluded to prevent cross-user context_id
+ * collisions — the conversations API returns owned + shared + public in a
+ * single list, and auto-selecting a public conversation would cause multiple
+ * users to unknowingly share the same A2A context_id.
  */
 function ChatRedirectPage() {
   const router = useRouter();
+  const { data: session } = useSession();
   const redirected = useRef(false);
 
   const createConversation = useChatStore((s) => s.createConversation);
@@ -41,24 +46,34 @@ function ChatRedirectPage() {
       // Re-read from the store after potential server load
       const state = useChatStore.getState();
       const { conversations: currentConversations, activeConversationId } = state;
+      const userEmail = session?.user?.email;
 
-      // 1. Resume the last active conversation if it still exists
+      // Only consider conversations OWNED by the current user for auto-redirect.
+      // The API returns shared/public conversations in the same list; picking one
+      // of those would silently drop the user into someone else's conversation,
+      // causing all their messages to share the same A2A context_id.
+      // In localStorage mode, owner_id is unset — include those conversations.
+      const ownedConversations = userEmail
+        ? currentConversations.filter((c) => !c.owner_id || c.owner_id === userEmail)
+        : currentConversations;
+
+      // 1. Resume the last active conversation if it still exists and is owned
       if (activeConversationId) {
-        const stillExists = currentConversations.some((c) => c.id === activeConversationId);
-        if (stillExists) {
+        const stillOwned = ownedConversations.some((c) => c.id === activeConversationId);
+        if (stillOwned) {
           redirected.current = true;
           router.replace(`/chat/${activeConversationId}`);
           return;
         }
       }
 
-      // 2. Fall back to the most recent conversation (sorted by updatedAt)
-      if (currentConversations.length > 0) {
-        const latestId = currentConversations[0].id;
+      // 2. Fall back to the most recent OWNED conversation (sorted by updatedAt)
+      if (ownedConversations.length > 0) {
+        const latestId = ownedConversations[0].id;
         redirected.current = true;
         router.replace(`/chat/${latestId}`);
       } else {
-        // 3. No conversations — create a new one
+        // 3. No owned conversations — create a new one
         const newId = createConversation();
         redirected.current = true;
         router.replace(`/chat/${newId}`);

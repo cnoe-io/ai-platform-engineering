@@ -1,27 +1,51 @@
-## 0.2.35 (2026-03-05)
+## 0.2.38 (2026-03-11)
 
-## 0.2.34-rc.3 (2026-03-05)
+### Feat
+
+- improve manual release by splitting steps for easier retry
+
+### Fix
+
+- **ci**: github action to trigger ci properly in a new step
+
+## 0.2.37-rc.1 (2026-03-11)
+
+### Fix
+
+- prevent auto-redirect to shared/public conversations leaking context_id across users
+
+## 0.2.36-rc.1 (2026-03-09)
+
+### Feat
+
+- sub-agent to use context summarisation + refine search req
+- **rag**: replace single graph_tools_enabled toggle with individual per-tool flags
+- use Github app to bypass branch protection rule during release
+- **task-builder**: scope custom workflows per-user
+- **supervisor**: inject self-service workflows into prompt via middleware
+- **agent-github**: connect to GitHub Copilot MCP API in multi-node mode (#907)
+
+### Fix
+
+- **a2a**: make user_id passing conditional in agent executor (#937)
+- **single-node**: send text artifact before input_required status
+- **single-node**: robust HITL resume parsing and local MongoDB support
+- **supervisor**: port Phase 1/Phase 2 error recovery to single-node agent
+- **docker**: include vault_utils.py in supervisor image
+- resolve merge conflicts with main
+
+## 0.2.35 (2026-03-05)
 
 ### Feat
 
 - **aigateway**: add Vault integration and single-node agent configuration (#898)
 - **ui**: add admin audit logs with export and owner search (#894)
-
-## 0.2.34-rc.2 (2026-03-04)
-
-### Fix
-
-- **victorops**: fix deployment issues in victorops agent (#903)
-
-## 0.2.34-rc.1 (2026-03-04)
-
-### Feat
-
 - **ui**: add dashboard-style home page with shared conversations and insights (#896)
 - **ui**: admin - add feedback visibility, NPS campaigns, and admin audit mode (#893)
 
 ### Fix
 
+- **victorops**: fix deployment issues in victorops agent (#903)
 - **slack-bot**: silence unhandled reaction event warnings (#905)
 - **docs**: escape MDX curly braces in ADR to fix Docusaurus build (#902)
 
@@ -31,6 +55,9 @@
 
 - **ui**: add share with everyone for conversations (#891)
 - **ui**: live status, input-required, and unviewed message indicators (#892)
+- **task-builder**: add live workflow discovery and MongoDB integration for single-node dev
+- **task-builder**: add UX enhancements to visual workflow editor
+- **task-builder**: add visual Task Builder with MongoDB persistence
 - **ui**: add preferences modal with categorized feature flags (#865)
 - add custom mention prompts (#888)
 - **rag**: add configurable MCP server for RAG (#875)
