@@ -91,17 +91,17 @@ resources: {}
 livenessProbe:
   tcpSocket:
     port: http
-  initialDelaySeconds: 120
-  periodSeconds: 15
+  initialDelaySeconds: 30
+  periodSeconds: 10
   timeoutSeconds: 5
-  failureThreshold: 6
+  failureThreshold: 3
 readinessProbe:
   tcpSocket:
     port: http
-  initialDelaySeconds: 60
-  periodSeconds: 10
-  timeoutSeconds: 5
-  failureThreshold: 6
+  initialDelaySeconds: 5
+  periodSeconds: 5
+  timeoutSeconds: 3
+  failureThreshold: 3
 
 # This section is for setting up autoscaling more information can be found here: https://kubernetes.io/docs/concepts/workloads/autoscaling/
 autoscaling:
