@@ -20,10 +20,11 @@ import time
 import yaml
 import httpx
 from pathlib import Path
-from typing import Optional, Dict, Any, List, Annotated
+from typing import Optional, Dict, Any, List, Annotated, Union
 import operator
 
 from langchain_core.messages import AIMessage, ToolMessage
+from langchain_core.language_models import LanguageModelLike
 from langchain_core.tools import tool, StructuredTool, InjectedToolCallId
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.checkpoint.memory import InMemorySaver
@@ -165,21 +166,75 @@ RAG_CONNECTIVITY_RETRIES = 5
 RAG_CONNECTIVITY_WAIT_SECONDS = 10
 
 
-def _get_subagent_model(name: str) -> Optional[str]:
+def _build_llm_from_prefixed_env(env_prefix: str) -> Optional[LanguageModelLike]:
+    """Create an LLM via LLMFactory using prefixed environment variables.
+
+    Looks for ``<env_prefix>LLM_PROVIDER`` (e.g. ``SUBAGENT_GITHUB_LLM_PROVIDER``).
+    When found, collects every ``<env_prefix>*`` env var, strips the prefix to
+    produce the standard env var names that LLMFactory expects, temporarily
+    overrides the process environment, and delegates to LLMFactory.
+
+    This mirrors the ``.env`` pattern used in multi-node containers so that
+    every provider LLMFactory supports (OpenAI, Azure, Bedrock, Anthropic,
+    Google Gemini, Vertex AI) works identically in single-node per-agent
+    overrides.
+
+    Returns None when ``<env_prefix>LLM_PROVIDER`` is not set.
+    """
+    provider = os.getenv(f"{env_prefix}LLM_PROVIDER")
+    if not provider:
+        return None
+
+    overrides: Dict[str, str] = {}
+    for key, value in os.environ.items():
+        if key.startswith(env_prefix):
+            standard_key = key[len(env_prefix):]
+            overrides[standard_key] = value
+
+    logger.info(
+        f"LLM override via LLMFactory: {env_prefix}LLM_PROVIDER={provider}, "
+        f"overriding {len(overrides)} env var(s)"
+    )
+
+    saved: Dict[str, Optional[str]] = {}
+    try:
+        for key, value in overrides.items():
+            saved[key] = os.environ.get(key)
+            os.environ[key] = value
+        return LLMFactory(provider).get_llm()
+    finally:
+        for key, old_value in saved.items():
+            if old_value is not None:
+                os.environ[key] = old_value
+            elif key in os.environ:
+                del os.environ[key]
+
+
+def _get_subagent_model(name: str) -> Optional[Union[str, LanguageModelLike]]:
     """Resolve a per-subagent LLM model override from environment variables.
 
-    Checks for SUBAGENT_<NAME>_MODEL env var (e.g. SUBAGENT_GITHUB_MODEL).
-    The value should be a provider:model-name string supported by
-    langchain's init_chat_model (e.g. "openai:gpt-4o-mini").
+    Resolution order:
 
-    Returns None when no override is configured, which causes the
-    deepagents library to fall back to the parent agent's model.
+    1. ``SUBAGENT_<NAME>_LLM_PROVIDER`` — full LLMFactory override using
+       ``SUBAGENT_<NAME>_*`` env vars (same ``.env`` format as multi-node,
+       supports every provider).
+    2. ``SUBAGENT_<NAME>_MODEL`` — lightweight ``provider:model-name`` string
+       for langchain's init_chat_model (e.g. ``"openai:gpt-4o-mini"``).
+       Uses global credentials.
+    3. Neither — returns None (fall back to parent agent's model).
     """
-    env_var = f"SUBAGENT_{name.upper()}_MODEL"
-    value = os.getenv(env_var)
-    if value:
-        logger.info(f"Per-subagent model override: {env_var}={value}")
-    return value or None
+    env_prefix = f"SUBAGENT_{name.upper()}_"
+
+    llm = _build_llm_from_prefixed_env(env_prefix)
+    if llm is not None:
+        return llm
+
+    model = os.getenv(f"{env_prefix}MODEL")
+    if model:
+        logger.info(f"Per-subagent model override: {env_prefix}MODEL={model}")
+        return model
+
+    return None
 
 # Structured Response Configuration
 # When enabled, LLM uses ResponseFormat tool for final answers instead of [FINAL ANSWER] marker
@@ -912,14 +967,19 @@ class PlatformEngineerDeepAgent:
         """Build the deep agent graph with subagents (async to load MCP tools)."""
         logger.info(f"Building deep agent (generation {self._graph_generation + 1})...")
         
-        # Resolve the supervisor model.  Prefer SUPERVISOR_MODEL env var using
-        # langchain's provider:model-name format (e.g. "openai:gpt-4o").
-        # Falls back to LLMFactory for backward compatibility with existing
-        # LLM_PROVIDER / OPENAI_MODEL_NAME style env vars.
-        supervisor_model_str = os.getenv("SUPERVISOR_MODEL")
-        if supervisor_model_str:
-            base_model = supervisor_model_str
-            logger.info(f"Supervisor model override: SUPERVISOR_MODEL={supervisor_model_str}")
+        # Resolve the supervisor model.
+        # 1. SUPERVISOR_LLM_PROVIDER + SUPERVISOR_* env vars → full
+        #    LLMFactory override (same .env format as multi-node).
+        # 2. SUPERVISOR_MODEL only → provider:model-name string
+        #    (e.g. "openai:gpt-4o"), global credentials used.
+        # 3. Neither → LLMFactory with global LLM_PROVIDER / OPENAI_*
+        #    env vars (backward compatible).
+        supervisor_llm = _build_llm_from_prefixed_env("SUPERVISOR_")
+        if supervisor_llm is not None:
+            base_model = supervisor_llm
+        elif os.getenv("SUPERVISOR_MODEL"):
+            base_model = os.getenv("SUPERVISOR_MODEL")
+            logger.info(f"Supervisor model override: SUPERVISOR_MODEL={base_model}")
         else:
             base_model = LLMFactory().get_llm()
         
