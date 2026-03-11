@@ -96,8 +96,8 @@ config:
   AUTH_ENABLED: "false"
   # Agent runtime TTL in seconds
   AGENT_RUNTIME_TTL_SECONDS: "3600"
-  # CORS origins
-  CORS_ORIGINS: "*"
+  # CORS origins (JSON array format for Pydantic)
+  CORS_ORIGINS: '["*"]'
   # Tracing disabled by default
   ENABLE_TRACING: "false"
 
