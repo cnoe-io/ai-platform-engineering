@@ -3,10 +3,8 @@
 import logging
 import sys
 from contextlib import asynccontextmanager
-from contextvars import ContextVar
 
-# Session context for logging - can be imported by other modules
-session_id_var: ContextVar[str] = ContextVar("session_id", default="-")
+from dynamic_agents.context import session_id_var
 
 
 class SessionContextFilter(logging.Filter):

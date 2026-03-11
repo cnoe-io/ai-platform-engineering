@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from dynamic_agents.main import session_id_var
+from dynamic_agents.context import session_id_var
 from dynamic_agents.middleware.auth import UserContext, get_current_user
 from dynamic_agents.models import ChatRequest, DynamicAgentConfig, VisibilityType
 from dynamic_agents.services.agent_runtime import get_runtime_cache
