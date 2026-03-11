@@ -114,3 +114,54 @@ externalSecrets:
     name: "vault"
     kind: "ClusterSecretStore"
   data: []
+
+# Seed configuration for MCP servers and agents
+# These are loaded at startup and marked as config_driven (cannot be edited via UI)
+# Environment variables in values support ${VAR_NAME} and ${VAR_NAME:-default} syntax
+seedConfig:
+  # Enable seed config ConfigMap creation and mounting
+  enabled: false
+
+  # Available LLM models for the model selector
+  models: []
+  # Example:
+  # - model: "claude-sonnet-4-20250514"
+  #   name: "Claude Sonnet 4"
+  #   provider: "anthropic-claude"
+  #   description: "Latest Claude Sonnet model"
+
+  # MCP server configurations
+  # Transport types: stdio, sse, http
+  mcp_servers: []
+  # Example for HTTP MCP server:
+  # - id: "argocd"
+  #   name: "ArgoCD"
+  #   description: "ArgoCD operations via MCP"
+  #   transport: "sse"
+  #   endpoint: "http://agent-argocd-mcp:8000/sse"
+  #   enabled: true
+  #
+  # Example for stdio MCP server:
+  # - id: "github"
+  #   name: "GitHub"
+  #   transport: "stdio"
+  #   command: "uvx"
+  #   args: ["mcp-server-github"]
+  #   env:
+  #     GITHUB_TOKEN: "${GITHUB_PERSONAL_ACCESS_TOKEN}"
+  #   enabled: true
+
+  # Agent configurations
+  agents: []
+  # Example:
+  # - id: "code-reviewer"
+  #   name: "Code Reviewer"
+  #   description: "Reviews code for best practices"
+  #   system_prompt: |
+  #     You are an expert code reviewer...
+  #   model_id: "claude-sonnet-4-20250514"
+  #   model_provider: "anthropic-claude"
+  #   visibility: "global"
+  #   allowed_tools:
+  #     github: []
+  #   enabled: true

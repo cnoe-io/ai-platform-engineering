@@ -1,0 +1,33 @@
+{{- if .Values.seedConfig.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "dynamic-agents.fullname" . }}-seed
+  labels:
+    {{- include "dynamic-agents.labels" . | nindent 4 }}
+data:
+  config.yaml: |
+    # Dynamic Agents Seed Configuration
+    # Generated from Helm values
+
+    {{- if .Values.seedConfig.models }}
+    models:
+      {{- toYaml .Values.seedConfig.models | nindent 6 }}
+    {{- else }}
+    models: []
+    {{- end }}
+
+    {{- if .Values.seedConfig.mcp_servers }}
+    mcp_servers:
+      {{- toYaml .Values.seedConfig.mcp_servers | nindent 6 }}
+    {{- else }}
+    mcp_servers: []
+    {{- end }}
+
+    {{- if .Values.seedConfig.agents }}
+    agents:
+      {{- toYaml .Values.seedConfig.agents | nindent 6 }}
+    {{- else }}
+    agents: []
+    {{- end }}
+{{- end }}

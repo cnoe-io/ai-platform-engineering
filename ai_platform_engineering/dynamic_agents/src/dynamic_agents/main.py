@@ -76,7 +76,7 @@ async def lifespan(app: FastAPI):
         logger.info(f"Connected to MongoDB: {settings.mongodb_database}")
 
         # Apply seed configuration (agents and MCP servers from config.yaml)
-        apply_seed_config(mongo)
+        apply_seed_config(mongo, settings.seed_config_path)
 
     yield
 
