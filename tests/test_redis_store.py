@@ -22,6 +22,7 @@ from ai_platform_engineering.utils.store import (
   _LazyAsyncMongoDBStore,
   _LazyAsyncPostgresStore,
   _LazyAsyncRedisStore,
+  _build_index_config,
   _create_mongodb_store,
   _create_postgres_store,
   _create_redis_store,
@@ -106,12 +107,13 @@ class TestLazyAsyncRedisStore:
 
   @pytest.mark.asyncio
   async def test_aput_delegates(self):
+    """aput routes through BaseStore.abatch → _LazyAsyncRedisStore.abatch → inner store.abatch."""
     lazy = _LazyAsyncRedisStore("redis://host:6379")
 
     mock_store = AsyncMock()
     mock_store.__aenter__ = AsyncMock(return_value=mock_store)
     mock_store.setup = AsyncMock()
-    mock_store.aput = AsyncMock()
+    mock_store.abatch = AsyncMock(return_value=[None])
 
     mock_cls = MagicMock()
     mock_cls.from_conn_string = MagicMock(return_value=mock_store)
@@ -120,16 +122,17 @@ class TestLazyAsyncRedisStore:
       "langgraph.store.redis": MagicMock(AsyncRedisStore=mock_cls),
     }):
       await lazy.aput(("ns",), "k1", {"data": "v1"})
-      mock_store.aput.assert_called_once_with(("ns",), "k1", {"data": "v1"}, index=None)
+      mock_store.abatch.assert_called_once()
 
   @pytest.mark.asyncio
   async def test_aget_delegates(self):
+    """aget routes through BaseStore.abatch → _LazyAsyncRedisStore.abatch → inner store.abatch."""
     lazy = _LazyAsyncRedisStore("redis://host:6379")
 
     mock_store = AsyncMock()
     mock_store.__aenter__ = AsyncMock(return_value=mock_store)
     mock_store.setup = AsyncMock()
-    mock_store.aget = AsyncMock(return_value="result")
+    mock_store.abatch = AsyncMock(return_value=["result"])
 
     mock_cls = MagicMock()
     mock_cls.from_conn_string = MagicMock(return_value=mock_store)
@@ -138,16 +141,18 @@ class TestLazyAsyncRedisStore:
       "langgraph.store.redis": MagicMock(AsyncRedisStore=mock_cls),
     }):
       result = await lazy.aget(("ns",), "k1")
+      mock_store.abatch.assert_called_once()
       assert result == "result"
 
   @pytest.mark.asyncio
   async def test_asearch_delegates(self):
+    """asearch routes through BaseStore.abatch → _LazyAsyncRedisStore.abatch → inner store.abatch."""
     lazy = _LazyAsyncRedisStore("redis://host:6379")
 
     mock_store = AsyncMock()
     mock_store.__aenter__ = AsyncMock(return_value=mock_store)
     mock_store.setup = AsyncMock()
-    mock_store.asearch = AsyncMock(return_value=[])
+    mock_store.abatch = AsyncMock(return_value=[[]])
 
     mock_cls = MagicMock()
     mock_cls.from_conn_string = MagicMock(return_value=mock_store)
@@ -155,8 +160,8 @@ class TestLazyAsyncRedisStore:
     with patch.dict("sys.modules", {
       "langgraph.store.redis": MagicMock(AsyncRedisStore=mock_cls),
     }):
-      result = await lazy.asearch(("ns",), limit=10)
-      mock_store.asearch.assert_called_once_with(("ns",), limit=10)
+      await lazy.asearch(("ns",), limit=10)
+      mock_store.abatch.assert_called_once()
 
 
 # ============================================================================
@@ -508,3 +513,148 @@ class TestCreateStoreGeneral:
       from ai_platform_engineering.utils.store import get_store_config
       config = get_store_config()
       assert config["mongodb_uri"] == "mongodb://fallback:27017"
+
+
+# ============================================================================
+# Embeddings Index Config Tests
+# ============================================================================
+
+
+class TestBuildIndexConfig:
+  """Tests for _build_index_config() embedding configuration."""
+
+  def test_returns_none_when_no_env_set(self):
+    with patch.dict("os.environ", {}, clear=True):
+      assert _build_index_config() is None
+
+  def test_returns_none_when_only_provider_set(self):
+    with patch.dict("os.environ", {"EMBEDDINGS_PROVIDER": "openai"}, clear=True):
+      assert _build_index_config() is None
+
+  def test_returns_none_when_only_model_set(self):
+    with patch.dict("os.environ", {"EMBEDDINGS_MODEL": "text-embedding-3-small"}, clear=True):
+      assert _build_index_config() is None
+
+  def test_shared_rag_env_vars(self):
+    env = {
+      "EMBEDDINGS_PROVIDER": "openai",
+      "EMBEDDINGS_MODEL": "text-embedding-3-small",
+    }
+    with patch.dict("os.environ", env, clear=True):
+      config = _build_index_config()
+      assert config is not None
+      assert config["embed"] == "openai:text-embedding-3-small"
+      assert config["dims"] == 1536
+
+  def test_azure_openai_provider_normalized(self):
+    env = {
+      "EMBEDDINGS_PROVIDER": "azure-openai",
+      "EMBEDDINGS_MODEL": "text-embedding-3-small",
+    }
+    with patch.dict("os.environ", env, clear=True):
+      config = _build_index_config()
+      assert config["embed"] == "azure_openai:text-embedding-3-small"
+
+  def test_langgraph_store_overrides_shared(self):
+    env = {
+      "EMBEDDINGS_PROVIDER": "azure-openai",
+      "EMBEDDINGS_MODEL": "text-embedding-3-small",
+      "LANGGRAPH_STORE_EMBEDDINGS_PROVIDER": "openai",
+      "LANGGRAPH_STORE_EMBEDDINGS_MODEL": "text-embedding-3-large",
+    }
+    with patch.dict("os.environ", env, clear=True):
+      config = _build_index_config()
+      assert config["embed"] == "openai:text-embedding-3-large"
+      assert config["dims"] == 3072
+
+  def test_explicit_dims_override(self):
+    env = {
+      "EMBEDDINGS_PROVIDER": "openai",
+      "EMBEDDINGS_MODEL": "text-embedding-3-small",
+      "LANGGRAPH_STORE_EMBEDDINGS_DIMS": "768",
+    }
+    with patch.dict("os.environ", env, clear=True):
+      config = _build_index_config()
+      assert config["dims"] == 768
+
+  def test_unknown_model_defaults_to_1536(self):
+    env = {
+      "EMBEDDINGS_PROVIDER": "openai",
+      "EMBEDDINGS_MODEL": "some-custom-model",
+    }
+    with patch.dict("os.environ", env, clear=True):
+      config = _build_index_config()
+      assert config["dims"] == 1536
+
+
+class TestStoreWithEmbeddings:
+  """Tests for store factory with embedding index config."""
+
+  def test_memory_store_with_embeddings(self):
+    env = {
+      "EMBEDDINGS_PROVIDER": "openai",
+      "EMBEDDINGS_MODEL": "text-embedding-3-small",
+      "OPENAI_API_KEY": "sk-test-fake-key-for-unit-tests",
+    }
+    with patch.dict("os.environ", env, clear=True):
+      store = create_store()
+      assert type(store).__name__ == "InMemoryStore"
+
+  def test_redis_lazy_wrapper_stores_index_config(self):
+    index = {"dims": 1536, "embed": "openai:text-embedding-3-small"}
+    lazy = _LazyAsyncRedisStore("redis://host:6379", index_config=index)
+    assert lazy._index_config == index
+
+  def test_redis_lazy_wrapper_none_index_by_default(self):
+    lazy = _LazyAsyncRedisStore("redis://host:6379")
+    assert lazy._index_config is None
+
+  def test_postgres_lazy_wrapper_stores_index_config(self):
+    index = {"dims": 3072, "embed": "openai:text-embedding-3-large"}
+    lazy = _LazyAsyncPostgresStore("postgresql://host:5432/db", index_config=index)
+    assert lazy._index_config == index
+
+  def test_postgres_lazy_wrapper_none_index_by_default(self):
+    lazy = _LazyAsyncPostgresStore("postgresql://host:5432/db")
+    assert lazy._index_config is None
+
+  @pytest.mark.asyncio
+  async def test_redis_passes_index_to_from_conn_string(self):
+    index = {"dims": 1536, "embed": "openai:text-embedding-3-small"}
+    lazy = _LazyAsyncRedisStore("redis://host:6379", index_config=index)
+
+    mock_store = AsyncMock()
+    mock_store.__aenter__ = AsyncMock(return_value=mock_store)
+    mock_store.setup = AsyncMock()
+
+    mock_cls = MagicMock()
+    mock_cls.from_conn_string = MagicMock(return_value=mock_store)
+
+    with patch.dict("sys.modules", {
+      "langgraph.store.redis": MagicMock(AsyncRedisStore=mock_cls),
+    }):
+      await lazy._ensure_initialized()
+      mock_cls.from_conn_string.assert_called_once_with(
+        "redis://host:6379", index=index
+      )
+
+  @pytest.mark.asyncio
+  async def test_postgres_passes_index_to_from_conn_string(self):
+    index = {"dims": 1536, "embed": "openai:text-embedding-3-small"}
+    lazy = _LazyAsyncPostgresStore("postgresql://host:5432/db", index_config=index)
+
+    mock_store = AsyncMock()
+    mock_store.__aenter__ = AsyncMock(return_value=mock_store)
+    mock_store.setup = AsyncMock()
+
+    mock_cls = MagicMock()
+    mock_cls.from_conn_string = MagicMock(return_value=mock_store)
+
+    with patch.dict("sys.modules", {
+      "langgraph.store.postgres": MagicMock(),
+      "langgraph.store.postgres.aio": MagicMock(AsyncPostgresStore=mock_cls),
+    }):
+      await lazy._ensure_initialized()
+      mock_cls.from_conn_string.assert_called_once_with(
+        "postgresql://host:5432/db", index=index
+      )
