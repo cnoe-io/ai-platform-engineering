@@ -140,8 +140,21 @@ export interface BuiltinToolsConfig {
   user_info?: UserInfoToolConfig;
   sleep?: SleepToolConfig;
   // Allow dynamic tool configs for future extensibility
-  [key: string]: { enabled: boolean; [field: string]: unknown } | undefined;
+  // Using Record type to avoid index signature conflicts with specific tool types
 }
+
+/**
+ * Generic tool config type for dynamic access patterns.
+ * Use this when accessing tools by dynamic key.
+ */
+export type GenericToolConfig = { enabled: boolean; [field: string]: unknown };
+
+/**
+ * Helper type for accessing tool configs dynamically while preserving type safety.
+ */
+export type BuiltinToolsConfigWithIndex = BuiltinToolsConfig & {
+  [key: string]: GenericToolConfig | undefined;
+};
 
 // =============================================================================
 // Dynamic Agent Types

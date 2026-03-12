@@ -16,6 +16,7 @@ import type {
   BuiltinToolsConfig,
   BuiltinToolDefinition,
   BuiltinToolConfigField,
+  GenericToolConfig,
 } from "@/types/dynamic-agent";
 
 interface BuiltinToolsPickerProps {
@@ -86,8 +87,8 @@ function ToolConfig({
   disabled,
 }: {
   definition: BuiltinToolDefinition;
-  config: { enabled: boolean; [key: string]: unknown } | undefined;
-  onChange: (config: { enabled: boolean; [key: string]: unknown }) => void;
+  config: GenericToolConfig | undefined;
+  onChange: (config: GenericToolConfig) => void;
   disabled?: boolean;
 }) {
   const [expanded, setExpanded] = React.useState(false);
@@ -332,14 +333,61 @@ function ConfigField({
 export function BuiltinToolsPicker({ value, onChange, disabled }: BuiltinToolsPickerProps) {
   const { definitions, loading, error } = useBuiltinToolDefinitions();
 
+  // Track whether we've initialized defaults for the current definitions.
+  // This prevents infinite loops since onChange updates value.
+  const initializedRef = React.useRef(false);
+  const definitionsKey = definitions.map((d) => d.id).join(",");
+
+  // Reset initialization flag when definitions change
+  React.useEffect(() => {
+    initializedRef.current = false;
+  }, [definitionsKey]);
+
+  // Initialize default-enabled tools in the config when definitions load.
+  // This ensures tools with enabled_by_default: true get persisted to MongoDB
+  // even if the user never explicitly toggles them.
+  React.useEffect(() => {
+    if (definitions.length === 0 || initializedRef.current) return;
+
+    // Check if any default-enabled tools are missing from the config
+    const missingDefaults: Record<string, GenericToolConfig> = {};
+
+    for (const definition of definitions) {
+      // Cast to access config by dynamic key
+      const toolConfig = (value as Record<string, GenericToolConfig | undefined>)?.[definition.id];
+      if (definition.enabled_by_default && !toolConfig) {
+        // Build default config with field defaults
+        const defaults: Record<string, unknown> = {};
+        for (const field of definition.config_fields) {
+          defaults[field.name] = getFieldDefault(field);
+        }
+        missingDefaults[definition.id] = {
+          ...defaults,
+          enabled: true,
+        };
+      }
+    }
+
+    // Mark as initialized regardless of whether we needed to add defaults
+    initializedRef.current = true;
+
+    // Only call onChange if there are missing defaults to add
+    if (Object.keys(missingDefaults).length > 0) {
+      onChange({
+        ...value,
+        ...missingDefaults,
+      } as BuiltinToolsConfig);
+    }
+  }, [definitions, value, onChange]);
+
   const handleToolChange = (
     toolId: string,
-    config: { enabled: boolean; [key: string]: unknown }
+    config: GenericToolConfig
   ) => {
     onChange({
       ...value,
       [toolId]: config,
-    });
+    } as BuiltinToolsConfig);
   };
 
   if (loading) {
@@ -397,7 +445,7 @@ export function BuiltinToolsPicker({ value, onChange, disabled }: BuiltinToolsPi
           <ToolConfig
             key={definition.id}
             definition={definition}
-            config={value?.[definition.id] as { enabled: boolean; [key: string]: unknown } | undefined}
+            config={(value as Record<string, GenericToolConfig | undefined>)?.[definition.id]}
             onChange={(config) => handleToolChange(definition.id, config)}
             disabled={disabled}
           />
