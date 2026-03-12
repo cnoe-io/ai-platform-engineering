@@ -7,9 +7,9 @@
   ```bash
   # Claude Code: use EnterWorktree tool with the branch name
   # Manual equivalent (run from repo root):
-  git worktree add ../ai-platform-engineering-worktrees/<branch> -b <branch>
+  git worktree add ../ai-platform-engineering-<short-name> -b prebuild/<type>/<short-name>
   ```
-  Worktrees live **sibling to the repo** at `../ai-platform-engineering-worktrees/`, not inside it.
+  Worktrees live **sibling to the repo** at the cnoe level: `../ai-platform-engineering-<short-name>`
 - Branch naming convention: `prebuild/<type>/<short-description>`
   - `<type>` matches the conventional commit type: `feat`, `fix`, `docs`, `chore`, `refactor`, `test`, `ci`
   - e.g. `prebuild/fix/supervisor-streaming-json-and-orphaned-tool-calls`

@@ -306,20 +306,20 @@ This project uses **git worktrees** to keep each branch in its own isolated dire
 **Branch naming**: `prebuild/<type>/<short-description>` where `<type>` is the conventional commit type.
 
 ```bash
-# Create a new worktree (run from repo root — worktrees live sibling to the repo)
-git worktree add ../ai-platform-engineering-worktrees/prebuild/feat/argocd-pagination -b prebuild/feat/argocd-pagination
+# Create a new worktree (run from repo root — worktrees live sibling to the repo at the cnoe level)
+git worktree add ../ai-platform-engineering-argocd-pagination -b prebuild/feat/argocd-pagination
 # or
-git worktree add ../ai-platform-engineering-worktrees/prebuild/fix/streaming-race-condition -b prebuild/fix/streaming-race-condition
+git worktree add ../ai-platform-engineering-streaming-race-condition -b prebuild/fix/streaming-race-condition
 
 # When done, remove the worktree
-git worktree remove ../ai-platform-engineering-worktrees/prebuild/feat/argocd-pagination
+git worktree remove ../ai-platform-engineering-argocd-pagination
 ```
 
-Examples:
-- `prebuild/feat/argocd-pagination`
-- `prebuild/fix/streaming-race-condition`
-- `prebuild/docs/enterprise-identity-federation`
-- `prebuild/chore/docker-compose-update`
+Examples — directory name → branch name:
+- `../ai-platform-engineering-argocd-pagination` → `prebuild/feat/argocd-pagination`
+- `../ai-platform-engineering-streaming-race-condition` → `prebuild/fix/streaming-race-condition`
+- `../ai-platform-engineering-enterprise-identity-federation` → `prebuild/docs/enterprise-identity-federation`
+- `../ai-platform-engineering-docker-compose-update` → `prebuild/chore/docker-compose-update`
 
 ### 2. Make Changes
 
