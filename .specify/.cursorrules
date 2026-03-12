@@ -80,6 +80,24 @@ When working with A2A protocol, use these artifact names:
 
 ## Development Standards
 
+### Git Worktree Workflow (Required)
+
+Always use **git worktrees** for isolated branch work. Branch naming convention: `prebuild/<type>/<short-description>`.
+
+```bash
+# Create worktree for new work
+git worktree add .claude/worktrees/prebuild/feat/my-feature -b prebuild/feat/my-feature
+
+# Remove when done
+git worktree remove .claude/worktrees/prebuild/feat/my-feature
+```
+
+Examples:
+- `prebuild/feat/argocd-pagination`
+- `prebuild/fix/streaming-race-condition`
+- `prebuild/docs/enterprise-identity-federation`
+- `prebuild/chore/docker-compose-update`
+
 ### Conventional Commits (Required)
 ```
 <type>(<scope>): <description>

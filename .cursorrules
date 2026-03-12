@@ -299,13 +299,27 @@ pytest --cov=ai_platform_engineering integration/
 
 ## Development Workflow
 
-### 1. Create Feature Branch
+### 1. Create Feature Branch (via Git Worktree)
+
+This project uses **git worktrees** to keep each branch in its own isolated directory. Never use bare `git checkout -b` for feature work.
+
+**Branch naming**: `prebuild/<type>/<short-description>` where `<type>` is the conventional commit type.
 
 ```bash
-git checkout -b feat/argocd-pagination
+# Create a new worktree for your branch
+git worktree add .claude/worktrees/prebuild/feat/argocd-pagination -b prebuild/feat/argocd-pagination
 # or
-git checkout -b fix/streaming-race-condition
+git worktree add .claude/worktrees/prebuild/fix/streaming-race-condition -b prebuild/fix/streaming-race-condition
+
+# When done, remove the worktree
+git worktree remove .claude/worktrees/prebuild/feat/argocd-pagination
 ```
+
+Examples:
+- `prebuild/feat/argocd-pagination`
+- `prebuild/fix/streaming-race-condition`
+- `prebuild/docs/enterprise-identity-federation`
+- `prebuild/chore/docker-compose-update`
 
 ### 2. Make Changes
 
@@ -344,7 +358,7 @@ Signed-off-by: Your Name <your.email@example.com>"
 ### 5. Push and Create PR
 
 ```bash
-git push origin feat/argocd-pagination
+git push origin prebuild/feat/argocd-pagination
 ```
 
 ## File Organization
