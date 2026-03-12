@@ -16,14 +16,31 @@ Unique synthetic identifiers embedded in every fact content allow precise
 recall and precision calculation without needing semantic similarity.
 
 Usage:
-    # Run full benchmark (storage + A2A recall) for all reachable backends
-    PYTHONPATH=. uv run python integration/benchmark_persistence_backends.py
-
     # Storage benchmarks only (no supervisor needed)
     PYTHONPATH=. uv run python integration/benchmark_persistence_backends.py --storage-only
 
-    # Write results to docs (default: integration/benchmark_results.md)
-    PYTHONPATH=. uv run python integration/benchmark_persistence_backends.py --publish
+    # Full benchmark: auto-detect active supervisor backend and run recall for it
+    PYTHONPATH=. uv run python integration/benchmark_persistence_backends.py
+
+    # Full benchmark across ALL backends — cycles supervisor through redis/postgres/mongodb
+    PYTHONPATH=. uv run python integration/benchmark_persistence_backends.py \
+        --recall-backends redis,postgres,mongodb \
+        --save-dataset integration/datasets/recall_dataset.json \
+        --publish
+
+    # Re-run recall with the same fact set from a previous run
+    PYTHONPATH=. uv run python integration/benchmark_persistence_backends.py \
+        --load-dataset integration/datasets/recall_dataset.json
+
+Dataset flags:
+    --save-dataset PATH   Persist generated facts to JSON (reproducible re-runs)
+    --load-dataset PATH   Load facts from a saved JSON file (fresh user_id per run)
+
+Multi-backend recall flags:
+    --recall-backends     Comma-separated list (e.g. redis,postgres,mongodb);
+                          switches the supervisor between backends automatically
+    --switch-script PATH  Path to backend switcher (default: skills/persistence/switch_backend.sh)
+    --supervisor-wait N   Seconds to wait for supervisor after switch (default: 90)
 
 Benchmark outputs:
     Console  — real-time progress and per-metric results
@@ -34,9 +51,12 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import json
+import os
 import re
 import socket
 import statistics
+import subprocess
 import sys
 import time
 import uuid
@@ -60,6 +80,9 @@ STORAGE_READ_TRIALS = 5   # repeated asearch() calls to average read latency
 A2A_TIMEOUT = 180.0       # seconds per A2A message/send call
 
 DOCS_OUTPUT = "docs/docs/evaluations/persistence-backend-benchmark.md"
+DATASETS_DIR = "integration/datasets"
+SWITCH_SCRIPT_DEFAULT = "skills/persistence/switch_backend.sh"
+SUPERVISOR_WAIT_DEFAULT = 90  # seconds to poll for supervisor after a backend switch
 
 
 # ---------------------------------------------------------------------------
@@ -143,6 +166,103 @@ def generate_facts(n: int, user_id: str) -> list[dict]:
 
 def fact_ids(facts: list[dict]) -> set[str]:
     return {f["fact_id"] for f in facts}
+
+
+# ---------------------------------------------------------------------------
+# Dataset persistence helpers
+# ---------------------------------------------------------------------------
+
+def _save_dataset(path: str, n: int, facts: list[dict]) -> None:
+    """Upsert facts for size n into a JSON dataset file."""
+    os.makedirs(os.path.dirname(path) if os.path.dirname(path) else ".", exist_ok=True)
+    data: dict = {}
+    if os.path.exists(path):
+        with open(path) as f:
+            data = json.load(f)
+    data.setdefault("generated_at", datetime.now(timezone.utc).isoformat())
+    data.setdefault("sizes", {})[str(n)] = facts
+    with open(path, "w") as f:
+        json.dump(data, f, indent=2)
+
+
+def _load_dataset(path: str) -> dict[int, list[dict]]:
+    """Load a dataset file and return {n: facts_list}.  Returns {} if file missing."""
+    if not os.path.exists(path):
+        return {}
+    with open(path) as f:
+        data = json.load(f)
+    return {int(k): v for k, v in data.get("sizes", {}).items()}
+
+
+def _load_or_generate_facts(n: int, user_id: str, dataset: dict[int, list[dict]]) -> list[dict]:
+    """Return dataset facts for size n (if available) or generate fresh ones."""
+    if n in dataset:
+        return list(dataset[n])   # copy — caller may mutate
+    return generate_facts(n, user_id)
+
+
+# ---------------------------------------------------------------------------
+# Supervisor backend switcher
+# ---------------------------------------------------------------------------
+
+async def _supervisor_http_ready() -> bool:
+    """
+    Return True if the supervisor is responding to HTTP requests.
+
+    TCP open is not enough — the supervisor may accept connections while
+    the application is still initializing.  We send a lightweight POST
+    and consider the supervisor ready if we receive any HTTP response
+    (including error status codes).
+    """
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            payload = {
+                "jsonrpc": "2.0", "method": "message/send", "id": "healthcheck",
+                "params": {
+                    "message": {
+                        "role": "user",
+                        "parts": [{"kind": "text", "text": "ping"}],
+                        "messageId": "healthcheck",
+                        "contextId": "healthcheck",
+                        "metadata": {"user_id": "healthcheck"},
+                    },
+                    "configuration": {"acceptedOutputModes": ["text"], "blocking": True},
+                },
+            }
+            await client.post(SUPERVISOR_URL, json=payload)
+            return True
+    except Exception:
+        return False
+
+
+async def _switch_supervisor_backend(
+    backend: str,
+    switch_script: str,
+    wait_secs: int,
+) -> None:
+    """
+    Call switch_backend.sh <backend> then poll until the supervisor is up again.
+
+    Raises RuntimeError if the supervisor does not respond within wait_secs.
+    """
+    print(f"\n  ⏳ Switching supervisor to {backend.upper()} (this restarts docker compose)...")
+    result = subprocess.run(
+        [switch_script, backend],
+        capture_output=False,   # let output flow through to terminal
+    )
+    if result.returncode != 0:
+        raise RuntimeError(f"switch_backend.sh {backend} exited {result.returncode}")
+
+    print(f"  ⏳ Waiting up to {wait_secs}s for supervisor HTTP readiness on :8000 ...")
+    deadline = time.monotonic() + wait_secs
+    while time.monotonic() < deadline:
+        if await _supervisor_http_ready():
+            print("  ✅ Supervisor HTTP-ready on :8000")
+            return
+        await asyncio.sleep(5)
+    raise RuntimeError(
+        f"Supervisor did not become HTTP-ready within {wait_secs}s after switching to {backend}"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -285,10 +405,19 @@ async def _send_a2a(text: str, context_id: str, user_id: str) -> tuple[str, floa
     return " ".join(parts) if parts else "", latency_ms
 
 
-async def _bench_recall(backend: str, store_factory, n: int) -> RecallMetrics:
+async def _bench_recall(
+    backend: str,
+    store_factory,
+    n: int,
+    *,
+    preloaded_facts: Optional[list[dict]] = None,
+    save_dataset_path: Optional[str] = None,
+) -> RecallMetrics:
     user_id = f"recall-bench-{uuid.uuid4().hex[:8]}"
     namespace = ("memories", user_id)
-    facts = generate_facts(n, user_id)
+    facts = preloaded_facts if preloaded_facts is not None else generate_facts(n, user_id)
+    if save_dataset_path:
+        _save_dataset(save_dataset_path, n, facts)
     seeded_ids = fact_ids(facts)
 
     # Seed directly into store (no LLM extraction — full control over content)
@@ -374,11 +503,8 @@ _BACKEND_MAP = {
 }
 
 
-async def run_backend(
-    backend: str,
-    storage_only: bool = False,
-    active_backend: Optional[str] = None,
-) -> BackendResults:
+async def run_backend(backend: str) -> BackendResults:
+    """Run storage-only benchmarks for one backend."""
     result = BackendResults(backend=backend)
     up_fn, factory_fn = _BACKEND_MAP[backend]
 
@@ -392,7 +518,6 @@ async def run_backend(
     print(f"  Backend: {backend.upper()}")
     print(f"{'─'*60}")
 
-    # Storage benchmarks
     for n in DATASET_SIZES:
         print(f"  Storage N={n:>4} ...", end=" ", flush=True)
         try:
@@ -407,31 +532,6 @@ async def run_backend(
         except Exception as exc:
             print(f"ERROR: {exc}")
             result.error = str(exc)
-
-    # Recall benchmarks (only for the supervisor's active backend)
-    if storage_only:
-        return result
-    if not supervisor_up():
-        print("  Recall: SKIP (supervisor not running)")
-        return result
-    if active_backend and active_backend != backend:
-        print(f"  Recall: SKIP (supervisor uses {active_backend}, not {backend})")
-        return result
-
-    for n in DATASET_SIZES:
-        print(f"  Recall  N={n:>4} ...", end=" ", flush=True)
-        try:
-            m = await _bench_recall(backend, store_f, n)
-            result.recall.append(m)
-            print(
-                f"recall {m.recall*100:.1f}%  "
-                f"precision {m.precision*100:.1f}%  "
-                f"F1 {m.f1:.3f}  "
-                f"injected≈{m.facts_injected_estimate}  "
-                f"latency {m.response_latency_ms:.0f}ms"
-            )
-        except Exception as exc:
-            print(f"ERROR: {exc}")
 
     return result
 
@@ -600,17 +700,33 @@ def generate_report(
         "- **MongoDB** — balanced read/write; document model maps naturally to",
         "  namespace arrays.",
         "",
+        "### MongoDB recall is 0% — missing URI env var",
+        "",
+        "When `switch_backend.sh mongodb` is used to cycle the supervisor, it updates",
+        "`LANGGRAPH_STORE_TYPE=mongodb` but does **not** set `LANGGRAPH_STORE_MONGODB_URI`.",
+        "The supervisor therefore cannot connect to the MongoDB store and returns no facts,",
+        "yielding 0% recall even though facts were successfully seeded (see Injected≈ column).",
+        "",
+        "To get valid MongoDB recall, set `LANGGRAPH_STORE_MONGODB_URI` in `.env` before",
+        "starting the supervisor (e.g. `LANGGRAPH_STORE_MONGODB_URI=mongodb://langgraph-mongodb:27017`).",
+        "",
         "---",
         "",
         "## Reproduction",
         "",
         "```bash",
-        "# Start Postgres backend (substitute redis/mongodb as needed)",
-        'IMAGE_TAG=0.2.38 COMPOSE_PROFILES="...,langgraph-postgres" \\',
-        "    docker compose -f docker-compose.dev.yaml up -d",
+        "# Run all backends in one pass (auto-switches supervisor)",
+        "PYTHONPATH=. uv run python integration/benchmark_persistence_backends.py \\",
+        "    --recall-backends redis,postgres,mongodb \\",
+        "    --save-dataset integration/datasets/recall_dataset.json \\",
+        "    --publish",
         "",
-        "# Run benchmark and publish",
-        "PYTHONPATH=. uv run python integration/benchmark_persistence_backends.py --publish",
+        "# Storage-only (no supervisor needed)",
+        "PYTHONPATH=. uv run python integration/benchmark_persistence_backends.py --storage-only",
+        "",
+        "# Re-run recall with a previously saved dataset (same facts, fresh user_id)",
+        "PYTHONPATH=. uv run python integration/benchmark_persistence_backends.py \\",
+        "    --load-dataset integration/datasets/recall_dataset.json",
         "```",
         "",
     ]
@@ -624,7 +740,6 @@ def generate_report(
 
 async def _detect_active_backend() -> Optional[str]:
     """Ask the supervisor's environment which backend is active."""
-    import subprocess
     try:
         out = subprocess.check_output(
             ["docker", "exec", "caipe-supervisor", "env"],
@@ -643,25 +758,104 @@ async def _detect_active_backend() -> Optional[str]:
 async def main(args: argparse.Namespace) -> int:
     run_at = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
 
+    # ---- dataset loading -----------------------------------------------------
+    dataset: dict[int, list[dict]] = {}
+    if args.load_dataset:
+        dataset = _load_dataset(args.load_dataset)
+        if dataset:
+            print(f"\n  📂 Loaded dataset from {args.load_dataset} "
+                  f"(sizes: {sorted(dataset.keys())})")
+        else:
+            print(f"\n  ⚠️  --load-dataset {args.load_dataset}: file not found or empty "
+                  "— generating fresh facts")
+
+    save_path: Optional[str] = args.save_dataset or None
+    if save_path:
+        os.makedirs(DATASETS_DIR, exist_ok=True)
+        print(f"\n  💾 Dataset will be saved to {save_path}")
+
+    # ---- detect active backend -----------------------------------------------
     active_backend = None if args.storage_only else await _detect_active_backend()
     if active_backend:
         print(f"\n  Supervisor active backend: {active_backend.upper()}")
-    elif not args.storage_only:
+    elif not args.storage_only and not args.recall_backends:
         print("\n  ⚠️  Could not detect supervisor backend — recall tests skipped")
 
+    # ---- build a BackendResults map for recall attachment --------------------
     all_results: list[BackendResults] = []
+    results_by_backend: dict[str, BackendResults] = {}
 
+    # ---- storage benchmarks (all reachable backends, no supervisor needed) --
     for backend in ["redis", "postgres", "mongodb"]:
-        r = await run_backend(
-            backend,
-            storage_only=args.storage_only,
-            active_backend=active_backend,
-        )
+        r = await run_backend(backend)
         all_results.append(r)
+        results_by_backend[backend] = r
         if r.error and not r.storage:
             print(f"  SKIP {backend}: {r.error}")
 
-    # Print summary
+    # ---- recall benchmarks ---------------------------------------------------
+    if not args.storage_only:
+        recall_backends: list[str] = []
+
+        if args.recall_backends:
+            # Explicit list — cycle through them, switching supervisor as needed
+            recall_backends = [b.strip().lower() for b in args.recall_backends.split(",") if b.strip()]
+        elif active_backend:
+            # Original behaviour: only the currently-active backend
+            recall_backends = [active_backend]
+
+        current_active = active_backend
+        for backend in recall_backends:
+            up_fn, factory_fn = _BACKEND_MAP[backend]
+            if not up_fn():
+                print(f"\n  Recall {backend.upper()}: SKIP ({backend} not reachable)")
+                continue
+
+            if not supervisor_up():
+                print(f"\n  Recall {backend.upper()}: SKIP (supervisor not running)")
+                continue
+
+            # Switch supervisor if needed
+            if args.recall_backends and current_active != backend:
+                try:
+                    await _switch_supervisor_backend(
+                        backend,
+                        switch_script=args.switch_script,
+                        wait_secs=args.supervisor_wait,
+                    )
+                    current_active = backend
+                except RuntimeError as exc:
+                    print(f"\n  Recall {backend.upper()}: SKIP (switch failed: {exc})")
+                    continue
+
+            store_f, _ = factory_fn()
+            r = results_by_backend[backend]
+
+            print(f"\n{'─'*60}")
+            print(f"  Recall benchmarks: {backend.upper()}")
+            print(f"{'─'*60}")
+
+            for n in DATASET_SIZES:
+                print(f"  Recall  N={n:>4} ...", end=" ", flush=True)
+                try:
+                    preloaded = dataset.get(n)
+                    m = await _bench_recall(
+                        backend, store_f, n,
+                        preloaded_facts=preloaded,
+                        save_dataset_path=save_path,
+                    )
+                    r.recall.append(m)
+                    print(
+                        f"recall {m.recall*100:.1f}%  "
+                        f"precision {m.precision*100:.1f}%  "
+                        f"F1 {m.f1:.3f}  "
+                        f"injected≈{m.facts_injected_estimate}  "
+                        f"latency {m.response_latency_ms:.0f}ms"
+                    )
+                except Exception as exc:
+                    print(f"ERROR ({type(exc).__name__}): {exc}")
+
+    # ---- summary -------------------------------------------------------------
     print(f"\n{'='*60}")
     print("  Summary")
     print(f"{'='*60}")
@@ -671,11 +865,20 @@ async def main(args: argparse.Namespace) -> int:
         if r.error:
             print(f"     error: {r.error}")
 
-    # Generate report
-    report = generate_report(all_results, active_backend, run_at)
+    if save_path and os.path.exists(save_path):
+        print(f"\n  💾 Dataset saved to {save_path}")
+
+    # ---- generate report -----------------------------------------------------
+    # Use the active backend that ran last (or original active_backend for the header)
+    report_backend = active_backend
+    if args.recall_backends:
+        # Show all backends that ran
+        ran = [b for b in ["redis", "postgres", "mongodb"] if results_by_backend[b].recall]
+        report_backend = ",".join(ran) if ran else active_backend
+
+    report = generate_report(all_results, report_backend, run_at)
 
     if args.publish:
-        import os
         os.makedirs(os.path.dirname(DOCS_OUTPUT), exist_ok=True)
         with open(DOCS_OUTPUT, "w") as f:
             f.write(report)
@@ -696,4 +899,21 @@ if __name__ == "__main__":
                         help="Skip A2A recall benchmarks (no supervisor needed)")
     parser.add_argument("--publish", action="store_true",
                         help=f"Write report to {DOCS_OUTPUT}")
+    parser.add_argument("--save-dataset", metavar="PATH",
+                        help="Save generated facts to a JSON file for reproducible re-runs "
+                             f"(e.g. {DATASETS_DIR}/recall_dataset.json)")
+    parser.add_argument("--load-dataset", metavar="PATH",
+                        help="Load facts from a previously saved JSON dataset "
+                             "(fresh user_id generated each run to avoid collisions)")
+    parser.add_argument("--recall-backends", metavar="BACKENDS",
+                        help="Comma-separated backends to run recall for, cycling the "
+                             "supervisor between each (e.g. redis,postgres,mongodb). "
+                             "Requires --switch-script to be present.")
+    parser.add_argument("--switch-script", metavar="PATH",
+                        default=SWITCH_SCRIPT_DEFAULT,
+                        help=f"Path to backend switcher script (default: {SWITCH_SCRIPT_DEFAULT})")
+    parser.add_argument("--supervisor-wait", metavar="SECS", type=int,
+                        default=SUPERVISOR_WAIT_DEFAULT,
+                        help=f"Seconds to wait for supervisor after a backend switch "
+                             f"(default: {SUPERVISOR_WAIT_DEFAULT})")
     sys.exit(asyncio.run(main(parser.parse_args())))
