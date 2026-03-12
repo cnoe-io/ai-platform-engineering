@@ -110,9 +110,12 @@ spec:
                 secretKeyRef:
                   name: {{ .redis.existingSecret.name | quote }}
                   key: {{ .redis.existingSecret.key | quote }}
-            {{- else }}
+            {{- else if .redis.url }}
             - name: LANGGRAPH_CHECKPOINT_REDIS_URL
-              value: {{ .redis.url | default "" | quote }}
+              value: {{ .redis.url | quote }}
+            {{- else if .redis.autoDiscoverService }}
+            - name: LANGGRAPH_CHECKPOINT_REDIS_URL
+              value: {{ printf "redis://%s-%s:6379/%d" $.Release.Name .redis.autoDiscoverService (.redis.dbIndex | int) | quote }}
             {{- end }}
             {{- end }}
             {{- if eq (.type | default "memory") "postgres" }}

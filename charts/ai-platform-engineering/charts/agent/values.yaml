@@ -246,6 +246,9 @@ checkpointPersistence:
     existingSecret:
       name: ""
       key: ""
+    # Auto-discover in-cluster Redis: "langgraph-redis" (dedicated) or "rag-redis" (shared)
+    autoDiscoverService: ""
+    dbIndex: 0
   postgres:
     dsn: ""
     existingSecret:

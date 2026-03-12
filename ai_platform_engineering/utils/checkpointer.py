@@ -8,6 +8,10 @@ Provides a pluggable checkpointer backend (InMemorySaver default, RedisSaver,
 PostgresSaver, or MongoDBSaver) that persists conversation state within a
 thread so that multi-turn conversations survive pod restarts.
 
+All external backends use async savers with lazy initialization so that the
+synchronous ``create_checkpointer()`` can be called from ``_build_graph()``
+while the actual connection is deferred until the first async graph operation.
+
 Configuration via environment variables:
     LANGGRAPH_CHECKPOINT_TYPE: memory (default) | redis | postgres | mongodb
     LANGGRAPH_CHECKPOINT_REDIS_URL: Redis Stack connection string
@@ -23,7 +27,15 @@ Usage:
 
 import logging
 import os
-from typing import Any
+from typing import Any, AsyncIterator, Iterator, Optional, Sequence, Tuple
+
+from langgraph.checkpoint.base import (
+    BaseCheckpointSaver,
+    ChannelVersions,
+    Checkpoint,
+    CheckpointMetadata,
+    CheckpointTuple,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -34,166 +46,419 @@ CHECKPOINT_TYPE_MONGODB = "mongodb"
 
 
 def get_checkpointer_config() -> dict[str, Any]:
-  """Read checkpointer configuration from environment variables."""
-  return {
-    "type": os.getenv("LANGGRAPH_CHECKPOINT_TYPE", CHECKPOINT_TYPE_MEMORY).lower(),
-    "redis_url": os.getenv("LANGGRAPH_CHECKPOINT_REDIS_URL", ""),
-    "postgres_dsn": os.getenv("LANGGRAPH_CHECKPOINT_POSTGRES_DSN") or os.getenv("POSTGRES_DSN", ""),
-    "mongodb_uri": os.getenv("LANGGRAPH_CHECKPOINT_MONGODB_URI") or os.getenv("MONGODB_URI", ""),
-    "ttl_minutes": int(os.getenv("LANGGRAPH_CHECKPOINT_TTL_MINUTES", "0")),
-  }
+    """Read checkpointer configuration from environment variables."""
+    return {
+        "type": os.getenv("LANGGRAPH_CHECKPOINT_TYPE", CHECKPOINT_TYPE_MEMORY).lower(),
+        "redis_url": os.getenv("LANGGRAPH_CHECKPOINT_REDIS_URL", ""),
+        "postgres_dsn": (
+            os.getenv("LANGGRAPH_CHECKPOINT_POSTGRES_DSN") or os.getenv("POSTGRES_DSN", "")
+        ),
+        "mongodb_uri": (
+            os.getenv("LANGGRAPH_CHECKPOINT_MONGODB_URI") or os.getenv("MONGODB_URI", "")
+        ),
+        "ttl_minutes": int(os.getenv("LANGGRAPH_CHECKPOINT_TTL_MINUTES", "0")),
+    }
 
 
 def create_checkpointer():
-  """Create a LangGraph checkpointer based on environment configuration.
+    """Create a LangGraph checkpointer based on environment configuration.
 
-  Returns:
-      A checkpointer instance (InMemorySaver, RedisSaver, PostgresSaver, or MongoDBSaver).
-  """
-  config = get_checkpointer_config()
-  checkpoint_type = config["type"]
+    Returns:
+        A BaseCheckpointSaver instance (InMemorySaver, or a lazy async wrapper
+        for Redis/Postgres/MongoDB).
+    """
+    config = get_checkpointer_config()
+    checkpoint_type = config["type"]
 
-  try:
-    if checkpoint_type == CHECKPOINT_TYPE_REDIS:
-      redis_url = config["redis_url"]
-      if not redis_url:
-        logger.warning(
-          "LANGGRAPH_CHECKPOINT_TYPE=redis but no Redis URL configured "
-          "(set LANGGRAPH_CHECKPOINT_REDIS_URL). Falling back to InMemorySaver."
-        )
+    try:
+        if checkpoint_type == CHECKPOINT_TYPE_REDIS:
+            redis_url = config["redis_url"]
+            if not redis_url:
+                logger.warning(
+                    "LANGGRAPH_CHECKPOINT_TYPE=redis but no Redis URL configured "
+                    "(set LANGGRAPH_CHECKPOINT_REDIS_URL). Falling back to InMemorySaver."
+                )
+                return _create_memory_checkpointer()
+            return _create_redis_checkpointer(redis_url, config["ttl_minutes"])
+
+        elif checkpoint_type == CHECKPOINT_TYPE_POSTGRES:
+            postgres_dsn = config["postgres_dsn"]
+            if not postgres_dsn:
+                logger.warning(
+                    "LANGGRAPH_CHECKPOINT_TYPE=postgres but no Postgres DSN configured "
+                    "(set LANGGRAPH_CHECKPOINT_POSTGRES_DSN or POSTGRES_DSN). "
+                    "Falling back to InMemorySaver."
+                )
+                return _create_memory_checkpointer()
+            return _create_postgres_checkpointer(postgres_dsn)
+
+        elif checkpoint_type == CHECKPOINT_TYPE_MONGODB:
+            mongodb_uri = config["mongodb_uri"]
+            if not mongodb_uri:
+                logger.warning(
+                    "LANGGRAPH_CHECKPOINT_TYPE=mongodb but no MongoDB URI configured "
+                    "(set LANGGRAPH_CHECKPOINT_MONGODB_URI or MONGODB_URI). "
+                    "Falling back to InMemorySaver."
+                )
+                return _create_memory_checkpointer()
+            return _create_mongodb_checkpointer(mongodb_uri)
+
+        else:
+            if checkpoint_type != CHECKPOINT_TYPE_MEMORY:
+                logger.warning(
+                    f"Unknown LANGGRAPH_CHECKPOINT_TYPE='{checkpoint_type}', using InMemorySaver"
+                )
+            return _create_memory_checkpointer()
+
+    except Exception as e:
+        logger.error(f"Failed to create checkpointer (type={checkpoint_type}): {e}")
+        logger.info("Falling back to InMemorySaver")
         return _create_memory_checkpointer()
-      return _create_redis_checkpointer(redis_url, config["ttl_minutes"])
-
-    elif checkpoint_type == CHECKPOINT_TYPE_POSTGRES:
-      postgres_dsn = config["postgres_dsn"]
-      if not postgres_dsn:
-        logger.warning(
-          "LANGGRAPH_CHECKPOINT_TYPE=postgres but no Postgres DSN configured "
-          "(set LANGGRAPH_CHECKPOINT_POSTGRES_DSN or POSTGRES_DSN). Falling back to InMemorySaver."
-        )
-        return _create_memory_checkpointer()
-      return _create_postgres_checkpointer(postgres_dsn)
-
-    elif checkpoint_type == CHECKPOINT_TYPE_MONGODB:
-      mongodb_uri = config["mongodb_uri"]
-      if not mongodb_uri:
-        logger.warning(
-          "LANGGRAPH_CHECKPOINT_TYPE=mongodb but no MongoDB URI configured "
-          "(set LANGGRAPH_CHECKPOINT_MONGODB_URI or MONGODB_URI). Falling back to InMemorySaver."
-        )
-        return _create_memory_checkpointer()
-      return _create_mongodb_checkpointer(mongodb_uri)
-
-    else:
-      if checkpoint_type != CHECKPOINT_TYPE_MEMORY:
-        logger.warning(f"Unknown LANGGRAPH_CHECKPOINT_TYPE='{checkpoint_type}', using InMemorySaver")
-      return _create_memory_checkpointer()
-
-  except Exception as e:
-    logger.error(f"Failed to create checkpointer (type={checkpoint_type}): {e}")
-    logger.info("Falling back to InMemorySaver")
-    return _create_memory_checkpointer()
 
 
 def _create_memory_checkpointer():
-  """Create an InMemorySaver checkpointer."""
-  from langgraph.checkpoint.memory import InMemorySaver
-  checkpointer = InMemorySaver()
-  logger.info("LangGraph Checkpointer: InMemorySaver created (state lost on restart)")
-  return checkpointer
+    """Create an InMemorySaver checkpointer."""
+    from langgraph.checkpoint.memory import InMemorySaver
+
+    checkpointer = InMemorySaver()
+    logger.info("LangGraph Checkpointer: InMemorySaver created (state lost on restart)")
+    return checkpointer
+
+
+# ---------------------------------------------------------------------------
+# Redis
+# ---------------------------------------------------------------------------
 
 
 def _create_redis_checkpointer(redis_url: str, ttl_minutes: int = 0):
-  """Create a Redis-backed checkpointer using langgraph-checkpoint-redis.
+    """Create a Redis-backed checkpointer (lazy async initialization).
 
-  Requires Redis 8.0+ or Redis Stack (RedisJSON + RediSearch modules).
+    Uses AsyncRedisSaver from langgraph-checkpoint-redis. The async context
+    manager is entered lazily on the first async operation so that
+    ``create_checkpointer()`` can remain synchronous.
 
-  Args:
-      redis_url: Redis connection string (e.g. redis://host:6379)
-      ttl_minutes: TTL for checkpoints in minutes (0 = no expiry)
-  """
-  try:
-    from langgraph.checkpoint.redis import RedisSaver
+    Requires Redis 8.0+ or Redis Stack (RedisJSON + RediSearch modules).
+    """
+    try:
+        import importlib.util
 
-    ttl_config = None
-    if ttl_minutes > 0:
-      ttl_config = {
-        "default_ttl": ttl_minutes,
-        "refresh_on_read": True,
-      }
+        if importlib.util.find_spec("langgraph.checkpoint.redis") is None:
+            raise ImportError("langgraph-checkpoint-redis not installed")
 
-    checkpointer = RedisSaver.from_conn_string(redis_url, ttl=ttl_config)
-    checkpointer.setup()
+        masked_url = redis_url[:15] + "..." if len(redis_url) > 15 else redis_url
+        logger.info(
+            f"LangGraph Checkpointer: AsyncRedisSaver configured "
+            f"(url={masked_url}, ttl={ttl_minutes}m)"
+        )
+        return _LazyAsyncRedisSaver(redis_url, ttl_minutes)
 
-    masked_url = redis_url[:15] + "..." if len(redis_url) > 15 else redis_url
-    logger.info(
-      f"LangGraph Checkpointer: RedisSaver created "
-      f"(url={masked_url}, ttl={ttl_minutes}m)"
-    )
-    return checkpointer
+    except ImportError:
+        logger.warning(
+            "langgraph-checkpoint-redis not installed. "
+            "Install with: pip install langgraph-checkpoint-redis"
+        )
+        return _create_memory_checkpointer()
 
-  except ImportError:
-    logger.warning(
-      "langgraph-checkpoint-redis not installed. "
-      "Install with: pip install langgraph-checkpoint-redis"
-    )
-    return _create_memory_checkpointer()
-  except Exception as e:
-    logger.error(f"Failed to create Redis checkpointer: {e}")
-    raise
+
+class _LazyAsyncRedisSaver(BaseCheckpointSaver):
+    """Lazy wrapper for AsyncRedisSaver that initializes on first async use.
+
+    Inherits from ``BaseCheckpointSaver`` so LangGraph sees a proper
+    checkpointer with ``get_next_version``, ``config_specs``, ``serde``, etc.
+
+    ``AsyncRedisSaver.from_conn_string()`` returns an async context manager.
+    We cannot ``await __aenter__()`` inside the synchronous
+    ``create_checkpointer()`` / ``_build_graph()`` call chain, so we defer
+    initialization until the first async checkpoint operation.
+    """
+
+    def __init__(self, redis_url: str, ttl_minutes: int = 0):
+        super().__init__()
+        self._redis_url = redis_url
+        self._ttl_minutes = ttl_minutes
+        self._saver_ctx: Optional[Any] = None
+        self._saver: Optional[Any] = None
+        self._initialized = False
+
+    async def _ensure_initialized(self) -> None:
+        if not self._initialized:
+            from langgraph.checkpoint.redis.aio import AsyncRedisSaver
+
+            # redisvl (used internally by langgraph-checkpoint-redis) requires
+            # REDIS_URL in the environment for its index client connections.
+            if not os.getenv("REDIS_URL"):
+                os.environ["REDIS_URL"] = self._redis_url
+
+            ttl_config = None
+            if self._ttl_minutes > 0:
+                ttl_config = {
+                    "default_ttl": self._ttl_minutes,
+                    "refresh_on_read": True,
+                }
+
+            # Keep a reference to the context manager so it isn't GC'd
+            # (which would trigger __aexit__ and close the connection).
+            self._saver_ctx = AsyncRedisSaver.from_conn_string(
+                self._redis_url, ttl=ttl_config
+            )
+            self._saver = await self._saver_ctx.__aenter__()
+            await self._saver.setup()
+            self._initialized = True
+            logger.info("LangGraph AsyncRedisSaver initialized and connected")
+
+    async def aget_tuple(self, config: dict) -> Optional[CheckpointTuple]:
+        await self._ensure_initialized()
+        return await self._saver.aget_tuple(config)
+
+    async def aput(
+        self,
+        config: dict,
+        checkpoint: Checkpoint,
+        metadata: CheckpointMetadata,
+        new_versions: ChannelVersions,
+    ) -> dict:
+        await self._ensure_initialized()
+        return await self._saver.aput(config, checkpoint, metadata, new_versions)
+
+    async def aput_writes(
+        self, config: dict, writes: Sequence[Tuple[str, Any]], task_id: str
+    ) -> None:
+        await self._ensure_initialized()
+        return await self._saver.aput_writes(config, writes, task_id)
+
+    async def alist(
+        self,
+        config: Optional[dict],
+        *,
+        filter: Optional[dict[str, Any]] = None,
+        before: Optional[dict] = None,
+        limit: Optional[int] = None,
+    ) -> AsyncIterator[CheckpointTuple]:
+        await self._ensure_initialized()
+        async for item in self._saver.alist(
+            config, filter=filter, before=before, limit=limit
+        ):
+            yield item
+
+    def get_tuple(self, config: dict) -> Optional[CheckpointTuple]:
+        raise NotImplementedError("Use async methods (aget_tuple) for Redis checkpointer")
+
+    def put(
+        self, config: dict, checkpoint: Checkpoint,
+        metadata: CheckpointMetadata, new_versions: ChannelVersions,
+    ) -> dict:
+        raise NotImplementedError("Use async methods (aput) for Redis checkpointer")
+
+    def put_writes(
+        self, config: dict, writes: Sequence[Tuple[str, Any]], task_id: str
+    ) -> None:
+        raise NotImplementedError("Use async methods (aput_writes) for Redis checkpointer")
+
+    def list(
+        self, config: Optional[dict], **kwargs: Any
+    ) -> Iterator[CheckpointTuple]:
+        raise NotImplementedError("Use async methods (alist) for Redis checkpointer")
+
+
+# ---------------------------------------------------------------------------
+# Postgres
+# ---------------------------------------------------------------------------
 
 
 def _create_postgres_checkpointer(postgres_dsn: str):
-  """Create a Postgres-backed checkpointer using langgraph-checkpoint-postgres.
+    """Create a Postgres-backed checkpointer (lazy async initialization).
 
-  Args:
-      postgres_dsn: Postgres DSN (e.g. postgresql://user:pass@host:5432/dbname)
-  """
-  try:
-    from langgraph.checkpoint.postgres import PostgresSaver
+    Uses AsyncPostgresSaver from langgraph-checkpoint-postgres.
+    """
+    try:
+        import importlib.util
 
-    checkpointer = PostgresSaver.from_conn_string(postgres_dsn)
-    checkpointer.setup()
+        if importlib.util.find_spec("langgraph.checkpoint.postgres") is None:
+            raise ImportError("langgraph-checkpoint-postgres not installed")
 
-    masked_dsn = postgres_dsn[:20] + "..." if len(postgres_dsn) > 20 else postgres_dsn
-    logger.info(f"LangGraph Checkpointer: PostgresSaver created (dsn={masked_dsn})")
-    return checkpointer
+        masked_dsn = postgres_dsn[:20] + "..." if len(postgres_dsn) > 20 else postgres_dsn
+        logger.info(f"LangGraph Checkpointer: AsyncPostgresSaver configured (dsn={masked_dsn})")
+        return _LazyAsyncPostgresSaver(postgres_dsn)
 
-  except ImportError:
-    logger.warning(
-      "langgraph-checkpoint-postgres not installed. "
-      "Install with: pip install langgraph-checkpoint-postgres"
-    )
-    return _create_memory_checkpointer()
-  except Exception as e:
-    logger.error(f"Failed to create Postgres checkpointer: {e}")
-    raise
+    except ImportError:
+        logger.warning(
+            "langgraph-checkpoint-postgres not installed. "
+            "Install with: pip install langgraph-checkpoint-postgres"
+        )
+        return _create_memory_checkpointer()
+
+
+class _LazyAsyncPostgresSaver(BaseCheckpointSaver):
+    """Lazy wrapper for AsyncPostgresSaver that initializes on first async use."""
+
+    def __init__(self, dsn: str):
+        super().__init__()
+        self._dsn = dsn
+        self._saver_ctx: Optional[Any] = None
+        self._saver: Optional[Any] = None
+        self._initialized = False
+
+    async def _ensure_initialized(self) -> None:
+        if not self._initialized:
+            from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
+
+            self._saver_ctx = AsyncPostgresSaver.from_conn_string(self._dsn)
+            self._saver = await self._saver_ctx.__aenter__()
+            await self._saver.setup()
+            self._initialized = True
+            logger.info("LangGraph AsyncPostgresSaver initialized and connected")
+
+    async def aget_tuple(self, config: dict) -> Optional[CheckpointTuple]:
+        await self._ensure_initialized()
+        return await self._saver.aget_tuple(config)
+
+    async def aput(
+        self,
+        config: dict,
+        checkpoint: Checkpoint,
+        metadata: CheckpointMetadata,
+        new_versions: ChannelVersions,
+    ) -> dict:
+        await self._ensure_initialized()
+        return await self._saver.aput(config, checkpoint, metadata, new_versions)
+
+    async def aput_writes(
+        self, config: dict, writes: Sequence[Tuple[str, Any]], task_id: str
+    ) -> None:
+        await self._ensure_initialized()
+        return await self._saver.aput_writes(config, writes, task_id)
+
+    async def alist(
+        self,
+        config: Optional[dict],
+        *,
+        filter: Optional[dict[str, Any]] = None,
+        before: Optional[dict] = None,
+        limit: Optional[int] = None,
+    ) -> AsyncIterator[CheckpointTuple]:
+        await self._ensure_initialized()
+        async for item in self._saver.alist(
+            config, filter=filter, before=before, limit=limit
+        ):
+            yield item
+
+    def get_tuple(self, config: dict) -> Optional[CheckpointTuple]:
+        raise NotImplementedError("Use async methods (aget_tuple) for Postgres checkpointer")
+
+    def put(
+        self, config: dict, checkpoint: Checkpoint,
+        metadata: CheckpointMetadata, new_versions: ChannelVersions,
+    ) -> dict:
+        raise NotImplementedError("Use async methods (aput) for Postgres checkpointer")
+
+    def put_writes(
+        self, config: dict, writes: Sequence[Tuple[str, Any]], task_id: str
+    ) -> None:
+        raise NotImplementedError("Use async methods (aput_writes) for Postgres checkpointer")
+
+    def list(
+        self, config: Optional[dict], **kwargs: Any
+    ) -> Iterator[CheckpointTuple]:
+        raise NotImplementedError("Use async methods (alist) for Postgres checkpointer")
+
+
+# ---------------------------------------------------------------------------
+# MongoDB
+# ---------------------------------------------------------------------------
 
 
 def _create_mongodb_checkpointer(mongodb_uri: str):
-  """Create a MongoDB-backed checkpointer using langgraph-checkpoint-mongodb.
+    """Create a MongoDB-backed checkpointer (lazy async initialization).
 
-  Args:
-      mongodb_uri: MongoDB connection URI (e.g. mongodb://host:27017)
-  """
-  try:
-    from langgraph.checkpoint.mongodb import MongoDBSaver
+    Uses AsyncMongoDBSaver from langgraph-checkpoint-mongodb.
+    """
+    try:
+        import importlib.util
 
-    checkpointer = MongoDBSaver.from_conn_string(mongodb_uri)
+        if importlib.util.find_spec("langgraph.checkpoint.mongodb") is None:
+            raise ImportError("langgraph-checkpoint-mongodb not installed")
 
-    masked_uri = mongodb_uri[:20] + "..." if len(mongodb_uri) > 20 else mongodb_uri
-    logger.info(f"LangGraph Checkpointer: MongoDBSaver created (uri={masked_uri})")
-    return checkpointer
+        masked_uri = mongodb_uri[:20] + "..." if len(mongodb_uri) > 20 else mongodb_uri
+        logger.info(f"LangGraph Checkpointer: AsyncMongoDBSaver configured (uri={masked_uri})")
+        return _LazyAsyncMongoDBSaver(mongodb_uri)
 
-  except ImportError:
-    logger.warning(
-      "langgraph-checkpoint-mongodb not installed. "
-      "Install with: pip install langgraph-checkpoint-mongodb"
-    )
-    return _create_memory_checkpointer()
-  except Exception as e:
-    logger.error(f"Failed to create MongoDB checkpointer: {e}")
-    raise
+    except ImportError:
+        logger.warning(
+            "langgraph-checkpoint-mongodb not installed. "
+            "Install with: pip install langgraph-checkpoint-mongodb"
+        )
+        return _create_memory_checkpointer()
+
+
+class _LazyAsyncMongoDBSaver(BaseCheckpointSaver):
+    """Lazy wrapper for AsyncMongoDBSaver that initializes on first async use."""
+
+    def __init__(self, mongodb_uri: str):
+        super().__init__()
+        self._mongodb_uri = mongodb_uri
+        self._saver: Optional[Any] = None
+        self._initialized = False
+
+    async def _ensure_initialized(self) -> None:
+        if not self._initialized:
+            from langgraph.checkpoint.mongodb.aio import AsyncMongoDBSaver
+
+            self._saver = AsyncMongoDBSaver.from_conn_string(self._mongodb_uri)
+            self._initialized = True
+            logger.info("LangGraph AsyncMongoDBSaver initialized and connected")
+
+    async def aget_tuple(self, config: dict) -> Optional[CheckpointTuple]:
+        await self._ensure_initialized()
+        return await self._saver.aget_tuple(config)
+
+    async def aput(
+        self,
+        config: dict,
+        checkpoint: Checkpoint,
+        metadata: CheckpointMetadata,
+        new_versions: ChannelVersions,
+    ) -> dict:
+        await self._ensure_initialized()
+        return await self._saver.aput(config, checkpoint, metadata, new_versions)
+
+    async def aput_writes(
+        self, config: dict, writes: Sequence[Tuple[str, Any]], task_id: str
+    ) -> None:
+        await self._ensure_initialized()
+        return await self._saver.aput_writes(config, writes, task_id)
+
+    async def alist(
+        self,
+        config: Optional[dict],
+        *,
+        filter: Optional[dict[str, Any]] = None,
+        before: Optional[dict] = None,
+        limit: Optional[int] = None,
+    ) -> AsyncIterator[CheckpointTuple]:
+        await self._ensure_initialized()
+        async for item in self._saver.alist(
+            config, filter=filter, before=before, limit=limit
+        ):
+            yield item
+
+    def get_tuple(self, config: dict) -> Optional[CheckpointTuple]:
+        raise NotImplementedError("Use async methods (aget_tuple) for MongoDB checkpointer")
+
+    def put(
+        self, config: dict, checkpoint: Checkpoint,
+        metadata: CheckpointMetadata, new_versions: ChannelVersions,
+    ) -> dict:
+        raise NotImplementedError("Use async methods (aput) for MongoDB checkpointer")
+
+    def put_writes(
+        self, config: dict, writes: Sequence[Tuple[str, Any]], task_id: str
+    ) -> None:
+        raise NotImplementedError("Use async methods (aput_writes) for MongoDB checkpointer")
+
+    def list(
+        self, config: Optional[dict], **kwargs: Any
+    ) -> Iterator[CheckpointTuple]:
+        raise NotImplementedError("Use async methods (alist) for MongoDB checkpointer")
 
 
 # ============================================================================
@@ -204,14 +469,14 @@ _GLOBAL_CHECKPOINTER = None
 
 
 def get_checkpointer():
-  """Get or create the global checkpointer singleton."""
-  global _GLOBAL_CHECKPOINTER
-  if _GLOBAL_CHECKPOINTER is None:
-    _GLOBAL_CHECKPOINTER = create_checkpointer()
-  return _GLOBAL_CHECKPOINTER
+    """Get or create the global checkpointer singleton."""
+    global _GLOBAL_CHECKPOINTER
+    if _GLOBAL_CHECKPOINTER is None:
+        _GLOBAL_CHECKPOINTER = create_checkpointer()
+    return _GLOBAL_CHECKPOINTER
 
 
 def reset_checkpointer():
-  """Reset the global checkpointer singleton (for testing)."""
-  global _GLOBAL_CHECKPOINTER
-  _GLOBAL_CHECKPOINTER = None
+    """Reset the global checkpointer singleton (for testing)."""
+    global _GLOBAL_CHECKPOINTER
+    _GLOBAL_CHECKPOINTER = None

@@ -2,8 +2,8 @@ replicaCount: 1
 revisionHistoryLimit: 3
 
 image:
-  repository: redis/redis-stack-server
-  tag: "7.2.0-v13"
+  repository: redis
+  tag: "8.0-alpine"
   pullPolicy: IfNotPresent
 
 imagePullSecrets: []
