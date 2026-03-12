@@ -22,7 +22,6 @@ from .event_parser import (
     EventType,
 )
 from . import slack_formatter
-from .slack_formatter import ExecutionPlan
 from .throttler import create_throttled_updater
 
 
@@ -92,47 +91,115 @@ def stream_a2a_response(
     """
     from .hitl_handler import parse_form_data, format_hitl_form_blocks
 
+    # Streaming requires a valid user_id (starts with U or W), bot_ids (B) don't work
+    can_stream = user_id and user_id[0] in ("U", "W")
+
     # In overthink mode, process silently - don't show "working" message
     # Only post if we have a confident response
     response_ts = None
     throttler = None
 
-    if not overthink_mode:
-        # Post initial "working" message
-        initial_blocks = [
-            {
-                "type": "section",
-                "text": {"type": "mrkdwn", "text": f"*{APP_NAME} is working...*"},
-            }
-        ]
-        initial_response = slack_client.chat_postMessage(
-            channel=channel_id,
-            thread_ts=thread_ts,
-            blocks=initial_blocks,
-            text=f"*{APP_NAME} is working...*",
-        )
-        response_ts = initial_response["ts"]
+    # Plan-mode streaming state
+    stream_ts = None              # ts from chat.startStream (None = not started)
+    plan_steps = {}               # step_id -> step dict (latest plan state)
+    sent_step_status = {}         # step_id -> last status we sent to Slack
+    step_thinking = {}            # step_id -> accumulated thinking text per step
+    current_step_id = None        # which step is in_progress
+    needs_separator = False       # insert \n\n before next streamed markdown (after tool_end)
 
-        # Create throttler for progress updates
-        throttler = create_throttled_updater(
-            slack_client=slack_client,
-            channel_id=channel_id,
-            message_ts=response_ts,
-            thread_ts=thread_ts,
-            min_interval=1.5,
-        )
+    # Loading messages shown in the animated typing indicator before stream starts
+    _loading_messages = [
+        "is thinking...",
+        "Convincing the AI to stop overthinking...",
+        "is resorting to some magic",
+    ]
+
+    def _set_typing_status(status_text, loading_messages=None):
+        """Set the typing indicator status (best-effort, non-blocking).
+
+        IMPORTANT: Only call this BEFORE startStream. Calling setStatus after
+        startStream creates a second message in the thread.
+        Only works for streamable users (U/W prefix), not bot users (B prefix).
+        """
+        if not can_stream or overthink_mode:
+            return
+        try:
+            kwargs = dict(
+                channel_id=channel_id,
+                thread_ts=thread_ts,
+                status=status_text,
+            )
+            if loading_messages:
+                kwargs["loading_messages"] = loading_messages
+            slack_client.assistant_threads_setStatus(**kwargs)
+            logger.info(f"[{thread_ts}] SLACK setStatus('{status_text}')")
+        except Exception as e:
+            logger.warning(f"[{thread_ts}] SLACK setStatus('{status_text}') FAILED: {e}")
+
+    def _start_stream_if_needed():
+        """Lazily start the Slack stream on first real content. Returns stream_ts or None."""
+        nonlocal stream_ts
+        if stream_ts:
+            return stream_ts  # Already started
+        if not can_stream or overthink_mode:
+            return None
+        try:
+            start_response = slack_client.chat_startStream(
+                channel=channel_id,
+                thread_ts=thread_ts,
+                recipient_team_id=team_id,
+                recipient_user_id=user_id,
+                task_display_mode="plan",
+            )
+            stream_ts = start_response["ts"]
+            logger.info(f"[{thread_ts}] SLACK startStream -> ts={stream_ts}")
+            # Clear the typing status now that the stream message is visible
+            _set_typing_status("")
+            return stream_ts
+        except Exception as e:
+            logger.warning(f"[{thread_ts}] SLACK startStream FAILED: {e}")
+            return None
+
+    if not overthink_mode:
+        if can_stream:
+            # Show the animated typing indicator while we wait for content.
+            # The stream itself is deferred until we have something to show.
+            _set_typing_status("is thinking...", loading_messages=_loading_messages)
+        else:
+            # Non-streaming fallback: post a "working..." message + throttler
+            initial_blocks = [
+                {
+                    "type": "section",
+                    "text": {"type": "mrkdwn", "text": f"*{APP_NAME} is working...*"},
+                }
+            ]
+            initial_response = slack_client.chat_postMessage(
+                channel=channel_id,
+                thread_ts=thread_ts,
+                blocks=initial_blocks,
+                text=f"*{APP_NAME} is working...*",
+            )
+            response_ts = initial_response["ts"]
+
+            # Create throttler for progress updates
+            throttler = create_throttled_updater(
+                slack_client=slack_client,
+                channel_id=channel_id,
+                message_ts=response_ts,
+                thread_ts=thread_ts,
+                min_interval=1.5,
+            )
 
     # State tracking - keep final content separate, don't accumulate
     final_message_text = None  # From MESSAGE events (role=agent)
     final_result_text = None  # From FINAL_RESULT artifact
     partial_result_text = None  # From PARTIAL_RESULT artifact (fallback)
     last_artifacts = []
-    execution_plan = ExecutionPlan()
-    execution_plan_text = None
     is_new_context = context_id is None
     current_tool = None
     task_error = None  # Track errors but don't raise immediately - allow recovery
     trace_id = None  # Langfuse trace ID for feedback scoring
+    streamed_any_text = False  # Track if any text was streamed via appendStream
 
     try:
         for event_data in a2a_client.send_message_stream(
@@ -153,12 +220,6 @@ def stream_a2a_response(
                     if parsed.metadata.get("trace_id") and not trace_id:
                         trace_id = parsed.metadata["trace_id"]
                         logger.info(f"[{thread_ts}] Got trace_id from TASK: {trace_id}")
-                    todos = slack_formatter.extract_todos_from_metadata(parsed.metadata)
-                    for todo in todos:
-                        execution_plan.add_step(
-                            name=todo.get("content", todo.get("name", "Unknown")),
-                            status=todo.get("status", "pending"),
-                        )
 
             elif parsed.event_type == EventType.MESSAGE:
                 # Keep the last MESSAGE with role=agent as potential final content
@@ -181,9 +242,60 @@ def stream_a2a_response(
                         task_error = f"Agent task failed: {error_msg}"
 
             elif parsed.event_type == EventType.STREAMING_RESULT:
-                # Just update progress, don't accumulate streaming content
+                logger.info(
+                    f"[{thread_ts}] STREAMING_RESULT: {len(parsed.text_content or '')} chars, "
+                    f"append={parsed.should_append}, step={current_step_id}"
+                )
+                if parsed.text_content:
+                    # Determine if this is intermediate step thinking or final answer.
+                    # Non-last plan steps → accumulate thinking (sent at step completion).
+                    # Last step or no plan → stream as top-level markdown_text.
+                    is_intermediate_step = False
+                    if current_step_id and plan_steps:
+                        sorted_steps = sorted(plan_steps.values(), key=lambda s: s.get("order", 0))
+                        last_step = sorted_steps[-1]
+                        is_last = (last_step.get("step_id") == current_step_id
+                                   and last_step.get("status") == "in_progress")
+                        if not is_last:
+                            is_intermediate_step = True
+                            # Accumulate thinking for this step (used at step completion).
+                            # Respect append flag: False = replace, True/None = append
+                            if parsed.should_append is False:
+                                step_thinking[current_step_id] = [parsed.text_content]
+                            else:
+                                step_thinking.setdefault(current_step_id, [])
+                                step_thinking[current_step_id].append(parsed.text_content)
+                            # Update typing status while thinking (before stream starts)
+                            if not stream_ts:
+                                step = plan_steps.get(current_step_id, {})
+                                title = step.get("title", "working")
+                                _set_typing_status(f"is {title}...")
+
+                    if not is_intermediate_step and not plan_steps:
+                        # Stream as markdown text in real-time only when
+                        # there is NO plan. When a plan is active, all steps
+                        # (including the last) accumulate silently — the final
+                        # answer is sent in stopStream from final_result.
+                        _start_stream_if_needed()
+                        if stream_ts:
+                            text = parsed.text_content
+                            if needs_separator and streamed_any_text:
+                                text = "\n\n" + text
+                                needs_separator = False
+                            try:
+                                slack_client.chat_appendStream(
+                                    channel=channel_id, ts=stream_ts,
+                                    chunks=[{"type": "markdown_text", "text": text}],
+                                )
+                                logger.info(f"[{thread_ts}] SLACK appendStream markdown_text {len(parsed.text_content)} chars")
+                                streamed_any_text = True
+                            except Exception as e:
+                                logger.warning(f"[{thread_ts}] SLACK appendStream text FAILED: {e}")
+
+                # Update progress for non-streaming fallback (bot users)
                 if throttler and throttler.should_update():
-                    _update_progress(throttler, current_tool, execution_plan_text)
+                    blocks = _build_progress_blocks(current_tool, plan_steps)
+                    throttler.update(blocks, "Working on your request...")
 
             elif parsed.event_type == EventType.FINAL_RESULT:
                 # This is the authoritative final content
@@ -214,8 +326,11 @@ def stream_a2a_response(
                     tool_id = parsed.tool_notification.tool_id
                     current_tool = tool_name or tool_id or None
                     logger.info(f"[{thread_ts}] Tool started: {current_tool or '(unknown)'}")
+                    if not stream_ts and current_tool:
+                        _set_typing_status(f"is {current_tool}-ing...")
                     if throttler:
-                        _update_progress(throttler, current_tool, execution_plan_text, force=True)
+                        blocks = _build_progress_blocks(current_tool, plan_steps)
+                        throttler.force_update(blocks, "Working on your request...")
 
             elif parsed.event_type == EventType.TOOL_NOTIFICATION_END:
                 if parsed.tool_notification:
@@ -228,16 +343,75 @@ def stream_a2a_response(
                     else:
                         logger.info(f"[{thread_ts}] Tool completed: {display_name}")
                     current_tool = None
+                    needs_separator = True
+                    if not stream_ts:
+                        _set_typing_status("is working...")
                     # Update to clear tool indicator
                     if throttler:
-                        _update_progress(throttler, current_tool, execution_plan_text, force=True)
+                        blocks = _build_progress_blocks(None, plan_steps)
+                        throttler.force_update(blocks, "Working on your request...")
 
             elif parsed.event_type == EventType.EXECUTION_PLAN:
-                if parsed.text_content:
-                    execution_plan_text = parsed.text_content.replace("⟦", "").replace("⟧", "")
-                    logger.info(f"[{thread_ts}] Received execution plan update")
+                if parsed.plan_data and parsed.plan_data.get("steps"):
+                    # Update plan state from structured DataPart
+                    for step in parsed.plan_data["steps"]:
+                        plan_steps[step["step_id"]] = step
+
+                    # Track current in_progress step
+                    for step in parsed.plan_data["steps"]:
+                        if step.get("status") == "in_progress":
+                            current_step_id = step["step_id"]
+                            break
+
+                    # Send only new or changed steps to avoid duplicate plan cards
+                    if not overthink_mode:
+                        _start_stream_if_needed()
+                    if not overthink_mode and stream_ts:
+                        changed_steps = []
+                        for step in plan_steps.values():
+                            sid = step["step_id"]
+                            cur_status = step.get("status", "pending")
+                            if sid not in sent_step_status or sent_step_status[sid] != cur_status:
+                                changed_steps.append(step)
+                                sent_step_status[sid] = cur_status
+                        if changed_steps:
+                            # Attach accumulated thinking as details for completed steps
+                            details_map = {}
+                            for step in changed_steps:
+                                sid = step["step_id"]
+                                if step.get("status") in ("completed", "failed") and sid in step_thinking:
+                                    thinking = "".join(step_thinking[sid])
+                                    if thinking:
+                                        details_map[sid] = thinking[:500]
+                            chunks = slack_formatter.build_task_update_chunks(
+                                changed_steps, step_details=details_map
+                            )
+                            try:
+                                slack_client.chat_appendStream(
+                                    channel=channel_id, ts=stream_ts, chunks=chunks
+                                )
+                                logger.info(
+                                    f"[{thread_ts}] SLACK appendStream plan chunks: "
+                                    f"{[c.get('id','?')+':'+c.get('status','?') for c in chunks]}"
+                                )
+                            except Exception as e:
+                                logger.warning(f"[{thread_ts}] SLACK appendStream plan FAILED: {e}")
+
+                    # Non-streaming: update throttler with structured plan
                     if throttler:
-                        _update_progress(throttler, current_tool, execution_plan_text, force=True)
+                        blocks = _build_progress_blocks(current_tool, plan_steps)
+                        throttler.force_update(blocks, "Working on your request...")
+                    # Update typing status with current step title (only for non-stream mode;
+                    # when streaming, the plan card itself shows progress)
+                    elif not stream_ts and current_step_id and current_step_id in plan_steps:
+                        step_title = plan_steps[current_step_id].get("title", "")
+                        if step_title:
+                            _set_typing_status(f"is working on: {step_title}")
+
+                    logger.info(f"[{thread_ts}] Received structured execution plan update ({len(plan_steps)} steps)")
+                elif parsed.text_content:
+                    # Text-only plan — no structured data, just log it
+                    logger.info(f"[{thread_ts}] Received text-only execution plan (no structured steps)")
 
             elif parsed.event_type == EventType.CAIPE_FORM:
                 if parsed.form_data:
@@ -331,7 +505,12 @@ def stream_a2a_response(
         elif task_error:
             # No useful content AND we had an error - return retry marker for caller to handle
             logger.error(f"[{thread_ts}] No content received and task had error: {task_error}")
-            # Delete progress message if there is one (not in overthink mode)
+            # Clean up: stop active stream or delete progress message
+            if stream_ts:
+                try:
+                    slack_client.chat_stopStream(channel=channel_id, ts=stream_ts)
+                except Exception:
+                    pass
             if response_ts:
                 try:
                     slack_client.chat_delete(channel=channel_id, ts=response_ts)
@@ -344,61 +523,92 @@ def stream_a2a_response(
                 f"[{thread_ts}] Selected final text: {len(final_text)} chars, preview: {final_text[:100]}..."
             )
 
-        # Get execution plan
-        plan_text = execution_plan_text
-        if not plan_text and execution_plan.steps:
-            plan_text = slack_formatter.format_execution_plan(execution_plan)
+        # Clear typing status before final response
+        _set_typing_status("")
 
-        # Delete the progress message if there is one (not in overthink mode)
-        if response_ts:
-            try:
-                slack_client.chat_delete(channel=channel_id, ts=response_ts)
-                logger.info(f"[{thread_ts}] Deleted progress message {response_ts}")
-            except Exception as e:
-                logger.warning(f"[{thread_ts}] Could not delete progress message: {e}")
+        # --- Finalization: single path per delivery mode ---
+        # If stream was never started (no content arrived), start it now for the final answer
+        _start_stream_if_needed()
 
-        # Stream final response using Slack's native streaming API
-        # Streaming requires a valid user_id (starts with U or W), bot_ids (B) don't work
-        can_stream = user_id and user_id[0] in ("U", "W")
-        if can_stream:
-            try:
-                return _stream_final_response(
-                    slack_client,
-                    channel_id,
-                    thread_ts,
-                    team_id,
-                    user_id,
-                    final_text,
-                    plan_text,
-                    response_ts,
-                    triggered_by_user_id=triggered_by_user_id,
-                    additional_footer=additional_footer,
-                )
-            except Exception as stream_err:
-                # Streaming failed - fall back to regular posting
-                # Common errors: channel_type_not_supported, missing_recipient_team_id
-                logger.warning(
-                    f"[{thread_ts}] Streaming failed, falling back to regular post: {stream_err}"
-                )
-                return _post_final_response(
-                    slack_client,
-                    channel_id,
-                    thread_ts,
-                    final_text,
-                    plan_text,
-                    response_ts,
-                    triggered_by_user_id=triggered_by_user_id,
-                    additional_footer=additional_footer,
-                )
-        else:
-            # Fall back to regular post for bot messages
-            logger.info(f"[{thread_ts}] Using regular post (no valid user_id for streaming)")
+        if stream_ts:
+            # Everything in ONE stream message
+            logger.info(
+                f"[{thread_ts}] Finalizing plan stream: {len(final_text)} chars, "
+                f"streamed_any_text={streamed_any_text}, "
+                f"plan_steps={len(plan_steps)}, sent_step_status={sent_step_status}"
+            )
+
+            # 1. Force-complete all plan steps at finalization.
+            # Steps left in_progress/pending when the stream ends cause Slack
+            # to show "Something went wrong". Mark them all as complete.
+            if plan_steps:
+                final_chunks = []
+                for step in plan_steps.values():
+                    sid = step["step_id"]
+                    cur_sent = sent_step_status.get(sid)
+                    if cur_sent != "completed":
+                        thinking = "".join(step_thinking.get(sid, []))
+                        final_chunks.append(
+                            slack_formatter.build_single_task_update(
+                                step_id=sid,
+                                title=slack_formatter._format_step_title(step),
+                                status="completed",
+                                details=thinking[:500] if thinking else None,
+                            )
+                        )
+                if final_chunks:
+                    try:
+                        slack_client.chat_appendStream(
+                            channel=channel_id, ts=stream_ts, chunks=final_chunks
+                        )
+                        logger.info(f"[{thread_ts}] SLACK appendStream final step completions: {len(final_chunks)}")
+                    except Exception as e:
+                        logger.warning(f"[{thread_ts}] SLACK appendStream final steps FAILED: {e}")
+
+            # 2. Build stop call with final answer + feedback blocks.
+            # For plan flows: always send final_text (streaming only updates
+            # plan cards, the answer itself comes from final_result).
+            # For no-plan flows: skip if text was already streamed live.
+            stop_chunks = []
+            needs_final = plan_steps or not streamed_any_text
+            if needs_final and final_text:
+                stop_chunks.append({"type": "markdown_text", "text": final_text})
+
+            stop_blocks = _build_stream_final_blocks(
+                channel_id, thread_ts, response_ts,
+                triggered_by_user_id=triggered_by_user_id,
+                additional_footer=additional_footer,
+            )
+            logger.info(
+                f"[{thread_ts}] SLACK stopStream: "
+                f"chunks={len(stop_chunks)}, blocks={len(stop_blocks)}"
+            )
+            slack_client.chat_stopStream(
+                channel=channel_id, ts=stream_ts,
+                chunks=stop_chunks if stop_chunks else None,
+                blocks=stop_blocks,
+            )
+            return stop_blocks
+
+        elif can_stream:
+            # startStream failed earlier — post as regular message
+            logger.warning(f"[{thread_ts}] Stream not started, falling back to regular post")
             return _post_final_response(
-                slack_client,
-                channel_id,
-                thread_ts,
-                final_text,
-                plan_text,
+                slack_client, channel_id, thread_ts, final_text,
+                response_ts,
+                triggered_by_user_id=triggered_by_user_id,
+                additional_footer=additional_footer,
+            )
+        else:
+            # Bot user — delete progress msg, post final
+            if response_ts:
+                try:
+                    slack_client.chat_delete(channel=channel_id, ts=response_ts)
+                    logger.info(f"[{thread_ts}] Deleted progress message {response_ts}")
+                except Exception as e:
+                    logger.warning(f"[{thread_ts}] Could not delete progress message: {e}")
+            return _post_final_response(
+                slack_client, channel_id, thread_ts, final_text,
                 response_ts,
                 triggered_by_user_id=triggered_by_user_id,
                 additional_footer=additional_footer,
@@ -407,48 +617,58 @@ def stream_a2a_response(
     except Exception as e:
         logger.exception(f"[{thread_ts}] Error during streaming: {e}")
         error_blocks = slack_formatter.format_error_message(str(e))
-        try:
-            throttler.force_update(error_blocks, "Error")
-        except Exception as slack_err:
-            logger.warning(f"[{thread_ts}] Failed to post error to Slack: {slack_err}")
-        # Return error blocks instead of re-raising to prevent duplicate error messages
-        # The error has already been posted to Slack via throttler.force_update
+        if stream_ts:
+            # Stop the plan stream with error in blocks
+            try:
+                slack_client.chat_stopStream(
+                    channel=channel_id, ts=stream_ts, blocks=error_blocks
+                )
+            except Exception as slack_err:
+                logger.warning(f"[{thread_ts}] Failed to stop stream with error: {slack_err}")
+        elif throttler:
+            try:
+                throttler.force_update(error_blocks, "Error")
+            except Exception as slack_err:
+                logger.warning(f"[{thread_ts}] Failed to post error to Slack: {slack_err}")
+        else:
+            try:
+                slack_client.chat_postMessage(
+                    channel=channel_id,
+                    thread_ts=thread_ts,
+                    blocks=error_blocks,
+                    text="Error",
+                )
+            except Exception as slack_err:
+                logger.warning(f"[{thread_ts}] Failed to post error to Slack: {slack_err}")
         return error_blocks
 
 
-def _update_progress(throttler, current_tool, plan_text, force=False):
-    """Update progress message with current tool and plan."""
-    blocks = []
+_STEP_STATUS_EMOJI = {
+    "pending": "⏳",
+    "in_progress": "🔄",
+    "completed": "✅",
+    "failed": "❌",
+}
 
-    # Header with tool inline (e.g., "CAIPE is search-ing...")
-    if current_tool:
-        header_text = f"*{APP_NAME} is {current_tool}-ing...*"
-    else:
-        header_text = f"*{APP_NAME} is working...*"
 
-    blocks.append(
-        {
-            "type": "section",
-            "text": {"type": "mrkdwn", "text": header_text},
-        }
+def _build_progress_blocks(current_tool, plan_steps=None):
+    """Build progress blocks for throttled updates (bot-user fallback)."""
+    header_text = (
+        f"*{APP_NAME} is {current_tool}-ing...*" if current_tool
+        else f"*{APP_NAME} is working...*"
     )
-
-    # Execution plan (use as-is since CAIPE sends formatted plan)
-    if plan_text:
-        formatted_plan = slack_formatter.convert_markdown_to_slack(plan_text)
-        # Don't add extra header - CAIPE's plan already has structure
-        if len(formatted_plan) <= 2000:
-            blocks.append(
-                {
-                    "type": "context",
-                    "elements": [{"type": "mrkdwn", "text": formatted_plan}],
-                }
-            )
-
-    if force:
-        throttler.force_update(blocks, "Working on your request...")
-    else:
-        throttler.update(blocks, "Working on your request...", force=False)
+    blocks = [{"type": "section", "text": {"type": "mrkdwn", "text": header_text}}]
+    if plan_steps:
+        lines = []
+        for step in sorted(plan_steps.values(), key=lambda s: s.get("order", 0)):
+            status = step.get("status", "pending")
+            emoji = _STEP_STATUS_EMOJI.get(status, "⏳")
+            title = slack_formatter._format_step_title(step)
+            lines.append(f"{emoji} {title}")
+        plan_text = "\n".join(lines)
+        if len(plan_text) <= 2000:
+            blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": plan_text}]})
+    return blocks
 
 
 def _check_overthink_skip(final_text: str, thread_ts: str) -> dict | None:
@@ -524,23 +744,19 @@ def _post_final_response(
     channel_id,
     thread_ts,
     final_text,
-    plan_text,
     original_ts,
     triggered_by_user_id=None,
     additional_footer=None,
 ):
     """Post final response as a regular message (fallback for bot messages)."""
-    # Convert markdown to Slack mrkdwn format
-    slack_text = slack_formatter.convert_markdown_to_slack(final_text)
-    # Split text into chunks that fit Slack's 3000 char limit per block
-    text_chunks = slack_formatter.split_text_into_blocks(slack_text)
+    text_chunks = slack_formatter.split_text_into_blocks(final_text)
 
     final_blocks = []
     for chunk in text_chunks:
         final_blocks.append(
             {
-                "type": "section",
-                "text": {"type": "mrkdwn", "text": chunk},
+                "type": "markdown",
+                "text": chunk,
             }
         )
 
@@ -565,39 +781,12 @@ def _post_final_response(
     return final_blocks
 
 
-def _stream_final_response(
-    slack_client,
-    channel_id,
-    thread_ts,
-    team_id,
-    user_id,
-    final_text,
-    plan_text,
-    original_ts,
+def _build_stream_final_blocks(
+    channel_id, thread_ts, original_ts,
     triggered_by_user_id=None,
     additional_footer=None,
 ):
-    """Stream the final response using Slack's streaming API."""
-    logger.debug(f"[{thread_ts}] Streaming {len(final_text)} chars to Slack")
-
-    # Start stream
-    start_response = slack_client.chat_startStream(
-        channel=channel_id,
-        thread_ts=thread_ts,
-        recipient_team_id=team_id,
-        recipient_user_id=user_id,
-    )
-    stream_ts = start_response["ts"]
-
-    slack_client.chat_appendStream(
-        channel=channel_id,
-        ts=stream_ts,
-        markdown_text=final_text,
-    )
-
-    # Build final blocks - only feedback buttons, NOT the text or plan
-    # (the streamed text stays, stopStream just adds blocks below it)
-    # Note: Execution plan is shown during streaming but hidden in final output
+    """Build the feedback + footer blocks used by both stream types."""
     final_blocks = []
 
     # Add refinement buttons
@@ -630,11 +819,11 @@ def _stream_final_response(
                     "type": "feedback_buttons",
                     "action_id": "caipe_feedback",
                     "positive_button": {
-                        "text": {"type": "plain_text", "text": "👍"},
+                        "text": {"type": "plain_text", "text": "\U0001f44d"},
                         "value": f"positive|{original_ts or ''}",
                     },
                     "negative_button": {
-                        "text": {"type": "plain_text", "text": "👎"},
+                        "text": {"type": "plain_text", "text": "\U0001f44e"},
                         "value": f"negative|{original_ts or ''}",
                     },
                 },
@@ -642,7 +831,7 @@ def _stream_final_response(
         }
     )
 
-    # Build footer with optional user attribution and additional text
+    # Build footer
     footer_text = _build_footer_text(
         triggered_by_user_id=triggered_by_user_id, additional_footer=additional_footer
     )
@@ -651,13 +840,6 @@ def _stream_final_response(
             "type": "context",
             "elements": [{"type": "mrkdwn", "text": footer_text}],
         }
-    )
-
-    # Stop stream - blocks are appended after the streamed text
-    slack_client.chat_stopStream(
-        channel=channel_id,
-        ts=stream_ts,
-        blocks=final_blocks,
     )
 
     return final_blocks
