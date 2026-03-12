@@ -43,7 +43,7 @@ Each hop introduces an identity boundary. Without proper delegation, the downstr
 
 ### Enterprise Slack with Okta SSO
 
-In enterprise environments (e.g., Cisco), Slack is federated through an enterprise Identity Provider like Okta:
+In enterprise environments, Slack is federated through an enterprise Identity Provider (e.g., Okta):
 
 ```
 Okta (Source of Truth) → Slack Enterprise Grid (SAML/OIDC SP) → Slack Bot → CAIPE
@@ -150,7 +150,7 @@ sequenceDiagram
     KC->>KC: Create/link user account<br/>Map: slack_user_id ↔ keycloak_sub ↔ okta_sub
     KC->>SB: Callback with auth code
     SB->>KC: Exchange code for tokens
-    SB->>U: "Identity verified! You're connected as sri@cisco.com"
+    SB->>U: "Identity verified! You're connected as user@example.com"
 
     Note over U,OKTA: Phase 2: Subsequent Interactions (Frictionless)
 
@@ -158,7 +158,7 @@ sequenceDiagram
     SB->>SB: Lookup: slack_user_id → keycloak identity
     SB->>KC: Token Exchange (RFC 8693)<br/>subject_token=slack_assertion<br/>subject_issuer=slack-bot-trusted
     KC->>KC: Verify bot client credentials<br/>Lookup linked identity<br/>Include Okta groups from federation
-    KC->>SB: Keycloak access_token<br/>(sub=sri@cisco.com, groups=[sre-team])
+    KC->>SB: Keycloak access_token<br/>(sub=user@example.com, groups=[sre-team])
     SB->>SB: Route to CAIPE Orchestrator with user token
 ```
 
@@ -169,24 +169,24 @@ Keycloak must be configured with Okta as an OIDC Identity Provider broker. This 
 ```json
 {
   "alias": "okta-enterprise",
-  "displayName": "Cisco Okta SSO",
+  "displayName": "Enterprise IdP (Okta)",
   "providerId": "oidc",
   "enabled": true,
   "trustEmail": true,
   "storeToken": false,
   "firstBrokerLoginFlowAlias": "first broker login",
   "config": {
-    "authorizationUrl": "https://cisco.okta.com/oauth2/default/v1/authorize",
-    "tokenUrl": "https://cisco.okta.com/oauth2/default/v1/token",
-    "userInfoUrl": "https://cisco.okta.com/oauth2/default/v1/userinfo",
+    "authorizationUrl": "https://your-org.okta.com/oauth2/default/v1/authorize",
+    "tokenUrl": "https://your-org.okta.com/oauth2/default/v1/token",
+    "userInfoUrl": "https://your-org.okta.com/oauth2/default/v1/userinfo",
     "clientId": "caipe-keycloak-client",
     "clientSecret": "${vault.okta-client-secret}",
-    "issuer": "https://cisco.okta.com/oauth2/default",
+    "issuer": "https://your-org.okta.com/oauth2/default",
     "defaultScope": "openid profile email groups",
     "syncMode": "FORCE",
     "validateSignature": "true",
     "useJwksUrl": "true",
-    "jwksUrl": "https://cisco.okta.com/oauth2/default/v1/keys"
+    "jwksUrl": "https://your-org.okta.com/oauth2/default/v1/keys"
   }
 }
 ```
@@ -238,7 +238,7 @@ sequenceDiagram
 
     KC->>KC: 1. Verify bot client credentials<br/>2. Validate signed assertion<br/>3. Lookup: slack_user_id → keycloak_sub<br/>4. Enrich with Okta groups (from federation)<br/>5. Mint access token
 
-    KC->>SB: Access Token<br/>{sub: "sri@cisco.com",<br/> groups: ["sre-team", "platform-admins"],<br/> scope: "github jira argocd pagerduty",<br/> act: {sub: "caipe-slack-bot"}}
+    KC->>SB: Access Token<br/>{sub: "user@example.com",<br/> groups: ["sre-team", "platform-admins"],<br/> scope: "github jira argocd pagerduty",<br/> act: {sub: "caipe-slack-bot"}}
 
     Note over SB,SVC: OBO Exchange: Orchestrator → Agent (Scope Narrowing)
 
@@ -247,13 +247,13 @@ sequenceDiagram
 
     KC->>KC: 1. Verify agent client credentials<br/>2. Validate parent token<br/>3. Narrow scope (can only reduce, never widen)<br/>4. Set short TTL (5 min for ephemeral agents)<br/>5. Add delegation chain to act claim
 
-    KC->>ORCH: Narrowed Token<br/>{sub: "sri@cisco.com",<br/> scope: "github:repo:read github:pr:write",<br/> act: {sub: "caipe-github-agent",<br/>       act: {sub: "caipe-slack-bot"}},<br/> exp: +300s}
+    KC->>ORCH: Narrowed Token<br/>{sub: "user@example.com",<br/> scope: "github:repo:read github:pr:write",<br/> act: {sub: "caipe-github-agent",<br/>       act: {sub: "caipe-slack-bot"}},<br/> exp: +300s}
 
     Note over SB,SVC: External Token Retrieval + API Call
 
     ORCH->>AGENT: Execute task + narrowed token
     AGENT->>KC: Token Exchange<br/>subject_token=narrowed_token<br/>requested_issuer=github
-    KC->>KC: Retrieve stored GitHub OAuth token<br/>for user sri@cisco.com
+    KC->>KC: Retrieve stored GitHub OAuth token<br/>for user user@example.com
     KC->>AGENT: GitHub access_token (ghp_xxx)
     AGENT->>SVC: GitHub API call with user's OAuth token<br/>Authorization: Bearer ghp_xxx
     SVC->>AGENT: Response (PR data, etc.)
@@ -481,7 +481,7 @@ The resulting token carries the full audit trail as nested `act` claims:
 
 ```json
 {
-  "sub": "sri@cisco.com",
+  "sub": "user@example.com",
   "scope": "github:repo:read github:pull_request:read",
   "aud": "caipe-agent-pr-reader",
   "groups": ["sre-team", "platform-admins"],
@@ -650,8 +650,8 @@ graph TB
         HEADER["My Connections"]
         
         subgraph "Connected Services"
-            GH_CARD["✅ GitHub<br/>@sri-gh<br/>Scopes: repo, read:org<br/>[Manage] [Disconnect]"]
-            JIRA_CARD["✅ Jira<br/>sri@cisco.com<br/>Scopes: read/write jira-work<br/>[Manage] [Disconnect]"]
+            GH_CARD["✅ GitHub<br/>@myusername<br/>Scopes: repo, read:org<br/>[Manage] [Disconnect]"]
+            JIRA_CARD["✅ Jira<br/>user@example.com<br/>Scopes: read/write jira-work<br/>[Manage] [Disconnect]"]
             ARGO_CARD["✅ ArgoCD<br/>Auto-connected (SSO)<br/>Groups: sre-team<br/>[View Permissions]"]
         end
 
@@ -705,7 +705,7 @@ sequenceDiagram
     KC->>UI: Redirect to CAIPE callback
     UI->>API: GET /api/connections (refresh status)
     API->>KC: Get federated identities for user
-    KC->>API: [{provider: "github", userName: "@sri-gh", ...}]
+    KC->>API: [{provider: "github", userName: "@myusername", ...}]
     API->>UI: Connection list (GitHub now connected)
     UI->>U: Show ✅ GitHub Connected
 ```
@@ -1051,7 +1051,7 @@ sequenceDiagram
     Note over SB,KC: Step 1: Identity Resolution
     SB->>SB: Extract slack_user_id from event
     SB->>KC: Token Exchange<br/>(slack assertion → keycloak token)
-    KC->>SB: User token<br/>(sub=sri@cisco.com,<br/>groups=[sre-team],<br/>scope=github jira argocd)
+    KC->>SB: User token<br/>(sub=user@example.com,<br/>groups=[sre-team],<br/>scope=github jira argocd)
 
     Note over SB,JIRA: Step 2: Task Routing
     SB->>ORCH: Forward request + user token
