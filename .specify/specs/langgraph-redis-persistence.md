@@ -88,7 +88,7 @@ Deploying a persistent backend (Redis Stack, PostgreSQL, or MongoDB) resolves bo
 - [x] `_create_mongodb_store()` returns `_LazyAsyncMongoDBStore` when `motor` is installed
 - [x] `deep_agent.py` uses `create_checkpointer()` instead of `InMemorySaver()`
 - [x] `base_langgraph_agent.py` uses `get_checkpointer()` instead of `MemorySaver()`
-- [x] `langgraph-redis` Helm subchart deploys Redis Stack (`redis/redis-stack-server:7.2.0-v13`)
+- [x] `langgraph-redis` Helm subchart deploys Redis 8.0 (`redis:8.0-alpine`)
 - [x] `checkpointPersistence` values support redis, postgres, and mongodb in supervisor-agent and agent charts
 - [x] `memoryPersistence` values support redis, postgres, and mongodb
 - [x] All 65 new unit tests pass

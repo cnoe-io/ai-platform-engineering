@@ -64,7 +64,7 @@ LANGGRAPH_STORE_MONGODB_URI=        # MongoDB connection URI
 ### Helm Chart (`langgraph-redis`)
 
 - New subchart: `charts/ai-platform-engineering/charts/langgraph-redis/`
-- Image: `redis/redis-stack-server:7.2.0-v13` (includes RedisJSON + RediSearch)
+- Image: `redis:8.0-alpine` (Redis 8.0+ includes RedisJSON + RediSearch natively)
 - PVC-backed persistence (2Gi default)
 - Controlled via `global.langgraphRedis.enabled` condition
 - Non-root container with security context hardening

@@ -70,3 +70,27 @@ make lint-fix             # Auto-fix linting issues
 PYTHONPATH=. uv run pytest tests/<test_file>.py -v
 PYTHONPATH=. uv run pytest tests/<test_file>.py::<TestClass> -v
 ```
+
+## Reusable Skills
+
+The `skills/` directory contains reusable tools organized by category:
+
+- **persistence**: Test LangGraph backends (Redis, PostgreSQL, MongoDB) and fact extraction
+- **debugging**: (future) Debugging and troubleshooting tools
+- **monitoring**: (future) Observability and metrics helpers
+- **deployment**: (future) Deployment automation
+
+### Quick Examples
+
+```bash
+# Test persistence backend
+./skills/persistence/test_persistence_all_backends.sh redis
+
+# Switch persistence backend
+./skills/persistence/switch_backend.sh postgres
+
+# Python-based testing
+python skills/persistence/test_langgraph_persistence.py mongodb
+```
+
+See [skills/README.md](./skills/README.md) for full documentation.

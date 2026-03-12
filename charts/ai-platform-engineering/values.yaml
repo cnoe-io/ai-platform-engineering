@@ -50,7 +50,13 @@ global:
   agentgateway:
     enabled: false
 
-  # LangGraph Redis Stack for checkpoint and cross-thread store persistence
+  # LangGraph Redis for checkpoint and cross-thread store persistence.
+  # Two deployment options:
+  #   1. Dedicated Redis Stack (recommended): set enabled=true to deploy langgraph-redis subchart
+  #   2. Reuse rag-redis: set autoDiscoverService="rag-redis" on persistence values (see below)
+  #      WARNING: rag-redis uses plain redis:7.2-alpine which lacks RedisJSON + RediSearch modules.
+  #      langgraph-checkpoint-redis requires these modules. You must upgrade the rag-redis image
+  #      to redis:8.0+ (which includes them natively) or use the dedicated langgraph-redis instance.
   langgraphRedis:
     enabled: false
 
@@ -171,6 +177,9 @@ supervisor-agent:
     redis:
       url: ""   # e.g. redis://host:6379/0, redis://user:pass@host:6379/0, or ElastiCache Redis endpoint
       existingSecret: {}   # optional: { name: "my-redis-secret", key: "REDIS_URL" }
+      # Auto-discover in-cluster Redis: "langgraph-redis" (dedicated) or "rag-redis" (shared, see caveats above)
+      autoDiscoverService: ""
+      dbIndex: 0   # DB index for autoDiscoverService (rag-redis: use 1+, db 0 is RAG data)
       keyPrefix: ""   # optional: namespace shared Redis (e.g. release name, "caipe-prod", "tenant-xyz")
     postgres:
       dsn: ""   # e.g. postgresql://user:pass@host:5432/dbname
@@ -178,6 +187,12 @@ supervisor-agent:
     mongodb:
       uri: ""   # e.g. mongodb://host:27017, mongodb+srv://user:pass@cluster.example.com
       existingSecret: {}   # optional: { name: "my-mongo-secret", key: "MONGODB_URI" }
+    # Embeddings for semantic memory search (shared with RAG stack EMBEDDINGS_PROVIDER/MODEL).
+    # When set, store backends use vector embeddings for similarity-based memory retrieval.
+    embeddings:
+      provider: ""   # e.g. openai, azure-openai (overrides EMBEDDINGS_PROVIDER for store)
+      model: ""      # e.g. text-embedding-3-small (overrides EMBEDDINGS_MODEL for store)
+      dims: ""       # auto-detected for known models; override if custom
     ttlMinutes: 10080
     enableFactExtraction: false
   # In-thread checkpoint persistence: memory (default) | redis | postgres | mongodb
@@ -187,6 +202,8 @@ supervisor-agent:
     redis:
       url: ""
       existingSecret: {}
+      autoDiscoverService: ""   # "langgraph-redis" or "rag-redis"
+      dbIndex: 0
     postgres:
       dsn: ""
       existingSecret: {}
