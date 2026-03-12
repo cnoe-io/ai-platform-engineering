@@ -1,6 +1,6 @@
 from langchain_core.tools import tool, InjectedToolCallId
 from langgraph.types import Command
-from langchain_core.messages import ToolMessage
+from langchain_core.messages import AIMessage, ToolMessage
 from typing import Annotated, Union
 from langgraph.prebuilt import InjectedState
 
@@ -14,8 +14,33 @@ from deepagents.state import Todo, DeepAgentState
 
 @tool(description=WRITE_TODOS_DESCRIPTION)
 def write_todos(
-    todos: list[Todo], tool_call_id: Annotated[str, InjectedToolCallId]
+    todos: list[Todo],
+    tool_call_id: Annotated[str, InjectedToolCallId],
+    state: Annotated[DeepAgentState, InjectedState],
 ) -> Command:
+    all_new_completed = todos and all(
+        t.get("status") == "completed" for t in todos
+    )
+    current_todos = state.get("todos") or []
+    if all_new_completed and current_todos:
+        all_current_completed = all(
+            t.get("status") == "completed" for t in current_todos
+        )
+        if all_current_completed:
+            return Command(
+                update={
+                    "messages": [
+                        ToolMessage(
+                            "All tasks already completed.",
+                            tool_call_id=tool_call_id,
+                        ),
+                        AIMessage(
+                            content="All tasks completed. Let me present the results."
+                        ),
+                    ],
+                }
+            )
+
     # Format todos as markdown checklist
     status_icons = {
         "pending": "⏳",
