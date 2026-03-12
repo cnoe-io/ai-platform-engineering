@@ -6,9 +6,10 @@
 - Use **git worktree** to work in isolated branches (preferred over `git checkout -b`):
   ```bash
   # Claude Code: use EnterWorktree tool with the branch name
-  # Manual equivalent:
-  git worktree add .claude/worktrees/<branch> -b <branch>
+  # Manual equivalent (run from repo root):
+  git worktree add ../ai-platform-engineering-worktrees/<branch> -b <branch>
   ```
+  Worktrees live **sibling to the repo** at `../ai-platform-engineering-worktrees/`, not inside it.
 - Branch naming convention: `prebuild/<type>/<short-description>`
   - `<type>` matches the conventional commit type: `feat`, `fix`, `docs`, `chore`, `refactor`, `test`, `ci`
   - e.g. `prebuild/fix/supervisor-streaming-json-and-orphaned-tool-calls`
