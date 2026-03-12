@@ -368,21 +368,209 @@ When a chat request is received, the Dynamic Agents service:
 
 ### Agent Runtime Lifecycle
 
+The `AgentRuntime` class is the core execution unit for a dynamic agent. Each runtime instance is bound to a specific **agent configuration** and **conversation**, maintaining state across multiple messages within that conversation.
+
+#### AgentRuntime Instance Contents
+
 ```python
 class AgentRuntime:
     """Runtime for a single dynamic agent instance."""
     
-    # Initialization
-    config: DynamicAgentConfig      # Agent configuration from MongoDB
-    mcp_servers: list[MCPServerConfig]  # MCP servers for tools
-    _graph: CompiledGraph | None    # LangGraph agent graph
-    _mcp_client: MultiServerMCPClient | None
-    _initialized: bool
+    # ═══════════════════════════════════════════════════════════════
+    # Core Configuration (immutable for lifetime of runtime)
+    # ═══════════════════════════════════════════════════════════════
+    config: DynamicAgentConfig      # Agent config from MongoDB
+    mcp_servers: list[MCPServerConfig]  # MCP server configurations
+    settings: Settings              # App settings (env vars)
     
-    # Timestamps for cache invalidation
-    _created_at: float
-    _config_updated_at: datetime
-    _mcp_servers_updated_at: datetime
+    # ═══════════════════════════════════════════════════════════════
+    # User Context (set at creation time)
+    # ═══════════════════════════════════════════════════════════════
+    _user_email: str | None         # User's email (for user_info tool)
+    _user_name: str | None          # User's display name
+    _user_groups: list[str]         # User's group memberships
+    
+    # ═══════════════════════════════════════════════════════════════
+    # Runtime Components (built during initialize())
+    # ═══════════════════════════════════════════════════════════════
+    _graph: CompiledGraph | None    # LangGraph agent (deepagents)
+    _mcp_client: MultiServerMCPClient | None  # MCP connections
+    _initialized: bool              # Whether initialize() has been called
+    
+    # ═══════════════════════════════════════════════════════════════
+    # Tracing & Observability
+    # ═══════════════════════════════════════════════════════════════
+    tracing: TracingManager         # Langfuse integration
+    _current_trace_id: str | None   # Current request's trace ID
+    
+    # ═══════════════════════════════════════════════════════════════
+    # Error Tracking (populated during MCP connection)
+    # ═══════════════════════════════════════════════════════════════
+    _failed_servers: list[str]      # Server IDs that failed to connect
+    _failed_servers_error: str      # Formatted error message for UI
+    _missing_tools: list[str]       # Tools configured but not available
+    
+    # ═══════════════════════════════════════════════════════════════
+    # Cache Invalidation Timestamps
+    # ═══════════════════════════════════════════════════════════════
+    _created_at: float              # Unix timestamp of creation
+    _config_updated_at: datetime    # Agent config's updated_at
+    _mcp_servers_updated_at: datetime  # Latest MCP server updated_at
+```
+
+#### What Gets Built During initialize()
+
+When `AgentRuntime.initialize()` is called (automatically on first `stream()` call):
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                      AgentRuntime.initialize() Steps                         │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+1. BUILD MCP CONNECTIONS
+   ┌─────────────────────────────────────────────────────────────────────┐
+   │  For each server in config.allowed_tools:                           │
+   │  • Look up MCPServerConfig from mcp_servers list                    │
+   │  • Build connection dict: {server_id: {transport, command/url}}     │
+   │  • Connect to servers concurrently (resilient - failures isolated)  │
+   │  • Track failed_servers and collect available tools                 │
+   └─────────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+2. FILTER & NAMESPACE TOOLS
+   ┌─────────────────────────────────────────────────────────────────────┐
+   │  • Tools namespaced as: "{server_id}_{tool_name}"                   │
+   │  • Filter to only tools in config.allowed_tools                     │
+   │  • Track missing_tools for UI warnings                              │
+   └─────────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+3. ADD BUILT-IN TOOLS (based on config.builtin_tools)
+   ┌─────────────────────────────────────────────────────────────────────┐
+   │  • fetch_url: HTTP fetching with domain ACL (disabled by default)  │
+   │  • current_datetime: Returns current date/time (enabled by default)│
+   │  • user_info: Returns user email/name/groups (enabled by default)  │
+   │  • sleep: Async sleep for rate limiting (enabled by default)       │
+   └─────────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+4. BUILD SYSTEM PROMPT
+   ┌─────────────────────────────────────────────────────────────────────┐
+   │  Final prompt = config.system_prompt + "\n\n" + extension_prompt    │
+   │                                                                     │
+   │  Extension prompt includes:                                         │
+   │  • write_todos tool usage instructions                              │
+   │  • Formatting guidelines                                            │
+   └─────────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+5. CREATE LLM INSTANCE
+   ┌─────────────────────────────────────────────────────────────────────┐
+   │  llm = LLMFactory(config.model_provider).get_llm(config.model_id)   │
+   │                                                                     │
+   │  Supported providers:                                               │
+   │  • anthropic-claude    • azure-openai    • bedrock                  │
+   │  • openai              • google-genai    • ollama                   │
+   └─────────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+6. RESOLVE SUBAGENTS (if configured)
+   ┌─────────────────────────────────────────────────────────────────────┐
+   │  For each SubAgentRef in config.subagents:                          │
+   │  • Load subagent config from MongoDB                                │
+   │  • Recursively build its tools (with cycle detection)               │
+   │  • Create SubAgent dict: {name, description, system_prompt, tools}  │
+   └─────────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+7. CREATE LANGGRAPH AGENT
+   ┌─────────────────────────────────────────────────────────────────────┐
+   │  _graph = create_deep_agent(                                        │
+   │      model=llm,                                                     │
+   │      tools=tools,                                                   │
+   │      system_prompt=full_prompt,                                     │
+   │      checkpointer=InMemorySaver(),  # Conversation memory           │
+   │      subagents=resolved_subagents,                                  │
+   │  )                                                                  │
+   └─────────────────────────────────────────────────────────────────────┘
+```
+
+#### Conversation State & Checkpointing
+
+Each `AgentRuntime` maintains conversation history via LangGraph's checkpointing:
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                        Conversation Checkpointing                            │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+    Cache Key: "{agent_id}:{conversation_id}"
+                      │
+                      ▼
+    ┌─────────────────────────────────────────────────────────────────────┐
+    │  AgentRuntime instance                                              │
+    │  ├── _graph (LangGraph CompiledGraph)                               │
+    │  │   └── checkpointer: InMemorySaver()                              │
+    │  │       └── thread_id = conversation_id                            │
+    │  │           └── Messages: [user1, ai1, user2, ai2, ...]            │
+    │  │                                                                  │
+    │  └── Persists across multiple stream() calls for same conversation │
+    └─────────────────────────────────────────────────────────────────────┘
+
+    Message 1: "Hello"
+         │
+         ▼ stream(message, conversation_id="conv-123")
+    ┌─────────────────────────────────────────────────────────────────────┐
+    │  config["configurable"]["thread_id"] = "conv-123"                   │
+    │  → LangGraph loads checkpoint for thread "conv-123"                 │
+    │  → Appends user message, runs agent, saves checkpoint               │
+    └─────────────────────────────────────────────────────────────────────┘
+         │
+         ▼
+    Message 2: "What did I just say?"
+         │
+         ▼ stream(message, conversation_id="conv-123")
+    ┌─────────────────────────────────────────────────────────────────────┐
+    │  → LangGraph loads checkpoint (includes Message 1 + response)       │
+    │  → Agent has full conversation context                              │
+    │  → Can reference previous messages                                  │
+    └─────────────────────────────────────────────────────────────────────┘
+```
+
+**Important:** The checkpointer is **in-memory** (`InMemorySaver`). Conversation state is lost when:
+- The runtime is evicted from cache (TTL expiration)
+- The runtime is manually invalidated (Restart Agent Session)
+- The service restarts
+
+The UI stores chat history separately in the browser's zustand store for display purposes.
+
+#### Runtime vs Conversation Relationship
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    Runtime vs Conversation Relationship                      │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+    User "alice@example.com" has 3 conversations with Agent "code-helper":
+
+    Conversation 1 (conv-aaa)     Conversation 2 (conv-bbb)     Conversation 3 (conv-ccc)
+           │                             │                             │
+           ▼                             ▼                             ▼
+    ┌─────────────────┐           ┌─────────────────┐           ┌─────────────────┐
+    │  AgentRuntime   │           │  AgentRuntime   │           │  AgentRuntime   │
+    │  cache key:     │           │  cache key:     │           │  cache key:     │
+    │  "agent1:aaa"   │           │  "agent1:bbb"   │           │  "agent1:ccc"   │
+    │                 │           │                 │           │                 │
+    │  Own checkpoint │           │  Own checkpoint │           │  Own checkpoint │
+    │  Own MCP conns  │           │  Own MCP conns  │           │  Own MCP conns  │
+    └─────────────────┘           └─────────────────┘           └─────────────────┘
+
+    Each conversation has its OWN AgentRuntime instance with:
+    • Isolated conversation history (checkpointer)
+    • Shared agent config (but separate runtime state)
+    • Independent MCP connections
+    
+    "Restart Agent Session" only affects ONE conversation's runtime.
 ```
 
 ### Caching Strategy

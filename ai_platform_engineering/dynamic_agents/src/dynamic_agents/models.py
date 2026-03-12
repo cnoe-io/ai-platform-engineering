@@ -106,6 +106,30 @@ class SubAgentRef(BaseModel):
 # =============================================================================
 
 
+class BuiltinToolConfigField(BaseModel):
+    """Definition of a configurable field for a built-in tool."""
+
+    name: str = Field(..., description="Field name (e.g., 'allowed_domains')")
+    type: Literal["string", "number", "boolean"] = Field(..., description="Field type")
+    label: str = Field(..., description="Display label for UI")
+    description: str = Field(..., description="Help text for users")
+    default: str | int | float | bool | None = Field(None, description="Default value")
+    required: bool = Field(False, description="Whether the field is required")
+
+
+class BuiltinToolDefinition(BaseModel):
+    """Definition of a built-in tool for API discovery."""
+
+    id: str = Field(..., description="Unique tool identifier (e.g., 'fetch_url')")
+    name: str = Field(..., description="Display name")
+    description: str = Field(..., description="What the tool does")
+    enabled_by_default: bool = Field(True, description="Whether enabled by default for new agents")
+    config_fields: list[BuiltinToolConfigField] = Field(
+        default_factory=list,
+        description="Configurable fields for this tool",
+    )
+
+
 class FetchUrlToolConfig(BaseModel):
     """Configuration for the fetch_url built-in tool."""
 
@@ -120,12 +144,48 @@ class FetchUrlToolConfig(BaseModel):
     )
 
 
+class CurrentDatetimeToolConfig(BaseModel):
+    """Configuration for the current_datetime built-in tool."""
+
+    enabled: bool = Field(True, description="Whether the tool is enabled")
+
+
+class UserInfoToolConfig(BaseModel):
+    """Configuration for the user_info built-in tool."""
+
+    enabled: bool = Field(True, description="Whether the tool is enabled")
+
+
+class SleepToolConfig(BaseModel):
+    """Configuration for the sleep built-in tool."""
+
+    enabled: bool = Field(True, description="Whether the tool is enabled")
+    max_seconds: int = Field(
+        300,
+        description="Maximum sleep duration in seconds",
+        ge=1,
+        le=3600,
+    )
+
+
 class BuiltinToolsConfig(BaseModel):
     """Configuration for built-in tools available to dynamic agents."""
 
     fetch_url: FetchUrlToolConfig | None = Field(
         None,
         description="Configuration for the fetch_url tool (fetches content from URLs)",
+    )
+    current_datetime: CurrentDatetimeToolConfig | None = Field(
+        None,
+        description="Configuration for the current_datetime tool (returns current date/time)",
+    )
+    user_info: UserInfoToolConfig | None = Field(
+        None,
+        description="Configuration for the user_info tool (returns info about the current user)",
+    )
+    sleep: SleepToolConfig | None = Field(
+        None,
+        description="Configuration for the sleep tool (pauses execution)",
     )
 
 
@@ -226,6 +286,8 @@ class AgentContext(BaseModel):
     """Context schema passed to deepagents via context_schema."""
 
     user_id: str
+    user_name: str | None = None
+    user_groups: list[str] = []
     agent_config_id: str
     session_id: str
 

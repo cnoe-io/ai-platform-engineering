@@ -70,6 +70,30 @@ export interface MCPServerProbeResult {
 // =============================================================================
 
 /**
+ * Definition of a configurable field for a built-in tool.
+ * Returned by the /api/v1/builtin-tools endpoint.
+ */
+export interface BuiltinToolConfigField {
+  name: string;           // Field name (e.g., 'allowed_domains')
+  type: 'string' | 'number' | 'boolean';
+  label: string;          // Display label for UI
+  description: string;    // Help text for users
+  default?: string | number | boolean;  // Default value
+  required?: boolean;
+}
+
+/**
+ * Definition of a built-in tool returned by the API.
+ */
+export interface BuiltinToolDefinition {
+  id: string;             // Tool identifier (e.g., 'fetch_url')
+  name: string;           // Display name
+  description: string;    // What the tool does
+  enabled_by_default: boolean;
+  config_fields: BuiltinToolConfigField[];
+}
+
+/**
  * Configuration for the fetch_url built-in tool.
  */
 export interface FetchUrlToolConfig {
@@ -85,11 +109,52 @@ export interface FetchUrlToolConfig {
 }
 
 /**
+ * Configuration for the current_datetime built-in tool.
+ */
+export interface CurrentDatetimeToolConfig {
+  enabled: boolean;
+}
+
+/**
+ * Configuration for the user_info built-in tool.
+ */
+export interface UserInfoToolConfig {
+  enabled: boolean;
+}
+
+/**
+ * Configuration for the sleep built-in tool.
+ */
+export interface SleepToolConfig {
+  enabled: boolean;
+  max_seconds?: number;  // Maximum sleep duration in seconds (default: 300)
+}
+
+/**
  * Configuration for all built-in tools available to dynamic agents.
+ * Each tool config is optional - if not present, tool uses defaults.
  */
 export interface BuiltinToolsConfig {
   fetch_url?: FetchUrlToolConfig;
+  current_datetime?: CurrentDatetimeToolConfig;
+  user_info?: UserInfoToolConfig;
+  sleep?: SleepToolConfig;
+  // Allow dynamic tool configs for future extensibility
+  // Using Record type to avoid index signature conflicts with specific tool types
 }
+
+/**
+ * Generic tool config type for dynamic access patterns.
+ * Use this when accessing tools by dynamic key.
+ */
+export type GenericToolConfig = { enabled: boolean; [field: string]: unknown };
+
+/**
+ * Helper type for accessing tool configs dynamically while preserving type safety.
+ */
+export type BuiltinToolsConfigWithIndex = BuiltinToolsConfig & {
+  [key: string]: GenericToolConfig | undefined;
+};
 
 // =============================================================================
 // Dynamic Agent Types

@@ -6,5 +6,5 @@ multiple modules without causing circular imports.
 
 from contextvars import ContextVar
 
-# Session context for logging - can be imported by other modules
-session_id_var: ContextVar[str] = ContextVar("session_id", default="-")
+# Conversation context for logging - can be imported by other modules
+conversation_id_var: ContextVar[str] = ContextVar("conversation_id", default="-")

@@ -6,7 +6,9 @@ Supports:
 - Auth bypass for local development (AUTH_ENABLED=false)
 """
 
+import hashlib
 import logging
+import time
 from typing import Any, Optional
 
 import httpx
@@ -24,6 +26,7 @@ class UserContext(BaseModel):
     """Authenticated user context extracted from JWT."""
 
     email: str
+    name: str | None = None
     groups: list[str] = []
     is_admin: bool = False
     raw_claims: dict[str, Any] = {}
@@ -34,6 +37,10 @@ _jwks_cache: dict[str, Any] | None = None
 
 # Cache for OIDC discovery document
 _discovery_cache: dict[str, Any] | None = None
+
+# Cache for userinfo responses (token_hash -> (userinfo, expires_at))
+_userinfo_cache: dict[str, tuple[dict[str, Any], float]] = {}
+USERINFO_CACHE_TTL_SECONDS = 600  # 10 minutes
 
 
 async def get_oidc_discovery(settings: Settings) -> dict[str, Any]:
@@ -136,7 +143,8 @@ async def fetch_userinfo(token: str, settings: Settings) -> Optional[dict[str, A
             )
             response.raise_for_status()
             userinfo = response.json()
-            logger.debug(f"Userinfo fetched successfully, keys: {list(userinfo.keys())}")
+            logger.debug(f"Userinfo response keys: {list(userinfo.keys())}")
+            logger.debug(f"Userinfo full response: {userinfo}")
             return userinfo
 
     except httpx.HTTPError as e:
@@ -147,12 +155,90 @@ async def fetch_userinfo(token: str, settings: Settings) -> Optional[dict[str, A
         return None
 
 
+async def fetch_userinfo_cached(token: str, settings: Settings) -> Optional[dict[str, Any]]:
+    """Fetch userinfo with 10-minute caching to reduce OIDC provider load.
+
+    Args:
+        token: Bearer access token
+        settings: Application settings
+
+    Returns:
+        Userinfo claims dict, or None if fetch fails
+    """
+    global _userinfo_cache
+
+    # Hash token to use as cache key (don't store raw tokens)
+    token_hash = hashlib.sha256(token.encode()).hexdigest()[:16]
+    now = time.time()
+
+    # Check cache
+    if token_hash in _userinfo_cache:
+        userinfo, expires_at = _userinfo_cache[token_hash]
+        if now < expires_at:
+            logger.debug(f"Userinfo cache hit for token {token_hash[:8]}...")
+            return userinfo
+        else:
+            # Expired, remove from cache
+            del _userinfo_cache[token_hash]
+
+    # Fetch fresh userinfo
+    userinfo = await fetch_userinfo(token, settings)
+    if userinfo:
+        _userinfo_cache[token_hash] = (userinfo, now + USERINFO_CACHE_TTL_SECONDS)
+
+        # Simple cache eviction: remove expired entries if cache is large
+        if len(_userinfo_cache) > 1000:
+            expired_keys = [k for k, (_, exp) in _userinfo_cache.items() if now >= exp]
+            for k in expired_keys:
+                del _userinfo_cache[k]
+
+    return userinfo
+
+
 def extract_email_from_claims(claims: dict[str, Any]) -> str:
     """Extract email from JWT claims with fallback chain."""
     # Priority: email -> preferred_username -> upn -> sub
     return (
         claims.get("email") or claims.get("preferred_username") or claims.get("upn") or claims.get("sub") or "unknown"
     )
+
+
+def extract_name_from_claims(claims: dict[str, Any]) -> str | None:
+    """Extract display name from claims with fallback chain.
+
+    Tries common OIDC name claim fields in order of preference.
+    """
+    # Try common name fields in order of preference
+    name_fields = [
+        "name",  # Standard OIDC claim
+        "fullname",  # Keycloak/custom providers
+        "display_name",  # Common alternative
+        "displayName",  # Azure AD style
+        "full_name",
+        "fullName",
+    ]
+
+    for field in name_fields:
+        if value := claims.get(field):
+            return str(value).strip()
+
+    # Try combining given_name + family_name (standard OIDC)
+    given = claims.get("given_name") or claims.get("givenName")
+    family = claims.get("family_name") or claims.get("familyName")
+    if given and family:
+        return f"{given} {family}".strip()
+    if given:
+        return str(given).strip()
+
+    # Try combining firstname + lastname (Keycloak/custom providers)
+    first = claims.get("firstname") or claims.get("firstName")
+    last = claims.get("lastname") or claims.get("lastName")
+    if first and last:
+        return f"{first} {last}".strip()
+    if first:
+        return str(first).strip()
+
+    return None
 
 
 def extract_groups_from_claims(claims: dict[str, Any], settings: Settings) -> list[str]:
@@ -295,6 +381,7 @@ async def get_current_user(
         logger.debug("Auth disabled (AUTH_ENABLED=false), returning dev user with admin privileges")
         return UserContext(
             email="dev@localhost",
+            name="Dev User",
             groups=["admin"],
             is_admin=True,
             raw_claims={},
@@ -321,10 +408,12 @@ async def get_current_user(
 
     # Extract email from access token claims
     email = extract_email_from_claims(claims)
+    name: str | None = None
 
     # Try to get groups from userinfo endpoint (more reliable than access token)
     # Access tokens often don't contain group claims
-    userinfo = await fetch_userinfo(token, settings)
+    # Use cached fetch to reduce OIDC provider load
+    userinfo = await fetch_userinfo_cached(token, settings)
 
     if userinfo:
         # Use userinfo for groups (authoritative source)
@@ -333,18 +422,22 @@ async def get_current_user(
         userinfo_email = extract_email_from_claims(userinfo)
         if userinfo_email and userinfo_email != "unknown":
             email = userinfo_email
-        logger.info(f"User authenticated via userinfo: email={email}, groups_count={len(groups)}")
+        # Extract name from userinfo
+        name = extract_name_from_claims(userinfo)
+        logger.info(f"User authenticated via userinfo: email={email}, name={name}, groups_count={len(groups)}")
     else:
-        # Fallback to access token claims for groups
+        # Fallback to access token claims for groups and name
         groups = extract_groups_from_claims(claims, settings)
+        name = extract_name_from_claims(claims)
         logger.info(
-            f"User authenticated via access token (userinfo unavailable): email={email}, groups_count={len(groups)}"
+            f"User authenticated via access token (userinfo unavailable): email={email}, name={name}, groups_count={len(groups)}"
         )
 
     is_admin = check_admin_role(groups, settings)
 
     return UserContext(
         email=email,
+        name=name,
         groups=groups,
         is_admin=is_admin,
         raw_claims=claims,
