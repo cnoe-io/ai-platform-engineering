@@ -970,6 +970,16 @@ function AgentInfoContent({
                 : "None"}
             </p>
           </div>
+
+          {/* Conversation ID */}
+          {sessionId && (
+            <div className="space-y-0.5 col-span-2">
+              <span className="text-xs text-muted-foreground">Conversation ID</span>
+              <p className="font-mono text-xs truncate" title={sessionId}>
+                {sessionId}
+              </p>
+            </div>
+          )}
         </div>
       </div>
 

@@ -4,14 +4,14 @@ import logging
 import sys
 from contextlib import asynccontextmanager
 
-from dynamic_agents.context import session_id_var
+from dynamic_agents.context import conversation_id_var
 
 
-class SessionContextFilter(logging.Filter):
-    """Logging filter that adds session_id to log records."""
+class ConversationContextFilter(logging.Filter):
+    """Logging filter that adds conversation_id to log records."""
 
     def filter(self, record: logging.LogRecord) -> bool:
-        record.session_id = session_id_var.get()
+        record.conversation_id = conversation_id_var.get()
         return True
 
 
@@ -22,7 +22,7 @@ def _setup_logging() -> logging.Logger:
 
     Sets up a dedicated handler for the 'dynamic_agents' logger that:
     - Uses our own format with [dynamic_agents] prefix
-    - Includes session_id for request tracing
+    - Includes conversation_id for request tracing
     - Does not propagate to root logger (avoids cnoe-agent-utils format)
     """
     # Create logger for our package
@@ -34,11 +34,11 @@ def _setup_logging() -> logging.Logger:
         handler = logging.StreamHandler(sys.stderr)
         handler.setLevel(logging.INFO)
         formatter = logging.Formatter(
-            "%(asctime)s %(levelname)s [dynamic_agents] session=%(session_id)s %(message)s",
+            "%(asctime)s %(levelname)s [dynamic_agents] conv=%(conversation_id)s %(message)s",
             datefmt="%Y-%m-%d %H:%M:%S",
         )
         handler.setFormatter(formatter)
-        handler.addFilter(SessionContextFilter())
+        handler.addFilter(ConversationContextFilter())
         pkg_logger.addHandler(handler)
 
     # Don't propagate to root logger (cnoe-agent-utils configures root with [llm_factory])

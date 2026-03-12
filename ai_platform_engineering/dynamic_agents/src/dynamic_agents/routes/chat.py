@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from dynamic_agents.context import session_id_var
+from dynamic_agents.context import conversation_id_var
 from dynamic_agents.middleware.auth import UserContext, get_current_user
 from dynamic_agents.models import ChatRequest, DynamicAgentConfig, VisibilityType
 from dynamic_agents.services.agent_runtime import get_runtime_cache
@@ -64,8 +64,8 @@ async def _generate_sse_events(
     mongo: MongoDBService | None = None,
 ) -> AsyncGenerator[str, None]:
     """Generate SSE events from agent streaming."""
-    # Set session context for logging
-    session_id_var.set(session_id)
+    # Set conversation context for logging
+    conversation_id_var.set(session_id)
 
     cache = get_runtime_cache()
 
@@ -158,8 +158,8 @@ async def chat_stream(
     - error: Error occurred
     - done: Streaming complete
     """
-    # Set session context for logging
-    session_id_var.set(request.conversation_id)
+    # Set conversation context for logging
+    conversation_id_var.set(request.conversation_id)
 
     # Get agent config
     agent = mongo.get_agent(request.agent_id)
@@ -213,8 +213,8 @@ async def chat_invoke(
 
     Returns the complete response after processing.
     """
-    # Set session context for logging
-    session_id_var.set(request.conversation_id)
+    # Set conversation context for logging
+    conversation_id_var.set(request.conversation_id)
 
     # Get agent config
     agent = mongo.get_agent(request.agent_id)
@@ -285,8 +285,8 @@ async def restart_runtime(
     This forces the agent to reconnect to MCP servers on the next message.
     Useful when MCP servers come back online after being unavailable.
     """
-    # Set session context for logging
-    session_id_var.set(request.session_id)
+    # Set conversation context for logging
+    conversation_id_var.set(request.session_id)
 
     # Get agent config to verify access
     agent = mongo.get_agent(request.agent_id)

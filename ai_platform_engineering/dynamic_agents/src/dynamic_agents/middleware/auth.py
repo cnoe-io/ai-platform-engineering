@@ -143,7 +143,8 @@ async def fetch_userinfo(token: str, settings: Settings) -> Optional[dict[str, A
             )
             response.raise_for_status()
             userinfo = response.json()
-            logger.debug(f"Userinfo fetched successfully, keys: {list(userinfo.keys())}")
+            logger.debug(f"Userinfo response keys: {list(userinfo.keys())}")
+            logger.debug(f"Userinfo full response: {userinfo}")
             return userinfo
 
     except httpx.HTTPError as e:
@@ -210,6 +211,7 @@ def extract_name_from_claims(claims: dict[str, Any]) -> str | None:
     # Try common name fields in order of preference
     name_fields = [
         "name",  # Standard OIDC claim
+        "fullname",  # Keycloak/custom providers
         "display_name",  # Common alternative
         "displayName",  # Azure AD style
         "full_name",
@@ -220,13 +222,21 @@ def extract_name_from_claims(claims: dict[str, Any]) -> str | None:
         if value := claims.get(field):
             return str(value).strip()
 
-    # Try combining given_name + family_name
+    # Try combining given_name + family_name (standard OIDC)
     given = claims.get("given_name") or claims.get("givenName")
     family = claims.get("family_name") or claims.get("familyName")
     if given and family:
         return f"{given} {family}".strip()
     if given:
         return str(given).strip()
+
+    # Try combining firstname + lastname (Keycloak/custom providers)
+    first = claims.get("firstname") or claims.get("firstName")
+    last = claims.get("lastname") or claims.get("lastName")
+    if first and last:
+        return f"{first} {last}".strip()
+    if first:
+        return str(first).strip()
 
     return None
 

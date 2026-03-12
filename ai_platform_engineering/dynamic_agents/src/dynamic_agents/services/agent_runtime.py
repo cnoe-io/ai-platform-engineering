@@ -460,7 +460,7 @@ class AgentRuntime:
         subagent_tracker = SubagentTracker(parent_agent_name=self.config.name)
         accumulated_content: list[str] = []
 
-        logger.info(f"[stream] Starting stream for agent '{self.config.name}': user={user_id}, session={session_id}")
+        logger.info(f"[stream] Starting stream for agent '{self.config.name}': user={user_id}, conv={session_id}")
         logger.info(f"[stream] _failed_servers={self._failed_servers}, _missing_tools={self._missing_tools}")
 
         # NOTE: Warning events for failed MCP servers and missing tools have been removed.
@@ -485,7 +485,7 @@ class AgentRuntime:
         if final_text:
             logger.info(
                 f"[stream] Completed stream for agent '{self.config.name}': "
-                f"session={session_id}, content_length={len(final_text)}"
+                f"conv={session_id}, content_length={len(final_text)}"
             )
             yield make_final_result_event(
                 content=final_text,
@@ -765,7 +765,7 @@ class AgentRuntimeCache:
         runtime = self._cache.pop(key, None)
         if runtime:
             await runtime.cleanup()
-            logger.info(f"Runtime cache invalidated for agent={agent_id}, session={session_id}")
+            logger.info(f"Runtime cache invalidated for agent={agent_id}, conv={session_id}")
             return True
         return False
 
