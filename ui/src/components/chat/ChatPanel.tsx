@@ -6,8 +6,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Send, Square, User, Bot, Sparkles, Copy, Check, Loader2, ChevronDown, ChevronUp, ArrowDown, ArrowLeft, RotateCcw, Gitlab, Slack, Video, Activity, MessageSquare, Clock, ShieldCheck } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
-import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
+import { assistantMarkdownComponents, assistantProseClassName } from "./MarkdownComponents";
 import TextareaAutosize from "react-textarea-autosize";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -16,7 +15,10 @@ import { useChatStore } from "@/store/chat-store";
 import { A2ASDKClient, type ParsedA2AEvent, type HITLDecision, toStoreEvent } from "@/lib/a2a-sdk-client";
 import { isFeatureEnabled, useFeatureFlagStore } from "@/store/feature-flag-store";
 import { cn, deduplicateByKey } from "@/lib/utils";
-import { ChatMessage as ChatMessageType, A2AEvent } from "@/types/a2a";
+import { ChatMessage as ChatMessageType, A2AEvent, TimelineSegment, PlanStep } from "@/types/a2a";
+import { parsePlanStepsFromData, parseToolFromArtifact } from "@/lib/timeline-parsers";
+import { TimelineManager } from "@/lib/timeline-manager";
+import { AgentTimeline } from "./AgentTimeline";
 import { getConfig } from "@/lib/config";
 import { apiClient } from "@/lib/api-client";
 import { FeedbackButton, Feedback } from "./FeedbackButton";
@@ -393,6 +395,10 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
     // per token — hundreds of store updates/sec that saturated React's render pipeline.
     const eventBuffer: Parameters<typeof addA2AEvent>[0][] = [];
 
+    // Timeline manager - encapsulates segment mutation logic
+    const timeline = new TimelineManager();
+    const streamStartTime = Date.now();
+
     // Mark this conversation as streaming
     setConversationStreaming(convId, {
       conversationId: convId,
@@ -461,6 +467,64 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
         }
 
         // ═══════════════════════════════════════════════════════════════
+        // BUILD TIMELINE SEGMENTS (via TimelineManager)
+        // ═══════════════════════════════════════════════════════════════
+        if (artifactName === "execution_plan_update" || artifactName === "execution_plan_status_update") {
+          const rawArtifact = (event.raw as any)?.artifact;
+          let planSteps: PlanStep[] = [];
+          if (rawArtifact?.parts) {
+            for (const part of rawArtifact.parts) {
+              if (part.kind === "data" && part.data) {
+                planSteps = parsePlanStepsFromData(part.data);
+                if (planSteps.length > 0) break;
+              }
+            }
+          }
+          if (planSteps.length > 0) timeline.pushPlan(planSteps, eventNum);
+        } else if (artifactName === "tool_notification_start") {
+          const rawArtifact = (event.raw as any)?.artifact;
+          const toolInfo = rawArtifact ? parseToolFromArtifact({
+            artifactId: rawArtifact.artifactId || "",
+            name: rawArtifact.name || "",
+            description: rawArtifact.description || "",
+            parts: rawArtifact.parts || [],
+            metadata: rawArtifact.metadata,
+          }) : null;
+          if (toolInfo) timeline.pushToolStart(toolInfo, eventNum);
+        } else if (artifactName === "tool_notification_end") {
+          const rawArtifact = (event.raw as any)?.artifact;
+          const description = rawArtifact?.description || "";
+          const descMatch = description.match(/Tool call (?:completed|started):\s*(.+)/i);
+          const toolName = descMatch ? descMatch[1].trim() : "";
+          timeline.completeToolByName(toolName);
+        } else if (
+          artifactName === "final_result" ||
+          artifactName === "partial_result" ||
+          artifactName === "complete_result"
+        ) {
+          if (newContent) timeline.pushFinalAnswer(newContent, eventNum);
+        } else if (
+          newContent &&
+          !isImportantArtifact &&
+          (event.type === "message" || event.type === "artifact") &&
+          artifactName !== "tool_notification_start" &&
+          artifactName !== "tool_notification_end"
+        ) {
+          timeline.pushThinking(newContent, eventNum);
+        }
+
+        // Flush timeline segments to store immediately for important artifacts
+        // (plan updates, tool notifications) so the UI renders without waiting
+        // for the next streaming_result event.
+        if (isImportantArtifact) {
+          updateMessage(convId!, assistantMsgId, {
+            content: accumulatedText,
+            rawStreamContent,
+            timelineSegments: timeline.getSegments(),
+          });
+        }
+
+        // ═══════════════════════════════════════════════════════════════
         // DETECT USER INPUT FORM REQUEST
         // ═══════════════════════════════════════════════════════════════
         if (artifactName === "UserInputMetaData" && event.metadata) {
@@ -516,14 +580,14 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
             // Append final result to raw stream content
             rawStreamContent += `\n\n[${artifactName}]\n${newContent}`;
             hasReceivedCompleteResult = true;
-            updateMessage(convId!, assistantMsgId, { content: accumulatedText, rawStreamContent, isFinal: true });
+            updateMessage(convId!, assistantMsgId, { content: accumulatedText, rawStreamContent, isFinal: true, timelineSegments: timeline.getSegments() });
             // Don't break - continue to receive status-update event
           } else if (accumulatedText.length > 0) {
             // Fallback: use accumulated content
             console.log(`[A2A SDK] ⚠️ ${artifactName} empty - using accumulated content`);
             rawStreamContent += `\n\n[${artifactName}] (using accumulated content)`;
             hasReceivedCompleteResult = true;
-            updateMessage(convId!, assistantMsgId, { content: accumulatedText, rawStreamContent, isFinal: true });
+            updateMessage(convId!, assistantMsgId, { content: accumulatedText, rawStreamContent, isFinal: true, timelineSegments: timeline.getSegments() });
             // Don't break - continue to receive status-update event
           }
         }
@@ -578,23 +642,21 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
             accumulatedText += newContent;
           }
 
-          // Throttle UI updates — flush event buffer + update message together
-          // so the store only gets ONE batched update per interval, not per token.
-          const now = Date.now();
-          if (now - lastUIUpdate >= UI_UPDATE_INTERVAL) {
-            // Flush buffered A2A events first
-            if (eventBuffer.length > 0) {
-              console.log(`[A2A-DEBUG] 📤 THROTTLE-FLUSH buffer (${eventBuffer.length} events) at interval`);
-            }
-            for (const bufferedEvent of eventBuffer) {
-              addA2AEvent(bufferedEvent, convId!);
-            }
-            eventBuffer.length = 0;
-            updateMessage(convId!, assistantMsgId, { content: accumulatedText, rawStreamContent });
-            lastUIUpdate = now;
+          // Flush event buffer + update message on every event (no throttle)
+          for (const bufferedEvent of eventBuffer) {
+            addA2AEvent(bufferedEvent, convId!);
           }
+          eventBuffer.length = 0;
+          updateMessage(convId!, assistantMsgId, {
+            content: accumulatedText,
+            rawStreamContent,
+            timelineSegments: timeline.getSegments(),
+          });
         }
       }
+
+      // Finalize timeline: mark thinking as !isStreaming, running tools as completed
+      timeline.finalize();
 
       // ═══════════════════════════════════════════════════════════════
       // FINALIZE (Agent-forge's finishStreamingMessage pattern)
@@ -625,22 +687,26 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
       console.log(`[A2A SDK] 🏁 STREAM COMPLETE - ${eventCounter} events, hasResult=${hasReceivedCompleteResult}`);
       console.log(`[A2A SDK] 📊 Final content: ${accumulatedText.length} chars, Raw stream: ${rawStreamContent.length} chars`);
 
+      // Compute duration for timeline summary
+      const streamDurationSec = (Date.now() - streamStartTime) / 1000;
+      const finalSegments = timeline.getSegments();
+
       if (hitlFormRequested) {
         // HITL: stream ended because the agent is waiting for user input.
         // Keep isFinal=false so the form persists correctly across refresh.
         console.log(`[A2A SDK] 📝 Stream ended with HITL form pending — keeping isFinal=false`);
-        updateMessage(convId!, assistantMsgId, { content: accumulatedText, rawStreamContent, isFinal: false });
+        updateMessage(convId!, assistantMsgId, { content: accumulatedText, rawStreamContent, isFinal: false, timelineSegments: finalSegments });
       } else if (!hasReceivedCompleteResult) {
         if (accumulatedText.length > 0) {
           console.log(`[A2A SDK] ⚠️ No final_result - using accumulated content (${accumulatedText.length} chars)`);
-          updateMessage(convId!, assistantMsgId, { content: accumulatedText, rawStreamContent, isFinal: true });
+          updateMessage(convId!, assistantMsgId, { content: accumulatedText, rawStreamContent, isFinal: true, timelineSegments: finalSegments });
         } else {
           console.log(`[A2A SDK] ⚠️ Stream ended with no content`);
-          updateMessage(convId!, assistantMsgId, { rawStreamContent, isFinal: true });
+          updateMessage(convId!, assistantMsgId, { rawStreamContent, isFinal: true, timelineSegments: finalSegments });
         }
       } else {
         // Ensure rawStreamContent is saved even when we received final_result
-        updateMessage(convId!, assistantMsgId, { rawStreamContent });
+        updateMessage(convId!, assistantMsgId, { rawStreamContent, timelineSegments: finalSegments });
       }
 
       // Always clear streaming state
@@ -1606,6 +1672,10 @@ const ChatMessage = React.memo(function ChatMessage({
   // Get preview for collapsed view (first 300 chars)
   const collapsedPreview = message.content.slice(0, 300).trim();
 
+  // When the timeline has a final_answer segment, it renders the answer itself —
+  // skip the separate markdown card for assistant messages to avoid duplication.
+  const timelineHasFinalAnswer = !isUser && message.timelineSegments?.some((s: TimelineSegment) => s.type === "final_answer");
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 10 }}
@@ -1709,13 +1779,18 @@ const ChatMessage = React.memo(function ChatMessage({
           )}
         </div>
 
-        {/* Streaming state - Cursor/OpenAI style */}
-        {/* Keep StreamingView visible for the entire duration of isStreaming.
-            Previously, isFinal=true (set when final_result artifact arrives) caused
-            an immediate jump to the markdown renderer even though the stream hadn't
-            closed yet — producing the jarring "cut over" layout shift.
-            Now we only switch to final markdown once isStreaming is false. */}
-        {isStreaming && message.role === "assistant" ? (
+        {/* ═══════════════════════════════════════════════════════════
+            SINGLE AgentTimeline INSTANCE — persists across streaming→post-stream
+            so the collapse useEffect (true→false transition) fires correctly.
+            ═══════════════════════════════════════════════════════════ */}
+        {message.role === "assistant" && message.timelineSegments && message.timelineSegments.length > 0 ? (
+          <AgentTimeline
+            segments={message.timelineSegments}
+            isStreaming={isStreaming}
+            isCollapsed={isCollapsed}
+          />
+        ) : isStreaming && message.role === "assistant" ? (
+          /* StreamingView fallback — shown before any A2A timeline events arrive */
           <StreamingView
             message={message}
             showRawStream={showRawStream}
@@ -1723,7 +1798,7 @@ const ChatMessage = React.memo(function ChatMessage({
             isStreaming={isStreaming}
           />
         ) : (
-          /* Final output - rendered as Markdown */
+          /* Final output — no timeline segments, render as Markdown */
           <>
             {/* ═══════════════════════════════════════════════════════════
                 CRASH RECOVERY INDICATORS
@@ -1778,7 +1853,8 @@ const ChatMessage = React.memo(function ChatMessage({
               </motion.div>
             )}
 
-            <div
+            {/* Hide the markdown card when the timeline already renders the final answer */}
+            {(isUser || !timelineHasFinalAnswer) && (<div
               className={cn(
                 "rounded-xl relative overflow-hidden",
                 isUser
@@ -1869,193 +1945,14 @@ const ChatMessage = React.memo(function ChatMessage({
                   ) : (
                     <ReactMarkdown
                       remarkPlugins={[remarkGfm]}
-                      components={{
-                      // Headings
-                      h1: ({ children }) => (
-                        <h1 className="text-xl font-bold text-foreground mb-3 mt-4 first:mt-0 pb-2 border-b border-border/50">
-                          {children}
-                        </h1>
-                      ),
-                      h2: ({ children }) => (
-                        <h2 className="text-lg font-semibold text-foreground mb-2 mt-4 first:mt-0">
-                          {children}
-                        </h2>
-                      ),
-                      h3: ({ children }) => (
-                        <h3 className="text-base font-semibold text-foreground mb-2 mt-3 first:mt-0">
-                          {children}
-                        </h3>
-                      ),
-                      // Paragraphs
-                      p: ({ children }) => (
-                        <p className="text-sm leading-relaxed text-foreground/90 mb-2 last:mb-0">
-                          {children}
-                        </p>
-                      ),
-                      // Lists
-                      ul: ({ children }) => (
-                        <ul className="list-disc list-outside ml-5 mb-2 space-y-1 text-sm text-foreground/90">
-                          {children}
-                        </ul>
-                      ),
-                      ol: ({ children }) => (
-                        <ol className="list-decimal list-outside ml-5 mb-2 space-y-1 text-sm text-foreground/90">
-                          {children}
-                        </ol>
-                      ),
-                      li: ({ children }) => (
-                        <li className="leading-relaxed">{children}</li>
-                      ),
-                      // Code - handles both inline and fenced code blocks
-                      // eslint-disable-next-line @typescript-eslint/no-unused-vars
-                      code({ className, children, node, ...props }) {
-                        const match = /language-(\w+)/.exec(className || "");
-                        // Check if this is a code block (has newlines or language) vs inline code
-                        const codeContent = String(children).replace(/\n$/, "");
-                        const hasNewlines = codeContent.includes("\n");
-                        const isCodeBlock = match || hasNewlines || className;
-
-                        if (!isCodeBlock) {
-                          // Inline code
-                          return (
-                            <code
-                              className="bg-muted/80 text-primary px-1.5 py-0.5 rounded text-[13px] font-mono break-all"
-                              {...props}
-                            >
-                              {children}
-                            </code>
-                          );
-                        }
-
-                        // Fenced code block
-                        const language = match ? match[1] : "";
-                        // Shell/CLI commands look better without syntax highlighting —
-                        // the colorization of flags, env vars, pipes etc. is distracting
-                        const shellLanguages = ["bash", "sh", "shell", "zsh", "fish", "console", "terminal"];
-                        const isShell = shellLanguages.includes(language.toLowerCase());
-                        const shouldHighlight = match && language !== "text" && !isShell;
-
-                        return (
-                          <div className="my-4 rounded-lg overflow-hidden border border-border/30 bg-[#1e1e2e] max-w-full">
-                            <div className="flex items-center justify-between px-4 py-2 border-b border-border/20 bg-[#181825]">
-                              <span className="text-xs text-zinc-500 font-mono uppercase tracking-wide">
-                                {language || "plain text"}
-                              </span>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className="h-6 w-6 text-zinc-500 hover:text-zinc-300 hover:bg-transparent"
-                                onClick={() => {
-                                  navigator.clipboard.writeText(codeContent);
-                                }}
-                                title="Copy code"
-                              >
-                                <Copy className="h-3.5 w-3.5" />
-                              </Button>
-                            </div>
-                            {shouldHighlight ? (
-                              <SyntaxHighlighter
-                                style={oneDark}
-                                language={language}
-                                PreTag="div"
-                                wrapLongLines
-                                customStyle={{
-                                  margin: 0,
-                                  borderRadius: 0,
-                                  padding: "1rem 1.25rem",
-                                  fontSize: "13px",
-                                  lineHeight: "1.6",
-                                  background: "transparent",
-                                  wordBreak: "break-word",
-                                  whiteSpace: "pre-wrap",
-                                }}
-                              >
-                                {codeContent}
-                              </SyntaxHighlighter>
-                            ) : (
-                              <pre className="p-4 overflow-x-auto max-w-full">
-                                <code className="text-[13px] leading-relaxed font-mono whitespace-pre-wrap break-words">
-                                  {codeContent.split("\n").map((line, i) => {
-                                    const trimmed = line.trimStart();
-                                    const isComment = trimmed.startsWith("#") || trimmed.startsWith("//");
-                                    return (
-                                      <span key={i}>
-                                        {isComment ? (
-                                          <span className="text-zinc-500 italic">{line}</span>
-                                        ) : (
-                                          <span className="text-zinc-300">{line}</span>
-                                        )}
-                                        {i < codeContent.split("\n").length - 1 ? "\n" : ""}
-                                      </span>
-                                    );
-                                  })}
-                                </code>
-                              </pre>
-                            )}
-                          </div>
-                        );
-                      },
-                      // Blockquotes
-                      blockquote: ({ children }) => (
-                        <blockquote className="border-l-4 border-primary/50 pl-4 my-3 italic text-muted-foreground">
-                          {children}
-                        </blockquote>
-                      ),
-                      // Tables
-                      table: ({ children }) => (
-                        <div className="overflow-x-auto my-3 rounded-lg border border-border/50 w-full">
-                          <table className="w-full text-sm">
-                            {children}
-                          </table>
-                        </div>
-                      ),
-                      thead: ({ children }) => (
-                        <thead className="bg-muted/50">{children}</thead>
-                      ),
-                      th: ({ children }) => (
-                        <th className="px-3 py-2 text-left font-semibold text-foreground border-b border-border/50 break-words">
-                          {children}
-                        </th>
-                      ),
-                      td: ({ children }) => (
-                        <td className="px-3 py-2 border-b border-border/30 text-foreground/90 break-words align-top">
-                          {children}
-                        </td>
-                      ),
-                      tr: ({ children }) => (
-                        <tr className="hover:bg-muted/30 transition-colors">{children}</tr>
-                      ),
-                      // Links
-                      a: ({ href, children }) => (
-                        <a
-                          href={href}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-primary hover:text-primary/80 underline underline-offset-2 decoration-primary/50 hover:decoration-primary transition-colors"
-                        >
-                          {children}
-                        </a>
-                      ),
-                      // Horizontal rule
-                      hr: () => (
-                        <hr className="my-6 border-border/50" />
-                      ),
-                      // Strong/Bold
-                      strong: ({ children }) => (
-                        <strong className="font-semibold text-foreground">{children}</strong>
-                      ),
-                      // Emphasis/Italic
-                      em: ({ children }) => (
-                        <em className="italic text-foreground/90">{children}</em>
-                      ),
-                    }}
+                      components={assistantMarkdownComponents}
                   >
                     {displayContent || "..."}
                   </ReactMarkdown>
                   )}
                 </div>
               )}
-            </div>
+            </div>)}
 
             {/* Actions for user messages */}
             {isUser && (
@@ -2110,97 +2007,98 @@ const ChatMessage = React.memo(function ChatMessage({
               </motion.div>
             )}
 
-            {/* Actions for assistant messages */}
-            {!isUser && displayContent && (
-              <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: isHovered ? 1 : 0.8 }}
-                className="flex items-center gap-1 mt-2"
-              >
-                {/* Collapse button - bottom right */}
-                {!isStreaming && displayContent && displayContent.length > 300 && (
-                  <TooltipProvider>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-7 w-7 text-muted-foreground hover:text-foreground hover:bg-muted"
-                          onClick={() => setIsCollapsed(!isCollapsed)}
-                        >
-                          {isCollapsed ? (
-                            <ChevronDown className="h-3.5 w-3.5" />
-                          ) : (
-                            <ChevronUp className="h-3.5 w-3.5" />
-                          )}
-                        </Button>
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        {isCollapsed ? "Expand answer" : "Collapse answer"}
-                      </TooltipContent>
-                    </Tooltip>
-                  </TooltipProvider>
-                )}
+          </>
+        )}
 
-                {/* Retry button */}
-                {onRetry && (
-                  <TooltipProvider>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-7 w-7 text-muted-foreground hover:text-foreground hover:bg-muted"
-                          onClick={onRetry}
-                        >
-                          <RotateCcw className="h-3.5 w-3.5" />
-                        </Button>
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        Regenerate response
-                      </TooltipContent>
-                    </Tooltip>
-                  </TooltipProvider>
-                )}
-
-                {/* Copy button */}
-                <TooltipProvider>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-7 w-7 text-muted-foreground hover:text-foreground hover:bg-muted"
-                        onClick={() => onCopy(displayContent, message.id)}
-                      >
-                        {isCopied ? (
-                          <Check className="h-3.5 w-3.5 text-green-500" />
-                        ) : (
-                          <Copy className="h-3.5 w-3.5" />
-                        )}
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      {isCopied ? "Copied!" : "Copy response"}
-                    </TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
-
-                {/* Divider */}
-                <div className="h-4 w-px bg-border/50" />
-
-                {/* Feedback buttons */}
-                <FeedbackButton
-                  messageId={message.id}
-                  conversationId={conversationId}
-                  feedback={feedback}
-                  onFeedbackChange={onFeedbackChange}
-                  onFeedbackSubmit={onFeedbackSubmit}
-                />
-              </motion.div>
+        {/* Actions for assistant messages — outside the ternary so they render
+            whether the final answer comes from AgentTimeline or the markdown card */}
+        {!isUser && displayContent && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: isHovered ? 1 : 0.8 }}
+            className="flex items-center gap-1 mt-2"
+          >
+            {/* Collapse button - bottom right */}
+            {!isStreaming && ((displayContent && displayContent.length > 300) || timelineHasFinalAnswer) && (
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7 text-muted-foreground hover:text-foreground hover:bg-muted"
+                      onClick={() => setIsCollapsed(!isCollapsed)}
+                    >
+                      {isCollapsed ? (
+                        <ChevronDown className="h-3.5 w-3.5" />
+                      ) : (
+                        <ChevronUp className="h-3.5 w-3.5" />
+                      )}
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    {isCollapsed ? "Expand answer" : "Collapse answer"}
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
             )}
 
-          </>
+            {/* Retry button */}
+            {onRetry && (
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7 text-muted-foreground hover:text-foreground hover:bg-muted"
+                      onClick={onRetry}
+                    >
+                      <RotateCcw className="h-3.5 w-3.5" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    Regenerate response
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            )}
+
+            {/* Copy button */}
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7 text-muted-foreground hover:text-foreground hover:bg-muted"
+                    onClick={() => onCopy(displayContent, message.id)}
+                  >
+                    {isCopied ? (
+                      <Check className="h-3.5 w-3.5 text-green-500" />
+                    ) : (
+                      <Copy className="h-3.5 w-3.5" />
+                    )}
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  {isCopied ? "Copied!" : "Copy response"}
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+
+            {/* Divider */}
+            <div className="h-4 w-px bg-border/50" />
+
+            {/* Feedback buttons */}
+            <FeedbackButton
+              messageId={message.id}
+              conversationId={conversationId}
+              feedback={feedback}
+              onFeedbackChange={onFeedbackChange}
+              onFeedbackSubmit={onFeedbackSubmit}
+            />
+          </motion.div>
         )}
       </div>
     </motion.div>

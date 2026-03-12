@@ -24,8 +24,8 @@ function ChatUUIDPage() {
 
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [contextPanelVisible, setContextPanelVisible] = useState(true);
-  const [contextPanelCollapsed, setContextPanelCollapsed] = useState(false);
-  const [debugMode, setDebugMode] = useState(false);
+  const [contextPanelCollapsed, setContextPanelCollapsed] = useState(true);
+  // debugMode removed — ContextPanel is now debug-only
 
   // Only subscribe to stable functions — NOT to `conversations`.
   // Subscribing to `conversations` caused this effect to re-run on every
@@ -75,10 +75,6 @@ function ChatUUIDPage() {
   const [error, setError] = useState<string | null>(null);
 
   // Memoized callbacks (must be before early returns to maintain hooks order)
-  const handleDebugModeChange = useCallback((enabled: boolean) => {
-    setDebugMode(enabled);
-  }, []);
-
   const handleContextPanelCollapse = useCallback((collapsed: boolean) => {
     setContextPanelCollapsed(collapsed);
   }, []);
@@ -365,8 +361,6 @@ function ChatUUIDPage() {
       {/* Context/Output Panel - kept in DOM tree, only visibility changes */}
       {contextPanelVisible && (
         <ContextPanel
-          debugMode={debugMode}
-          onDebugModeChange={handleDebugModeChange}
           collapsed={contextPanelCollapsed}
           onCollapse={handleContextPanelCollapse}
         />

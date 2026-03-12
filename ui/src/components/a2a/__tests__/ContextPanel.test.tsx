@@ -118,7 +118,29 @@ function createA2AEvent(overrides: Partial<A2AEvent> = {}): A2AEvent {
   } as A2AEvent
 }
 
+/**
+ * Parse emoji-text plan lines into structured DataPart steps.
+ * Lines like "⏳ [ArgoCD] List all applications" become structured steps.
+ */
+function parseEmojiTextToSteps(text: string) {
+  const emojiStatus: Record<string, string> = {
+    '⏳': 'pending', '🔄': 'in_progress', '✅': 'completed', '❌': 'failed',
+  };
+  return text.split('\n').filter(Boolean).map((line, i) => {
+    const emoji = line.charAt(0);
+    const match = line.match(/\[(\w+)]\s*(.+)/);
+    return {
+      step_id: `step-${i}`,
+      title: match ? match[2].trim() : line,
+      agent: match ? match[1] : 'Agent',
+      status: emojiStatus[emoji] || 'pending',
+      order: i,
+    };
+  });
+}
+
 function createExecutionPlanEvent(text: string): A2AEvent {
+  const steps = parseEmojiTextToSteps(text);
   return createA2AEvent({
     type: 'artifact',
     displayContent: text,
@@ -126,6 +148,7 @@ function createExecutionPlanEvent(text: string): A2AEvent {
       name: 'execution_plan_update',
       description: 'Execution Plan',
       text,
+      parts: [{ kind: 'data', data: { steps } }],
     },
   })
 }
@@ -258,6 +281,7 @@ describe('ContextPanel', () => {
             name: 'execution_plan_status_update',
             description: 'Status update',
             text: statusUpdate,
+            parts: [{ kind: 'data', data: { steps: parseEmojiTextToSteps(statusUpdate) } }],
           },
         }),
       ]
