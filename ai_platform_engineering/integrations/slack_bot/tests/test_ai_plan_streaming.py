@@ -5,9 +5,7 @@ force-complete at finalization, no markdown streaming with plan,
 should_append=False replaces thinking, bot user guard, and stopStream final answer.
 """
 
-from unittest.mock import Mock, call
-
-import pytest
+from unittest.mock import Mock
 
 from ai_platform_engineering.integrations.slack_bot.utils.ai import stream_a2a_response
 
