@@ -391,7 +391,7 @@ def _create_mongodb_checkpointer(mongodb_uri: str):
 
 
 class _LazyAsyncMongoDBSaver(BaseCheckpointSaver):
-    """Lazy wrapper for AsyncMongoDBSaver that initializes on first async use."""
+    """Lazy wrapper for MongoDBSaver that initializes on first async use."""
 
     def __init__(self, mongodb_uri: str):
         super().__init__()
@@ -401,11 +401,13 @@ class _LazyAsyncMongoDBSaver(BaseCheckpointSaver):
 
     async def _ensure_initialized(self) -> None:
         if not self._initialized:
-            from langgraph.checkpoint.mongodb.aio import AsyncMongoDBSaver
+            from pymongo import MongoClient
+            from langgraph.checkpoint.mongodb.saver import MongoDBSaver
 
-            self._saver = AsyncMongoDBSaver.from_conn_string(self._mongodb_uri)
+            client = MongoClient(self._mongodb_uri)
+            self._saver = MongoDBSaver(client)
             self._initialized = True
-            logger.info("LangGraph AsyncMongoDBSaver initialized and connected")
+            logger.info("LangGraph MongoDBSaver initialized and connected")
 
     async def aget_tuple(self, config: dict) -> Optional[CheckpointTuple]:
         await self._ensure_initialized()
