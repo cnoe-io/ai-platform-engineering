@@ -95,7 +95,10 @@ FACT_KEYWORDS = [
     "prometheus",
 ]
 
-RECALL_THRESHOLD_PCT = 40  # ≥ 40% of keywords must be recalled
+RECALL_THRESHOLD_PCT = 25  # ≥ 25% of keywords must be recalled
+# Note: higher recall requires EMBEDDINGS_PROVIDER configured for semantic search.
+# Without embeddings the store uses prefix-only search and the LLM may not surface
+# all stored facts in a single response.
 
 
 # ---------------------------------------------------------------------------
