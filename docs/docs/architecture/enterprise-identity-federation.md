@@ -168,25 +168,25 @@ Keycloak must be configured with Okta as an OIDC Identity Provider broker. This 
 
 ```json
 {
-  "alias": "okta-enterprise",
-  "displayName": "Enterprise IdP (Okta)",
+  "alias": "enterprise-idp",
+  "displayName": "Enterprise IdP (e.g. Okta)",
   "providerId": "oidc",
   "enabled": true,
   "trustEmail": true,
   "storeToken": false,
   "firstBrokerLoginFlowAlias": "first broker login",
   "config": {
-    "authorizationUrl": "https://your-org.okta.com/oauth2/default/v1/authorize",
-    "tokenUrl": "https://your-org.okta.com/oauth2/default/v1/token",
-    "userInfoUrl": "https://your-org.okta.com/oauth2/default/v1/userinfo",
-    "clientId": "caipe-keycloak-client",
-    "clientSecret": "${vault.okta-client-secret}",
-    "issuer": "https://your-org.okta.com/oauth2/default",
+    "authorizationUrl": "https://<idp-domain>/oauth2/default/v1/authorize",
+    "tokenUrl": "https://<idp-domain>/oauth2/default/v1/token",
+    "userInfoUrl": "https://<idp-domain>/oauth2/default/v1/userinfo",
+    "clientId": "<keycloak-client-id>",
+    "clientSecret": "${vault.idp-client-secret}",
+    "issuer": "https://<idp-domain>/oauth2/default",
     "defaultScope": "openid profile email groups",
     "syncMode": "FORCE",
     "validateSignature": "true",
     "useJwksUrl": "true",
-    "jwksUrl": "https://your-org.okta.com/oauth2/default/v1/keys"
+    "jwksUrl": "https://<idp-domain>/oauth2/default/v1/keys"
   }
 }
 ```
@@ -736,7 +736,7 @@ async def list_connections(user: User = Depends(get_current_user)):
             "auto": broker["alias"] in ("argocd", "kubernetes"),
         }
         for broker in brokers
-        if broker["alias"] != "okta-enterprise"  # Hide the primary IDP
+        if broker["alias"] != "enterprise-idp"  # Hide the primary IDP
     ]
 
 
