@@ -19,7 +19,7 @@ The core challenge in an enterprise agentic platform is maintaining a **chain of
 This document covers:
 
 - Enterprise identity flow from Slack (with Okta SSO) through CAIPE to downstream services
-- One-time user consent and identity linking (Pattern 2)
+- One-time user consent and identity linking
 - Token exchange and On-Behalf-Of (OBO) workflows
 - Dynamic agent scope narrowing
 - CAIPE UI-based connector management
@@ -116,11 +116,11 @@ graph TB
     style UI fill:#9B59B6,color:#fff
 ```
 
-### Pattern 2: One-Time User Consent with Identity Linking
+### One-Time User Consent with Identity Linking
 
-Pattern 2 is the recommended approach for enterprise environments. It provides cryptographically verified identity linking through a one-time OIDC consent flow, after which all subsequent interactions are frictionless.
+This is the recommended approach for enterprise environments. It provides cryptographically verified identity linking through a one-time OIDC consent flow, after which all subsequent interactions are frictionless.
 
-#### Why Pattern 2?
+#### Why One-Time User Consent with Identity Linking?
 
 - **Stronger than email matching alone**: Identity is verified through an actual OIDC authentication event, not just email lookup
 - **User-controlled**: Users explicitly consent to linking their accounts
@@ -222,7 +222,7 @@ The Slack Bot is registered as a confidential client in Keycloak with token exch
 
 ### RFC 8693 Token Exchange Flow
 
-Once the user's identity is linked (Pattern 2), every subsequent Slack interaction triggers a token exchange. The Slack Bot presents a signed assertion containing the Slack user ID, and Keycloak resolves it to the linked Keycloak identity:
+Once the user's identity is linked via one-time consent, every subsequent Slack interaction triggers a token exchange. The Slack Bot presents a signed assertion containing the Slack user ID, and Keycloak resolves it to the linked Keycloak identity:
 
 ```mermaid
 sequenceDiagram
@@ -929,7 +929,7 @@ The core identity architecture is entirely Keycloak-driven:
 | Token Exchange (RFC 8693) | Keycloak directly | Keycloak directly |
 | OBO / Scope Narrowing | Keycloak directly | Keycloak directly |
 | External Token Retrieval | Keycloak `requested_issuer` | Keycloak `requested_issuer` |
-| Identity Linking (Pattern 2) | Keycloak broker API | Keycloak broker API |
+| Identity Linking | Keycloak broker API | Keycloak broker API |
 | Connector Management UI | CAIPE Backend + Keycloak | CAIPE Backend + Keycloak |
 
 In the "without AgentGateway" model, each CAIPE agent is responsible for:
