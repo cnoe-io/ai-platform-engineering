@@ -160,20 +160,11 @@ class TestCreateCheckpointer:
       "LANGGRAPH_CHECKPOINT_TYPE": "redis",
       "LANGGRAPH_CHECKPOINT_REDIS_URL": "redis://localhost:6379",
     }
-
-    mock_saver = MagicMock()
-    mock_saver.setup = MagicMock()
-    mock_redis_saver_cls = MagicMock()
-    mock_redis_saver_cls.from_conn_string = MagicMock(return_value=mock_saver)
-
     with patch.dict("os.environ", env, clear=True):
-      with patch.dict("sys.modules", {
-        "langgraph.checkpoint.redis": MagicMock(RedisSaver=mock_redis_saver_cls),
-      }):
+      with patch("importlib.util.find_spec", return_value=MagicMock()):
         cp = create_checkpointer()
-        assert cp is mock_saver
-        mock_redis_saver_cls.from_conn_string.assert_called_once()
-        mock_saver.setup.assert_called_once()
+        assert type(cp).__name__ == "_LazyAsyncRedisSaver"
+        assert cp._redis_url == "redis://localhost:6379"
 
   def test_redis_with_ttl(self):
     env = {
@@ -181,20 +172,11 @@ class TestCreateCheckpointer:
       "LANGGRAPH_CHECKPOINT_REDIS_URL": "redis://localhost:6379",
       "LANGGRAPH_CHECKPOINT_TTL_MINUTES": "120",
     }
-
-    mock_saver = MagicMock()
-    mock_saver.setup = MagicMock()
-    mock_redis_saver_cls = MagicMock()
-    mock_redis_saver_cls.from_conn_string = MagicMock(return_value=mock_saver)
-
     with patch.dict("os.environ", env, clear=True):
-      with patch.dict("sys.modules", {
-        "langgraph.checkpoint.redis": MagicMock(RedisSaver=mock_redis_saver_cls),
-      }):
+      with patch("importlib.util.find_spec", return_value=MagicMock()):
         cp = create_checkpointer()
-        call_kwargs = mock_redis_saver_cls.from_conn_string.call_args
-        assert call_kwargs[1]["ttl"]["default_ttl"] == 120
-        assert call_kwargs[1]["ttl"]["refresh_on_read"] is True
+        assert type(cp).__name__ == "_LazyAsyncRedisSaver"
+        assert cp._ttl_minutes == 120
 
   def test_redis_import_error_falls_back(self):
     env = {
@@ -222,22 +204,11 @@ class TestCreateCheckpointer:
       "LANGGRAPH_CHECKPOINT_TYPE": "postgres",
       "LANGGRAPH_CHECKPOINT_POSTGRES_DSN": "postgresql://user:pass@host:5432/db",
     }
-
-    mock_saver = MagicMock()
-    mock_saver.setup = MagicMock()
-    mock_pg_saver_cls = MagicMock()
-    mock_pg_saver_cls.from_conn_string = MagicMock(return_value=mock_saver)
-
     with patch.dict("os.environ", env, clear=True):
-      with patch.dict("sys.modules", {
-        "langgraph.checkpoint.postgres": MagicMock(PostgresSaver=mock_pg_saver_cls),
-      }):
+      with patch("importlib.util.find_spec", return_value=MagicMock()):
         cp = create_checkpointer()
-        assert cp is mock_saver
-        mock_pg_saver_cls.from_conn_string.assert_called_once_with(
-          "postgresql://user:pass@host:5432/db"
-        )
-        mock_saver.setup.assert_called_once()
+        assert type(cp).__name__ == "_LazyAsyncPostgresSaver"
+        assert cp._dsn == "postgresql://user:pass@host:5432/db"
 
   def test_postgres_import_error_falls_back(self):
     env = {
@@ -265,20 +236,11 @@ class TestCreateCheckpointer:
       "LANGGRAPH_CHECKPOINT_TYPE": "mongodb",
       "LANGGRAPH_CHECKPOINT_MONGODB_URI": "mongodb://host:27017",
     }
-
-    mock_saver = MagicMock()
-    mock_mongo_saver_cls = MagicMock()
-    mock_mongo_saver_cls.from_conn_string = MagicMock(return_value=mock_saver)
-
     with patch.dict("os.environ", env, clear=True):
-      with patch.dict("sys.modules", {
-        "langgraph.checkpoint.mongodb": MagicMock(MongoDBSaver=mock_mongo_saver_cls),
-      }):
+      with patch("importlib.util.find_spec", return_value=MagicMock()):
         cp = create_checkpointer()
-        assert cp is mock_saver
-        mock_mongo_saver_cls.from_conn_string.assert_called_once_with(
-          "mongodb://host:27017"
-        )
+        assert type(cp).__name__ == "_LazyAsyncMongoDBSaver"
+        assert cp._mongodb_uri == "mongodb://host:27017"
 
   def test_mongodb_import_error_falls_back(self):
     env = {
