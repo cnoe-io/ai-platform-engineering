@@ -26,11 +26,28 @@ import {
 } from "@/components/dynamic-agents/sse-types";
 
 export interface DynamicAgentClientConfig {
-  /** Proxy route URL (e.g. /api/dynamic-agents/chat/stream) */
+  /** Proxy route URL base (e.g. /api/dynamic-agents/chat) */
   proxyUrl: string;
   /** JWT access token for Bearer authentication */
   accessToken?: string;
 }
+
+/** Callback for when agent requests user input via form */
+export type InputRequiredCallback = (data: {
+  interruptId: string;
+  prompt: string;
+  fields: Array<{
+    field_name: string;
+    field_label?: string;
+    field_description?: string;
+    field_type: string;
+    field_values?: string[];
+    required?: boolean;
+    default_value?: string;
+    placeholder?: string;
+  }>;
+  agent: string;
+}) => void;
 
 interface RawSSEEvent {
   event: string;
@@ -51,6 +68,12 @@ export class DynamicAgentClient {
    * Can be used for feedback integration with Langfuse.
    */
   public lastTraceId: string | null = null;
+
+  /**
+   * Callback for when agent requests user input via form.
+   * Set this to handle HITL form rendering.
+   */
+  public onInputRequired: InputRequiredCallback | null = null;
 
   constructor(config: DynamicAgentClientConfig) {
     this.proxyUrl = config.proxyUrl;
@@ -100,11 +123,12 @@ export class DynamicAgentClient {
     });
 
     let eventCount = 0;
+    const streamUrl = `${this.proxyUrl}/start-stream`;
 
     try {
-      console.log(`[DynamicAgent] Sending to ${this.proxyUrl}`);
+      console.log(`[DynamicAgent] Sending to ${streamUrl}`);
 
-      const response = await fetch(this.proxyUrl, {
+      const response = await fetch(streamUrl, {
         method: "POST",
         headers,
         body,
@@ -133,13 +157,24 @@ export class DynamicAgentClient {
           console.log(`[DynamicAgent] ⚠️ Received warning event:`, rawEvent.data);
         }
 
+        // Handle input_required event (HITL form request)
+        if (rawEvent.event === "input_required") {
+          console.log(`[DynamicAgent] 📝 Input required:`, rawEvent.data);
+          // Continue to yield the event so UI can render form
+        }
+
         const agentEvent = this.mapToAgentEvent(rawEvent);
         if (!agentEvent) continue;
 
         yield agentEvent;
 
         // Check for terminal events
-        if (rawEvent.event === "done" || rawEvent.event === "error") {
+        // input_required is also terminal - stream pauses for user input
+        if (
+          rawEvent.event === "done" ||
+          rawEvent.event === "error" ||
+          rawEvent.event === "input_required"
+        ) {
           break;
         }
       }
@@ -150,6 +185,102 @@ export class DynamicAgentClient {
         console.log(`[DynamicAgent] Stream aborted after ${eventCount} events`);
       } else {
         console.error("[DynamicAgent] Stream error:", error);
+        throw error;
+      }
+    } finally {
+      this.abortController = null;
+    }
+  }
+
+  /**
+   * Resume a paused stream after user provides form input.
+   * Call this after receiving an input_required event and user submits the form.
+   *
+   * @param conversationId Conversation/session ID
+   * @param agentId Dynamic agent config ID
+   * @param formData JSON string of form values, or rejection message
+   */
+  async *resumeStream(
+    conversationId: string,
+    agentId: string,
+    formData: string,
+  ): AsyncGenerator<SSEAgentEvent, void, undefined> {
+    // Abort any previous request
+    if (this.abortController) {
+      this.abortController.abort();
+    }
+    this.abortController = new AbortController();
+
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+      Accept: "text/event-stream",
+    };
+    if (this.accessToken) {
+      headers["Authorization"] = `Bearer ${this.accessToken}`;
+    }
+
+    const body = JSON.stringify({
+      conversation_id: conversationId,
+      agent_id: agentId,
+      form_data: formData,
+    });
+
+    let eventCount = 0;
+    const resumeUrl = `${this.proxyUrl}/resume-stream`;
+
+    try {
+      console.log(`[DynamicAgent] Resuming stream at ${resumeUrl}`);
+
+      const response = await fetch(resumeUrl, {
+        method: "POST",
+        headers,
+        body,
+        signal: this.abortController.signal,
+      });
+
+      if (!response.ok) {
+        if (response.status === 401) {
+          throw new Error(
+            "Session expired: Your authentication token has expired. " +
+              "Please save your work and log in again.",
+          );
+        }
+        const errorBody = await response.text().catch(() => "");
+        throw new Error(
+          `HTTP error: ${response.status} ${response.statusText}. ${errorBody || "(empty)"}`,
+        );
+      }
+
+      // Parse SSE stream using getReader (Safari-compatible)
+      for await (const rawEvent of this.parseSSEStream(response)) {
+        eventCount++;
+
+        // Handle input_required event (agent may request more input)
+        if (rawEvent.event === "input_required") {
+          console.log(`[DynamicAgent] 📝 Additional input required:`, rawEvent.data);
+        }
+
+        const agentEvent = this.mapToAgentEvent(rawEvent);
+        if (!agentEvent) continue;
+
+        yield agentEvent;
+
+        // Check for terminal events
+        if (
+          rawEvent.event === "done" ||
+          rawEvent.event === "error" ||
+          rawEvent.event === "input_required"
+        ) {
+          break;
+        }
+      }
+
+      console.log(`[DynamicAgent] Resume stream ended after ${eventCount} events`);
+    } catch (error) {
+      if ((error as Error).name === "AbortError") {
+        console.log(`[DynamicAgent] Resume stream aborted after ${eventCount} events`);
+      } else {
+        console.error("[DynamicAgent] Resume stream error:", error);
         throw error;
       }
     } finally {
@@ -215,7 +346,7 @@ export class DynamicAgentClient {
   private mapToAgentEvent(raw: RawSSEEvent): SSEAgentEvent | null {
     const { event, data } = raw;
 
-    // ─── Structured events: content, tool_*, todo_update, subagent_*, final_result, warning ───
+    // ─── Structured events: content, tool_*, todo_update, subagent_*, final_result, input_required, warning ───
     if (
       event === "content" ||
       event === "tool_start" ||
@@ -224,6 +355,7 @@ export class DynamicAgentClient {
       event === "subagent_start" ||
       event === "subagent_end" ||
       event === "final_result" ||
+      event === "input_required" ||
       event === "warning"
     ) {
       try {

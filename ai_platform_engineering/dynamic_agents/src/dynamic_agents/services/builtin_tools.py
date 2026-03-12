@@ -4,6 +4,7 @@ This module provides wrapper functions for built-in tools that can be
 configured per-agent with access controls (e.g., domain restrictions).
 """
 
+import json
 import logging
 from datetime import datetime, timezone
 from typing import Literal
@@ -13,7 +14,7 @@ import requests
 from bs4 import BeautifulSoup
 from langchain_core.tools import tool
 
-from dynamic_agents.models import BuiltinToolConfigField, BuiltinToolDefinition
+from dynamic_agents.models import BuiltinToolConfigField, BuiltinToolDefinition, InputField
 
 logger = logging.getLogger(__name__)
 
@@ -71,6 +72,13 @@ def get_builtin_tool_definitions() -> list[BuiltinToolDefinition]:
                     required=False,
                 ),
             ],
+        ),
+        BuiltinToolDefinition(
+            id="request_user_input",
+            name="Request User Input",
+            description="Requests structured input from the user via a form (HITL)",
+            enabled_by_default=True,
+            config_fields=[],
         ),
     ]
 
@@ -361,11 +369,106 @@ def create_sleep_tool(max_seconds: int = 300):
     return sleep
 
 
+def create_request_user_input_tool():
+    """Create a request_user_input tool for HITL forms.
+
+    This tool works with HumanInTheLoopMiddleware via interrupt_on configuration.
+    When the agent calls this tool, the middleware intercepts it and pauses execution.
+    The agent runtime detects the interrupt, sends an SSE event with form metadata,
+    and waits for the user to submit or dismiss the form.
+
+    When resumed, the middleware re-invokes the tool with edited args that have
+    field values populated by the user. The tool then extracts and returns those values.
+
+    Returns:
+        A LangChain tool for collecting structured user input.
+    """
+
+    @tool
+    def request_user_input(
+        prompt: str,
+        fields: list[dict],
+    ) -> str:
+        """Request structured input from the user via a form.
+
+        Use this tool when you need specific information from the user that
+        would benefit from a structured form interface (e.g., configuration values,
+        approval decisions, multi-field input).
+
+        The execution will pause until the user submits or dismisses the form.
+
+        Args:
+            prompt: Message explaining what information is needed and why.
+            fields: List of field definitions. Each field should have:
+                - field_name: Unique identifier (snake_case)
+                - field_label: Display label (optional, auto-generated from field_name)
+                - field_description: Help text (optional)
+                - field_type: One of "text", "select", "multiselect", "boolean", "number", "url", "email"
+                - field_values: Options for select/multiselect (required for those types)
+                - required: Whether field is required (default: false)
+                - default_value: Pre-populated value (optional)
+                - placeholder: Placeholder text (optional)
+                - value: User-provided value (populated when form is submitted)
+
+        Returns:
+            JSON string of submitted values ({"field_name": "value", ...}),
+            or "Waiting for user input" if fields don't have values yet,
+            or error message if validation fails.
+
+        Example:
+            result = request_user_input(
+                prompt="Please provide deployment configuration:",
+                fields=[
+                    {"field_name": "environment", "field_type": "select",
+                     "field_values": ["dev", "staging", "prod"], "required": True},
+                    {"field_name": "replicas", "field_type": "number", "default_value": "3"},
+                    {"field_name": "confirm_deploy", "field_type": "boolean",
+                     "field_label": "Confirm Deployment", "required": True}
+                ]
+            )
+        """
+        # Validate fields against InputField model
+        validated_fields = []
+        for field_dict in fields:
+            try:
+                validated = InputField(**field_dict)
+                validated_fields.append(validated.model_dump())
+            except Exception as e:
+                logger.warning(f"Invalid field definition: {field_dict}, error: {e}")
+                return f"ERROR: Invalid field definition: {e}"
+
+        # Check if any fields have values (user has submitted the form)
+        fields_with_values = [f for f in validated_fields if f.get("value") is not None]
+
+        if not fields_with_values:
+            # No values yet - this is the initial call, middleware will intercept
+            # and pause execution. Return a placeholder that won't be seen.
+            return "Waiting for user input"
+
+        # Check required fields have values
+        required_missing = [f["field_name"] for f in validated_fields if f.get("required") and f.get("value") is None]
+        if required_missing:
+            return f"ERROR: Missing required fields: {', '.join(required_missing)}"
+
+        # Extract values and return as JSON
+        result = {}
+        for f in validated_fields:
+            field_name = f.get("field_name", "")
+            value = f.get("value")
+            if value is not None:
+                result[field_name] = value
+
+        return json.dumps(result)
+
+    return request_user_input
+
+
 __all__ = [
     "create_fetch_url_tool",
     "create_current_datetime_tool",
     "create_user_info_tool",
     "create_sleep_tool",
+    "create_request_user_input_tool",
     "is_domain_allowed",
     "get_builtin_tool_definitions",
 ]

@@ -1,15 +1,15 @@
 /**
- * API proxy route for Dynamic Agent chat streaming.
+ * API proxy route for resuming Dynamic Agent chat streaming after HITL form submission.
  *
  * Forwards the browser's POST request to the Dynamic Agents backend
  * and pipes the SSE response back to the client without buffering.
  *
- * The browser cannot hit the backend directly (different host / internal URL),
- * so Next.js acts as a transparent SSE proxy.
- *
- * POST /api/dynamic-agents/chat/stream
- * Body: { message, conversation_id, agent_id }
+ * POST /api/dynamic-agents/chat/resume-stream
+ * Body: { conversation_id, agent_id, form_data }
  * Response: SSE stream (text/event-stream)
+ *
+ * Call this endpoint after the user submits (or dismisses) a HITL form
+ * that was requested via an `input_required` event from /start-stream.
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -38,7 +38,7 @@ export async function POST(request: NextRequest): Promise<Response> {
   }
 
   // Parse the request body
-  let body: { message: string; conversation_id: string; agent_id: string };
+  let body: { conversation_id: string; agent_id: string; form_data: string };
   try {
     body = await request.json();
   } catch {
@@ -48,9 +48,9 @@ export async function POST(request: NextRequest): Promise<Response> {
     );
   }
 
-  if (!body.message || !body.conversation_id || !body.agent_id) {
+  if (!body.conversation_id || !body.agent_id || body.form_data === undefined) {
     return NextResponse.json(
-      { success: false, error: "Missing required fields: message, conversation_id, agent_id" },
+      { success: false, error: "Missing required fields: conversation_id, agent_id, form_data" },
       { status: 400 }
     );
   }
@@ -67,7 +67,7 @@ export async function POST(request: NextRequest): Promise<Response> {
     backendHeaders["Authorization"] = authHeader;
   }
 
-  const backendUrl = `${dynamicAgentsUrl}/api/v1/chat/stream`;
+  const backendUrl = `${dynamicAgentsUrl}/api/v1/chat/resume-stream`;
 
   try {
     const backendResponse = await fetch(backendUrl, {
@@ -79,7 +79,7 @@ export async function POST(request: NextRequest): Promise<Response> {
     if (!backendResponse.ok) {
       const errorText = await backendResponse.text().catch(() => "");
       console.error(
-        `[dynamic-agents/chat/stream] Backend error: ${backendResponse.status} ${backendResponse.statusText}`,
+        `[dynamic-agents/chat/resume-stream] Backend error: ${backendResponse.status} ${backendResponse.statusText}`,
         errorText
       );
       return NextResponse.json(
@@ -118,7 +118,7 @@ export async function POST(request: NextRequest): Promise<Response> {
       message.includes("ECONNREFUSED") ||
       (err instanceof TypeError && message.includes("fetch"))
     ) {
-      console.error("[dynamic-agents/chat/stream] Backend unreachable:", message);
+      console.error("[dynamic-agents/chat/resume-stream] Backend unreachable:", message);
       return NextResponse.json(
         {
           success: false,
@@ -128,7 +128,7 @@ export async function POST(request: NextRequest): Promise<Response> {
       );
     }
 
-    console.error("[dynamic-agents/chat/stream] Proxy error:", err);
+    console.error("[dynamic-agents/chat/resume-stream] Proxy error:", err);
     return NextResponse.json(
       { success: false, error: message },
       { status: 500 }

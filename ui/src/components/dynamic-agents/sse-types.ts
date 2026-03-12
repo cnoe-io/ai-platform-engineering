@@ -82,6 +82,37 @@ export interface FinalResultEventData {
   missing_tools?: string[];
 }
 
+/** Input required data from input_required events (HITL forms) */
+export interface InputRequiredEventData {
+  /** Unique ID for this interrupt (used to resume) */
+  interrupt_id: string;
+  /** Message explaining what information is needed */
+  prompt: string;
+  /** Field definitions for the form */
+  fields: InputFieldDefinition[];
+  /** Agent that requested input */
+  agent: string;
+}
+
+/** Field definition for HITL forms (matches backend InputField model) */
+export interface InputFieldDefinition {
+  field_name: string;
+  field_label?: string;
+  field_description?: string;
+  field_type:
+    | "text"
+    | "select"
+    | "multiselect"
+    | "boolean"
+    | "number"
+    | "url"
+    | "email";
+  field_values?: string[];
+  required?: boolean;
+  default_value?: string;
+  placeholder?: string;
+}
+
 // ═══════════════════════════════════════════════════════════════
 // HITL (Human-in-the-Loop) Types
 // ═══════════════════════════════════════════════════════════════
@@ -118,6 +149,7 @@ export type SSEEventType =
   | "subagent_start" // Subagent invocation started
   | "subagent_end" // Subagent invocation completed
   | "final_result" // Final agent response
+  | "input_required" // Agent requests user input via form (HITL)
   | "warning" // Warning event (e.g., missing tools)
   | "error"; // Error event
 
@@ -159,6 +191,9 @@ export interface SSEAgentEvent {
 
   /** Final result data for final_result events */
   finalResultData?: FinalResultEventData;
+
+  /** Input required data for input_required events (HITL forms) */
+  inputRequiredData?: InputRequiredEventData;
 
   // ─── Content ─────────────────────────────────────────────────
   /** Content text for content/final_result events */
@@ -274,6 +309,15 @@ export function createSSEAgentEvent(
           failed_servers: metadata?.failed_servers as string[] | undefined,
           missing_tools: metadata?.missing_tools as string[] | undefined,
         },
+      };
+    }
+
+    case "input_required": {
+      const inputData = data as InputRequiredEventData;
+      return {
+        ...base,
+        inputRequiredData: inputData,
+        sourceAgent: inputData.agent,
       };
     }
 

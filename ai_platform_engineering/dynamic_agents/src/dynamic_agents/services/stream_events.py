@@ -18,6 +18,7 @@ TODO_UPDATE = "todo_update"
 SUBAGENT_START = "subagent_start"
 SUBAGENT_END = "subagent_end"
 FINAL_RESULT = "final_result"
+INPUT_REQUIRED = "input_required"
 
 # Deepagents built-in tools (render compactly in UI)
 BUILTIN_TOOLS = frozenset(
@@ -181,5 +182,33 @@ def make_final_result_event(
                     "missing_tools": missing_tools or [],
                 },
             },
+        },
+    }
+
+
+def make_input_required_event(
+    interrupt_id: str,
+    prompt: str,
+    fields: list[dict[str, Any]],
+    agent: str,
+) -> dict[str, Any]:
+    """Input required from user (HITL form).
+
+    Sent when the agent calls request_user_input and execution is paused.
+    The UI should render a form and call resume-stream with the result.
+
+    Args:
+        interrupt_id: Unique ID for this interrupt (used to resume).
+        prompt: Message explaining what information is needed.
+        fields: List of field definitions for the form.
+        agent: The agent name that requested input.
+    """
+    return {
+        "type": INPUT_REQUIRED,
+        "data": {
+            "interrupt_id": interrupt_id,
+            "prompt": prompt,
+            "fields": fields,
+            "agent": agent,
         },
     }

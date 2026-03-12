@@ -3,6 +3,7 @@
 Creates and manages DeepAgent instances with MCP tools.
 """
 
+import json
 import logging
 import re
 import time
@@ -15,6 +16,7 @@ from cnoe_agent_utils.tracing import TracingManager
 from deepagents import create_deep_agent
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from langgraph.checkpoint.memory import InMemorySaver
+from langgraph.types import Command
 
 from dynamic_agents.config import Settings, get_settings
 from dynamic_agents.models import AgentContext, DynamicAgentConfig, MCPServerConfig, SubAgentRef
@@ -22,6 +24,7 @@ from dynamic_agents.prompts.extension import get_default_extension_prompt
 from dynamic_agents.services.builtin_tools import (
     create_current_datetime_tool,
     create_fetch_url_tool,
+    create_request_user_input_tool,
     create_sleep_tool,
     create_user_info_tool,
 )
@@ -33,6 +36,7 @@ from dynamic_agents.services.mcp_client import (
 from dynamic_agents.services.stream_events import (
     make_content_event,
     make_final_result_event,
+    make_input_required_event,
 )
 from dynamic_agents.services.stream_trackers import (
     SubagentTracker,
@@ -80,6 +84,7 @@ class AgentRuntime:
         self._user_name = user_name
         self._user_groups = user_groups or []
         self._graph = None
+        self._checkpointer = InMemorySaver()  # Store for state access
         self._mcp_client: MultiServerMCPClient | None = None
         self._initialized = False
         self._created_at = time.time()
@@ -181,9 +186,10 @@ class AgentRuntime:
             tools=tools,
             system_prompt=system_prompt,
             context_schema=AgentContext,
-            checkpointer=InMemorySaver(),
+            checkpointer=self._checkpointer,
             name=safe_name,
             subagents=subagents if subagents else None,
+            interrupt_on={"request_user_input": True},
         )
 
         self._initialized = True
@@ -268,6 +274,13 @@ class AgentRuntime:
             sleep_tool = create_sleep_tool(max_seconds=max_seconds)
             tools.append(sleep_tool)
             logger.debug(f"Agent '{self.config.name}': sleep enabled (max_seconds={max_seconds})")
+
+        # request_user_input tool (enabled by default)
+        request_user_input_config = self.config.builtin_tools.request_user_input
+        if request_user_input_config and request_user_input_config.enabled:
+            request_user_input_tool = create_request_user_input_tool()
+            tools.append(request_user_input_tool)
+            logger.debug(f"Agent '{self.config.name}': request_user_input enabled")
 
         return tools
 
@@ -480,6 +493,20 @@ class AgentRuntime:
             ):
                 yield event
 
+        # Check for pending interrupt (agent called request_user_input)
+        logger.info("[stream] Stream loop completed, checking for pending interrupt...")
+        interrupt_data = await self.has_pending_interrupt(session_id)
+        logger.info(f"[stream] has_pending_interrupt result: {interrupt_data}")
+        if interrupt_data:
+            logger.info(f"[stream] Agent '{self.config.name}' has pending interrupt, emitting input_required event")
+            yield make_input_required_event(
+                interrupt_id=interrupt_data["interrupt_id"],
+                prompt=interrupt_data["prompt"],
+                fields=interrupt_data["fields"],
+                agent=self.config.name,
+            )
+            return  # Don't emit final_result, stream paused for user input
+
         # Emit final_result with accumulated content
         final_text = "".join(accumulated_content)
         if final_text:
@@ -626,6 +653,215 @@ class AgentRuntime:
                                     results.append(event)
 
         return results
+
+    async def has_pending_interrupt(self, session_id: str) -> dict[str, Any] | None:
+        """Check if there's a pending interrupt for the given session.
+
+        Uses the HumanInTheLoopMiddleware pattern from deepagents. When interrupt_on
+        is configured for a tool, the middleware intercepts the tool call and creates
+        an interrupt with action_requests containing the tool call info.
+
+        Args:
+            session_id: Conversation/session ID
+
+        Returns:
+            Interrupt data dict if there's a pending request_user_input interrupt, None otherwise.
+            The dict contains: interrupt_id, prompt, fields, tool_call_id
+        """
+        if not self._graph:
+            logger.warning("[has_pending_interrupt] No graph available")
+            return None
+
+        config = {"configurable": {"thread_id": session_id}}
+
+        try:
+            state = await self._graph.aget_state(config)
+            logger.debug(
+                f"[has_pending_interrupt] Got state: has_interrupts={hasattr(state, 'interrupts')}, "
+                f"interrupts_count={len(state.interrupts) if hasattr(state, 'interrupts') and state.interrupts else 0}"
+            )
+
+            # HumanInTheLoopMiddleware stores interrupts in state.interrupts (not state.tasks)
+            if not state or not hasattr(state, "interrupts") or not state.interrupts:
+                logger.debug("[has_pending_interrupt] No interrupts in state")
+                return None
+
+            # Check each interrupt for request_user_input tool call
+            for i, interrupt in enumerate(state.interrupts):
+                interrupt_value = getattr(interrupt, "value", None)
+                logger.debug(f"[has_pending_interrupt] Interrupt {i}: value_type={type(interrupt_value)}")
+
+                if not isinstance(interrupt_value, dict):
+                    continue
+
+                # HumanInTheLoopMiddleware format: {"action_requests": [...], "review_configs": [...]}
+                action_requests = interrupt_value.get("action_requests", [])
+                for action in action_requests:
+                    if action.get("name") == "request_user_input":
+                        # Extract form metadata from tool arguments
+                        args = action.get("args", {})
+                        tool_call_id = action.get("id", str(id(interrupt)))
+                        logger.info(
+                            f"[has_pending_interrupt] Found request_user_input interrupt: tool_call_id={tool_call_id}"
+                        )
+                        return {
+                            "interrupt_id": tool_call_id,
+                            "prompt": args.get("prompt", ""),
+                            "fields": args.get("fields", []),
+                            "tool_call_id": tool_call_id,
+                        }
+
+            logger.debug("[has_pending_interrupt] No request_user_input interrupt found")
+            return None
+        except Exception as e:
+            logger.warning(f"Error checking for pending interrupt: {e}")
+            return None
+
+    async def resume(
+        self,
+        session_id: str,
+        user_id: str,
+        form_data: str,
+        trace_id: str | None = None,
+    ) -> AsyncGenerator[dict[str, Any], None]:
+        """Resume agent execution after user provides form input.
+
+        Uses the HumanInTheLoopMiddleware pattern from deepagents. The form_data
+        is converted to a decision format that the middleware expects.
+
+        Args:
+            session_id: Conversation/session ID
+            user_id: User's email/identifier
+            form_data: JSON string of form values (e.g. {"field_name": "value"}),
+                      or rejection message if user dismissed the form
+            trace_id: Optional trace ID for Langfuse tracing
+
+        Yields:
+            SSE-compatible event dicts
+        """
+        if not self._initialized:
+            await self.initialize()
+
+        # Create config for this session
+        config = self.tracing.create_config(session_id)
+        if "configurable" not in config:
+            config["configurable"] = {}
+        config["configurable"]["thread_id"] = session_id
+
+        # Add agent context
+        config["context"] = AgentContext(
+            user_id=user_id,
+            agent_config_id=self.config.id,
+            session_id=session_id,
+        )
+
+        if "metadata" not in config:
+            config["metadata"] = {}
+        config["metadata"]["user_id"] = user_id
+        config["metadata"]["agent_config_id"] = self.config.id
+        config["metadata"]["agent_name"] = self.config.name
+        if trace_id:
+            config["metadata"]["trace_id"] = trace_id
+
+        self._current_trace_id = config.get("metadata", {}).get("trace_id")
+
+        # Initialize trackers
+        tool_tracker = ToolTracker(agent_name=self.config.name)
+        todo_tracker = TodoTracker(agent_name=self.config.name)
+        subagent_tracker = SubagentTracker(parent_agent_name=self.config.name)
+        accumulated_content: list[str] = []
+
+        logger.info(f"[resume] Resuming stream for agent '{self.config.name}': user={user_id}, conv={session_id}")
+
+        # Check if this is a rejection (dismiss) or submission
+        # Rejection message format: "User dismissed the input form without providing values."
+        is_rejection = form_data.startswith("User dismissed")
+
+        if is_rejection:
+            # User rejected/dismissed the form
+            resume_payload = {"decisions": [{"type": "reject", "message": form_data}]}
+        else:
+            # User submitted the form - parse values and build edited args
+            try:
+                user_values = json.loads(form_data)
+            except json.JSONDecodeError:
+                logger.warning(f"[resume] Invalid form_data JSON: {form_data[:100]}")
+                user_values = {}
+
+            # Get the pending interrupt to find original tool args
+            interrupt_data = await self.has_pending_interrupt(session_id)
+            if interrupt_data:
+                # Build edited args with user values merged into fields
+                original_fields = interrupt_data.get("fields", [])
+                edited_fields = []
+                for field in original_fields:
+                    field_copy = dict(field)
+                    field_name = field.get("field_name", "")
+                    if field_name in user_values:
+                        field_copy["value"] = user_values[field_name]
+                    edited_fields.append(field_copy)
+
+                edited_args = {
+                    "prompt": interrupt_data.get("prompt", ""),
+                    "fields": edited_fields,
+                }
+
+                resume_payload = {
+                    "decisions": [
+                        {
+                            "type": "edit",
+                            "edited_action": {
+                                "name": "request_user_input",
+                                "args": edited_args,
+                            },
+                        }
+                    ]
+                }
+            else:
+                # No interrupt found, just approve (shouldn't happen normally)
+                logger.warning("[resume] No pending interrupt found, using simple approve")
+                resume_payload = {"decisions": [{"type": "approve"}]}
+
+        logger.debug(f"[resume] Resume payload: {resume_payload}")
+
+        # Resume with Command containing the decisions
+        async for chunk in self._graph.astream(
+            Command(resume=resume_payload),
+            config=config,
+            stream_mode=["messages", "updates"],
+            subgraphs=True,
+        ):
+            for event in self._transform_stream_chunk(
+                chunk, tool_tracker, todo_tracker, subagent_tracker, accumulated_content
+            ):
+                yield event
+
+        # Check for another pending interrupt (agent might request more input)
+        interrupt_data = await self.has_pending_interrupt(session_id)
+        if interrupt_data:
+            logger.info(f"[resume] Agent '{self.config.name}' has pending interrupt after resume")
+            yield make_input_required_event(
+                interrupt_id=interrupt_data["interrupt_id"],
+                prompt=interrupt_data["prompt"],
+                fields=interrupt_data["fields"],
+                agent=self.config.name,
+            )
+            return  # Don't emit final_result, stream paused
+
+        # Emit final_result with accumulated content
+        final_text = "".join(accumulated_content)
+        if final_text:
+            logger.info(
+                f"[resume] Completed resume for agent '{self.config.name}': "
+                f"conv={session_id}, content_length={len(final_text)}"
+            )
+            yield make_final_result_event(
+                content=final_text,
+                agent=self.config.name,
+                trace_id=self._current_trace_id,
+                failed_servers=self._failed_servers,
+                missing_tools=self._missing_tools,
+            )
 
     async def cleanup(self) -> None:
         """Cleanup MCP client connections."""
