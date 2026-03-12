@@ -62,10 +62,14 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   // User input form state (HITL - Human-in-the-Loop)
+  // Supports both A2A (contextId-based) and SSE/Dynamic Agents (agentId-based)
   const [pendingUserInput, setPendingUserInput] = useState<{
     messageId: string;
     metadata: UserInputMetadata;
     contextId?: string;
+    // SSE/Dynamic Agent specific fields
+    isSSE?: boolean;
+    agentId?: string;
   } | null>(null);
 
   // Track message IDs where the user explicitly dismissed the input form,
@@ -389,7 +393,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
     if (selectedAgentId) {
       // Dynamic agent: use lightweight SSE client via proxy route
       const dynClient = new DynamicAgentClient({
-        proxyUrl: "/api/dynamic-agents/chat/stream",
+        proxyUrl: "/api/dynamic-agents/chat",
         accessToken,
       });
       abortFn = () => dynClient.abort();
@@ -549,6 +553,46 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
               accumulatedText = metadata.response;
               updateMessage(convId!, assistantMsgId, { content: accumulatedText });
             }
+          }
+        }
+
+        // ═══════════════════════════════════════════════════════════════
+        // DETECT USER INPUT FORM REQUEST (SSE/Dynamic Agents)
+        // ═══════════════════════════════════════════════════════════════
+        if (isSSEEvent && sseEvent.type === "input_required" && sseEvent.inputRequiredData) {
+          console.log(`[ChatPanel] 📝 SSE INPUT REQUIRED - Event #${eventNum}`, sseEvent.inputRequiredData);
+          const { prompt, fields, agent } = sseEvent.inputRequiredData;
+          
+          // Convert SSE InputFieldDefinition[] to UserInputMetadata format
+          const inputFields: InputField[] = fields.map(f => ({
+            field_name: f.field_name,
+            field_label: f.field_label,
+            field_description: f.field_description,
+            field_type: f.field_type,
+            field_values: f.field_values,
+            required: f.required,
+            default_value: f.default_value,
+            placeholder: f.placeholder,
+          }));
+
+          hitlFormRequested = true;
+          setPendingUserInput({
+            messageId: assistantMsgId,
+            metadata: {
+              user_input: true,
+              input_title: `Input Required`,
+              input_description: prompt,
+              input_fields: inputFields,
+            },
+            contextId: convId,
+            isSSE: true,
+            agentId: selectedAgentId,
+          });
+
+          // Update message content with the prompt
+          if (prompt) {
+            accumulatedText = prompt;
+            updateMessage(convId!, assistantMsgId, { content: accumulatedText });
           }
         }
 
@@ -954,6 +998,140 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
   }, [pendingUserInput, activeConversationId, endpoint, accessToken, addMessage, updateMessage,
       appendToMessage, addA2AEvent, setConversationStreaming]);
 
+  // Handle user input form submission via SSE/Dynamic Agents resume
+  const handleUserInputSubmitSSE = useCallback(async (formData: Record<string, string>) => {
+    if (!pendingUserInput || !activeConversationId || !pendingUserInput.agentId) return;
+
+    console.log("[ChatPanel] 📝 SSE HITL form submitted:", formData);
+
+    const turnId = `turn-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+    const selectionSummary = Object.entries(formData)
+      .map(([key, value]) => `${key}: ${value}`)
+      .join("\n");
+    addMessage(activeConversationId, { role: "user", content: selectionSummary || "Form submitted." }, turnId);
+    const assistantMsgId = addMessage(activeConversationId, { role: "assistant", content: "" }, turnId);
+
+    dismissedInputForMessageRef.current.add(pendingUserInput.messageId);
+    const agentId = pendingUserInput.agentId;
+    setPendingUserInput(null);
+
+    // Create Dynamic Agent client for resume
+    const dynClient = new DynamicAgentClient({
+      proxyUrl: "/api/dynamic-agents/chat",
+      accessToken,
+    });
+
+    // Send form data as JSON string
+    const formDataJson = JSON.stringify(formData);
+
+    setConversationStreaming(activeConversationId, {
+      conversationId: activeConversationId,
+      messageId: assistantMsgId,
+      client: { abort: () => dynClient.abort() } as ReturnType<typeof setConversationStreaming> extends void ? never : Parameters<typeof setConversationStreaming>[1] extends { client: infer C } ? C : never,
+    });
+
+    let accumulatedText = "";
+    let rawStreamContent = "";
+    let eventCounter = 0;
+    let hasReceivedCompleteResult = false;
+    let hitlFormRequested = false;
+
+    try {
+      for await (const event of dynClient.resumeStream(activeConversationId, agentId, formDataJson)) {
+        eventCounter++;
+        const sseEvent = event as SSEAgentEvent;
+
+        // Buffer event for store
+        addSSEEvent(sseEvent, activeConversationId);
+
+        // Handle input_required (agent may request more input)
+        if (sseEvent.type === "input_required" && sseEvent.inputRequiredData) {
+          console.log(`[ChatPanel] 📝 SSE Additional input required:`, sseEvent.inputRequiredData);
+          const { prompt, fields } = sseEvent.inputRequiredData;
+          
+          const inputFields: InputField[] = fields.map(f => ({
+            field_name: f.field_name,
+            field_label: f.field_label,
+            field_description: f.field_description,
+            field_type: f.field_type,
+            field_values: f.field_values,
+            required: f.required,
+            default_value: f.default_value,
+            placeholder: f.placeholder,
+          }));
+
+          hitlFormRequested = true;
+          setPendingUserInput({
+            messageId: assistantMsgId,
+            metadata: {
+              user_input: true,
+              input_title: `Input Required`,
+              input_description: prompt,
+              input_fields: inputFields,
+            },
+            contextId: activeConversationId,
+            isSSE: true,
+            agentId,
+          });
+
+          if (prompt) {
+            accumulatedText = prompt;
+            updateMessage(activeConversationId, assistantMsgId, { content: accumulatedText });
+          }
+          break; // Stream pauses for user input
+        }
+
+        // Handle final_result
+        if (sseEvent.type === "final_result" && sseEvent.content) {
+          accumulatedText = sseEvent.content;
+          rawStreamContent += `\n\n[final_result]\n${sseEvent.content}`;
+          hasReceivedCompleteResult = true;
+          updateMessage(activeConversationId, assistantMsgId, {
+            content: accumulatedText,
+            rawStreamContent,
+            isFinal: true,
+          });
+        }
+
+        // Handle content tokens
+        if (sseEvent.type === "content" && sseEvent.content) {
+          accumulatedText += sseEvent.content;
+          rawStreamContent += sseEvent.content;
+          updateMessage(activeConversationId, assistantMsgId, { content: accumulatedText, rawStreamContent });
+        }
+
+        // Handle errors
+        if (sseEvent.type === "error") {
+          console.error("[ChatPanel] SSE resume error event:", sseEvent.displayContent);
+          appendToMessage(activeConversationId, assistantMsgId,
+            `\n\n**Error:** ${sseEvent.displayContent || "Unknown error"}`);
+          break;
+        }
+      }
+
+      if (!hitlFormRequested && !hasReceivedCompleteResult) {
+        if (accumulatedText.length > 0) {
+          console.log(`[ChatPanel] SSE HITL resume: no final_result - using accumulated content (${accumulatedText.length} chars)`);
+          updateMessage(activeConversationId, assistantMsgId, {
+            content: accumulatedText,
+            rawStreamContent,
+            isFinal: true,
+          });
+        } else {
+          console.log(`[ChatPanel] SSE HITL resume: stream ended with no content`);
+          updateMessage(activeConversationId, assistantMsgId, { rawStreamContent, isFinal: true });
+        }
+      }
+      setConversationStreaming(activeConversationId, null);
+    } catch (error) {
+      console.error("[ChatPanel] SSE HITL resume error:", error);
+      appendToMessage(activeConversationId, assistantMsgId,
+        `\n\n**Error:** ${(error as Error).message || "Failed to resume"}`);
+      setConversationStreaming(activeConversationId, null);
+    }
+  }, [pendingUserInput, activeConversationId, accessToken, addMessage, updateMessage,
+      appendToMessage, addSSEEvent, setConversationStreaming]);
+
   // Handle @mention detection
   const handleInputChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const newValue = e.target.value;
@@ -1176,10 +1354,33 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
                 title={pendingUserInput.metadata.input_title}
                 description={pendingUserInput.metadata.input_description}
                 inputFields={pendingUserInput.metadata.input_fields}
-                onSubmit={handleUserInputSubmit}
+                onSubmit={pendingUserInput.isSSE ? handleUserInputSubmitSSE : handleUserInputSubmit}
                 onCancel={() => {
                   if (pendingUserInput) {
                     dismissedInputForMessageRef.current.add(pendingUserInput.messageId);
+                    // For SSE, send dismissal message to resume the agent
+                    if (pendingUserInput.isSSE && pendingUserInput.agentId && activeConversationId) {
+                      const dynClient = new DynamicAgentClient({
+                        proxyUrl: "/api/dynamic-agents/chat",
+                        accessToken,
+                      });
+                      // Fire-and-forget: resume with rejection message
+                      // The agent will receive "User dismissed the input form without providing values."
+                      (async () => {
+                        try {
+                          const dismissalMessage = "User dismissed the input form without providing values.";
+                          for await (const _event of dynClient.resumeStream(
+                            activeConversationId,
+                            pendingUserInput.agentId!,
+                            dismissalMessage
+                          )) {
+                            // Consume events but don't display - user dismissed
+                          }
+                        } catch (err) {
+                          console.error("[ChatPanel] Error sending SSE form dismissal:", err);
+                        }
+                      })();
+                    }
                   }
                   setPendingUserInput(null);
                 }}

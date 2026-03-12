@@ -26,6 +26,15 @@ class RestartRuntimeRequest(BaseModel):
     session_id: str
 
 
+class ResumeStreamRequest(BaseModel):
+    """Request body for resuming an interrupted stream."""
+
+    agent_id: str
+    conversation_id: str
+    form_data: str  # JSON string of form values, or rejection message
+    trace_id: str | None = None
+
+
 def _can_use_agent(agent: DynamicAgentConfig, user: UserContext) -> bool:
     """Check if user can use the agent."""
     # Admin can use all agents
@@ -141,13 +150,13 @@ async def _generate_sse_events(
         yield f"event: error\ndata: {error_data}\n\n"
 
 
-@router.post("/stream")
-async def chat_stream(
+@router.post("/start-stream")
+async def chat_start_stream(
     request: ChatRequest,
     user: UserContext = Depends(get_current_user),
     mongo: MongoDBService = Depends(get_mongo_service),
 ) -> StreamingResponse:
-    """Stream a chat response from a dynamic agent.
+    """Start streaming a chat response from a dynamic agent.
 
     Uses Server-Sent Events (SSE) for real-time streaming.
 
@@ -155,8 +164,12 @@ async def chat_stream(
     - content: Streaming text chunks
     - tool_start: Tool invocation started
     - tool_end: Tool invocation completed
+    - input_required: Agent requests user input via form (HITL)
     - error: Error occurred
     - done: Streaming complete
+
+    If the agent calls request_user_input, streaming will end with an
+    input_required event. Use /resume-stream to continue after user input.
     """
     # Set conversation context for logging
     conversation_id_var.set(request.conversation_id)
@@ -189,6 +202,121 @@ async def chat_stream(
             message=request.message,
             session_id=request.conversation_id,
             user_id=user.email,
+            user_name=user.name,
+            user_groups=user.groups,
+            trace_id=request.trace_id,
+            mongo=mongo,
+        ),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",  # Disable nginx buffering
+        },
+    )
+
+
+async def _generate_resume_sse_events(
+    agent_config: DynamicAgentConfig,
+    mcp_servers: list,
+    session_id: str,
+    user_id: str,
+    form_data: str,
+    user_name: str | None = None,
+    user_groups: list[str] | None = None,
+    trace_id: str | None = None,
+    mongo: MongoDBService | None = None,
+) -> AsyncGenerator[str, None]:
+    """Generate SSE events from agent resume streaming."""
+    # Set conversation context for logging
+    conversation_id_var.set(session_id)
+
+    cache = get_runtime_cache()
+
+    # Set MongoDB service for subagent resolution
+    if mongo:
+        cache.set_mongo_service(mongo)
+
+    try:
+        # Get or create runtime with user context
+        runtime = await cache.get_or_create(
+            agent_config,
+            mcp_servers,
+            session_id,
+            user_email=user_id,
+            user_name=user_name,
+            user_groups=user_groups,
+        )
+
+        # Resume streaming with form data
+        async for event in runtime.resume(session_id, user_id, form_data, trace_id):
+            event_type = event.get("type", "event")
+            event_data = event.get("data", "")
+
+            # Format as SSE
+            if isinstance(event_data, dict):
+                data = json.dumps(event_data)
+            else:
+                data = str(event_data)
+
+            yield f"event: {event_type}\ndata: {data}\n\n"
+
+        # Send done event
+        yield "event: done\ndata: {}\n\n"
+
+    except Exception as e:
+        logger.exception(f"Error resuming stream for agent '{agent_config.name}'")
+        error_data = json.dumps({"error": str(e)})
+        yield f"event: error\ndata: {error_data}\n\n"
+
+
+@router.post("/resume-stream")
+async def chat_resume_stream(
+    request: ResumeStreamRequest,
+    user: UserContext = Depends(get_current_user),
+    mongo: MongoDBService = Depends(get_mongo_service),
+) -> StreamingResponse:
+    """Resume an interrupted stream after user provides form input.
+
+    Called after the agent emitted an input_required event. The form_data
+    should be a JSON string of the form values, or a rejection message
+    if the user dismissed the form.
+
+    Events:
+    - content: Streaming text chunks
+    - tool_start: Tool invocation started
+    - tool_end: Tool invocation completed
+    - input_required: Agent requests more user input (can happen multiple times)
+    - error: Error occurred
+    - done: Streaming complete
+    """
+    # Set conversation context for logging
+    conversation_id_var.set(request.conversation_id)
+
+    # Get agent config
+    agent = mongo.get_agent(request.agent_id)
+    if not agent:
+        raise HTTPException(status_code=404, detail="Agent not found")
+
+    # Check access
+    if not _can_use_agent(agent, user):
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    # Get MCP servers for this agent
+    server_ids = list(agent.allowed_tools.keys())
+    mcp_servers = mongo.get_servers_by_ids(server_ids) if server_ids else []
+
+    logger.info(
+        f"[chat] Resuming stream: agent='{agent.name}', user={user.email}, trace_id={request.trace_id or 'auto'}"
+    )
+
+    return StreamingResponse(
+        _generate_resume_sse_events(
+            agent_config=agent,
+            mcp_servers=mcp_servers,
+            session_id=request.conversation_id,
+            user_id=user.email,
+            form_data=request.form_data,
             user_name=user.name,
             user_groups=user.groups,
             trace_id=request.trace_id,

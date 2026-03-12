@@ -168,6 +168,12 @@ class SleepToolConfig(BaseModel):
     )
 
 
+class RequestUserInputToolConfig(BaseModel):
+    """Configuration for the request_user_input built-in tool."""
+
+    enabled: bool = Field(True, description="Whether the tool is enabled")
+
+
 class BuiltinToolsConfig(BaseModel):
     """Configuration for built-in tools available to dynamic agents."""
 
@@ -187,6 +193,45 @@ class BuiltinToolsConfig(BaseModel):
         None,
         description="Configuration for the sleep tool (pauses execution)",
     )
+    request_user_input: RequestUserInputToolConfig | None = Field(
+        None,
+        description="Configuration for the request_user_input tool (requests structured input from user)",
+    )
+
+
+# =============================================================================
+# HITL Input Fields (for request_user_input tool)
+# =============================================================================
+
+
+class InputFieldType(str, Enum):
+    """Field types for user input forms."""
+
+    TEXT = "text"
+    SELECT = "select"
+    MULTISELECT = "multiselect"
+    BOOLEAN = "boolean"
+    NUMBER = "number"
+    URL = "url"
+    EMAIL = "email"
+
+
+class InputField(BaseModel):
+    """Definition of an input field for user forms.
+
+    Used by the request_user_input tool to define form fields.
+    Matches the InputField interface in the UI's MetadataInputForm component.
+    """
+
+    field_name: str = Field(..., description="Unique field identifier (snake_case)")
+    field_label: str | None = Field(None, description="Display label (auto-generated from field_name if not provided)")
+    field_description: str | None = Field(None, description="Help text shown below the field")
+    field_type: InputFieldType = Field(InputFieldType.TEXT, description="Type of input control")
+    field_values: list[str] | None = Field(None, description="Options for select/multiselect fields")
+    required: bool = Field(False, description="Whether the field is required")
+    default_value: str | None = Field(None, description="Pre-populated default value")
+    placeholder: str | None = Field(None, description="Placeholder text for text inputs")
+    value: str | None = Field(None, description="User-provided value (populated when form is submitted)")
 
 
 # =============================================================================
