@@ -4,7 +4,7 @@ import React from "react";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
-import { Globe, Info, Settings, ChevronDown, ChevronRight } from "lucide-react";
+import { Globe, Info, Settings, ChevronDown, ChevronRight, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   Tooltip,
@@ -12,7 +12,11 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import type { BuiltinToolsConfig, FetchUrlToolConfig } from "@/types/dynamic-agent";
+import type {
+  BuiltinToolsConfig,
+  BuiltinToolDefinition,
+  BuiltinToolConfigField,
+} from "@/types/dynamic-agent";
 
 interface BuiltinToolsPickerProps {
   value: BuiltinToolsConfig | undefined;
@@ -20,42 +24,366 @@ interface BuiltinToolsPickerProps {
   disabled?: boolean;
 }
 
-const DEFAULT_FETCH_URL_CONFIG: FetchUrlToolConfig = {
-  enabled: false,
-  allowed_domains: "*",
-};
+/**
+ * Hook to fetch builtin tool definitions from the API.
+ */
+function useBuiltinToolDefinitions() {
+  const [definitions, setDefinitions] = React.useState<BuiltinToolDefinition[]>([]);
+  const [loading, setLoading] = React.useState(true);
+  const [error, setError] = React.useState<string | null>(null);
 
-export function BuiltinToolsPicker({ value, onChange, disabled }: BuiltinToolsPickerProps) {
+  React.useEffect(() => {
+    async function fetchDefinitions() {
+      try {
+        const response = await fetch("/api/dynamic-agents/builtin-tools");
+        if (!response.ok) {
+          throw new Error(`Failed to fetch: ${response.status}`);
+        }
+        const data = await response.json();
+        // API returns { success: true, data: [...tools] }
+        setDefinitions(data.data || []);
+        setError(null);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Unknown error");
+        // Fallback to empty array - UI will still work, just without dynamic tools
+        setDefinitions([]);
+      } finally {
+        setLoading(false);
+      }
+    }
+    fetchDefinitions();
+  }, []);
+
+  return { definitions, loading, error };
+}
+
+/**
+ * Get the default value for a config field.
+ */
+function getFieldDefault(field: BuiltinToolConfigField): string | number | boolean {
+  if (field.default !== undefined) {
+    return field.default;
+  }
+  switch (field.type) {
+    case "string":
+      return "";
+    case "number":
+      return 0;
+    case "boolean":
+      return false;
+    default:
+      return "";
+  }
+}
+
+/**
+ * Individual tool configuration component.
+ */
+function ToolConfig({
+  definition,
+  config,
+  onChange,
+  disabled,
+}: {
+  definition: BuiltinToolDefinition;
+  config: { enabled: boolean; [key: string]: unknown } | undefined;
+  onChange: (config: { enabled: boolean; [key: string]: unknown }) => void;
+  disabled?: boolean;
+}) {
   const [expanded, setExpanded] = React.useState(false);
-  
-  // Get current fetch_url config or defaults
-  const fetchUrlConfig = value?.fetch_url || DEFAULT_FETCH_URL_CONFIG;
+  const isEnabled = config?.enabled ?? definition.enabled_by_default;
+  const hasConfigFields = definition.config_fields.length > 0;
 
-  const handleFetchUrlEnabledChange = (enabled: boolean) => {
+  const handleEnabledChange = (enabled: boolean) => {
+    // Build default config with field defaults when enabling
+    const defaults: Record<string, unknown> = {};
+    for (const field of definition.config_fields) {
+      defaults[field.name] = config?.[field.name] ?? getFieldDefault(field);
+    }
     onChange({
-      ...value,
-      fetch_url: {
-        ...fetchUrlConfig,
-        enabled,
-        // Prefill with * when enabling for the first time
-        allowed_domains: fetchUrlConfig.allowed_domains || "*",
-      },
+      ...defaults,
+      ...config,
+      enabled,
     });
-    // Auto-expand when enabling
-    if (enabled) {
+    // Auto-expand when enabling if there are config fields
+    if (enabled && hasConfigFields) {
       setExpanded(true);
     }
   };
 
-  const handleAllowedDomainsChange = (allowed_domains: string) => {
+  const handleFieldChange = (fieldName: string, value: unknown) => {
     onChange({
-      ...value,
-      fetch_url: {
-        ...fetchUrlConfig,
-        allowed_domains,
-      },
+      ...config,
+      enabled: isEnabled,
+      [fieldName]: value,
     });
   };
+
+  return (
+    <div
+      className={cn(
+        "border rounded-lg transition-colors",
+        isEnabled ? "border-primary bg-primary/5" : "border-border"
+      )}
+    >
+      {/* Tool Header Row */}
+      <div className="flex items-center justify-between p-3">
+        <div className="flex items-center gap-2">
+          {/* Toggle Switch */}
+          <button
+            type="button"
+            onClick={() => handleEnabledChange(!isEnabled)}
+            disabled={disabled}
+            className={cn(
+              "relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none",
+              isEnabled ? "bg-green-500" : "bg-muted-foreground/30",
+              disabled && "opacity-50 cursor-not-allowed"
+            )}
+            role="switch"
+            aria-checked={isEnabled}
+            aria-label={`Enable ${definition.name}`}
+          >
+            <span
+              className={cn(
+                "pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out",
+                isEnabled ? "translate-x-4" : "translate-x-0"
+              )}
+            />
+          </button>
+
+          <div>
+            <span className="font-mono text-sm font-medium">{definition.id}</span>
+            <span className="text-xs text-muted-foreground ml-2">
+              {definition.description}
+            </span>
+          </div>
+        </div>
+
+        {isEnabled && hasConfigFields && (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={() => setExpanded(!expanded)}
+            className="h-7 px-2"
+          >
+            {expanded ? (
+              <ChevronDown className="h-3 w-3 mr-1" />
+            ) : (
+              <ChevronRight className="h-3 w-3 mr-1" />
+            )}
+            <Settings className="h-3 w-3 mr-1" />
+            <span className="text-xs">Configure</span>
+          </Button>
+        )}
+      </div>
+
+      {/* Expanded Configuration */}
+      {isEnabled && hasConfigFields && expanded && (
+        <div className="border-t p-3 bg-muted/30 space-y-3">
+          {definition.config_fields.map((field) => (
+            <ConfigField
+              key={field.name}
+              field={field}
+              value={config?.[field.name] ?? getFieldDefault(field)}
+              onChange={(value) => handleFieldChange(field.name, value)}
+              disabled={disabled}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Individual config field renderer.
+ */
+function ConfigField({
+  field,
+  value,
+  onChange,
+  disabled,
+}: {
+  field: BuiltinToolConfigField;
+  value: unknown;
+  onChange: (value: unknown) => void;
+  disabled?: boolean;
+}) {
+  // Render based on field type
+  if (field.type === "string") {
+    const stringValue = typeof value === "string" ? value : String(value ?? "");
+    return (
+      <div className="space-y-1.5">
+        <div className="flex items-center gap-2">
+          <Label htmlFor={field.name} className="text-xs">
+            {field.label}
+          </Label>
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger>
+                <Info className="h-3 w-3 text-muted-foreground cursor-help" />
+              </TooltipTrigger>
+              <TooltipContent side="right" className="max-w-xs">
+                <p className="text-xs">{field.description}</p>
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        </div>
+        <Input
+          id={field.name}
+          value={stringValue}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={field.default !== undefined ? String(field.default) : undefined}
+          disabled={disabled}
+          className="font-mono text-xs h-8"
+        />
+        {field.name === "allowed_domains" && (
+          <p className="text-xs text-muted-foreground">
+            {stringValue === "*" ? (
+              <span className="text-amber-500">All domains allowed</span>
+            ) : stringValue.trim() === "" ? (
+              <span className="text-red-500">No domains allowed</span>
+            ) : (
+              <span>
+                {stringValue.split(",").filter((d) => d.trim()).length} pattern(s)
+              </span>
+            )}
+          </p>
+        )}
+      </div>
+    );
+  }
+
+  if (field.type === "number") {
+    const numValue = typeof value === "number" ? value : Number(value ?? field.default ?? 0);
+    return (
+      <div className="space-y-1.5">
+        <div className="flex items-center gap-2">
+          <Label htmlFor={field.name} className="text-xs">
+            {field.label}
+          </Label>
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger>
+                <Info className="h-3 w-3 text-muted-foreground cursor-help" />
+              </TooltipTrigger>
+              <TooltipContent side="right" className="max-w-xs">
+                <p className="text-xs">{field.description}</p>
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        </div>
+        <Input
+          id={field.name}
+          type="number"
+          value={numValue}
+          onChange={(e) => onChange(Number(e.target.value))}
+          disabled={disabled}
+          className="font-mono text-xs h-8 w-32"
+        />
+      </div>
+    );
+  }
+
+  if (field.type === "boolean") {
+    const boolValue = typeof value === "boolean" ? value : Boolean(value);
+    return (
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          onClick={() => onChange(!boolValue)}
+          disabled={disabled}
+          className={cn(
+            "relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none",
+            boolValue ? "bg-green-500" : "bg-muted-foreground/30",
+            disabled && "opacity-50 cursor-not-allowed"
+          )}
+          role="switch"
+          aria-checked={boolValue}
+        >
+          <span
+            className={cn(
+              "pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out",
+              boolValue ? "translate-x-4" : "translate-x-0"
+            )}
+          />
+        </button>
+        <Label htmlFor={field.name} className="text-xs">
+          {field.label}
+        </Label>
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger>
+              <Info className="h-3 w-3 text-muted-foreground cursor-help" />
+            </TooltipTrigger>
+            <TooltipContent side="right" className="max-w-xs">
+              <p className="text-xs">{field.description}</p>
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+      </div>
+    );
+  }
+
+  return null;
+}
+
+export function BuiltinToolsPicker({ value, onChange, disabled }: BuiltinToolsPickerProps) {
+  const { definitions, loading, error } = useBuiltinToolDefinitions();
+
+  const handleToolChange = (
+    toolId: string,
+    config: { enabled: boolean; [key: string]: unknown }
+  ) => {
+    onChange({
+      ...value,
+      [toolId]: config,
+    });
+  };
+
+  if (loading) {
+    return (
+      <div className="space-y-2">
+        <Label className="flex items-center gap-2 text-sm">
+          <Globe className="h-4 w-4 text-purple-400" />
+          Built-in Tools
+        </Label>
+        <div className="flex items-center gap-2 text-sm text-muted-foreground p-3 border rounded-lg">
+          <Loader2 className="h-4 w-4 animate-spin" />
+          Loading tools...
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="space-y-2">
+        <Label className="flex items-center gap-2 text-sm">
+          <Globe className="h-4 w-4 text-purple-400" />
+          Built-in Tools
+        </Label>
+        <div className="text-sm text-red-500 p-3 border border-red-500/30 rounded-lg">
+          Failed to load tools: {error}
+        </div>
+      </div>
+    );
+  }
+
+  if (definitions.length === 0) {
+    return (
+      <div className="space-y-2">
+        <Label className="flex items-center gap-2 text-sm">
+          <Globe className="h-4 w-4 text-purple-400" />
+          Built-in Tools
+        </Label>
+        <div className="text-sm text-muted-foreground p-3 border rounded-lg">
+          No built-in tools available.
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-2">
@@ -64,111 +392,16 @@ export function BuiltinToolsPicker({ value, onChange, disabled }: BuiltinToolsPi
         Built-in Tools
       </Label>
 
-      <div
-        className={cn(
-          "border rounded-lg transition-colors",
-          fetchUrlConfig.enabled ? "border-primary bg-primary/5" : "border-border"
-        )}
-      >
-        {/* Tool Header Row */}
-        <div className="flex items-center justify-between p-3">
-          <div className="flex items-center gap-2">
-            {/* Toggle Switch */}
-            <button
-              type="button"
-              onClick={() => handleFetchUrlEnabledChange(!fetchUrlConfig.enabled)}
-              disabled={disabled}
-              className={cn(
-                "relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none",
-                fetchUrlConfig.enabled ? "bg-green-500" : "bg-muted-foreground/30",
-                disabled && "opacity-50 cursor-not-allowed"
-              )}
-              role="switch"
-              aria-checked={fetchUrlConfig.enabled}
-              aria-label="Enable fetch_url tool"
-            >
-              <span
-                className={cn(
-                  "pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out",
-                  fetchUrlConfig.enabled ? "translate-x-4" : "translate-x-0"
-                )}
-              />
-            </button>
-
-            <div>
-              <span className="font-mono text-sm font-medium">fetch_url</span>
-              <span className="text-xs text-muted-foreground ml-2">
-                Fetch web content
-              </span>
-            </div>
-          </div>
-
-          {fetchUrlConfig.enabled && (
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              onClick={() => setExpanded(!expanded)}
-              className="h-7 px-2"
-            >
-              {expanded ? (
-                <ChevronDown className="h-3 w-3 mr-1" />
-              ) : (
-                <ChevronRight className="h-3 w-3 mr-1" />
-              )}
-              <Settings className="h-3 w-3 mr-1" />
-              <span className="text-xs">Configure</span>
-            </Button>
-          )}
-        </div>
-
-        {/* Expanded Configuration */}
-        {fetchUrlConfig.enabled && expanded && (
-          <div className="border-t p-3 bg-muted/30 space-y-2">
-            <div className="flex items-center gap-2">
-              <Label htmlFor="allowed_domains" className="text-xs">
-                Allowed Domains
-              </Label>
-              <TooltipProvider>
-                <Tooltip>
-                  <TooltipTrigger>
-                    <Info className="h-3 w-3 text-muted-foreground cursor-help" />
-                  </TooltipTrigger>
-                  <TooltipContent side="right" className="max-w-xs">
-                    <div className="space-y-1 text-xs">
-                      <p className="font-medium">Domain pattern format:</p>
-                      <ul className="list-disc pl-4 space-y-0.5">
-                        <li><code>*</code> — Allow all domains</li>
-                        <li><code>*.cisco.com</code> — Allow subdomains</li>
-                        <li><code>cisco.com</code> — Exact domain only</li>
-                      </ul>
-                      <p className="pt-1">Separate multiple patterns with commas.</p>
-                    </div>
-                  </TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
-            </div>
-            <Input
-              id="allowed_domains"
-              value={fetchUrlConfig.allowed_domains}
-              onChange={(e) => handleAllowedDomainsChange(e.target.value)}
-              placeholder="*.example.com, *.another.com"
-              disabled={disabled}
-              className="font-mono text-xs h-8"
-            />
-            <p className="text-xs text-muted-foreground">
-              {fetchUrlConfig.allowed_domains === "*" ? (
-                <span className="text-amber-500">All domains allowed</span>
-              ) : fetchUrlConfig.allowed_domains.trim() === "" ? (
-                <span className="text-red-500">No domains allowed</span>
-              ) : (
-                <span>
-                  {fetchUrlConfig.allowed_domains.split(",").filter(d => d.trim()).length} pattern(s)
-                </span>
-              )}
-            </p>
-          </div>
-        )}
+      <div className="space-y-2">
+        {definitions.map((definition) => (
+          <ToolConfig
+            key={definition.id}
+            definition={definition}
+            config={value?.[definition.id] as { enabled: boolean; [key: string]: unknown } | undefined}
+            onChange={(config) => handleToolChange(definition.id, config)}
+            disabled={disabled}
+          />
+        ))}
       </div>
     </div>
   );

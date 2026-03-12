@@ -58,6 +58,8 @@ async def _generate_sse_events(
     message: str,
     session_id: str,
     user_id: str,
+    user_name: str | None = None,
+    user_groups: list[str] | None = None,
     trace_id: str | None = None,
     mongo: MongoDBService | None = None,
 ) -> AsyncGenerator[str, None]:
@@ -72,8 +74,15 @@ async def _generate_sse_events(
         cache.set_mongo_service(mongo)
 
     try:
-        # Get or create runtime
-        runtime = await cache.get_or_create(agent_config, mcp_servers, session_id)
+        # Get or create runtime with user context
+        runtime = await cache.get_or_create(
+            agent_config,
+            mcp_servers,
+            session_id,
+            user_email=user_id,
+            user_name=user_name,
+            user_groups=user_groups,
+        )
 
         # Stream response with trace_id for Langfuse tracing
         async for event in runtime.stream(message, session_id, user_id, trace_id):
@@ -180,6 +189,8 @@ async def chat_stream(
             message=request.message,
             session_id=request.conversation_id,
             user_id=user.email,
+            user_name=user.name,
+            user_groups=user.groups,
             trace_id=request.trace_id,
             mongo=mongo,
         ),
@@ -226,7 +237,14 @@ async def chat_invoke(
     # Set MongoDB service for subagent resolution
     cache.set_mongo_service(mongo)
 
-    runtime = await cache.get_or_create(agent, mcp_servers, request.conversation_id)
+    runtime = await cache.get_or_create(
+        agent,
+        mcp_servers,
+        request.conversation_id,
+        user_email=user.email,
+        user_name=user.name,
+        user_groups=user.groups,
+    )
 
     content_parts = []
     tool_calls = []

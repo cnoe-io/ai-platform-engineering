@@ -154,6 +154,24 @@ class MongoDBService:
         docs = self._get_agents_collection().find(query).sort("name", ASCENDING)
         return [DynamicAgentConfig(**doc) for doc in docs]
 
+    def list_all_agents(self, include_disabled: bool = True) -> list[DynamicAgentConfig]:
+        """List all dynamic agents without visibility filtering.
+
+        This is used for administrative operations like cleanup.
+
+        Args:
+            include_disabled: Include disabled agents (default True for admin use)
+
+        Returns:
+            List of all DynamicAgentConfig objects
+        """
+        query: dict[str, Any] = {}
+        if not include_disabled:
+            query["enabled"] = True
+
+        docs = self._get_agents_collection().find(query).sort("name", ASCENDING)
+        return [DynamicAgentConfig(**doc) for doc in docs]
+
     def update_agent(self, agent_id: str, update: DynamicAgentConfigUpdate) -> DynamicAgentConfig | None:
         """Update a dynamic agent config."""
         update_data = {k: v for k, v in update.model_dump().items() if v is not None}

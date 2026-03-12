@@ -171,11 +171,58 @@ def seed_agents(mongo: "MongoDBService", agents: list[dict[str, Any]]) -> int:
     return count
 
 
+def cleanup_stale_config_driven(
+    mongo: "MongoDBService",
+    current_server_ids: set[str],
+    current_agent_ids: set[str],
+) -> tuple[int, int]:
+    """Remove config-driven entities that are no longer in the config.
+
+    When an entity is removed from config.yaml, it should be deleted from
+    the database on the next server restart. This function identifies and
+    removes such stale entities.
+
+    Args:
+        mongo: MongoDB service instance
+        current_server_ids: Set of server IDs currently defined in config
+        current_agent_ids: Set of agent IDs currently defined in config
+
+    Returns:
+        Tuple of (servers_deleted, agents_deleted)
+    """
+    servers_deleted = 0
+    agents_deleted = 0
+
+    # Find and delete stale MCP servers
+    all_servers = mongo.list_servers()
+    for server in all_servers:
+        if server.config_driven and server.id not in current_server_ids:
+            logger.info(f"Removing stale config-driven MCP server: {server.id}")
+            mongo.delete_server(server.id)
+            servers_deleted += 1
+
+    # Find and delete stale agents
+    # We need to get all agents, not filtered by user access
+    all_agents = mongo.list_all_agents()
+    for agent in all_agents:
+        if agent.config_driven and agent.id not in current_agent_ids:
+            logger.info(f"Removing stale config-driven agent: {agent.id}")
+            mongo.delete_agent(agent.id)
+            agents_deleted += 1
+
+    if servers_deleted or agents_deleted:
+        logger.info(f"Cleaned up stale config-driven entities: {servers_deleted} servers, {agents_deleted} agents")
+
+    return servers_deleted, agents_deleted
+
+
 def apply_seed_config(mongo: "MongoDBService", config_path: Path | str | None = None) -> None:
     """Load and apply seed configuration from YAML.
 
     This function is called at server startup to ensure config-driven
     agents and MCP servers are present in the database.
+
+    Also cleans up config-driven entities that have been removed from the config.
 
     Args:
         mongo: MongoDB service instance
@@ -186,13 +233,22 @@ def apply_seed_config(mongo: "MongoDBService", config_path: Path | str | None = 
     mcp_servers = config.get("mcp_servers", [])
     agents = config.get("agents", [])
 
+    # Extract IDs from current config
+    current_server_ids = {s.get("id") for s in mcp_servers if s.get("id")}
+    current_agent_ids = {a.get("id") for a in agents if a.get("id")}
+
     if not mcp_servers and not agents:
         logger.info("No seed configuration found (no agents or MCP servers in config.yaml)")
+        # Still cleanup any existing config-driven entities
+        cleanup_stale_config_driven(mongo, current_server_ids, current_agent_ids)
         return
 
     logger.info(f"Loading seed configuration: {len(mcp_servers)} MCP servers, {len(agents)} agents")
 
     mcp_count = seed_mcp_servers(mongo, mcp_servers)
     agent_count = seed_agents(mongo, agents)
+
+    # Cleanup entities that are no longer in the config
+    cleanup_stale_config_driven(mongo, current_server_ids, current_agent_ids)
 
     logger.info(f"Seed configuration applied: {mcp_count} MCP servers, {agent_count} agents")

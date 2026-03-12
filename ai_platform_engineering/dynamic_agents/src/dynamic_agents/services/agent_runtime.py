@@ -19,7 +19,12 @@ from langgraph.checkpoint.memory import InMemorySaver
 from dynamic_agents.config import Settings, get_settings
 from dynamic_agents.models import AgentContext, DynamicAgentConfig, MCPServerConfig, SubAgentRef
 from dynamic_agents.prompts.extension import get_default_extension_prompt
-from dynamic_agents.services.builtin_tools import create_fetch_url_tool
+from dynamic_agents.services.builtin_tools import (
+    create_current_datetime_tool,
+    create_fetch_url_tool,
+    create_sleep_tool,
+    create_user_info_tool,
+)
 from dynamic_agents.services.mcp_client import (
     build_mcp_connections,
     filter_tools_by_allowed,
@@ -63,11 +68,17 @@ class AgentRuntime:
         mcp_servers: list[MCPServerConfig],
         settings: Settings | None = None,
         mongo_service: "MongoDBService | None" = None,
+        user_email: str | None = None,
+        user_name: str | None = None,
+        user_groups: list[str] | None = None,
     ):
         self.config = config
         self.mcp_servers = mcp_servers
         self.settings = settings or get_settings()
         self._mongo_service = mongo_service
+        self._user_email = user_email
+        self._user_name = user_name
+        self._user_groups = user_groups or []
         self._graph = None
         self._mcp_client: MultiServerMCPClient | None = None
         self._initialized = False
@@ -129,7 +140,11 @@ class AgentRuntime:
                 )
 
         # 4.5 Add built-in tools based on config
-        builtin_tools_to_add = self._build_builtin_tools()
+        builtin_tools_to_add = self._build_builtin_tools(
+            user_email=self._user_email,
+            user_name=self._user_name,
+            user_groups=self._user_groups,
+        )
         if builtin_tools_to_add:
             tools = tools + builtin_tools_to_add
             logger.info(
@@ -190,8 +205,18 @@ class AgentRuntime:
 
         return "\n".join(parts)
 
-    def _build_builtin_tools(self) -> list:
+    def _build_builtin_tools(
+        self,
+        user_email: str | None = None,
+        user_name: str | None = None,
+        user_groups: list[str] | None = None,
+    ) -> list:
         """Build list of built-in tools based on agent config.
+
+        Args:
+            user_email: User's email address (for user_info tool)
+            user_name: User's display name (for user_info tool)
+            user_groups: User's groups (for user_info tool)
 
         Returns:
             List of LangChain tools to add to the agent.
@@ -201,7 +226,7 @@ class AgentRuntime:
         if not self.config.builtin_tools:
             return tools
 
-        # fetch_url tool
+        # fetch_url tool (disabled by default)
         fetch_url_config = self.config.builtin_tools.fetch_url
         if fetch_url_config and fetch_url_config.enabled:
             allowed_domains = fetch_url_config.allowed_domains or "*"
@@ -214,6 +239,35 @@ class AgentRuntime:
             else:
                 domain_count = len([d.strip() for d in allowed_domains.split(",") if d.strip()])
                 logger.debug(f"Agent '{self.config.name}': fetch_url enabled with {domain_count} domain pattern(s)")
+
+        # current_datetime tool (enabled by default)
+        current_datetime_config = self.config.builtin_tools.current_datetime
+        if current_datetime_config and current_datetime_config.enabled:
+            current_datetime_tool = create_current_datetime_tool()
+            tools.append(current_datetime_tool)
+            logger.debug(f"Agent '{self.config.name}': current_datetime enabled")
+
+        # user_info tool (enabled by default)
+        user_info_config = self.config.builtin_tools.user_info
+        if user_info_config and user_info_config.enabled:
+            if user_email:
+                user_info_tool = create_user_info_tool(
+                    user_email=user_email,
+                    user_name=user_name,
+                    user_groups=user_groups or [],
+                )
+                tools.append(user_info_tool)
+                logger.debug(f"Agent '{self.config.name}': user_info enabled for user {user_email}")
+            else:
+                logger.warning(f"Agent '{self.config.name}': user_info enabled but no user context available")
+
+        # sleep tool (enabled by default)
+        sleep_config = self.config.builtin_tools.sleep
+        if sleep_config and sleep_config.enabled:
+            max_seconds = sleep_config.max_seconds or 300
+            sleep_tool = create_sleep_tool(max_seconds=max_seconds)
+            tools.append(sleep_tool)
+            logger.debug(f"Agent '{self.config.name}': sleep enabled (max_seconds={max_seconds})")
 
         return tools
 
@@ -629,6 +683,9 @@ class AgentRuntimeCache:
         agent_config: DynamicAgentConfig,
         mcp_servers: list[MCPServerConfig],
         session_id: str,
+        user_email: str | None = None,
+        user_name: str | None = None,
+        user_groups: list[str] | None = None,
     ) -> AgentRuntime:
         """Get an existing runtime or create a new one.
 
@@ -636,6 +693,9 @@ class AgentRuntimeCache:
             agent_config: Dynamic agent configuration
             mcp_servers: Available MCP server configurations
             session_id: Conversation/session ID
+            user_email: User's email address (for builtin tools)
+            user_name: User's display name (for builtin tools)
+            user_groups: User's groups (for builtin tools)
 
         Returns:
             Initialized AgentRuntime instance
@@ -661,7 +721,14 @@ class AgentRuntimeCache:
                 return runtime
 
         # Create new runtime with MongoDB service for subagent resolution
-        runtime = AgentRuntime(agent_config, mcp_servers, mongo_service=self._mongo_service)
+        runtime = AgentRuntime(
+            agent_config,
+            mcp_servers,
+            mongo_service=self._mongo_service,
+            user_email=user_email,
+            user_name=user_name,
+            user_groups=user_groups,
+        )
         await runtime.initialize()
         self._cache[key] = runtime
 

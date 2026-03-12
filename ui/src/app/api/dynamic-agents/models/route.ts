@@ -1,7 +1,7 @@
 /**
  * API route for listing available LLM models.
  *
- * Proxies to the Dynamic Agents backend /agents/models endpoint.
+ * Proxies to the Dynamic Agents backend /api/v1/llm-models endpoint.
  * Returns a list of models that can be selected when creating/editing agents.
  */
 
@@ -53,7 +53,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     }
 
     try {
-      const response = await fetch(`${dynamicAgentsUrl}/api/v1/agents/models`, {
+      const response = await fetch(`${dynamicAgentsUrl}/api/v1/llm-models`, {
         method: "GET",
         headers: backendHeaders,
       });

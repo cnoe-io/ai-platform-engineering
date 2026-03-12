@@ -4,7 +4,9 @@ This module provides wrapper functions for built-in tools that can be
 configured per-agent with access controls (e.g., domain restrictions).
 """
 
+import asyncio
 import logging
+from datetime import datetime, timezone
 from typing import Literal
 from urllib.parse import urlparse
 
@@ -12,7 +14,66 @@ import requests
 from bs4 import BeautifulSoup
 from langchain_core.tools import tool
 
+from dynamic_agents.models import BuiltinToolConfigField, BuiltinToolDefinition
+
 logger = logging.getLogger(__name__)
+
+
+def get_builtin_tool_definitions() -> list[BuiltinToolDefinition]:
+    """Return definitions of all available built-in tools.
+
+    This is used by the /api/v1/builtin-tools endpoint for dynamic UI discovery.
+    """
+    return [
+        BuiltinToolDefinition(
+            id="fetch_url",
+            name="Fetch URL",
+            description="Fetches content from web pages, APIs, or documentation sites",
+            enabled_by_default=False,
+            config_fields=[
+                BuiltinToolConfigField(
+                    name="allowed_domains",
+                    type="string",
+                    label="Allowed Domains",
+                    description=(
+                        "Comma-separated domain patterns. Use * for all, *.domain.com for subdomains, or exact domain."
+                    ),
+                    default="*",
+                    required=False,
+                ),
+            ],
+        ),
+        BuiltinToolDefinition(
+            id="current_datetime",
+            name="Current Date/Time",
+            description="Returns the current date and time in various formats and timezones",
+            enabled_by_default=True,
+            config_fields=[],
+        ),
+        BuiltinToolDefinition(
+            id="user_info",
+            name="User Info",
+            description="Returns information about the current user (email, name, groups)",
+            enabled_by_default=True,
+            config_fields=[],
+        ),
+        BuiltinToolDefinition(
+            id="sleep",
+            name="Sleep",
+            description="Pauses execution for a specified duration",
+            enabled_by_default=True,
+            config_fields=[
+                BuiltinToolConfigField(
+                    name="max_seconds",
+                    type="number",
+                    label="Max Sleep Duration",
+                    description="Maximum allowed sleep duration in seconds (1-3600)",
+                    default=300,
+                    required=False,
+                ),
+            ],
+        ),
+    ]
 
 
 def is_domain_allowed(url_domain: str, allowed_domains_str: str) -> tuple[bool, str]:
@@ -163,4 +224,149 @@ def create_fetch_url_tool(allowed_domains: str = "*"):
     return fetch_url
 
 
-__all__ = ["create_fetch_url_tool", "is_domain_allowed"]
+def create_current_datetime_tool():
+    """Create a current_datetime tool.
+
+    Returns:
+        A LangChain tool that returns the current date and time.
+    """
+
+    @tool
+    def current_datetime(
+        timezone_name: str = "UTC",
+        format: str = "iso",
+    ) -> str:
+        """Get the current date and time.
+
+        Use this tool when you need to know the current time or date,
+        for scheduling, logging, or time-sensitive operations.
+
+        Args:
+            timezone_name: Timezone name (e.g., 'UTC', 'US/Eastern', 'Europe/London').
+                         Defaults to 'UTC'.
+            format: Output format - 'iso' (ISO 8601), 'human' (readable), or 'unix' (timestamp).
+                   Defaults to 'iso'.
+
+        Returns:
+            Current date/time in the requested format.
+
+        Example:
+            current_datetime()  # Returns ISO format in UTC
+            current_datetime(timezone_name="US/Pacific", format="human")
+        """
+        try:
+            import zoneinfo
+
+            try:
+                tz = zoneinfo.ZoneInfo(timezone_name)
+            except Exception:
+                # Fall back to UTC if timezone is invalid
+                tz = timezone.utc
+                logger.warning(f"Invalid timezone '{timezone_name}', using UTC")
+
+            now = datetime.now(tz)
+
+            if format == "unix":
+                return str(int(now.timestamp()))
+            elif format == "human":
+                return now.strftime("%A, %B %d, %Y at %I:%M:%S %p %Z")
+            else:  # iso
+                return now.isoformat()
+
+        except Exception as e:
+            return f"ERROR: Failed to get current datetime: {e}"
+
+    return current_datetime
+
+
+def create_user_info_tool(user_email: str, user_name: str | None, user_groups: list[str]):
+    """Create a user_info tool with the current user's information.
+
+    Args:
+        user_email: User's email address
+        user_name: User's display name (may be None)
+        user_groups: List of groups the user belongs to
+
+    Returns:
+        A LangChain tool that returns user information.
+    """
+
+    @tool
+    def user_info() -> dict:
+        """Get information about the current user.
+
+        Use this tool when you need to personalize responses, check user identity,
+        or access user group memberships for authorization decisions.
+
+        Returns:
+            Dictionary with user information:
+            - email: User's email address
+            - name: User's display name (may be null)
+            - groups: List of group names the user belongs to
+
+        Example:
+            info = user_info()
+            print(f"Hello, {info['name'] or info['email']}!")
+        """
+        return {
+            "email": user_email,
+            "name": user_name,
+            "groups": user_groups,
+        }
+
+    return user_info
+
+
+def create_sleep_tool(max_seconds: int = 300):
+    """Create a sleep tool with configurable max duration.
+
+    Args:
+        max_seconds: Maximum allowed sleep duration in seconds (default: 300)
+
+    Returns:
+        A LangChain tool that pauses execution.
+    """
+
+    @tool
+    def sleep(seconds: float) -> str:
+        """Pause execution for a specified duration.
+
+        Use this tool when you need to wait between operations, implement
+        rate limiting, or add delays for timing-sensitive workflows.
+
+        Args:
+            seconds: Duration to sleep in seconds. Must be positive and
+                    not exceed the configured maximum.
+
+        Returns:
+            Confirmation message with actual sleep duration.
+
+        Example:
+            sleep(5)  # Pause for 5 seconds
+        """
+        if seconds <= 0:
+            return "ERROR: Sleep duration must be positive"
+
+        if seconds > max_seconds:
+            return f"ERROR: Sleep duration {seconds}s exceeds maximum allowed ({max_seconds}s)"
+
+        try:
+            # Use asyncio.sleep if we're in an async context, otherwise time.sleep
+            import time
+
+            time.sleep(seconds)
+            return f"Slept for {seconds} seconds"
+        except Exception as e:
+            return f"ERROR: Sleep failed: {e}"
+
+    return sleep
+
+
+__all__ = [
+    "create_fetch_url_tool",
+    "create_current_datetime_tool",
+    "create_user_info_tool",
+    "create_sleep_tool",
+    "is_domain_allowed",
+    "get_builtin_tool_definitions",
+]
