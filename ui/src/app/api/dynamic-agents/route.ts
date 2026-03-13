@@ -177,7 +177,7 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
       }
     }
 
-    const now = new Date().toISOString();
+    const now = new Date();
 
     const newAgent: DynamicAgentConfig = {
       _id: body.id,
@@ -247,7 +247,7 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
 
     // Build update
     const updateFields: any = {
-      updated_at: new Date().toISOString(),
+      updated_at: new Date(),
     };
 
     // Only include fields that were provided

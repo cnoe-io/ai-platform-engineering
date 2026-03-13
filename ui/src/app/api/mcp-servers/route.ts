@@ -74,7 +74,7 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
       throw new ApiError(`MCP server with ID '${body.id}' already exists`, 409);
     }
 
-    const now = new Date().toISOString();
+    const now = new Date();
 
     const newServer: MCPServerConfig = {
       _id: body.id,
@@ -123,7 +123,7 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
 
     // Build update
     const updateFields: any = {
-      updated_at: new Date().toISOString(),
+      updated_at: new Date(),
     };
 
     if (body.name !== undefined) updateFields.name = body.name;
