@@ -1,6 +1,8 @@
 // A2A Protocol Types - Spec Conformant
 // Based on https://github.com/google/A2A
 
+import type { SSEAgentEvent } from "@/components/dynamic-agents/sse-types";
+
 export interface A2AMessage {
   jsonrpc: "2.0";
   id: string;
@@ -117,7 +119,15 @@ export interface ArtifactPart {
 export interface A2AEvent {
   id: string;
   timestamp: Date;
-  type: "task" | "artifact" | "status" | "message" | "tool_start" | "tool_end" | "execution_plan" | "error";
+  type:
+    | "task"
+    | "artifact"
+    | "status"
+    | "message"
+    | "tool_start"
+    | "tool_end"
+    | "execution_plan"
+    | "error";
   raw: A2AMessage;
 
   // Parsed fields
@@ -163,6 +173,10 @@ export interface Conversation {
   messages: ChatMessage[];
   /** A2A events for this conversation (for debug panel, tasks, output) */
   a2aEvents: A2AEvent[];
+  /** SSE events for Dynamic Agents (separate from A2A) */
+  sseEvents: SSEAgentEvent[];
+  /** Dynamic agent ID; undefined = Platform Engineer (default) */
+  agent_id?: string;
   /** Owner email (only for MongoDB conversations) */
   owner_id?: string;
   /** Sharing information (optional, only for MongoDB conversations) */
@@ -171,6 +185,18 @@ export interface Conversation {
     shared_with?: string[];
     shared_with_teams?: string[];
     share_link_enabled?: boolean;
+  };
+  /** 
+   * Runtime status for Dynamic Agents - persists across SSE event clearing.
+   * Updated when final_result events arrive, cleared on runtime restart.
+   */
+  runtimeStatus?: {
+    /** MCP servers that failed to connect */
+    failedServers?: string[];
+    /** Tools that were configured but unavailable */
+    missingTools?: string[];
+    /** Whether we have received at least one final_result (runtime has been initialized) */
+    initialized?: boolean;
   };
 }
 

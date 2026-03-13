@@ -1,12 +1,10 @@
 "use client";
 
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
-import { motion } from "framer-motion";
-import { Sidebar } from "@/components/layout/Sidebar";
-import { ChatPanel } from "@/components/chat/ChatPanel";
-import { ContextPanel } from "@/components/a2a/ContextPanel";
+import { PlatformEngineerChatView } from "@/components/chat/PlatformEngineerChatView";
+import { DynamicAgentChatView } from "@/components/dynamic-agents/DynamicAgentChatView";
 import { AuthGuard } from "@/components/auth-guard";
 import { getConfig } from "@/lib/config";
 import { apiClient } from "@/lib/api-client";
@@ -15,6 +13,7 @@ import { getStorageMode } from "@/lib/storage-config";
 import { CAIPESpinner } from "@/components/ui/caipe-spinner";
 import type { Conversation } from "@/types/mongodb";
 import type { Conversation as LocalConversation } from "@/types/a2a";
+import type { DynamicAgentConfig } from "@/types/dynamic-agent";
 
 function ChatUUIDPage() {
   const params = useParams();
@@ -22,10 +21,9 @@ function ChatUUIDPage() {
   const { data: session } = useSession();
   const uuid = params.uuid as string;
 
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [contextPanelVisible, setContextPanelVisible] = useState(true);
-  const [contextPanelCollapsed, setContextPanelCollapsed] = useState(true);
-  // debugMode removed — ContextPanel is now debug-only
+  const [agentInfo, setAgentInfo] = useState<DynamicAgentConfig | null>(null);
+  // Track when a dynamic agent has been deleted but conversation still references it
+  const [agentNotFound, setAgentNotFound] = useState(false);
 
   // Only subscribe to stable functions — NOT to `conversations`.
   // Subscribing to `conversations` caused this effect to re-run on every
@@ -34,19 +32,26 @@ function ChatUUIDPage() {
   // in-memory state with stale MongoDB data. Instead, we read conversations
   // imperatively inside the effect via useChatStore.getState().
   const { setActiveConversation, loadMessagesFromServer } = useChatStore();
-  const caipeUrl = getConfig('caipeUrl');
 
-  const handleTabChange = (tab: "chat" | "gallery" | "knowledge" | "admin") => {
-    if (tab === "chat") {
-      router.push("/chat");
-    } else if (tab === "gallery") {
-      router.push("/use-cases");
-    } else if (tab === "admin") {
-      router.push("/admin");
-    } else {
-      router.push("/knowledge-bases");
+  // Subscribe reactively to agent_id for this conversation.
+  // This ensures we re-render when agent_id becomes available after MongoDB load.
+  const selectedAgentId = useChatStore(
+    (s) => s.conversations.find((c) => c.id === uuid)?.agent_id
+  );
+
+  const caipeUrl = getConfig('caipeUrl');
+  const dynamicAgentsUrl = getConfig('dynamicAgentsUrl');
+  const dynamicAgentsEnabled = getConfig('dynamicAgentsEnabled');
+
+  // Compute the endpoint based on selected agent
+  const chatEndpoint = useMemo(() => {
+    if (selectedAgentId && dynamicAgentsEnabled) {
+      // Dynamic agent uses the dynamic agents server with the agent ID
+      return `${dynamicAgentsUrl}/agents/${selectedAgentId}/chat`;
     }
-  };
+    // Default supervisor
+    return caipeUrl;
+  }, [selectedAgentId, dynamicAgentsEnabled, dynamicAgentsUrl, caipeUrl]);
 
   const storageMode = getStorageMode();
 
@@ -61,23 +66,25 @@ function ChatUUIDPage() {
     }
   );
 
+  // Check store imperatively for initial state — avoids flash for cached conversations.
+  // The reactive `storeHasMessages` selector is for re-renders, but useState only
+  // captures the initial value once. We need a synchronous check here.
   const existingConv = useChatStore.getState().conversations.find((c) => c.id === uuid);
+  const existingHasMessages = !!(existingConv?.messages && existingConv.messages.length > 0);
 
   const [conversation, setConversation] = useState<Conversation | LocalConversation | null>(existingConv || null);
   const [accessLevel, setAccessLevel] = useState<string | null>(null);
   // Track whether the async fetch is still in flight.
+  // Use imperative check (existingHasMessages) for initial state to avoid spinner flash
+  // for conversations already loaded in memory.
   const [fetchInProgress, setFetchInProgress] = useState(
-    storageMode === 'mongodb' && !storeHasMessages
+    storageMode === 'mongodb' && !existingHasMessages
   );
   // Track whether the fetch has completed at least once — used to distinguish
   // "still loading" from "genuinely empty / new conversation".
-  const [fetchDone, setFetchDone] = useState(false);
+  // If we already have messages, consider the fetch "done" to avoid spinner flash.
+  const [fetchDone, setFetchDone] = useState(existingHasMessages);
   const [error, setError] = useState<string | null>(null);
-
-  // Memoized callbacks (must be before early returns to maintain hooks order)
-  const handleContextPanelCollapse = useCallback((collapsed: boolean) => {
-    setContextPanelCollapsed(collapsed);
-  }, []);
 
   // Load conversation from MongoDB or localStorage
   useEffect(() => {
@@ -172,6 +179,8 @@ function ChatUUIDPage() {
               updatedAt: new Date(conv.updated_at),
               messages: [], // Will be loaded below via loadMessagesFromServer
               a2aEvents: [],
+              sseEvents: [], // SSE events for Dynamic Agents
+              agent_id: conv.agent_id, // Preserve dynamic agent ID
             };
 
             // Add to Zustand store so ContextPanel can find it
@@ -212,6 +221,7 @@ function ChatUUIDPage() {
               updatedAt: new Date(),
               messages: [],
               a2aEvents: [],
+              sseEvents: [], // SSE events for Dynamic Agents
             };
 
             // Add to Zustand store
@@ -231,6 +241,7 @@ function ChatUUIDPage() {
             updatedAt: new Date(),
             messages: [],
             a2aEvents: [],
+            sseEvents: [], // SSE events for Dynamic Agents
           };
 
           // Add to Zustand store
@@ -250,6 +261,7 @@ function ChatUUIDPage() {
           updatedAt: new Date(),
           messages: [],
           a2aEvents: [],
+          sseEvents: [], // SSE events for Dynamic Agents
         };
 
         // Add to Zustand store
@@ -274,6 +286,45 @@ function ChatUUIDPage() {
     // overwrote correct final content with stale MongoDB data during streaming.
   }, [uuid, storageMode, setActiveConversation, loadMessagesFromServer]);
 
+  // Fetch agent info when a dynamic agent is selected
+  // selectedAgentId is now a reactive Zustand selector, so this effect
+  // re-runs automatically when agent_id becomes available after MongoDB load.
+  useEffect(() => {
+    if (!selectedAgentId || !dynamicAgentsEnabled) {
+      setAgentInfo(null);
+      setAgentNotFound(false);
+      return;
+    }
+
+    async function fetchAgentInfo() {
+      try {
+        const response = await fetch(`/api/dynamic-agents/agents/${selectedAgentId}`);
+        if (response.ok) {
+          const data = await response.json();
+          const agent = data.data as DynamicAgentConfig;
+          setAgentInfo(agent);
+          setAgentNotFound(false);
+        } else if (response.status === 404) {
+          // Agent has been deleted but conversation still references it
+          console.warn(`[ChatUUID] Agent ${selectedAgentId} not found (deleted)`);
+          setAgentInfo(null);
+          setAgentNotFound(true);
+        } else {
+          // Other error - don't mark as not found, might be temporary
+          console.error(`[ChatUUID] Failed to fetch agent info: ${response.status}`);
+          setAgentInfo(null);
+          setAgentNotFound(false);
+        }
+      } catch (err) {
+        console.error("Failed to fetch agent info:", err);
+        setAgentInfo(null);
+        setAgentNotFound(false);
+      }
+    }
+
+    fetchAgentInfo();
+  }, [selectedAgentId, dynamicAgentsEnabled]);
+
   // Show loading spinner when:
   // 1. The async fetch is still in flight, OR
   // 2. The fetch completed but a concurrent Sidebar refresh wiped the messages
@@ -287,39 +338,23 @@ function ChatUUIDPage() {
 
   if (showSpinner) {
     return (
-      <div className="flex-1 flex overflow-hidden">
-        <Sidebar
-          activeTab="chat"
-          onTabChange={handleTabChange}
-          collapsed={sidebarCollapsed}
-          onCollapse={setSidebarCollapsed}
-        />
-        <div className="flex-1 flex items-center justify-center">
-          <CAIPESpinner size="lg" message="Loading conversation..." />
-        </div>
+      <div className="flex-1 flex items-center justify-center">
+        <CAIPESpinner size="lg" message="Loading conversation..." />
       </div>
     );
   }
 
   if (error) {
     return (
-      <div className="flex-1 flex overflow-hidden">
-        <Sidebar
-          activeTab="chat"
-          onTabChange={handleTabChange}
-          collapsed={sidebarCollapsed}
-          onCollapse={setSidebarCollapsed}
-        />
-        <div className="flex-1 flex items-center justify-center">
-          <div className="flex flex-col items-center gap-4">
-            <p className="text-sm text-destructive">{error}</p>
-            <button
-              onClick={() => router.push("/chat")}
-              className="text-sm text-primary hover:underline"
-            >
-              Go to new conversation
-            </button>
-          </div>
+      <div className="flex-1 flex items-center justify-center">
+        <div className="flex flex-col items-center gap-4">
+          <p className="text-sm text-destructive">{error}</p>
+          <button
+            onClick={() => router.push("/chat")}
+            className="text-sm text-primary hover:underline"
+          >
+            Go to new conversation
+          </button>
         </div>
       </div>
     );
@@ -329,43 +364,36 @@ function ChatUUIDPage() {
     ? ('_id' in conversation ? conversation.title : conversation.title)
     : undefined;
 
-  return (
-    <div className="flex-1 flex overflow-hidden">
-      {/* Sidebar - with conversation history */}
-      <Sidebar
-        activeTab="chat"
-        onTabChange={handleTabChange}
-        collapsed={sidebarCollapsed}
-        onCollapse={setSidebarCollapsed}
-      />
+  const isReadOnly = accessLevel === 'admin_audit' || accessLevel === 'shared_readonly';
+  const readOnlyReason = accessLevel === 'admin_audit' ? 'admin_audit' : accessLevel === 'shared_readonly' ? 'shared_readonly' : undefined;
 
-      {/* Chat Panel with conversation ID */}
-      <div className="flex-1 min-w-0 flex flex-col">
-        <motion.div
-          key="chat"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ duration: 0.2 }}
-          className="h-full flex flex-col"
-        >
-          <ChatPanel
-            endpoint={caipeUrl}
-            conversationId={uuid}
-            conversationTitle={conversationTitle}
-            readOnly={accessLevel === 'admin_audit' || accessLevel === 'shared_readonly'}
-            readOnlyReason={accessLevel === 'admin_audit' ? 'admin_audit' : accessLevel === 'shared_readonly' ? 'shared_readonly' : undefined}
-          />
-        </motion.div>
-      </div>
-
-      {/* Context/Output Panel - kept in DOM tree, only visibility changes */}
-      {contextPanelVisible && (
-        <ContextPanel
-          collapsed={contextPanelCollapsed}
-          onCollapse={handleContextPanelCollapse}
-        />
-      )}
-    </div>
+  // Chat View - different component based on agent type
+  // Sidebar is rendered in the layout, not here
+  return selectedAgentId && dynamicAgentsEnabled ? (
+    <DynamicAgentChatView
+      endpoint={chatEndpoint}
+      conversationId={uuid}
+      conversationTitle={conversationTitle}
+      selectedAgentId={selectedAgentId}
+      agentName={agentInfo?.name}
+      agentDescription={agentInfo?.description}
+      agentModel={agentInfo?.model_id}
+      agentVisibility={agentInfo?.visibility}
+      allowedTools={agentInfo?.allowed_tools}
+      subagents={agentInfo?.subagents}
+      agentNotFound={agentNotFound}
+      agentDisabled={agentInfo?.enabled === false}
+      readOnly={isReadOnly}
+      readOnlyReason={readOnlyReason}
+    />
+  ) : (
+    <PlatformEngineerChatView
+      endpoint={chatEndpoint}
+      conversationId={uuid}
+      conversationTitle={conversationTitle}
+      readOnly={isReadOnly}
+      readOnlyReason={readOnlyReason}
+    />
   );
 }
 

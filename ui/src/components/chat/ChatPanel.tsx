@@ -13,6 +13,8 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useChatStore } from "@/store/chat-store";
 import { A2ASDKClient, type ParsedA2AEvent, type HITLDecision, toStoreEvent } from "@/lib/a2a-sdk-client";
+import { DynamicAgentClient } from "@/lib/dynamic-agent-client";
+import { type SSEAgentEvent } from "@/components/dynamic-agents/sse-types";
 import { isFeatureEnabled, useFeatureFlagStore } from "@/store/feature-flag-store";
 import { cn, deduplicateByKey } from "@/lib/utils";
 import { ChatMessage as ChatMessageType, A2AEvent, TimelineSegment, PlanStep } from "@/types/a2a";
@@ -26,7 +28,7 @@ import { DEFAULT_AGENTS, CustomCall } from "./CustomCallButtons";
 import { AGENT_LOGOS } from "@/components/shared/AgentLogos";
 import { MetadataInputForm, type UserInputMetadata, type InputField } from "./MetadataInputForm";
 
-type ReadOnlyReason = 'admin_audit' | 'shared_readonly';
+type ReadOnlyReason = 'admin_audit' | 'shared_readonly' | 'agent_deleted' | 'agent_disabled';
 
 interface ChatPanelProps {
   endpoint: string;
@@ -34,9 +36,11 @@ interface ChatPanelProps {
   conversationTitle?: string;
   readOnly?: boolean;
   readOnlyReason?: ReadOnlyReason;
+  /** When set, use DynamicAgentClient instead of A2ASDKClient */
+  selectedAgentId?: string;
 }
 
-export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnly, readOnlyReason }: ChatPanelProps) {
+export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnly, readOnlyReason, selectedAgentId }: ChatPanelProps) {
   const { data: session } = useSession();
   const autoScrollEnabled = useFeatureFlagStore((s) => s.flags.autoScroll ?? true);
   const showTimestamps = useFeatureFlagStore((s) => s.flags.showTimestamps ?? false);
@@ -60,10 +64,14 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   // User input form state (HITL - Human-in-the-Loop)
+  // Supports both A2A (contextId-based) and SSE/Dynamic Agents (agentId-based)
   const [pendingUserInput, setPendingUserInput] = useState<{
     messageId: string;
     metadata: UserInputMetadata;
     contextId?: string;
+    // SSE/Dynamic Agent specific fields
+    isSSE?: boolean;
+    agentId?: string;
   } | null>(null);
 
   // Track message IDs where the user explicitly dismissed the input form,
@@ -88,6 +96,8 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
     addEventToMessage,
     addA2AEvent,
     clearA2AEvents,
+    addSSEEvent,
+    clearSSEEvents,
     setConversationStreaming,
     isConversationStreaming,
     cancelConversationRequest,
@@ -348,11 +358,18 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
       convId = createConversation();
     }
 
-    // Clear previous turn's events (tasks, tool completions, A2A stream events)
-    console.log(`[A2A-DEBUG] 🧹 clearA2AEvents() called for conv=${convId} — starting new turn`);
-    const preCleanConv = useChatStore.getState().conversations.find((c: any) => c.id === convId);
-    console.log(`[A2A-DEBUG] 🧹 PRE-CLEAR event count: ${preCleanConv?.a2aEvents?.length ?? 0}`, preCleanConv?.a2aEvents?.map((e: any) => `${e.type}/${e.artifact?.name || 'n/a'}`));
-    clearA2AEvents(convId);
+    // Clear previous turn's events (tasks, tool completions, stream events)
+    // Dynamic agents use SSE events, default supervisor uses A2A events
+    const isDynamicAgent = !!selectedAgentId;
+    if (isDynamicAgent) {
+      console.log(`[SSE-DEBUG] 🧹 clearSSEEvents() called for conv=${convId} — starting new turn`);
+      clearSSEEvents(convId);
+    } else {
+      console.log(`[A2A-DEBUG] 🧹 clearA2AEvents() called for conv=${convId} — starting new turn`);
+      const preCleanConv = useChatStore.getState().conversations.find((c: any) => c.id === convId);
+      console.log(`[A2A-DEBUG] 🧹 PRE-CLEAR event count: ${preCleanConv?.a2aEvents?.length ?? 0}`, preCleanConv?.a2aEvents?.map((e: any) => `${e.type}/${e.artifact?.name || 'n/a'}`));
+      clearA2AEvents(convId);
+    }
     const postCleanConv = useChatStore.getState().conversations.find((c: any) => c.id === convId);
     console.log(`[A2A-DEBUG] 🧹 POST-CLEAR event count: ${postCleanConv?.a2aEvents?.length ?? 0}`);
 
@@ -370,14 +387,31 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
     // Add assistant message placeholder with same turnId
     const assistantMsgId = addMessage(convId, { role: "assistant", content: "" }, turnId);
 
-    // Create A2A SDK client for this request.
-    // userEmail is always sent so the backend can scope per-user resources
-    // (task builder workflows, memory/fact recall, etc.).
-    const client = new A2ASDKClient({
-      endpoint,
-      accessToken,
-      userEmail: session?.user?.email ?? undefined,
-    });
+    // Create the appropriate client and stream based on whether a dynamic agent is selected.
+    // Dynamic agents use SSE events, default supervisor uses A2A events.
+    let abortFn: () => void;
+    let eventStream: AsyncIterable<ParsedA2AEvent | SSEAgentEvent>;
+
+    if (selectedAgentId) {
+      // Dynamic agent: use lightweight SSE client via proxy route
+      const dynClient = new DynamicAgentClient({
+        proxyUrl: "/api/dynamic-agents/chat",
+        accessToken,
+      });
+      abortFn = () => dynClient.abort();
+      eventStream = dynClient.sendMessageStream(messageToSend, convId, selectedAgentId);
+    } else {
+      // Default supervisor: use A2A SDK client
+      // userEmail is always sent so the backend can scope per-user resources
+      // (task builder workflows, memory/fact recall, etc.).
+      const a2aClient = new A2ASDKClient({
+        endpoint,
+        accessToken,
+        userEmail: session?.user?.email ?? undefined,
+      });
+      abortFn = () => a2aClient.abort();
+      eventStream = a2aClient.sendMessageStream(messageToSend, convId);
+    }
 
     // ═══════════════════════════════════════════════════════════════
     // AGENT-FORGE PATTERN: Use local variables for streaming state
@@ -390,10 +424,22 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
     let lastUIUpdate = 0;
     let capturedTaskId: string | undefined; // Capture taskId from first event for crash recovery
     const UI_UPDATE_INTERVAL = 100; // Throttle UI updates to max 10/sec
-    // Buffer A2A events locally and flush on the same throttle as UI updates.
+    // Buffer events locally and flush on the same throttle as UI updates.
     // Previously, addA2AEvent was called on EVERY token, causing a Zustand set()
     // per token — hundreds of store updates/sec that saturated React's render pipeline.
-    const eventBuffer: Parameters<typeof addA2AEvent>[0][] = [];
+    const eventBuffer: (A2AEvent | SSEAgentEvent)[] = [];
+
+    // Helper to add buffered event to the correct store
+    const flushEventBuffer = () => {
+      for (const bufferedEvent of eventBuffer) {
+        if (isDynamicAgent) {
+          addSSEEvent(bufferedEvent as SSEAgentEvent, convId!);
+        } else {
+          addA2AEvent(bufferedEvent as A2AEvent, convId!);
+        }
+      }
+      eventBuffer.length = 0;
+    };
 
     // Timeline manager - encapsulates segment mutation logic
     const timeline = new TimelineManager();
@@ -403,19 +449,34 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
     setConversationStreaming(convId, {
       conversationId: convId,
       messageId: assistantMsgId,
-      client: { abort: () => client.abort() } as ReturnType<typeof setConversationStreaming> extends void ? never : Parameters<typeof setConversationStreaming>[1] extends { client: infer C } ? C : never,
+      client: { abort: abortFn } as ReturnType<typeof setConversationStreaming> extends void ? never : Parameters<typeof setConversationStreaming>[1] extends { client: infer C } ? C : never,
     });
 
     try {
       // ═══════════════════════════════════════════════════════════════
       // AGENT-FORGE PATTERN: for await loop over async generator
+      // A2ASDKClient yields ParsedA2AEvent, DynamicAgentClient yields SSEAgentEvent
       // ═══════════════════════════════════════════════════════════════
-      for await (const event of client.sendMessageStream(messageToSend, convId)) {
+      for await (const event of eventStream) {
         eventCounter++;
         const eventNum = eventCounter;
 
-        const artifactName = event.artifactName || "";
-        const newContent = event.displayContent;
+        // Normalize event properties for unified processing
+        // A2A events have: artifactName, displayContent, shouldAppend
+        // SSE events have: type, content, artifact?.name
+        const isSSEEvent = isDynamicAgent;
+        const sseEvent = event as SSEAgentEvent;
+        const a2aEvent = event as ParsedA2AEvent;
+
+        // Extract common properties
+        const artifactName = isSSEEvent
+          ? (sseEvent.type === "final_result" ? "final_result" : sseEvent.artifact?.name || sseEvent.type)
+          : (a2aEvent.artifactName || "");
+        const newContent = isSSEEvent
+          ? (sseEvent.displayContent || sseEvent.content || "")
+          : (a2aEvent.displayContent || "");
+        const eventIsFinal = isSSEEvent ? sseEvent.isFinal : a2aEvent.isFinal;
+        const eventType = isSSEEvent ? sseEvent.type : a2aEvent.type;
 
         // LEVEL 2 CRASH RECOVERY: Capture taskId from the first event that has one.
         // This is persisted on the assistant message so that if the tab crashes,
@@ -426,27 +487,44 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
         }
 
         // Buffer event for batched store update (flushed on UI_UPDATE_INTERVAL)
-        const storeEvent = toStoreEvent(event, `event-${eventNum}-${Date.now()}`);
-        eventBuffer.push(storeEvent as Parameters<typeof addA2AEvent>[0]);
+        // Use appropriate conversion function based on agent type
+        if (isDynamicAgent) {
+          // SSE events from DynamicAgentClient are already SSEAgentEvent objects
+          eventBuffer.push(event as SSEAgentEvent);
+        } else {
+          const storeEvent = toStoreEvent(event as ParsedA2AEvent, `event-${eventNum}-${Date.now()}`);
+          eventBuffer.push(storeEvent as A2AEvent);
+        }
 
         // Flush buffer immediately for important events that update the Tasks panel
         // (execution plans, tool notifications, final results, user input forms)
-        const isImportantArtifact =
-          artifactName === "execution_plan_update" ||
-          artifactName === "execution_plan_status_update" ||
-          artifactName === "tool_notification_start" ||
-          artifactName === "tool_notification_end" ||
-          artifactName === "partial_result" ||
-          artifactName === "final_result" ||
-          artifactName === "complete_result" ||
-          artifactName === "UserInputMetaData";
+        // For SSE events, map new event types to importance
+        const isImportantArtifact = isSSEEvent
+          ? (sseEvent.type === "tool_start" ||
+             sseEvent.type === "tool_end" ||
+             sseEvent.type === "todo_update" ||
+             sseEvent.type === "subagent_start" ||
+             sseEvent.type === "subagent_end" ||
+             sseEvent.type === "final_result" ||
+             sseEvent.type === "error")
+          : (artifactName === "execution_plan_update" ||
+             artifactName === "execution_plan_status_update" ||
+             artifactName === "tool_notification_start" ||
+             artifactName === "tool_notification_end" ||
+             artifactName === "subagent_start" ||
+             artifactName === "subagent_content" ||
+             artifactName === "subagent_end" ||
+             artifactName === "partial_result" ||
+             artifactName === "final_result" ||
+             artifactName === "complete_result" ||
+             artifactName === "UserInputMetaData");
 
         // Log important artifacts in detail
         if (isImportantArtifact) {
           // Access artifact from the raw A2A event (ParsedA2AEvent wraps it)
           const rawArtifact = (event.raw as any)?.artifact;
-          const artifactText = rawArtifact?.parts?.[0]?.text?.substring(0, 200) || event.displayContent?.substring(0, 200) || '';
-          console.log(`[A2A-DEBUG] ⚡ IMPORTANT ARTIFACT #${eventNum}: ${artifactName}`, {
+          const artifactText = rawArtifact?.parts?.[0]?.text?.substring(0, 200) || newContent?.substring(0, 200) || '';
+          console.log(`[Agent-DEBUG] ⚡ IMPORTANT EVENT #${eventNum}: ${artifactName}`, {
             convId,
             artifactId: rawArtifact?.artifactId,
             text: artifactText,
@@ -456,14 +534,11 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
         }
 
         if (isImportantArtifact && eventBuffer.length > 0) {
-          console.log(`[A2A-DEBUG] 📤 FLUSH buffer (${eventBuffer.length} events) for important artifact: ${artifactName}`);
-          for (const bufferedEvent of eventBuffer) {
-            addA2AEvent(bufferedEvent, convId!);
-          }
-          eventBuffer.length = 0;
+          console.log(`[Agent-DEBUG] 📤 FLUSH buffer (${eventBuffer.length} events) for important event: ${artifactName}`);
+          flushEventBuffer();
           // Log store state right after flush
           const storeConv = useChatStore.getState().conversations.find((c: any) => c.id === convId);
-          console.log(`[A2A-DEBUG] 📊 POST-FLUSH store event count: ${storeConv?.a2aEvents?.length ?? 0}`);
+          console.log(`[Agent-DEBUG] 📊 POST-FLUSH store event count: ${isDynamicAgent ? storeConv?.sseEvents?.length ?? 0 : storeConv?.a2aEvents?.length ?? 0}`);
         }
 
         // ═══════════════════════════════════════════════════════════════
@@ -525,18 +600,18 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
         }
 
         // ═══════════════════════════════════════════════════════════════
-        // DETECT USER INPUT FORM REQUEST
+        // DETECT USER INPUT FORM REQUEST (A2A only - SSE uses different HITL)
         // ═══════════════════════════════════════════════════════════════
-        if (artifactName === "UserInputMetaData" && event.metadata) {
+        if (!isSSEEvent && artifactName === "UserInputMetaData" && a2aEvent.metadata) {
           console.log(`[ChatPanel] 📝 USER INPUT FORM REQUESTED - Event #${eventNum}`);
-          const metadata = event.metadata as UserInputMetadata;
+          const metadata = a2aEvent.metadata as UserInputMetadata;
           if (metadata.input_fields && metadata.input_fields.length > 0) {
             console.log(`[ChatPanel] 📝 Form has ${metadata.input_fields.length} fields:`, metadata.input_fields.map(f => f.field_name));
             hitlFormRequested = true;
             setPendingUserInput({
               messageId: assistantMsgId,
               metadata,
-              contextId: event.contextId || convId,
+              contextId: a2aEvent.contextId || convId,
             });
             if (metadata.response) {
               accumulatedText = metadata.response;
@@ -545,11 +620,51 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
           }
         }
 
+        // ═══════════════════════════════════════════════════════════════
+        // DETECT USER INPUT FORM REQUEST (SSE/Dynamic Agents)
+        // ═══════════════════════════════════════════════════════════════
+        if (isSSEEvent && sseEvent.type === "input_required" && sseEvent.inputRequiredData) {
+          console.log(`[ChatPanel] 📝 SSE INPUT REQUIRED - Event #${eventNum}`, sseEvent.inputRequiredData);
+          const { prompt, fields, agent } = sseEvent.inputRequiredData;
+          
+          // Convert SSE InputFieldDefinition[] to UserInputMetadata format
+          const inputFields: InputField[] = fields.map(f => ({
+            field_name: f.field_name,
+            field_label: f.field_label,
+            field_description: f.field_description,
+            field_type: f.field_type,
+            field_values: f.field_values,
+            required: f.required,
+            default_value: f.default_value,
+            placeholder: f.placeholder,
+          }));
+
+          hitlFormRequested = true;
+          setPendingUserInput({
+            messageId: assistantMsgId,
+            metadata: {
+              user_input: true,
+              input_title: `Input Required`,
+              input_description: prompt,
+              input_fields: inputFields,
+            },
+            contextId: convId,
+            isSSE: true,
+            agentId: selectedAgentId,
+          });
+
+          // Update message content with the prompt
+          if (prompt) {
+            accumulatedText = prompt;
+            updateMessage(convId!, assistantMsgId, { content: accumulatedText });
+          }
+        }
+
         // 🔍 DEBUG: Condensed logging
         const isImportantEvent = artifactName === "final_result" || artifactName === "partial_result" ||
-                                  artifactName === "complete_result" || event.type === "status" || artifactName === "UserInputMetaData";
+                                  artifactName === "complete_result" || eventType === "error" || artifactName === "UserInputMetaData";
         if (isImportantEvent || eventNum % 50 === 0) {
-          console.log(`[A2A SDK] #${eventNum} ${event.type}/${artifactName} len=${newContent?.length || 0} final=${event.isFinal} buf=${accumulatedText.length}`);
+          console.log(`[Agent] #${eventNum} ${eventType}/${artifactName} len=${newContent?.length || 0} final=${eventIsFinal} buf=${accumulatedText.length}`);
         }
 
         // ═══════════════════════════════════════════════════════════════
@@ -607,22 +722,29 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
         // ═══════════════════════════════════════════════════════════════
         // ACCUMULATE RAW STREAM CONTENT (always append, never reset)
         // This captures streaming output for the "Streaming Output" view
-        // NOTE: Tool notifications and execution plans are shown in the Tasks panel,
-        // so we exclude them from raw stream to avoid duplication
+        // NOTE: Tool notifications, execution plans, and subagent notifications
+        // are shown in the Tasks/Tools panel, so we exclude them from raw stream
         // ═══════════════════════════════════════════════════════════════
-        const isToolOrPlanArtifact =
+        const isToolOrPlanOrSubagentArtifact =
           artifactName === "tool_notification_start" ||
           artifactName === "tool_notification_end" ||
           artifactName === "execution_plan_update" ||
-          artifactName === "execution_plan_status_update";
+          artifactName === "execution_plan_status_update" ||
+          artifactName === "subagent_start" ||
+          artifactName === "subagent_end";
 
-        if ((event.type === "message" || event.type === "artifact") && !isToolOrPlanArtifact) {
-          // Only accumulate actual streaming content (not tool notifications)
+        if ((event.type === "message" || event.type === "artifact") && !isToolOrPlanOrSubagentArtifact) {
+          // Only accumulate actual streaming content (not tool/subagent notifications)
           rawStreamContent += newContent;
         }
 
-        // Skip tool notifications and execution plans from FINAL content (shown in Tasks panel)
-        if (isToolOrPlanArtifact) {
+        // Log error events for debugging (errors are displayed in dedicated UI, not accumulated)
+        if (event.type === "error") {
+          console.log(`[A2A SDK] ❌ ERROR EVENT received:`, { newContent, event });
+        }
+
+        // Skip tool/plan/subagent notifications from FINAL content (shown in Tasks panel)
+        if (isToolOrPlanOrSubagentArtifact) {
           continue;
         }
 
@@ -633,7 +755,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
         // ACCUMULATE FINAL CONTENT (Agent-forge pattern)
         // ═══════════════════════════════════════════════════════════════
         if (event.type === "message" || event.type === "artifact") {
-          if (event.shouldAppend === false) {
+          if ('shouldAppend' in event && event.shouldAppend === false) {
             // append=false means start fresh for final content
             console.log(`[A2A SDK] append=false - starting fresh with new content`);
             accumulatedText = newContent;
@@ -642,16 +764,22 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
             accumulatedText += newContent;
           }
 
-          // Flush event buffer + update message on every event (no throttle)
-          for (const bufferedEvent of eventBuffer) {
-            addA2AEvent(bufferedEvent, convId!);
+          // Throttle UI updates — flush event buffer + update message together
+          // so the store only gets ONE batched update per interval, not per token.
+          const now = Date.now();
+          if (now - lastUIUpdate >= UI_UPDATE_INTERVAL) {
+            // Flush buffered events first
+            if (eventBuffer.length > 0) {
+              console.log(`[A2A-DEBUG] 📤 THROTTLE-FLUSH buffer (${eventBuffer.length} events) at interval`);
+              flushEventBuffer();
+            }
+            updateMessage(convId!, assistantMsgId, {
+              content: accumulatedText,
+              rawStreamContent,
+              timelineSegments: timeline.getSegments(),
+            });
+            lastUIUpdate = now;
           }
-          eventBuffer.length = 0;
-          updateMessage(convId!, assistantMsgId, {
-            content: accumulatedText,
-            rawStreamContent,
-            timelineSegments: timeline.getSegments(),
-          });
         }
       }
 
@@ -665,11 +793,8 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
       // Flush any remaining buffered events
       if (eventBuffer.length > 0) {
         console.log(`[A2A-DEBUG] 📤 FINAL-FLUSH remaining buffer (${eventBuffer.length} events)`);
+        flushEventBuffer();
       }
-      for (const bufferedEvent of eventBuffer) {
-        addA2AEvent(bufferedEvent, convId!);
-      }
-      eventBuffer.length = 0;
 
       // Log final event state
       const finalConv = useChatStore.getState().conversations.find((c: any) => c.id === convId);
@@ -717,7 +842,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
       appendToMessage(convId, assistantMsgId, `\n\n**Error:** ${(error as Error).message || "Failed to connect to A2A endpoint"}`);
       setConversationStreaming(convId, null);
     }
-  }, [isThisConversationStreaming, activeConversationId, endpoint, accessToken, createConversation, clearA2AEvents, addMessage, appendToMessage, updateMessage, addEventToMessage, addA2AEvent, setConversationStreaming]);
+  }, [isThisConversationStreaming, activeConversationId, endpoint, accessToken, selectedAgentId, createConversation, clearA2AEvents, clearSSEEvents, addMessage, appendToMessage, updateMessage, addEventToMessage, addA2AEvent, addSSEEvent, setConversationStreaming]);
 
   // Handle queued messages after streaming completes
   useEffect(() => {
@@ -948,6 +1073,140 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
   }, [pendingUserInput, activeConversationId, endpoint, accessToken, addMessage, updateMessage,
       appendToMessage, addA2AEvent, setConversationStreaming]);
 
+  // Handle user input form submission via SSE/Dynamic Agents resume
+  const handleUserInputSubmitSSE = useCallback(async (formData: Record<string, string>) => {
+    if (!pendingUserInput || !activeConversationId || !pendingUserInput.agentId) return;
+
+    console.log("[ChatPanel] 📝 SSE HITL form submitted:", formData);
+
+    const turnId = `turn-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+    const selectionSummary = Object.entries(formData)
+      .map(([key, value]) => `${key}: ${value}`)
+      .join("\n");
+    addMessage(activeConversationId, { role: "user", content: selectionSummary || "Form submitted." }, turnId);
+    const assistantMsgId = addMessage(activeConversationId, { role: "assistant", content: "" }, turnId);
+
+    dismissedInputForMessageRef.current.add(pendingUserInput.messageId);
+    const agentId = pendingUserInput.agentId;
+    setPendingUserInput(null);
+
+    // Create Dynamic Agent client for resume
+    const dynClient = new DynamicAgentClient({
+      proxyUrl: "/api/dynamic-agents/chat",
+      accessToken,
+    });
+
+    // Send form data as JSON string
+    const formDataJson = JSON.stringify(formData);
+
+    setConversationStreaming(activeConversationId, {
+      conversationId: activeConversationId,
+      messageId: assistantMsgId,
+      client: { abort: () => dynClient.abort() } as ReturnType<typeof setConversationStreaming> extends void ? never : Parameters<typeof setConversationStreaming>[1] extends { client: infer C } ? C : never,
+    });
+
+    let accumulatedText = "";
+    let rawStreamContent = "";
+    let eventCounter = 0;
+    let hasReceivedCompleteResult = false;
+    let hitlFormRequested = false;
+
+    try {
+      for await (const event of dynClient.resumeStream(activeConversationId, agentId, formDataJson)) {
+        eventCounter++;
+        const sseEvent = event as SSEAgentEvent;
+
+        // Buffer event for store
+        addSSEEvent(sseEvent, activeConversationId);
+
+        // Handle input_required (agent may request more input)
+        if (sseEvent.type === "input_required" && sseEvent.inputRequiredData) {
+          console.log(`[ChatPanel] 📝 SSE Additional input required:`, sseEvent.inputRequiredData);
+          const { prompt, fields } = sseEvent.inputRequiredData;
+          
+          const inputFields: InputField[] = fields.map(f => ({
+            field_name: f.field_name,
+            field_label: f.field_label,
+            field_description: f.field_description,
+            field_type: f.field_type,
+            field_values: f.field_values,
+            required: f.required,
+            default_value: f.default_value,
+            placeholder: f.placeholder,
+          }));
+
+          hitlFormRequested = true;
+          setPendingUserInput({
+            messageId: assistantMsgId,
+            metadata: {
+              user_input: true,
+              input_title: `Input Required`,
+              input_description: prompt,
+              input_fields: inputFields,
+            },
+            contextId: activeConversationId,
+            isSSE: true,
+            agentId,
+          });
+
+          if (prompt) {
+            accumulatedText = prompt;
+            updateMessage(activeConversationId, assistantMsgId, { content: accumulatedText });
+          }
+          break; // Stream pauses for user input
+        }
+
+        // Handle final_result
+        if (sseEvent.type === "final_result" && sseEvent.content) {
+          accumulatedText = sseEvent.content;
+          rawStreamContent += `\n\n[final_result]\n${sseEvent.content}`;
+          hasReceivedCompleteResult = true;
+          updateMessage(activeConversationId, assistantMsgId, {
+            content: accumulatedText,
+            rawStreamContent,
+            isFinal: true,
+          });
+        }
+
+        // Handle content tokens
+        if (sseEvent.type === "content" && sseEvent.content) {
+          accumulatedText += sseEvent.content;
+          rawStreamContent += sseEvent.content;
+          updateMessage(activeConversationId, assistantMsgId, { content: accumulatedText, rawStreamContent });
+        }
+
+        // Handle errors
+        if (sseEvent.type === "error") {
+          console.error("[ChatPanel] SSE resume error event:", sseEvent.displayContent);
+          appendToMessage(activeConversationId, assistantMsgId,
+            `\n\n**Error:** ${sseEvent.displayContent || "Unknown error"}`);
+          break;
+        }
+      }
+
+      if (!hitlFormRequested && !hasReceivedCompleteResult) {
+        if (accumulatedText.length > 0) {
+          console.log(`[ChatPanel] SSE HITL resume: no final_result - using accumulated content (${accumulatedText.length} chars)`);
+          updateMessage(activeConversationId, assistantMsgId, {
+            content: accumulatedText,
+            rawStreamContent,
+            isFinal: true,
+          });
+        } else {
+          console.log(`[ChatPanel] SSE HITL resume: stream ended with no content`);
+          updateMessage(activeConversationId, assistantMsgId, { rawStreamContent, isFinal: true });
+        }
+      }
+      setConversationStreaming(activeConversationId, null);
+    } catch (error) {
+      console.error("[ChatPanel] SSE HITL resume error:", error);
+      appendToMessage(activeConversationId, assistantMsgId,
+        `\n\n**Error:** ${(error as Error).message || "Failed to resume"}`);
+      setConversationStreaming(activeConversationId, null);
+    }
+  }, [pendingUserInput, activeConversationId, accessToken, addMessage, updateMessage,
+      appendToMessage, addSSEEvent, setConversationStreaming]);
+
   // Handle @mention detection
   const handleInputChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const newValue = e.target.value;
@@ -1170,10 +1429,33 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
                 title={pendingUserInput.metadata.input_title}
                 description={pendingUserInput.metadata.input_description}
                 inputFields={pendingUserInput.metadata.input_fields}
-                onSubmit={handleUserInputSubmit}
+                onSubmit={pendingUserInput.isSSE ? handleUserInputSubmitSSE : handleUserInputSubmit}
                 onCancel={() => {
                   if (pendingUserInput) {
                     dismissedInputForMessageRef.current.add(pendingUserInput.messageId);
+                    // For SSE, send dismissal message to resume the agent
+                    if (pendingUserInput.isSSE && pendingUserInput.agentId && activeConversationId) {
+                      const dynClient = new DynamicAgentClient({
+                        proxyUrl: "/api/dynamic-agents/chat",
+                        accessToken,
+                      });
+                      // Fire-and-forget: resume with rejection message
+                      // The agent will receive "User dismissed the input form without providing values."
+                      (async () => {
+                        try {
+                          const dismissalMessage = "User dismissed the input form without providing values.";
+                          for await (const _event of dynClient.resumeStream(
+                            activeConversationId,
+                            pendingUserInput.agentId!,
+                            dismissalMessage
+                          )) {
+                            // Consume events but don't display - user dismissed
+                          }
+                        } catch (err) {
+                          console.error("[ChatPanel] Error sending SSE form dismissal:", err);
+                        }
+                      })();
+                    }
                   }
                   setPendingUserInput(null);
                 }}
@@ -1212,14 +1494,24 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
 
       {/* Input Area - Fixed bottom, doesn't scroll */}
       {readOnly ? (
-        <div className="border-t border-border bg-amber-500/10 shrink-0">
+        <div className={`border-t border-border shrink-0 ${readOnlyReason === 'agent_deleted' || readOnlyReason === 'agent_disabled' ? 'bg-red-500/10' : 'bg-amber-500/10'}`}>
           <div className="max-w-7xl mx-auto px-6 py-3 flex items-center justify-between">
-            <div className="flex items-center gap-2 text-amber-700 dark:text-amber-400">
+            <div className={`flex items-center gap-2 ${readOnlyReason === 'agent_deleted' || readOnlyReason === 'agent_disabled' ? 'text-red-700 dark:text-red-400' : 'text-amber-700 dark:text-amber-400'}`}>
               <ShieldCheck className="h-4 w-4 shrink-0" />
               {readOnlyReason === 'admin_audit' ? (
                 <>
                   <span className="text-sm font-medium">Read-Only Audit Mode</span>
                   <span className="text-xs text-amber-600 dark:text-amber-500">— You are viewing this conversation as an admin auditor.</span>
+                </>
+              ) : readOnlyReason === 'agent_deleted' ? (
+                <>
+                  <span className="text-sm font-medium">Agent No Longer Exists</span>
+                  <span className="text-xs text-red-600 dark:text-red-500">— This agent has been deleted. You can view the history but cannot send new messages.</span>
+                </>
+              ) : readOnlyReason === 'agent_disabled' ? (
+                <>
+                  <span className="text-sm font-medium">Agent Disabled</span>
+                  <span className="text-xs text-red-600 dark:text-red-500">— This agent has been disabled by an administrator. You can view the history but cannot send new messages.</span>
                 </>
               ) : (
                 <>
@@ -1482,6 +1774,7 @@ function StreamingView({ message, showRawStream, setShowRawStream, isStreaming =
           </AnimatePresence>
         </motion.div>
       )}
+
     </div>
   );
 }

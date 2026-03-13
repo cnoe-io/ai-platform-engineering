@@ -1,0 +1,51 @@
+[project]
+name = "dynamic-agents"
+version = "0.1.0"
+description = "Dynamic Agent Builder - Standalone agent service with deepagents 0.4.7"
+requires-python = ">=3.13,<4.0"
+dependencies = [
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.32.0",
+    "deepagents==0.4.7",
+    "langchain-mcp-adapters>=0.2.1",
+    "cnoe-agent-utils>=0.3.13",
+    "pymongo>=4.6.0",
+    "pydantic>=2.0.0",
+    "pydantic-settings>=2.0.0",
+    "httpx>=0.27.0",
+    "PyJWT[crypto]>=2.8.0",
+    "requests>=2.31.0",
+    "beautifulsoup4>=4.12.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
+    "pytest-cov>=4.0.0",
+    "ruff>=0.1.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/dynamic_agents"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py313"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W"]
+ignore = ["E501"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[dependency-groups]
+dev = [
+    "ruff>=0.15.5",
+]

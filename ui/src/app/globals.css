@@ -695,3 +695,13 @@ pre code.hljs {
   color: hsl(var(--primary));
   font-weight: 500;
 }
+
+/* ========================================
+   SCROLL AREA FIX
+   Prevents Radix ScrollArea's internal table layout
+   from expanding beyond the container width
+   ======================================== */
+[data-radix-scroll-area-viewport] > div {
+  display: block !important;
+  min-width: 0 !important;
+}

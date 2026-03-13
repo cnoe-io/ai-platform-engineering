@@ -341,6 +341,32 @@ services:
 #####################
 # Dependent services
 #####################
+  # MongoDB for CAIPE UI chat history and user settings
+  # Note: Default password "changeme" is for local development only.
+  mongodb:
+    image: mongo:7.0
+    container_name: rag-mongodb
+    ports:
+      - "27017:27017"
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=${MONGODB_ROOT_USERNAME:-admin}
+      - MONGO_INITDB_ROOT_PASSWORD=${MONGODB_ROOT_PASSWORD:-changeme}
+      - MONGO_INITDB_DATABASE=${MONGODB_DATABASE:-caipe}
+    volumes:
+      - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/mongodb/data:/data/db
+      - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/mongodb/config:/data/configdb
+    command: ["mongod", "--quiet", "--logpath", "/dev/null"]
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+    restart: unless-stopped
+    profiles:
+      - deps
+      - apps
+
   neo4j:
     image: neo4j:latest
     volumes:

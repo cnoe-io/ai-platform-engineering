@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
 import { Conversation, ChatMessage, A2AEvent, MessageFeedback } from "@/types/a2a";
+import { SSEAgentEvent } from "@/components/dynamic-agents/sse-types";
 import { generateId } from "@/lib/utils";
 import { A2AClient } from "@/lib/a2a-client";
 import { apiClient } from "@/lib/api-client";
@@ -31,7 +32,7 @@ interface ChatState {
   inputRequiredConversations: Set<string>;
 
   // Actions
-  createConversation: () => string;
+  createConversation: (agentId?: string) => string;
   setActiveConversation: (id: string) => void;
   addMessage: (conversationId: string, message: Omit<ChatMessage, "id" | "timestamp" | "events">, turnId?: string) => string;
   updateMessage: (conversationId: string, messageId: string, updates: Partial<ChatMessage>) => void;
@@ -44,6 +45,13 @@ interface ChatState {
   addA2AEvent: (event: A2AEvent, conversationId?: string) => void;
   clearA2AEvents: (conversationId?: string) => void;
   getConversationEvents: (conversationId: string) => A2AEvent[];
+  // SSE Agent events (for Dynamic Agents)
+  addSSEEvent: (event: SSEAgentEvent, conversationId?: string) => void;
+  clearSSEEvents: (conversationId?: string, options?: { clearRuntimeStatus?: boolean }) => void;
+  getConversationSSEEvents: (conversationId: string) => SSEAgentEvent[];
+  // Runtime status for Dynamic Agents (persists across event clearing)
+  updateRuntimeStatus: (conversationId: string, status: { failedServers?: string[]; missingTools?: string[]; initialized?: boolean }) => void;
+  clearRuntimeStatus: (conversationId: string) => void;
   deleteConversation: (id: string) => Promise<void>;
   clearAllConversations: () => void;
   getActiveConversation: () => Conversation | undefined;
@@ -148,7 +156,7 @@ const storeImplementation = (set: any, get: any) => ({
       unviewedConversations: new Set<string>(),
       inputRequiredConversations: new Set<string>(),
 
-      createConversation: () => {
+      createConversation: (agentId?: string) => {
         const id = generateId();
         const newConversation: Conversation = {
           id,
@@ -157,6 +165,8 @@ const storeImplementation = (set: any, get: any) => ({
           updatedAt: new Date(),
           messages: [],
           a2aEvents: [], // Initialize with empty events
+          sseEvents: [], // Initialize with empty SSE events for Dynamic Agents
+          agent_id: agentId, // Dynamic agent ID; undefined = Platform Engineer
         };
 
         const storageMode = getStorageMode();
@@ -168,6 +178,7 @@ const storeImplementation = (set: any, get: any) => ({
           apiClient.createConversation({
             id,
             title: newConversation.title,
+            agent_id: agentId, // Pass agent_id to MongoDB
           }).then(() => {
             console.log('[ChatStore] Created conversation in MongoDB:', id);
           }).catch((error) => {
@@ -498,6 +509,92 @@ const storeImplementation = (set: any, get: any) => ({
         return conv?.a2aEvents || [];
       },
 
+      // ═══════════════════════════════════════════════════════════════
+      // SSE Agent Events (for Dynamic Agents)
+      // ═══════════════════════════════════════════════════════════════
+
+      addSSEEvent: (event: SSEAgentEvent, conversationId?: string) => {
+        const convId = conversationId || get().activeConversationId;
+        if (!convId) return;
+
+        set((prev: ChatState) => {
+          // Check if this is a final_result event with runtime status
+          let runtimeStatusUpdate: Conversation['runtimeStatus'] | undefined;
+          if (event.type === 'final_result' && event.finalResultData) {
+            runtimeStatusUpdate = {
+              failedServers: event.finalResultData.failed_servers ?? [],
+              missingTools: event.finalResultData.missing_tools ?? [],
+              initialized: true,
+            };
+            // Log only when there are issues to report
+            if (runtimeStatusUpdate.failedServers.length > 0 || runtimeStatusUpdate.missingTools.length > 0) {
+              console.log(`[SSE-DEBUG] runtimeStatus updated:`, runtimeStatusUpdate);
+            }
+          }
+
+          return {
+            conversations: prev.conversations.map((c: Conversation) =>
+              c.id === convId
+                ? {
+                    ...c,
+                    sseEvents: [...(c.sseEvents || []), event],
+                    // Update runtime status if this is a final_result event
+                    ...(runtimeStatusUpdate ? { runtimeStatus: runtimeStatusUpdate } : {}),
+                  }
+                : c
+            ),
+          };
+        });
+      },
+
+      clearSSEEvents: (conversationId?: string, options?: { clearRuntimeStatus?: boolean }) => {
+        if (conversationId) {
+          set((prev: ChatState) => ({
+            conversations: prev.conversations.map((conv: Conversation) =>
+              conv.id === conversationId
+                ? {
+                    ...conv,
+                    sseEvents: [],
+                    // Only clear runtime status if explicitly requested (e.g., on restart)
+                    ...(options?.clearRuntimeStatus ? { runtimeStatus: undefined } : {}),
+                  }
+                : conv
+            ),
+          }));
+        }
+      },
+
+      getConversationSSEEvents: (conversationId: string) => {
+        const conv = get().conversations.find((c: Conversation) => c.id === conversationId);
+        return conv?.sseEvents || [];
+      },
+
+      updateRuntimeStatus: (conversationId: string, status: { failedServers?: string[]; missingTools?: string[]; initialized?: boolean }) => {
+        set((prev: ChatState) => ({
+          conversations: prev.conversations.map((conv: Conversation) =>
+            conv.id === conversationId
+              ? {
+                  ...conv,
+                  runtimeStatus: {
+                    ...conv.runtimeStatus,
+                    ...status,
+                  },
+                }
+              : conv
+          ),
+        }));
+      },
+
+      clearRuntimeStatus: (conversationId: string) => {
+        set((prev: ChatState) => ({
+          conversations: prev.conversations.map((conv: Conversation) =>
+            conv.id === conversationId
+              ? { ...conv, runtimeStatus: undefined }
+              : conv
+          ),
+        }));
+      },
+
       deleteConversation: async (id: string) => {
         const storageMode = await getStorageMode();
 
@@ -751,6 +848,8 @@ const storeImplementation = (set: any, get: any) => ({
               // being viewed (prevents race with concurrent loadMessagesFromServer)
               messages: (isStreaming || hasLoadedMessages || isActive) && localConv ? localConv.messages : [],
               a2aEvents: (isStreaming || hasLoadedMessages || isActive) && localConv ? localConv.a2aEvents : [],
+              sseEvents: (isStreaming || hasLoadedMessages || isActive) && localConv ? (localConv.sseEvents || []) : [],
+              agent_id: conv.agent_id, // Dynamic agent ID; undefined = Platform Engineer
               owner_id: conv.owner_id,
               sharing: conv.sharing,
             };
@@ -1405,6 +1504,7 @@ export const useChatStore = shouldUseLocalStorage()
           conversations: state.conversations.map((conv) => ({
             ...conv,
             a2aEvents: [], // Don't persist events (too large)
+            sseEvents: [], // Don't persist SSE events (too large)
             messages: conv.messages.map((msg) => ({
               ...msg,
               events: [], // Don't persist events
@@ -1420,6 +1520,7 @@ export const useChatStore = shouldUseLocalStorage()
               createdAt: new Date(conv.createdAt),
               updatedAt: new Date(conv.updatedAt),
               a2aEvents: [],
+              sseEvents: [],
               messages: conv.messages.map((msg, idx, allMsgs) => {
                 // CRASH RECOVERY: Mark non-final assistant messages as interrupted.
                 // After a page crash/reload, streamingConversations is empty (not persisted),
