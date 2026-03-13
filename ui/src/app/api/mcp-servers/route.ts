@@ -1,8 +1,11 @@
 /**
  * API routes for MCP Server management.
+ *
+ * - GET: Direct MongoDB access for reads
+ * - POST, PUT, DELETE: Proxy to dynamic-agents backend for writes
  */
 
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 import { getCollection } from "@/lib/mongodb";
 import {
   withAuth,
@@ -13,13 +16,11 @@ import {
   getPaginationParams,
   paginatedResponse,
 } from "@/lib/api-middleware";
-import type {
-  MCPServerConfig,
-  MCPServerConfigCreate,
-  MCPServerConfigUpdate,
-} from "@/types/dynamic-agent";
+import type { MCPServerConfig } from "@/types/dynamic-agent";
 
 const COLLECTION_NAME = "mcp_servers";
+const DYNAMIC_AGENTS_URL =
+  process.env.DYNAMIC_AGENTS_URL || "http://localhost:8100";
 
 /**
  * GET /api/mcp-servers
@@ -45,60 +46,44 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
 /**
  * POST /api/mcp-servers
  * Create a new MCP server configuration.
+ * Proxies to dynamic-agents backend.
  * Requires admin role.
  */
 export const POST = withErrorHandler(async (request: NextRequest) => {
   return await withAuth(request, async (req, user, session) => {
     requireAdmin(session);
 
-    const body: MCPServerConfigCreate = await request.json();
+    const body = await request.json();
 
-    // Validate required fields
-    if (!body.id || !body.name || !body.transport) {
-      throw new ApiError("Missing required fields: id, name, transport", 400);
-    }
-
-    // Validate transport-specific fields
-    if (body.transport === "stdio" && !body.command) {
-      throw new ApiError("'command' is required for stdio transport", 400);
-    }
-    if ((body.transport === "sse" || body.transport === "http") && !body.endpoint) {
-      throw new ApiError("'endpoint' is required for sse/http transport", 400);
-    }
-
-    const collection = await getCollection<MCPServerConfig>(COLLECTION_NAME);
-
-    // Check if ID already exists
-    const existing = await collection.findOne({ _id: body.id });
-    if (existing) {
-      throw new ApiError(`MCP server with ID '${body.id}' already exists`, 409);
-    }
-
-    const now = new Date().toISOString();
-
-    const newServer: MCPServerConfig = {
-      _id: body.id,
-      name: body.name,
-      description: body.description,
-      transport: body.transport,
-      endpoint: body.endpoint,
-      command: body.command,
-      args: body.args,
-      env: body.env,
-      enabled: body.enabled ?? true,
-      created_at: now,
-      updated_at: now,
+    const headers: HeadersInit = {
+      "Content-Type": "application/json",
     };
+    if (session.accessToken) {
+      headers["Authorization"] = `Bearer ${session.accessToken}`;
+    }
 
-    await collection.insertOne(newServer as any);
+    const response = await fetch(`${DYNAMIC_AGENTS_URL}/api/v1/mcp-servers`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(body),
+    });
 
-    return successResponse(newServer, 201);
+    const data = await response.json();
+    if (!response.ok) {
+      throw new ApiError(
+        data.detail || "Failed to create MCP server",
+        response.status
+      );
+    }
+
+    return successResponse(data.data, 201);
   });
 });
 
 /**
  * PUT /api/mcp-servers?id=<server_id>
  * Update an MCP server configuration.
+ * Proxies to dynamic-agents backend.
  * Requires admin role.
  */
 export const PUT = withErrorHandler(async (request: NextRequest) => {
@@ -112,39 +97,40 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
   return await withAuth(request, async (req, user, session) => {
     requireAdmin(session);
 
-    const body: MCPServerConfigUpdate = await request.json();
-    const collection = await getCollection<MCPServerConfig>(COLLECTION_NAME);
+    const body = await request.json();
 
-    // Check if server exists
-    const existing = await collection.findOne({ _id: id });
-    if (!existing) {
-      throw new ApiError("MCP server not found", 404);
+    const headers: HeadersInit = {
+      "Content-Type": "application/json",
+    };
+    if (session.accessToken) {
+      headers["Authorization"] = `Bearer ${session.accessToken}`;
     }
 
-    // Build update
-    const updateFields: any = {
-      updated_at: new Date().toISOString(),
-    };
+    const response = await fetch(
+      `${DYNAMIC_AGENTS_URL}/api/v1/mcp-servers/${id}`,
+      {
+        method: "PATCH",
+        headers,
+        body: JSON.stringify(body),
+      }
+    );
 
-    if (body.name !== undefined) updateFields.name = body.name;
-    if (body.description !== undefined) updateFields.description = body.description;
-    if (body.transport !== undefined) updateFields.transport = body.transport;
-    if (body.endpoint !== undefined) updateFields.endpoint = body.endpoint;
-    if (body.command !== undefined) updateFields.command = body.command;
-    if (body.args !== undefined) updateFields.args = body.args;
-    if (body.env !== undefined) updateFields.env = body.env;
-    if (body.enabled !== undefined) updateFields.enabled = body.enabled;
+    const data = await response.json();
+    if (!response.ok) {
+      throw new ApiError(
+        data.detail || "Failed to update MCP server",
+        response.status
+      );
+    }
 
-    await collection.updateOne({ _id: id }, { $set: updateFields });
-
-    const updated = await collection.findOne({ _id: id });
-    return successResponse(updated);
+    return successResponse(data.data);
   });
 });
 
 /**
  * DELETE /api/mcp-servers?id=<server_id>
  * Delete an MCP server configuration.
+ * Proxies to dynamic-agents backend.
  * Requires admin role.
  */
 export const DELETE = withErrorHandler(async (request: NextRequest) => {
@@ -158,15 +144,26 @@ export const DELETE = withErrorHandler(async (request: NextRequest) => {
   return await withAuth(request, async (req, user, session) => {
     requireAdmin(session);
 
-    const collection = await getCollection<MCPServerConfig>(COLLECTION_NAME);
-
-    // Check if server exists
-    const existing = await collection.findOne({ _id: id });
-    if (!existing) {
-      throw new ApiError("MCP server not found", 404);
+    const headers: HeadersInit = {};
+    if (session.accessToken) {
+      headers["Authorization"] = `Bearer ${session.accessToken}`;
     }
 
-    await collection.deleteOne({ _id: id });
+    const response = await fetch(
+      `${DYNAMIC_AGENTS_URL}/api/v1/mcp-servers/${id}`,
+      {
+        method: "DELETE",
+        headers,
+      }
+    );
+
+    const data = await response.json();
+    if (!response.ok) {
+      throw new ApiError(
+        data.detail || "Failed to delete MCP server",
+        response.status
+      );
+    }
 
     return successResponse({ deleted: id });
   });

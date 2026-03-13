@@ -1056,16 +1056,16 @@ Stores MCP server configurations.
          │                                    │  │   dynamic_agents        │   │
          │ CRUD Operations                    │  │                         │   │
          ▼                                    │  │  • Agent configs        │   │
-┌─────────────────┐   REST API               │  │  • Owner tracking       │   │
+┌─────────────────┐   GET (reads)            │  │  • Owner tracking       │   │
 │  Next.js API    │ ──────────────────────► │  │  • Visibility rules     │   │
 │  Routes         │                          │  │  • Subagent refs        │   │
-└─────────────────┘                          │  └─────────────────────────┘   │
+└────────┬────────┘                          │  └─────────────────────────┘   │
          │                                    │                                 │
-         │ Proxy (some routes)               │  ┌─────────────────────────┐   │
+         │ POST/PUT/DELETE (writes)          │  ┌─────────────────────────┐   │
          ▼                                    │  │   mcp_servers           │   │
-┌─────────────────┐   REST API               │  │                         │   │
-│  Dynamic Agents │ ──────────────────────► │  │  • Connection configs   │   │
-│  Service        │                          │  │  • Transport types      │   │
+┌─────────────────┐                          │  │                         │   │
+│  Dynamic Agents │   Writes to MongoDB      │  │  • Connection configs   │   │
+│  Backend (proxy)│ ──────────────────────► │  │  • Transport types      │   │
 └────────┬────────┘                          │  │  • Enabled status       │   │
          │                                    │  └─────────────────────────┘   │
          │                                    │                                 │
@@ -1079,9 +1079,14 @@ Stores MCP server configurations.
 └─────────────────┘                          │  └─────────────────────────┘   │
                                               └─────────────────────────────────┘
 
-Note: The UI also stores conversations in MongoDB with an `agent_id` field
+Note: The UI stores conversations in MongoDB with an `agent_id` field
 that references the Dynamic Agent used for that conversation. This is stored
 by the UI, not the Dynamic Agents service.
+
+Write operations (POST/PUT/DELETE) go through the Dynamic Agents backend to ensure:
+• Consistent datetime handling (timezone-aware)
+• Proper validation and business logic
+• Config-driven entity protection (403 on edit/delete)
 ```
 
 ---
@@ -1269,6 +1274,53 @@ interface Conversation {
 
 ## API Flow
 
+### UI API Route Pattern
+
+The Next.js UI routes follow a hybrid pattern for interacting with Dynamic Agents data:
+
+- **Reads (GET)**: Direct MongoDB access for fast queries with visibility filtering
+- **Writes (POST, PUT, DELETE)**: Proxy to Dynamic Agents Python backend for consistent data handling
+
+This architecture ensures:
+1. **Data consistency**: The Python backend handles datetime serialization, validation, and defaults
+2. **Single source of truth**: All write operations go through the backend's business logic
+3. **Performance**: Read operations remain fast with direct MongoDB queries
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                         UI API Route Pattern                                 │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+    Browser
+       │
+       ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                         Next.js API Routes                                   │
+│                                                                              │
+│  /api/dynamic-agents          /api/mcp-servers                               │
+│  ┌─────────────────────────┐  ┌─────────────────────────┐                   │
+│  │ GET  → Direct MongoDB   │  │ GET  → Direct MongoDB   │                   │
+│  │ POST → Proxy to backend │  │ POST → Proxy to backend │                   │
+│  │ PUT  → Proxy to backend │  │ PUT  → Proxy to backend │                   │
+│  │ DELETE→ Proxy to backend│  │ DELETE→ Proxy to backend│                   │
+│  └────────────┬────────────┘  └────────────┬────────────┘                   │
+│               │                            │                                 │
+└───────────────┼────────────────────────────┼────────────────────────────────┘
+                │ Writes                     │ Reads
+                ▼                            ▼
+┌───────────────────────────────┐   ┌─────────────────────────────────────────┐
+│   Dynamic Agents Backend      │   │              MongoDB                    │
+│   (Python FastAPI)            │   │                                         │
+│                               │   │  ┌─────────────────────────┐           │
+│   /api/v1/agents/*            │   │  │   dynamic_agents        │           │
+│   /api/v1/mcp-servers/*       │   │  └─────────────────────────┘           │
+│              │                │   │                                         │
+│              ▼                │   │  ┌─────────────────────────┐           │
+│         MongoDB writes ───────┼───┼─►│   mcp_servers           │           │
+│                               │   │  └─────────────────────────┘           │
+└───────────────────────────────┘   └─────────────────────────────────────────┘
+```
+
 ### Admin Operations Flow
 
 ```
@@ -1299,24 +1351,26 @@ interface Conversation {
 │                      Next.js API Routes                                      │
 │                                                                              │
 │  /api/dynamic-agents                    /api/mcp-servers                     │
-│  • GET: List agents (via MongoDB)       • GET: List servers (via MongoDB)   │
-│  • POST: Create (via MongoDB)           • POST: Create (via MongoDB)        │
-│  • PUT: Update (via MongoDB)            • PUT: Update (via MongoDB)         │
-│  • DELETE: Remove (via MongoDB)         • DELETE: Remove (via MongoDB)      │
+│  • GET: List agents (Direct MongoDB)    • GET: List servers (Direct MongoDB) │
+│  • POST: Create → Backend proxy         • POST: Create → Backend proxy       │
+│  • PUT: Update → Backend proxy          • PUT: Update → Backend proxy        │
+│  • DELETE: Remove → Backend proxy       • DELETE: Remove → Backend proxy     │
 │                                                                              │
 │  /api/mcp-servers/probe                                                      │
-│  • POST: Probe server → proxies to Dynamic Agents service                   │
+│  • POST: Probe server → Backend proxy                                        │
 └─────────────────────────────────────────────────────────────────────────────┘
                   │                                │
-                  ▼                                ▼
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                         MongoDB                                              │
-│                                                                              │
-│  ┌─────────────────────────┐  ┌─────────────────────────┐                   │
-│  │   dynamic_agents        │  │   mcp_servers           │                   │
-│  └─────────────────────────┘  └─────────────────────────┘                   │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
+          ┌───────┴────────┐              ┌────────┴───────┐
+          │ Reads          │              │ Writes         │
+          ▼                │              ▼                │
+┌─────────────────────┐    │   ┌─────────────────────────┐ │
+│     MongoDB         │    │   │  Dynamic Agents Backend │ │
+│                     │    │   │  (Python FastAPI)       │ │
+│ • dynamic_agents    │    │   │                         │ │
+│ • mcp_servers       │◄───┼───│  Writes to MongoDB      │ │
+└─────────────────────┘    │   └─────────────────────────┘ │
+                           │                               │
+                           └───────────────────────────────┘
 
 ### Visibility Access Control
 
