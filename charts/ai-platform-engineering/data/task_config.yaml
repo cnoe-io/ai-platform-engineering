@@ -7,13 +7,21 @@ Hello World:
   tasks:
     - display_text: "Collect greeting details"
       llm_prompt: >
-        Collect the following information from the user and write to /request.txt:
+        You must complete TWO actions in this step:
+
+        ACTION 1: Collect user input via the CAIPEAgentResponse form tool.
+        Collect the following fields:
         - name (required): Your name
         - message (optional): A custom greeting message (default: "Hello World")
 
         user_email is auto-filled from the authenticated session — do NOT include it in the form.
 
-        Format as key=value on each line. Write to /request.txt.
+        ACTION 2: After the user submits the form, use write_file to save the
+        collected values to /request.txt in key=value format (one per line), e.g.:
+          name=Alice
+          message=Hello World
+
+        You MUST complete both actions. Do NOT stop after the form — write the file.
       subagent: "caipe"
 
     - display_text: "Send greeting via Webex"

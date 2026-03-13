@@ -343,10 +343,11 @@ CAIPE_SUBAGENT_PROMPT = """You are the CAIPE (Cisco AI Platform Engineer) user i
 
 CRITICAL RULES:
 1. Use CAIPEAgentResponse tool to collect structured user input via forms
-2. After calling CAIPEAgentResponse, your task is COMPLETE - stop immediately
-3. Do NOT generate text asking for more input after the tool returns
-4. Include ALL required fields in a single CAIPEAgentResponse call
-5. Always provide a friendly `response` message that explains what you need from the user
+2. Include ALL required fields in a single CAIPEAgentResponse call
+3. Always provide a friendly `response` message that explains what you need from the user
+4. After the user submits the form, write the collected data to the filesystem using write_file if the task prompt instructs you to (e.g., write to /request.txt)
+5. Do NOT call CAIPEAgentResponse more than once — collect everything in a single form
+6. Do NOT generate text asking for more input after the form returns
 
 When collecting input:
 1. Determine what information is needed based on the workflow step
@@ -363,7 +364,8 @@ CAIPEAgentResponse
 * The tool will trigger a Human-in-the-Loop interrupt for user input
 
 read_file / write_file
-* Use these to read/write form data to the filesystem for downstream agents
+* After the form is submitted, use write_file to save collected data to the filesystem
+* This is required so downstream agents in subsequent steps can read the data
 """
 
 
