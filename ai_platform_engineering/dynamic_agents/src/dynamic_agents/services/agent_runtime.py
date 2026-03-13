@@ -8,7 +8,7 @@ import logging
 import re
 import time
 from collections.abc import AsyncGenerator
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
 from cnoe_agent_utils import LLMFactory
@@ -95,7 +95,7 @@ class AgentRuntime:
         self._failed_servers_error: str = ""  # Error message for display
         # Track config timestamps for cache invalidation
         self._config_updated_at: datetime = config.updated_at
-        self._mcp_servers_updated_at: datetime = max((s.updated_at for s in mcp_servers), default=datetime.min)
+        self._mcp_servers_updated_at: datetime = max((s.updated_at for s in mcp_servers), default=datetime.min.replace(tzinfo=timezone.utc))
 
     async def initialize(self) -> None:
         """Build the DeepAgent graph with tools and instructions."""
@@ -888,7 +888,7 @@ class AgentRuntime:
         """
         if agent_config.updated_at != self._config_updated_at:
             return True
-        current_mcp_max = max((s.updated_at for s in mcp_servers), default=datetime.min)
+        current_mcp_max = max((s.updated_at for s in mcp_servers), default=datetime.min.replace(tzinfo=timezone.utc))
         if current_mcp_max != self._mcp_servers_updated_at:
             return True
         return False
