@@ -1,6 +1,6 @@
 """Seed configuration loader for Dynamic Agents.
 
-Loads initial agents and MCP servers from config.yaml at server startup.
+Loads initial agents, MCP servers, and models from config.yaml at server startup.
 These config-driven entities:
 - Have explicit IDs specified in the config
 - Override existing entities with the same ID (upsert behavior)
@@ -15,6 +15,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import yaml
+
+from dynamic_agents.services.models_config import ModelInfo, set_available_models
 
 if TYPE_CHECKING:
     from dynamic_agents.services.mongo import MongoDBService
@@ -55,20 +57,32 @@ def _expand_env_vars(value: Any) -> Any:
         return value
 
 
+def get_config_path() -> Path:
+    """Get the configuration file path from environment or default."""
+    env_path = os.environ.get("SEED_CONFIG_PATH")
+    if env_path:
+        return Path(env_path)
+    return DEFAULT_CONFIG_PATH
+
+
 def load_seed_config(config_path: Path | str | None = None) -> dict[str, Any]:
     """Load seed configuration from YAML file.
 
     Args:
         config_path: Path to the config YAML file.
-                    Defaults to config.yaml in the same directory.
+                    Defaults to SEED_CONFIG_PATH env var or config.yaml in the same directory.
 
     Returns:
         Dictionary with 'agents' and 'mcp_servers' lists.
     """
     if config_path is None:
-        config_path = DEFAULT_CONFIG_PATH
+        config_path = get_config_path()
 
     config_path = Path(config_path)
+
+    is_seed_config = os.environ.get("SEED_CONFIG_PATH") and str(config_path) == os.environ.get("SEED_CONFIG_PATH")
+    source = "seed config" if is_seed_config else "default config"
+    logger.info(f"Loading configuration from {source}: {config_path}")
 
     if not config_path.exists():
         logger.warning(f"Seed config not found at {config_path}, skipping seed")
@@ -78,10 +92,11 @@ def load_seed_config(config_path: Path | str | None = None) -> dict[str, Any]:
         config = yaml.safe_load(f) or {}
 
     # Expand environment variables in the config
+    models = config.get("models", [])
     agents = _expand_env_vars(config.get("agents", []))
     mcp_servers = _expand_env_vars(config.get("mcp_servers", []))
 
-    return {"agents": agents, "mcp_servers": mcp_servers}
+    return {"models": models, "agents": agents, "mcp_servers": mcp_servers}
 
 
 def seed_mcp_servers(mongo: "MongoDBService", servers: list[dict[str, Any]]) -> int:
@@ -220,7 +235,7 @@ def apply_seed_config(mongo: "MongoDBService", config_path: Path | str | None = 
     """Load and apply seed configuration from YAML.
 
     This function is called at server startup to ensure config-driven
-    agents and MCP servers are present in the database.
+    agents, MCP servers, and models are loaded and cached.
 
     Also cleans up config-driven entities that have been removed from the config.
 
@@ -230,20 +245,33 @@ def apply_seed_config(mongo: "MongoDBService", config_path: Path | str | None = 
     """
     config = load_seed_config(config_path)
 
+    models_data = config.get("models", [])
     mcp_servers = config.get("mcp_servers", [])
     agents = config.get("agents", [])
+
+    logger.info(f"Found {len(models_data)} models, {len(mcp_servers)} MCP servers, {len(agents)} agents in config")
+
+    # Load and cache models for API access
+    models = [
+        ModelInfo(
+            model_id=m.get("model_id", ""),
+            name=m.get("name", "Unknown"),
+            provider=m.get("provider", "unknown"),
+            description=m.get("description", ""),
+        )
+        for m in models_data
+    ]
+    set_available_models(models)
 
     # Extract IDs from current config
     current_server_ids = {s.get("id") for s in mcp_servers if s.get("id")}
     current_agent_ids = {a.get("id") for a in agents if a.get("id")}
 
     if not mcp_servers and not agents:
-        logger.info("No seed configuration found (no agents or MCP servers in config.yaml)")
+        logger.info("No MCP servers or agents to seed")
         # Still cleanup any existing config-driven entities
         cleanup_stale_config_driven(mongo, current_server_ids, current_agent_ids)
         return
-
-    logger.info(f"Loading seed configuration: {len(mcp_servers)} MCP servers, {len(agents)} agents")
 
     mcp_count = seed_mcp_servers(mongo, mcp_servers)
     agent_count = seed_agents(mongo, agents)

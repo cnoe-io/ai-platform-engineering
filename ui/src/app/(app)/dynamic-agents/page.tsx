@@ -3,6 +3,7 @@
 import React from "react";
 import { useRouter } from "next/navigation";
 import { useAdminRole } from "@/hooks/use-admin-role";
+import { AuthGuard } from "@/components/auth-guard";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -10,7 +11,7 @@ import { Bot, Server, Loader2, ShieldAlert } from "lucide-react";
 import { DynamicAgentsTab } from "@/components/dynamic-agents/DynamicAgentsTab";
 import { MCPServersTab } from "@/components/dynamic-agents/MCPServersTab";
 
-export default function DynamicAgentsPage() {
+function DynamicAgentsPageContent() {
   const router = useRouter();
   const { isAdmin, loading } = useAdminRole();
   const [activeTab, setActiveTab] = React.useState("agents");
@@ -82,5 +83,13 @@ export default function DynamicAgentsPage() {
         </div>
       </ScrollArea>
     </div>
+  );
+}
+
+export default function DynamicAgentsPage() {
+  return (
+    <AuthGuard>
+      <DynamicAgentsPageContent />
+    </AuthGuard>
   );
 }
