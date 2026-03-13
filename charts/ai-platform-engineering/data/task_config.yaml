@@ -220,36 +220,44 @@ Create GitHub Repo:
         Note: Merging is enabled in self-service mode.
       subagent: "github"
 
-    - display_text: "Update Jira ticket with final status"
+    - display_text: "Update Jira ticket (only on failure or if user provided one)"
       llm_prompt: >
         Read /jira_result.txt to get jira_issue_id.
-        Read /pr_merged_result.txt to get pr_merged status.
+        Read /pr_merged_result.txt to get pr_merged, merge_error.
         Read /request.txt to get repo_name, org_name, user_email.
         Read /repo_result.txt to get repo_url.
         Read /admin_pr_result.txt to get admin_pr_url.
-        
-        If jira_issue_id is "none" and pr_merged=true:
-          No Jira action needed — successful completions do not require a ticket.
-          Write jira_closed=skipped to /jira_close_result.txt
-        
-        If jira_issue_id is "none" and pr_merged=false:
-          Create a new Jira ticket in the OPENSD project to track the failure:
+
+        IMPORTANT: Do NOT create a Jira ticket for successful repo creation.
+        A successful merge (pr_merged=true) with jira_issue_id="none"
+        means NO Jira action is needed — just write jira_created=false to /jira_close_result.txt and stop.
+
+        Only take action in these cases:
+
+        Case 1 — User provided jira_issue_id (not "none") AND pr_merged=true:
+          Add final comment that repository setup is complete.
+          Transition to "Close Ticket".
+
+        Case 2 — User provided jira_issue_id (not "none") AND pr_merged=false:
+          Add a comment noting the PR merge failed. Do not close.
+
+        Case 3 — jira_issue_id is "none" AND pr_merged=false (failure):
+          Create a new Jira ticket in the OPENSD project:
           - Summary: "Repository creation FAILED: {repo_name}"
-          - Description: Include repo_url, admin_pr_url, requester email, and the merge error
-          - Assign to ${JIRA_ASSIGNEE} (search for this email first to get their Jira account ID, then use the account ID in the assignee field)
+          - Description: Include repo_url, admin_pr_url, user_email, and merge_error.
+          - Assign to ${JIRA_ASSIGNEE} (search for this email first to get their Jira
+            account ID, then use the account ID in the assignee field)
           - Transition to "Acknowledge"
-          Write jira_closed=false and jira_issue_id={new ticket ID} to /jira_close_result.txt
-        
-        If jira_issue_id is set (not "none") and pr_merged=true:
-          1. Add final comment that repository setup is complete
-          2. Transition to "Close Ticket" to mark the request as completed
-          Write jira_closed=true to /jira_close_result.txt
-        
-        If jira_issue_id is set (not "none") and pr_merged=false:
-          Add a comment noting the PR merge failed and do not close.
-          Write jira_closed=false to /jira_close_result.txt
-        
+
+        Case 4 — jira_issue_id is "none" AND pr_merged=true (success):
+          Do nothing. Write jira_created=false to /jira_close_result.txt and stop.
+
         Note: Available transitions are "Blocked", "Acknowledge", and "Close Ticket".
+
+        Write result to /jira_close_result.txt:
+        - jira_created=true/false
+        - jira_issue_id={ticket ID if created or provided, otherwise "N/A"}
+        - jira_url={ticket URL if created or provided, otherwise "N/A"}
       subagent: "jira"
 
 
@@ -376,34 +384,39 @@ Create EC2 Instance:
         - pr_number={PR_NUMBER}
       subagent: "github"
 
-    - display_text: "Create or update Jira ticket for EC2 request"
+    - display_text: "Update Jira ticket (only on failure or if user provided one)"
       llm_prompt: >
         Read /request.txt to get resource_name, user_email, and jira_issue_id (if set).
         Read /ec2_pr_result.txt to get pr_url.
-        
-        If jira_issue_id is set in /request.txt, use the existing ticket:
-        1. Add a comment to {jira_issue_id} with instance name, requester, and Terraform PR link
-        2. Transition to "Acknowledge" to indicate work has started
-        
-        If jira_issue_id is NOT set, create a new Jira ticket in the OPENSD project with:
-        - Summary: "EC2 instance creation request: {resource_name}"
-        - Description: |
-            EC2 Instance Request
-            
-            Instance Name: {resource_name}
-            Requested By: {user_email}
-            
-            Terraform PR: {pr_url}
-            
-            This request was submitted via Jarvis self-service.
-        - Assign to ${JIRA_ASSIGNEE} (search for this email first to get their Jira account ID, then use the account ID in the assignee field)
-        - Transition to "Acknowledge" to indicate work has started
-        
+
+        IMPORTANT: Do NOT create a Jira ticket for successful requests.
+        A successful PR creation with no user-provided jira_issue_id
+        means NO Jira action is needed — just write jira_created=false to /jira_result.txt and stop.
+
+        Only take action in these cases:
+
+        Case 1 — User provided jira_issue_id:
+          Update the existing ticket with a comment including instance name,
+          requester, and Terraform PR link.
+          Transition to "Acknowledge" to indicate work has started.
+
+        Case 2 — No jira_issue_id AND pr_url is missing or empty (failure):
+          Create a new Jira ticket in the OPENSD project:
+          - Summary: "EC2 instance creation FAILED: {resource_name}"
+          - Description: Include resource_name, user_email, and any error details.
+          - Assign to ${JIRA_ASSIGNEE} (search for this email first to get their Jira
+            account ID, then use the account ID in the assignee field)
+          - Transition to "Acknowledge"
+
+        Case 3 — No jira_issue_id AND pr_url exists (success):
+          Do nothing. Write jira_created=false to /jira_result.txt and stop.
+
         Note: Available transitions are "Blocked", "Acknowledge", and "Close Ticket".
-        
+
         Write result to /jira_result.txt:
-        - jira_issue_id={existing or newly created ticket ID}
-        - jira_url={ticket URL}
+        - jira_created=true/false
+        - jira_issue_id={ticket ID if created or provided, otherwise "N/A"}
+        - jira_url={ticket URL if created or provided, otherwise "N/A"}
       subagent: "jira"
 
     - display_text: "Send Webex notification"
@@ -548,35 +561,39 @@ Create EKS Cluster:
         - pr_number={PR_NUMBER}
       subagent: "github"
 
-    - display_text: "Create or update Jira ticket for EKS request"
+    - display_text: "Update Jira ticket (only on failure or if user provided one)"
       llm_prompt: >
         Read /request.txt to get cluster_name, user_email, and jira_issue_id (if set).
         Read /eks_pr_result.txt to get pr_url.
-        
-        If jira_issue_id is set in /request.txt, use the existing ticket:
-        1. Add a comment to {jira_issue_id} with cluster name, requester, and Terraform PR link
-        2. Transition to "Acknowledge" to indicate work has started
-        
-        If jira_issue_id is NOT set, create a new Jira ticket in the OPENSD project with:
-        - Summary: "EKS cluster creation request: {cluster_name}"
-        - Description: |
-            EKS Cluster Request
-            
-            Cluster Name: {cluster_name}
-            Requested By: {user_email}
-            
-            Terraform PR: {pr_url}
-            
-            This request was submitted via Jarvis self-service.
-            Note: Cluster provisioning takes 15-20 minutes after PR merge.
-        - Assign to ${JIRA_ASSIGNEE} (search for this email first to get their Jira account ID, then use the account ID in the assignee field)
-        - Transition to "Acknowledge" to indicate work has started
-        
+
+        IMPORTANT: Do NOT create a Jira ticket for successful requests.
+        A successful PR creation with no user-provided jira_issue_id
+        means NO Jira action is needed — just write jira_created=false to /jira_result.txt and stop.
+
+        Only take action in these cases:
+
+        Case 1 — User provided jira_issue_id:
+          Update the existing ticket with a comment including cluster name,
+          requester, and Terraform PR link.
+          Transition to "Acknowledge" to indicate work has started.
+
+        Case 2 — No jira_issue_id AND pr_url is missing or empty (failure):
+          Create a new Jira ticket in the OPENSD project:
+          - Summary: "EKS cluster creation FAILED: {cluster_name}"
+          - Description: Include cluster_name, user_email, and any error details.
+          - Assign to ${JIRA_ASSIGNEE} (search for this email first to get their Jira
+            account ID, then use the account ID in the assignee field)
+          - Transition to "Acknowledge"
+
+        Case 3 — No jira_issue_id AND pr_url exists (success):
+          Do nothing. Write jira_created=false to /jira_result.txt and stop.
+
         Note: Available transitions are "Blocked", "Acknowledge", and "Close Ticket".
-        
+
         Write result to /jira_result.txt:
-        - jira_issue_id={existing or newly created ticket ID}
-        - jira_url={ticket URL}
+        - jira_created=true/false
+        - jira_issue_id={ticket ID if created or provided, otherwise "N/A"}
+        - jira_url={ticket URL if created or provided, otherwise "N/A"}
       subagent: "jira"
 
     - display_text: "Send Webex notification"
@@ -613,6 +630,7 @@ Create S3 Bucket:
         - region (required): AWS region (default: us-east-2, field_values: ["us-east-2", "us-west-2"])
         - data_classification (required): Data classification of the bucket (default: Cisco Restricted, field_values: ["Cisco Restricted", "Cisco Highly Confidential", "Cisco Confidential", "Cisco Public"])
         - data_taxonomy (required): Data taxonomy of the bucket (default: Administrative Data, field_values: ["Administrative Data", "Customer Data", "Entrusted Data", "Financing Data", "Support Data", "Telemetry Data", "Cisco Operations Data", "Cisco Strategic Data", "Human Resources Data"])
+        - jira_issue_id (optional): JIRA issue ID if applicable
         
         user_email is auto-filled from the authenticated session — do NOT include it in the form.
         
@@ -718,30 +736,39 @@ Create S3 Bucket:
         - pr_number={PR_NUMBER}
       subagent: "github"
 
-    - display_text: "Create Jira ticket for S3 request"
+    - display_text: "Update Jira ticket (only on failure or if user provided one)"
       llm_prompt: >
-        Read /request.txt to get resource_name, user_email.
+        Read /request.txt to get resource_name, user_email, and jira_issue_id (if set).
         Read /s3_pr_result.txt to get pr_url.
-        
-        Create a new Jira ticket in the OPENSD project with:
-        - Summary: "S3 bucket creation request: {resource_name}"
-        - Description: |
-            S3 Bucket Request
-            
-            Bucket Name: {resource_name}
-            Requested By: {user_email}
-            
-            Terraform PR: {pr_url}
-            
-            This request was submitted via Jarvis self-service.
-        - Assign to ${JIRA_ASSIGNEE} (search for this email first to get their Jira account ID, then use the account ID in the assignee field)
-        - Transition to "Acknowledge" to indicate work has started
-        
+
+        IMPORTANT: Do NOT create a Jira ticket for successful requests.
+        A successful PR creation with no user-provided jira_issue_id
+        means NO Jira action is needed — just write jira_created=false to /jira_result.txt and stop.
+
+        Only take action in these cases:
+
+        Case 1 — User provided jira_issue_id:
+          Update the existing ticket with a comment including bucket name,
+          requester, and Terraform PR link.
+          Transition to "Acknowledge" to indicate work has started.
+
+        Case 2 — No jira_issue_id AND pr_url is missing or empty (failure):
+          Create a new Jira ticket in the OPENSD project:
+          - Summary: "S3 bucket creation FAILED: {resource_name}"
+          - Description: Include resource_name, user_email, and any error details.
+          - Assign to ${JIRA_ASSIGNEE} (search for this email first to get their Jira
+            account ID, then use the account ID in the assignee field)
+          - Transition to "Acknowledge"
+
+        Case 3 — No jira_issue_id AND pr_url exists (success):
+          Do nothing. Write jira_created=false to /jira_result.txt and stop.
+
         Note: Available transitions are "Blocked", "Acknowledge", and "Close Ticket".
-        
+
         Write result to /jira_result.txt:
-        - jira_issue_id={created ticket ID}
-        - jira_url={ticket URL}
+        - jira_created=true/false
+        - jira_issue_id={ticket ID if created or provided, otherwise "N/A"}
+        - jira_url={ticket URL if created or provided, otherwise "N/A"}
       subagent: "jira"
 
     - display_text: "Send Webex notification"
@@ -981,65 +1008,56 @@ Deploy App to Common Cluster:
         Read /deployment_pr_result.txt to get pr_url.
         
         If auto_approve=true:
-        1. Wait for all status checks to pass on the PR.
-           Use the wait tool to pause for 10 seconds between checks, for up to 3 minutes total.
-           All checks must pass before merging.
+        Merge the PR immediately using squash merge and delete the branch.
+        Do NOT wait for CI status checks — auto-approved deployments are
+        pre-validated and should be merged without delay.
         
-        2. If checks pass, merge the PR using squash merge and delete the branch.
+        If auto_approve=false:
+        Do not merge. The PR requires manual review and approval.
         
         Write result to /merge_result.txt:
         - auto_approve={auto_approve}
         - pr_merged=true (if auto_approve=true and merge succeeded)
         - pr_merged=false (if auto_approve=false, or if merge failed)
         - merge_error=[error message if failed]
-        
-        If auto_approve=false, write:
-        - auto_approve=false
-        - pr_merged=false
-        - Note: PR requires manual review and approval
       subagent: "github"
 
-    - display_text: "Create or update Jira ticket (only on failure or if provided)"
+    - display_text: "Update Jira ticket (only on failure or if user provided one)"
       llm_prompt: >
         Read /request.txt to get app_name, environment, user_email, and jira_issue_id (if set).
-        Read /deployment_pr_result.txt to get pr_url (may not exist if earlier step failed).
-        Read /repo_create.txt to get repo_created, repo_url (may not exist if earlier step failed).
-        Read /merge_result.txt to get pr_merged, auto_approve (may not exist if earlier step failed).
+        Read /merge_result.txt to get pr_merged, merge_error.
+        Read /deployment_pr_result.txt to get pr_url.
+        Read /repo_create.txt to get repo_url.
 
-        Determine if any earlier step had an error by checking if /deployment_pr_result.txt
-        or /merge_result.txt is missing or contains error messages.
+        IMPORTANT: Do NOT create a Jira ticket for successful deployments.
+        A successful deployment (pr_merged=true) with no user-provided jira_issue_id
+        means NO Jira action is needed — just write jira_created=false to /jira_result.txt and stop.
 
-        If jira_issue_id is set in /request.txt, update the existing ticket:
-        1. Add a comment to {jira_issue_id} with app name, environment, deployment PR, repo URL, and merge status
-        2. If pr_merged=true, transition to "Close Ticket"
-        3. If pr_merged=false, transition to "Acknowledge" to indicate work has started
+        Only take action in these cases:
 
-        If jira_issue_id is NOT set AND there were errors in earlier steps,
-        create a new Jira ticket in the OPENSD project with:
-        - Summary: "ArgoCD deployment failed: {app_name} to {environment}"
-        - Description: |
-            ArgoCD Deployment Failure
+        Case 1 — User provided jira_issue_id:
+          Update the existing ticket with a comment including app name, environment,
+          deployment PR, and merge status.
+          If pr_merged=true, transition to "Close Ticket".
+          If pr_merged=false, transition to "Acknowledge".
 
-            Application: {app_name}
-            Environment: {environment}
-            Requested By: {user_email}
+        Case 2 — No jira_issue_id AND pr_merged=false (failure):
+          Create a new Jira ticket in the OPENSD project:
+          - Summary: "ArgoCD deployment failed: {app_name} to {environment}"
+          - Description: Include app_name, environment, user_email, pr_url, repo_url,
+            and merge_error from /merge_result.txt.
+          - Assign to ${JIRA_ASSIGNEE} (search for this email first to get their Jira
+            account ID, then use the account ID in the assignee field)
+          - Transition to "Acknowledge"
 
-            Error details: Include any error messages from earlier steps.
-            Deployment PR: {pr_url} (if available)
-            Deployment Repo: {repo_url} (if available)
-
-            This request was submitted via Jarvis self-service and requires manual attention.
-        - Assign to ${JIRA_ASSIGNEE} (search for this email first to get their Jira account ID, then use the account ID in the assignee field)
-        - Transition to "Acknowledge"
-
-        If jira_issue_id is NOT set AND everything succeeded, skip ticket creation.
-        Write jira_created=false to /jira_result.txt.
+        Case 3 — No jira_issue_id AND pr_merged=true (success):
+          Do nothing. Write jira_created=false to /jira_result.txt and stop.
 
         Note: Available transitions are "Blocked", "Acknowledge", and "Close Ticket".
 
         Write result to /jira_result.txt:
         - jira_created=true/false
-        - jira_issue_id={ticket ID if created or provided}
+        - jira_issue_id={ticket ID if created or provided, otherwise "N/A"}
         - jira_url={ticket URL if created or provided, otherwise "N/A"}
       subagent: "jira"
 
