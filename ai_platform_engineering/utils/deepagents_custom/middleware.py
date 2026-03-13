@@ -228,6 +228,67 @@ class DeterministicTaskMiddleware(AgentMiddleware):
         """
         return self._build_task_injection(state)
     
+    @hook_config(can_jump_to=["end"])
+    def after_model(self, state: TaskOrchestrationState, runtime: Any = None) -> dict[str, Any] | None:
+        """Detect redundant write_todos calls and terminate the graph loop.
+
+        When the model calls write_todos with all tasks completed and the state
+        already has all tasks completed, this is a redundant call that would
+        otherwise cause an infinite loop (model → tools → model → ...).
+
+        This hook injects ToolMessages to satisfy the pending tool calls and
+        sets jump_to="end" to exit the graph cleanly.
+
+        Works for both deterministic task config workflows and regular
+        invocations where the model redundantly updates completed todos.
+        """
+        messages = state.get("messages", [])
+        if not messages:
+            return None
+
+        last_ai_msg = None
+        for msg in reversed(messages):
+            if isinstance(msg, AIMessage):
+                last_ai_msg = msg
+                break
+
+        if not last_ai_msg or not last_ai_msg.tool_calls:
+            return None
+
+        write_todos_calls = [tc for tc in last_ai_msg.tool_calls if tc["name"] == "write_todos"]
+        if not write_todos_calls or len(write_todos_calls) != len(last_ai_msg.tool_calls):
+            return None
+
+        for tc in write_todos_calls:
+            new_todos = tc.get("args", {}).get("todos", [])
+            if not new_todos or not all(t.get("status") == "completed" for t in new_todos):
+                return None
+
+        current_todos = state.get("todos") or []
+        if not current_todos or not all(t.get("status") == "completed" for t in current_todos):
+            return None
+
+        logger.info("[DeterministicTaskMiddleware] Redundant write_todos detected (all already completed), terminating loop")
+
+        tool_messages = [
+            ToolMessage(
+                content="All tasks already completed.",
+                tool_call_id=tc["id"],
+                name="write_todos",
+            )
+            for tc in write_todos_calls
+        ]
+
+        return {
+            "messages": tool_messages,
+            "jump_to": "end",
+        }
+
+    @hook_config(can_jump_to=["end"])
+    async def aafter_model(self, state: TaskOrchestrationState, runtime: Any = None) -> dict[str, Any] | None:
+        """Async version of after_model."""
+        return self.after_model(state, runtime)
+
     def _handle_task_completion(
         self,
         tool_call_id: str,
