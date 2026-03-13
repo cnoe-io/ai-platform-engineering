@@ -662,7 +662,7 @@ func Test_CreateBranch(t *testing.T) {
 			expectedErrMsg: "failed to get reference",
 		},
 		{
-			name: "fail to create branch",
+			name: "branch already exists - updates to source SHA",
 			mockedClient: MockHTTPClientWithHandlers(map[string]http.HandlerFunc{
 				GetReposGitRefByOwnerByRepoByRef:           mockResponse(t, http.StatusOK, mockSourceRef),
 				"GET /repos/owner/repo/git/ref/heads/main": mockResponse(t, http.StatusOK, mockSourceRef),
@@ -670,6 +670,7 @@ func Test_CreateBranch(t *testing.T) {
 					w.WriteHeader(http.StatusUnprocessableEntity)
 					_, _ = w.Write([]byte(`{"message": "Reference already exists"}`))
 				},
+				PatchReposGitRefsByOwnerByRepoByRef: mockResponse(t, http.StatusOK, mockCreatedRef),
 			}),
 			requestArgs: map[string]any{
 				"owner":       "owner",
@@ -677,8 +678,8 @@ func Test_CreateBranch(t *testing.T) {
 				"branch":      "existing-branch",
 				"from_branch": "main",
 			},
-			expectError:    true,
-			expectedErrMsg: "failed to create branch",
+			expectError: false,
+			expectedRef: mockCreatedRef,
 		},
 	}
 
