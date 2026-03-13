@@ -177,11 +177,6 @@ dependencies:
     import-values: # This is used to automatically render ENABLE_RAG variable for the supervisor configmap
       - child: agentExports.data
         parent: global.enabledSubAgents.rag
-  # Backstage plugin agent forge
-  - name: backstage-plugin-agent-forge
-    version: 0.2.38 # Do NOT bump this. It will be updated automatically using the PR or release workflow
-    tags:
-      - backstage-agent-forge
   # CAIPE UI
   - name: caipe-ui
     version: 0.2.38-rc.helm.2 # Do NOT bump this. It will be updated automatically using the PR or release workflow

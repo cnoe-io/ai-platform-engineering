@@ -4,69 +4,7 @@ This directory contains automated workflows for the AI Platform Engineering proj
 
 ## Available Workflows
 
-### 1. Build and Push Agent Forge Plugin (`build-agent-forge-plugin.yml`)
-
-**Purpose:** Clones the [cnoe-io/community-plugins](https://github.com/cnoe-io/community-plugins) repository, builds the Backstage Agent Forge plugin, and pushes the Docker image to GitHub Container Registry (ghcr.io).
-
-**Triggers:**
-- **Push**: Triggers on pushes to `main` or `develop` branches
-- **Pull Request**: Triggers on PRs to `main` branch  
-- **Manual**: Can be manually triggered via workflow_dispatch
-
-**What it does:**
-
-1. **Checkouts**:
-   - Checks out the current repository (to get the custom Dockerfile)
-   - Checks out the `agent-forge-upstream-docker` branch from `cnoe-io/community-plugins`
-2. **Sets up Environment**: Configures Node.js 20 with Yarn caching
-3. **Copies Custom Dockerfile**: Uses the optimized Dockerfile from `build/agent-forge/Dockerfile`
-4. **Installs Dependencies**: Runs `yarn install --frozen-lockfile` in the community-plugins directory
-5. **Builds Project**: Executes `yarn build:all` to compile all packages
-6. **Docker Build & Push**: 
-   - Logs into GitHub Container Registry (ghcr.io)
-   - Builds multi-platform Docker image (linux/amd64, linux/arm64) using the custom Dockerfile
-   - Pushes image with multiple tags:
-     - `latest` (for default branch)
-     - Branch name
-     - Git SHA
-     - Semantic version (if tagged)
-
-**Docker Image Details:**
-- **Image Name:** `ghcr.io/cnoe-io/backstage-plugin-agent-forge`
-- **Tags:**
-  - `latest` - Latest build from the default branch
-  - `<branch-name>` - Build from specific branch
-  - `<branch>-<sha>` - Build from specific commit
-  - `<version>` - Semantic version tags
-
-**Usage:**
-
-#### Pull the latest image:
-
-```bash
-docker pull ghcr.io/cnoe-io/backstage-plugin-agent-forge:latest
-```
-
-#### Run the container:
-
-```bash
-docker run -d -p 7007:7007 ghcr.io/cnoe-io/backstage-plugin-agent-forge:latest
-```
-
-**Prerequisites:**
-- GitHub Actions enabled on the repository
-- Write permissions to GitHub Container Registry (automatically granted via `GITHUB_TOKEN`)
-- The `build/agent-forge/Dockerfile` must exist in this repository (✓ already present)
-- The `cnoe-io/community-plugins` repository must be accessible
-- The `agent-forge-upstream-docker` branch must exist in the community-plugins repository
-
-**Customization:**
-- **Change source branch**: Edit the `ref` parameter in the checkout step
-- **Modify build command**: Update the `yarn build:all` command if needed
-- **Change platforms**: Modify the `platforms` parameter in the build step
-- **Add environment variables**: Add them to the `env` section or build args
-
----
+See the `.github/workflows/` directory for the full list of CI/CD workflows.
 
 ## General Information
 

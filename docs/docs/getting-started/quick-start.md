@@ -88,14 +88,12 @@ Use Docker Compose profiles to enable specific agents. Profiles allow you to sel
 - `webex` - Webex video communication
 
 **Special Profiles:**
-- `agentforge` - Agent Forge Backstage Plugin web UI (can be combined with any agent profile)
 - `slim` - AGNTCY Slim dataplane service for centralized agent communication (alternative to p2p)
 
 **RAG Profile (`rag`):**
 - **Purpose**: Provides knowledge base queries using Retrieval-Augmented Generation (RAG) and GraphRAG
-- **Services Included**: RAG server, RAG agent, RAG web UI, Neo4j (knowledge graph), Milvus (vector database), Redis
+- **Services Included**: RAG server, RAG agent, Neo4j (knowledge graph), Milvus (vector database), Redis
 - **Use Cases**: Answer questions from knowledge base, query entity relationships, search documentation
-- **Web UI**: Accessible at `http://localhost:9447` when running
 - **Configuration**: Set `ENABLE_GRAPH_RAG=true` in `.env` to enable GraphRAG capabilities
 - **Note**: This profile starts multiple supporting services (databases, vector stores) and may take longer to initialize
 
@@ -138,12 +136,6 @@ COMPOSE_PROFILES="github,rag,tracing" docker compose up
 ```
 
 ```bash
-# Start GitHub, Petstore, Weather agents with Agent Forge UI and tracing enabled
-# Complete development setup with example agents, web UI, and observability
-COMPOSE_PROFILES="github,petstore,weather,agentforge,tracing" docker compose up
-```
-
-```bash
 # Start agents with SLIM dataplane for centralized communication
 # Enables AGNTCY Slim dataplane and control plane services
 COMPOSE_PROFILES="slim,github,aws" docker compose up
@@ -151,15 +143,14 @@ COMPOSE_PROFILES="slim,github,aws" docker compose up
 
 **Combining Profiles:**
 - The `rag` and `tracing` profiles work well together for knowledge base operations with full observability
-- The `agentforge` profile provides a web UI and can be combined with any agent profiles
 - The `slim` profile enables centralized communication via AGNTCY Slim dataplane (set `A2A_TRANSPORT=slim` in `.env` when using this profile)
 - When using `tracing`, ensure your `.env` has `ENABLE_TRACING=true` and Langfuse credentials configured
-- Access RAG web UI at `http://localhost:9447`, Langfuse dashboard at `http://localhost:3000`, and Agent Forge at `http://localhost:13000`
+- Access Langfuse dashboard at `http://localhost:3000`
 
 **Note:**
 - If no docker compose profiles are specified, only the CAIPE supervisor agent is started
 - Multiple profiles can be combined by separating them with commas
-- The `tracing` and `agentforge` profiles can be added to any combination of agents
+- The `tracing` profile can be added to any combination of agents
 
 ### Connect to the Agent
 
@@ -174,31 +165,6 @@ docker run -it --network=host ghcr.io/cnoe-io/agent-chat-cli:stable
 ```bash
 uvx --no-cache git+https://github.com/cnoe-io/agent-chat-cli.git a2a
 ```
-
-**Option C: Using Agent Forge Backstage Plugin**
-
-Run the Agent Forge plugin with Docker:
-
-```bash
-docker run -d \
-  --name backstage-agent-forge \
-  -p 13000:3000 \
-  -e NODE_ENV=development \
-  ghcr.io/cnoe-io/backstage-plugin-agent-forge:latest
-```
-
-**Or with Docker Compose:**
-
-```bash
-COMPOSE_PROFILES="agentforge" docker compose up
-```
-
-Once the container is started, open agent-forge in your browser:
-```
-http://localhost:13000
-```
-
-> 💡 Learn more about [Agent Forge Backstage Plugin](user-interfaces.md#agent-forge-backstage-plugin) and other user interfaces.
 
 ## 📊 Run Agents for Tracing & Evaluation
 
@@ -234,7 +200,7 @@ Enable observability and evaluation with Langfuse v3:
 ## Next Steps
 
 - **Configure Authentication**: See [Docker Compose Setup](docker-compose/setup.md) for A2A authentication options
-- **User Interfaces**: Learn about [Agent Chat CLI](user-interfaces.md#agent-chat-cli) and [Agent Forge Backstage Plugin](user-interfaces.md#agent-forge-backstage-plugin)
+- **User Interfaces**: Learn about [Agent Chat CLI](user-interfaces.md#agent-chat-cli) and [CAIPE UI](user-interfaces.md#caipe-ui-standalone-ui)
 - **Deploy to Kubernetes**: Check out [Helm Setup](helm/setup.md) or [EKS Setup](eks/setup.md) for production deployments
 
 

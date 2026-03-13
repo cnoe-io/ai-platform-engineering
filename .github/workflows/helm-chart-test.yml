@@ -78,9 +78,7 @@ jobs:
           --set milvus.cluster.enabled=false \
           --set milvus.etcd.replicaCount=1 \
           --set milvus.pulsar.enabled=false \
-          --set milvus.minio.mode=standalone \
-          --set rag-webui.ingress.enabled=true \
-          --set "rag-webui.ingress.hosts[0].host=example.com"
+          --set milvus.minio.mode=standalone
 
     - name: Test ai-platform-engineering installation (dry-run) - All services
       run: |
@@ -115,13 +113,12 @@ jobs:
       run: |
         cd charts/rag-stack
 
-        # Test with all services disabled except webui
+        # Test with all services disabled except rag-server
         helm template test-minimal . \
           --set milvus.enabled=false \
-          --set rag-server.enabled=false \
+          --set rag-server.enabled=true \
           --set agent-ontology.enabled=false \
           --set rag-redis.enabled=false \
-          --set rag-webui.enabled=true \
           --set neo4j.enabled=false
 
         # Test with custom resource limits
@@ -130,8 +127,6 @@ jobs:
           --set milvus.etcd.replicaCount=1 \
           --set milvus.pulsar.enabled=false \
           --set milvus.minio.mode=standalone \
-          --set rag-webui.resources.limits.cpu=1000m \
-          --set rag-webui.resources.limits.memory=1Gi \
           --set rag-server.resources.limits.cpu=1000m \
           --set rag-server.resources.limits.memory=1Gi
 
@@ -147,28 +142,8 @@ jobs:
           --set rag-stack.milvus.etcd.replicaCount=1 \
           --set rag-stack.milvus.pulsar.enabled=false \
           --set rag-stack.milvus.minio.mode=standalone \
-          --set rag-stack.rag-webui.resources.limits.cpu=1000m \
-          --set rag-stack.rag-webui.resources.limits.memory=1Gi \
           --set rag-stack.rag-server.resources.limits.cpu=1000m \
           --set rag-stack.rag-server.resources.limits.memory=1Gi
-
-    - name: Test ingress configurations
-      run: |
-        cd charts/rag-stack
-
-        # Test with ingress enabled
-        helm template test-ingress . \
-          --set milvus.cluster.enabled=false \
-          --set milvus.etcd.replicaCount=1 \
-          --set milvus.pulsar.enabled=false \
-          --set milvus.minio.mode=standalone \
-          --set rag-webui.ingress.enabled=true \
-          --set rag-webui.ingress.className=nginx \
-          --set "rag-webui.ingress.annotations.kubernetes\.io/tls-acme=true" \
-          --set "rag-webui.ingress.annotations.cert-manager\.io/cluster-issuer=letsencrypt-prod" \
-          --set "rag-webui.ingress.hosts[0].host=rag.example.com" \
-          --set "rag-webui.ingress.tls[0].secretName=rag-tls" \
-          --set "rag-webui.ingress.tls[0].hosts[0]=rag.example.com"
 
     - name: Test with different storage classes
       run: |

@@ -203,7 +203,6 @@ curl -sfS http://localhost:8000/.well-known/agent.json >/dev/null
 ```bash
 helm template test-all-services . \
   --set ai-platform-engineering.enabled=true \
-  --set backstage-plugin-agent-forge.enabled=true \
   --set kb-rag-stack.enabled=true \
   --set graphrag.enabled=true
 ```
@@ -299,7 +298,6 @@ helm install ai-platform-engineering cnoe-io/ai-platform-engineering
 - [`ci-mcp-sub-agent.yml`](https://github.com/cnoe-io/ai-platform-engineering/blob/main/.github/workflows/ci-mcp-sub-agent.yml) - Builds MCP sub-agents
 - [`ci-a2a-sub-agent.yml`](https://github.com/cnoe-io/ai-platform-engineering/blob/main/.github/workflows/ci-a2a-sub-agent.yml) - Builds A2A sub-agents
 - [`ci-a2a-rag.yml`](https://github.com/cnoe-io/ai-platform-engineering/blob/main/.github/workflows/ci-a2a-rag.yml) - Builds RAG agents
-- [`ci-agent-forge-plugin.yml`](https://github.com/cnoe-io/ai-platform-engineering/blob/main/.github/workflows/ci-agent-forge-plugin.yml) - Builds Backstage plugin
 
 **Purpose**: Build and publish container images for individual agents and MCP servers
 
@@ -477,7 +475,6 @@ Separate workflows for PR preview builds:
 - [`pre-release-a2a-sub-agent.yaml`](https://github.com/cnoe-io/ai-platform-engineering/blob/main/.github/workflows/pre-release-a2a-sub-agent.yaml)
 - [`pre-release-mcp-agent.yaml`](https://github.com/cnoe-io/ai-platform-engineering/blob/main/.github/workflows/pre-release-mcp-agent.yaml)
 - [`pre-release-a2a-rag.yml`](https://github.com/cnoe-io/ai-platform-engineering/blob/main/.github/workflows/pre-release-a2a-rag.yml)
-- [`pre-release-agent-forge-plugin.yaml`](https://github.com/cnoe-io/ai-platform-engineering/blob/main/.github/workflows/pre-release-agent-forge-plugin.yaml)
 
 **Trigger**: Pull requests with branch prefix `prebuild/`
 
@@ -489,7 +486,6 @@ Separate workflows for PR preview builds:
 - **Agents**: `ghcr.io/cnoe-io/agent-{name}:{tag}` (e.g., `ghcr.io/cnoe-io/agent-github:stable`)
 - **MCP Servers**: `ghcr.io/cnoe-io/mcp-{name}:{tag}` (e.g., `ghcr.io/cnoe-io/mcp-argocd:latest`)
 - **Supervisor**: `ghcr.io/cnoe-io/ai-platform-engineering:{tag}`
-- **Backstage Plugin**: `ghcr.io/cnoe-io/backstage-plugin-agent-forge:{tag}`
 - **RAG Components**: `ghcr.io/cnoe-io/caipe-rag-{component}:{tag}` (e.g., `ghcr.io/cnoe-io/caipe-rag-server:latest`)
 
 **Example Build Output**:
@@ -861,8 +857,7 @@ charts/
 │   │   └── ...
 │   └── charts/
 │       ├── agent/
-│       ├── supervisor-agent/
-│       └── backstage-plugin-agent-forge/
+│       └── supervisor-agent/
 └── rag-stack/
     ├── Chart.yaml
     ├── values.yaml
@@ -883,7 +878,6 @@ charts/
 - Supervisor agent (Platform Engineer)
 - Individual agent deployments (GitHub, ArgoCD, Jira, etc.)
 - MCP server deployments
-- Backstage plugin agent-forge
 
 **Key Features**:
 - **Microservice Architecture**: Each agent deployed as independent Kubernetes deployment

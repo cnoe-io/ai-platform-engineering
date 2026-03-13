@@ -29,35 +29,6 @@ These interfaces empower users to build and manage sophisticated multi-agent sys
 
 
 
-## Agent Forge Backstage Plugin
-
-<div style={{paddingBottom: '56.25%', position: 'relative', display: 'block', width: '100%'}}>
-	<iframe src="https://app.vidcast.io/share/embed/5fe2d177-24b5-46e6-819d-2b63438f48c3?mute=1&autoplay=1&disableCopyDropdown=1" width="100%" height="100%" title="CAIPE Agent Forge Demo v0.2.0 Nov 15th 2025" loading="lazy" allow="fullscreen *;autoplay *;" style={{position: 'absolute', top: 0, left: 0, border: 'solid', borderRadius: '12px'}}></iframe>
-</div>
-
-- [**@caipe/plugin-agent-forge - explore the complete docs, install guide, and examples**](https://www.npmjs.com/package/@caipe/plugin-agent-forge)
-
-**Run with Docker:**
-
-```bash
-docker run -d \
-  --name backstage-agent-forge \
-  -p 13000:3000 \
-  -e NODE_ENV=development \
-  ghcr.io/cnoe-io/backstage-plugin-agent-forge:latest
-```
-
-**Or with Docker Compose:**
-
-```bash
-COMPOSE_PROFILES="agentforge" docker compose up
-```
-
-Once the container is started, open agent-forge in your browser (in test mode):
-```
-http://localhost:13000
-```
-
 ## CAIPE UI (Standalone UI)
 
 <div style={{paddingBottom: '56.25%', position: 'relative', display: 'block', width: '100%'}}>

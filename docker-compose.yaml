@@ -609,18 +609,6 @@ services:
       - netutils-agent
       - all-agents
 
-  # Backstage Plugin (Agent Forge)
-  backstage-agent-forge:
-    image: ghcr.io/cnoe-io/backstage-plugin-agent-forge:latest
-    container_name: backstage-agent-forge
-    ports: ["13000:3000"]
-    environment:
-      - NODE_ENV=development
-      - AGENT_FORGE_BASE_URL=${AGENT_FORGE_BASE_URL:-http://localhost:8000}
-    profiles:
-      - agentforge
-      - all-agents
-
   ####################################################################################################
   #                                      CAIPE UI & MongoDB                                          #
   ####################################################################################################
@@ -695,8 +683,6 @@ services:
       # RAG Server URL for knowledge base API (internal Docker network)
       - RAG_SERVER_URL=${RAG_SERVER_URL:-http://rag_server:9446}
       - NEXT_PUBLIC_RAG_URL=${RAG_URL:-http://localhost:9446}
-      # RAG WebUI URL for iframe embedding (browser-accessible)
-      - NEXT_PUBLIC_RAG_WEBUI_URL=${RAG_WEBUI_URL:-http://localhost:9447}
       # MongoDB configuration - Enable/disable MongoDB persistence
       - NEXT_PUBLIC_MONGODB_ENABLED=${NEXT_PUBLIC_MONGODB_ENABLED:-false}
       - MONGODB_URI=${MONGODB_URI:-mongodb://${MONGODB_ROOT_USERNAME:-admin}:${MONGODB_ROOT_PASSWORD:-changeme}@caipe-ui-mongodb:27017/${MONGODB_DATABASE:-caipe}?authSource=admin}
