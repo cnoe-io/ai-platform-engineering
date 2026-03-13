@@ -192,17 +192,16 @@ class TestBotUserNoSetStatus:
         mock_slack.chat_startStream.assert_not_called()
 
 
-class TestNoMarkdownStreamingWithPlan:
-    """When plan_steps exist, STREAMING_RESULT for non-intermediate steps is silently ignored."""
+class TestLastStepStreamedAsMarkdown:
+    """When plan_steps exist, the last step's STREAMING_RESULT is streamed live as markdown."""
 
-    def test_streaming_result_not_sent_as_markdown_when_plan_active(self):
-        """When a plan is active, streaming_result for the last step does NOT call appendStream with markdown_text."""
+    def test_last_step_streaming_result_sent_as_markdown(self):
+        """When a plan is active, streaming_result for the last step IS streamed as markdown_text in real-time."""
         events = [
             _task_event(),
             # Plan with one step (which is both first and last)
             _plan_event([_make_step("s1", "Analyze", "in_progress", 0)]),
-            # Streaming result while plan is active — last step, so not intermediate,
-            # but plan_steps exist so markdown streaming is suppressed
+            # Streaming result for the last step — should be streamed live
             _streaming_result("Some streaming text"),
             _final_result("Final answer"),
         ]
@@ -220,13 +219,17 @@ class TestNoMarkdownStreamingWithPlan:
             user_id="U123",
         )
 
-        # Check appendStream calls — should have plan task_update but NO markdown_text
+        # The last step's streaming_result should produce a markdown_text chunk
+        markdown_chunks = []
         for c in mock_slack.chat_appendStream.call_args_list:
             chunks = c.kwargs.get("chunks", [])
             for chunk in chunks:
-                assert chunk.get("type") != "markdown_text", (
-                    "markdown_text should not be streamed when plan is active"
-                )
+                if chunk.get("type") == "markdown_text":
+                    markdown_chunks.append(chunk)
+        assert len(markdown_chunks) > 0, (
+            "Last step streaming_result should be streamed as markdown_text"
+        )
+        assert any("Some streaming text" in c["text"] for c in markdown_chunks)
 
 
 class TestShouldAppendFalseReplacesThinking:
