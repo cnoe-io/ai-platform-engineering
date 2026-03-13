@@ -1140,8 +1140,14 @@ services:
   #                                      RAG Services                                                #
   ####################################################################################################
   rag_server:
+    build:
+      context: ./ai_platform_engineering/knowledge_bases/rag
+      dockerfile: ./build/Dockerfile.server
     image: ghcr.io/cnoe-io/caipe-rag-server:${IMAGE_TAG:-stable}
     container_name: rag_server
+    volumes:
+      - ./ai_platform_engineering/knowledge_bases/rag/server/src/server:/app/server/src/server
+      - ./ai_platform_engineering/knowledge_bases/rag/common/src/common:/app/common/src/common
     ports: ["9446:9446"]
     environment:
       - LOG_LEVEL=${RAG_SERVER_LOG_LEVEL:-INFO}
@@ -1168,8 +1174,14 @@ services:
       - graph_rag
 
   agent_ontology:
+    build:
+      context: ./ai_platform_engineering/knowledge_bases/rag
+      dockerfile: ./build/Dockerfile.agent-ontology
     image: ghcr.io/cnoe-io/caipe-rag-agent-ontology:${IMAGE_TAG:-stable}
     container_name: agent_ontology
+    volumes:
+      - ./ai_platform_engineering/knowledge_bases/rag/agent_ontology/src/agent_ontology:/app/agent_ontology/src/agent_ontology
+      - ./ai_platform_engineering/knowledge_bases/rag/common/src/common:/app/common/src/common
     ports: ["8098:8098"]
     environment:
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
@@ -1187,8 +1199,14 @@ services:
 
 
   web_ingestor:
+    build:
+      context: ./ai_platform_engineering/knowledge_bases/rag
+      dockerfile: ./build/Dockerfile.ingestors
     image: ghcr.io/cnoe-io/caipe-rag-ingestors:${IMAGE_TAG:-stable}
     container_name: web-ingestor
+    volumes:
+      - ./ai_platform_engineering/knowledge_bases/rag/ingestors/src/ingestors:/app/ingestors/src/ingestors
+      - ./ai_platform_engineering/knowledge_bases/rag/common/src/common:/app/common/src/common
     environment:
       - INGESTOR_TYPE=webloader
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
