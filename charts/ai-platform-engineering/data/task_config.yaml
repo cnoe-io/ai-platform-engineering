@@ -222,7 +222,7 @@ Create GitHub Repo:
             ✅ **PR Merged:** {pr_merged}
       subagent: "webex"
 
-    - display_text: "Create Jira ticket (only on failure)"
+    - display_text: "Create Jira ticket"
       llm_prompt: >
         Read /pr_merged_result.txt to get pr_merged, merge_error.
         Read /request.txt to get repo_name, org_name, user_email, and jira_issue_id (if set).
@@ -396,7 +396,7 @@ Create EC2 Instance:
             Please review and approve the PR to provision the instance.
       subagent: "webex"
 
-    - display_text: "Create Jira ticket (only on failure)"
+    - display_text: "Create Jira ticket"
       llm_prompt: >
         Read /request.txt to get resource_name, user_email, and jira_issue_id (if set).
         Read /ec2_pr_result.txt to get pr_url.
@@ -566,7 +566,7 @@ Create EKS Cluster:
             ⏱️ Note: Cluster provisioning takes 15-20 minutes after PR merge.
       subagent: "webex"
 
-    - display_text: "Create Jira ticket (only on failure)"
+    - display_text: "Create Jira ticket"
       llm_prompt: >
         Read /request.txt to get cluster_name, user_email, and jira_issue_id (if set).
         Read /eks_pr_result.txt to get pr_url.
@@ -732,7 +732,7 @@ Create S3 Bucket:
             Please review and approve the PR to create the bucket.
       subagent: "webex"
 
-    - display_text: "Create Jira ticket (only on failure)"
+    - display_text: "Create Jira ticket"
       llm_prompt: >
         Read /request.txt to get resource_name, user_email, and jira_issue_id (if set).
         Read /s3_pr_result.txt to get pr_url.
@@ -1016,7 +1016,7 @@ Deploy App to Common Cluster:
             If not, please review and approve the PR to deploy the application.
       subagent: "webex"
 
-    - display_text: "Create Jira ticket (only on failure)"
+    - display_text: "Create Jira ticket"
       llm_prompt: >
         Read /request.txt to get app_name, environment, user_email, and jira_issue_id (if set).
         Read /merge_result.txt to get pr_merged, merge_error.
