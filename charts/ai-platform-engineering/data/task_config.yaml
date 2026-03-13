@@ -999,67 +999,74 @@ Deploy App to Common Cluster:
         - Note: PR requires manual review and approval
       subagent: "github"
 
-    - display_text: "Create or update Jira ticket for deployment"
+    - display_text: "Create or update Jira ticket (only on failure or if provided)"
       llm_prompt: >
         Read /request.txt to get app_name, environment, user_email, and jira_issue_id (if set).
-        Read /deployment_pr_result.txt to get pr_url.
-        Read /repo_create.txt to get repo_created, repo_url.
-        Read /merge_result.txt to get pr_merged, auto_approve.
-        
-        If jira_issue_id is set in /request.txt, use the existing ticket:
+        Read /deployment_pr_result.txt to get pr_url (may not exist if earlier step failed).
+        Read /repo_create.txt to get repo_created, repo_url (may not exist if earlier step failed).
+        Read /merge_result.txt to get pr_merged, auto_approve (may not exist if earlier step failed).
+
+        Determine if any earlier step had an error by checking if /deployment_pr_result.txt
+        or /merge_result.txt is missing or contains error messages.
+
+        If jira_issue_id is set in /request.txt, update the existing ticket:
         1. Add a comment to {jira_issue_id} with app name, environment, deployment PR, repo URL, and merge status
         2. If pr_merged=true, transition to "Close Ticket"
         3. If pr_merged=false, transition to "Acknowledge" to indicate work has started
-        
-        If jira_issue_id is NOT set, create a new Jira ticket in the OPENSD project with:
-        - Summary: "ArgoCD deployment request: {app_name} to {environment}"
+
+        If jira_issue_id is NOT set AND there were errors in earlier steps,
+        create a new Jira ticket in the OPENSD project with:
+        - Summary: "ArgoCD deployment failed: {app_name} to {environment}"
         - Description: |
-            ArgoCD Deployment Request
-            
+            ArgoCD Deployment Failure
+
             Application: {app_name}
             Environment: {environment}
             Requested By: {user_email}
-            
-            Deployment PR: {pr_url}
-            Deployment Repo: {repo_url}
-            New Repo Created: {repo_created}
-            PR Auto-Merged: {pr_merged}
-            
-            This request was submitted via Jarvis self-service.
+
+            Error details: Include any error messages from earlier steps.
+            Deployment PR: {pr_url} (if available)
+            Deployment Repo: {repo_url} (if available)
+
+            This request was submitted via Jarvis self-service and requires manual attention.
         - Assign to ${JIRA_ASSIGNEE} (search for this email first to get their Jira account ID, then use the account ID in the assignee field)
-        - If pr_merged=true, transition to "Close Ticket"
-        - If pr_merged=false, transition to "Acknowledge" to indicate work has started (pending manual review)
-        
+        - Transition to "Acknowledge"
+
+        If jira_issue_id is NOT set AND everything succeeded, skip ticket creation.
+        Write jira_created=false to /jira_result.txt.
+
         Note: Available transitions are "Blocked", "Acknowledge", and "Close Ticket".
-        
+
         Write result to /jira_result.txt:
-        - jira_issue_id={existing or newly created ticket ID}
-        - jira_url={ticket URL}
+        - jira_created=true/false
+        - jira_issue_id={ticket ID if created or provided}
+        - jira_url={ticket URL if created or provided, otherwise "N/A"}
       subagent: "jira"
 
     - display_text: "Send Webex notification"
       llm_prompt: >
         Read /request.txt to get app_name, environment, user_email.
-        Read /deployment_pr_result.txt to get pr_url.
-        Read /repo_create.txt to get repo_url.
-        Read /jira_result.txt to get jira_url.
-        Read /merge_result.txt to get pr_merged, auto_approve.
-        
+        Read /deployment_pr_result.txt to get pr_url (may not exist if earlier step failed).
+        Read /repo_create.txt to get repo_url (may not exist if earlier step failed).
+        Read /jira_result.txt to get jira_created, jira_url.
+        Read /merge_result.txt to get pr_merged, auto_approve (may not exist if earlier step failed).
+
         Send a notification to the Webex room using the post_message tool with:
         - room_id: ${WEBEX_ROOM_ID}
-        - text: "ArgoCD Deployment: {app_name} to {environment} by {user_email} - PR: {pr_url} - Jira: {jira_url} - Merged: {pr_merged}"
+        - text: "ArgoCD Deployment: {app_name} to {environment} by {user_email} - PR: {pr_url} - Merged: {pr_merged}"
         - markdown: |
             ## 🚀 ArgoCD Deployment Request Submitted
-            
+
             **Application:** {app_name}
             **Environment:** {environment}
             **Requested By:** {user_email}
-            
+
             📋 **Deployment PR:** {pr_url}
             📦 **Deployment Repo:** {repo_url}
-            🎫 **Jira Ticket:** {jira_url}
             ✅ **PR Auto-Merged:** {pr_merged}
-            
+
+            (Include Jira ticket line only if jira_created=true: 🎫 **Jira Ticket:** {jira_url})
+
             If PR was auto-merged, ArgoCD will begin syncing shortly.
             If not, please review and approve the PR to deploy the application.
       subagent: "webex"
