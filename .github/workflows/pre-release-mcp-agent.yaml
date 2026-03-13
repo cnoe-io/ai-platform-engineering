@@ -6,6 +6,7 @@ on:
     types: [opened, synchronize, reopened, closed]
     paths:
       - 'ai_platform_engineering/agents/**'
+      - '.github/**'
       - 'build/agents/Dockerfile.mcp'
 jobs:
   load-config:
@@ -13,9 +14,7 @@ jobs:
     if: |
       github.event_name == 'pull_request' &&
       startsWith(github.head_ref, 'prebuild/') &&
-      github.event.action != 'closed' &&
-      contains(github.head_ref, '-agents')
-
+      github.event.action != 'closed'
     outputs:
       all_agents: ${{ steps.read-config.outputs.all_agents }}
     steps:

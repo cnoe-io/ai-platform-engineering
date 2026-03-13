@@ -16,9 +16,7 @@ jobs:
     if: |
       github.event_name == 'pull_request' &&
       startsWith(github.head_ref, 'prebuild/') &&
-      github.event.action != 'closed' &&
-      contains(github.head_ref, '-agents')
-
+      github.event.action != 'closed'
     permissions:
       contents: read
       packages: write
