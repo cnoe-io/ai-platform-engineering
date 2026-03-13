@@ -79,7 +79,7 @@ class Todo(TypedDict):
     """Todo item for execution plan tracking."""
     id: int
     content: str
-    status: Literal["pending", "in_progress", "completed", "error", "cancelled"]
+    status: Literal["pending", "in_progress", "completed"]
 
 
 class Task(TypedDict):
@@ -236,7 +236,6 @@ class DeterministicTaskMiddleware(AgentMiddleware):
         todos_input: list,
         tool_msg_content: str,
         files_state: dict | None = None,
-        failed: bool = False,
     ) -> Command:
         """Shared logic for handling task completion and chaining.
         
@@ -252,65 +251,23 @@ class DeterministicTaskMiddleware(AgentMiddleware):
             files_state: The 'files' dict from the completed task's Command.
                          This must be propagated to maintain filesystem state
                          between subagent calls.
-            failed: If True, mark the task as "error" and return to the model
-                    instead of chaining to the next task.
         """
-        task_status = "error" if failed else "completed"
-        
-        # Update todos - mark current task's status
+        # Update todos - mark current as completed
         todos = list(todos_input)
         for i, todo in enumerate(todos):
             if isinstance(todo, dict) and todo.get("id") == current_task_id:
-                todos[i] = {**todo, "status": task_status}
+                todos[i] = {**todo, "status": "completed"}
                 break
         
-        # Remove finished task from queue
+        # Remove completed task from queue
         remaining_tasks = [t for t in tasks if t.get("id") != current_task_id]
         
-        logger.info(f"[DeterministicTaskMiddleware] Task {current_task_id} {task_status}, {len(remaining_tasks)} remaining")
+        logger.info(f"[DeterministicTaskMiddleware] Task {current_task_id} completed, {len(remaining_tasks)} remaining")
         if files_state:
             logger.info(f"[DeterministicTaskMiddleware] Propagating {len(files_state)} files to next task")
         
-        # Build write_todos update
+        # Build write_todos update for completion
         write_todos_id = _generate_tool_call_id()
-        
-        if failed:
-            # Task failed -- mark remaining tasks as cancelled, return to model
-            # so it can summarize what succeeded and what failed.
-            for i, todo in enumerate(todos):
-                if isinstance(todo, dict) and todo.get("status") == "pending":
-                    todos[i] = {**todo, "status": "cancelled"}
-            
-            logger.warning(f"[DeterministicTaskMiddleware] Task {current_task_id} failed, stopping workflow and returning to model")
-            
-            completion_messages = [
-                ToolMessage(content=tool_msg_content, name="task", tool_call_id=tool_call_id),
-                AIMessage(content="", tool_calls=[{
-                    "name": "write_todos",
-                    "args": {"todos": todos},
-                    "id": write_todos_id,
-                }]),
-                ToolMessage(
-                    content=f"Task {current_task_id} failed. Workflow stopped. Summarize results for the user.",
-                    name="write_todos",
-                    tool_call_id=write_todos_id,
-                ),
-            ]
-            
-            update_dict = {
-                "messages": completion_messages,
-                "todos": todos,
-                "tasks": [],
-                "current_task_id": None,
-                "pending_task_tool_call_id": None,
-                "task_execution_pending": False,
-                "task_allowed_tools": None,
-            }
-            
-            if files_state:
-                update_dict["files"] = files_state
-            
-            return Command(update=update_dict)
         
         if remaining_tasks:
             # More tasks remain - set flag for abefore_model to continue
@@ -441,7 +398,6 @@ class DeterministicTaskMiddleware(AgentMiddleware):
                 todos_input=state.get("todos") or [],
                 tool_msg_content=tool_msg_content,
                 files_state=merged_files,
-                failed=task_failed,
             )
         
         # For all other tools, pass through normally
@@ -456,9 +412,8 @@ class DeterministicTaskMiddleware(AgentMiddleware):
         
         When the `task` tool is called and matches our pending_task_tool_call_id:
         1. Execute the task (await handler)
-        2. After completion, mark todo as completed (or error if it failed)
-        3. If more tasks remain and step succeeded, chain to next task
-        4. If step failed, stop workflow and return to model with error context
+        2. After completion, mark todo as completed and chain to next task
+        3. If handler raises, catch the error, pass it as tool result, and continue
         """
         tool_name = request.tool_call.get("name", "")
         tool_call_id = request.tool_call.get("id", "")
@@ -553,7 +508,6 @@ class DeterministicTaskMiddleware(AgentMiddleware):
                 todos_input=state.get("todos") or [],
                 tool_msg_content=tool_msg_content,
                 files_state=merged_files,
-                failed=task_failed,
             )
         
         # For all other tools, pass through normally
