@@ -6,11 +6,9 @@ on:
     types: [opened, synchronize, reopened, closed]
     paths:
       - 'build/Dockerfile'
-      - 'ai_platform_engineering/multi_agents/**'
-      - 'ai_platform_engineering/utils/**'
+      - 'ai_platform_engineering/**'
       - 'pyproject.toml'
       - 'uv.lock'
-      - 'ai_platform_engineering/__init__.py'
 env:
   IMAGE_NAME: ${{ github.repository_owner }}/prebuild/ai-platform-engineering
 

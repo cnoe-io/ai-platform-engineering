@@ -6,7 +6,6 @@ on:
     types: [opened, synchronize, reopened, closed]
     paths:
       - 'ai_platform_engineering/agents/**'
-      - '.github/**'
       - 'build/agents/Dockerfile.mcp'
 jobs:
   load-config:

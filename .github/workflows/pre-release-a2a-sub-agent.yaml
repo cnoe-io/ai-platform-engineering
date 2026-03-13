@@ -5,9 +5,7 @@ on:
   pull_request:
     types: [opened, synchronize, reopened, closed]
     paths:
-      - 'ai_platform_engineering/utils/**'
       - 'ai_platform_engineering/agents/**'
-      - '.github/**'
       - 'build/agents/Dockerfile.a2a'
 
 jobs:
