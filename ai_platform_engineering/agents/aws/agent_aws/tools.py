@@ -45,6 +45,16 @@ AWS_CLI_TIMEOUT = int(os.getenv("AWS_CLI_MAX_EXECUTION_TIME", "30"))
 KUBECTL_TIMEOUT = int(os.getenv("KUBECTL_MAX_EXECUTION_TIME", "45"))
 JQ_TIMEOUT = 10  # jq should be fast
 
+# kubectl commands that expose secret values to the LLM are blocked.
+# Output is also sanitized to redact any Secret data that slips through
+# (e.g. via custom jsonpath queries that reference secret fields).
+BLOCKED_KUBECTL_PATTERNS = [
+    # get secret / get secrets / get secret/name
+    r"^\s*get\s+secrets?(\s|/|$)",
+    # describe secret / describe secrets / describe secret/name
+    r"^\s*describe\s+secrets?(\s|/|$)",
+]
+
 # Maximum output size - keep small to avoid context overflow (128K token limit)
 # 20KB is roughly ~5K tokens, safe for multiple tool calls
 MAX_OUTPUT_SIZE = int(os.getenv("AWS_CLI_MAX_OUTPUT_SIZE", "20000"))
@@ -635,6 +645,113 @@ class EKSKubectlTool(BaseTool):
     """
     args_schema: type[BaseModel] = EKSKubectlToolInput
 
+    def _validate_kubectl_command(self, command: str) -> tuple[bool, str]:
+        """Block commands that would fetch Kubernetes secret values."""
+        for pattern in BLOCKED_KUBECTL_PATTERNS:
+            if re.search(pattern, command.strip(), re.IGNORECASE):
+                return False, (
+                    "Fetching Kubernetes Secrets is not allowed. "
+                    "`kubectl get/describe secret(s)` commands are blocked to prevent "
+                    "secret data from being returned to the LLM. "
+                    "Use the appropriate secrets manager (e.g. AWS Secrets Manager, Vault) "
+                    "to inspect secret values through secure channels."
+                )
+        return True, ""
+
+    def _sanitize_output(self, output: str) -> str:
+        """Redact Secret data values from kubectl output (JSON or YAML/text)."""
+        if not output:
+            return output
+
+        # Try JSON sanitization first (most kubectl -o json output)
+        try:
+            import json
+            parsed = json.loads(output)
+            redacted, was_redacted = self._redact_json_secrets(parsed)
+            if was_redacted:
+                logger.warning("Secret data detected in kubectl output — redacting before returning to LLM")
+                return json.dumps(redacted, indent=2)
+            return output
+        except (json.JSONDecodeError, ValueError):
+            pass
+
+        # Fall back to line-by-line YAML/text sanitization
+        return self._sanitize_yaml_output(output)
+
+    def _redact_json_secrets(self, obj: Any) -> tuple[Any, bool]:
+        """Recursively redact .data fields of Secret objects in a parsed JSON structure."""
+        if isinstance(obj, dict):
+            if obj.get("kind") == "Secret" and "data" in obj:
+                redacted = dict(obj)
+                redacted["data"] = {k: "[REDACTED]" for k in obj["data"]}
+                return redacted, True
+            new_obj: dict[str, Any] = {}
+            was_redacted = False
+            for k, v in obj.items():
+                new_v, r = self._redact_json_secrets(v)
+                new_obj[k] = new_v
+                was_redacted = was_redacted or r
+            return (new_obj if was_redacted else obj), was_redacted
+        if isinstance(obj, list):
+            new_list = []
+            was_redacted = False
+            for item in obj:
+                new_item, r = self._redact_json_secrets(item)
+                new_list.append(new_item)
+                was_redacted = was_redacted or r
+            return (new_list if was_redacted else obj), was_redacted
+        return obj, False
+
+    def _sanitize_yaml_output(self, output: str) -> str:
+        """Redact data key values in Secret blocks from YAML/text kubectl output."""
+        lines = output.split("\n")
+        result: list[str] = []
+        in_secret = False
+        in_data = False
+        data_indent = -1
+
+        for line in lines:
+            stripped = line.strip()
+
+            # Detect a Secret object (works for both standalone and list items)
+            if stripped == "kind: Secret":
+                in_secret = True
+                in_data = False
+                data_indent = -1
+                result.append(line)
+                continue
+
+            # Detect start of a different kind — leave secret context
+            if in_secret and re.match(r"^kind:\s+\S", stripped) and stripped != "kind: Secret":
+                in_secret = False
+                in_data = False
+                data_indent = -1
+
+            # Detect the `data:` block inside a Secret
+            if in_secret and stripped == "data:":
+                in_data = True
+                data_indent = len(line) - len(line.lstrip())
+                result.append(line)
+                continue
+
+            # Redact values within the data block
+            if in_data and stripped:
+                current_indent = len(line) - len(line.lstrip())
+                if current_indent > data_indent:
+                    # data key: value line — redact the value
+                    if ":" in stripped:
+                        key = stripped.split(":", 1)[0]
+                        result.append(f"{' ' * current_indent}{key}: [REDACTED]")
+                        logger.warning("Secret data detected in kubectl output — redacting before returning to LLM")
+                        continue
+                else:
+                    # Indentation decreased — left the data block
+                    in_data = False
+
+            result.append(line)
+
+        return "\n".join(result)
+
     def _run(
         self,
         cluster_name: str,
@@ -645,6 +762,12 @@ class EKSKubectlTool(BaseTool):
         """Execute kubectl command against EKS cluster with temporary kubeconfig."""
         import subprocess
         import tempfile
+
+        # Block secret-fetching commands before execution
+        is_valid, error_msg = self._validate_kubectl_command(kubectl_command)
+        if not is_valid:
+            logger.warning(f"kubectl command blocked: {kubectl_command!r} — {error_msg}")
+            return f"❌ Command blocked: {error_msg}"
 
         logger.info(f"🔧 EKS Kubectl: cluster={cluster_name}, profile={profile}, command='{kubectl_command}'")
 
@@ -730,6 +853,9 @@ class EKSKubectlTool(BaseTool):
                 logger.warning(f"Output truncated from {len(output)} to {MAX_OUTPUT_SIZE} bytes")
 
             logger.info(f"✅ kubectl command successful ({len(output)} bytes)")
+
+            # Sanitize output — redact any Secret data before returning to LLM
+            output = self._sanitize_output(output)
 
             return f"✅ kubectl {kubectl_command}\n\n{output}"
 
