@@ -240,6 +240,12 @@ memoryPersistence:
   ttlMinutes: 10080
   # Enable automatic fact extraction from conversations (LangMem). Default false.
   enableFactExtraction: false
+  # Maximum number of memory facts returned to the LLM per cross-thread context query.
+  # Higher values improve recall at large dataset sizes at the cost of larger context windows.
+  # Override per-deployment via LANGGRAPH_STORE_MAX_MEMORIES env var.
+  maxMemories: 50
+  # Maximum number of conversation summaries returned to the LLM per cross-thread context query.
+  maxSummaries: 10
 
 # In-thread checkpoint persistence (LangGraph Checkpointer)
 # Persists conversation state within a thread across pod restarts.

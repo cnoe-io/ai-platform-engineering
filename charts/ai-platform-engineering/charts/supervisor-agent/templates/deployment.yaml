@@ -164,6 +164,10 @@ spec:
               value: {{ .ttlMinutes | default 10080 | quote }}
             - name: ENABLE_FACT_EXTRACTION
               value: {{ .enableFactExtraction | default false | quote }}
+            - name: LANGGRAPH_STORE_MAX_MEMORIES
+              value: {{ .maxMemories | default 50 | quote }}
+            - name: LANGGRAPH_STORE_MAX_SUMMARIES
+              value: {{ .maxSummaries | default 10 | quote }}
             {{- end }}
             {{- with .Values.checkpointPersistence }}
             - name: LANGGRAPH_CHECKPOINT_TYPE

@@ -207,6 +207,8 @@ supervisor-agent:
       dims: ""       # auto-detected for known models; override if custom
     ttlMinutes: 10080
     enableFactExtraction: false
+    maxMemories: 50    # max facts returned to LLM per cross-thread query (LANGGRAPH_STORE_MAX_MEMORIES)
+    maxSummaries: 10   # max summaries returned to LLM per cross-thread query (LANGGRAPH_STORE_MAX_SUMMARIES)
   # In-thread checkpoint persistence: memory (default) | redis | postgres | mongodb
   # Persists conversation state within a thread across pod restarts.
   checkpointPersistence:
