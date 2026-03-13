@@ -66,6 +66,13 @@ class StreamState:
     task_complete: bool = False
     user_input_required: bool = False
 
+    # When True, the executor has finished processing but continues to drain
+    # remaining stream events so the LangGraph async generator completes
+    # naturally.  Closing the generator early triggers a GeneratorExit that
+    # the OTel instrumentor misinterprets as an error, producing a false
+    # ERROR status on the root tracing span.
+    stream_finished: bool = False
+
 
 class AIPlatformEngineerA2AExecutor(AgentExecutor):
     """AI Platform Engineer A2A Executor."""
@@ -720,6 +727,11 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
 
         try:
             async for event in self.agent.stream(query, context_id, trace_id, command=resume_cmd, user_email=user_email):
+                # Drain remaining events after the executor has finished
+                # processing to let the LangGraph generator close naturally.
+                if state.stream_finished:
+                    continue
+
                 # FIX for A2A Streaming Duplication (Retry/Fallback):
                 # When the agent encounters an error (e.g., orphaned tool calls) and retries,
                 # the executor may have already accumulated content from the failed attempt.
@@ -868,7 +880,8 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                         
                         state.user_input_required = True
                         logger.info(f"Task {task.id} requires user input (HITL form).")
-                        return
+                        state.stream_finished = True
+                        continue
                     continue
 
                 # Handle artifact payloads (execution plan, etc.)
@@ -936,7 +949,8 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                         await self._send_artifact(event_queue, task, artifact, append=False, last_chunk=True)
 
                         await self._handle_user_input_required(content, task, event_queue)
-                        return
+                        state.stream_finished = True
+                        continue
 
                     logger.info(
                         f"📤 ResponseFormat content preview ({len(content)} chars): "
@@ -959,20 +973,23 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                     await self._send_artifact(event_queue, task, artifact, append=False, last_chunk=True)
                     await self._send_completion(event_queue, task)
                     logger.info(f"Task {task.id} completed (ResponseFormat tool, {len(content)} chars).")
-                    return
+                    state.stream_finished = True
+                    continue
 
                 # 3. Task complete
                 if event.get('is_task_complete'):
                     state.task_complete = True
                     await self._ensure_execution_plan_completed(event_queue, task)
                     await self._handle_task_complete(event, state, content, task, event_queue)
-                    return
+                    state.stream_finished = True
+                    continue
 
                 # 4. User input required
                 if event.get('require_user_input'):
                     state.user_input_required = True
                     await self._handle_user_input_required(content, task, event_queue)
-                    return
+                    state.stream_finished = True
+                    continue
 
                 # 4. Streaming chunk
                 await self._handle_streaming_chunk(event, state, content, task, event_queue)
