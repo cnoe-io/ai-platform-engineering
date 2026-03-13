@@ -25,8 +25,11 @@ except ImportError:
 _client: Optional[MongoClient] = None
 _task_config_cache: Optional[dict] = None
 _task_config_cache_time: float = 0.0
+_policy_cache: Optional[str] = None
+_policy_cache_time: float = 0.0
 
 TASK_CONFIG_CACHE_TTL = int(os.getenv("TASK_CONFIG_CACHE_TTL", "60"))
+POLICY_CACHE_TTL = int(os.getenv("POLICY_CACHE_TTL", "60"))
 
 
 def get_mongodb_client() -> Optional[MongoClient]:
@@ -96,6 +99,7 @@ def get_task_configs_from_mongodb() -> Optional[dict]:
                     "owner_id": 1,
                     "is_system": 1,
                     "visibility": 1,
+                    "metadata": 1,
                 },
             )
         )
@@ -107,7 +111,8 @@ def get_task_configs_from_mongodb() -> Optional[dict]:
             name = doc.get("name")
             tasks = doc.get("tasks", [])
             if name and tasks:
-                result[name] = {
+                metadata = doc.get("metadata") or {}
+                entry: dict = {
                     "tasks": [
                         {
                             "display_text": t.get("display_text", ""),
@@ -120,6 +125,10 @@ def get_task_configs_from_mongodb() -> Optional[dict]:
                     "is_system": doc.get("is_system", True),
                     "visibility": doc.get("visibility", "global"),
                 }
+                allowed_tools = metadata.get("allowed_tools")
+                if allowed_tools:
+                    entry["allowed_tools"] = allowed_tools
+                result[name] = entry
 
         if result:
             _task_config_cache = result
@@ -167,3 +176,42 @@ def invalidate_task_config_cache() -> None:
     global _task_config_cache, _task_config_cache_time
     _task_config_cache = None
     _task_config_cache_time = 0.0
+
+
+def get_policy_from_mongodb() -> Optional[str]:
+    """Fetch the default global policy content from MongoDB.
+
+    Returns the ASP policy content string, or None if unavailable.
+    Uses an in-memory cache with configurable TTL.
+    """
+    global _policy_cache, _policy_cache_time
+
+    now = time.time()
+    if _policy_cache is not None and (now - _policy_cache_time) < POLICY_CACHE_TTL:
+        return _policy_cache
+
+    client = get_mongodb_client()
+    if client is None:
+        return None
+
+    database = os.getenv("MONGODB_DATABASE", "caipe")
+    try:
+        db = client[database]
+        collection = db["policies"]
+        doc = collection.find_one({"name": "default"}, {"_id": 0, "content": 1})
+        if doc and doc.get("content"):
+            _policy_cache = doc["content"]
+            _policy_cache_time = now
+            logger.info("Loaded policy from MongoDB")
+            return _policy_cache
+        return None
+    except PyMongoError as e:
+        logger.warning(f"Failed to read policy from MongoDB: {e}")
+        return None
+
+
+def invalidate_policy_cache() -> None:
+    """Clear the in-memory policy cache, forcing a fresh read on next access."""
+    global _policy_cache, _policy_cache_time
+    _policy_cache = None
+    _policy_cache_time = 0.0

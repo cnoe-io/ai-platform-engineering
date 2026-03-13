@@ -59,6 +59,8 @@ export interface TaskConfigMetadata {
   estimated_duration?: string;
   /** Tags for filtering/searching */
   tags?: string[];
+  /** Tool allowlist for custom (non-system) workflows. Empty/undefined = allow all. */
+  allowed_tools?: string[];
 }
 
 /**

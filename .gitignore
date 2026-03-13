@@ -249,6 +249,7 @@ charts/ai-platform-engineering/data/*
 !charts/ai-platform-engineering/data/skills/
 !charts/ai-platform-engineering/data/skills/**
 !charts/ai-platform-engineering/data/task_config.yaml
+!charts/ai-platform-engineering/data/policy.lp
 
 # TypeScript build cache
 *.tsbuildinfo

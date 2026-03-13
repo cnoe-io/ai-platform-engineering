@@ -157,6 +157,18 @@ supervisor-agent:
     AGENT_CONNECTIVITY_ENABLE_BACKGROUND: "true"
     USE_STRUCTURED_RESPONSE: "true" # Set to "true" to enforce agent to always use structured response format as the final output
     TASK_CONFIG_PATH: "/app/task_config.yaml"
+    POLICY_FILE_PATH: "/app/policy.lp"
+    # Self-service workflow env vars — referenced as ${VAR_NAME} in task_config.yaml prompts.
+    # Set these per environment so system workflows can resolve repo references at runtime.
+    # JARVIS_WORKFLOWS_REPO: "org/jarvis-workflows"      # Templates repo (safe-settings, terraform, etc.)
+    # ADMIN_REPO: "org/admin"                             # Safe-settings admin repo
+    # TERRAFORM_INFRA_REPO: "org/terraform-infra"         # Terraform infrastructure repo
+    # WORKFLOWS_REPO: "org/workflows"                     # GitHub Actions workflows repo
+    # GROUPS_AUTOMATION_REPO: "org/groups-automation"      # Group management automation repo
+    # GROUPS_TEAMS_PATH: "groups_yaml/teams"               # Path prefix for teams directory
+    # ORG_MEMBERSHIP_FILE_PATTERN: ""                      # Org membership YAML path pattern
+    # EMAIL_DOMAIN: "example.com"                          # Email domain for user ID derivation
+    # GITHUB_ORGS: "org1,org2"                             # Comma-separated allowed GitHub orgs
   multiAgentConfig:
     protocol: "a2a"
     port: "8000"

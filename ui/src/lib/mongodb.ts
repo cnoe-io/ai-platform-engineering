@@ -234,6 +234,10 @@ async function createIndexes(db: Db) {
     safeCreateIndex(db, 'task_configs', { owner_id: 1 }),
     safeCreateIndex(db, 'task_configs', { is_system: 1 }),
     safeCreateIndex(db, 'task_configs', { created_at: -1 }),
+
+    // Policies collection (global ASP policy for system workflows)
+    safeCreateIndex(db, 'policies', { name: 1 }, { unique: true }),
+    safeCreateIndex(db, 'policies', { is_system: 1 }),
   ]);
 
   console.log('✅ MongoDB indexes ensured');

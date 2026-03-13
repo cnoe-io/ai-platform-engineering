@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { readFileSync } from "fs";
+import { resolve } from "path";
 import { getCollection, isMongoDBConfigured } from "@/lib/mongodb";
 import {
   withAuth,
@@ -25,7 +26,8 @@ function findTaskConfigFile(): string | null {
   const candidates = [
     process.env.TASK_CONFIG_SEED_PATH,
     "/app/task_config.yaml",
-    "./task_config.yaml",
+    resolve(process.cwd(), "task_config.yaml"),
+    resolve(process.cwd(), "..", "charts", "ai-platform-engineering", "data", "task_config.yaml"),
   ].filter(Boolean) as string[];
 
   for (const path of candidates) {

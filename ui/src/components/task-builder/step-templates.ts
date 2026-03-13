@@ -1,4 +1,5 @@
 import type { StepTemplate } from "@/types/task-config";
+import { getConfig } from "@/lib/config";
 
 function t(
   id: string,
@@ -11,9 +12,15 @@ function t(
   return { id, label, subagent, category, display_text, llm_prompt };
 }
 
-export const STEP_TEMPLATES: StepTemplate[] = [
-  // ── CAIPE (User Input) ──────────────────────────────────────────────
-  t("caipe-collect-input", "Collect User Input", "caipe", "CAIPE",
+function appName(): string {
+  return getConfig("appName");
+}
+
+export function getStepTemplates(): StepTemplate[] {
+  const name = appName();
+  return [
+  // ── User Input ──────────────────────────────────────────────────────
+  t("caipe-collect-input", "Collect User Input", "caipe", name,
     "Collect user input",
     "Collect the following information from the user and write to /request.txt:\n- field_name (required): Description\n\nFormat as key=value. Write to /request.txt."),
 
@@ -348,10 +355,14 @@ export const STEP_TEMPLATES: StepTemplate[] = [
     "Run a git command", "Use git to run: git <command>."),
   t("util-invoke-task", "Invoke Self-Service Task", "github", "Utility",
     "Invoke another self-service task", "Use invoke_self_service_task to trigger task \"<task_name>\"."),
-];
+  ];
+}
+
+/** @deprecated Use {@link getStepTemplates} for dynamic APP_NAME resolution. */
+export const STEP_TEMPLATES: StepTemplate[] = getStepTemplates();
 
 export function getTemplatesByCategory(): Record<string, StepTemplate[]> {
-  return STEP_TEMPLATES.reduce<Record<string, StepTemplate[]>>((acc, t) => {
+  return getStepTemplates().reduce<Record<string, StepTemplate[]>>((acc, t) => {
     if (!acc[t.category]) acc[t.category] = [];
     acc[t.category].push(t);
     return acc;

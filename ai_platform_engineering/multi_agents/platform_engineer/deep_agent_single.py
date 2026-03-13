@@ -318,14 +318,10 @@ def create_caipe_agent_response_tool():
             missing_names = [f.field_name for f in required_missing]
             return f"ERROR: Missing required fields: {', '.join(missing_names)}. Keep calling this tool until all required fields are provided."
         
-        # All required fields provided - return data
-        result = ""
-        for f in required_with_values:
-            result += f"  {f.field_name}: {f.value}\n"
-        
-        if optional_with_values:
-            for f in optional_with_values:
-                result += f"  {f.field_name}: {f.value}\n"
+        # All required fields provided — user has submitted the form
+        result = "USER_FORM_SUBMITTED\n"
+        for f in required_with_values + optional_with_values:
+            result += f"  {f.field_name}={f.value}\n"
         
         return result.strip()
     
@@ -347,10 +343,11 @@ CAIPE_SUBAGENT_PROMPT = """You are the CAIPE (Cisco AI Platform Engineer) user i
 
 CRITICAL RULES:
 1. Use CAIPEAgentResponse tool to collect structured user input via forms
-2. After calling CAIPEAgentResponse, your task is COMPLETE - stop immediately
-3. Do NOT generate text asking for more input after the tool returns
-4. Include ALL required fields in a single CAIPEAgentResponse call
-5. Always provide a friendly `response` message that explains what you need from the user
+2. Include ALL required fields in a single CAIPEAgentResponse call
+3. Always provide a friendly `response` message that explains what you need from the user
+4. After the user submits the form, write the collected data to the filesystem using write_file if the task prompt instructs you to (e.g., write to /request.txt)
+5. Do NOT call CAIPEAgentResponse more than once
+6. Do NOT generate text asking for more input after the form returns
 
 When collecting input:
 1. Determine what information is needed based on the workflow step
@@ -432,6 +429,24 @@ def _load_task_config_from_yaml() -> dict:
         return {}
 
 
+def _substitute_env_vars_in_configs(configs: dict) -> dict:
+    """Apply env var substitution to llm_prompt fields in task configs.
+
+    System workflows seeded from task_config.yaml into MongoDB retain
+    ``${VAR_NAME}`` placeholders.  This resolves them at load time using
+    the supervisor's environment, matching the YAML-loaded behaviour.
+    """
+    for task_def in configs.values():
+        tasks = task_def.get("tasks")
+        if not tasks:
+            continue
+        for task in tasks:
+            prompt = task.get("llm_prompt")
+            if prompt and "${" in prompt:
+                task["llm_prompt"] = _substitute_env_vars(prompt)
+    return configs
+
+
 def load_task_config(user_email: Optional[str] = None) -> dict:
     """Load task configs from MongoDB (primary), YAML file (fallback).
 
@@ -444,9 +459,9 @@ def load_task_config(user_email: Optional[str] = None) -> dict:
     returned (system/global configs + configs owned by the user).  When
     ``None``, only system/global configs are returned from MongoDB.
 
-    Environment variable substitution (``${VAR_NAME}``) is applied to YAML-
-    sourced configs. MongoDB-sourced configs are assumed to already have their
-    prompts resolved (the UI stores them as-is).
+    Environment variable substitution (``${VAR_NAME}``) is applied to both
+    YAML-sourced and MongoDB-sourced configs so that system workflows seeded
+    with ``${JARVIS_WORKFLOWS_REPO}`` etc. resolve at runtime.
     """
     mongodb_uri = os.getenv("MONGODB_URI")
     if mongodb_uri:
@@ -457,7 +472,7 @@ def load_task_config(user_email: Optional[str] = None) -> dict:
 
             configs = get_task_configs_for_user(user_email)
             if configs:
-                return configs
+                return _substitute_env_vars_in_configs(configs)
         except Exception as e:
             logger.warning(f"MongoDB unavailable, falling back to YAML: {e}")
 
@@ -576,22 +591,26 @@ def create_invoke_self_service_task_tool():
         # Build step list for display
         step_list = "\n".join([f"{i+1}. {t.get('display_text', 'Step')}" for i, t in enumerate(tasks)])
         
-        # Return Command that ONLY sets up state - no AIMessage injection!
-        # The before_model hook will inject the task call and short-circuit
-        return Command(
-            update={
-                "tasks": tasks,
-                "todos": todos,
-                "task_execution_pending": True,  # Signal for before_model
-                "messages": [
-                    ToolMessage(
-                        content=f"Starting workflow: {task_name}\n\nThe following {len(tasks)} steps will be executed:\n{step_list}",
-                        tool_call_id=tool_call_id,
-                    ),
-                ],
-            },
-            # NO goto - let it go back to model where before_model will intercept
-        )
+        # Determine if this is a system workflow or custom with tool restrictions
+        is_system = task_def.get("is_system", True)
+        allowed_tools = task_def.get("allowed_tools") if not is_system else None
+        
+        update_dict: dict = {
+            "tasks": tasks,
+            "todos": todos,
+            "task_execution_pending": True,
+            "messages": [
+                ToolMessage(
+                    content=f"Starting workflow: {task_name}\n\nThe following {len(tasks)} steps will be executed:\n{step_list}",
+                    tool_call_id=tool_call_id,
+                ),
+            ],
+        }
+        
+        if allowed_tools:
+            update_dict["task_allowed_tools"] = allowed_tools
+        
+        return Command(update=update_dict)
     
     return invoke_self_service_task
 
@@ -720,10 +739,81 @@ async def create_subagent_def(agent_instance, name: str, description: str, promp
 
 
 async def create_github_subagent_def(prompt_config: dict = None) -> dict:
-    """Create GitHub subagent definition with shared filesystem and terraform_fmt."""
+    """Create GitHub subagent definition with local MCP server and gh CLI fallback.
+
+    Tool loading bypasses the base _load_mcp_tools because:
+    1. It prefers get_mcp_http_config() → Copilot HTTP API (not wanted in single-node)
+    2. Its STDIO path auto-derives a Python server_path that doesn't exist
+       (GitHub MCP is a Go project at mcp/mcp_github/, not Python)
+
+    Instead, we call get_mcp_config() directly which launches the local
+    Go MCP server via ``go run``. The gh CLI tool is always added alongside
+    MCP tools — policy.lp controls which tools are allowed:
+    - readonly MCP tools (get_file_contents, etc.) are always allowed
+    - write MCP tools (push_files, create_branch, etc.) require self_service_mode
+    - gh_cli_execute is allowed in both modes (policy marks it readonly + self_service)
+    """
     agent = GitHubAgent()
-    subagent_def = await create_subagent_def(agent, "github", "GitHub: repository operations, workflows, PRs", prompt_config)
-    subagent_def["tools"].append(terraform_fmt)
+    name = "github"
+
+    mcp_tools = []
+    try:
+        mcp_config = agent.get_mcp_config()
+        client = MultiServerMCPClient({name: mcp_config})
+        try:
+            mcp_tools = await client.get_tools()
+        except ExceptionGroup:
+            # Go MCP servers often raise cleanup errors after tools are loaded.
+            # Retry with the base class helper that suppresses these.
+            mcp_tools = await agent._load_mcp_tools_with_cleanup_handling(client, name)
+        mcp_tools = agent._filter_mcp_tools(mcp_tools)
+        logger.info(f"{name}: {len(mcp_tools)} MCP tools loaded via local go run")
+    except (ValueError, FileNotFoundError) as e:
+        logger.warning(f"{name}: Cannot start local MCP server: {e}")
+    except Exception as e:
+        logger.warning(f"{name}: Failed to load MCP tools from local server: {e}", exc_info=True)
+
+    tools = list(mcp_tools)
+
+    # gh CLI as fallback for when MCP is unavailable or for simple operations
+    gh_tool = agent.get_additional_tools()
+    if gh_tool:
+        tools.extend(gh_tool)
+        logger.info(f"{name}: Added gh CLI fallback tool")
+
+    tools.extend([tool_result_to_file, wait, terraform_fmt])
+
+    # Build subagent def (prompt, middleware, model override) without re-loading tools
+    system_prompt = None
+    if prompt_config:
+        agent_prompts = prompt_config.get("agent_prompts", {})
+        agent_config = agent_prompts.get(name, {})
+        system_prompt = agent_config.get("system_prompt")
+        if system_prompt:
+            logger.info(f"📝 Using prompt_config system_prompt for {name} subagent")
+    if not system_prompt:
+        system_prompt = agent._get_system_instruction_with_date()
+        logger.info(f"📝 Using built-in system_prompt for {name} subagent")
+
+    subagent_def = {
+        "name": name,
+        "description": "GitHub: repository operations, workflows, PRs",
+        "system_prompt": system_prompt,
+        "tools": tools,
+        "middleware": [
+            PolicyMiddleware(agent_name=name, agent_type="subagent"),
+        ],
+    }
+
+    model_override = _get_subagent_model(name)
+    if model_override:
+        subagent_def["model"] = model_override
+
+    logger.info(
+        f"📦 Created SubAgent def for {name} with {len(tools)} tools "
+        f"({len(mcp_tools)} MCP + {len(gh_tool)} CLI)"
+        f"{f', model={model_override}' if model_override else ''}"
+    )
     return subagent_def
 
 
@@ -873,6 +963,7 @@ class PlatformEngineerDeepAgent:
         self._graph = None
         self._graph_generation = 0
         self._initialized = False
+        self._subagent_tools: Dict[str, List[str]] = {}
         
         # RAG-related instance variables
         self.rag_enabled = ENABLE_RAG
@@ -939,6 +1030,11 @@ class PlatformEngineerDeepAgent:
         if not self.rag_tools:
             return set()
         return {t.name for t in self.rag_tools}
+
+    def get_subagent_tools(self) -> Dict[str, List[str]]:
+        """Return tool names per subagent, captured at graph build time."""
+        with self._graph_lock:
+            return dict(self._subagent_tools)
 
     async def _load_rag_tools(self) -> List[Any]:
         """Load RAG MCP tools from the server."""
@@ -1111,6 +1207,15 @@ class PlatformEngineerDeepAgent:
                 logger.info("🌤️ Weather remote A2A subagent enabled")
             except Exception as e:
                 logger.warning(f"Failed to create weather remote subagent: {e}")
+        
+        # Capture tool names per subagent for the /tools API
+        subagent_tools_snapshot: Dict[str, List[str]] = {}
+        for sd in subagent_defs:
+            sa_name = sd.get("name")
+            sa_tools = sd.get("tools", [])
+            if sa_name and sa_tools:
+                subagent_tools_snapshot[sa_name] = [t.name for t in sa_tools]
+        self._subagent_tools = subagent_tools_snapshot
         
         # Build agents_for_prompt dict for generating system prompt
         agents_for_prompt = {}

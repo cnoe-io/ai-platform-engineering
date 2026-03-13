@@ -2,17 +2,8 @@
 
 import React from "react";
 import { cn } from "@/lib/utils";
-
-const SUBAGENT_OPTIONS = [
-  { value: "caipe",     label: "User Input (CAIPE)" },
-  { value: "github",    label: "GitHub" },
-  { value: "backstage", label: "Backstage" },
-  { value: "aws",       label: "AWS" },
-  { value: "argocd",    label: "ArgoCD" },
-  { value: "aigateway", label: "AI Gateway" },
-  { value: "jira",      label: "Jira" },
-  { value: "webex",     label: "Webex" },
-];
+import { useAgentTools } from "@/hooks/use-agent-tools";
+import { AlertCircle, Loader2, RefreshCw } from "lucide-react";
 
 interface SubagentSelectorProps {
   value: string;
@@ -20,6 +11,34 @@ interface SubagentSelectorProps {
 }
 
 export function SubagentSelector({ value, onChange }: SubagentSelectorProps) {
+  const { agents, loading, error, errorMessage, refresh } = useAgentTools();
+
+  if (loading) {
+    return (
+      <div className="flex items-center gap-2 h-9 px-3 text-xs text-muted-foreground">
+        <Loader2 className="h-3 w-3 animate-spin" />
+        Loading agents...
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="flex items-center gap-2 h-9 px-2">
+        <AlertCircle className="h-3.5 w-3.5 text-destructive shrink-0" />
+        <span className="text-xs text-destructive truncate" title={errorMessage}>
+          {errorMessage || "Could not load agents"}
+        </span>
+        <button
+          onClick={refresh}
+          className="text-primary hover:underline text-xs inline-flex items-center gap-1 shrink-0"
+        >
+          <RefreshCw className="h-3 w-3" /> Retry
+        </button>
+      </div>
+    );
+  }
+
   return (
     <select
       value={value}
@@ -30,7 +49,7 @@ export function SubagentSelector({ value, onChange }: SubagentSelectorProps) {
         "disabled:cursor-not-allowed disabled:opacity-50"
       )}
     >
-      {SUBAGENT_OPTIONS.map((option) => (
+      {agents.map((option) => (
         <option key={option.value} value={option.value}>
           {option.label}
         </option>
