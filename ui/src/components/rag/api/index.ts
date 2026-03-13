@@ -15,6 +15,7 @@ const API_BASE = '/api/rag';
 // Constants
 export const WEBLOADER_INGESTOR_ID = 'webloader:default_webloader';
 export const CONFLUENCE_INGESTOR_ID = 'confluence:default_confluence';
+export const JIRA_INGESTOR_ID = 'jira:jira-ingestor';
 
 // Helper function for API calls (replaces axios)
 async function apiGet<T>(endpoint: string, params?: Record<string, string | number>): Promise<T> {
