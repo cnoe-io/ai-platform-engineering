@@ -132,7 +132,7 @@ def stream_a2a_response(
             if loading_messages:
                 kwargs["loading_messages"] = loading_messages
             slack_client.assistant_threads_setStatus(**kwargs)
-            logger.info(f"[{thread_ts}] SLACK setStatus('{status_text}')")
+            # logger.info(f"[{thread_ts}] SLACK setStatus('{status_text}')")
         except Exception as e:
             logger.warning(f"[{thread_ts}] SLACK setStatus('{status_text}') FAILED: {e}")
 
@@ -242,10 +242,10 @@ def stream_a2a_response(
                         task_error = f"Agent task failed: {error_msg}"
 
             elif parsed.event_type == EventType.STREAMING_RESULT:
-                logger.info(
-                    f"[{thread_ts}] STREAMING_RESULT: {len(parsed.text_content or '')} chars, "
-                    f"append={parsed.should_append}, step={current_step_id}"
-                )
+                # logger.info(
+                #     f"[{thread_ts}] STREAMING_RESULT: {len(parsed.text_content or '')} chars, "
+                #     f"append={parsed.should_append}, step={current_step_id}"
+                # )
                 if parsed.text_content:
                     # Determine if this is intermediate step thinking or final answer.
                     # Non-last plan steps → accumulate thinking (sent at step completion).
@@ -287,7 +287,7 @@ def stream_a2a_response(
                                     channel=channel_id, ts=stream_ts,
                                     chunks=[{"type": "markdown_text", "text": text}],
                                 )
-                                logger.info(f"[{thread_ts}] SLACK appendStream markdown_text {len(parsed.text_content)} chars")
+                                # logger.info(f"[{thread_ts}] SLACK appendStream markdown_text {len(parsed.text_content)} chars")
                                 streamed_any_text = True
                             except Exception as e:
                                 logger.warning(f"[{thread_ts}] SLACK appendStream text FAILED: {e}")

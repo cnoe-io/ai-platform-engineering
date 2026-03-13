@@ -13,6 +13,7 @@ export class TimelineManager {
   private currentThinkingId: string | null = null;
   private currentPlanStepId: string | null = null;
   private hasPlan = false;
+  private streamingFinalAnswer = false;
 
   /** End the current thinking segment (set isStreaming=false, clear tracking). */
   endThinking(): void {
@@ -35,9 +36,12 @@ export class TimelineManager {
 
   /** Append to current thinking or create a new one. Tags with planStepId if post-plan. */
   pushThinking(content: string, eventNum: number): void {
-    // When the last plan step is active, stream content as the final answer
-    // instead of nesting it as thinking under the plan step.
-    if (this.isLastPlanStepActive()) {
+    // When the last plan step is active (or we already started streaming
+    // the final answer), route content to the final_answer segment.
+    // The streamingFinalAnswer flag ensures we keep routing here even after
+    // a plan status update marks all steps completed (clearing currentPlanStepId).
+    if (this.streamingFinalAnswer || this.isLastPlanStepActive()) {
+      this.streamingFinalAnswer = true;
       this.endThinking();
       const existing = this.segments.find((s) => s.type === "final_answer");
       if (existing) {
