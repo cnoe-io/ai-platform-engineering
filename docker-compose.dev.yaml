@@ -398,7 +398,7 @@ services:
     environment:
       - A2A_TRANSPORT=${A2A_TRANSPORT:-p2p}
       - MCP_MODE=http
-      - MCP_HOST=weather.example.com
+      - MCP_HOST=weather.outshift.io
       - MCP_PORT=8000
       - SLIM_ENDPOINT=${SLIM_ENDPOINT:-http://slim-dataplane:46357}
     profiles:
