@@ -81,7 +81,7 @@ class TestSanitizeJsonOutput:
             "metadata": {"name": "my-secret", "namespace": "default"},
             "data": {
                 "username": "YWRtaW4=",
-                "password": "c3VwZXJzZWNyZXQ=",
+                "password": "c3VwZXJzZWNyZXQ=",  # gitleaks:allow
             },
         }
         result = tool._sanitize_output(json.dumps(secret))
@@ -171,7 +171,7 @@ metadata:
   namespace: default
 data:
   username: YWRtaW4=
-  password: c3VwZXJzZWNyZXQ=
+  password: c3VwZXJzZWNyZXQ=  # gitleaks:allow
 type: Opaque
 """
 
