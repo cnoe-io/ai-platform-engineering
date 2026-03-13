@@ -12,7 +12,6 @@ import asyncio
 import json
 import sys
 from datetime import datetime
-from typing import Optional
 
 try:
     import redis.asyncio as redis
@@ -92,7 +91,7 @@ class PersistenceBackendTester:
                                 created_dt = datetime.fromtimestamp(created / 1_000_000).strftime("%Y-%m-%d %H:%M:%S")
                                 print(f"   📝 {content}")
                                 print(f"      Created: {created_dt}")
-                except Exception as e:
+                except Exception:
                     pass
 
             await client.aclose()

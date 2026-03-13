@@ -55,6 +55,27 @@ sed -i.bak "s/^LANGGRAPH_CHECKPOINT_TYPE=.*/LANGGRAPH_CHECKPOINT_TYPE=${TYPE_VAL
 sed -i.bak "s/^LANGGRAPH_STORE_TYPE=.*/LANGGRAPH_STORE_TYPE=${TYPE_VALUE}/" $ENV_FILE
 echo "   LANGGRAPH_CHECKPOINT_TYPE=${TYPE_VALUE}"
 echo "   LANGGRAPH_STORE_TYPE=${TYPE_VALUE}"
+
+case $BACKEND in
+    redis)
+        sed -i.bak "s|^LANGGRAPH_CHECKPOINT_REDIS_URL=.*|LANGGRAPH_CHECKPOINT_REDIS_URL=redis://langgraph-redis:6379|" $ENV_FILE
+        sed -i.bak "s|^LANGGRAPH_STORE_REDIS_URL=.*|LANGGRAPH_STORE_REDIS_URL=redis://langgraph-redis:6379|" $ENV_FILE
+        echo "   LANGGRAPH_CHECKPOINT_REDIS_URL=redis://langgraph-redis:6379"
+        echo "   LANGGRAPH_STORE_REDIS_URL=redis://langgraph-redis:6379"
+        ;;
+    postgres)
+        sed -i.bak "s|^LANGGRAPH_CHECKPOINT_POSTGRES_DSN=.*|LANGGRAPH_CHECKPOINT_POSTGRES_DSN=postgresql://langgraph:langgraph@langgraph-postgres:5432/langgraph|" $ENV_FILE
+        sed -i.bak "s|^LANGGRAPH_STORE_POSTGRES_DSN=.*|LANGGRAPH_STORE_POSTGRES_DSN=postgresql://langgraph:langgraph@langgraph-postgres:5432/langgraph|" $ENV_FILE
+        echo "   LANGGRAPH_CHECKPOINT_POSTGRES_DSN=postgresql://langgraph:langgraph@langgraph-postgres:5432/langgraph"
+        echo "   LANGGRAPH_STORE_POSTGRES_DSN=postgresql://langgraph:langgraph@langgraph-postgres:5432/langgraph"
+        ;;
+    mongodb)
+        sed -E -i.bak "s|^#? *LANGGRAPH_CHECKPOINT_MONGODB_URI=.*|LANGGRAPH_CHECKPOINT_MONGODB_URI=mongodb://langgraph-mongodb:27017|" $ENV_FILE
+        sed -E -i.bak "s|^#? *LANGGRAPH_STORE_MONGODB_URI=.*|LANGGRAPH_STORE_MONGODB_URI=mongodb://langgraph-mongodb:27017|" $ENV_FILE
+        echo "   LANGGRAPH_CHECKPOINT_MONGODB_URI=mongodb://langgraph-mongodb:27017"
+        echo "   LANGGRAPH_STORE_MONGODB_URI=mongodb://langgraph-mongodb:27017"
+        ;;
+esac
 echo ""
 
 # Start with new backend
