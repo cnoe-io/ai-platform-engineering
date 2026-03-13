@@ -22,6 +22,7 @@ NC='\033[0m'
 CLUSTER_NAME=""
 ENABLE_RAG=false
 ENABLE_TRACING=false
+ENABLE_PERSISTENCE=false
 OPENAI_API_KEY=""
 OPENAI_ENDPOINT="https://api.openai.com/v1"
 OPENAI_MODEL_NAME="gpt-5.2"
@@ -911,6 +912,7 @@ choose_features() {
     fi
     $ENABLE_TRACING && log "Tracing enabled (--tracing)" || log "Tracing skipped (pass --tracing to enable)"
     $ENABLE_AGENTGATEWAY && log "AgentGateway enabled (--agentgateway)" || log "AgentGateway skipped (pass --agentgateway to enable)"
+    $ENABLE_PERSISTENCE && log "Redis persistence enabled (--persistence)" || log "Persistence skipped (pass --persistence to enable)"
     return
   fi
 
@@ -978,6 +980,16 @@ choose_features() {
     log "AgentGateway enabled"
   else
     log "AgentGateway skipped"
+  fi
+
+  echo ""
+  echo -e "  ${DIM}Redis persistence stores conversation checkpoints and cross-thread memory${NC}"
+  echo -e "  ${DIM}in a dedicated Redis Stack pod, surviving pod restarts.${NC}"
+  if ask_yn "Enable Redis persistence (checkpoints + cross-thread memory)?" "n"; then
+    ENABLE_PERSISTENCE=true
+    log "Redis persistence enabled"
+  else
+    log "Persistence skipped"
   fi
 }
 
@@ -2175,6 +2187,18 @@ deploy_caipe() {
       --set supervisor-agent.env.OTEL_EXPORTER_OTLP_ENDPOINT=http://langfuse-web.langfuse.svc.cluster.local:3000/api/public/otel
     )
     log "Tracing configuration added"
+  fi
+
+  if $ENABLE_PERSISTENCE; then
+    helm_args+=(
+      --set 'global.langgraphRedis.enabled=true'
+      --set 'supervisor-agent.checkpointPersistence.type=redis'
+      --set 'supervisor-agent.checkpointPersistence.redis.autoDiscoverService=langgraph-redis'
+      --set 'supervisor-agent.memoryPersistence.type=redis'
+      --set 'supervisor-agent.memoryPersistence.redis.autoDiscoverService=langgraph-redis'
+      --set 'supervisor-agent.memoryPersistence.enableFactExtraction=true'
+    )
+    log "Redis persistence configured (langgraph-redis subchart, fact extraction enabled)"
   fi
 
   if ! helm upgrade --install caipe "$CAIPE_OCI_REPO" "${helm_args[@]}" 2>&1; then
@@ -3559,6 +3583,8 @@ Options:
                      with TLS inspection, e.g. Cisco Secure Access, Zscaler)
   --tracing          Enable Langfuse tracing (with --non-interactive, or pre-selects in interactive)
   --agentgateway     Deploy AgentGateway to federate MCP servers behind a single endpoint
+  --persistence      Enable Redis persistence for checkpoints and cross-thread memory
+                     (deploys langgraph-redis subchart; enables fact extraction)
                      (allows Cursor/VS Code/Claude Code to connect to all MCP servers at once)
   --ingest-url=URL   Ingest a URL into the RAG knowledge base after deploy
                      (implies --rag; repeatable for multiple URLs; uses sitemap crawl)
@@ -3636,6 +3662,8 @@ Examples:
   ENABLE_VLLM=true $(basename "$0") --non-interactive                    # vLLM + LiteLLM (gpt-oss-20B in-cluster)
   $(basename "$0") --non-interactive --agentgateway                     # deploy with AgentGateway for MCP access
   $(basename "$0") --non-interactive --agentgateway --rag               # full stack with AgentGateway + RAG
+  $(basename "$0") --non-interactive --persistence                      # deploy with Redis persistence
+  $(basename "$0") --non-interactive --rag --persistence                # RAG + Redis persistence (recommended)
 
 EOF
   exit 0
@@ -3653,6 +3681,7 @@ for arg in "$@"; do
     --corporate-ca)    INJECT_CORPORATE_CA=true ;;
     --tracing)         ENABLE_TRACING=true ;;
     --agentgateway)    ENABLE_AGENTGATEWAY=true ;;
+    --persistence)     ENABLE_PERSISTENCE=true ;;
     --upgrade)         FORCE_UPGRADE=true ;;
     --auto-heal)       AUTOHEAL_ENABLED=true ;;
     --no-auto-heal)    AUTOHEAL_ENABLED=false ;;
