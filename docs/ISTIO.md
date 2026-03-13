@@ -38,9 +38,6 @@ rag-stack:
     podAnnotations:
       traffic.sidecar.istio.io/excludeInboundPorts: "6379,15020"
 
-  rag-webui:
-    podAnnotations:
-      traffic.sidecar.istio.io/excludeOutboundPorts: "9446"
 ```
 
 ### Milvus Components

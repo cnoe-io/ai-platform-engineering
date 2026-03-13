@@ -1,6 +1,6 @@
 # RAG Stack Helm Chart
 
-A complete RAG (Retrieval-Augmented Generation) stack with hybrid search, graph RAG, web UI, and multi-source ingestion.
+A complete RAG (Retrieval-Augmented Generation) stack with hybrid search, graph RAG, and multi-source ingestion.
 
 ## Quick Start
 
@@ -17,7 +17,6 @@ helm install rag-stack ./charts/rag-stack -f custom-values.yaml
 ### Core Services
 - **rag-server** - REST API, ingestion, search, MCP tools (Port: 9446)
 - **agent-ontology** - Automatic schema discovery with LLM evaluation (Port: 8098)
-- **rag-webui** - React web interface (Port: 80)
 - **web-ingestor** - URL/sitemap ingestion (sidecar in rag-server pod)
 
 ### Databases
@@ -232,36 +231,15 @@ See `values.yaml` for complete examples of:
 
 ## Authentication (Optional)
 
-OAuth2 Proxy integration for OIDC/OAuth2 authentication with group-based RBAC.
-
-**Important:** When enabling OAuth2 Proxy, disable the rag-webui direct ingress. Traffic must flow through OAuth2 Proxy.
+The RAG server supports RBAC via environment variables:
 
 ```yaml
-oauth2-proxy:
-  enabled: true
-  config:
-    clientID: "YOUR_CLIENT_ID"
-    clientSecret: "YOUR_CLIENT_SECRET"
-    cookieSecret: "BASE64_SECRET"  # openssl rand -base64 32 | head -c 32 | base64
-  extraArgs:
-    provider: "oidc"
-    oidc-issuer-url: "https://your-idp.com/oidc"
-    oidc-groups-claim: "groups"
-  ingress:
-    enabled: true
-    hosts:
-      - host: rag-webui.example.com
-
 rag-server:
   env:
     ALLOW_UNAUTHENTICATED: "false"
     RBAC_READONLY_GROUPS: "viewers,engineers"
     RBAC_ADMIN_GROUPS: "admins"
     RBAC_DEFAULT_ROLE: "readonly"
-
-rag-webui:
-  ingress:
-    enabled: false  # Must be disabled when using oauth2-proxy
 ```
 
 RBAC roles: `readonly` (search only), `ingestonly` (ingest only), `admin` (full access).
@@ -270,7 +248,6 @@ RBAC roles: `readonly` (search only), `ingestonly` (ingest only), `admin` (full 
 
 | Service | URL | Description |
 |---------|-----|-------------|
-| Web UI | `http://rag-webui.local` | Main interface (configure ingress) |
 | REST API | `http://rag-server:9446/docs` | Swagger docs |
 | MCP Tools | `http://rag-server:9446/mcp` | MCP endpoint |
 | Neo4j | `http://rag-neo4j:7474` | Graph browser |

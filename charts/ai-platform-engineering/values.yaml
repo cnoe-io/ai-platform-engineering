@@ -1,7 +1,6 @@
 tags:
   basic: false
   complete: false
-  backstage-agent-forge: false
   caipe-ui: false
   dynamic-agents: false
   agent-argocd: false
@@ -476,23 +475,6 @@ agent-petstore:
   mcp:
     useRemoteMcpServer: true
 
-######### Backstage plugin agent forge configuration #########
-backstage-plugin-agent-forge:
-  nameOverride: "backstage-plugin-agent-forge"
-  image:
-    repository: "ghcr.io/cnoe-io/backstage-plugin-agent-forge"
-    # tag defaults to .Chart.AppVersion when not specified
-    tag: ""
-    pullPolicy: "Always"
-  service:
-    ports:
-      - name: http
-        port: 3000
-        protocol: TCP
-      - name: backend
-        port: 7007
-        protocol: TCP
-
 ######### CAIPE UI configuration #########
 caipe-ui:
   skills:
@@ -765,14 +747,6 @@ rag-stack:
 
   agent-ontology:
     enabled: true
-
-  rag-webui:
-    enabled: true
-    image:
-      repository: "ghcr.io/cnoe-io/caipe-rag-webui"
-      # tag defaults to .Chart.AppVersion when not specified
-      tag: ""
-      pullPolicy: "Always"
 
   neo4j:
     enabled: true

@@ -155,8 +155,6 @@ helm install ai-platform-engineering oci://ghcr.io/cnoe-io/charts/ai-platform-en
 | **slim** | v0.1.8 | AGNTCY Slim dataplane service |
 | **slim-control-plane** | v0.1.3 | AGNTCY Slim control plane |
 | **rag-stack** | 0.0.1 | RAG (Retrieval-Augmented Generation) stack |
-| **backstage-plugin-agent-forge** | 0.1.0 | Backstage plugin for agent management |
-
 ### Agent components
 
 All agent subcharts use version **0.2.2**. Enable with `tags.agent-<name>=true` (or `tags.rag-stack=true` for RAG).
@@ -226,16 +224,6 @@ helm install ai-platform-engineering oci://ghcr.io/cnoe-io/charts/ai-platform-en
   --namespace ai-platform-engineering \
   --create-namespace \
   --set-string tags.rag-stack=true
-```
-
-### Enable Backstage Agent Forge plugin
-
-```bash
-helm install ai-platform-engineering oci://ghcr.io/cnoe-io/charts/ai-platform-engineering \
-  --version 0.2.32 \
-  --namespace ai-platform-engineering \
-  --create-namespace \
-  --set-string tags.backstage-agent-forge=true
 ```
 
 ---

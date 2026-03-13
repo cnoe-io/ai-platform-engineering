@@ -909,18 +909,6 @@ services:
     profiles:
       - victorops
 
-  # Backstage Plugin (Agent Forge)
-  backstage-agent-forge:
-    image: ghcr.io/cnoe-io/backstage-plugin-agent-forge:0.2.7
-    container_name: backstage-agent-forge
-    ports: ["13000:3000"]
-    environment:
-      - NODE_ENV=development
-      - AGENT_FORGE_BASE_URL=${AGENT_FORGE_BASE_URL:-http://localhost:8000}
-    profiles:
-      - agentforge
-      - all-agents
-
   ####################################################################################################
   #                                      NETUTILS AGENT (NetUtils)                                    #
   ####################################################################################################
@@ -1046,8 +1034,6 @@ services:
       # RAG Server URL for knowledge base API (internal Docker network)
       - RAG_SERVER_URL=${RAG_SERVER_URL:-http://rag_server:9446}
       - RAG_URL=${RAG_URL:-http://localhost:9446}
-      # RAG WebUI URL for iframe embedding (browser-accessible)
-      - RAG_WEBUI_URL=${RAG_WEBUI_URL:-http://localhost:9447}
       # NextAuth configuration (required for production)
       # Generate a secret with: openssl rand -base64 32
       - NEXTAUTH_SECRET=${NEXTAUTH_SECRET:-caipe-dev-secret-change-in-production}

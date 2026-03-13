@@ -2122,7 +2122,6 @@ deploy_caipe() {
       --set caipe-ui.env.RAG_URL=/api/rag
       --set caipe-ui.env.RAG_SERVER_URL=http://rag-server:${RAG_SERVER_PORT}
       --set caipe-ui.env.RAG_ENABLED=true
-      --set 'rag-stack.rag-webui.enabled=false'
       --set "rag-stack.rag-server.env.EMBEDDINGS_MODEL=${EMBEDDINGS_MODEL}"
       --set "rag-stack.rag-server.env.EMBEDDINGS_PROVIDER=${EMBEDDINGS_PROVIDER}"
       --set 'rag-stack.rag-server.env.ALLOW_TRUSTED_NETWORK=true'
