@@ -187,6 +187,11 @@ dependencies:
     version: 0.2.38-rc.helm.2 # Do NOT bump this. It will be updated automatically using the PR or release workflow
     tags:
       - caipe-ui
+  # Dynamic Agents - Standalone agent builder with MCP tool support
+  - name: dynamic-agents
+    version: 0.2.38 # Do NOT bump this. It will be updated automatically using the PR or release workflow
+    tags:
+      - dynamic-agents
   # MongoDB for CAIPE UI persistence
   - name: caipe-ui-mongodb
     version: 0.2.38
