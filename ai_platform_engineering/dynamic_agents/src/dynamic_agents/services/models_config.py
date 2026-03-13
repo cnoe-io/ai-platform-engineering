@@ -5,6 +5,7 @@ mounted as a ConfigMap in Kubernetes deployments.
 """
 
 import logging
+import os
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
@@ -13,7 +14,7 @@ import yaml
 
 logger = logging.getLogger(__name__)
 
-# Default path for config (can be overridden via env var)
+# Default path for config (can be overridden via SEED_CONFIG_PATH env var)
 DEFAULT_CONFIG_PATH = Path(__file__).parent / "config.yaml"
 
 
@@ -27,18 +28,26 @@ class ModelInfo:
     description: str = ""
 
 
+def get_config_path() -> Path:
+    """Get the configuration file path from environment or default."""
+    env_path = os.environ.get("SEED_CONFIG_PATH")
+    if env_path:
+        return Path(env_path)
+    return DEFAULT_CONFIG_PATH
+
+
 def load_models_config(config_path: Path | str | None = None) -> list[ModelInfo]:
     """Load available models from YAML configuration.
 
     Args:
         config_path: Path to the config YAML file.
-                    Defaults to config.yaml in the same directory.
+                    Defaults to SEED_CONFIG_PATH env var or config.yaml in the same directory.
 
     Returns:
         List of ModelInfo objects representing available models.
     """
     if config_path is None:
-        config_path = DEFAULT_CONFIG_PATH
+        config_path = get_config_path()
 
     config_path = Path(config_path)
 
