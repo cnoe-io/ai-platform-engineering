@@ -200,6 +200,7 @@ def stream_a2a_response(
     task_error = None  # Track errors but don't raise immediately - allow recovery
     trace_id = None  # Langfuse trace ID for feedback scoring
     streamed_any_text = False  # Track if any text was streamed via appendStream
+    streaming_final_answer = False  # Latch: once last plan step streams, keep streaming
 
     try:
         for event_data in a2a_client.send_message_stream(
@@ -247,50 +248,42 @@ def stream_a2a_response(
                 #     f"append={parsed.should_append}, step={current_step_id}"
                 # )
                 if parsed.text_content:
-                    # Determine if this is intermediate step thinking or final answer.
-                    # Non-last plan steps → accumulate thinking (sent at step completion).
-                    # Last step or no plan → stream as top-level markdown_text.
-                    is_intermediate_step = False
-                    if current_step_id and plan_steps:
+                    # Routing: intermediate step → accumulate silently,
+                    # last step or no plan → stream markdown in real-time.
+                    if current_step_id and plan_steps and not streaming_final_answer:
                         sorted_steps = sorted(plan_steps.values(), key=lambda s: s.get("order", 0))
                         last_step = sorted_steps[-1]
-                        is_last = (last_step.get("step_id") == current_step_id
-                                   and last_step.get("status") == "in_progress")
-                        if not is_last:
-                            is_intermediate_step = True
-                            # Accumulate thinking for this step (used at step completion).
-                            # Respect append flag: False = replace, True/None = append
+                        is_last = last_step.get("step_id") == current_step_id
+                        if is_last:
+                            streaming_final_answer = True
+                        else:
+                            # Intermediate step — accumulate thinking silently
                             if parsed.should_append is False:
                                 step_thinking[current_step_id] = [parsed.text_content]
                             else:
                                 step_thinking.setdefault(current_step_id, [])
                                 step_thinking[current_step_id].append(parsed.text_content)
-                            # Update typing status while thinking (before stream starts)
                             if not stream_ts:
                                 step = plan_steps.get(current_step_id, {})
                                 title = step.get("title", "working")
                                 _set_typing_status(f"is {title}...")
+                            continue
 
-                    if not is_intermediate_step and not plan_steps:
-                        # Stream as markdown text in real-time only when
-                        # there is NO plan. When a plan is active, all steps
-                        # (including the last) accumulate silently — the final
-                        # answer is sent in stopStream from final_result.
-                        _start_stream_if_needed()
-                        if stream_ts:
-                            text = parsed.text_content
-                            if needs_separator and streamed_any_text:
-                                text = "\n\n" + text
-                                needs_separator = False
-                            try:
-                                slack_client.chat_appendStream(
-                                    channel=channel_id, ts=stream_ts,
-                                    chunks=[{"type": "markdown_text", "text": text}],
-                                )
-                                # logger.info(f"[{thread_ts}] SLACK appendStream markdown_text {len(parsed.text_content)} chars")
-                                streamed_any_text = True
-                            except Exception as e:
-                                logger.warning(f"[{thread_ts}] SLACK appendStream text FAILED: {e}")
+                    # Stream markdown (no plan, or final answer)
+                    _start_stream_if_needed()
+                    if stream_ts:
+                        text = parsed.text_content
+                        if needs_separator and streamed_any_text:
+                            text = "\n\n" + text
+                            needs_separator = False
+                        try:
+                            slack_client.chat_appendStream(
+                                channel=channel_id, ts=stream_ts,
+                                chunks=[{"type": "markdown_text", "text": text}],
+                            )
+                            streamed_any_text = True
+                        except Exception as e:
+                            logger.warning(f"[{thread_ts}] SLACK appendStream text FAILED: {e}")
 
                 # Update progress for non-streaming fallback (bot users)
                 if throttler and throttler.should_update():
@@ -566,11 +559,13 @@ def stream_a2a_response(
                         logger.warning(f"[{thread_ts}] SLACK appendStream final steps FAILED: {e}")
 
             # 2. Build stop call with final answer + feedback blocks.
-            # For plan flows: always send final_text (streaming only updates
-            # plan cards, the answer itself comes from final_result).
-            # For no-plan flows: skip if text was already streamed live.
+            # Skip final_text if the answer was already streamed live.
+            # For plan flows: only streaming_final_answer means the answer was streamed
+            #   (pre-plan chatter sets streamed_any_text but isn't the answer).
+            # For no-plan flows: streamed_any_text means the answer was streamed.
             stop_chunks = []
-            needs_final = plan_steps or not streamed_any_text
+            already_streamed = streaming_final_answer or (not plan_steps and streamed_any_text)
+            needs_final = not already_streamed
             if needs_final and final_text:
                 stop_chunks.append({"type": "markdown_text", "text": final_text})
 
