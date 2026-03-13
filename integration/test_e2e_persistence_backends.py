@@ -316,7 +316,7 @@ class _E2EPersistenceBase:
             "Ensure the supervisor is configured for this backend "
             "(LANGGRAPH_CHECKPOINT_TYPE env var)."
         )
-        print(f"  [checkpoint] ✅ Checkpoint found in storage")
+        print("  [checkpoint] ✅ Checkpoint found in storage")
 
     # --- Phase 2: fact storage ---
 

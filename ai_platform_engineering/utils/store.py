@@ -595,8 +595,8 @@ async def store_put_summary(
 async def store_get_cross_thread_context(
     store,
     user_id: str,
-    max_summaries: int = 3,
-    max_memories: int = 5,
+    max_summaries: int = int(os.environ.get("LANGGRAPH_STORE_MAX_SUMMARIES", "10")),
+    max_memories: int = int(os.environ.get("LANGGRAPH_STORE_MAX_MEMORIES", "50")),
 ) -> Optional[str]:
     """
     Retrieve cross-thread context (summaries + memories) for a user.

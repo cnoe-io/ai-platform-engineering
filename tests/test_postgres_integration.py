@@ -24,10 +24,8 @@ Tests cover:
 """
 
 import uuid
-import asyncio
 import socket
 import pytest
-import pytest_asyncio
 
 POSTGRES_HOST = "localhost"
 POSTGRES_PORT = 5433
@@ -307,7 +305,7 @@ class TestPostgresFactExtractionIntegration:
         extract_and_store_facts writes a fact to the Postgres store and
         it is retrievable via asearch.
         """
-        from unittest.mock import AsyncMock, MagicMock, patch
+        from unittest.mock import AsyncMock, patch
         from langchain_core.messages import HumanMessage, AIMessage
         from ai_platform_engineering.utils.store import _LazyAsyncPostgresStore
         from ai_platform_engineering.utils.agent_memory.fact_extraction import (

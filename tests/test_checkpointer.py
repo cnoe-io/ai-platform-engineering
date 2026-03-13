@@ -16,13 +16,9 @@ Covers:
 
 from unittest.mock import MagicMock, patch
 
-import pytest
 
 from ai_platform_engineering.utils.checkpointer import (
   CHECKPOINT_TYPE_MEMORY,
-  CHECKPOINT_TYPE_MONGODB,
-  CHECKPOINT_TYPE_POSTGRES,
-  CHECKPOINT_TYPE_REDIS,
   _create_memory_checkpointer,
   create_checkpointer,
   get_checkpointer,
