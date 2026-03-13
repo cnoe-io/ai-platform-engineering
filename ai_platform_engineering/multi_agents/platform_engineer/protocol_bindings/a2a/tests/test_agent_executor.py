@@ -65,6 +65,7 @@ def _make_executor():
         executor._execution_plan_emitted = False
         executor._execution_plan_artifact_id = None
         executor._latest_execution_plan = []
+        executor._current_plan_step_id = None
         return executor
 
 

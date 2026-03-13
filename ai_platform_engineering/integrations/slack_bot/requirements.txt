@@ -2,7 +2,6 @@ setuptools
 slack_bolt
 slack_sdk
 requests
-markdown-to-mrkdwn
 loguru
 pydantic
 pymongo

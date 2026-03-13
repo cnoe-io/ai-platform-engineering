@@ -213,7 +213,7 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
 
         # Content-based detection
         tool_indicators = [
-            '🔍 Querying ', '🔍 Checking ',
+            '🔍 Querying ', '🔍 Checking ', '🔍 Searching ',
             '🔧 Calling ', '🔧 Supervisor:',
         ]
         if any(ind in content for ind in tool_indicators):
