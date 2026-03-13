@@ -1,6 +1,6 @@
 """Pydantic models for Dynamic Agents service."""
 
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Literal
 
@@ -65,8 +65,8 @@ class MCPServerConfig(MCPServerConfigBase):
 
     id: str = Field(..., alias="_id", description="Unique slug ID")
     config_driven: bool = Field(False, description="Whether this server was loaded from config.yaml")
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
     model_config = {"populate_by_name": True}
 
@@ -295,8 +295,8 @@ class DynamicAgentConfig(DynamicAgentConfigBase):
     owner_id: str = Field(..., description="Creator's email")
     is_system: bool = Field(False, description="System-provided agent (non-deletable)")
     config_driven: bool = Field(False, description="Whether this agent was loaded from config.yaml")
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
     model_config = {"populate_by_name": True}
 

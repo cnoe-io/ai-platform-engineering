@@ -1,7 +1,7 @@
 """MongoDB service for Dynamic Agents."""
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from pymongo import ASCENDING, MongoClient
@@ -94,7 +94,7 @@ class MongoDBService:
 
     def create_agent(self, agent: DynamicAgentConfigCreate, owner_id: str) -> DynamicAgentConfig:
         """Create a new dynamic agent config."""
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         agent_id = f"dynamic-agent-{int(now.timestamp() * 1000)}"
 
         doc = {
@@ -178,7 +178,7 @@ class MongoDBService:
         if not update_data:
             return self.get_agent(agent_id)
 
-        update_data["updated_at"] = datetime.utcnow()
+        update_data["updated_at"] = datetime.now(timezone.utc)
 
         result = self._get_agents_collection().find_one_and_update(
             {"_id": agent_id},
@@ -212,7 +212,7 @@ class MongoDBService:
         Returns:
             The upserted DynamicAgentConfig
         """
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         collection = self._get_agents_collection()
 
         # Check if document exists to preserve created_at
@@ -242,7 +242,7 @@ class MongoDBService:
 
     def create_server(self, server: MCPServerConfigCreate) -> MCPServerConfig:
         """Create a new MCP server config."""
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
 
         doc = {
             "_id": server.id,
@@ -276,7 +276,7 @@ class MongoDBService:
         if not update_data:
             return self.get_server(server_id)
 
-        update_data["updated_at"] = datetime.utcnow()
+        update_data["updated_at"] = datetime.now(timezone.utc)
 
         result = self._get_servers_collection().find_one_and_update(
             {"_id": server_id},
@@ -305,7 +305,7 @@ class MongoDBService:
         Returns:
             The upserted MCPServerConfig
         """
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         collection = self._get_servers_collection()
 
         # Check if document exists to preserve created_at
