@@ -79,7 +79,7 @@ class Todo(TypedDict):
     """Todo item for execution plan tracking."""
     id: int
     content: str
-    status: Literal["pending", "in_progress", "completed"]
+    status: Literal["pending", "in_progress", "completed", "error", "cancelled"]
 
 
 class Task(TypedDict):
@@ -236,6 +236,7 @@ class DeterministicTaskMiddleware(AgentMiddleware):
         todos_input: list,
         tool_msg_content: str,
         files_state: dict | None = None,
+        failed: bool = False,
     ) -> Command:
         """Shared logic for handling task completion and chaining.
         
@@ -251,23 +252,65 @@ class DeterministicTaskMiddleware(AgentMiddleware):
             files_state: The 'files' dict from the completed task's Command.
                          This must be propagated to maintain filesystem state
                          between subagent calls.
+            failed: If True, mark the task as "error" and return to the model
+                    instead of chaining to the next task.
         """
-        # Update todos - mark current as completed
+        task_status = "error" if failed else "completed"
+        
+        # Update todos - mark current task's status
         todos = list(todos_input)
         for i, todo in enumerate(todos):
             if isinstance(todo, dict) and todo.get("id") == current_task_id:
-                todos[i] = {**todo, "status": "completed"}
+                todos[i] = {**todo, "status": task_status}
                 break
         
-        # Remove completed task from queue
+        # Remove finished task from queue
         remaining_tasks = [t for t in tasks if t.get("id") != current_task_id]
         
-        logger.info(f"[DeterministicTaskMiddleware] Task {current_task_id} completed, {len(remaining_tasks)} remaining")
+        logger.info(f"[DeterministicTaskMiddleware] Task {current_task_id} {task_status}, {len(remaining_tasks)} remaining")
         if files_state:
             logger.info(f"[DeterministicTaskMiddleware] Propagating {len(files_state)} files to next task")
         
-        # Build write_todos update for completion
+        # Build write_todos update
         write_todos_id = _generate_tool_call_id()
+        
+        if failed:
+            # Task failed -- mark remaining tasks as cancelled, return to model
+            # so it can summarize what succeeded and what failed.
+            for i, todo in enumerate(todos):
+                if isinstance(todo, dict) and todo.get("status") == "pending":
+                    todos[i] = {**todo, "status": "cancelled"}
+            
+            logger.warning(f"[DeterministicTaskMiddleware] Task {current_task_id} failed, stopping workflow and returning to model")
+            
+            completion_messages = [
+                ToolMessage(content=tool_msg_content, name="task", tool_call_id=tool_call_id),
+                AIMessage(content="", tool_calls=[{
+                    "name": "write_todos",
+                    "args": {"todos": todos},
+                    "id": write_todos_id,
+                }]),
+                ToolMessage(
+                    content=f"Task {current_task_id} failed. Workflow stopped. Summarize results for the user.",
+                    name="write_todos",
+                    tool_call_id=write_todos_id,
+                ),
+            ]
+            
+            update_dict = {
+                "messages": completion_messages,
+                "todos": todos,
+                "tasks": [],
+                "current_task_id": None,
+                "pending_task_tool_call_id": None,
+                "task_execution_pending": False,
+                "task_allowed_tools": None,
+            }
+            
+            if files_state:
+                update_dict["files"] = files_state
+            
+            return Command(update=update_dict)
         
         if remaining_tasks:
             # More tasks remain - set flag for abefore_model to continue
@@ -358,8 +401,15 @@ class DeterministicTaskMiddleware(AgentMiddleware):
             set_task_allowed_tools(task_tools)
             logger.info(f"[DeterministicTaskMiddleware] Enabled self_service_mode=True for task {current_task_id}")
             
+            task_failed = False
+            tool_msg_content = "Task completed."
             try:
                 result = handler(request)
+            except Exception as exc:
+                logger.error(f"[DeterministicTaskMiddleware] Task {current_task_id} raised exception: {exc}")
+                task_failed = True
+                tool_msg_content = f"Task failed with error: {exc}"
+                result = None
             finally:
                 set_self_service_mode(False)
                 set_task_allowed_tools(None)
@@ -367,14 +417,15 @@ class DeterministicTaskMiddleware(AgentMiddleware):
             
             # Extract the ToolMessage content and files state
             files_state = None
-            if isinstance(result, Command):
-                update = result.update or {}
-                files_state = update.get("files")
-                tool_msg_content = "Task completed."
-            elif isinstance(result, ToolMessage):
-                tool_msg_content = result.content
-            else:
-                tool_msg_content = str(result)
+            if not task_failed:
+                if isinstance(result, Command):
+                    update = result.update or {}
+                    files_state = update.get("files")
+                    tool_msg_content = "Task completed."
+                elif isinstance(result, ToolMessage):
+                    tool_msg_content = result.content
+                else:
+                    tool_msg_content = str(result)
             
             # Merge with existing files state
             existing_files = state.get("files") or {}
@@ -390,6 +441,7 @@ class DeterministicTaskMiddleware(AgentMiddleware):
                 todos_input=state.get("todos") or [],
                 tool_msg_content=tool_msg_content,
                 files_state=merged_files,
+                failed=task_failed,
             )
         
         # For all other tools, pass through normally
@@ -404,9 +456,9 @@ class DeterministicTaskMiddleware(AgentMiddleware):
         
         When the `task` tool is called and matches our pending_task_tool_call_id:
         1. Execute the task (await handler)
-        2. After completion, mark todo as completed
-        3. If more tasks remain, return Command that chains to next task
-        4. Otherwise return the result normally
+        2. After completion, mark todo as completed (or error if it failed)
+        3. If more tasks remain and step succeeded, chain to next task
+        4. If step failed, stop workflow and return to model with error context
         """
         tool_name = request.tool_call.get("name", "")
         tool_call_id = request.tool_call.get("id", "")
@@ -429,59 +481,64 @@ class DeterministicTaskMiddleware(AgentMiddleware):
             set_task_allowed_tools(task_tools)
             logger.info(f"[DeterministicTaskMiddleware] Enabled self_service_mode=True for task {current_task_id}")
             
+            task_failed = False
+            tool_msg_content = "Task completed."
             try:
                 result = await handler(request)
+            except Exception as exc:
+                logger.error(f"[DeterministicTaskMiddleware] Task {current_task_id} raised exception: {exc}")
+                task_failed = True
+                tool_msg_content = f"Task failed with error: {exc}"
+                result = None
             finally:
                 set_self_service_mode(False)
                 set_task_allowed_tools(None)
                 logger.debug(f"[DeterministicTaskMiddleware] Disabled self_service_mode after task {current_task_id}")
             
             # Log the result type and content
-            logger.info(f"[DeterministicTaskMiddleware] Task {current_task_id} handler returned: type={type(result).__name__}")
+            if result is not None:
+                logger.info(f"[DeterministicTaskMiddleware] Task {current_task_id} handler returned: type={type(result).__name__}")
             
             # Extract the ToolMessage content and files state
             files_state = None
-            if isinstance(result, Command):
-                # Command might have messages and files in its update
-                update = result.update or {}
-                update_msgs = update.get("messages", [])
-                files_state = update.get("files")  # CRITICAL: Extract files state!
-                
-                logger.info(f"[DeterministicTaskMiddleware] Task {current_task_id} Command: {len(update_msgs)} messages, goto={result.goto}")
-                
-                # Log each message in the update
-                for i, msg in enumerate(update_msgs):
-                    msg_type = type(msg).__name__
-                    if hasattr(msg, 'content'):
-                        content_preview = str(msg.content)[:150] if msg.content else "(empty)"
-                    else:
-                        content_preview = str(msg)[:150]
-                    logger.info(f"[DeterministicTaskMiddleware] Task {current_task_id} Command msg[{i}]: {msg_type} - {content_preview}")
-                
-                # Log other update keys including files
-                other_keys = [k for k in update.keys() if k != "messages"]
-                if other_keys:
-                    logger.info(f"[DeterministicTaskMiddleware] Task {current_task_id} Command update keys: {other_keys}")
-                if files_state:
-                    logger.info(f"[DeterministicTaskMiddleware] Task {current_task_id} has {len(files_state)} files to propagate")
-                
-                # Try to extract content from the last message
-                if update_msgs:
-                    last_msg = update_msgs[-1]
-                    if hasattr(last_msg, 'content') and last_msg.content:
-                        tool_msg_content = str(last_msg.content)
+            if not task_failed:
+                if isinstance(result, Command):
+                    update = result.update or {}
+                    update_msgs = update.get("messages", [])
+                    files_state = update.get("files")
+                    
+                    logger.info(f"[DeterministicTaskMiddleware] Task {current_task_id} Command: {len(update_msgs)} messages, goto={result.goto}")
+                    
+                    for i, msg in enumerate(update_msgs):
+                        msg_type = type(msg).__name__
+                        if hasattr(msg, 'content'):
+                            content_preview = str(msg.content)[:150] if msg.content else "(empty)"
+                        else:
+                            content_preview = str(msg)[:150]
+                        logger.info(f"[DeterministicTaskMiddleware] Task {current_task_id} Command msg[{i}]: {msg_type} - {content_preview}")
+                    
+                    other_keys = [k for k in update.keys() if k != "messages"]
+                    if other_keys:
+                        logger.info(f"[DeterministicTaskMiddleware] Task {current_task_id} Command update keys: {other_keys}")
+                    if files_state:
+                        logger.info(f"[DeterministicTaskMiddleware] Task {current_task_id} has {len(files_state)} files to propagate")
+                    
+                    if update_msgs:
+                        last_msg = update_msgs[-1]
+                        if hasattr(last_msg, 'content') and last_msg.content:
+                            tool_msg_content = str(last_msg.content)
+                        else:
+                            tool_msg_content = "Task completed."
                     else:
                         tool_msg_content = "Task completed."
+                elif isinstance(result, ToolMessage):
+                    tool_msg_content = result.content
+                    logger.info(f"[DeterministicTaskMiddleware] Task {current_task_id} ToolMessage: {tool_msg_content[:200] if tool_msg_content else 'empty'}...")
                 else:
-                    tool_msg_content = "Task completed."
-            elif isinstance(result, ToolMessage):
-                tool_msg_content = result.content
-                logger.info(f"[DeterministicTaskMiddleware] Task {current_task_id} ToolMessage: {tool_msg_content[:200] if tool_msg_content else 'empty'}...")
-            else:
-                tool_msg_content = str(result)
-                logger.info(f"[DeterministicTaskMiddleware] Task {current_task_id} other: {tool_msg_content[:200]}...")
+                    tool_msg_content = str(result)
+                    logger.info(f"[DeterministicTaskMiddleware] Task {current_task_id} other: {tool_msg_content[:200]}...")
             
-            # Also merge with existing files state from current state
+            # Merge with existing files state from current state
             existing_files = state.get("files") or {}
             if files_state:
                 merged_files = {**existing_files, **files_state}
@@ -496,6 +553,7 @@ class DeterministicTaskMiddleware(AgentMiddleware):
                 todos_input=state.get("todos") or [],
                 tool_msg_content=tool_msg_content,
                 files_state=merged_files,
+                failed=task_failed,
             )
         
         # For all other tools, pass through normally
