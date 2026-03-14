@@ -609,18 +609,6 @@ services:
       - netutils-agent
       - all-agents
 
-  # Backstage Plugin (Agent Forge)
-  backstage-agent-forge:
-    image: ghcr.io/cnoe-io/backstage-plugin-agent-forge:latest
-    container_name: backstage-agent-forge
-    ports: ["13000:3000"]
-    environment:
-      - NODE_ENV=development
-      - AGENT_FORGE_BASE_URL=${AGENT_FORGE_BASE_URL:-http://localhost:8000}
-    profiles:
-      - agentforge
-      - all-agents
-
   ####################################################################################################
   #                                      CAIPE UI & MongoDB                                          #
   ####################################################################################################
@@ -695,8 +683,6 @@ services:
       # RAG Server URL for knowledge base API (internal Docker network)
       - RAG_SERVER_URL=${RAG_SERVER_URL:-http://rag_server:9446}
       - NEXT_PUBLIC_RAG_URL=${RAG_URL:-http://localhost:9446}
-      # RAG WebUI URL for iframe embedding (browser-accessible)
-      - NEXT_PUBLIC_RAG_WEBUI_URL=${RAG_WEBUI_URL:-http://localhost:9447}
       # MongoDB configuration - Enable/disable MongoDB persistence
       - NEXT_PUBLIC_MONGODB_ENABLED=${NEXT_PUBLIC_MONGODB_ENABLED:-false}
       - MONGODB_URI=${MONGODB_URI:-mongodb://${MONGODB_ROOT_USERNAME:-admin}:${MONGODB_ROOT_PASSWORD:-changeme}@caipe-ui-mongodb:27017/${MONGODB_DATABASE:-caipe}?authSource=admin}
@@ -754,6 +740,53 @@ services:
     profiles:
       - rag
       - graph_rag
+
+  ####################################################################################################
+  #                                    Dynamic Agents Service                                        #
+  ####################################################################################################
+  # Dynamic Agents - Standalone agent builder service using deepagents library
+  # Creates ephemeral AI agents configured through the UI with MCP tool support
+  #
+  # Configuration:
+  #   - Requires MongoDB for agent/MCP server configuration storage
+  #   - Supports OIDC authentication (same config as CAIPE UI)
+  #   - MCP servers can be configured via UI or seed config
+  #
+  # Ports:
+  #   - 8100: Dynamic Agents API (proxied via UI at /api/dynamic-agents)
+  dynamic-agents:
+    image: ghcr.io/cnoe-io/caipe-dynamic-agents:${IMAGE_TAG:-0.2.21}
+    container_name: dynamic-agents
+    ports: ["8100:8001"]
+    env_file: [.env]
+    environment:
+      # MongoDB (same as CAIPE UI)
+      - MONGODB_URI=${MONGODB_URI:-mongodb://${MONGODB_ROOT_USERNAME:-admin}:${MONGODB_ROOT_PASSWORD:-changeme}@caipe-ui-mongodb:27017/${MONGODB_DATABASE:-caipe}?authSource=admin}
+      - MONGODB_DATABASE=${MONGODB_DATABASE:-caipe}
+      # Authentication (same OIDC config as CAIPE UI)
+      - AUTH_ENABLED=${AUTH_ENABLED:-false}
+      - OIDC_ISSUER=${OIDC_ISSUER:-}
+      - OIDC_CLIENT_ID=${OIDC_CLIENT_ID:-}
+      - OIDC_DISCOVERY_URL=${OIDC_DISCOVERY_URL:-}
+      - OIDC_GROUP_CLAIM=${OIDC_GROUP_CLAIM:-}
+      - OIDC_REQUIRED_ADMIN_GROUP=${OIDC_REQUIRED_ADMIN_GROUP:-}
+      # Tracing (Langfuse)
+      - ENABLE_TRACING=${ENABLE_TRACING:-false}
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY:-}
+      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
+      # Runtime configuration
+      - AGENT_RUNTIME_TTL_SECONDS=${AGENT_RUNTIME_TTL_SECONDS:-3600}
+      - CORS_ORIGINS=${DYNAMIC_AGENTS_CORS_ORIGINS:-*}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+    profiles:
+      - dynamic-agents
 
   agent_ontology:
     image: ghcr.io/cnoe-io/caipe-rag-agent-ontology:${IMAGE_TAG:-0.2.36}

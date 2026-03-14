@@ -128,6 +128,7 @@ describe('getServerConfig', () => {
         'storageMode', 'enabledIntegrationIcons', 'faviconUrl',
         'docsUrl', 'sourceUrl', 'workflowRunnerEnabled', 'feedbackEnabled', 'npsEnabled', 'auditLogsEnabled',
         'defaultFontSize', 'defaultFontFamily', 'defaultTheme', 'defaultGradientTheme',
+        'dynamicAgentsEnabled', 'dynamicAgentsUrl',
       ];
       expect(Object.keys(cfg).sort()).toEqual(expectedKeys.sort());
     });
@@ -733,6 +734,7 @@ describe('getClientConfigScript (XSS safety)', () => {
       'storageMode', 'enabledIntegrationIcons', 'faviconUrl',
       'docsUrl', 'sourceUrl', 'workflowRunnerEnabled', 'feedbackEnabled', 'npsEnabled', 'auditLogsEnabled',
       'defaultFontSize', 'defaultFontFamily', 'defaultTheme', 'defaultGradientTheme',
+      'dynamicAgentsEnabled', 'dynamicAgentsUrl',
     ];
     expect(Object.keys(parsed).sort()).toEqual(expectedKeys.sort());
   });

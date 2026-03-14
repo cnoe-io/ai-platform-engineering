@@ -15,6 +15,7 @@ import {
   FileText,
   Workflow,
   Home,
+  Bot,
 } from "lucide-react";
 import { UserMenu } from "@/components/user-menu";
 import { SettingsPanel } from "@/components/settings-panel";
@@ -151,6 +152,7 @@ export function AppHeader() {
     if (pathname?.startsWith("/knowledge-bases")) return "knowledge";
     if (pathname?.startsWith("/task-builder")) return "task-builder";
     if (pathname?.startsWith("/skills") || pathname?.startsWith("/use-cases")) return "skills";
+    if (pathname?.startsWith("/dynamic-agents")) return "dynamic-agents";
     if (pathname?.startsWith("/admin")) return "admin";
     return "home";
   };
@@ -313,6 +315,22 @@ export function AppHeader() {
                 )}
               </Tooltip>
             </TooltipProvider>
+          )}
+          {/* Dynamic Agents tab - admin only */}
+          {isAdmin && storageMode === 'mongodb' && (
+            <GuardedLink
+              href="/dynamic-agents"
+              prefetch={true}
+              className={cn(
+                "flex items-center gap-1.5 px-4 py-1.5 rounded-full text-sm font-medium transition-all",
+                activeTab === "dynamic-agents"
+                  ? "bg-purple-500 text-white shadow-sm"
+                  : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              <Bot className="h-3.5 w-3.5" />
+              Custom Agents
+            </GuardedLink>
           )}
         </div>
       </div>

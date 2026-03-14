@@ -127,31 +127,6 @@ Setup CAIPE to run in a docker environment on a laptop or a virtual machine like
 
    > 💡 For more connection options and troubleshooting, see the [Quick Start Guide](../quick-start.md).
 
-6. **[Optional] Connect via Backstage Agent-Forge Plugin**
-
-   Run the Agent Forge plugin with Docker:
-
-   ```bash
-   docker run -d \
-     --name backstage-agent-forge \
-     -p 13000:3000 \
-     -e NODE_ENV=development \
-     ghcr.io/cnoe-io/backstage-plugin-agent-forge:latest
-   ```
-
-   **Or with Docker Compose:**
-
-   ```bash
-   COMPOSE_PROFILES="agentforge" docker compose up
-   ```
-
-   Once the container is started, open agent-forge in your browser:
-   ```
-   http://localhost:13000
-   ```
-
-   > 💡 Learn more about [Agent Forge Backstage Plugin](../user-interfaces.md#agent-forge-backstage-plugin).
-
 ---
 
 > 🛠️ *For Docker Compose profiles, agent selection, and advanced configuration, check out the [Quick Start Guide](../quick-start.md).*

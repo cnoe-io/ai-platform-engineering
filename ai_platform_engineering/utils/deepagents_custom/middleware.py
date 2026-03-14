@@ -59,17 +59,20 @@ try:
     from ai_platform_engineering.agents.github.agent_github.tools import (
         set_self_service_mode,
         is_self_service_mode,
+        set_task_allowed_tools,
     )
 except ImportError:
-    # Fallback: create our own simple functions if import fails
     _self_service_mode_fallback = False
-    
+
     def set_self_service_mode(value: bool) -> None:
         global _self_service_mode_fallback
         _self_service_mode_fallback = value
-    
+
     def is_self_service_mode() -> bool:
         return _self_service_mode_fallback
+
+    def set_task_allowed_tools(tools) -> None:
+        pass
 
 
 class Todo(TypedDict):
@@ -225,6 +228,67 @@ class DeterministicTaskMiddleware(AgentMiddleware):
         """
         return self._build_task_injection(state)
     
+    @hook_config(can_jump_to=["end"])
+    def after_model(self, state: TaskOrchestrationState, runtime: Any = None) -> dict[str, Any] | None:
+        """Detect redundant write_todos calls and terminate the graph loop.
+
+        When the model calls write_todos with all tasks completed and the state
+        already has all tasks completed, this is a redundant call that would
+        otherwise cause an infinite loop (model → tools → model → ...).
+
+        This hook injects ToolMessages to satisfy the pending tool calls and
+        sets jump_to="end" to exit the graph cleanly.
+
+        Works for both deterministic task config workflows and regular
+        invocations where the model redundantly updates completed todos.
+        """
+        messages = state.get("messages", [])
+        if not messages:
+            return None
+
+        last_ai_msg = None
+        for msg in reversed(messages):
+            if isinstance(msg, AIMessage):
+                last_ai_msg = msg
+                break
+
+        if not last_ai_msg or not last_ai_msg.tool_calls:
+            return None
+
+        write_todos_calls = [tc for tc in last_ai_msg.tool_calls if tc["name"] == "write_todos"]
+        if not write_todos_calls or len(write_todos_calls) != len(last_ai_msg.tool_calls):
+            return None
+
+        for tc in write_todos_calls:
+            new_todos = tc.get("args", {}).get("todos", [])
+            if not new_todos or not all(t.get("status") == "completed" for t in new_todos):
+                return None
+
+        current_todos = state.get("todos") or []
+        if not current_todos or not all(t.get("status") == "completed" for t in current_todos):
+            return None
+
+        logger.info("[DeterministicTaskMiddleware] Redundant write_todos detected (all already completed), terminating loop")
+
+        tool_messages = [
+            ToolMessage(
+                content="All tasks already completed.",
+                tool_call_id=tc["id"],
+                name="write_todos",
+            )
+            for tc in write_todos_calls
+        ]
+
+        return {
+            "messages": tool_messages,
+            "jump_to": "end",
+        }
+
+    @hook_config(can_jump_to=["end"])
+    async def aafter_model(self, state: TaskOrchestrationState, runtime: Any = None) -> dict[str, Any] | None:
+        """Async version of after_model."""
+        return self.after_model(state, runtime)
+
     def _handle_task_completion(
         self,
         tool_call_id: str,
@@ -324,9 +388,9 @@ class DeterministicTaskMiddleware(AgentMiddleware):
                 "current_task_id": None,
                 "pending_task_tool_call_id": None,
                 "task_execution_pending": False,
+                "task_allowed_tools": None,
             }
             
-            # Include final files state
             if files_state:
                 update_dict["files"] = files_state
             
@@ -350,29 +414,36 @@ class DeterministicTaskMiddleware(AgentMiddleware):
         if tool_name == "task" and pending_id and tool_call_id == pending_id:
             logger.info(f"[DeterministicTaskMiddleware] Executing task {current_task_id} via wrap_tool_call (sync)")
             
-            # Enable self-service mode for policy authorization
-            # This allows write operations (create_branch, push_files, etc.) during self-service workflows
             set_self_service_mode(True)
+            task_tools = state.get("task_allowed_tools")
+            set_task_allowed_tools(task_tools)
             logger.info(f"[DeterministicTaskMiddleware] Enabled self_service_mode=True for task {current_task_id}")
             
+            task_failed = False
+            tool_msg_content = "Task completed."
             try:
-                # Execute the task
                 result = handler(request)
+            except Exception as exc:
+                logger.error(f"[DeterministicTaskMiddleware] Task {current_task_id} raised exception: {exc}")
+                task_failed = True
+                tool_msg_content = f"Task failed with error: {exc}"
+                result = None
             finally:
-                # Always reset self-service mode after task execution
                 set_self_service_mode(False)
+                set_task_allowed_tools(None)
                 logger.debug(f"[DeterministicTaskMiddleware] Disabled self_service_mode after task {current_task_id}")
             
             # Extract the ToolMessage content and files state
             files_state = None
-            if isinstance(result, Command):
-                update = result.update or {}
-                files_state = update.get("files")
-                tool_msg_content = "Task completed."
-            elif isinstance(result, ToolMessage):
-                tool_msg_content = result.content
-            else:
-                tool_msg_content = str(result)
+            if not task_failed:
+                if isinstance(result, Command):
+                    update = result.update or {}
+                    files_state = update.get("files")
+                    tool_msg_content = "Task completed."
+                elif isinstance(result, ToolMessage):
+                    tool_msg_content = result.content
+                else:
+                    tool_msg_content = str(result)
             
             # Merge with existing files state
             existing_files = state.get("files") or {}
@@ -402,9 +473,8 @@ class DeterministicTaskMiddleware(AgentMiddleware):
         
         When the `task` tool is called and matches our pending_task_tool_call_id:
         1. Execute the task (await handler)
-        2. After completion, mark todo as completed
-        3. If more tasks remain, return Command that chains to next task
-        4. Otherwise return the result normally
+        2. After completion, mark todo as completed and chain to next task
+        3. If handler raises, catch the error, pass it as tool result, and continue
         """
         tool_name = request.tool_call.get("name", "")
         tool_call_id = request.tool_call.get("id", "")
@@ -422,65 +492,69 @@ class DeterministicTaskMiddleware(AgentMiddleware):
             description = task_args.get("description", "")[:100]
             logger.info(f"[DeterministicTaskMiddleware] Executing task {current_task_id} via awrap_tool_call: subagent={subagent_type}, desc={description}...")
             
-            # Enable self-service mode for policy authorization
-            # This allows write operations (create_branch, push_files, etc.) during self-service workflows
             set_self_service_mode(True)
+            task_tools = state.get("task_allowed_tools")
+            set_task_allowed_tools(task_tools)
             logger.info(f"[DeterministicTaskMiddleware] Enabled self_service_mode=True for task {current_task_id}")
             
+            task_failed = False
+            tool_msg_content = "Task completed."
             try:
-                # Execute the task asynchronously
                 result = await handler(request)
+            except Exception as exc:
+                logger.error(f"[DeterministicTaskMiddleware] Task {current_task_id} raised exception: {exc}")
+                task_failed = True
+                tool_msg_content = f"Task failed with error: {exc}"
+                result = None
             finally:
-                # Always reset self-service mode after task execution
                 set_self_service_mode(False)
+                set_task_allowed_tools(None)
                 logger.debug(f"[DeterministicTaskMiddleware] Disabled self_service_mode after task {current_task_id}")
             
             # Log the result type and content
-            logger.info(f"[DeterministicTaskMiddleware] Task {current_task_id} handler returned: type={type(result).__name__}")
+            if result is not None:
+                logger.info(f"[DeterministicTaskMiddleware] Task {current_task_id} handler returned: type={type(result).__name__}")
             
             # Extract the ToolMessage content and files state
             files_state = None
-            if isinstance(result, Command):
-                # Command might have messages and files in its update
-                update = result.update or {}
-                update_msgs = update.get("messages", [])
-                files_state = update.get("files")  # CRITICAL: Extract files state!
-                
-                logger.info(f"[DeterministicTaskMiddleware] Task {current_task_id} Command: {len(update_msgs)} messages, goto={result.goto}")
-                
-                # Log each message in the update
-                for i, msg in enumerate(update_msgs):
-                    msg_type = type(msg).__name__
-                    if hasattr(msg, 'content'):
-                        content_preview = str(msg.content)[:150] if msg.content else "(empty)"
-                    else:
-                        content_preview = str(msg)[:150]
-                    logger.info(f"[DeterministicTaskMiddleware] Task {current_task_id} Command msg[{i}]: {msg_type} - {content_preview}")
-                
-                # Log other update keys including files
-                other_keys = [k for k in update.keys() if k != "messages"]
-                if other_keys:
-                    logger.info(f"[DeterministicTaskMiddleware] Task {current_task_id} Command update keys: {other_keys}")
-                if files_state:
-                    logger.info(f"[DeterministicTaskMiddleware] Task {current_task_id} has {len(files_state)} files to propagate")
-                
-                # Try to extract content from the last message
-                if update_msgs:
-                    last_msg = update_msgs[-1]
-                    if hasattr(last_msg, 'content') and last_msg.content:
-                        tool_msg_content = str(last_msg.content)
+            if not task_failed:
+                if isinstance(result, Command):
+                    update = result.update or {}
+                    update_msgs = update.get("messages", [])
+                    files_state = update.get("files")
+                    
+                    logger.info(f"[DeterministicTaskMiddleware] Task {current_task_id} Command: {len(update_msgs)} messages, goto={result.goto}")
+                    
+                    for i, msg in enumerate(update_msgs):
+                        msg_type = type(msg).__name__
+                        if hasattr(msg, 'content'):
+                            content_preview = str(msg.content)[:150] if msg.content else "(empty)"
+                        else:
+                            content_preview = str(msg)[:150]
+                        logger.info(f"[DeterministicTaskMiddleware] Task {current_task_id} Command msg[{i}]: {msg_type} - {content_preview}")
+                    
+                    other_keys = [k for k in update.keys() if k != "messages"]
+                    if other_keys:
+                        logger.info(f"[DeterministicTaskMiddleware] Task {current_task_id} Command update keys: {other_keys}")
+                    if files_state:
+                        logger.info(f"[DeterministicTaskMiddleware] Task {current_task_id} has {len(files_state)} files to propagate")
+                    
+                    if update_msgs:
+                        last_msg = update_msgs[-1]
+                        if hasattr(last_msg, 'content') and last_msg.content:
+                            tool_msg_content = str(last_msg.content)
+                        else:
+                            tool_msg_content = "Task completed."
                     else:
                         tool_msg_content = "Task completed."
+                elif isinstance(result, ToolMessage):
+                    tool_msg_content = result.content
+                    logger.info(f"[DeterministicTaskMiddleware] Task {current_task_id} ToolMessage: {tool_msg_content[:200] if tool_msg_content else 'empty'}...")
                 else:
-                    tool_msg_content = "Task completed."
-            elif isinstance(result, ToolMessage):
-                tool_msg_content = result.content
-                logger.info(f"[DeterministicTaskMiddleware] Task {current_task_id} ToolMessage: {tool_msg_content[:200] if tool_msg_content else 'empty'}...")
-            else:
-                tool_msg_content = str(result)
-                logger.info(f"[DeterministicTaskMiddleware] Task {current_task_id} other: {tool_msg_content[:200]}...")
+                    tool_msg_content = str(result)
+                    logger.info(f"[DeterministicTaskMiddleware] Task {current_task_id} other: {tool_msg_content[:200]}...")
             
-            # Also merge with existing files state from current state
+            # Merge with existing files state from current state
             existing_files = state.get("files") or {}
             if files_state:
                 merged_files = {**existing_files, **files_state}

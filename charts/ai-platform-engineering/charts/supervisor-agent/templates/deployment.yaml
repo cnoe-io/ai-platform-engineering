@@ -241,6 +241,10 @@ spec:
               mountPath: /app/task_config.yaml
               subPath: task_config.yaml
               readOnly: true
+            - name: policy-config
+              mountPath: /app/policy.lp
+              subPath: policy.lp
+              readOnly: true
             {{- if eq .Values.global.deploymentMode "single-node" }}
             {{- range $name, $enabled := (default dict .Values.singleNode.enabledSubAgents) }}
             {{- if $enabled }}
@@ -264,6 +268,9 @@ spec:
         - name: task-config
           configMap:
             name: task-config
+        - name: policy-config
+          configMap:
+            name: policy-config
         {{- if eq .Values.global.deploymentMode "single-node" }}
         {{- range $name, $enabled := (default dict .Values.singleNode.enabledSubAgents) }}
         {{- if $enabled }}

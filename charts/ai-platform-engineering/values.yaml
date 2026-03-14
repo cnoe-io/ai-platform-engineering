@@ -1,8 +1,8 @@
 tags:
   basic: false
   complete: false
-  backstage-agent-forge: false
   caipe-ui: false
+  dynamic-agents: false
   agent-argocd: false
   agent-aws: false
   agent-backstage: false
@@ -166,6 +166,18 @@ supervisor-agent:
     AGENT_CONNECTIVITY_ENABLE_BACKGROUND: "true"
     USE_STRUCTURED_RESPONSE: "true" # Set to "true" to enforce agent to always use structured response format as the final output
     TASK_CONFIG_PATH: "/app/task_config.yaml"
+    POLICY_FILE_PATH: "/app/policy.lp"
+    # Self-service workflow env vars — referenced as ${VAR_NAME} in task_config.yaml prompts.
+    # Set these per environment so system workflows can resolve repo references at runtime.
+    # JARVIS_WORKFLOWS_REPO: "org/jarvis-workflows"      # Templates repo (safe-settings, terraform, etc.)
+    # ADMIN_REPO: "org/admin"                             # Safe-settings admin repo
+    # TERRAFORM_INFRA_REPO: "org/terraform-infra"         # Terraform infrastructure repo
+    # WORKFLOWS_REPO: "org/workflows"                     # GitHub Actions workflows repo
+    # GROUPS_AUTOMATION_REPO: "org/groups-automation"      # Group management automation repo
+    # GROUPS_TEAMS_PATH: "groups_yaml/teams"               # Path prefix for teams directory
+    # ORG_MEMBERSHIP_FILE_PATTERN: ""                      # Org membership YAML path pattern
+    # EMAIL_DOMAIN: "example.com"                          # Email domain for user ID derivation
+    # GITHUB_ORGS: "org1,org2"                             # Comma-separated allowed GitHub orgs
   multiAgentConfig:
     protocol: "a2a"
     port: "8000"
@@ -503,23 +515,6 @@ agent-petstore:
   mcp:
     useRemoteMcpServer: true
 
-######### Backstage plugin agent forge configuration #########
-backstage-plugin-agent-forge:
-  nameOverride: "backstage-plugin-agent-forge"
-  image:
-    repository: "ghcr.io/cnoe-io/backstage-plugin-agent-forge"
-    # tag defaults to .Chart.AppVersion when not specified
-    tag: ""
-    pullPolicy: "Always"
-  service:
-    ports:
-      - name: http
-        port: 3000
-        protocol: TCP
-      - name: backend
-        port: 7007
-        protocol: TCP
-
 ######### CAIPE UI configuration #########
 caipe-ui:
   skills:
@@ -560,6 +555,11 @@ caipe-ui:
     # Feature flags
     ENABLE_SUBAGENT_CARDS: "true"
     SSO_ENABLED: "false"
+    # Dynamic Agents: set to "true" to enable custom agent creation and management
+    # Requires admin role and MongoDB storage mode
+    DYNAMIC_AGENTS_ENABLED: "false"
+    # Dynamic Agents service URL (only used when DYNAMIC_AGENTS_ENABLED is "true")
+    # DYNAMIC_AGENTS_URL: "http://ai-platform-engineering-dynamic-agents:8001"
     # MongoDB configuration
     MONGODB_DATABASE: "caipe"
     # NextAuth URL (non-sensitive)
@@ -630,6 +630,43 @@ caipe-ui:
         #   remoteRef:
         #     key: dev/mongodb
         #     property: password
+
+######### Dynamic Agents configuration #########
+# Dynamic Agents service for custom agent creation and management
+# Enable with: tags.dynamic-agents=true
+# Requires: MongoDB (uses same MongoDB as CAIPE UI), admin role for users
+dynamic-agents:
+  nameOverride: "dynamic-agents"
+  image:
+    repository: "ghcr.io/cnoe-io/caipe-dynamic-agents"
+    # tag defaults to .Chart.AppVersion when not specified
+    tag: ""
+    pullPolicy: "Always"
+  service:
+    port: 8001
+  # ConfigMap for non-sensitive configuration
+  config:
+    # MongoDB configuration (uses same database as CAIPE UI)
+    MONGODB_DATABASE: "caipe"
+    # LLM configuration (override if needed)
+    # LLM_PROVIDER: "openai"
+    # LLM_MODEL: "gpt-4o"
+  # External Secrets configuration for sensitive data (MongoDB URI, LLM API keys)
+  externalSecrets:
+    enabled: false  # Set to true to enable external secrets
+    apiVersion: "v1beta1"
+    secretStoreRef:
+      name: "vault"  # Your secret store name
+      kind: "ClusterSecretStore"
+    data: []
+      # - secretKey: MONGODB_URI
+      #   remoteRef:
+      #     key: dev/dynamic-agents
+      #     property: MONGODB_URI
+      # - secretKey: OPENAI_API_KEY
+      #   remoteRef:
+      #     key: dev/dynamic-agents
+      #     property: OPENAI_API_KEY
 
 ######### Slack Bot Integration configuration #########
 # The Slack bot is a client integration (not an agent) that connects to the
@@ -750,14 +787,6 @@ rag-stack:
 
   agent-ontology:
     enabled: true
-
-  rag-webui:
-    enabled: true
-    image:
-      repository: "ghcr.io/cnoe-io/caipe-rag-webui"
-      # tag defaults to .Chart.AppVersion when not specified
-      tag: ""
-      pullPolicy: "Always"
 
   neo4j:
     enabled: true

@@ -70,6 +70,7 @@ jest.mock('lucide-react', () => ({
   Plus: (props: any) => <svg data-testid="icon-plus" {...props} />,
   Sparkles: (props: any) => <svg data-testid="icon-sparkles" {...props} />,
   Zap: (props: any) => <svg data-testid="icon-zap" {...props} />,
+  Workflow: (props: any) => <svg data-testid="icon-workflow" {...props} />,
   Database: (props: any) => <svg data-testid="icon-database" {...props} />,
   ArrowRight: (props: any) => <svg data-testid="icon-arrow-right" {...props} />,
   TrendingUp: (props: any) => <svg data-testid="icon-trending-up" {...props} />,
@@ -379,6 +380,7 @@ describe('HomePage', () => {
           updatedAt: new Date(),
           messages: [{ id: '1' }, { id: '2' }],
           a2aEvents: [],
+          sseEvents: [],
         },
       )
       setupMockAPIs()

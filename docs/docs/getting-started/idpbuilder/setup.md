@@ -316,40 +316,7 @@ kubectl get secret vault-root-token -n vault -o jsonpath="{.data}" | \
   jq -r 'to_entries[] | "\(.key): \(.value | @base64d)"'
 ```
 
-## Step 5: Access RAG WebUI Portal (Optional)
-
-The RAG (Retrieval-Augmented Generation) WebUI provides a powerful interface for ingesting, querying, and managing knowledge bases that enhance your AI agents' capabilities.
-
-### Access RAG Ingestion WebUI
-
-Open https://rag-webui.cnoe.localtest.me:8443/ to access the RAG WebUI Portal.
-
-### RAG Ingestion Interface
-
-Use the ingestion interface to add documents, websites, and other knowledge sources to your RAG system:
-
-![RAG Ingestion Interface](./images/rag-ingestion.svg)
-
-### RAG Querying Interface
-
-Query your ingested knowledge bases to test retrieval and get insights from your documents:
-
-![RAG Querying Interface](./images/rag-querying.svg)
-
-### Advanced RAG Search
-
-Perform advanced searches with filters, similarity thresholds, and custom parameters:
-
-![RAG Advanced Search](./images/rag-querying-advanced.svg)
-
-The RAG WebUI allows you to:
-- **Ingest Documents**: Upload PDFs, text files, and web content
-- **Query Knowledge**: Search and retrieve relevant information
-- **Test Retrieval**: Validate your knowledge base responses
-- **Monitor Performance**: Track ingestion and query metrics
-- **Configure Settings**: Adjust embedding models and search parameters
-
-## Step 6: Access Backstage Portal
+## Step 5: Access Backstage Portal
 
 ### Get Backstage Credentials
 
@@ -396,7 +363,6 @@ Get my Github profile detatils # If running Github agent
 - Vault: https://vault.cnoe.localtest.me:8443/
 - Keycloak: https://cnoe.localtest.me:8443/keycloak/admin/master/console/
 - Gitea: https://cnoe.localtest.me:8443/gitea/
-- RAG Ingestion WebUI: https://rag-webui.cnoe.localtest.me:8443/
 
 ## Troubleshooting
 

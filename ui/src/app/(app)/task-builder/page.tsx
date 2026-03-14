@@ -7,6 +7,7 @@ import { Plus, Pencil, Trash2, Workflow, Copy } from "lucide-react";
 import { AuthGuard } from "@/components/auth-guard";
 import { TaskBuilderCanvas } from "@/components/task-builder";
 import { WorkflowTemplateDialog, type WorkflowTemplate } from "@/components/task-builder/WorkflowTemplateDialog";
+import { labelFor } from "@/hooks/use-agent-tools";
 import { useTaskConfigStore } from "@/store/task-config-store";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -191,7 +192,7 @@ export default function TaskBuilderPage() {
                                   </span>
                                 )}
                                 <span className="text-[10px] text-muted-foreground">
-                                  {config.tasks.map((t) => t.subagent).filter((v, i, a) => a.indexOf(v) === i).join(", ")}
+                                  {config.tasks.map((t) => t.subagent).filter((v, i, a) => a.indexOf(v) === i).map(labelFor).join(", ")}
                                 </span>
                               </div>
                             </div>

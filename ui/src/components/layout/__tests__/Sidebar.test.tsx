@@ -169,6 +169,7 @@ function makeConv(id: string, title: string, overrides: any = {}) {
     updatedAt: new Date(),
     messages: [],
     a2aEvents: [],
+    sseEvents: [],
     ...overrides,
   }
 }

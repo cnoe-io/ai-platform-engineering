@@ -1176,6 +1176,29 @@ func CreateBranch(t translations.TranslationHelperFunc) inventory.ServerTool {
 
 			createdRef, resp, err := client.Git.CreateRef(ctx, owner, repo, newRef)
 			if err != nil {
+				ghErr, isGhErr := err.(*github.ErrorResponse)
+				if isGhErr && ghErr.Response != nil && ghErr.Response.StatusCode == http.StatusUnprocessableEntity {
+					// Branch already exists — update it to point to the source SHA
+					updatedRef, resp2, updateErr := client.Git.UpdateRef(ctx, owner, repo, "refs/heads/"+branch, github.UpdateRef{
+						SHA:   *ref.Object.SHA,
+						Force: github.Ptr(true),
+					})
+					if updateErr != nil {
+						return ghErrors.NewGitHubAPIErrorResponse(ctx,
+							"branch already exists and failed to update it",
+							resp2,
+							updateErr,
+						), nil, nil
+					}
+					defer func() { _ = resp2.Body.Close() }()
+
+					r, marshalErr := json.Marshal(updatedRef)
+					if marshalErr != nil {
+						return nil, nil, fmt.Errorf("failed to marshal response: %w", marshalErr)
+					}
+					return utils.NewToolResultText(string(r)), nil, nil
+				}
+
 				return ghErrors.NewGitHubAPIErrorResponse(ctx,
 					"failed to create branch",
 					resp,

@@ -46,13 +46,18 @@ except ImportError:
     Predicate = object
     ConstantStr = str
 
-# Import self-service mode helper function
+# Import self-service mode and task allowed tools helpers
 try:
-    from ai_platform_engineering.agents.github.agent_github.tools import is_self_service_mode
+    from ai_platform_engineering.agents.github.agent_github.tools import (
+        is_self_service_mode,
+        get_task_allowed_tools,
+    )
 except ImportError:
-    # Fallback if the import fails
     def is_self_service_mode() -> bool:
         return False
+
+    def get_task_allowed_tools():
+        return None
 
 logger = logging.getLogger(__name__)
 
@@ -156,8 +161,8 @@ class PolicyMiddleware(AgentMiddleware):
         
         # Default location relative to this file
         # This file is at: ai_platform_engineering/utils/deepagents_custom/policy_middleware.py
-        # Policy is at: policy/policy.lp
-        return str(Path(__file__).parents[3] / "policy" / "policy.lp")
+        # Policy is at repo root: policy.lp (symlink to charts data)
+        return str(Path(__file__).parents[3] / "policy.lp")
     
     def _check_self_service_mode(self) -> bool:
         """Check if we're running in self-service mode.
@@ -176,78 +181,99 @@ class PolicyMiddleware(AgentMiddleware):
             logger.warning(f"[PolicyMiddleware] is_self_service_mode() exception: {e}")
             return False
 
+    def _load_policy_program(self, ctrl: "Control") -> bool:
+        """Load the ASP policy program into a Clingo Control.
+
+        Tries MongoDB first (admin-editable), then falls back to the local file.
+
+        Returns True if a policy was loaded, False otherwise.
+        """
+        try:
+            from ai_platform_engineering.utils.mongodb_client import get_policy_from_mongodb
+
+            content = get_policy_from_mongodb()
+            if content:
+                ctrl.add("base", [], content)
+                return True
+        except ImportError:
+            pass
+        except Exception as exc:
+            logger.debug(f"MongoDB policy load failed, falling back to file: {exc}")
+
+        if os.path.exists(self.policy_path):
+            if os.path.getsize(self.policy_path) == 0:
+                logger.warning(f"Policy file is empty: {self.policy_path}. Allowing all tool calls.")
+                return False
+            ctrl.load(self.policy_path)
+            return True
+
+        return False
+
     def _is_allowed(self, tool_name: str) -> bool:
-        """Evaluate if tool call is allowed by ASP policy.
-        
-        Loads the policy file, adds facts about the current tool call,
-        and solves to check if allowed(tool_name, agent_name) is derived.
-        
-        The policy considers:
-        - Tool name and agent name
-        - Agent type (deep_agent or subagent)
-        - Self-service mode (enables create_repository, create_pull_request)
-        
+        """Evaluate if tool call is allowed by policy.
+
+        For custom user workflows with an allowed_tools list, uses a simple
+        allowlist check (no ASP). For system workflows, loads the ASP policy
+        (MongoDB first, file fallback) and solves with Clingo.
+
         Args:
             tool_name: Name of the tool being called
-            
+
         Returns:
             True if the tool call is allowed, False otherwise
         """
+        allowed_tools = get_task_allowed_tools()
+        if allowed_tools is not None:
+            if tool_name in allowed_tools:
+                return True
+            logger.info(f"Custom workflow policy denied tool: {tool_name} (not in allowed_tools)")
+            return False
+
         if not CLORM_AVAILABLE:
-            # If clorm is not available, allow all by default
             return True
-        
+
         if not self.enabled:
-            # If policy checking is disabled, allow all
             return True
-        
-        # Check if policy file exists
-        if not os.path.exists(self.policy_path):
-            logger.warning(f"Policy file not found: {self.policy_path}, allowing tool call")
-            return True
-        
+
         try:
-            # Create Clingo control with unifiers for our predicates
             ctrl = Control(unifier=[ToolCallFact, AgentTypeFact, SelfServiceModeFact, AllowFact])
-            ctrl.load(self.policy_path)
-            
-            # Build facts list
+
+            if not self._load_policy_program(ctrl):
+                logger.warning(f"No policy source available, allowing tool call: {tool_name}")
+                return True
+
             facts_list = [
                 ToolCallFact(tool_name=tool_name, agent_name=self.agent_name),
                 AgentTypeFact(agent_name=self.agent_name, agent_type=self.agent_type),
             ]
-            
-            # Add self_service_mode fact if active
+
             is_self_service = self._check_self_service_mode()
             if is_self_service:
                 facts_list.append(SelfServiceModeFact())
                 logger.debug(f"Policy evaluation with self_service_mode=True for {tool_name}")
-            
+
             facts = FactBase(facts_list)
             ctrl.add_facts(facts)
             ctrl.ground([("base", [])])
-            
-            # Solve and check for allowed/2 predicate
+
             solution = None
             def on_model(model):
                 nonlocal solution
                 solution = model.facts(atoms=True)
-            
+
             ctrl.solve(on_model=on_model)
-            
+
             if solution:
-                # Check if allow(tool_name, agent_name) is in the solution
                 for fact in solution.query(AllowFact).all():
                     if fact.tool_name == tool_name and fact.agent_name == self.agent_name:
                         logger.debug(f"Policy allowed tool call: {tool_name} by {self.agent_name}")
                         return True
-            
+
             logger.info(f"Policy denied tool call: {tool_name} by {self.agent_name} (self_service={is_self_service})")
             return False
-            
+
         except Exception as e:
             logger.warning(f"Policy evaluation failed, defaulting to allow: {e}")
-            # On error, default to allow to avoid breaking functionality
             return True
     
     def wrap_tool_call(

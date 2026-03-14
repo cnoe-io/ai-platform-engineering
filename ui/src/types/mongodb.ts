@@ -36,6 +36,7 @@ export interface Conversation {
   _id: string; // UUID for shareable links
   title: string;
   owner_id: string; // User email
+  agent_id?: string; // Dynamic agent ID; undefined = Platform Engineer (default)
   created_at: Date;
   updated_at: Date;
   metadata: {
@@ -206,6 +207,7 @@ export interface CreateConversationRequest {
   id?: string; // Client-generated UUID — ensures client and server share the same ID
   title: string;
   tags?: string[];
+  agent_id?: string; // Dynamic agent ID; undefined = Platform Engineer (default)
 }
 
 export interface UpdateConversationRequest {
