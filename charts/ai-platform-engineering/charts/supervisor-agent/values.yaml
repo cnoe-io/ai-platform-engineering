@@ -175,14 +175,15 @@ metrics:
 
 # Cross-thread memory persistence (LangGraph Store)
 # Backend for user memories and conversation summaries across threads.
-# Options: memory (in-process, default) | redis | postgres
+# Options: memory (in-process, default) | redis | postgres | mongodb
 #
 # Bring your own (BYO) / external backends:
 # - Redis: in-cluster (e.g. rag-redis), external Redis, or AWS ElastiCache for Redis.
 #   Set redis.url or redis.existingSecret (recommended for credentials).
 # - Postgres: external or managed Postgres. Set postgres.dsn or postgres.existingSecret.
+# - MongoDB: external or managed MongoDB. Set mongodb.uri or mongodb.existingSecret.
 memoryPersistence:
-  # Store type: "memory", "redis", or "postgres"
+  # Store type: "memory", "redis", "postgres", or "mongodb"
   type: "memory"
   # Redis (type=redis): BYO / external / AWS ElastiCache for Redis
   redis:
@@ -192,6 +193,17 @@ memoryPersistence:
     existingSecret:
       name: ""   # Secret name
       key: ""   # Key in secret (e.g. REDIS_URL or LANGGRAPH_STORE_REDIS_URL)
+    # Auto-discover an in-cluster Redis service by name and construct the URL automatically.
+    # Set to the Helm subchart name to auto-construct: redis://<release>-<service>:6379/<dbIndex>
+    # Common values:
+    #   "langgraph-redis" - dedicated Redis Stack (requires global.langgraphRedis.enabled=true)
+    #   "rag-redis"       - reuse existing RAG Redis on a separate DB index
+    # NOTE: langgraph-checkpoint-redis requires RedisJSON + RediSearch modules.
+    #   rag-redis (redis:7.2-alpine) does NOT include these modules by default.
+    #   To reuse rag-redis, upgrade its image to redis:8.0+ (includes modules natively),
+    #   or use the dedicated langgraph-redis subchart instead.
+    autoDiscoverService: ""
+    dbIndex: 0   # DB index when using autoDiscoverService (rag-redis: use 1+, db 0 is RAG data)
     # Key/namespace prefix when using a shared Redis (BYO). All store keys are namespaced so
     # multiple deployments (e.g. prod, staging, tenant-a) can share one Redis without collision.
     # Example: release name, "caipe-prod", "tenant-xyz". Leave empty for dedicated Redis.
@@ -204,7 +216,66 @@ memoryPersistence:
     existingSecret:
       name: ""   # Secret name
       key: ""   # Key in secret (e.g. DATABASE_URL or LANGGRAPH_STORE_POSTGRES_DSN)
+  # MongoDB (type=mongodb): BYO / external / managed MongoDB (Atlas, DocumentDB, etc.)
+  mongodb:
+    # Connection URI (e.g. mongodb://host:27017, mongodb+srv://user:pass@cluster.example.com)
+    uri: ""
+    # Or pull URI from a Kubernetes Secret
+    existingSecret:
+      name: ""   # Secret name
+      key: ""   # Key in secret (e.g. MONGODB_URI or LANGGRAPH_STORE_MONGODB_URI)
+  # Embeddings for semantic memory search (shared with RAG stack).
+  # When configured, the store uses vector embeddings for similarity-based memory retrieval.
+  # LANGGRAPH_STORE_EMBEDDINGS_* overrides take precedence over shared EMBEDDINGS_* values.
+  embeddings:
+    # Embedding provider (e.g. openai, azure-openai, litellm)
+    # Shared with RAG stack EMBEDDINGS_PROVIDER if not set.
+    provider: ""
+    # Embedding model name (e.g. text-embedding-3-small)
+    # Shared with RAG stack EMBEDDINGS_MODEL if not set.
+    model: ""
+    # Embedding dimensions (auto-detected for known models if not set)
+    dims: ""
   # TTL for stored items in minutes (default 10080 = 7 days)
   ttlMinutes: 10080
   # Enable automatic fact extraction from conversations (LangMem). Default false.
   enableFactExtraction: false
+  # Maximum number of memory facts returned to the LLM per cross-thread context query.
+  # Higher values improve recall at large dataset sizes at the cost of larger context windows.
+  # Override per-deployment via LANGGRAPH_STORE_MAX_MEMORIES env var.
+  maxMemories: 50
+  # Maximum number of conversation summaries returned to the LLM per cross-thread context query.
+  maxSummaries: 10
+
+# In-thread checkpoint persistence (LangGraph Checkpointer)
+# Persists conversation state within a thread across pod restarts.
+# Options: memory (in-process, default) | redis | postgres | mongodb
+checkpointPersistence:
+  # Checkpoint type: "memory", "redis", "postgres", or "mongodb"
+  type: "memory"
+  redis:
+    # Connection URL (Redis Stack with RedisJSON + RediSearch modules required)
+    url: ""
+    # Or pull URL from a Kubernetes Secret
+    existingSecret:
+      name: ""
+      key: ""
+    # Auto-discover an in-cluster Redis service (see memoryPersistence.redis.autoDiscoverService)
+    autoDiscoverService: ""
+    dbIndex: 0
+  postgres:
+    # DSN (e.g. postgresql://user:pass@host:5432/dbname)
+    dsn: ""
+    # Or pull DSN from a Kubernetes Secret
+    existingSecret:
+      name: ""
+      key: ""
+  mongodb:
+    # Connection URI (e.g. mongodb://host:27017)
+    uri: ""
+    # Or pull URI from a Kubernetes Secret
+    existingSecret:
+      name: ""
+      key: ""
+  # TTL for checkpoints in minutes (0 = no expiry, default)
+  ttlMinutes: 0

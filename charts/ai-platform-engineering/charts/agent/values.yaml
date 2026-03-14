@@ -234,3 +234,29 @@ mcp:
 
   # Volumes for MCP container
   volumes: []
+
+# In-thread checkpoint persistence (LangGraph Checkpointer)
+# Persists conversation state within a thread across pod restarts.
+# Options: memory (in-process, default) | redis | postgres | mongodb
+checkpointPersistence:
+  # Checkpoint type: "memory", "redis", "postgres", or "mongodb"
+  type: "memory"
+  redis:
+    url: ""
+    existingSecret:
+      name: ""
+      key: ""
+    # Auto-discover in-cluster Redis: "langgraph-redis" (dedicated) or "rag-redis" (shared)
+    autoDiscoverService: ""
+    dbIndex: 0
+  postgres:
+    dsn: ""
+    existingSecret:
+      name: ""
+      key: ""
+  mongodb:
+    uri: ""
+    existingSecret:
+      name: ""
+      key: ""
+  ttlMinutes: 0

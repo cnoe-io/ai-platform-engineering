@@ -25,6 +25,7 @@ Usage:
         )
 """
 
+import asyncio
 import logging
 import os
 import time
@@ -189,6 +190,12 @@ async def extract_and_store_facts(
             f"for user={user_id} in {elapsed_ms:.0f}ms"
         )
 
+    except asyncio.CancelledError:
+        elapsed_ms = (time.time() - start) * 1000
+        logger.warning(
+            f"Fact extraction cancelled for user={user_id} "
+            f"after {elapsed_ms:.0f}ms (task was cancelled before completion)"
+        )
     except Exception as e:
         elapsed_ms = (time.time() - start) * 1000
         logger.error(
