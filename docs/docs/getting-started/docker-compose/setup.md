@@ -2,9 +2,9 @@
 sidebar_position: 1
 ---
 
-# Run with Docker Compose 🚀🧑‍💻
+# Run with Docker Compose
 
-Setup CAIPE to run in a docker environment on a laptop or a virtual machine like EC2 instance.
+Set up CAIPE on a laptop or VM (e.g. EC2) using Docker Compose.
 
 ## Prerequisites
 
@@ -21,113 +21,170 @@ Setup CAIPE to run in a docker environment on a laptop or a virtual machine like
    cp .env.example .env
    ```
 
-   Update `.env` with your configuration. For detailed `.env` examples and LLM provider setup, see:
-   - [Setup LLM Providers](configure-llms.md) for LLM configuration
-   - [Quick Start Guide](../quick-start.md) for detailed `.env` examples and agent-specific configurations
+   Edit `.env` with your configuration. Minimal example:
 
-3. **Configure A2A Authentication (Optional)**
+   ```bash
+   ########### CAIPE Agent Configuration ###########
 
-   The A2A protocol supports two authentication methods. Choose one based on your security requirements:
+   # Enable the agents you want to deploy
+   ENABLE_GITHUB=true
 
-   **Option A: OAuth2 Authentication (Recommended for Production)**
+   # A2A transport configuration (p2p or slim)
+   A2A_TRANSPORT=p2p
 
-   Add the following to your `.env` file:
+   # MCP mode configuration (http or stdio)
+   MCP_MODE=http
+
+   # LLM provider (anthropic-claude, aws-bedrock, openai, azure-openai)
+   LLM_PROVIDER=anthropic-claude
+   ANTHROPIC_API_KEY=sk-ant-...
+
+   ########### GitHub Agent Configuration ###########
+   GITHUB_PERSONAL_ACCESS_TOKEN=<token>
+   ```
+
+   For full LLM provider options see [Configure LLMs](configure-llms.md).
+   For agent-specific credentials see [Configure Agent Secrets](configure-agent-secrets.md).
+
+3. **Configure A2A Authentication (optional)**
+
+   **Option A: OAuth2 (recommended for production)**
+
    ```bash
    A2A_AUTH_OAUTH2=true
-   JWKS_URI=https://your-identity-provider.com/.well-known/jwks.json
+   JWKS_URI=https://your-idp.com/.well-known/jwks.json
    AUDIENCE=your-audience
-   ISSUER=https://your-identity-provider.com
+   ISSUER=https://your-idp.com
    OAUTH2_CLIENT_ID=your-client-id
    ```
 
-   **Getting OAuth2 Tokens:**
-
-   Use the provided utility to obtain OAuth2 JWT tokens:
+   Get a JWT token with:
    ```bash
-   # Add these additional environment variables for token generation
-   OAUTH2_CLIENT_SECRET=your-client-secret
-   TOKEN_ENDPOINT=https://your-identity-provider.com/oauth/token
-
-   # Run the utility to get a token
+   OAUTH2_CLIENT_SECRET=your-secret \
+   TOKEN_ENDPOINT=https://your-idp.com/oauth/token \
    python ai_platform_engineering/utils/oauth/get_oauth_jwt_token.py
    ```
 
-   **Local Development with Keycloak:**
-
-   For local development, you can run a Keycloak OAuth server:
+   **Local development with Keycloak:**
 
    ```bash
-   # Start local Keycloak server
-   cd deploy/keycloak
-   docker compose up
+   cd deploy/keycloak && docker compose up
    ```
 
-   Then configure your environment:
+   Then set:
    ```bash
    A2A_AUTH_OAUTH2=true
    JWKS_URI=http://localhost:7080/realms/caipe/protocol/openid-connect/certs
    AUDIENCE=caipe
    ISSUER=http://localhost:7080/realms/caipe
    OAUTH2_CLIENT_ID=caipe-cli
-   OAUTH2_CLIENT_SECRET=your-client-secret-from-keycloak
+   OAUTH2_CLIENT_SECRET=<from-keycloak>
    TOKEN_ENDPOINT=http://localhost:7080/realms/caipe/protocol/openid-connect/token
    ```
 
-   **Keycloak Setup Steps:**
-   1. Access Keycloak admin console at http://localhost:7080
-   2. Login with `admin/admin`
-   3. Switch to the `caipe` realm
-   4. Create a new client called `caipe-cli`
-   5. Copy the client secret and use it in your environment variables
+   Keycloak admin console: http://localhost:7080 (admin / admin). Switch to the `caipe` realm and create a `caipe-cli` client.
 
-   **Generate JWT Token with Keycloak:**
+   **Option B: Shared key (development / testing)**
 
-   After setting up Keycloak, generate a JWT token using your client credentials:
-
-   ```bash
-   export OAUTH2_CLIENT_ID=caipe-cli
-   export OAUTH2_CLIENT_SECRET=<YOUR CLIENT SECRET>  # randomly generated from Keycloak
-   export TOKEN_ENDPOINT=http://localhost:7080/realms/caipe/protocol/openid-connect/token
-
-   python ai_platform_engineering/utils/oauth/get_oauth_jwt_token.py
-   ```
-
-   **Option B: Shared Key Authentication (For Development/Testing)**
-
-   Add the following to your `.env` file:
    ```bash
    A2A_AUTH_SHARED_KEY=your-secret-key
    ```
 
-   > **Note:** If neither authentication method is enabled, the A2A agent will run without authentication. This is not recommended for production environments.
+   > If neither option is set, the agent runs without authentication — not recommended for production.
 
 ---
 
-## 🏁 Getting Started
+## Start CAIPE
 
-4. **Launch with Docker Compose**
+Use Docker Compose **profiles** to enable specific agents. If no profile is specified, only the supervisor starts.
 
-   ```bash
-   docker compose up
-   ```
+**Available agent profiles:**
 
-5. **Connect to the A2A agent**
+| Profile | Description |
+|---------|-------------|
+| `argocd` | ArgoCD GitOps for Kubernetes deployments |
+| `aws` | AWS cloud operations |
+| `backstage` | Backstage developer portal |
+| `confluence` | Confluence documentation |
+| `github` | GitHub repos and pull requests |
+| `jira` | Jira issue tracking |
+| `komodor` | Komodor Kubernetes troubleshooting |
+| `pagerduty` | PagerDuty incident management |
+| `rag` | RAG knowledge base (Milvus, Neo4j, Redis) |
+| `slack` | Slack messaging |
+| `splunk` | Splunk observability |
+| `webex` | Webex collaboration |
+| `slim` | AGNTCY Slim dataplane (set `A2A_TRANSPORT=slim`) |
+| `tracing` | Langfuse distributed tracing (Clickhouse, Postgres) |
 
-   Once the Docker Compose services are running, connect using one of these methods:
+**Examples:**
 
-   **Option A: Using Docker (host network)**
-   ```bash
-   docker run -it --network=host ghcr.io/cnoe-io/agent-chat-cli:stable
-   ```
+```bash
+# Supervisor only
+docker compose up
 
-   **Option B: Using uvx**
-   ```bash
-   uvx --no-cache git+https://github.com/cnoe-io/agent-chat-cli.git a2a
-   ```
+# Single agent
+COMPOSE_PROFILES="github" docker compose up
 
-   > 💡 For more connection options and troubleshooting, see the [Quick Start Guide](../quick-start.md).
+# Multiple agents
+COMPOSE_PROFILES="argocd,aws,backstage" docker compose up
+
+# With RAG knowledge base
+COMPOSE_PROFILES="github,rag" docker compose up
+
+# With tracing
+COMPOSE_PROFILES="github,tracing" docker compose up
+
+# Full stack: agents + RAG + tracing
+COMPOSE_PROFILES="github,rag,tracing" docker compose up
+```
 
 ---
 
-> 🛠️ *For Docker Compose profiles, agent selection, and advanced configuration, check out the [Quick Start Guide](../quick-start.md).*
+## Connect to the agent
 
+Once services are running, connect with the agent chat CLI:
+
+**Using Docker (host network):**
+```bash
+docker run -it --network=host ghcr.io/cnoe-io/agent-chat-cli:stable
+```
+
+**Using uvx:**
+```bash
+uvx --no-cache git+https://github.com/cnoe-io/agent-chat-cli.git a2a
+```
+
+---
+
+## Tracing with Langfuse
+
+The `tracing` profile starts Langfuse v3 (web UI, worker, ClickHouse, Postgres, MinIO).
+
+1. Start with tracing:
+   ```bash
+   COMPOSE_PROFILES="github,tracing" docker compose up
+   ```
+
+2. Open Langfuse at **http://localhost:3000**, create an account, and copy the API keys.
+
+3. Add to `.env` and restart:
+   ```bash
+   ENABLE_TRACING=true
+   LANGFUSE_PUBLIC_KEY=your-public-key
+   LANGFUSE_SECRET_KEY=your-secret-key
+   LANGFUSE_HOST=http://langfuse-web:3000
+   ```
+
+<div style={{paddingBottom: '56.25%', position: 'relative', display: 'block', width: '100%'}}>
+  <iframe src="https://app.vidcast.io/share/embed/4882e719-fdc4-4a85-ae7e-8984e3491a53?mute=1&autoplay=1&disableCopyDropdown=1" width="100%" height="100%" title="CAIPE Getting Started Tracing using Docker Compose" loading="lazy" allow="fullscreen *;autoplay *;" style={{position: 'absolute', top: 0, left: 0, border: 'solid', borderRadius: '12px'}}></iframe>
+</div>
+
+---
+
+## Next steps
+
+- [Configure LLMs](configure-llms.md) — LLM provider and API key setup
+- [Configure Agent Secrets](configure-agent-secrets.md) — Agent-specific credentials
+- [Deploy to Kubernetes](../kind/setup.md) — KinD local cluster
+- [Deploy with Helm](../helm/setup.md) — Production Kubernetes deployment

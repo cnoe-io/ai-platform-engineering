@@ -1,0 +1,4451 @@
+{
+  "generated_at": "2026-03-12T23:16:03.454929+00:00",
+  "sizes": {
+    "10": [
+      {
+        "content": "FACTID-00000: production cluster k8s-prod-00000 runs in region us-east-1 with namespace platform-ns-00000",
+        "fact_id": "FACTID-00000"
+      },
+      {
+        "content": "FACTID-00001: team uses Helm for staging environment deployments (node-00001)",
+        "fact_id": "FACTID-00001"
+      },
+      {
+        "content": "FACTID-00002: on-call rotation slot-00002 covers service svc-00002 with PagerDuty escalation level 3",
+        "fact_id": "FACTID-00002"
+      },
+      {
+        "content": "FACTID-00003: cost centre cc-00003 allocated 400$ monthly for compute in ap-southeast-1",
+        "fact_id": "FACTID-00003"
+      },
+      {
+        "content": "FACTID-00004: repository repo-00004 deploys via CI pipeline pipe-00004 triggered on push to main branch",
+        "fact_id": "FACTID-00004"
+      },
+      {
+        "content": "FACTID-00005: production cluster k8s-prod-00005 runs in region us-west-2 with namespace platform-ns-00005",
+        "fact_id": "FACTID-00005"
+      },
+      {
+        "content": "FACTID-00006: team uses Vault for staging environment deployments (node-00006)",
+        "fact_id": "FACTID-00006"
+      },
+      {
+        "content": "FACTID-00007: on-call rotation slot-00007 covers service svc-00007 with PagerDuty escalation level 2",
+        "fact_id": "FACTID-00007"
+      },
+      {
+        "content": "FACTID-00008: cost centre cc-00008 allocated 900$ monthly for compute in us-east-1",
+        "fact_id": "FACTID-00008"
+      },
+      {
+        "content": "FACTID-00009: repository repo-00009 deploys via CI pipeline pipe-00009 triggered on push to main branch",
+        "fact_id": "FACTID-00009"
+      }
+    ],
+    "100": [
+      {
+        "content": "FACTID-00000: production cluster k8s-prod-00000 runs in region us-east-1 with namespace platform-ns-00000",
+        "fact_id": "FACTID-00000"
+      },
+      {
+        "content": "FACTID-00001: team uses Helm for staging environment deployments (node-00001)",
+        "fact_id": "FACTID-00001"
+      },
+      {
+        "content": "FACTID-00002: on-call rotation slot-00002 covers service svc-00002 with PagerDuty escalation level 3",
+        "fact_id": "FACTID-00002"
+      },
+      {
+        "content": "FACTID-00003: cost centre cc-00003 allocated 400$ monthly for compute in ap-southeast-1",
+        "fact_id": "FACTID-00003"
+      },
+      {
+        "content": "FACTID-00004: repository repo-00004 deploys via CI pipeline pipe-00004 triggered on push to main branch",
+        "fact_id": "FACTID-00004"
+      },
+      {
+        "content": "FACTID-00005: production cluster k8s-prod-00005 runs in region us-west-2 with namespace platform-ns-00005",
+        "fact_id": "FACTID-00005"
+      },
+      {
+        "content": "FACTID-00006: team uses Vault for staging environment deployments (node-00006)",
+        "fact_id": "FACTID-00006"
+      },
+      {
+        "content": "FACTID-00007: on-call rotation slot-00007 covers service svc-00007 with PagerDuty escalation level 2",
+        "fact_id": "FACTID-00007"
+      },
+      {
+        "content": "FACTID-00008: cost centre cc-00008 allocated 900$ monthly for compute in us-east-1",
+        "fact_id": "FACTID-00008"
+      },
+      {
+        "content": "FACTID-00009: repository repo-00009 deploys via CI pipeline pipe-00009 triggered on push to main branch",
+        "fact_id": "FACTID-00009"
+      },
+      {
+        "content": "FACTID-00010: production cluster k8s-prod-00010 runs in region eu-west-1 with namespace platform-ns-00010",
+        "fact_id": "FACTID-00010"
+      },
+      {
+        "content": "FACTID-00011: team uses Helm for staging environment deployments (node-00011)",
+        "fact_id": "FACTID-00011"
+      },
+      {
+        "content": "FACTID-00012: on-call rotation slot-00012 covers service svc-00012 with PagerDuty escalation level 1",
+        "fact_id": "FACTID-00012"
+      },
+      {
+        "content": "FACTID-00013: cost centre cc-00013 allocated 500$ monthly for compute in us-west-2",
+        "fact_id": "FACTID-00013"
+      },
+      {
+        "content": "FACTID-00014: repository repo-00014 deploys via CI pipeline pipe-00014 triggered on push to main branch",
+        "fact_id": "FACTID-00014"
+      },
+      {
+        "content": "FACTID-00015: production cluster k8s-prod-00015 runs in region ap-southeast-1 with namespace platform-ns-00015",
+        "fact_id": "FACTID-00015"
+      },
+      {
+        "content": "FACTID-00016: team uses Vault for staging environment deployments (node-00016)",
+        "fact_id": "FACTID-00016"
+      },
+      {
+        "content": "FACTID-00017: on-call rotation slot-00017 covers service svc-00017 with PagerDuty escalation level 3",
+        "fact_id": "FACTID-00017"
+      },
+      {
+        "content": "FACTID-00018: cost centre cc-00018 allocated 100$ monthly for compute in eu-west-1",
+        "fact_id": "FACTID-00018"
+      },
+      {
+        "content": "FACTID-00019: repository repo-00019 deploys via CI pipeline pipe-00019 triggered on push to main branch",
+        "fact_id": "FACTID-00019"
+      },
+      {
+        "content": "FACTID-00020: production cluster k8s-prod-00020 runs in region us-east-1 with namespace platform-ns-00020",
+        "fact_id": "FACTID-00020"
+      },
+      {
+        "content": "FACTID-00021: team uses Helm for staging environment deployments (node-00021)",
+        "fact_id": "FACTID-00021"
+      },
+      {
+        "content": "FACTID-00022: on-call rotation slot-00022 covers service svc-00022 with PagerDuty escalation level 2",
+        "fact_id": "FACTID-00022"
+      },
+      {
+        "content": "FACTID-00023: cost centre cc-00023 allocated 600$ monthly for compute in ap-southeast-1",
+        "fact_id": "FACTID-00023"
+      },
+      {
+        "content": "FACTID-00024: repository repo-00024 deploys via CI pipeline pipe-00024 triggered on push to main branch",
+        "fact_id": "FACTID-00024"
+      },
+      {
+        "content": "FACTID-00025: production cluster k8s-prod-00025 runs in region us-west-2 with namespace platform-ns-00025",
+        "fact_id": "FACTID-00025"
+      },
+      {
+        "content": "FACTID-00026: team uses Vault for staging environment deployments (node-00026)",
+        "fact_id": "FACTID-00026"
+      },
+      {
+        "content": "FACTID-00027: on-call rotation slot-00027 covers service svc-00027 with PagerDuty escalation level 1",
+        "fact_id": "FACTID-00027"
+      },
+      {
+        "content": "FACTID-00028: cost centre cc-00028 allocated 200$ monthly for compute in us-east-1",
+        "fact_id": "FACTID-00028"
+      },
+      {
+        "content": "FACTID-00029: repository repo-00029 deploys via CI pipeline pipe-00029 triggered on push to main branch",
+        "fact_id": "FACTID-00029"
+      },
+      {
+        "content": "FACTID-00030: production cluster k8s-prod-00030 runs in region eu-west-1 with namespace platform-ns-00030",
+        "fact_id": "FACTID-00030"
+      },
+      {
+        "content": "FACTID-00031: team uses Helm for staging environment deployments (node-00031)",
+        "fact_id": "FACTID-00031"
+      },
+      {
+        "content": "FACTID-00032: on-call rotation slot-00032 covers service svc-00032 with PagerDuty escalation level 3",
+        "fact_id": "FACTID-00032"
+      },
+      {
+        "content": "FACTID-00033: cost centre cc-00033 allocated 700$ monthly for compute in us-west-2",
+        "fact_id": "FACTID-00033"
+      },
+      {
+        "content": "FACTID-00034: repository repo-00034 deploys via CI pipeline pipe-00034 triggered on push to main branch",
+        "fact_id": "FACTID-00034"
+      },
+      {
+        "content": "FACTID-00035: production cluster k8s-prod-00035 runs in region ap-southeast-1 with namespace platform-ns-00035",
+        "fact_id": "FACTID-00035"
+      },
+      {
+        "content": "FACTID-00036: team uses Vault for staging environment deployments (node-00036)",
+        "fact_id": "FACTID-00036"
+      },
+      {
+        "content": "FACTID-00037: on-call rotation slot-00037 covers service svc-00037 with PagerDuty escalation level 2",
+        "fact_id": "FACTID-00037"
+      },
+      {
+        "content": "FACTID-00038: cost centre cc-00038 allocated 300$ monthly for compute in eu-west-1",
+        "fact_id": "FACTID-00038"
+      },
+      {
+        "content": "FACTID-00039: repository repo-00039 deploys via CI pipeline pipe-00039 triggered on push to main branch",
+        "fact_id": "FACTID-00039"
+      },
+      {
+        "content": "FACTID-00040: production cluster k8s-prod-00040 runs in region us-east-1 with namespace platform-ns-00040",
+        "fact_id": "FACTID-00040"
+      },
+      {
+        "content": "FACTID-00041: team uses Helm for staging environment deployments (node-00041)",
+        "fact_id": "FACTID-00041"
+      },
+      {
+        "content": "FACTID-00042: on-call rotation slot-00042 covers service svc-00042 with PagerDuty escalation level 1",
+        "fact_id": "FACTID-00042"
+      },
+      {
+        "content": "FACTID-00043: cost centre cc-00043 allocated 800$ monthly for compute in ap-southeast-1",
+        "fact_id": "FACTID-00043"
+      },
+      {
+        "content": "FACTID-00044: repository repo-00044 deploys via CI pipeline pipe-00044 triggered on push to main branch",
+        "fact_id": "FACTID-00044"
+      },
+      {
+        "content": "FACTID-00045: production cluster k8s-prod-00045 runs in region us-west-2 with namespace platform-ns-00045",
+        "fact_id": "FACTID-00045"
+      },
+      {
+        "content": "FACTID-00046: team uses Vault for staging environment deployments (node-00046)",
+        "fact_id": "FACTID-00046"
+      },
+      {
+        "content": "FACTID-00047: on-call rotation slot-00047 covers service svc-00047 with PagerDuty escalation level 3",
+        "fact_id": "FACTID-00047"
+      },
+      {
+        "content": "FACTID-00048: cost centre cc-00048 allocated 400$ monthly for compute in us-east-1",
+        "fact_id": "FACTID-00048"
+      },
+      {
+        "content": "FACTID-00049: repository repo-00049 deploys via CI pipeline pipe-00049 triggered on push to main branch",
+        "fact_id": "FACTID-00049"
+      },
+      {
+        "content": "FACTID-00050: production cluster k8s-prod-00050 runs in region eu-west-1 with namespace platform-ns-00050",
+        "fact_id": "FACTID-00050"
+      },
+      {
+        "content": "FACTID-00051: team uses Helm for staging environment deployments (node-00051)",
+        "fact_id": "FACTID-00051"
+      },
+      {
+        "content": "FACTID-00052: on-call rotation slot-00052 covers service svc-00052 with PagerDuty escalation level 2",
+        "fact_id": "FACTID-00052"
+      },
+      {
+        "content": "FACTID-00053: cost centre cc-00053 allocated 900$ monthly for compute in us-west-2",
+        "fact_id": "FACTID-00053"
+      },
+      {
+        "content": "FACTID-00054: repository repo-00054 deploys via CI pipeline pipe-00054 triggered on push to main branch",
+        "fact_id": "FACTID-00054"
+      },
+      {
+        "content": "FACTID-00055: production cluster k8s-prod-00055 runs in region ap-southeast-1 with namespace platform-ns-00055",
+        "fact_id": "FACTID-00055"
+      },
+      {
+        "content": "FACTID-00056: team uses Vault for staging environment deployments (node-00056)",
+        "fact_id": "FACTID-00056"
+      },
+      {
+        "content": "FACTID-00057: on-call rotation slot-00057 covers service svc-00057 with PagerDuty escalation level 1",
+        "fact_id": "FACTID-00057"
+      },
+      {
+        "content": "FACTID-00058: cost centre cc-00058 allocated 500$ monthly for compute in eu-west-1",
+        "fact_id": "FACTID-00058"
+      },
+      {
+        "content": "FACTID-00059: repository repo-00059 deploys via CI pipeline pipe-00059 triggered on push to main branch",
+        "fact_id": "FACTID-00059"
+      },
+      {
+        "content": "FACTID-00060: production cluster k8s-prod-00060 runs in region us-east-1 with namespace platform-ns-00060",
+        "fact_id": "FACTID-00060"
+      },
+      {
+        "content": "FACTID-00061: team uses Helm for staging environment deployments (node-00061)",
+        "fact_id": "FACTID-00061"
+      },
+      {
+        "content": "FACTID-00062: on-call rotation slot-00062 covers service svc-00062 with PagerDuty escalation level 3",
+        "fact_id": "FACTID-00062"
+      },
+      {
+        "content": "FACTID-00063: cost centre cc-00063 allocated 100$ monthly for compute in ap-southeast-1",
+        "fact_id": "FACTID-00063"
+      },
+      {
+        "content": "FACTID-00064: repository repo-00064 deploys via CI pipeline pipe-00064 triggered on push to main branch",
+        "fact_id": "FACTID-00064"
+      },
+      {
+        "content": "FACTID-00065: production cluster k8s-prod-00065 runs in region us-west-2 with namespace platform-ns-00065",
+        "fact_id": "FACTID-00065"
+      },
+      {
+        "content": "FACTID-00066: team uses Vault for staging environment deployments (node-00066)",
+        "fact_id": "FACTID-00066"
+      },
+      {
+        "content": "FACTID-00067: on-call rotation slot-00067 covers service svc-00067 with PagerDuty escalation level 2",
+        "fact_id": "FACTID-00067"
+      },
+      {
+        "content": "FACTID-00068: cost centre cc-00068 allocated 600$ monthly for compute in us-east-1",
+        "fact_id": "FACTID-00068"
+      },
+      {
+        "content": "FACTID-00069: repository repo-00069 deploys via CI pipeline pipe-00069 triggered on push to main branch",
+        "fact_id": "FACTID-00069"
+      },
+      {
+        "content": "FACTID-00070: production cluster k8s-prod-00070 runs in region eu-west-1 with namespace platform-ns-00070",
+        "fact_id": "FACTID-00070"
+      },
+      {
+        "content": "FACTID-00071: team uses Helm for staging environment deployments (node-00071)",
+        "fact_id": "FACTID-00071"
+      },
+      {
+        "content": "FACTID-00072: on-call rotation slot-00072 covers service svc-00072 with PagerDuty escalation level 1",
+        "fact_id": "FACTID-00072"
+      },
+      {
+        "content": "FACTID-00073: cost centre cc-00073 allocated 200$ monthly for compute in us-west-2",
+        "fact_id": "FACTID-00073"
+      },
+      {
+        "content": "FACTID-00074: repository repo-00074 deploys via CI pipeline pipe-00074 triggered on push to main branch",
+        "fact_id": "FACTID-00074"
+      },
+      {
+        "content": "FACTID-00075: production cluster k8s-prod-00075 runs in region ap-southeast-1 with namespace platform-ns-00075",
+        "fact_id": "FACTID-00075"
+      },
+      {
+        "content": "FACTID-00076: team uses Vault for staging environment deployments (node-00076)",
+        "fact_id": "FACTID-00076"
+      },
+      {
+        "content": "FACTID-00077: on-call rotation slot-00077 covers service svc-00077 with PagerDuty escalation level 3",
+        "fact_id": "FACTID-00077"
+      },
+      {
+        "content": "FACTID-00078: cost centre cc-00078 allocated 700$ monthly for compute in eu-west-1",
+        "fact_id": "FACTID-00078"
+      },
+      {
+        "content": "FACTID-00079: repository repo-00079 deploys via CI pipeline pipe-00079 triggered on push to main branch",
+        "fact_id": "FACTID-00079"
+      },
+      {
+        "content": "FACTID-00080: production cluster k8s-prod-00080 runs in region us-east-1 with namespace platform-ns-00080",
+        "fact_id": "FACTID-00080"
+      },
+      {
+        "content": "FACTID-00081: team uses Helm for staging environment deployments (node-00081)",
+        "fact_id": "FACTID-00081"
+      },
+      {
+        "content": "FACTID-00082: on-call rotation slot-00082 covers service svc-00082 with PagerDuty escalation level 2",
+        "fact_id": "FACTID-00082"
+      },
+      {
+        "content": "FACTID-00083: cost centre cc-00083 allocated 300$ monthly for compute in ap-southeast-1",
+        "fact_id": "FACTID-00083"
+      },
+      {
+        "content": "FACTID-00084: repository repo-00084 deploys via CI pipeline pipe-00084 triggered on push to main branch",
+        "fact_id": "FACTID-00084"
+      },
+      {
+        "content": "FACTID-00085: production cluster k8s-prod-00085 runs in region us-west-2 with namespace platform-ns-00085",
+        "fact_id": "FACTID-00085"
+      },
+      {
+        "content": "FACTID-00086: team uses Vault for staging environment deployments (node-00086)",
+        "fact_id": "FACTID-00086"
+      },
+      {
+        "content": "FACTID-00087: on-call rotation slot-00087 covers service svc-00087 with PagerDuty escalation level 1",
+        "fact_id": "FACTID-00087"
+      },
+      {
+        "content": "FACTID-00088: cost centre cc-00088 allocated 800$ monthly for compute in us-east-1",
+        "fact_id": "FACTID-00088"
+      },
+      {
+        "content": "FACTID-00089: repository repo-00089 deploys via CI pipeline pipe-00089 triggered on push to main branch",
+        "fact_id": "FACTID-00089"
+      },
+      {
+        "content": "FACTID-00090: production cluster k8s-prod-00090 runs in region eu-west-1 with namespace platform-ns-00090",
+        "fact_id": "FACTID-00090"
+      },
+      {
+        "content": "FACTID-00091: team uses Helm for staging environment deployments (node-00091)",
+        "fact_id": "FACTID-00091"
+      },
+      {
+        "content": "FACTID-00092: on-call rotation slot-00092 covers service svc-00092 with PagerDuty escalation level 3",
+        "fact_id": "FACTID-00092"
+      },
+      {
+        "content": "FACTID-00093: cost centre cc-00093 allocated 400$ monthly for compute in us-west-2",
+        "fact_id": "FACTID-00093"
+      },
+      {
+        "content": "FACTID-00094: repository repo-00094 deploys via CI pipeline pipe-00094 triggered on push to main branch",
+        "fact_id": "FACTID-00094"
+      },
+      {
+        "content": "FACTID-00095: production cluster k8s-prod-00095 runs in region ap-southeast-1 with namespace platform-ns-00095",
+        "fact_id": "FACTID-00095"
+      },
+      {
+        "content": "FACTID-00096: team uses Vault for staging environment deployments (node-00096)",
+        "fact_id": "FACTID-00096"
+      },
+      {
+        "content": "FACTID-00097: on-call rotation slot-00097 covers service svc-00097 with PagerDuty escalation level 2",
+        "fact_id": "FACTID-00097"
+      },
+      {
+        "content": "FACTID-00098: cost centre cc-00098 allocated 900$ monthly for compute in eu-west-1",
+        "fact_id": "FACTID-00098"
+      },
+      {
+        "content": "FACTID-00099: repository repo-00099 deploys via CI pipeline pipe-00099 triggered on push to main branch",
+        "fact_id": "FACTID-00099"
+      }
+    ],
+    "1000": [
+      {
+        "content": "FACTID-00000: production cluster k8s-prod-00000 runs in region us-east-1 with namespace platform-ns-00000",
+        "fact_id": "FACTID-00000"
+      },
+      {
+        "content": "FACTID-00001: team uses Helm for staging environment deployments (node-00001)",
+        "fact_id": "FACTID-00001"
+      },
+      {
+        "content": "FACTID-00002: on-call rotation slot-00002 covers service svc-00002 with PagerDuty escalation level 3",
+        "fact_id": "FACTID-00002"
+      },
+      {
+        "content": "FACTID-00003: cost centre cc-00003 allocated 400$ monthly for compute in ap-southeast-1",
+        "fact_id": "FACTID-00003"
+      },
+      {
+        "content": "FACTID-00004: repository repo-00004 deploys via CI pipeline pipe-00004 triggered on push to main branch",
+        "fact_id": "FACTID-00004"
+      },
+      {
+        "content": "FACTID-00005: production cluster k8s-prod-00005 runs in region us-west-2 with namespace platform-ns-00005",
+        "fact_id": "FACTID-00005"
+      },
+      {
+        "content": "FACTID-00006: team uses Vault for staging environment deployments (node-00006)",
+        "fact_id": "FACTID-00006"
+      },
+      {
+        "content": "FACTID-00007: on-call rotation slot-00007 covers service svc-00007 with PagerDuty escalation level 2",
+        "fact_id": "FACTID-00007"
+      },
+      {
+        "content": "FACTID-00008: cost centre cc-00008 allocated 900$ monthly for compute in us-east-1",
+        "fact_id": "FACTID-00008"
+      },
+      {
+        "content": "FACTID-00009: repository repo-00009 deploys via CI pipeline pipe-00009 triggered on push to main branch",
+        "fact_id": "FACTID-00009"
+      },
+      {
+        "content": "FACTID-00010: production cluster k8s-prod-00010 runs in region eu-west-1 with namespace platform-ns-00010",
+        "fact_id": "FACTID-00010"
+      },
+      {
+        "content": "FACTID-00011: team uses Helm for staging environment deployments (node-00011)",
+        "fact_id": "FACTID-00011"
+      },
+      {
+        "content": "FACTID-00012: on-call rotation slot-00012 covers service svc-00012 with PagerDuty escalation level 1",
+        "fact_id": "FACTID-00012"
+      },
+      {
+        "content": "FACTID-00013: cost centre cc-00013 allocated 500$ monthly for compute in us-west-2",
+        "fact_id": "FACTID-00013"
+      },
+      {
+        "content": "FACTID-00014: repository repo-00014 deploys via CI pipeline pipe-00014 triggered on push to main branch",
+        "fact_id": "FACTID-00014"
+      },
+      {
+        "content": "FACTID-00015: production cluster k8s-prod-00015 runs in region ap-southeast-1 with namespace platform-ns-00015",
+        "fact_id": "FACTID-00015"
+      },
+      {
+        "content": "FACTID-00016: team uses Vault for staging environment deployments (node-00016)",
+        "fact_id": "FACTID-00016"
+      },
+      {
+        "content": "FACTID-00017: on-call rotation slot-00017 covers service svc-00017 with PagerDuty escalation level 3",
+        "fact_id": "FACTID-00017"
+      },
+      {
+        "content": "FACTID-00018: cost centre cc-00018 allocated 100$ monthly for compute in eu-west-1",
+        "fact_id": "FACTID-00018"
+      },
+      {
+        "content": "FACTID-00019: repository repo-00019 deploys via CI pipeline pipe-00019 triggered on push to main branch",
+        "fact_id": "FACTID-00019"
+      },
+      {
+        "content": "FACTID-00020: production cluster k8s-prod-00020 runs in region us-east-1 with namespace platform-ns-00020",
+        "fact_id": "FACTID-00020"
+      },
+      {
+        "content": "FACTID-00021: team uses Helm for staging environment deployments (node-00021)",
+        "fact_id": "FACTID-00021"
+      },
+      {
+        "content": "FACTID-00022: on-call rotation slot-00022 covers service svc-00022 with PagerDuty escalation level 2",
+        "fact_id": "FACTID-00022"
+      },
+      {
+        "content": "FACTID-00023: cost centre cc-00023 allocated 600$ monthly for compute in ap-southeast-1",
+        "fact_id": "FACTID-00023"
+      },
+      {
+        "content": "FACTID-00024: repository repo-00024 deploys via CI pipeline pipe-00024 triggered on push to main branch",
+        "fact_id": "FACTID-00024"
+      },
+      {
+        "content": "FACTID-00025: production cluster k8s-prod-00025 runs in region us-west-2 with namespace platform-ns-00025",
+        "fact_id": "FACTID-00025"
+      },
+      {
+        "content": "FACTID-00026: team uses Vault for staging environment deployments (node-00026)",
+        "fact_id": "FACTID-00026"
+      },
+      {
+        "content": "FACTID-00027: on-call rotation slot-00027 covers service svc-00027 with PagerDuty escalation level 1",
+        "fact_id": "FACTID-00027"
+      },
+      {
+        "content": "FACTID-00028: cost centre cc-00028 allocated 200$ monthly for compute in us-east-1",
+        "fact_id": "FACTID-00028"
+      },
+      {
+        "content": "FACTID-00029: repository repo-00029 deploys via CI pipeline pipe-00029 triggered on push to main branch",
+        "fact_id": "FACTID-00029"
+      },
+      {
+        "content": "FACTID-00030: production cluster k8s-prod-00030 runs in region eu-west-1 with namespace platform-ns-00030",
+        "fact_id": "FACTID-00030"
+      },
+      {
+        "content": "FACTID-00031: team uses Helm for staging environment deployments (node-00031)",
+        "fact_id": "FACTID-00031"
+      },
+      {
+        "content": "FACTID-00032: on-call rotation slot-00032 covers service svc-00032 with PagerDuty escalation level 3",
+        "fact_id": "FACTID-00032"
+      },
+      {
+        "content": "FACTID-00033: cost centre cc-00033 allocated 700$ monthly for compute in us-west-2",
+        "fact_id": "FACTID-00033"
+      },
+      {
+        "content": "FACTID-00034: repository repo-00034 deploys via CI pipeline pipe-00034 triggered on push to main branch",
+        "fact_id": "FACTID-00034"
+      },
+      {
+        "content": "FACTID-00035: production cluster k8s-prod-00035 runs in region ap-southeast-1 with namespace platform-ns-00035",
+        "fact_id": "FACTID-00035"
+      },
+      {
+        "content": "FACTID-00036: team uses Vault for staging environment deployments (node-00036)",
+        "fact_id": "FACTID-00036"
+      },
+      {
+        "content": "FACTID-00037: on-call rotation slot-00037 covers service svc-00037 with PagerDuty escalation level 2",
+        "fact_id": "FACTID-00037"
+      },
+      {
+        "content": "FACTID-00038: cost centre cc-00038 allocated 300$ monthly for compute in eu-west-1",
+        "fact_id": "FACTID-00038"
+      },
+      {
+        "content": "FACTID-00039: repository repo-00039 deploys via CI pipeline pipe-00039 triggered on push to main branch",
+        "fact_id": "FACTID-00039"
+      },
+      {
+        "content": "FACTID-00040: production cluster k8s-prod-00040 runs in region us-east-1 with namespace platform-ns-00040",
+        "fact_id": "FACTID-00040"
+      },
+      {
+        "content": "FACTID-00041: team uses Helm for staging environment deployments (node-00041)",
+        "fact_id": "FACTID-00041"
+      },
+      {
+        "content": "FACTID-00042: on-call rotation slot-00042 covers service svc-00042 with PagerDuty escalation level 1",
+        "fact_id": "FACTID-00042"
+      },
+      {
+        "content": "FACTID-00043: cost centre cc-00043 allocated 800$ monthly for compute in ap-southeast-1",
+        "fact_id": "FACTID-00043"
+      },
+      {
+        "content": "FACTID-00044: repository repo-00044 deploys via CI pipeline pipe-00044 triggered on push to main branch",
+        "fact_id": "FACTID-00044"
+      },
+      {
+        "content": "FACTID-00045: production cluster k8s-prod-00045 runs in region us-west-2 with namespace platform-ns-00045",
+        "fact_id": "FACTID-00045"
+      },
+      {
+        "content": "FACTID-00046: team uses Vault for staging environment deployments (node-00046)",
+        "fact_id": "FACTID-00046"
+      },
+      {
+        "content": "FACTID-00047: on-call rotation slot-00047 covers service svc-00047 with PagerDuty escalation level 3",
+        "fact_id": "FACTID-00047"
+      },
+      {
+        "content": "FACTID-00048: cost centre cc-00048 allocated 400$ monthly for compute in us-east-1",
+        "fact_id": "FACTID-00048"
+      },
+      {
+        "content": "FACTID-00049: repository repo-00049 deploys via CI pipeline pipe-00049 triggered on push to main branch",
+        "fact_id": "FACTID-00049"
+      },
+      {
+        "content": "FACTID-00050: production cluster k8s-prod-00050 runs in region eu-west-1 with namespace platform-ns-00050",
+        "fact_id": "FACTID-00050"
+      },
+      {
+        "content": "FACTID-00051: team uses Helm for staging environment deployments (node-00051)",
+        "fact_id": "FACTID-00051"
+      },
+      {
+        "content": "FACTID-00052: on-call rotation slot-00052 covers service svc-00052 with PagerDuty escalation level 2",
+        "fact_id": "FACTID-00052"
+      },
+      {
+        "content": "FACTID-00053: cost centre cc-00053 allocated 900$ monthly for compute in us-west-2",
+        "fact_id": "FACTID-00053"
+      },
+      {
+        "content": "FACTID-00054: repository repo-00054 deploys via CI pipeline pipe-00054 triggered on push to main branch",
+        "fact_id": "FACTID-00054"
+      },
+      {
+        "content": "FACTID-00055: production cluster k8s-prod-00055 runs in region ap-southeast-1 with namespace platform-ns-00055",
+        "fact_id": "FACTID-00055"
+      },
+      {
+        "content": "FACTID-00056: team uses Vault for staging environment deployments (node-00056)",
+        "fact_id": "FACTID-00056"
+      },
+      {
+        "content": "FACTID-00057: on-call rotation slot-00057 covers service svc-00057 with PagerDuty escalation level 1",
+        "fact_id": "FACTID-00057"
+      },
+      {
+        "content": "FACTID-00058: cost centre cc-00058 allocated 500$ monthly for compute in eu-west-1",
+        "fact_id": "FACTID-00058"
+      },
+      {
+        "content": "FACTID-00059: repository repo-00059 deploys via CI pipeline pipe-00059 triggered on push to main branch",
+        "fact_id": "FACTID-00059"
+      },
+      {
+        "content": "FACTID-00060: production cluster k8s-prod-00060 runs in region us-east-1 with namespace platform-ns-00060",
+        "fact_id": "FACTID-00060"
+      },
+      {
+        "content": "FACTID-00061: team uses Helm for staging environment deployments (node-00061)",
+        "fact_id": "FACTID-00061"
+      },
+      {
+        "content": "FACTID-00062: on-call rotation slot-00062 covers service svc-00062 with PagerDuty escalation level 3",
+        "fact_id": "FACTID-00062"
+      },
+      {
+        "content": "FACTID-00063: cost centre cc-00063 allocated 100$ monthly for compute in ap-southeast-1",
+        "fact_id": "FACTID-00063"
+      },
+      {
+        "content": "FACTID-00064: repository repo-00064 deploys via CI pipeline pipe-00064 triggered on push to main branch",
+        "fact_id": "FACTID-00064"
+      },
+      {
+        "content": "FACTID-00065: production cluster k8s-prod-00065 runs in region us-west-2 with namespace platform-ns-00065",
+        "fact_id": "FACTID-00065"
+      },
+      {
+        "content": "FACTID-00066: team uses Vault for staging environment deployments (node-00066)",
+        "fact_id": "FACTID-00066"
+      },
+      {
+        "content": "FACTID-00067: on-call rotation slot-00067 covers service svc-00067 with PagerDuty escalation level 2",
+        "fact_id": "FACTID-00067"
+      },
+      {
+        "content": "FACTID-00068: cost centre cc-00068 allocated 600$ monthly for compute in us-east-1",
+        "fact_id": "FACTID-00068"
+      },
+      {
+        "content": "FACTID-00069: repository repo-00069 deploys via CI pipeline pipe-00069 triggered on push to main branch",
+        "fact_id": "FACTID-00069"
+      },
+      {
+        "content": "FACTID-00070: production cluster k8s-prod-00070 runs in region eu-west-1 with namespace platform-ns-00070",
+        "fact_id": "FACTID-00070"
+      },
+      {
+        "content": "FACTID-00071: team uses Helm for staging environment deployments (node-00071)",
+        "fact_id": "FACTID-00071"
+      },
+      {
+        "content": "FACTID-00072: on-call rotation slot-00072 covers service svc-00072 with PagerDuty escalation level 1",
+        "fact_id": "FACTID-00072"
+      },
+      {
+        "content": "FACTID-00073: cost centre cc-00073 allocated 200$ monthly for compute in us-west-2",
+        "fact_id": "FACTID-00073"
+      },
+      {
+        "content": "FACTID-00074: repository repo-00074 deploys via CI pipeline pipe-00074 triggered on push to main branch",
+        "fact_id": "FACTID-00074"
+      },
+      {
+        "content": "FACTID-00075: production cluster k8s-prod-00075 runs in region ap-southeast-1 with namespace platform-ns-00075",
+        "fact_id": "FACTID-00075"
+      },
+      {
+        "content": "FACTID-00076: team uses Vault for staging environment deployments (node-00076)",
+        "fact_id": "FACTID-00076"
+      },
+      {
+        "content": "FACTID-00077: on-call rotation slot-00077 covers service svc-00077 with PagerDuty escalation level 3",
+        "fact_id": "FACTID-00077"
+      },
+      {
+        "content": "FACTID-00078: cost centre cc-00078 allocated 700$ monthly for compute in eu-west-1",
+        "fact_id": "FACTID-00078"
+      },
+      {
+        "content": "FACTID-00079: repository repo-00079 deploys via CI pipeline pipe-00079 triggered on push to main branch",
+        "fact_id": "FACTID-00079"
+      },
+      {
+        "content": "FACTID-00080: production cluster k8s-prod-00080 runs in region us-east-1 with namespace platform-ns-00080",
+        "fact_id": "FACTID-00080"
+      },
+      {
+        "content": "FACTID-00081: team uses Helm for staging environment deployments (node-00081)",
+        "fact_id": "FACTID-00081"
+      },
+      {
+        "content": "FACTID-00082: on-call rotation slot-00082 covers service svc-00082 with PagerDuty escalation level 2",
+        "fact_id": "FACTID-00082"
+      },
+      {
+        "content": "FACTID-00083: cost centre cc-00083 allocated 300$ monthly for compute in ap-southeast-1",
+        "fact_id": "FACTID-00083"
+      },
+      {
+        "content": "FACTID-00084: repository repo-00084 deploys via CI pipeline pipe-00084 triggered on push to main branch",
+        "fact_id": "FACTID-00084"
+      },
+      {
+        "content": "FACTID-00085: production cluster k8s-prod-00085 runs in region us-west-2 with namespace platform-ns-00085",
+        "fact_id": "FACTID-00085"
+      },
+      {
+        "content": "FACTID-00086: team uses Vault for staging environment deployments (node-00086)",
+        "fact_id": "FACTID-00086"
+      },
+      {
+        "content": "FACTID-00087: on-call rotation slot-00087 covers service svc-00087 with PagerDuty escalation level 1",
+        "fact_id": "FACTID-00087"
+      },
+      {
+        "content": "FACTID-00088: cost centre cc-00088 allocated 800$ monthly for compute in us-east-1",
+        "fact_id": "FACTID-00088"
+      },
+      {
+        "content": "FACTID-00089: repository repo-00089 deploys via CI pipeline pipe-00089 triggered on push to main branch",
+        "fact_id": "FACTID-00089"
+      },
+      {
+        "content": "FACTID-00090: production cluster k8s-prod-00090 runs in region eu-west-1 with namespace platform-ns-00090",
+        "fact_id": "FACTID-00090"
+      },
+      {
+        "content": "FACTID-00091: team uses Helm for staging environment deployments (node-00091)",
+        "fact_id": "FACTID-00091"
+      },
+      {
+        "content": "FACTID-00092: on-call rotation slot-00092 covers service svc-00092 with PagerDuty escalation level 3",
+        "fact_id": "FACTID-00092"
+      },
+      {
+        "content": "FACTID-00093: cost centre cc-00093 allocated 400$ monthly for compute in us-west-2",
+        "fact_id": "FACTID-00093"
+      },
+      {
+        "content": "FACTID-00094: repository repo-00094 deploys via CI pipeline pipe-00094 triggered on push to main branch",
+        "fact_id": "FACTID-00094"
+      },
+      {
+        "content": "FACTID-00095: production cluster k8s-prod-00095 runs in region ap-southeast-1 with namespace platform-ns-00095",
+        "fact_id": "FACTID-00095"
+      },
+      {
+        "content": "FACTID-00096: team uses Vault for staging environment deployments (node-00096)",
+        "fact_id": "FACTID-00096"
+      },
+      {
+        "content": "FACTID-00097: on-call rotation slot-00097 covers service svc-00097 with PagerDuty escalation level 2",
+        "fact_id": "FACTID-00097"
+      },
+      {
+        "content": "FACTID-00098: cost centre cc-00098 allocated 900$ monthly for compute in eu-west-1",
+        "fact_id": "FACTID-00098"
+      },
+      {
+        "content": "FACTID-00099: repository repo-00099 deploys via CI pipeline pipe-00099 triggered on push to main branch",
+        "fact_id": "FACTID-00099"
+      },
+      {
+        "content": "FACTID-00100: production cluster k8s-prod-00100 runs in region us-east-1 with namespace platform-ns-00100",
+        "fact_id": "FACTID-00100"
+      },
+      {
+        "content": "FACTID-00101: team uses Helm for staging environment deployments (node-00101)",
+        "fact_id": "FACTID-00101"
+      },
+      {
+        "content": "FACTID-00102: on-call rotation slot-00102 covers service svc-00102 with PagerDuty escalation level 1",
+        "fact_id": "FACTID-00102"
+      },
+      {
+        "content": "FACTID-00103: cost centre cc-00103 allocated 500$ monthly for compute in ap-southeast-1",
+        "fact_id": "FACTID-00103"
+      },
+      {
+        "content": "FACTID-00104: repository repo-00104 deploys via CI pipeline pipe-00104 triggered on push to main branch",
+        "fact_id": "FACTID-00104"
+      },
+      {
+        "content": "FACTID-00105: production cluster k8s-prod-00105 runs in region us-west-2 with namespace platform-ns-00105",
+        "fact_id": "FACTID-00105"
+      },
+      {
+        "content": "FACTID-00106: team uses Vault for staging environment deployments (node-00106)",
+        "fact_id": "FACTID-00106"
+      },
+      {
+        "content": "FACTID-00107: on-call rotation slot-00107 covers service svc-00107 with PagerDuty escalation level 3",
+        "fact_id": "FACTID-00107"
+      },
+      {
+        "content": "FACTID-00108: cost centre cc-00108 allocated 100$ monthly for compute in us-east-1",
+        "fact_id": "FACTID-00108"
+      },
+      {
+        "content": "FACTID-00109: repository repo-00109 deploys via CI pipeline pipe-00109 triggered on push to main branch",
+        "fact_id": "FACTID-00109"
+      },
+      {
+        "content": "FACTID-00110: production cluster k8s-prod-00110 runs in region eu-west-1 with namespace platform-ns-00110",
+        "fact_id": "FACTID-00110"
+      },
+      {
+        "content": "FACTID-00111: team uses Helm for staging environment deployments (node-00111)",
+        "fact_id": "FACTID-00111"
+      },
+      {
+        "content": "FACTID-00112: on-call rotation slot-00112 covers service svc-00112 with PagerDuty escalation level 2",
+        "fact_id": "FACTID-00112"
+      },
+      {
+        "content": "FACTID-00113: cost centre cc-00113 allocated 600$ monthly for compute in us-west-2",
+        "fact_id": "FACTID-00113"
+      },
+      {
+        "content": "FACTID-00114: repository repo-00114 deploys via CI pipeline pipe-00114 triggered on push to main branch",
+        "fact_id": "FACTID-00114"
+      },
+      {
+        "content": "FACTID-00115: production cluster k8s-prod-00115 runs in region ap-southeast-1 with namespace platform-ns-00115",
+        "fact_id": "FACTID-00115"
+      },
+      {
+        "content": "FACTID-00116: team uses Vault for staging environment deployments (node-00116)",
+        "fact_id": "FACTID-00116"
+      },
+      {
+        "content": "FACTID-00117: on-call rotation slot-00117 covers service svc-00117 with PagerDuty escalation level 1",
+        "fact_id": "FACTID-00117"
+      },
+      {
+        "content": "FACTID-00118: cost centre cc-00118 allocated 200$ monthly for compute in eu-west-1",
+        "fact_id": "FACTID-00118"
+      },
+      {
+        "content": "FACTID-00119: repository repo-00119 deploys via CI pipeline pipe-00119 triggered on push to main branch",
+        "fact_id": "FACTID-00119"
+      },
+      {
+        "content": "FACTID-00120: production cluster k8s-prod-00120 runs in region us-east-1 with namespace platform-ns-00120",
+        "fact_id": "FACTID-00120"
+      },
+      {
+        "content": "FACTID-00121: team uses Helm for staging environment deployments (node-00121)",
+        "fact_id": "FACTID-00121"
+      },
+      {
+        "content": "FACTID-00122: on-call rotation slot-00122 covers service svc-00122 with PagerDuty escalation level 3",
+        "fact_id": "FACTID-00122"
+      },
+      {
+        "content": "FACTID-00123: cost centre cc-00123 allocated 700$ monthly for compute in ap-southeast-1",
+        "fact_id": "FACTID-00123"
+      },
+      {
+        "content": "FACTID-00124: repository repo-00124 deploys via CI pipeline pipe-00124 triggered on push to main branch",
+        "fact_id": "FACTID-00124"
+      },
+      {
+        "content": "FACTID-00125: production cluster k8s-prod-00125 runs in region us-west-2 with namespace platform-ns-00125",
+        "fact_id": "FACTID-00125"
+      },
+      {
+        "content": "FACTID-00126: team uses Vault for staging environment deployments (node-00126)",
+        "fact_id": "FACTID-00126"
+      },
+      {
+        "content": "FACTID-00127: on-call rotation slot-00127 covers service svc-00127 with PagerDuty escalation level 2",
+        "fact_id": "FACTID-00127"
+      },
+      {
+        "content": "FACTID-00128: cost centre cc-00128 allocated 300$ monthly for compute in us-east-1",
+        "fact_id": "FACTID-00128"
+      },
+      {
+        "content": "FACTID-00129: repository repo-00129 deploys via CI pipeline pipe-00129 triggered on push to main branch",
+        "fact_id": "FACTID-00129"
+      },
+      {
+        "content": "FACTID-00130: production cluster k8s-prod-00130 runs in region eu-west-1 with namespace platform-ns-00130",
+        "fact_id": "FACTID-00130"
+      },
+      {
+        "content": "FACTID-00131: team uses Helm for staging environment deployments (node-00131)",
+        "fact_id": "FACTID-00131"
+      },
+      {
+        "content": "FACTID-00132: on-call rotation slot-00132 covers service svc-00132 with PagerDuty escalation level 1",
+        "fact_id": "FACTID-00132"
+      },
+      {
+        "content": "FACTID-00133: cost centre cc-00133 allocated 800$ monthly for compute in us-west-2",
+        "fact_id": "FACTID-00133"
+      },
+      {
+        "content": "FACTID-00134: repository repo-00134 deploys via CI pipeline pipe-00134 triggered on push to main branch",
+        "fact_id": "FACTID-00134"
+      },
+      {
+        "content": "FACTID-00135: production cluster k8s-prod-00135 runs in region ap-southeast-1 with namespace platform-ns-00135",
+        "fact_id": "FACTID-00135"
+      },
+      {
+        "content": "FACTID-00136: team uses Vault for staging environment deployments (node-00136)",
+        "fact_id": "FACTID-00136"
+      },
+      {
+        "content": "FACTID-00137: on-call rotation slot-00137 covers service svc-00137 with PagerDuty escalation level 3",
+        "fact_id": "FACTID-00137"
+      },
+      {
+        "content": "FACTID-00138: cost centre cc-00138 allocated 400$ monthly for compute in eu-west-1",
+        "fact_id": "FACTID-00138"
+      },
+      {
+        "content": "FACTID-00139: repository repo-00139 deploys via CI pipeline pipe-00139 triggered on push to main branch",
+        "fact_id": "FACTID-00139"
+      },
+      {
+        "content": "FACTID-00140: production cluster k8s-prod-00140 runs in region us-east-1 with namespace platform-ns-00140",
+        "fact_id": "FACTID-00140"
+      },
+      {
+        "content": "FACTID-00141: team uses Helm for staging environment deployments (node-00141)",
+        "fact_id": "FACTID-00141"
+      },
+      {
+        "content": "FACTID-00142: on-call rotation slot-00142 covers service svc-00142 with PagerDuty escalation level 2",
+        "fact_id": "FACTID-00142"
+      },
+      {
+        "content": "FACTID-00143: cost centre cc-00143 allocated 900$ monthly for compute in ap-southeast-1",
+        "fact_id": "FACTID-00143"
+      },
+      {
+        "content": "FACTID-00144: repository repo-00144 deploys via CI pipeline pipe-00144 triggered on push to main branch",
+        "fact_id": "FACTID-00144"
+      },
+      {
+        "content": "FACTID-00145: production cluster k8s-prod-00145 runs in region us-west-2 with namespace platform-ns-00145",
+        "fact_id": "FACTID-00145"
+      },
+      {
+        "content": "FACTID-00146: team uses Vault for staging environment deployments (node-00146)",
+        "fact_id": "FACTID-00146"
+      },
+      {
+        "content": "FACTID-00147: on-call rotation slot-00147 covers service svc-00147 with PagerDuty escalation level 1",
+        "fact_id": "FACTID-00147"
+      },
+      {
+        "content": "FACTID-00148: cost centre cc-00148 allocated 500$ monthly for compute in us-east-1",
+        "fact_id": "FACTID-00148"
+      },
+      {
+        "content": "FACTID-00149: repository repo-00149 deploys via CI pipeline pipe-00149 triggered on push to main branch",
+        "fact_id": "FACTID-00149"
+      },
+      {
+        "content": "FACTID-00150: production cluster k8s-prod-00150 runs in region eu-west-1 with namespace platform-ns-00150",
+        "fact_id": "FACTID-00150"
+      },
+      {
+        "content": "FACTID-00151: team uses Helm for staging environment deployments (node-00151)",
+        "fact_id": "FACTID-00151"
+      },
+      {
+        "content": "FACTID-00152: on-call rotation slot-00152 covers service svc-00152 with PagerDuty escalation level 3",
+        "fact_id": "FACTID-00152"
+      },
+      {
+        "content": "FACTID-00153: cost centre cc-00153 allocated 100$ monthly for compute in us-west-2",
+        "fact_id": "FACTID-00153"
+      },
+      {
+        "content": "FACTID-00154: repository repo-00154 deploys via CI pipeline pipe-00154 triggered on push to main branch",
+        "fact_id": "FACTID-00154"
+      },
+      {
+        "content": "FACTID-00155: production cluster k8s-prod-00155 runs in region ap-southeast-1 with namespace platform-ns-00155",
+        "fact_id": "FACTID-00155"
+      },
+      {
+        "content": "FACTID-00156: team uses Vault for staging environment deployments (node-00156)",
+        "fact_id": "FACTID-00156"
+      },
+      {
+        "content": "FACTID-00157: on-call rotation slot-00157 covers service svc-00157 with PagerDuty escalation level 2",
+        "fact_id": "FACTID-00157"
+      },
+      {
+        "content": "FACTID-00158: cost centre cc-00158 allocated 600$ monthly for compute in eu-west-1",
+        "fact_id": "FACTID-00158"
+      },
+      {
+        "content": "FACTID-00159: repository repo-00159 deploys via CI pipeline pipe-00159 triggered on push to main branch",
+        "fact_id": "FACTID-00159"
+      },
+      {
+        "content": "FACTID-00160: production cluster k8s-prod-00160 runs in region us-east-1 with namespace platform-ns-00160",
+        "fact_id": "FACTID-00160"
+      },
+      {
+        "content": "FACTID-00161: team uses Helm for staging environment deployments (node-00161)",
+        "fact_id": "FACTID-00161"
+      },
+      {
+        "content": "FACTID-00162: on-call rotation slot-00162 covers service svc-00162 with PagerDuty escalation level 1",
+        "fact_id": "FACTID-00162"
+      },
+      {
+        "content": "FACTID-00163: cost centre cc-00163 allocated 200$ monthly for compute in ap-southeast-1",
+        "fact_id": "FACTID-00163"
+      },
+      {
+        "content": "FACTID-00164: repository repo-00164 deploys via CI pipeline pipe-00164 triggered on push to main branch",
+        "fact_id": "FACTID-00164"
+      },
+      {
+        "content": "FACTID-00165: production cluster k8s-prod-00165 runs in region us-west-2 with namespace platform-ns-00165",
+        "fact_id": "FACTID-00165"
+      },
+      {
+        "content": "FACTID-00166: team uses Vault for staging environment deployments (node-00166)",
+        "fact_id": "FACTID-00166"
+      },
+      {
+        "content": "FACTID-00167: on-call rotation slot-00167 covers service svc-00167 with PagerDuty escalation level 3",
+        "fact_id": "FACTID-00167"
+      },
+      {
+        "content": "FACTID-00168: cost centre cc-00168 allocated 700$ monthly for compute in us-east-1",
+        "fact_id": "FACTID-00168"
+      },
+      {
+        "content": "FACTID-00169: repository repo-00169 deploys via CI pipeline pipe-00169 triggered on push to main branch",
+        "fact_id": "FACTID-00169"
+      },
+      {
+        "content": "FACTID-00170: production cluster k8s-prod-00170 runs in region eu-west-1 with namespace platform-ns-00170",
+        "fact_id": "FACTID-00170"
+      },
+      {
+        "content": "FACTID-00171: team uses Helm for staging environment deployments (node-00171)",
+        "fact_id": "FACTID-00171"
+      },
+      {
+        "content": "FACTID-00172: on-call rotation slot-00172 covers service svc-00172 with PagerDuty escalation level 2",
+        "fact_id": "FACTID-00172"
+      },
+      {
+        "content": "FACTID-00173: cost centre cc-00173 allocated 300$ monthly for compute in us-west-2",
+        "fact_id": "FACTID-00173"
+      },
+      {
+        "content": "FACTID-00174: repository repo-00174 deploys via CI pipeline pipe-00174 triggered on push to main branch",
+        "fact_id": "FACTID-00174"
+      },
+      {
+        "content": "FACTID-00175: production cluster k8s-prod-00175 runs in region ap-southeast-1 with namespace platform-ns-00175",
+        "fact_id": "FACTID-00175"
+      },
+      {
+        "content": "FACTID-00176: team uses Vault for staging environment deployments (node-00176)",
+        "fact_id": "FACTID-00176"
+      },
+      {
+        "content": "FACTID-00177: on-call rotation slot-00177 covers service svc-00177 with PagerDuty escalation level 1",
+        "fact_id": "FACTID-00177"
+      },
+      {
+        "content": "FACTID-00178: cost centre cc-00178 allocated 800$ monthly for compute in eu-west-1",
+        "fact_id": "FACTID-00178"
+      },
+      {
+        "content": "FACTID-00179: repository repo-00179 deploys via CI pipeline pipe-00179 triggered on push to main branch",
+        "fact_id": "FACTID-00179"
+      },
+      {
+        "content": "FACTID-00180: production cluster k8s-prod-00180 runs in region us-east-1 with namespace platform-ns-00180",
+        "fact_id": "FACTID-00180"
+      },
+      {
+        "content": "FACTID-00181: team uses Helm for staging environment deployments (node-00181)",
+        "fact_id": "FACTID-00181"
+      },
+      {
+        "content": "FACTID-00182: on-call rotation slot-00182 covers service svc-00182 with PagerDuty escalation level 3",
+        "fact_id": "FACTID-00182"
+      },
+      {
+        "content": "FACTID-00183: cost centre cc-00183 allocated 400$ monthly for compute in ap-southeast-1",
+        "fact_id": "FACTID-00183"
+      },
+      {
+        "content": "FACTID-00184: repository repo-00184 deploys via CI pipeline pipe-00184 triggered on push to main branch",
+        "fact_id": "FACTID-00184"
+      },
+      {
+        "content": "FACTID-00185: production cluster k8s-prod-00185 runs in region us-west-2 with namespace platform-ns-00185",
+        "fact_id": "FACTID-00185"
+      },
+      {
+        "content": "FACTID-00186: team uses Vault for staging environment deployments (node-00186)",
+        "fact_id": "FACTID-00186"
+      },
+      {
+        "content": "FACTID-00187: on-call rotation slot-00187 covers service svc-00187 with PagerDuty escalation level 2",
+        "fact_id": "FACTID-00187"
+      },
+      {
+        "content": "FACTID-00188: cost centre cc-00188 allocated 900$ monthly for compute in us-east-1",
+        "fact_id": "FACTID-00188"
+      },
+      {
+        "content": "FACTID-00189: repository repo-00189 deploys via CI pipeline pipe-00189 triggered on push to main branch",
+        "fact_id": "FACTID-00189"
+      },
+      {
+        "content": "FACTID-00190: production cluster k8s-prod-00190 runs in region eu-west-1 with namespace platform-ns-00190",
+        "fact_id": "FACTID-00190"
+      },
+      {
+        "content": "FACTID-00191: team uses Helm for staging environment deployments (node-00191)",
+        "fact_id": "FACTID-00191"
+      },
+      {
+        "content": "FACTID-00192: on-call rotation slot-00192 covers service svc-00192 with PagerDuty escalation level 1",
+        "fact_id": "FACTID-00192"
+      },
+      {
+        "content": "FACTID-00193: cost centre cc-00193 allocated 500$ monthly for compute in us-west-2",
+        "fact_id": "FACTID-00193"
+      },
+      {
+        "content": "FACTID-00194: repository repo-00194 deploys via CI pipeline pipe-00194 triggered on push to main branch",
+        "fact_id": "FACTID-00194"
+      },
+      {
+        "content": "FACTID-00195: production cluster k8s-prod-00195 runs in region ap-southeast-1 with namespace platform-ns-00195",
+        "fact_id": "FACTID-00195"
+      },
+      {
+        "content": "FACTID-00196: team uses Vault for staging environment deployments (node-00196)",
+        "fact_id": "FACTID-00196"
+      },
+      {
+        "content": "FACTID-00197: on-call rotation slot-00197 covers service svc-00197 with PagerDuty escalation level 3",
+        "fact_id": "FACTID-00197"
+      },
+      {
+        "content": "FACTID-00198: cost centre cc-00198 allocated 100$ monthly for compute in eu-west-1",
+        "fact_id": "FACTID-00198"
+      },
+      {
+        "content": "FACTID-00199: repository repo-00199 deploys via CI pipeline pipe-00199 triggered on push to main branch",
+        "fact_id": "FACTID-00199"
+      },
+      {
+        "content": "FACTID-00200: production cluster k8s-prod-00200 runs in region us-east-1 with namespace platform-ns-00200",
+        "fact_id": "FACTID-00200"
+      },
+      {
+        "content": "FACTID-00201: team uses Helm for staging environment deployments (node-00201)",
+        "fact_id": "FACTID-00201"
+      },
+      {
+        "content": "FACTID-00202: on-call rotation slot-00202 covers service svc-00202 with PagerDuty escalation level 2",
+        "fact_id": "FACTID-00202"
+      },
+      {
+        "content": "FACTID-00203: cost centre cc-00203 allocated 600$ monthly for compute in ap-southeast-1",
+        "fact_id": "FACTID-00203"
+      },
+      {
+        "content": "FACTID-00204: repository repo-00204 deploys via CI pipeline pipe-00204 triggered on push to main branch",
+        "fact_id": "FACTID-00204"
+      },
+      {
+        "content": "FACTID-00205: production cluster k8s-prod-00205 runs in region us-west-2 with namespace platform-ns-00205",
+        "fact_id": "FACTID-00205"
+      },
+      {
+        "content": "FACTID-00206: team uses Vault for staging environment deployments (node-00206)",
+        "fact_id": "FACTID-00206"
+      },
+      {
+        "content": "FACTID-00207: on-call rotation slot-00207 covers service svc-00207 with PagerDuty escalation level 1",
+        "fact_id": "FACTID-00207"
+      },
+      {
+        "content": "FACTID-00208: cost centre cc-00208 allocated 200$ monthly for compute in us-east-1",
+        "fact_id": "FACTID-00208"
+      },
+      {
+        "content": "FACTID-00209: repository repo-00209 deploys via CI pipeline pipe-00209 triggered on push to main branch",
+        "fact_id": "FACTID-00209"
+      },
+      {
+        "content": "FACTID-00210: production cluster k8s-prod-00210 runs in region eu-west-1 with namespace platform-ns-00210",
+        "fact_id": "FACTID-00210"
+      },
+      {
+        "content": "FACTID-00211: team uses Helm for staging environment deployments (node-00211)",
+        "fact_id": "FACTID-00211"
+      },
+      {
+        "content": "FACTID-00212: on-call rotation slot-00212 covers service svc-00212 with PagerDuty escalation level 3",
+        "fact_id": "FACTID-00212"
+      },
+      {
+        "content": "FACTID-00213: cost centre cc-00213 allocated 700$ monthly for compute in us-west-2",
+        "fact_id": "FACTID-00213"
+      },
+      {
+        "content": "FACTID-00214: repository repo-00214 deploys via CI pipeline pipe-00214 triggered on push to main branch",
+        "fact_id": "FACTID-00214"
+      },
+      {
+        "content": "FACTID-00215: production cluster k8s-prod-00215 runs in region ap-southeast-1 with namespace platform-ns-00215",
+        "fact_id": "FACTID-00215"
+      },
+      {
+        "content": "FACTID-00216: team uses Vault for staging environment deployments (node-00216)",
+        "fact_id": "FACTID-00216"
+      },
+      {
+        "content": "FACTID-00217: on-call rotation slot-00217 covers service svc-00217 with PagerDuty escalation level 2",
+        "fact_id": "FACTID-00217"
+      },
+      {
+        "content": "FACTID-00218: cost centre cc-00218 allocated 300$ monthly for compute in eu-west-1",
+        "fact_id": "FACTID-00218"
+      },
+      {
+        "content": "FACTID-00219: repository repo-00219 deploys via CI pipeline pipe-00219 triggered on push to main branch",
+        "fact_id": "FACTID-00219"
+      },
+      {
+        "content": "FACTID-00220: production cluster k8s-prod-00220 runs in region us-east-1 with namespace platform-ns-00220",
+        "fact_id": "FACTID-00220"
+      },
+      {
+        "content": "FACTID-00221: team uses Helm for staging environment deployments (node-00221)",
+        "fact_id": "FACTID-00221"
+      },
+      {
+        "content": "FACTID-00222: on-call rotation slot-00222 covers service svc-00222 with PagerDuty escalation level 1",
+        "fact_id": "FACTID-00222"
+      },
+      {
+        "content": "FACTID-00223: cost centre cc-00223 allocated 800$ monthly for compute in ap-southeast-1",
+        "fact_id": "FACTID-00223"
+      },
+      {
+        "content": "FACTID-00224: repository repo-00224 deploys via CI pipeline pipe-00224 triggered on push to main branch",
+        "fact_id": "FACTID-00224"
+      },
+      {
+        "content": "FACTID-00225: production cluster k8s-prod-00225 runs in region us-west-2 with namespace platform-ns-00225",
+        "fact_id": "FACTID-00225"
+      },
+      {
+        "content": "FACTID-00226: team uses Vault for staging environment deployments (node-00226)",
+        "fact_id": "FACTID-00226"
+      },
+      {
+        "content": "FACTID-00227: on-call rotation slot-00227 covers service svc-00227 with PagerDuty escalation level 3",
+        "fact_id": "FACTID-00227"
+      },
+      {
+        "content": "FACTID-00228: cost centre cc-00228 allocated 400$ monthly for compute in us-east-1",
+        "fact_id": "FACTID-00228"
+      },
+      {
+        "content": "FACTID-00229: repository repo-00229 deploys via CI pipeline pipe-00229 triggered on push to main branch",
+        "fact_id": "FACTID-00229"
+      },
+      {
+        "content": "FACTID-00230: production cluster k8s-prod-00230 runs in region eu-west-1 with namespace platform-ns-00230",
+        "fact_id": "FACTID-00230"
+      },
+      {
+        "content": "FACTID-00231: team uses Helm for staging environment deployments (node-00231)",
+        "fact_id": "FACTID-00231"
+      },
+      {
+        "content": "FACTID-00232: on-call rotation slot-00232 covers service svc-00232 with PagerDuty escalation level 2",
+        "fact_id": "FACTID-00232"
+      },
+      {
+        "content": "FACTID-00233: cost centre cc-00233 allocated 900$ monthly for compute in us-west-2",
+        "fact_id": "FACTID-00233"
+      },
+      {
+        "content": "FACTID-00234: repository repo-00234 deploys via CI pipeline pipe-00234 triggered on push to main branch",
+        "fact_id": "FACTID-00234"
+      },
+      {
+        "content": "FACTID-00235: production cluster k8s-prod-00235 runs in region ap-southeast-1 with namespace platform-ns-00235",
+        "fact_id": "FACTID-00235"
+      },
+      {
+        "content": "FACTID-00236: team uses Vault for staging environment deployments (node-00236)",
+        "fact_id": "FACTID-00236"
+      },
+      {
+        "content": "FACTID-00237: on-call rotation slot-00237 covers service svc-00237 with PagerDuty escalation level 1",
+        "fact_id": "FACTID-00237"
+      },
+      {
+        "content": "FACTID-00238: cost centre cc-00238 allocated 500$ monthly for compute in eu-west-1",
+        "fact_id": "FACTID-00238"
+      },
+      {
+        "content": "FACTID-00239: repository repo-00239 deploys via CI pipeline pipe-00239 triggered on push to main branch",
+        "fact_id": "FACTID-00239"
+      },
+      {
+        "content": "FACTID-00240: production cluster k8s-prod-00240 runs in region us-east-1 with namespace platform-ns-00240",
+        "fact_id": "FACTID-00240"
+      },
+      {
+        "content": "FACTID-00241: team uses Helm for staging environment deployments (node-00241)",
+        "fact_id": "FACTID-00241"
+      },
+      {
+        "content": "FACTID-00242: on-call rotation slot-00242 covers service svc-00242 with PagerDuty escalation level 3",
+        "fact_id": "FACTID-00242"
+      },
+      {
+        "content": "FACTID-00243: cost centre cc-00243 allocated 100$ monthly for compute in ap-southeast-1",
+        "fact_id": "FACTID-00243"
+      },
+      {
+        "content": "FACTID-00244: repository repo-00244 deploys via CI pipeline pipe-00244 triggered on push to main branch",
+        "fact_id": "FACTID-00244"
+      },
+      {
+        "content": "FACTID-00245: production cluster k8s-prod-00245 runs in region us-west-2 with namespace platform-ns-00245",
+        "fact_id": "FACTID-00245"
+      },
+      {
+        "content": "FACTID-00246: team uses Vault for staging environment deployments (node-00246)",
+        "fact_id": "FACTID-00246"
+      },
+      {
+        "content": "FACTID-00247: on-call rotation slot-00247 covers service svc-00247 with PagerDuty escalation level 2",
+        "fact_id": "FACTID-00247"
+      },
+      {
+        "content": "FACTID-00248: cost centre cc-00248 allocated 600$ monthly for compute in us-east-1",
+        "fact_id": "FACTID-00248"
+      },
+      {
+        "content": "FACTID-00249: repository repo-00249 deploys via CI pipeline pipe-00249 triggered on push to main branch",
+        "fact_id": "FACTID-00249"
+      },
+      {
+        "content": "FACTID-00250: production cluster k8s-prod-00250 runs in region eu-west-1 with namespace platform-ns-00250",
+        "fact_id": "FACTID-00250"
+      },
+      {
+        "content": "FACTID-00251: team uses Helm for staging environment deployments (node-00251)",
+        "fact_id": "FACTID-00251"
+      },
+      {
+        "content": "FACTID-00252: on-call rotation slot-00252 covers service svc-00252 with PagerDuty escalation level 1",
+        "fact_id": "FACTID-00252"
+      },
+      {
+        "content": "FACTID-00253: cost centre cc-00253 allocated 200$ monthly for compute in us-west-2",
+        "fact_id": "FACTID-00253"
+      },
+      {
+        "content": "FACTID-00254: repository repo-00254 deploys via CI pipeline pipe-00254 triggered on push to main branch",
+        "fact_id": "FACTID-00254"
+      },
+      {
+        "content": "FACTID-00255: production cluster k8s-prod-00255 runs in region ap-southeast-1 with namespace platform-ns-00255",
+        "fact_id": "FACTID-00255"
+      },
+      {
+        "content": "FACTID-00256: team uses Vault for staging environment deployments (node-00256)",
+        "fact_id": "FACTID-00256"
+      },
+      {
+        "content": "FACTID-00257: on-call rotation slot-00257 covers service svc-00257 with PagerDuty escalation level 3",
+        "fact_id": "FACTID-00257"
+      },
+      {
+        "content": "FACTID-00258: cost centre cc-00258 allocated 700$ monthly for compute in eu-west-1",
+        "fact_id": "FACTID-00258"
+      },
+      {
+        "content": "FACTID-00259: repository repo-00259 deploys via CI pipeline pipe-00259 triggered on push to main branch",
+        "fact_id": "FACTID-00259"
+      },
+      {
+        "content": "FACTID-00260: production cluster k8s-prod-00260 runs in region us-east-1 with namespace platform-ns-00260",
+        "fact_id": "FACTID-00260"
+      },
+      {
+        "content": "FACTID-00261: team uses Helm for staging environment deployments (node-00261)",
+        "fact_id": "FACTID-00261"
+      },
+      {
+        "content": "FACTID-00262: on-call rotation slot-00262 covers service svc-00262 with PagerDuty escalation level 2",
+        "fact_id": "FACTID-00262"
+      },
+      {
+        "content": "FACTID-00263: cost centre cc-00263 allocated 300$ monthly for compute in ap-southeast-1",
+        "fact_id": "FACTID-00263"
+      },
+      {
+        "content": "FACTID-00264: repository repo-00264 deploys via CI pipeline pipe-00264 triggered on push to main branch",
+        "fact_id": "FACTID-00264"
+      },
+      {
+        "content": "FACTID-00265: production cluster k8s-prod-00265 runs in region us-west-2 with namespace platform-ns-00265",
+        "fact_id": "FACTID-00265"
+      },
+      {
+        "content": "FACTID-00266: team uses Vault for staging environment deployments (node-00266)",
+        "fact_id": "FACTID-00266"
+      },
+      {
+        "content": "FACTID-00267: on-call rotation slot-00267 covers service svc-00267 with PagerDuty escalation level 1",
+        "fact_id": "FACTID-00267"
+      },
+      {
+        "content": "FACTID-00268: cost centre cc-00268 allocated 800$ monthly for compute in us-east-1",
+        "fact_id": "FACTID-00268"
+      },
+      {
+        "content": "FACTID-00269: repository repo-00269 deploys via CI pipeline pipe-00269 triggered on push to main branch",
+        "fact_id": "FACTID-00269"
+      },
+      {
+        "content": "FACTID-00270: production cluster k8s-prod-00270 runs in region eu-west-1 with namespace platform-ns-00270",
+        "fact_id": "FACTID-00270"
+      },
+      {
+        "content": "FACTID-00271: team uses Helm for staging environment deployments (node-00271)",
+        "fact_id": "FACTID-00271"
+      },
+      {
+        "content": "FACTID-00272: on-call rotation slot-00272 covers service svc-00272 with PagerDuty escalation level 3",
+        "fact_id": "FACTID-00272"
+      },
+      {
+        "content": "FACTID-00273: cost centre cc-00273 allocated 400$ monthly for compute in us-west-2",
+        "fact_id": "FACTID-00273"
+      },
+      {
+        "content": "FACTID-00274: repository repo-00274 deploys via CI pipeline pipe-00274 triggered on push to main branch",
+        "fact_id": "FACTID-00274"
+      },
+      {
+        "content": "FACTID-00275: production cluster k8s-prod-00275 runs in region ap-southeast-1 with namespace platform-ns-00275",
+        "fact_id": "FACTID-00275"
+      },
+      {
+        "content": "FACTID-00276: team uses Vault for staging environment deployments (node-00276)",
+        "fact_id": "FACTID-00276"
+      },
+      {
+        "content": "FACTID-00277: on-call rotation slot-00277 covers service svc-00277 with PagerDuty escalation level 2",
+        "fact_id": "FACTID-00277"
+      },
+      {
+        "content": "FACTID-00278: cost centre cc-00278 allocated 900$ monthly for compute in eu-west-1",
+        "fact_id": "FACTID-00278"
+      },
+      {
+        "content": "FACTID-00279: repository repo-00279 deploys via CI pipeline pipe-00279 triggered on push to main branch",
+        "fact_id": "FACTID-00279"
+      },
+      {
+        "content": "FACTID-00280: production cluster k8s-prod-00280 runs in region us-east-1 with namespace platform-ns-00280",
+        "fact_id": "FACTID-00280"
+      },
+      {
+        "content": "FACTID-00281: team uses Helm for staging environment deployments (node-00281)",
+        "fact_id": "FACTID-00281"
+      },
+      {
+        "content": "FACTID-00282: on-call rotation slot-00282 covers service svc-00282 with PagerDuty escalation level 1",
+        "fact_id": "FACTID-00282"
+      },
+      {
+        "content": "FACTID-00283: cost centre cc-00283 allocated 500$ monthly for compute in ap-southeast-1",
+        "fact_id": "FACTID-00283"
+      },
+      {
+        "content": "FACTID-00284: repository repo-00284 deploys via CI pipeline pipe-00284 triggered on push to main branch",
+        "fact_id": "FACTID-00284"
+      },
+      {
+        "content": "FACTID-00285: production cluster k8s-prod-00285 runs in region us-west-2 with namespace platform-ns-00285",
+        "fact_id": "FACTID-00285"
+      },
+      {
+        "content": "FACTID-00286: team uses Vault for staging environment deployments (node-00286)",
+        "fact_id": "FACTID-00286"
+      },
+      {
+        "content": "FACTID-00287: on-call rotation slot-00287 covers service svc-00287 with PagerDuty escalation level 3",
+        "fact_id": "FACTID-00287"
+      },
+      {
+        "content": "FACTID-00288: cost centre cc-00288 allocated 100$ monthly for compute in us-east-1",
+        "fact_id": "FACTID-00288"
+      },
+      {
+        "content": "FACTID-00289: repository repo-00289 deploys via CI pipeline pipe-00289 triggered on push to main branch",
+        "fact_id": "FACTID-00289"
+      },
+      {
+        "content": "FACTID-00290: production cluster k8s-prod-00290 runs in region eu-west-1 with namespace platform-ns-00290",
+        "fact_id": "FACTID-00290"
+      },
+      {
+        "content": "FACTID-00291: team uses Helm for staging environment deployments (node-00291)",
+        "fact_id": "FACTID-00291"
+      },
+      {
+        "content": "FACTID-00292: on-call rotation slot-00292 covers service svc-00292 with PagerDuty escalation level 2",
+        "fact_id": "FACTID-00292"
+      },
+      {
+        "content": "FACTID-00293: cost centre cc-00293 allocated 600$ monthly for compute in us-west-2",
+        "fact_id": "FACTID-00293"
+      },
+      {
+        "content": "FACTID-00294: repository repo-00294 deploys via CI pipeline pipe-00294 triggered on push to main branch",
+        "fact_id": "FACTID-00294"
+      },
+      {
+        "content": "FACTID-00295: production cluster k8s-prod-00295 runs in region ap-southeast-1 with namespace platform-ns-00295",
+        "fact_id": "FACTID-00295"
+      },
+      {
+        "content": "FACTID-00296: team uses Vault for staging environment deployments (node-00296)",
+        "fact_id": "FACTID-00296"
+      },
+      {
+        "content": "FACTID-00297: on-call rotation slot-00297 covers service svc-00297 with PagerDuty escalation level 1",
+        "fact_id": "FACTID-00297"
+      },
+      {
+        "content": "FACTID-00298: cost centre cc-00298 allocated 200$ monthly for compute in eu-west-1",
+        "fact_id": "FACTID-00298"
+      },
+      {
+        "content": "FACTID-00299: repository repo-00299 deploys via CI pipeline pipe-00299 triggered on push to main branch",
+        "fact_id": "FACTID-00299"
+      },
+      {
+        "content": "FACTID-00300: production cluster k8s-prod-00300 runs in region us-east-1 with namespace platform-ns-00300",
+        "fact_id": "FACTID-00300"
+      },
+      {
+        "content": "FACTID-00301: team uses Helm for staging environment deployments (node-00301)",
+        "fact_id": "FACTID-00301"
+      },
+      {
+        "content": "FACTID-00302: on-call rotation slot-00302 covers service svc-00302 with PagerDuty escalation level 3",
+        "fact_id": "FACTID-00302"
+      },
+      {
+        "content": "FACTID-00303: cost centre cc-00303 allocated 700$ monthly for compute in ap-southeast-1",
+        "fact_id": "FACTID-00303"
+      },
+      {
+        "content": "FACTID-00304: repository repo-00304 deploys via CI pipeline pipe-00304 triggered on push to main branch",
+        "fact_id": "FACTID-00304"
+      },
+      {
+        "content": "FACTID-00305: production cluster k8s-prod-00305 runs in region us-west-2 with namespace platform-ns-00305",
+        "fact_id": "FACTID-00305"
+      },
+      {
+        "content": "FACTID-00306: team uses Vault for staging environment deployments (node-00306)",
+        "fact_id": "FACTID-00306"
+      },
+      {
+        "content": "FACTID-00307: on-call rotation slot-00307 covers service svc-00307 with PagerDuty escalation level 2",
+        "fact_id": "FACTID-00307"
+      },
+      {
+        "content": "FACTID-00308: cost centre cc-00308 allocated 300$ monthly for compute in us-east-1",
+        "fact_id": "FACTID-00308"
+      },
+      {
+        "content": "FACTID-00309: repository repo-00309 deploys via CI pipeline pipe-00309 triggered on push to main branch",
+        "fact_id": "FACTID-00309"
+      },
+      {
+        "content": "FACTID-00310: production cluster k8s-prod-00310 runs in region eu-west-1 with namespace platform-ns-00310",
+        "fact_id": "FACTID-00310"
+      },
+      {
+        "content": "FACTID-00311: team uses Helm for staging environment deployments (node-00311)",
+        "fact_id": "FACTID-00311"
+      },
+      {
+        "content": "FACTID-00312: on-call rotation slot-00312 covers service svc-00312 with PagerDuty escalation level 1",
+        "fact_id": "FACTID-00312"
+      },
+      {
+        "content": "FACTID-00313: cost centre cc-00313 allocated 800$ monthly for compute in us-west-2",
+        "fact_id": "FACTID-00313"
+      },
+      {
+        "content": "FACTID-00314: repository repo-00314 deploys via CI pipeline pipe-00314 triggered on push to main branch",
+        "fact_id": "FACTID-00314"
+      },
+      {
+        "content": "FACTID-00315: production cluster k8s-prod-00315 runs in region ap-southeast-1 with namespace platform-ns-00315",
+        "fact_id": "FACTID-00315"
+      },
+      {
+        "content": "FACTID-00316: team uses Vault for staging environment deployments (node-00316)",
+        "fact_id": "FACTID-00316"
+      },
+      {
+        "content": "FACTID-00317: on-call rotation slot-00317 covers service svc-00317 with PagerDuty escalation level 3",
+        "fact_id": "FACTID-00317"
+      },
+      {
+        "content": "FACTID-00318: cost centre cc-00318 allocated 400$ monthly for compute in eu-west-1",
+        "fact_id": "FACTID-00318"
+      },
+      {
+        "content": "FACTID-00319: repository repo-00319 deploys via CI pipeline pipe-00319 triggered on push to main branch",
+        "fact_id": "FACTID-00319"
+      },
+      {
+        "content": "FACTID-00320: production cluster k8s-prod-00320 runs in region us-east-1 with namespace platform-ns-00320",
+        "fact_id": "FACTID-00320"
+      },
+      {
+        "content": "FACTID-00321: team uses Helm for staging environment deployments (node-00321)",
+        "fact_id": "FACTID-00321"
+      },
+      {
+        "content": "FACTID-00322: on-call rotation slot-00322 covers service svc-00322 with PagerDuty escalation level 2",
+        "fact_id": "FACTID-00322"
+      },
+      {
+        "content": "FACTID-00323: cost centre cc-00323 allocated 900$ monthly for compute in ap-southeast-1",
+        "fact_id": "FACTID-00323"
+      },
+      {
+        "content": "FACTID-00324: repository repo-00324 deploys via CI pipeline pipe-00324 triggered on push to main branch",
+        "fact_id": "FACTID-00324"
+      },
+      {
+        "content": "FACTID-00325: production cluster k8s-prod-00325 runs in region us-west-2 with namespace platform-ns-00325",
+        "fact_id": "FACTID-00325"
+      },
+      {
+        "content": "FACTID-00326: team uses Vault for staging environment deployments (node-00326)",
+        "fact_id": "FACTID-00326"
+      },
+      {
+        "content": "FACTID-00327: on-call rotation slot-00327 covers service svc-00327 with PagerDuty escalation level 1",
+        "fact_id": "FACTID-00327"
+      },
+      {
+        "content": "FACTID-00328: cost centre cc-00328 allocated 500$ monthly for compute in us-east-1",
+        "fact_id": "FACTID-00328"
+      },
+      {
+        "content": "FACTID-00329: repository repo-00329 deploys via CI pipeline pipe-00329 triggered on push to main branch",
+        "fact_id": "FACTID-00329"
+      },
+      {
+        "content": "FACTID-00330: production cluster k8s-prod-00330 runs in region eu-west-1 with namespace platform-ns-00330",
+        "fact_id": "FACTID-00330"
+      },
+      {
+        "content": "FACTID-00331: team uses Helm for staging environment deployments (node-00331)",
+        "fact_id": "FACTID-00331"
+      },
+      {
+        "content": "FACTID-00332: on-call rotation slot-00332 covers service svc-00332 with PagerDuty escalation level 3",
+        "fact_id": "FACTID-00332"
+      },
+      {
+        "content": "FACTID-00333: cost centre cc-00333 allocated 100$ monthly for compute in us-west-2",
+        "fact_id": "FACTID-00333"
+      },
+      {
+        "content": "FACTID-00334: repository repo-00334 deploys via CI pipeline pipe-00334 triggered on push to main branch",
+        "fact_id": "FACTID-00334"
+      },
+      {
+        "content": "FACTID-00335: production cluster k8s-prod-00335 runs in region ap-southeast-1 with namespace platform-ns-00335",
+        "fact_id": "FACTID-00335"
+      },
+      {
+        "content": "FACTID-00336: team uses Vault for staging environment deployments (node-00336)",
+        "fact_id": "FACTID-00336"
+      },
+      {
+        "content": "FACTID-00337: on-call rotation slot-00337 covers service svc-00337 with PagerDuty escalation level 2",
+        "fact_id": "FACTID-00337"
+      },
+      {
+        "content": "FACTID-00338: cost centre cc-00338 allocated 600$ monthly for compute in eu-west-1",
+        "fact_id": "FACTID-00338"
+      },
+      {
+        "content": "FACTID-00339: repository repo-00339 deploys via CI pipeline pipe-00339 triggered on push to main branch",
+        "fact_id": "FACTID-00339"
+      },
+      {
+        "content": "FACTID-00340: production cluster k8s-prod-00340 runs in region us-east-1 with namespace platform-ns-00340",
+        "fact_id": "FACTID-00340"
+      },
+      {
+        "content": "FACTID-00341: team uses Helm for staging environment deployments (node-00341)",
+        "fact_id": "FACTID-00341"
+      },
+      {
+        "content": "FACTID-00342: on-call rotation slot-00342 covers service svc-00342 with PagerDuty escalation level 1",
+        "fact_id": "FACTID-00342"
+      },
+      {
+        "content": "FACTID-00343: cost centre cc-00343 allocated 200$ monthly for compute in ap-southeast-1",
+        "fact_id": "FACTID-00343"
+      },
+      {
+        "content": "FACTID-00344: repository repo-00344 deploys via CI pipeline pipe-00344 triggered on push to main branch",
+        "fact_id": "FACTID-00344"
+      },
+      {
+        "content": "FACTID-00345: production cluster k8s-prod-00345 runs in region us-west-2 with namespace platform-ns-00345",
+        "fact_id": "FACTID-00345"
+      },
+      {
+        "content": "FACTID-00346: team uses Vault for staging environment deployments (node-00346)",
+        "fact_id": "FACTID-00346"
+      },
+      {
+        "content": "FACTID-00347: on-call rotation slot-00347 covers service svc-00347 with PagerDuty escalation level 3",
+        "fact_id": "FACTID-00347"
+      },
+      {
+        "content": "FACTID-00348: cost centre cc-00348 allocated 700$ monthly for compute in us-east-1",
+        "fact_id": "FACTID-00348"
+      },
+      {
+        "content": "FACTID-00349: repository repo-00349 deploys via CI pipeline pipe-00349 triggered on push to main branch",
+        "fact_id": "FACTID-00349"
+      },
+      {
+        "content": "FACTID-00350: production cluster k8s-prod-00350 runs in region eu-west-1 with namespace platform-ns-00350",
+        "fact_id": "FACTID-00350"
+      },
+      {
+        "content": "FACTID-00351: team uses Helm for staging environment deployments (node-00351)",
+        "fact_id": "FACTID-00351"
+      },
+      {
+        "content": "FACTID-00352: on-call rotation slot-00352 covers service svc-00352 with PagerDuty escalation level 2",
+        "fact_id": "FACTID-00352"
+      },
+      {
+        "content": "FACTID-00353: cost centre cc-00353 allocated 300$ monthly for compute in us-west-2",
+        "fact_id": "FACTID-00353"
+      },
+      {
+        "content": "FACTID-00354: repository repo-00354 deploys via CI pipeline pipe-00354 triggered on push to main branch",
+        "fact_id": "FACTID-00354"
+      },
+      {
+        "content": "FACTID-00355: production cluster k8s-prod-00355 runs in region ap-southeast-1 with namespace platform-ns-00355",
+        "fact_id": "FACTID-00355"
+      },
+      {
+        "content": "FACTID-00356: team uses Vault for staging environment deployments (node-00356)",
+        "fact_id": "FACTID-00356"
+      },
+      {
+        "content": "FACTID-00357: on-call rotation slot-00357 covers service svc-00357 with PagerDuty escalation level 1",
+        "fact_id": "FACTID-00357"
+      },
+      {
+        "content": "FACTID-00358: cost centre cc-00358 allocated 800$ monthly for compute in eu-west-1",
+        "fact_id": "FACTID-00358"
+      },
+      {
+        "content": "FACTID-00359: repository repo-00359 deploys via CI pipeline pipe-00359 triggered on push to main branch",
+        "fact_id": "FACTID-00359"
+      },
+      {
+        "content": "FACTID-00360: production cluster k8s-prod-00360 runs in region us-east-1 with namespace platform-ns-00360",
+        "fact_id": "FACTID-00360"
+      },
+      {
+        "content": "FACTID-00361: team uses Helm for staging environment deployments (node-00361)",
+        "fact_id": "FACTID-00361"
+      },
+      {
+        "content": "FACTID-00362: on-call rotation slot-00362 covers service svc-00362 with PagerDuty escalation level 3",
+        "fact_id": "FACTID-00362"
+      },
+      {
+        "content": "FACTID-00363: cost centre cc-00363 allocated 400$ monthly for compute in ap-southeast-1",
+        "fact_id": "FACTID-00363"
+      },
+      {
+        "content": "FACTID-00364: repository repo-00364 deploys via CI pipeline pipe-00364 triggered on push to main branch",
+        "fact_id": "FACTID-00364"
+      },
+      {
+        "content": "FACTID-00365: production cluster k8s-prod-00365 runs in region us-west-2 with namespace platform-ns-00365",
+        "fact_id": "FACTID-00365"
+      },
+      {
+        "content": "FACTID-00366: team uses Vault for staging environment deployments (node-00366)",
+        "fact_id": "FACTID-00366"
+      },
+      {
+        "content": "FACTID-00367: on-call rotation slot-00367 covers service svc-00367 with PagerDuty escalation level 2",
+        "fact_id": "FACTID-00367"
+      },
+      {
+        "content": "FACTID-00368: cost centre cc-00368 allocated 900$ monthly for compute in us-east-1",
+        "fact_id": "FACTID-00368"
+      },
+      {
+        "content": "FACTID-00369: repository repo-00369 deploys via CI pipeline pipe-00369 triggered on push to main branch",
+        "fact_id": "FACTID-00369"
+      },
+      {
+        "content": "FACTID-00370: production cluster k8s-prod-00370 runs in region eu-west-1 with namespace platform-ns-00370",
+        "fact_id": "FACTID-00370"
+      },
+      {
+        "content": "FACTID-00371: team uses Helm for staging environment deployments (node-00371)",
+        "fact_id": "FACTID-00371"
+      },
+      {
+        "content": "FACTID-00372: on-call rotation slot-00372 covers service svc-00372 with PagerDuty escalation level 1",
+        "fact_id": "FACTID-00372"
+      },
+      {
+        "content": "FACTID-00373: cost centre cc-00373 allocated 500$ monthly for compute in us-west-2",
+        "fact_id": "FACTID-00373"
+      },
+      {
+        "content": "FACTID-00374: repository repo-00374 deploys via CI pipeline pipe-00374 triggered on push to main branch",
+        "fact_id": "FACTID-00374"
+      },
+      {
+        "content": "FACTID-00375: production cluster k8s-prod-00375 runs in region ap-southeast-1 with namespace platform-ns-00375",
+        "fact_id": "FACTID-00375"
+      },
+      {
+        "content": "FACTID-00376: team uses Vault for staging environment deployments (node-00376)",
+        "fact_id": "FACTID-00376"
+      },
+      {
+        "content": "FACTID-00377: on-call rotation slot-00377 covers service svc-00377 with PagerDuty escalation level 3",
+        "fact_id": "FACTID-00377"
+      },
+      {
+        "content": "FACTID-00378: cost centre cc-00378 allocated 100$ monthly for compute in eu-west-1",
+        "fact_id": "FACTID-00378"
+      },
+      {
+        "content": "FACTID-00379: repository repo-00379 deploys via CI pipeline pipe-00379 triggered on push to main branch",
+        "fact_id": "FACTID-00379"
+      },
+      {
+        "content": "FACTID-00380: production cluster k8s-prod-00380 runs in region us-east-1 with namespace platform-ns-00380",
+        "fact_id": "FACTID-00380"
+      },
+      {
+        "content": "FACTID-00381: team uses Helm for staging environment deployments (node-00381)",
+        "fact_id": "FACTID-00381"
+      },
+      {
+        "content": "FACTID-00382: on-call rotation slot-00382 covers service svc-00382 with PagerDuty escalation level 2",
+        "fact_id": "FACTID-00382"
+      },
+      {
+        "content": "FACTID-00383: cost centre cc-00383 allocated 600$ monthly for compute in ap-southeast-1",
+        "fact_id": "FACTID-00383"
+      },
+      {
+        "content": "FACTID-00384: repository repo-00384 deploys via CI pipeline pipe-00384 triggered on push to main branch",
+        "fact_id": "FACTID-00384"
+      },
+      {
+        "content": "FACTID-00385: production cluster k8s-prod-00385 runs in region us-west-2 with namespace platform-ns-00385",
+        "fact_id": "FACTID-00385"
+      },
+      {
+        "content": "FACTID-00386: team uses Vault for staging environment deployments (node-00386)",
+        "fact_id": "FACTID-00386"
+      },
+      {
+        "content": "FACTID-00387: on-call rotation slot-00387 covers service svc-00387 with PagerDuty escalation level 1",
+        "fact_id": "FACTID-00387"
+      },
+      {
+        "content": "FACTID-00388: cost centre cc-00388 allocated 200$ monthly for compute in us-east-1",
+        "fact_id": "FACTID-00388"
+      },
+      {
+        "content": "FACTID-00389: repository repo-00389 deploys via CI pipeline pipe-00389 triggered on push to main branch",
+        "fact_id": "FACTID-00389"
+      },
+      {
+        "content": "FACTID-00390: production cluster k8s-prod-00390 runs in region eu-west-1 with namespace platform-ns-00390",
+        "fact_id": "FACTID-00390"
+      },
+      {
+        "content": "FACTID-00391: team uses Helm for staging environment deployments (node-00391)",
+        "fact_id": "FACTID-00391"
+      },
+      {
+        "content": "FACTID-00392: on-call rotation slot-00392 covers service svc-00392 with PagerDuty escalation level 3",
+        "fact_id": "FACTID-00392"
+      },
+      {
+        "content": "FACTID-00393: cost centre cc-00393 allocated 700$ monthly for compute in us-west-2",
+        "fact_id": "FACTID-00393"
+      },
+      {
+        "content": "FACTID-00394: repository repo-00394 deploys via CI pipeline pipe-00394 triggered on push to main branch",
+        "fact_id": "FACTID-00394"
+      },
+      {
+        "content": "FACTID-00395: production cluster k8s-prod-00395 runs in region ap-southeast-1 with namespace platform-ns-00395",
+        "fact_id": "FACTID-00395"
+      },
+      {
+        "content": "FACTID-00396: team uses Vault for staging environment deployments (node-00396)",
+        "fact_id": "FACTID-00396"
+      },
+      {
+        "content": "FACTID-00397: on-call rotation slot-00397 covers service svc-00397 with PagerDuty escalation level 2",
+        "fact_id": "FACTID-00397"
+      },
+      {
+        "content": "FACTID-00398: cost centre cc-00398 allocated 300$ monthly for compute in eu-west-1",
+        "fact_id": "FACTID-00398"
+      },
+      {
+        "content": "FACTID-00399: repository repo-00399 deploys via CI pipeline pipe-00399 triggered on push to main branch",
+        "fact_id": "FACTID-00399"
+      },
+      {
+        "content": "FACTID-00400: production cluster k8s-prod-00400 runs in region us-east-1 with namespace platform-ns-00400",
+        "fact_id": "FACTID-00400"
+      },
+      {
+        "content": "FACTID-00401: team uses Helm for staging environment deployments (node-00401)",
+        "fact_id": "FACTID-00401"
+      },
+      {
+        "content": "FACTID-00402: on-call rotation slot-00402 covers service svc-00402 with PagerDuty escalation level 1",
+        "fact_id": "FACTID-00402"
+      },
+      {
+        "content": "FACTID-00403: cost centre cc-00403 allocated 800$ monthly for compute in ap-southeast-1",
+        "fact_id": "FACTID-00403"
+      },
+      {
+        "content": "FACTID-00404: repository repo-00404 deploys via CI pipeline pipe-00404 triggered on push to main branch",
+        "fact_id": "FACTID-00404"
+      },
+      {
+        "content": "FACTID-00405: production cluster k8s-prod-00405 runs in region us-west-2 with namespace platform-ns-00405",
+        "fact_id": "FACTID-00405"
+      },
+      {
+        "content": "FACTID-00406: team uses Vault for staging environment deployments (node-00406)",
+        "fact_id": "FACTID-00406"
+      },
+      {
+        "content": "FACTID-00407: on-call rotation slot-00407 covers service svc-00407 with PagerDuty escalation level 3",
+        "fact_id": "FACTID-00407"
+      },
+      {
+        "content": "FACTID-00408: cost centre cc-00408 allocated 400$ monthly for compute in us-east-1",
+        "fact_id": "FACTID-00408"
+      },
+      {
+        "content": "FACTID-00409: repository repo-00409 deploys via CI pipeline pipe-00409 triggered on push to main branch",
+        "fact_id": "FACTID-00409"
+      },
+      {
+        "content": "FACTID-00410: production cluster k8s-prod-00410 runs in region eu-west-1 with namespace platform-ns-00410",
+        "fact_id": "FACTID-00410"
+      },
+      {
+        "content": "FACTID-00411: team uses Helm for staging environment deployments (node-00411)",
+        "fact_id": "FACTID-00411"
+      },
+      {
+        "content": "FACTID-00412: on-call rotation slot-00412 covers service svc-00412 with PagerDuty escalation level 2",
+        "fact_id": "FACTID-00412"
+      },
+      {
+        "content": "FACTID-00413: cost centre cc-00413 allocated 900$ monthly for compute in us-west-2",
+        "fact_id": "FACTID-00413"
+      },
+      {
+        "content": "FACTID-00414: repository repo-00414 deploys via CI pipeline pipe-00414 triggered on push to main branch",
+        "fact_id": "FACTID-00414"
+      },
+      {
+        "content": "FACTID-00415: production cluster k8s-prod-00415 runs in region ap-southeast-1 with namespace platform-ns-00415",
+        "fact_id": "FACTID-00415"
+      },
+      {
+        "content": "FACTID-00416: team uses Vault for staging environment deployments (node-00416)",
+        "fact_id": "FACTID-00416"
+      },
+      {
+        "content": "FACTID-00417: on-call rotation slot-00417 covers service svc-00417 with PagerDuty escalation level 1",
+        "fact_id": "FACTID-00417"
+      },
+      {
+        "content": "FACTID-00418: cost centre cc-00418 allocated 500$ monthly for compute in eu-west-1",
+        "fact_id": "FACTID-00418"
+      },
+      {
+        "content": "FACTID-00419: repository repo-00419 deploys via CI pipeline pipe-00419 triggered on push to main branch",
+        "fact_id": "FACTID-00419"
+      },
+      {
+        "content": "FACTID-00420: production cluster k8s-prod-00420 runs in region us-east-1 with namespace platform-ns-00420",
+        "fact_id": "FACTID-00420"
+      },
+      {
+        "content": "FACTID-00421: team uses Helm for staging environment deployments (node-00421)",
+        "fact_id": "FACTID-00421"
+      },
+      {
+        "content": "FACTID-00422: on-call rotation slot-00422 covers service svc-00422 with PagerDuty escalation level 3",
+        "fact_id": "FACTID-00422"
+      },
+      {
+        "content": "FACTID-00423: cost centre cc-00423 allocated 100$ monthly for compute in ap-southeast-1",
+        "fact_id": "FACTID-00423"
+      },
+      {
+        "content": "FACTID-00424: repository repo-00424 deploys via CI pipeline pipe-00424 triggered on push to main branch",
+        "fact_id": "FACTID-00424"
+      },
+      {
+        "content": "FACTID-00425: production cluster k8s-prod-00425 runs in region us-west-2 with namespace platform-ns-00425",
+        "fact_id": "FACTID-00425"
+      },
+      {
+        "content": "FACTID-00426: team uses Vault for staging environment deployments (node-00426)",
+        "fact_id": "FACTID-00426"
+      },
+      {
+        "content": "FACTID-00427: on-call rotation slot-00427 covers service svc-00427 with PagerDuty escalation level 2",
+        "fact_id": "FACTID-00427"
+      },
+      {
+        "content": "FACTID-00428: cost centre cc-00428 allocated 600$ monthly for compute in us-east-1",
+        "fact_id": "FACTID-00428"
+      },
+      {
+        "content": "FACTID-00429: repository repo-00429 deploys via CI pipeline pipe-00429 triggered on push to main branch",
+        "fact_id": "FACTID-00429"
+      },
+      {
+        "content": "FACTID-00430: production cluster k8s-prod-00430 runs in region eu-west-1 with namespace platform-ns-00430",
+        "fact_id": "FACTID-00430"
+      },
+      {
+        "content": "FACTID-00431: team uses Helm for staging environment deployments (node-00431)",
+        "fact_id": "FACTID-00431"
+      },
+      {
+        "content": "FACTID-00432: on-call rotation slot-00432 covers service svc-00432 with PagerDuty escalation level 1",
+        "fact_id": "FACTID-00432"
+      },
+      {
+        "content": "FACTID-00433: cost centre cc-00433 allocated 200$ monthly for compute in us-west-2",
+        "fact_id": "FACTID-00433"
+      },
+      {
+        "content": "FACTID-00434: repository repo-00434 deploys via CI pipeline pipe-00434 triggered on push to main branch",
+        "fact_id": "FACTID-00434"
+      },
+      {
+        "content": "FACTID-00435: production cluster k8s-prod-00435 runs in region ap-southeast-1 with namespace platform-ns-00435",
+        "fact_id": "FACTID-00435"
+      },
+      {
+        "content": "FACTID-00436: team uses Vault for staging environment deployments (node-00436)",
+        "fact_id": "FACTID-00436"
+      },
+      {
+        "content": "FACTID-00437: on-call rotation slot-00437 covers service svc-00437 with PagerDuty escalation level 3",
+        "fact_id": "FACTID-00437"
+      },
+      {
+        "content": "FACTID-00438: cost centre cc-00438 allocated 700$ monthly for compute in eu-west-1",
+        "fact_id": "FACTID-00438"
+      },
+      {
+        "content": "FACTID-00439: repository repo-00439 deploys via CI pipeline pipe-00439 triggered on push to main branch",
+        "fact_id": "FACTID-00439"
+      },
+      {
+        "content": "FACTID-00440: production cluster k8s-prod-00440 runs in region us-east-1 with namespace platform-ns-00440",
+        "fact_id": "FACTID-00440"
+      },
+      {
+        "content": "FACTID-00441: team uses Helm for staging environment deployments (node-00441)",
+        "fact_id": "FACTID-00441"
+      },
+      {
+        "content": "FACTID-00442: on-call rotation slot-00442 covers service svc-00442 with PagerDuty escalation level 2",
+        "fact_id": "FACTID-00442"
+      },
+      {
+        "content": "FACTID-00443: cost centre cc-00443 allocated 300$ monthly for compute in ap-southeast-1",
+        "fact_id": "FACTID-00443"
+      },
+      {
+        "content": "FACTID-00444: repository repo-00444 deploys via CI pipeline pipe-00444 triggered on push to main branch",
+        "fact_id": "FACTID-00444"
+      },
+      {
+        "content": "FACTID-00445: production cluster k8s-prod-00445 runs in region us-west-2 with namespace platform-ns-00445",
+        "fact_id": "FACTID-00445"
+      },
+      {
+        "content": "FACTID-00446: team uses Vault for staging environment deployments (node-00446)",
+        "fact_id": "FACTID-00446"
+      },
+      {
+        "content": "FACTID-00447: on-call rotation slot-00447 covers service svc-00447 with PagerDuty escalation level 1",
+        "fact_id": "FACTID-00447"
+      },
+      {
+        "content": "FACTID-00448: cost centre cc-00448 allocated 800$ monthly for compute in us-east-1",
+        "fact_id": "FACTID-00448"
+      },
+      {
+        "content": "FACTID-00449: repository repo-00449 deploys via CI pipeline pipe-00449 triggered on push to main branch",
+        "fact_id": "FACTID-00449"
+      },
+      {
+        "content": "FACTID-00450: production cluster k8s-prod-00450 runs in region eu-west-1 with namespace platform-ns-00450",
+        "fact_id": "FACTID-00450"
+      },
+      {
+        "content": "FACTID-00451: team uses Helm for staging environment deployments (node-00451)",
+        "fact_id": "FACTID-00451"
+      },
+      {
+        "content": "FACTID-00452: on-call rotation slot-00452 covers service svc-00452 with PagerDuty escalation level 3",
+        "fact_id": "FACTID-00452"
+      },
+      {
+        "content": "FACTID-00453: cost centre cc-00453 allocated 400$ monthly for compute in us-west-2",
+        "fact_id": "FACTID-00453"
+      },
+      {
+        "content": "FACTID-00454: repository repo-00454 deploys via CI pipeline pipe-00454 triggered on push to main branch",
+        "fact_id": "FACTID-00454"
+      },
+      {
+        "content": "FACTID-00455: production cluster k8s-prod-00455 runs in region ap-southeast-1 with namespace platform-ns-00455",
+        "fact_id": "FACTID-00455"
+      },
+      {
+        "content": "FACTID-00456: team uses Vault for staging environment deployments (node-00456)",
+        "fact_id": "FACTID-00456"
+      },
+      {
+        "content": "FACTID-00457: on-call rotation slot-00457 covers service svc-00457 with PagerDuty escalation level 2",
+        "fact_id": "FACTID-00457"
+      },
+      {
+        "content": "FACTID-00458: cost centre cc-00458 allocated 900$ monthly for compute in eu-west-1",
+        "fact_id": "FACTID-00458"
+      },
+      {
+        "content": "FACTID-00459: repository repo-00459 deploys via CI pipeline pipe-00459 triggered on push to main branch",
+        "fact_id": "FACTID-00459"
+      },
+      {
+        "content": "FACTID-00460: production cluster k8s-prod-00460 runs in region us-east-1 with namespace platform-ns-00460",
+        "fact_id": "FACTID-00460"
+      },
+      {
+        "content": "FACTID-00461: team uses Helm for staging environment deployments (node-00461)",
+        "fact_id": "FACTID-00461"
+      },
+      {
+        "content": "FACTID-00462: on-call rotation slot-00462 covers service svc-00462 with PagerDuty escalation level 1",
+        "fact_id": "FACTID-00462"
+      },
+      {
+        "content": "FACTID-00463: cost centre cc-00463 allocated 500$ monthly for compute in ap-southeast-1",
+        "fact_id": "FACTID-00463"
+      },
+      {
+        "content": "FACTID-00464: repository repo-00464 deploys via CI pipeline pipe-00464 triggered on push to main branch",
+        "fact_id": "FACTID-00464"
+      },
+      {
+        "content": "FACTID-00465: production cluster k8s-prod-00465 runs in region us-west-2 with namespace platform-ns-00465",
+        "fact_id": "FACTID-00465"
+      },
+      {
+        "content": "FACTID-00466: team uses Vault for staging environment deployments (node-00466)",
+        "fact_id": "FACTID-00466"
+      },
+      {
+        "content": "FACTID-00467: on-call rotation slot-00467 covers service svc-00467 with PagerDuty escalation level 3",
+        "fact_id": "FACTID-00467"
+      },
+      {
+        "content": "FACTID-00468: cost centre cc-00468 allocated 100$ monthly for compute in us-east-1",
+        "fact_id": "FACTID-00468"
+      },
+      {
+        "content": "FACTID-00469: repository repo-00469 deploys via CI pipeline pipe-00469 triggered on push to main branch",
+        "fact_id": "FACTID-00469"
+      },
+      {
+        "content": "FACTID-00470: production cluster k8s-prod-00470 runs in region eu-west-1 with namespace platform-ns-00470",
+        "fact_id": "FACTID-00470"
+      },
+      {
+        "content": "FACTID-00471: team uses Helm for staging environment deployments (node-00471)",
+        "fact_id": "FACTID-00471"
+      },
+      {
+        "content": "FACTID-00472: on-call rotation slot-00472 covers service svc-00472 with PagerDuty escalation level 2",
+        "fact_id": "FACTID-00472"
+      },
+      {
+        "content": "FACTID-00473: cost centre cc-00473 allocated 600$ monthly for compute in us-west-2",
+        "fact_id": "FACTID-00473"
+      },
+      {
+        "content": "FACTID-00474: repository repo-00474 deploys via CI pipeline pipe-00474 triggered on push to main branch",
+        "fact_id": "FACTID-00474"
+      },
+      {
+        "content": "FACTID-00475: production cluster k8s-prod-00475 runs in region ap-southeast-1 with namespace platform-ns-00475",
+        "fact_id": "FACTID-00475"
+      },
+      {
+        "content": "FACTID-00476: team uses Vault for staging environment deployments (node-00476)",
+        "fact_id": "FACTID-00476"
+      },
+      {
+        "content": "FACTID-00477: on-call rotation slot-00477 covers service svc-00477 with PagerDuty escalation level 1",
+        "fact_id": "FACTID-00477"
+      },
+      {
+        "content": "FACTID-00478: cost centre cc-00478 allocated 200$ monthly for compute in eu-west-1",
+        "fact_id": "FACTID-00478"
+      },
+      {
+        "content": "FACTID-00479: repository repo-00479 deploys via CI pipeline pipe-00479 triggered on push to main branch",
+        "fact_id": "FACTID-00479"
+      },
+      {
+        "content": "FACTID-00480: production cluster k8s-prod-00480 runs in region us-east-1 with namespace platform-ns-00480",
+        "fact_id": "FACTID-00480"
+      },
+      {
+        "content": "FACTID-00481: team uses Helm for staging environment deployments (node-00481)",
+        "fact_id": "FACTID-00481"
+      },
+      {
+        "content": "FACTID-00482: on-call rotation slot-00482 covers service svc-00482 with PagerDuty escalation level 3",
+        "fact_id": "FACTID-00482"
+      },
+      {
+        "content": "FACTID-00483: cost centre cc-00483 allocated 700$ monthly for compute in ap-southeast-1",
+        "fact_id": "FACTID-00483"
+      },
+      {
+        "content": "FACTID-00484: repository repo-00484 deploys via CI pipeline pipe-00484 triggered on push to main branch",
+        "fact_id": "FACTID-00484"
+      },
+      {
+        "content": "FACTID-00485: production cluster k8s-prod-00485 runs in region us-west-2 with namespace platform-ns-00485",
+        "fact_id": "FACTID-00485"
+      },
+      {
+        "content": "FACTID-00486: team uses Vault for staging environment deployments (node-00486)",
+        "fact_id": "FACTID-00486"
+      },
+      {
+        "content": "FACTID-00487: on-call rotation slot-00487 covers service svc-00487 with PagerDuty escalation level 2",
+        "fact_id": "FACTID-00487"
+      },
+      {
+        "content": "FACTID-00488: cost centre cc-00488 allocated 300$ monthly for compute in us-east-1",
+        "fact_id": "FACTID-00488"
+      },
+      {
+        "content": "FACTID-00489: repository repo-00489 deploys via CI pipeline pipe-00489 triggered on push to main branch",
+        "fact_id": "FACTID-00489"
+      },
+      {
+        "content": "FACTID-00490: production cluster k8s-prod-00490 runs in region eu-west-1 with namespace platform-ns-00490",
+        "fact_id": "FACTID-00490"
+      },
+      {
+        "content": "FACTID-00491: team uses Helm for staging environment deployments (node-00491)",
+        "fact_id": "FACTID-00491"
+      },
+      {
+        "content": "FACTID-00492: on-call rotation slot-00492 covers service svc-00492 with PagerDuty escalation level 1",
+        "fact_id": "FACTID-00492"
+      },
+      {
+        "content": "FACTID-00493: cost centre cc-00493 allocated 800$ monthly for compute in us-west-2",
+        "fact_id": "FACTID-00493"
+      },
+      {
+        "content": "FACTID-00494: repository repo-00494 deploys via CI pipeline pipe-00494 triggered on push to main branch",
+        "fact_id": "FACTID-00494"
+      },
+      {
+        "content": "FACTID-00495: production cluster k8s-prod-00495 runs in region ap-southeast-1 with namespace platform-ns-00495",
+        "fact_id": "FACTID-00495"
+      },
+      {
+        "content": "FACTID-00496: team uses Vault for staging environment deployments (node-00496)",
+        "fact_id": "FACTID-00496"
+      },
+      {
+        "content": "FACTID-00497: on-call rotation slot-00497 covers service svc-00497 with PagerDuty escalation level 3",
+        "fact_id": "FACTID-00497"
+      },
+      {
+        "content": "FACTID-00498: cost centre cc-00498 allocated 400$ monthly for compute in eu-west-1",
+        "fact_id": "FACTID-00498"
+      },
+      {
+        "content": "FACTID-00499: repository repo-00499 deploys via CI pipeline pipe-00499 triggered on push to main branch",
+        "fact_id": "FACTID-00499"
+      },
+      {
+        "content": "FACTID-00500: production cluster k8s-prod-00500 runs in region us-east-1 with namespace platform-ns-00500",
+        "fact_id": "FACTID-00500"
+      },
+      {
+        "content": "FACTID-00501: team uses Helm for staging environment deployments (node-00501)",
+        "fact_id": "FACTID-00501"
+      },
+      {
+        "content": "FACTID-00502: on-call rotation slot-00502 covers service svc-00502 with PagerDuty escalation level 2",
+        "fact_id": "FACTID-00502"
+      },
+      {
+        "content": "FACTID-00503: cost centre cc-00503 allocated 900$ monthly for compute in ap-southeast-1",
+        "fact_id": "FACTID-00503"
+      },
+      {
+        "content": "FACTID-00504: repository repo-00504 deploys via CI pipeline pipe-00504 triggered on push to main branch",
+        "fact_id": "FACTID-00504"
+      },
+      {
+        "content": "FACTID-00505: production cluster k8s-prod-00505 runs in region us-west-2 with namespace platform-ns-00505",
+        "fact_id": "FACTID-00505"
+      },
+      {
+        "content": "FACTID-00506: team uses Vault for staging environment deployments (node-00506)",
+        "fact_id": "FACTID-00506"
+      },
+      {
+        "content": "FACTID-00507: on-call rotation slot-00507 covers service svc-00507 with PagerDuty escalation level 1",
+        "fact_id": "FACTID-00507"
+      },
+      {
+        "content": "FACTID-00508: cost centre cc-00508 allocated 500$ monthly for compute in us-east-1",
+        "fact_id": "FACTID-00508"
+      },
+      {
+        "content": "FACTID-00509: repository repo-00509 deploys via CI pipeline pipe-00509 triggered on push to main branch",
+        "fact_id": "FACTID-00509"
+      },
+      {
+        "content": "FACTID-00510: production cluster k8s-prod-00510 runs in region eu-west-1 with namespace platform-ns-00510",
+        "fact_id": "FACTID-00510"
+      },
+      {
+        "content": "FACTID-00511: team uses Helm for staging environment deployments (node-00511)",
+        "fact_id": "FACTID-00511"
+      },
+      {
+        "content": "FACTID-00512: on-call rotation slot-00512 covers service svc-00512 with PagerDuty escalation level 3",
+        "fact_id": "FACTID-00512"
+      },
+      {
+        "content": "FACTID-00513: cost centre cc-00513 allocated 100$ monthly for compute in us-west-2",
+        "fact_id": "FACTID-00513"
+      },
+      {
+        "content": "FACTID-00514: repository repo-00514 deploys via CI pipeline pipe-00514 triggered on push to main branch",
+        "fact_id": "FACTID-00514"
+      },
+      {
+        "content": "FACTID-00515: production cluster k8s-prod-00515 runs in region ap-southeast-1 with namespace platform-ns-00515",
+        "fact_id": "FACTID-00515"
+      },
+      {
+        "content": "FACTID-00516: team uses Vault for staging environment deployments (node-00516)",
+        "fact_id": "FACTID-00516"
+      },
+      {
+        "content": "FACTID-00517: on-call rotation slot-00517 covers service svc-00517 with PagerDuty escalation level 2",
+        "fact_id": "FACTID-00517"
+      },
+      {
+        "content": "FACTID-00518: cost centre cc-00518 allocated 600$ monthly for compute in eu-west-1",
+        "fact_id": "FACTID-00518"
+      },
+      {
+        "content": "FACTID-00519: repository repo-00519 deploys via CI pipeline pipe-00519 triggered on push to main branch",
+        "fact_id": "FACTID-00519"
+      },
+      {
+        "content": "FACTID-00520: production cluster k8s-prod-00520 runs in region us-east-1 with namespace platform-ns-00520",
+        "fact_id": "FACTID-00520"
+      },
+      {
+        "content": "FACTID-00521: team uses Helm for staging environment deployments (node-00521)",
+        "fact_id": "FACTID-00521"
+      },
+      {
+        "content": "FACTID-00522: on-call rotation slot-00522 covers service svc-00522 with PagerDuty escalation level 1",
+        "fact_id": "FACTID-00522"
+      },
+      {
+        "content": "FACTID-00523: cost centre cc-00523 allocated 200$ monthly for compute in ap-southeast-1",
+        "fact_id": "FACTID-00523"
+      },
+      {
+        "content": "FACTID-00524: repository repo-00524 deploys via CI pipeline pipe-00524 triggered on push to main branch",
+        "fact_id": "FACTID-00524"
+      },
+      {
+        "content": "FACTID-00525: production cluster k8s-prod-00525 runs in region us-west-2 with namespace platform-ns-00525",
+        "fact_id": "FACTID-00525"
+      },
+      {
+        "content": "FACTID-00526: team uses Vault for staging environment deployments (node-00526)",
+        "fact_id": "FACTID-00526"
+      },
+      {
+        "content": "FACTID-00527: on-call rotation slot-00527 covers service svc-00527 with PagerDuty escalation level 3",
+        "fact_id": "FACTID-00527"
+      },
+      {
+        "content": "FACTID-00528: cost centre cc-00528 allocated 700$ monthly for compute in us-east-1",
+        "fact_id": "FACTID-00528"
+      },
+      {
+        "content": "FACTID-00529: repository repo-00529 deploys via CI pipeline pipe-00529 triggered on push to main branch",
+        "fact_id": "FACTID-00529"
+      },
+      {
+        "content": "FACTID-00530: production cluster k8s-prod-00530 runs in region eu-west-1 with namespace platform-ns-00530",
+        "fact_id": "FACTID-00530"
+      },
+      {
+        "content": "FACTID-00531: team uses Helm for staging environment deployments (node-00531)",
+        "fact_id": "FACTID-00531"
+      },
+      {
+        "content": "FACTID-00532: on-call rotation slot-00532 covers service svc-00532 with PagerDuty escalation level 2",
+        "fact_id": "FACTID-00532"
+      },
+      {
+        "content": "FACTID-00533: cost centre cc-00533 allocated 300$ monthly for compute in us-west-2",
+        "fact_id": "FACTID-00533"
+      },
+      {
+        "content": "FACTID-00534: repository repo-00534 deploys via CI pipeline pipe-00534 triggered on push to main branch",
+        "fact_id": "FACTID-00534"
+      },
+      {
+        "content": "FACTID-00535: production cluster k8s-prod-00535 runs in region ap-southeast-1 with namespace platform-ns-00535",
+        "fact_id": "FACTID-00535"
+      },
+      {
+        "content": "FACTID-00536: team uses Vault for staging environment deployments (node-00536)",
+        "fact_id": "FACTID-00536"
+      },
+      {
+        "content": "FACTID-00537: on-call rotation slot-00537 covers service svc-00537 with PagerDuty escalation level 1",
+        "fact_id": "FACTID-00537"
+      },
+      {
+        "content": "FACTID-00538: cost centre cc-00538 allocated 800$ monthly for compute in eu-west-1",
+        "fact_id": "FACTID-00538"
+      },
+      {
+        "content": "FACTID-00539: repository repo-00539 deploys via CI pipeline pipe-00539 triggered on push to main branch",
+        "fact_id": "FACTID-00539"
+      },
+      {
+        "content": "FACTID-00540: production cluster k8s-prod-00540 runs in region us-east-1 with namespace platform-ns-00540",
+        "fact_id": "FACTID-00540"
+      },
+      {
+        "content": "FACTID-00541: team uses Helm for staging environment deployments (node-00541)",
+        "fact_id": "FACTID-00541"
+      },
+      {
+        "content": "FACTID-00542: on-call rotation slot-00542 covers service svc-00542 with PagerDuty escalation level 3",
+        "fact_id": "FACTID-00542"
+      },
+      {
+        "content": "FACTID-00543: cost centre cc-00543 allocated 400$ monthly for compute in ap-southeast-1",
+        "fact_id": "FACTID-00543"
+      },
+      {
+        "content": "FACTID-00544: repository repo-00544 deploys via CI pipeline pipe-00544 triggered on push to main branch",
+        "fact_id": "FACTID-00544"
+      },
+      {
+        "content": "FACTID-00545: production cluster k8s-prod-00545 runs in region us-west-2 with namespace platform-ns-00545",
+        "fact_id": "FACTID-00545"
+      },
+      {
+        "content": "FACTID-00546: team uses Vault for staging environment deployments (node-00546)",
+        "fact_id": "FACTID-00546"
+      },
+      {
+        "content": "FACTID-00547: on-call rotation slot-00547 covers service svc-00547 with PagerDuty escalation level 2",
+        "fact_id": "FACTID-00547"
+      },
+      {
+        "content": "FACTID-00548: cost centre cc-00548 allocated 900$ monthly for compute in us-east-1",
+        "fact_id": "FACTID-00548"
+      },
+      {
+        "content": "FACTID-00549: repository repo-00549 deploys via CI pipeline pipe-00549 triggered on push to main branch",
+        "fact_id": "FACTID-00549"
+      },
+      {
+        "content": "FACTID-00550: production cluster k8s-prod-00550 runs in region eu-west-1 with namespace platform-ns-00550",
+        "fact_id": "FACTID-00550"
+      },
+      {
+        "content": "FACTID-00551: team uses Helm for staging environment deployments (node-00551)",
+        "fact_id": "FACTID-00551"
+      },
+      {
+        "content": "FACTID-00552: on-call rotation slot-00552 covers service svc-00552 with PagerDuty escalation level 1",
+        "fact_id": "FACTID-00552"
+      },
+      {
+        "content": "FACTID-00553: cost centre cc-00553 allocated 500$ monthly for compute in us-west-2",
+        "fact_id": "FACTID-00553"
+      },
+      {
+        "content": "FACTID-00554: repository repo-00554 deploys via CI pipeline pipe-00554 triggered on push to main branch",
+        "fact_id": "FACTID-00554"
+      },
+      {
+        "content": "FACTID-00555: production cluster k8s-prod-00555 runs in region ap-southeast-1 with namespace platform-ns-00555",
+        "fact_id": "FACTID-00555"
+      },
+      {
+        "content": "FACTID-00556: team uses Vault for staging environment deployments (node-00556)",
+        "fact_id": "FACTID-00556"
+      },
+      {
+        "content": "FACTID-00557: on-call rotation slot-00557 covers service svc-00557 with PagerDuty escalation level 3",
+        "fact_id": "FACTID-00557"
+      },
+      {
+        "content": "FACTID-00558: cost centre cc-00558 allocated 100$ monthly for compute in eu-west-1",
+        "fact_id": "FACTID-00558"
+      },
+      {
+        "content": "FACTID-00559: repository repo-00559 deploys via CI pipeline pipe-00559 triggered on push to main branch",
+        "fact_id": "FACTID-00559"
+      },
+      {
+        "content": "FACTID-00560: production cluster k8s-prod-00560 runs in region us-east-1 with namespace platform-ns-00560",
+        "fact_id": "FACTID-00560"
+      },
+      {
+        "content": "FACTID-00561: team uses Helm for staging environment deployments (node-00561)",
+        "fact_id": "FACTID-00561"
+      },
+      {
+        "content": "FACTID-00562: on-call rotation slot-00562 covers service svc-00562 with PagerDuty escalation level 2",
+        "fact_id": "FACTID-00562"
+      },
+      {
+        "content": "FACTID-00563: cost centre cc-00563 allocated 600$ monthly for compute in ap-southeast-1",
+        "fact_id": "FACTID-00563"
+      },
+      {
+        "content": "FACTID-00564: repository repo-00564 deploys via CI pipeline pipe-00564 triggered on push to main branch",
+        "fact_id": "FACTID-00564"
+      },
+      {
+        "content": "FACTID-00565: production cluster k8s-prod-00565 runs in region us-west-2 with namespace platform-ns-00565",
+        "fact_id": "FACTID-00565"
+      },
+      {
+        "content": "FACTID-00566: team uses Vault for staging environment deployments (node-00566)",
+        "fact_id": "FACTID-00566"
+      },
+      {
+        "content": "FACTID-00567: on-call rotation slot-00567 covers service svc-00567 with PagerDuty escalation level 1",
+        "fact_id": "FACTID-00567"
+      },
+      {
+        "content": "FACTID-00568: cost centre cc-00568 allocated 200$ monthly for compute in us-east-1",
+        "fact_id": "FACTID-00568"
+      },
+      {
+        "content": "FACTID-00569: repository repo-00569 deploys via CI pipeline pipe-00569 triggered on push to main branch",
+        "fact_id": "FACTID-00569"
+      },
+      {
+        "content": "FACTID-00570: production cluster k8s-prod-00570 runs in region eu-west-1 with namespace platform-ns-00570",
+        "fact_id": "FACTID-00570"
+      },
+      {
+        "content": "FACTID-00571: team uses Helm for staging environment deployments (node-00571)",
+        "fact_id": "FACTID-00571"
+      },
+      {
+        "content": "FACTID-00572: on-call rotation slot-00572 covers service svc-00572 with PagerDuty escalation level 3",
+        "fact_id": "FACTID-00572"
+      },
+      {
+        "content": "FACTID-00573: cost centre cc-00573 allocated 700$ monthly for compute in us-west-2",
+        "fact_id": "FACTID-00573"
+      },
+      {
+        "content": "FACTID-00574: repository repo-00574 deploys via CI pipeline pipe-00574 triggered on push to main branch",
+        "fact_id": "FACTID-00574"
+      },
+      {
+        "content": "FACTID-00575: production cluster k8s-prod-00575 runs in region ap-southeast-1 with namespace platform-ns-00575",
+        "fact_id": "FACTID-00575"
+      },
+      {
+        "content": "FACTID-00576: team uses Vault for staging environment deployments (node-00576)",
+        "fact_id": "FACTID-00576"
+      },
+      {
+        "content": "FACTID-00577: on-call rotation slot-00577 covers service svc-00577 with PagerDuty escalation level 2",
+        "fact_id": "FACTID-00577"
+      },
+      {
+        "content": "FACTID-00578: cost centre cc-00578 allocated 300$ monthly for compute in eu-west-1",
+        "fact_id": "FACTID-00578"
+      },
+      {
+        "content": "FACTID-00579: repository repo-00579 deploys via CI pipeline pipe-00579 triggered on push to main branch",
+        "fact_id": "FACTID-00579"
+      },
+      {
+        "content": "FACTID-00580: production cluster k8s-prod-00580 runs in region us-east-1 with namespace platform-ns-00580",
+        "fact_id": "FACTID-00580"
+      },
+      {
+        "content": "FACTID-00581: team uses Helm for staging environment deployments (node-00581)",
+        "fact_id": "FACTID-00581"
+      },
+      {
+        "content": "FACTID-00582: on-call rotation slot-00582 covers service svc-00582 with PagerDuty escalation level 1",
+        "fact_id": "FACTID-00582"
+      },
+      {
+        "content": "FACTID-00583: cost centre cc-00583 allocated 800$ monthly for compute in ap-southeast-1",
+        "fact_id": "FACTID-00583"
+      },
+      {
+        "content": "FACTID-00584: repository repo-00584 deploys via CI pipeline pipe-00584 triggered on push to main branch",
+        "fact_id": "FACTID-00584"
+      },
+      {
+        "content": "FACTID-00585: production cluster k8s-prod-00585 runs in region us-west-2 with namespace platform-ns-00585",
+        "fact_id": "FACTID-00585"
+      },
+      {
+        "content": "FACTID-00586: team uses Vault for staging environment deployments (node-00586)",
+        "fact_id": "FACTID-00586"
+      },
+      {
+        "content": "FACTID-00587: on-call rotation slot-00587 covers service svc-00587 with PagerDuty escalation level 3",
+        "fact_id": "FACTID-00587"
+      },
+      {
+        "content": "FACTID-00588: cost centre cc-00588 allocated 400$ monthly for compute in us-east-1",
+        "fact_id": "FACTID-00588"
+      },
+      {
+        "content": "FACTID-00589: repository repo-00589 deploys via CI pipeline pipe-00589 triggered on push to main branch",
+        "fact_id": "FACTID-00589"
+      },
+      {
+        "content": "FACTID-00590: production cluster k8s-prod-00590 runs in region eu-west-1 with namespace platform-ns-00590",
+        "fact_id": "FACTID-00590"
+      },
+      {
+        "content": "FACTID-00591: team uses Helm for staging environment deployments (node-00591)",
+        "fact_id": "FACTID-00591"
+      },
+      {
+        "content": "FACTID-00592: on-call rotation slot-00592 covers service svc-00592 with PagerDuty escalation level 2",
+        "fact_id": "FACTID-00592"
+      },
+      {
+        "content": "FACTID-00593: cost centre cc-00593 allocated 900$ monthly for compute in us-west-2",
+        "fact_id": "FACTID-00593"
+      },
+      {
+        "content": "FACTID-00594: repository repo-00594 deploys via CI pipeline pipe-00594 triggered on push to main branch",
+        "fact_id": "FACTID-00594"
+      },
+      {
+        "content": "FACTID-00595: production cluster k8s-prod-00595 runs in region ap-southeast-1 with namespace platform-ns-00595",
+        "fact_id": "FACTID-00595"
+      },
+      {
+        "content": "FACTID-00596: team uses Vault for staging environment deployments (node-00596)",
+        "fact_id": "FACTID-00596"
+      },
+      {
+        "content": "FACTID-00597: on-call rotation slot-00597 covers service svc-00597 with PagerDuty escalation level 1",
+        "fact_id": "FACTID-00597"
+      },
+      {
+        "content": "FACTID-00598: cost centre cc-00598 allocated 500$ monthly for compute in eu-west-1",
+        "fact_id": "FACTID-00598"
+      },
+      {
+        "content": "FACTID-00599: repository repo-00599 deploys via CI pipeline pipe-00599 triggered on push to main branch",
+        "fact_id": "FACTID-00599"
+      },
+      {
+        "content": "FACTID-00600: production cluster k8s-prod-00600 runs in region us-east-1 with namespace platform-ns-00600",
+        "fact_id": "FACTID-00600"
+      },
+      {
+        "content": "FACTID-00601: team uses Helm for staging environment deployments (node-00601)",
+        "fact_id": "FACTID-00601"
+      },
+      {
+        "content": "FACTID-00602: on-call rotation slot-00602 covers service svc-00602 with PagerDuty escalation level 3",
+        "fact_id": "FACTID-00602"
+      },
+      {
+        "content": "FACTID-00603: cost centre cc-00603 allocated 100$ monthly for compute in ap-southeast-1",
+        "fact_id": "FACTID-00603"
+      },
+      {
+        "content": "FACTID-00604: repository repo-00604 deploys via CI pipeline pipe-00604 triggered on push to main branch",
+        "fact_id": "FACTID-00604"
+      },
+      {
+        "content": "FACTID-00605: production cluster k8s-prod-00605 runs in region us-west-2 with namespace platform-ns-00605",
+        "fact_id": "FACTID-00605"
+      },
+      {
+        "content": "FACTID-00606: team uses Vault for staging environment deployments (node-00606)",
+        "fact_id": "FACTID-00606"
+      },
+      {
+        "content": "FACTID-00607: on-call rotation slot-00607 covers service svc-00607 with PagerDuty escalation level 2",
+        "fact_id": "FACTID-00607"
+      },
+      {
+        "content": "FACTID-00608: cost centre cc-00608 allocated 600$ monthly for compute in us-east-1",
+        "fact_id": "FACTID-00608"
+      },
+      {
+        "content": "FACTID-00609: repository repo-00609 deploys via CI pipeline pipe-00609 triggered on push to main branch",
+        "fact_id": "FACTID-00609"
+      },
+      {
+        "content": "FACTID-00610: production cluster k8s-prod-00610 runs in region eu-west-1 with namespace platform-ns-00610",
+        "fact_id": "FACTID-00610"
+      },
+      {
+        "content": "FACTID-00611: team uses Helm for staging environment deployments (node-00611)",
+        "fact_id": "FACTID-00611"
+      },
+      {
+        "content": "FACTID-00612: on-call rotation slot-00612 covers service svc-00612 with PagerDuty escalation level 1",
+        "fact_id": "FACTID-00612"
+      },
+      {
+        "content": "FACTID-00613: cost centre cc-00613 allocated 200$ monthly for compute in us-west-2",
+        "fact_id": "FACTID-00613"
+      },
+      {
+        "content": "FACTID-00614: repository repo-00614 deploys via CI pipeline pipe-00614 triggered on push to main branch",
+        "fact_id": "FACTID-00614"
+      },
+      {
+        "content": "FACTID-00615: production cluster k8s-prod-00615 runs in region ap-southeast-1 with namespace platform-ns-00615",
+        "fact_id": "FACTID-00615"
+      },
+      {
+        "content": "FACTID-00616: team uses Vault for staging environment deployments (node-00616)",
+        "fact_id": "FACTID-00616"
+      },
+      {
+        "content": "FACTID-00617: on-call rotation slot-00617 covers service svc-00617 with PagerDuty escalation level 3",
+        "fact_id": "FACTID-00617"
+      },
+      {
+        "content": "FACTID-00618: cost centre cc-00618 allocated 700$ monthly for compute in eu-west-1",
+        "fact_id": "FACTID-00618"
+      },
+      {
+        "content": "FACTID-00619: repository repo-00619 deploys via CI pipeline pipe-00619 triggered on push to main branch",
+        "fact_id": "FACTID-00619"
+      },
+      {
+        "content": "FACTID-00620: production cluster k8s-prod-00620 runs in region us-east-1 with namespace platform-ns-00620",
+        "fact_id": "FACTID-00620"
+      },
+      {
+        "content": "FACTID-00621: team uses Helm for staging environment deployments (node-00621)",
+        "fact_id": "FACTID-00621"
+      },
+      {
+        "content": "FACTID-00622: on-call rotation slot-00622 covers service svc-00622 with PagerDuty escalation level 2",
+        "fact_id": "FACTID-00622"
+      },
+      {
+        "content": "FACTID-00623: cost centre cc-00623 allocated 300$ monthly for compute in ap-southeast-1",
+        "fact_id": "FACTID-00623"
+      },
+      {
+        "content": "FACTID-00624: repository repo-00624 deploys via CI pipeline pipe-00624 triggered on push to main branch",
+        "fact_id": "FACTID-00624"
+      },
+      {
+        "content": "FACTID-00625: production cluster k8s-prod-00625 runs in region us-west-2 with namespace platform-ns-00625",
+        "fact_id": "FACTID-00625"
+      },
+      {
+        "content": "FACTID-00626: team uses Vault for staging environment deployments (node-00626)",
+        "fact_id": "FACTID-00626"
+      },
+      {
+        "content": "FACTID-00627: on-call rotation slot-00627 covers service svc-00627 with PagerDuty escalation level 1",
+        "fact_id": "FACTID-00627"
+      },
+      {
+        "content": "FACTID-00628: cost centre cc-00628 allocated 800$ monthly for compute in us-east-1",
+        "fact_id": "FACTID-00628"
+      },
+      {
+        "content": "FACTID-00629: repository repo-00629 deploys via CI pipeline pipe-00629 triggered on push to main branch",
+        "fact_id": "FACTID-00629"
+      },
+      {
+        "content": "FACTID-00630: production cluster k8s-prod-00630 runs in region eu-west-1 with namespace platform-ns-00630",
+        "fact_id": "FACTID-00630"
+      },
+      {
+        "content": "FACTID-00631: team uses Helm for staging environment deployments (node-00631)",
+        "fact_id": "FACTID-00631"
+      },
+      {
+        "content": "FACTID-00632: on-call rotation slot-00632 covers service svc-00632 with PagerDuty escalation level 3",
+        "fact_id": "FACTID-00632"
+      },
+      {
+        "content": "FACTID-00633: cost centre cc-00633 allocated 400$ monthly for compute in us-west-2",
+        "fact_id": "FACTID-00633"
+      },
+      {
+        "content": "FACTID-00634: repository repo-00634 deploys via CI pipeline pipe-00634 triggered on push to main branch",
+        "fact_id": "FACTID-00634"
+      },
+      {
+        "content": "FACTID-00635: production cluster k8s-prod-00635 runs in region ap-southeast-1 with namespace platform-ns-00635",
+        "fact_id": "FACTID-00635"
+      },
+      {
+        "content": "FACTID-00636: team uses Vault for staging environment deployments (node-00636)",
+        "fact_id": "FACTID-00636"
+      },
+      {
+        "content": "FACTID-00637: on-call rotation slot-00637 covers service svc-00637 with PagerDuty escalation level 2",
+        "fact_id": "FACTID-00637"
+      },
+      {
+        "content": "FACTID-00638: cost centre cc-00638 allocated 900$ monthly for compute in eu-west-1",
+        "fact_id": "FACTID-00638"
+      },
+      {
+        "content": "FACTID-00639: repository repo-00639 deploys via CI pipeline pipe-00639 triggered on push to main branch",
+        "fact_id": "FACTID-00639"
+      },
+      {
+        "content": "FACTID-00640: production cluster k8s-prod-00640 runs in region us-east-1 with namespace platform-ns-00640",
+        "fact_id": "FACTID-00640"
+      },
+      {
+        "content": "FACTID-00641: team uses Helm for staging environment deployments (node-00641)",
+        "fact_id": "FACTID-00641"
+      },
+      {
+        "content": "FACTID-00642: on-call rotation slot-00642 covers service svc-00642 with PagerDuty escalation level 1",
+        "fact_id": "FACTID-00642"
+      },
+      {
+        "content": "FACTID-00643: cost centre cc-00643 allocated 500$ monthly for compute in ap-southeast-1",
+        "fact_id": "FACTID-00643"
+      },
+      {
+        "content": "FACTID-00644: repository repo-00644 deploys via CI pipeline pipe-00644 triggered on push to main branch",
+        "fact_id": "FACTID-00644"
+      },
+      {
+        "content": "FACTID-00645: production cluster k8s-prod-00645 runs in region us-west-2 with namespace platform-ns-00645",
+        "fact_id": "FACTID-00645"
+      },
+      {
+        "content": "FACTID-00646: team uses Vault for staging environment deployments (node-00646)",
+        "fact_id": "FACTID-00646"
+      },
+      {
+        "content": "FACTID-00647: on-call rotation slot-00647 covers service svc-00647 with PagerDuty escalation level 3",
+        "fact_id": "FACTID-00647"
+      },
+      {
+        "content": "FACTID-00648: cost centre cc-00648 allocated 100$ monthly for compute in us-east-1",
+        "fact_id": "FACTID-00648"
+      },
+      {
+        "content": "FACTID-00649: repository repo-00649 deploys via CI pipeline pipe-00649 triggered on push to main branch",
+        "fact_id": "FACTID-00649"
+      },
+      {
+        "content": "FACTID-00650: production cluster k8s-prod-00650 runs in region eu-west-1 with namespace platform-ns-00650",
+        "fact_id": "FACTID-00650"
+      },
+      {
+        "content": "FACTID-00651: team uses Helm for staging environment deployments (node-00651)",
+        "fact_id": "FACTID-00651"
+      },
+      {
+        "content": "FACTID-00652: on-call rotation slot-00652 covers service svc-00652 with PagerDuty escalation level 2",
+        "fact_id": "FACTID-00652"
+      },
+      {
+        "content": "FACTID-00653: cost centre cc-00653 allocated 600$ monthly for compute in us-west-2",
+        "fact_id": "FACTID-00653"
+      },
+      {
+        "content": "FACTID-00654: repository repo-00654 deploys via CI pipeline pipe-00654 triggered on push to main branch",
+        "fact_id": "FACTID-00654"
+      },
+      {
+        "content": "FACTID-00655: production cluster k8s-prod-00655 runs in region ap-southeast-1 with namespace platform-ns-00655",
+        "fact_id": "FACTID-00655"
+      },
+      {
+        "content": "FACTID-00656: team uses Vault for staging environment deployments (node-00656)",
+        "fact_id": "FACTID-00656"
+      },
+      {
+        "content": "FACTID-00657: on-call rotation slot-00657 covers service svc-00657 with PagerDuty escalation level 1",
+        "fact_id": "FACTID-00657"
+      },
+      {
+        "content": "FACTID-00658: cost centre cc-00658 allocated 200$ monthly for compute in eu-west-1",
+        "fact_id": "FACTID-00658"
+      },
+      {
+        "content": "FACTID-00659: repository repo-00659 deploys via CI pipeline pipe-00659 triggered on push to main branch",
+        "fact_id": "FACTID-00659"
+      },
+      {
+        "content": "FACTID-00660: production cluster k8s-prod-00660 runs in region us-east-1 with namespace platform-ns-00660",
+        "fact_id": "FACTID-00660"
+      },
+      {
+        "content": "FACTID-00661: team uses Helm for staging environment deployments (node-00661)",
+        "fact_id": "FACTID-00661"
+      },
+      {
+        "content": "FACTID-00662: on-call rotation slot-00662 covers service svc-00662 with PagerDuty escalation level 3",
+        "fact_id": "FACTID-00662"
+      },
+      {
+        "content": "FACTID-00663: cost centre cc-00663 allocated 700$ monthly for compute in ap-southeast-1",
+        "fact_id": "FACTID-00663"
+      },
+      {
+        "content": "FACTID-00664: repository repo-00664 deploys via CI pipeline pipe-00664 triggered on push to main branch",
+        "fact_id": "FACTID-00664"
+      },
+      {
+        "content": "FACTID-00665: production cluster k8s-prod-00665 runs in region us-west-2 with namespace platform-ns-00665",
+        "fact_id": "FACTID-00665"
+      },
+      {
+        "content": "FACTID-00666: team uses Vault for staging environment deployments (node-00666)",
+        "fact_id": "FACTID-00666"
+      },
+      {
+        "content": "FACTID-00667: on-call rotation slot-00667 covers service svc-00667 with PagerDuty escalation level 2",
+        "fact_id": "FACTID-00667"
+      },
+      {
+        "content": "FACTID-00668: cost centre cc-00668 allocated 300$ monthly for compute in us-east-1",
+        "fact_id": "FACTID-00668"
+      },
+      {
+        "content": "FACTID-00669: repository repo-00669 deploys via CI pipeline pipe-00669 triggered on push to main branch",
+        "fact_id": "FACTID-00669"
+      },
+      {
+        "content": "FACTID-00670: production cluster k8s-prod-00670 runs in region eu-west-1 with namespace platform-ns-00670",
+        "fact_id": "FACTID-00670"
+      },
+      {
+        "content": "FACTID-00671: team uses Helm for staging environment deployments (node-00671)",
+        "fact_id": "FACTID-00671"
+      },
+      {
+        "content": "FACTID-00672: on-call rotation slot-00672 covers service svc-00672 with PagerDuty escalation level 1",
+        "fact_id": "FACTID-00672"
+      },
+      {
+        "content": "FACTID-00673: cost centre cc-00673 allocated 800$ monthly for compute in us-west-2",
+        "fact_id": "FACTID-00673"
+      },
+      {
+        "content": "FACTID-00674: repository repo-00674 deploys via CI pipeline pipe-00674 triggered on push to main branch",
+        "fact_id": "FACTID-00674"
+      },
+      {
+        "content": "FACTID-00675: production cluster k8s-prod-00675 runs in region ap-southeast-1 with namespace platform-ns-00675",
+        "fact_id": "FACTID-00675"
+      },
+      {
+        "content": "FACTID-00676: team uses Vault for staging environment deployments (node-00676)",
+        "fact_id": "FACTID-00676"
+      },
+      {
+        "content": "FACTID-00677: on-call rotation slot-00677 covers service svc-00677 with PagerDuty escalation level 3",
+        "fact_id": "FACTID-00677"
+      },
+      {
+        "content": "FACTID-00678: cost centre cc-00678 allocated 400$ monthly for compute in eu-west-1",
+        "fact_id": "FACTID-00678"
+      },
+      {
+        "content": "FACTID-00679: repository repo-00679 deploys via CI pipeline pipe-00679 triggered on push to main branch",
+        "fact_id": "FACTID-00679"
+      },
+      {
+        "content": "FACTID-00680: production cluster k8s-prod-00680 runs in region us-east-1 with namespace platform-ns-00680",
+        "fact_id": "FACTID-00680"
+      },
+      {
+        "content": "FACTID-00681: team uses Helm for staging environment deployments (node-00681)",
+        "fact_id": "FACTID-00681"
+      },
+      {
+        "content": "FACTID-00682: on-call rotation slot-00682 covers service svc-00682 with PagerDuty escalation level 2",
+        "fact_id": "FACTID-00682"
+      },
+      {
+        "content": "FACTID-00683: cost centre cc-00683 allocated 900$ monthly for compute in ap-southeast-1",
+        "fact_id": "FACTID-00683"
+      },
+      {
+        "content": "FACTID-00684: repository repo-00684 deploys via CI pipeline pipe-00684 triggered on push to main branch",
+        "fact_id": "FACTID-00684"
+      },
+      {
+        "content": "FACTID-00685: production cluster k8s-prod-00685 runs in region us-west-2 with namespace platform-ns-00685",
+        "fact_id": "FACTID-00685"
+      },
+      {
+        "content": "FACTID-00686: team uses Vault for staging environment deployments (node-00686)",
+        "fact_id": "FACTID-00686"
+      },
+      {
+        "content": "FACTID-00687: on-call rotation slot-00687 covers service svc-00687 with PagerDuty escalation level 1",
+        "fact_id": "FACTID-00687"
+      },
+      {
+        "content": "FACTID-00688: cost centre cc-00688 allocated 500$ monthly for compute in us-east-1",
+        "fact_id": "FACTID-00688"
+      },
+      {
+        "content": "FACTID-00689: repository repo-00689 deploys via CI pipeline pipe-00689 triggered on push to main branch",
+        "fact_id": "FACTID-00689"
+      },
+      {
+        "content": "FACTID-00690: production cluster k8s-prod-00690 runs in region eu-west-1 with namespace platform-ns-00690",
+        "fact_id": "FACTID-00690"
+      },
+      {
+        "content": "FACTID-00691: team uses Helm for staging environment deployments (node-00691)",
+        "fact_id": "FACTID-00691"
+      },
+      {
+        "content": "FACTID-00692: on-call rotation slot-00692 covers service svc-00692 with PagerDuty escalation level 3",
+        "fact_id": "FACTID-00692"
+      },
+      {
+        "content": "FACTID-00693: cost centre cc-00693 allocated 100$ monthly for compute in us-west-2",
+        "fact_id": "FACTID-00693"
+      },
+      {
+        "content": "FACTID-00694: repository repo-00694 deploys via CI pipeline pipe-00694 triggered on push to main branch",
+        "fact_id": "FACTID-00694"
+      },
+      {
+        "content": "FACTID-00695: production cluster k8s-prod-00695 runs in region ap-southeast-1 with namespace platform-ns-00695",
+        "fact_id": "FACTID-00695"
+      },
+      {
+        "content": "FACTID-00696: team uses Vault for staging environment deployments (node-00696)",
+        "fact_id": "FACTID-00696"
+      },
+      {
+        "content": "FACTID-00697: on-call rotation slot-00697 covers service svc-00697 with PagerDuty escalation level 2",
+        "fact_id": "FACTID-00697"
+      },
+      {
+        "content": "FACTID-00698: cost centre cc-00698 allocated 600$ monthly for compute in eu-west-1",
+        "fact_id": "FACTID-00698"
+      },
+      {
+        "content": "FACTID-00699: repository repo-00699 deploys via CI pipeline pipe-00699 triggered on push to main branch",
+        "fact_id": "FACTID-00699"
+      },
+      {
+        "content": "FACTID-00700: production cluster k8s-prod-00700 runs in region us-east-1 with namespace platform-ns-00700",
+        "fact_id": "FACTID-00700"
+      },
+      {
+        "content": "FACTID-00701: team uses Helm for staging environment deployments (node-00701)",
+        "fact_id": "FACTID-00701"
+      },
+      {
+        "content": "FACTID-00702: on-call rotation slot-00702 covers service svc-00702 with PagerDuty escalation level 1",
+        "fact_id": "FACTID-00702"
+      },
+      {
+        "content": "FACTID-00703: cost centre cc-00703 allocated 200$ monthly for compute in ap-southeast-1",
+        "fact_id": "FACTID-00703"
+      },
+      {
+        "content": "FACTID-00704: repository repo-00704 deploys via CI pipeline pipe-00704 triggered on push to main branch",
+        "fact_id": "FACTID-00704"
+      },
+      {
+        "content": "FACTID-00705: production cluster k8s-prod-00705 runs in region us-west-2 with namespace platform-ns-00705",
+        "fact_id": "FACTID-00705"
+      },
+      {
+        "content": "FACTID-00706: team uses Vault for staging environment deployments (node-00706)",
+        "fact_id": "FACTID-00706"
+      },
+      {
+        "content": "FACTID-00707: on-call rotation slot-00707 covers service svc-00707 with PagerDuty escalation level 3",
+        "fact_id": "FACTID-00707"
+      },
+      {
+        "content": "FACTID-00708: cost centre cc-00708 allocated 700$ monthly for compute in us-east-1",
+        "fact_id": "FACTID-00708"
+      },
+      {
+        "content": "FACTID-00709: repository repo-00709 deploys via CI pipeline pipe-00709 triggered on push to main branch",
+        "fact_id": "FACTID-00709"
+      },
+      {
+        "content": "FACTID-00710: production cluster k8s-prod-00710 runs in region eu-west-1 with namespace platform-ns-00710",
+        "fact_id": "FACTID-00710"
+      },
+      {
+        "content": "FACTID-00711: team uses Helm for staging environment deployments (node-00711)",
+        "fact_id": "FACTID-00711"
+      },
+      {
+        "content": "FACTID-00712: on-call rotation slot-00712 covers service svc-00712 with PagerDuty escalation level 2",
+        "fact_id": "FACTID-00712"
+      },
+      {
+        "content": "FACTID-00713: cost centre cc-00713 allocated 300$ monthly for compute in us-west-2",
+        "fact_id": "FACTID-00713"
+      },
+      {
+        "content": "FACTID-00714: repository repo-00714 deploys via CI pipeline pipe-00714 triggered on push to main branch",
+        "fact_id": "FACTID-00714"
+      },
+      {
+        "content": "FACTID-00715: production cluster k8s-prod-00715 runs in region ap-southeast-1 with namespace platform-ns-00715",
+        "fact_id": "FACTID-00715"
+      },
+      {
+        "content": "FACTID-00716: team uses Vault for staging environment deployments (node-00716)",
+        "fact_id": "FACTID-00716"
+      },
+      {
+        "content": "FACTID-00717: on-call rotation slot-00717 covers service svc-00717 with PagerDuty escalation level 1",
+        "fact_id": "FACTID-00717"
+      },
+      {
+        "content": "FACTID-00718: cost centre cc-00718 allocated 800$ monthly for compute in eu-west-1",
+        "fact_id": "FACTID-00718"
+      },
+      {
+        "content": "FACTID-00719: repository repo-00719 deploys via CI pipeline pipe-00719 triggered on push to main branch",
+        "fact_id": "FACTID-00719"
+      },
+      {
+        "content": "FACTID-00720: production cluster k8s-prod-00720 runs in region us-east-1 with namespace platform-ns-00720",
+        "fact_id": "FACTID-00720"
+      },
+      {
+        "content": "FACTID-00721: team uses Helm for staging environment deployments (node-00721)",
+        "fact_id": "FACTID-00721"
+      },
+      {
+        "content": "FACTID-00722: on-call rotation slot-00722 covers service svc-00722 with PagerDuty escalation level 3",
+        "fact_id": "FACTID-00722"
+      },
+      {
+        "content": "FACTID-00723: cost centre cc-00723 allocated 400$ monthly for compute in ap-southeast-1",
+        "fact_id": "FACTID-00723"
+      },
+      {
+        "content": "FACTID-00724: repository repo-00724 deploys via CI pipeline pipe-00724 triggered on push to main branch",
+        "fact_id": "FACTID-00724"
+      },
+      {
+        "content": "FACTID-00725: production cluster k8s-prod-00725 runs in region us-west-2 with namespace platform-ns-00725",
+        "fact_id": "FACTID-00725"
+      },
+      {
+        "content": "FACTID-00726: team uses Vault for staging environment deployments (node-00726)",
+        "fact_id": "FACTID-00726"
+      },
+      {
+        "content": "FACTID-00727: on-call rotation slot-00727 covers service svc-00727 with PagerDuty escalation level 2",
+        "fact_id": "FACTID-00727"
+      },
+      {
+        "content": "FACTID-00728: cost centre cc-00728 allocated 900$ monthly for compute in us-east-1",
+        "fact_id": "FACTID-00728"
+      },
+      {
+        "content": "FACTID-00729: repository repo-00729 deploys via CI pipeline pipe-00729 triggered on push to main branch",
+        "fact_id": "FACTID-00729"
+      },
+      {
+        "content": "FACTID-00730: production cluster k8s-prod-00730 runs in region eu-west-1 with namespace platform-ns-00730",
+        "fact_id": "FACTID-00730"
+      },
+      {
+        "content": "FACTID-00731: team uses Helm for staging environment deployments (node-00731)",
+        "fact_id": "FACTID-00731"
+      },
+      {
+        "content": "FACTID-00732: on-call rotation slot-00732 covers service svc-00732 with PagerDuty escalation level 1",
+        "fact_id": "FACTID-00732"
+      },
+      {
+        "content": "FACTID-00733: cost centre cc-00733 allocated 500$ monthly for compute in us-west-2",
+        "fact_id": "FACTID-00733"
+      },
+      {
+        "content": "FACTID-00734: repository repo-00734 deploys via CI pipeline pipe-00734 triggered on push to main branch",
+        "fact_id": "FACTID-00734"
+      },
+      {
+        "content": "FACTID-00735: production cluster k8s-prod-00735 runs in region ap-southeast-1 with namespace platform-ns-00735",
+        "fact_id": "FACTID-00735"
+      },
+      {
+        "content": "FACTID-00736: team uses Vault for staging environment deployments (node-00736)",
+        "fact_id": "FACTID-00736"
+      },
+      {
+        "content": "FACTID-00737: on-call rotation slot-00737 covers service svc-00737 with PagerDuty escalation level 3",
+        "fact_id": "FACTID-00737"
+      },
+      {
+        "content": "FACTID-00738: cost centre cc-00738 allocated 100$ monthly for compute in eu-west-1",
+        "fact_id": "FACTID-00738"
+      },
+      {
+        "content": "FACTID-00739: repository repo-00739 deploys via CI pipeline pipe-00739 triggered on push to main branch",
+        "fact_id": "FACTID-00739"
+      },
+      {
+        "content": "FACTID-00740: production cluster k8s-prod-00740 runs in region us-east-1 with namespace platform-ns-00740",
+        "fact_id": "FACTID-00740"
+      },
+      {
+        "content": "FACTID-00741: team uses Helm for staging environment deployments (node-00741)",
+        "fact_id": "FACTID-00741"
+      },
+      {
+        "content": "FACTID-00742: on-call rotation slot-00742 covers service svc-00742 with PagerDuty escalation level 2",
+        "fact_id": "FACTID-00742"
+      },
+      {
+        "content": "FACTID-00743: cost centre cc-00743 allocated 600$ monthly for compute in ap-southeast-1",
+        "fact_id": "FACTID-00743"
+      },
+      {
+        "content": "FACTID-00744: repository repo-00744 deploys via CI pipeline pipe-00744 triggered on push to main branch",
+        "fact_id": "FACTID-00744"
+      },
+      {
+        "content": "FACTID-00745: production cluster k8s-prod-00745 runs in region us-west-2 with namespace platform-ns-00745",
+        "fact_id": "FACTID-00745"
+      },
+      {
+        "content": "FACTID-00746: team uses Vault for staging environment deployments (node-00746)",
+        "fact_id": "FACTID-00746"
+      },
+      {
+        "content": "FACTID-00747: on-call rotation slot-00747 covers service svc-00747 with PagerDuty escalation level 1",
+        "fact_id": "FACTID-00747"
+      },
+      {
+        "content": "FACTID-00748: cost centre cc-00748 allocated 200$ monthly for compute in us-east-1",
+        "fact_id": "FACTID-00748"
+      },
+      {
+        "content": "FACTID-00749: repository repo-00749 deploys via CI pipeline pipe-00749 triggered on push to main branch",
+        "fact_id": "FACTID-00749"
+      },
+      {
+        "content": "FACTID-00750: production cluster k8s-prod-00750 runs in region eu-west-1 with namespace platform-ns-00750",
+        "fact_id": "FACTID-00750"
+      },
+      {
+        "content": "FACTID-00751: team uses Helm for staging environment deployments (node-00751)",
+        "fact_id": "FACTID-00751"
+      },
+      {
+        "content": "FACTID-00752: on-call rotation slot-00752 covers service svc-00752 with PagerDuty escalation level 3",
+        "fact_id": "FACTID-00752"
+      },
+      {
+        "content": "FACTID-00753: cost centre cc-00753 allocated 700$ monthly for compute in us-west-2",
+        "fact_id": "FACTID-00753"
+      },
+      {
+        "content": "FACTID-00754: repository repo-00754 deploys via CI pipeline pipe-00754 triggered on push to main branch",
+        "fact_id": "FACTID-00754"
+      },
+      {
+        "content": "FACTID-00755: production cluster k8s-prod-00755 runs in region ap-southeast-1 with namespace platform-ns-00755",
+        "fact_id": "FACTID-00755"
+      },
+      {
+        "content": "FACTID-00756: team uses Vault for staging environment deployments (node-00756)",
+        "fact_id": "FACTID-00756"
+      },
+      {
+        "content": "FACTID-00757: on-call rotation slot-00757 covers service svc-00757 with PagerDuty escalation level 2",
+        "fact_id": "FACTID-00757"
+      },
+      {
+        "content": "FACTID-00758: cost centre cc-00758 allocated 300$ monthly for compute in eu-west-1",
+        "fact_id": "FACTID-00758"
+      },
+      {
+        "content": "FACTID-00759: repository repo-00759 deploys via CI pipeline pipe-00759 triggered on push to main branch",
+        "fact_id": "FACTID-00759"
+      },
+      {
+        "content": "FACTID-00760: production cluster k8s-prod-00760 runs in region us-east-1 with namespace platform-ns-00760",
+        "fact_id": "FACTID-00760"
+      },
+      {
+        "content": "FACTID-00761: team uses Helm for staging environment deployments (node-00761)",
+        "fact_id": "FACTID-00761"
+      },
+      {
+        "content": "FACTID-00762: on-call rotation slot-00762 covers service svc-00762 with PagerDuty escalation level 1",
+        "fact_id": "FACTID-00762"
+      },
+      {
+        "content": "FACTID-00763: cost centre cc-00763 allocated 800$ monthly for compute in ap-southeast-1",
+        "fact_id": "FACTID-00763"
+      },
+      {
+        "content": "FACTID-00764: repository repo-00764 deploys via CI pipeline pipe-00764 triggered on push to main branch",
+        "fact_id": "FACTID-00764"
+      },
+      {
+        "content": "FACTID-00765: production cluster k8s-prod-00765 runs in region us-west-2 with namespace platform-ns-00765",
+        "fact_id": "FACTID-00765"
+      },
+      {
+        "content": "FACTID-00766: team uses Vault for staging environment deployments (node-00766)",
+        "fact_id": "FACTID-00766"
+      },
+      {
+        "content": "FACTID-00767: on-call rotation slot-00767 covers service svc-00767 with PagerDuty escalation level 3",
+        "fact_id": "FACTID-00767"
+      },
+      {
+        "content": "FACTID-00768: cost centre cc-00768 allocated 400$ monthly for compute in us-east-1",
+        "fact_id": "FACTID-00768"
+      },
+      {
+        "content": "FACTID-00769: repository repo-00769 deploys via CI pipeline pipe-00769 triggered on push to main branch",
+        "fact_id": "FACTID-00769"
+      },
+      {
+        "content": "FACTID-00770: production cluster k8s-prod-00770 runs in region eu-west-1 with namespace platform-ns-00770",
+        "fact_id": "FACTID-00770"
+      },
+      {
+        "content": "FACTID-00771: team uses Helm for staging environment deployments (node-00771)",
+        "fact_id": "FACTID-00771"
+      },
+      {
+        "content": "FACTID-00772: on-call rotation slot-00772 covers service svc-00772 with PagerDuty escalation level 2",
+        "fact_id": "FACTID-00772"
+      },
+      {
+        "content": "FACTID-00773: cost centre cc-00773 allocated 900$ monthly for compute in us-west-2",
+        "fact_id": "FACTID-00773"
+      },
+      {
+        "content": "FACTID-00774: repository repo-00774 deploys via CI pipeline pipe-00774 triggered on push to main branch",
+        "fact_id": "FACTID-00774"
+      },
+      {
+        "content": "FACTID-00775: production cluster k8s-prod-00775 runs in region ap-southeast-1 with namespace platform-ns-00775",
+        "fact_id": "FACTID-00775"
+      },
+      {
+        "content": "FACTID-00776: team uses Vault for staging environment deployments (node-00776)",
+        "fact_id": "FACTID-00776"
+      },
+      {
+        "content": "FACTID-00777: on-call rotation slot-00777 covers service svc-00777 with PagerDuty escalation level 1",
+        "fact_id": "FACTID-00777"
+      },
+      {
+        "content": "FACTID-00778: cost centre cc-00778 allocated 500$ monthly for compute in eu-west-1",
+        "fact_id": "FACTID-00778"
+      },
+      {
+        "content": "FACTID-00779: repository repo-00779 deploys via CI pipeline pipe-00779 triggered on push to main branch",
+        "fact_id": "FACTID-00779"
+      },
+      {
+        "content": "FACTID-00780: production cluster k8s-prod-00780 runs in region us-east-1 with namespace platform-ns-00780",
+        "fact_id": "FACTID-00780"
+      },
+      {
+        "content": "FACTID-00781: team uses Helm for staging environment deployments (node-00781)",
+        "fact_id": "FACTID-00781"
+      },
+      {
+        "content": "FACTID-00782: on-call rotation slot-00782 covers service svc-00782 with PagerDuty escalation level 3",
+        "fact_id": "FACTID-00782"
+      },
+      {
+        "content": "FACTID-00783: cost centre cc-00783 allocated 100$ monthly for compute in ap-southeast-1",
+        "fact_id": "FACTID-00783"
+      },
+      {
+        "content": "FACTID-00784: repository repo-00784 deploys via CI pipeline pipe-00784 triggered on push to main branch",
+        "fact_id": "FACTID-00784"
+      },
+      {
+        "content": "FACTID-00785: production cluster k8s-prod-00785 runs in region us-west-2 with namespace platform-ns-00785",
+        "fact_id": "FACTID-00785"
+      },
+      {
+        "content": "FACTID-00786: team uses Vault for staging environment deployments (node-00786)",
+        "fact_id": "FACTID-00786"
+      },
+      {
+        "content": "FACTID-00787: on-call rotation slot-00787 covers service svc-00787 with PagerDuty escalation level 2",
+        "fact_id": "FACTID-00787"
+      },
+      {
+        "content": "FACTID-00788: cost centre cc-00788 allocated 600$ monthly for compute in us-east-1",
+        "fact_id": "FACTID-00788"
+      },
+      {
+        "content": "FACTID-00789: repository repo-00789 deploys via CI pipeline pipe-00789 triggered on push to main branch",
+        "fact_id": "FACTID-00789"
+      },
+      {
+        "content": "FACTID-00790: production cluster k8s-prod-00790 runs in region eu-west-1 with namespace platform-ns-00790",
+        "fact_id": "FACTID-00790"
+      },
+      {
+        "content": "FACTID-00791: team uses Helm for staging environment deployments (node-00791)",
+        "fact_id": "FACTID-00791"
+      },
+      {
+        "content": "FACTID-00792: on-call rotation slot-00792 covers service svc-00792 with PagerDuty escalation level 1",
+        "fact_id": "FACTID-00792"
+      },
+      {
+        "content": "FACTID-00793: cost centre cc-00793 allocated 200$ monthly for compute in us-west-2",
+        "fact_id": "FACTID-00793"
+      },
+      {
+        "content": "FACTID-00794: repository repo-00794 deploys via CI pipeline pipe-00794 triggered on push to main branch",
+        "fact_id": "FACTID-00794"
+      },
+      {
+        "content": "FACTID-00795: production cluster k8s-prod-00795 runs in region ap-southeast-1 with namespace platform-ns-00795",
+        "fact_id": "FACTID-00795"
+      },
+      {
+        "content": "FACTID-00796: team uses Vault for staging environment deployments (node-00796)",
+        "fact_id": "FACTID-00796"
+      },
+      {
+        "content": "FACTID-00797: on-call rotation slot-00797 covers service svc-00797 with PagerDuty escalation level 3",
+        "fact_id": "FACTID-00797"
+      },
+      {
+        "content": "FACTID-00798: cost centre cc-00798 allocated 700$ monthly for compute in eu-west-1",
+        "fact_id": "FACTID-00798"
+      },
+      {
+        "content": "FACTID-00799: repository repo-00799 deploys via CI pipeline pipe-00799 triggered on push to main branch",
+        "fact_id": "FACTID-00799"
+      },
+      {
+        "content": "FACTID-00800: production cluster k8s-prod-00800 runs in region us-east-1 with namespace platform-ns-00800",
+        "fact_id": "FACTID-00800"
+      },
+      {
+        "content": "FACTID-00801: team uses Helm for staging environment deployments (node-00801)",
+        "fact_id": "FACTID-00801"
+      },
+      {
+        "content": "FACTID-00802: on-call rotation slot-00802 covers service svc-00802 with PagerDuty escalation level 2",
+        "fact_id": "FACTID-00802"
+      },
+      {
+        "content": "FACTID-00803: cost centre cc-00803 allocated 300$ monthly for compute in ap-southeast-1",
+        "fact_id": "FACTID-00803"
+      },
+      {
+        "content": "FACTID-00804: repository repo-00804 deploys via CI pipeline pipe-00804 triggered on push to main branch",
+        "fact_id": "FACTID-00804"
+      },
+      {
+        "content": "FACTID-00805: production cluster k8s-prod-00805 runs in region us-west-2 with namespace platform-ns-00805",
+        "fact_id": "FACTID-00805"
+      },
+      {
+        "content": "FACTID-00806: team uses Vault for staging environment deployments (node-00806)",
+        "fact_id": "FACTID-00806"
+      },
+      {
+        "content": "FACTID-00807: on-call rotation slot-00807 covers service svc-00807 with PagerDuty escalation level 1",
+        "fact_id": "FACTID-00807"
+      },
+      {
+        "content": "FACTID-00808: cost centre cc-00808 allocated 800$ monthly for compute in us-east-1",
+        "fact_id": "FACTID-00808"
+      },
+      {
+        "content": "FACTID-00809: repository repo-00809 deploys via CI pipeline pipe-00809 triggered on push to main branch",
+        "fact_id": "FACTID-00809"
+      },
+      {
+        "content": "FACTID-00810: production cluster k8s-prod-00810 runs in region eu-west-1 with namespace platform-ns-00810",
+        "fact_id": "FACTID-00810"
+      },
+      {
+        "content": "FACTID-00811: team uses Helm for staging environment deployments (node-00811)",
+        "fact_id": "FACTID-00811"
+      },
+      {
+        "content": "FACTID-00812: on-call rotation slot-00812 covers service svc-00812 with PagerDuty escalation level 3",
+        "fact_id": "FACTID-00812"
+      },
+      {
+        "content": "FACTID-00813: cost centre cc-00813 allocated 400$ monthly for compute in us-west-2",
+        "fact_id": "FACTID-00813"
+      },
+      {
+        "content": "FACTID-00814: repository repo-00814 deploys via CI pipeline pipe-00814 triggered on push to main branch",
+        "fact_id": "FACTID-00814"
+      },
+      {
+        "content": "FACTID-00815: production cluster k8s-prod-00815 runs in region ap-southeast-1 with namespace platform-ns-00815",
+        "fact_id": "FACTID-00815"
+      },
+      {
+        "content": "FACTID-00816: team uses Vault for staging environment deployments (node-00816)",
+        "fact_id": "FACTID-00816"
+      },
+      {
+        "content": "FACTID-00817: on-call rotation slot-00817 covers service svc-00817 with PagerDuty escalation level 2",
+        "fact_id": "FACTID-00817"
+      },
+      {
+        "content": "FACTID-00818: cost centre cc-00818 allocated 900$ monthly for compute in eu-west-1",
+        "fact_id": "FACTID-00818"
+      },
+      {
+        "content": "FACTID-00819: repository repo-00819 deploys via CI pipeline pipe-00819 triggered on push to main branch",
+        "fact_id": "FACTID-00819"
+      },
+      {
+        "content": "FACTID-00820: production cluster k8s-prod-00820 runs in region us-east-1 with namespace platform-ns-00820",
+        "fact_id": "FACTID-00820"
+      },
+      {
+        "content": "FACTID-00821: team uses Helm for staging environment deployments (node-00821)",
+        "fact_id": "FACTID-00821"
+      },
+      {
+        "content": "FACTID-00822: on-call rotation slot-00822 covers service svc-00822 with PagerDuty escalation level 1",
+        "fact_id": "FACTID-00822"
+      },
+      {
+        "content": "FACTID-00823: cost centre cc-00823 allocated 500$ monthly for compute in ap-southeast-1",
+        "fact_id": "FACTID-00823"
+      },
+      {
+        "content": "FACTID-00824: repository repo-00824 deploys via CI pipeline pipe-00824 triggered on push to main branch",
+        "fact_id": "FACTID-00824"
+      },
+      {
+        "content": "FACTID-00825: production cluster k8s-prod-00825 runs in region us-west-2 with namespace platform-ns-00825",
+        "fact_id": "FACTID-00825"
+      },
+      {
+        "content": "FACTID-00826: team uses Vault for staging environment deployments (node-00826)",
+        "fact_id": "FACTID-00826"
+      },
+      {
+        "content": "FACTID-00827: on-call rotation slot-00827 covers service svc-00827 with PagerDuty escalation level 3",
+        "fact_id": "FACTID-00827"
+      },
+      {
+        "content": "FACTID-00828: cost centre cc-00828 allocated 100$ monthly for compute in us-east-1",
+        "fact_id": "FACTID-00828"
+      },
+      {
+        "content": "FACTID-00829: repository repo-00829 deploys via CI pipeline pipe-00829 triggered on push to main branch",
+        "fact_id": "FACTID-00829"
+      },
+      {
+        "content": "FACTID-00830: production cluster k8s-prod-00830 runs in region eu-west-1 with namespace platform-ns-00830",
+        "fact_id": "FACTID-00830"
+      },
+      {
+        "content": "FACTID-00831: team uses Helm for staging environment deployments (node-00831)",
+        "fact_id": "FACTID-00831"
+      },
+      {
+        "content": "FACTID-00832: on-call rotation slot-00832 covers service svc-00832 with PagerDuty escalation level 2",
+        "fact_id": "FACTID-00832"
+      },
+      {
+        "content": "FACTID-00833: cost centre cc-00833 allocated 600$ monthly for compute in us-west-2",
+        "fact_id": "FACTID-00833"
+      },
+      {
+        "content": "FACTID-00834: repository repo-00834 deploys via CI pipeline pipe-00834 triggered on push to main branch",
+        "fact_id": "FACTID-00834"
+      },
+      {
+        "content": "FACTID-00835: production cluster k8s-prod-00835 runs in region ap-southeast-1 with namespace platform-ns-00835",
+        "fact_id": "FACTID-00835"
+      },
+      {
+        "content": "FACTID-00836: team uses Vault for staging environment deployments (node-00836)",
+        "fact_id": "FACTID-00836"
+      },
+      {
+        "content": "FACTID-00837: on-call rotation slot-00837 covers service svc-00837 with PagerDuty escalation level 1",
+        "fact_id": "FACTID-00837"
+      },
+      {
+        "content": "FACTID-00838: cost centre cc-00838 allocated 200$ monthly for compute in eu-west-1",
+        "fact_id": "FACTID-00838"
+      },
+      {
+        "content": "FACTID-00839: repository repo-00839 deploys via CI pipeline pipe-00839 triggered on push to main branch",
+        "fact_id": "FACTID-00839"
+      },
+      {
+        "content": "FACTID-00840: production cluster k8s-prod-00840 runs in region us-east-1 with namespace platform-ns-00840",
+        "fact_id": "FACTID-00840"
+      },
+      {
+        "content": "FACTID-00841: team uses Helm for staging environment deployments (node-00841)",
+        "fact_id": "FACTID-00841"
+      },
+      {
+        "content": "FACTID-00842: on-call rotation slot-00842 covers service svc-00842 with PagerDuty escalation level 3",
+        "fact_id": "FACTID-00842"
+      },
+      {
+        "content": "FACTID-00843: cost centre cc-00843 allocated 700$ monthly for compute in ap-southeast-1",
+        "fact_id": "FACTID-00843"
+      },
+      {
+        "content": "FACTID-00844: repository repo-00844 deploys via CI pipeline pipe-00844 triggered on push to main branch",
+        "fact_id": "FACTID-00844"
+      },
+      {
+        "content": "FACTID-00845: production cluster k8s-prod-00845 runs in region us-west-2 with namespace platform-ns-00845",
+        "fact_id": "FACTID-00845"
+      },
+      {
+        "content": "FACTID-00846: team uses Vault for staging environment deployments (node-00846)",
+        "fact_id": "FACTID-00846"
+      },
+      {
+        "content": "FACTID-00847: on-call rotation slot-00847 covers service svc-00847 with PagerDuty escalation level 2",
+        "fact_id": "FACTID-00847"
+      },
+      {
+        "content": "FACTID-00848: cost centre cc-00848 allocated 300$ monthly for compute in us-east-1",
+        "fact_id": "FACTID-00848"
+      },
+      {
+        "content": "FACTID-00849: repository repo-00849 deploys via CI pipeline pipe-00849 triggered on push to main branch",
+        "fact_id": "FACTID-00849"
+      },
+      {
+        "content": "FACTID-00850: production cluster k8s-prod-00850 runs in region eu-west-1 with namespace platform-ns-00850",
+        "fact_id": "FACTID-00850"
+      },
+      {
+        "content": "FACTID-00851: team uses Helm for staging environment deployments (node-00851)",
+        "fact_id": "FACTID-00851"
+      },
+      {
+        "content": "FACTID-00852: on-call rotation slot-00852 covers service svc-00852 with PagerDuty escalation level 1",
+        "fact_id": "FACTID-00852"
+      },
+      {
+        "content": "FACTID-00853: cost centre cc-00853 allocated 800$ monthly for compute in us-west-2",
+        "fact_id": "FACTID-00853"
+      },
+      {
+        "content": "FACTID-00854: repository repo-00854 deploys via CI pipeline pipe-00854 triggered on push to main branch",
+        "fact_id": "FACTID-00854"
+      },
+      {
+        "content": "FACTID-00855: production cluster k8s-prod-00855 runs in region ap-southeast-1 with namespace platform-ns-00855",
+        "fact_id": "FACTID-00855"
+      },
+      {
+        "content": "FACTID-00856: team uses Vault for staging environment deployments (node-00856)",
+        "fact_id": "FACTID-00856"
+      },
+      {
+        "content": "FACTID-00857: on-call rotation slot-00857 covers service svc-00857 with PagerDuty escalation level 3",
+        "fact_id": "FACTID-00857"
+      },
+      {
+        "content": "FACTID-00858: cost centre cc-00858 allocated 400$ monthly for compute in eu-west-1",
+        "fact_id": "FACTID-00858"
+      },
+      {
+        "content": "FACTID-00859: repository repo-00859 deploys via CI pipeline pipe-00859 triggered on push to main branch",
+        "fact_id": "FACTID-00859"
+      },
+      {
+        "content": "FACTID-00860: production cluster k8s-prod-00860 runs in region us-east-1 with namespace platform-ns-00860",
+        "fact_id": "FACTID-00860"
+      },
+      {
+        "content": "FACTID-00861: team uses Helm for staging environment deployments (node-00861)",
+        "fact_id": "FACTID-00861"
+      },
+      {
+        "content": "FACTID-00862: on-call rotation slot-00862 covers service svc-00862 with PagerDuty escalation level 2",
+        "fact_id": "FACTID-00862"
+      },
+      {
+        "content": "FACTID-00863: cost centre cc-00863 allocated 900$ monthly for compute in ap-southeast-1",
+        "fact_id": "FACTID-00863"
+      },
+      {
+        "content": "FACTID-00864: repository repo-00864 deploys via CI pipeline pipe-00864 triggered on push to main branch",
+        "fact_id": "FACTID-00864"
+      },
+      {
+        "content": "FACTID-00865: production cluster k8s-prod-00865 runs in region us-west-2 with namespace platform-ns-00865",
+        "fact_id": "FACTID-00865"
+      },
+      {
+        "content": "FACTID-00866: team uses Vault for staging environment deployments (node-00866)",
+        "fact_id": "FACTID-00866"
+      },
+      {
+        "content": "FACTID-00867: on-call rotation slot-00867 covers service svc-00867 with PagerDuty escalation level 1",
+        "fact_id": "FACTID-00867"
+      },
+      {
+        "content": "FACTID-00868: cost centre cc-00868 allocated 500$ monthly for compute in us-east-1",
+        "fact_id": "FACTID-00868"
+      },
+      {
+        "content": "FACTID-00869: repository repo-00869 deploys via CI pipeline pipe-00869 triggered on push to main branch",
+        "fact_id": "FACTID-00869"
+      },
+      {
+        "content": "FACTID-00870: production cluster k8s-prod-00870 runs in region eu-west-1 with namespace platform-ns-00870",
+        "fact_id": "FACTID-00870"
+      },
+      {
+        "content": "FACTID-00871: team uses Helm for staging environment deployments (node-00871)",
+        "fact_id": "FACTID-00871"
+      },
+      {
+        "content": "FACTID-00872: on-call rotation slot-00872 covers service svc-00872 with PagerDuty escalation level 3",
+        "fact_id": "FACTID-00872"
+      },
+      {
+        "content": "FACTID-00873: cost centre cc-00873 allocated 100$ monthly for compute in us-west-2",
+        "fact_id": "FACTID-00873"
+      },
+      {
+        "content": "FACTID-00874: repository repo-00874 deploys via CI pipeline pipe-00874 triggered on push to main branch",
+        "fact_id": "FACTID-00874"
+      },
+      {
+        "content": "FACTID-00875: production cluster k8s-prod-00875 runs in region ap-southeast-1 with namespace platform-ns-00875",
+        "fact_id": "FACTID-00875"
+      },
+      {
+        "content": "FACTID-00876: team uses Vault for staging environment deployments (node-00876)",
+        "fact_id": "FACTID-00876"
+      },
+      {
+        "content": "FACTID-00877: on-call rotation slot-00877 covers service svc-00877 with PagerDuty escalation level 2",
+        "fact_id": "FACTID-00877"
+      },
+      {
+        "content": "FACTID-00878: cost centre cc-00878 allocated 600$ monthly for compute in eu-west-1",
+        "fact_id": "FACTID-00878"
+      },
+      {
+        "content": "FACTID-00879: repository repo-00879 deploys via CI pipeline pipe-00879 triggered on push to main branch",
+        "fact_id": "FACTID-00879"
+      },
+      {
+        "content": "FACTID-00880: production cluster k8s-prod-00880 runs in region us-east-1 with namespace platform-ns-00880",
+        "fact_id": "FACTID-00880"
+      },
+      {
+        "content": "FACTID-00881: team uses Helm for staging environment deployments (node-00881)",
+        "fact_id": "FACTID-00881"
+      },
+      {
+        "content": "FACTID-00882: on-call rotation slot-00882 covers service svc-00882 with PagerDuty escalation level 1",
+        "fact_id": "FACTID-00882"
+      },
+      {
+        "content": "FACTID-00883: cost centre cc-00883 allocated 200$ monthly for compute in ap-southeast-1",
+        "fact_id": "FACTID-00883"
+      },
+      {
+        "content": "FACTID-00884: repository repo-00884 deploys via CI pipeline pipe-00884 triggered on push to main branch",
+        "fact_id": "FACTID-00884"
+      },
+      {
+        "content": "FACTID-00885: production cluster k8s-prod-00885 runs in region us-west-2 with namespace platform-ns-00885",
+        "fact_id": "FACTID-00885"
+      },
+      {
+        "content": "FACTID-00886: team uses Vault for staging environment deployments (node-00886)",
+        "fact_id": "FACTID-00886"
+      },
+      {
+        "content": "FACTID-00887: on-call rotation slot-00887 covers service svc-00887 with PagerDuty escalation level 3",
+        "fact_id": "FACTID-00887"
+      },
+      {
+        "content": "FACTID-00888: cost centre cc-00888 allocated 700$ monthly for compute in us-east-1",
+        "fact_id": "FACTID-00888"
+      },
+      {
+        "content": "FACTID-00889: repository repo-00889 deploys via CI pipeline pipe-00889 triggered on push to main branch",
+        "fact_id": "FACTID-00889"
+      },
+      {
+        "content": "FACTID-00890: production cluster k8s-prod-00890 runs in region eu-west-1 with namespace platform-ns-00890",
+        "fact_id": "FACTID-00890"
+      },
+      {
+        "content": "FACTID-00891: team uses Helm for staging environment deployments (node-00891)",
+        "fact_id": "FACTID-00891"
+      },
+      {
+        "content": "FACTID-00892: on-call rotation slot-00892 covers service svc-00892 with PagerDuty escalation level 2",
+        "fact_id": "FACTID-00892"
+      },
+      {
+        "content": "FACTID-00893: cost centre cc-00893 allocated 300$ monthly for compute in us-west-2",
+        "fact_id": "FACTID-00893"
+      },
+      {
+        "content": "FACTID-00894: repository repo-00894 deploys via CI pipeline pipe-00894 triggered on push to main branch",
+        "fact_id": "FACTID-00894"
+      },
+      {
+        "content": "FACTID-00895: production cluster k8s-prod-00895 runs in region ap-southeast-1 with namespace platform-ns-00895",
+        "fact_id": "FACTID-00895"
+      },
+      {
+        "content": "FACTID-00896: team uses Vault for staging environment deployments (node-00896)",
+        "fact_id": "FACTID-00896"
+      },
+      {
+        "content": "FACTID-00897: on-call rotation slot-00897 covers service svc-00897 with PagerDuty escalation level 1",
+        "fact_id": "FACTID-00897"
+      },
+      {
+        "content": "FACTID-00898: cost centre cc-00898 allocated 800$ monthly for compute in eu-west-1",
+        "fact_id": "FACTID-00898"
+      },
+      {
+        "content": "FACTID-00899: repository repo-00899 deploys via CI pipeline pipe-00899 triggered on push to main branch",
+        "fact_id": "FACTID-00899"
+      },
+      {
+        "content": "FACTID-00900: production cluster k8s-prod-00900 runs in region us-east-1 with namespace platform-ns-00900",
+        "fact_id": "FACTID-00900"
+      },
+      {
+        "content": "FACTID-00901: team uses Helm for staging environment deployments (node-00901)",
+        "fact_id": "FACTID-00901"
+      },
+      {
+        "content": "FACTID-00902: on-call rotation slot-00902 covers service svc-00902 with PagerDuty escalation level 3",
+        "fact_id": "FACTID-00902"
+      },
+      {
+        "content": "FACTID-00903: cost centre cc-00903 allocated 400$ monthly for compute in ap-southeast-1",
+        "fact_id": "FACTID-00903"
+      },
+      {
+        "content": "FACTID-00904: repository repo-00904 deploys via CI pipeline pipe-00904 triggered on push to main branch",
+        "fact_id": "FACTID-00904"
+      },
+      {
+        "content": "FACTID-00905: production cluster k8s-prod-00905 runs in region us-west-2 with namespace platform-ns-00905",
+        "fact_id": "FACTID-00905"
+      },
+      {
+        "content": "FACTID-00906: team uses Vault for staging environment deployments (node-00906)",
+        "fact_id": "FACTID-00906"
+      },
+      {
+        "content": "FACTID-00907: on-call rotation slot-00907 covers service svc-00907 with PagerDuty escalation level 2",
+        "fact_id": "FACTID-00907"
+      },
+      {
+        "content": "FACTID-00908: cost centre cc-00908 allocated 900$ monthly for compute in us-east-1",
+        "fact_id": "FACTID-00908"
+      },
+      {
+        "content": "FACTID-00909: repository repo-00909 deploys via CI pipeline pipe-00909 triggered on push to main branch",
+        "fact_id": "FACTID-00909"
+      },
+      {
+        "content": "FACTID-00910: production cluster k8s-prod-00910 runs in region eu-west-1 with namespace platform-ns-00910",
+        "fact_id": "FACTID-00910"
+      },
+      {
+        "content": "FACTID-00911: team uses Helm for staging environment deployments (node-00911)",
+        "fact_id": "FACTID-00911"
+      },
+      {
+        "content": "FACTID-00912: on-call rotation slot-00912 covers service svc-00912 with PagerDuty escalation level 1",
+        "fact_id": "FACTID-00912"
+      },
+      {
+        "content": "FACTID-00913: cost centre cc-00913 allocated 500$ monthly for compute in us-west-2",
+        "fact_id": "FACTID-00913"
+      },
+      {
+        "content": "FACTID-00914: repository repo-00914 deploys via CI pipeline pipe-00914 triggered on push to main branch",
+        "fact_id": "FACTID-00914"
+      },
+      {
+        "content": "FACTID-00915: production cluster k8s-prod-00915 runs in region ap-southeast-1 with namespace platform-ns-00915",
+        "fact_id": "FACTID-00915"
+      },
+      {
+        "content": "FACTID-00916: team uses Vault for staging environment deployments (node-00916)",
+        "fact_id": "FACTID-00916"
+      },
+      {
+        "content": "FACTID-00917: on-call rotation slot-00917 covers service svc-00917 with PagerDuty escalation level 3",
+        "fact_id": "FACTID-00917"
+      },
+      {
+        "content": "FACTID-00918: cost centre cc-00918 allocated 100$ monthly for compute in eu-west-1",
+        "fact_id": "FACTID-00918"
+      },
+      {
+        "content": "FACTID-00919: repository repo-00919 deploys via CI pipeline pipe-00919 triggered on push to main branch",
+        "fact_id": "FACTID-00919"
+      },
+      {
+        "content": "FACTID-00920: production cluster k8s-prod-00920 runs in region us-east-1 with namespace platform-ns-00920",
+        "fact_id": "FACTID-00920"
+      },
+      {
+        "content": "FACTID-00921: team uses Helm for staging environment deployments (node-00921)",
+        "fact_id": "FACTID-00921"
+      },
+      {
+        "content": "FACTID-00922: on-call rotation slot-00922 covers service svc-00922 with PagerDuty escalation level 2",
+        "fact_id": "FACTID-00922"
+      },
+      {
+        "content": "FACTID-00923: cost centre cc-00923 allocated 600$ monthly for compute in ap-southeast-1",
+        "fact_id": "FACTID-00923"
+      },
+      {
+        "content": "FACTID-00924: repository repo-00924 deploys via CI pipeline pipe-00924 triggered on push to main branch",
+        "fact_id": "FACTID-00924"
+      },
+      {
+        "content": "FACTID-00925: production cluster k8s-prod-00925 runs in region us-west-2 with namespace platform-ns-00925",
+        "fact_id": "FACTID-00925"
+      },
+      {
+        "content": "FACTID-00926: team uses Vault for staging environment deployments (node-00926)",
+        "fact_id": "FACTID-00926"
+      },
+      {
+        "content": "FACTID-00927: on-call rotation slot-00927 covers service svc-00927 with PagerDuty escalation level 1",
+        "fact_id": "FACTID-00927"
+      },
+      {
+        "content": "FACTID-00928: cost centre cc-00928 allocated 200$ monthly for compute in us-east-1",
+        "fact_id": "FACTID-00928"
+      },
+      {
+        "content": "FACTID-00929: repository repo-00929 deploys via CI pipeline pipe-00929 triggered on push to main branch",
+        "fact_id": "FACTID-00929"
+      },
+      {
+        "content": "FACTID-00930: production cluster k8s-prod-00930 runs in region eu-west-1 with namespace platform-ns-00930",
+        "fact_id": "FACTID-00930"
+      },
+      {
+        "content": "FACTID-00931: team uses Helm for staging environment deployments (node-00931)",
+        "fact_id": "FACTID-00931"
+      },
+      {
+        "content": "FACTID-00932: on-call rotation slot-00932 covers service svc-00932 with PagerDuty escalation level 3",
+        "fact_id": "FACTID-00932"
+      },
+      {
+        "content": "FACTID-00933: cost centre cc-00933 allocated 700$ monthly for compute in us-west-2",
+        "fact_id": "FACTID-00933"
+      },
+      {
+        "content": "FACTID-00934: repository repo-00934 deploys via CI pipeline pipe-00934 triggered on push to main branch",
+        "fact_id": "FACTID-00934"
+      },
+      {
+        "content": "FACTID-00935: production cluster k8s-prod-00935 runs in region ap-southeast-1 with namespace platform-ns-00935",
+        "fact_id": "FACTID-00935"
+      },
+      {
+        "content": "FACTID-00936: team uses Vault for staging environment deployments (node-00936)",
+        "fact_id": "FACTID-00936"
+      },
+      {
+        "content": "FACTID-00937: on-call rotation slot-00937 covers service svc-00937 with PagerDuty escalation level 2",
+        "fact_id": "FACTID-00937"
+      },
+      {
+        "content": "FACTID-00938: cost centre cc-00938 allocated 300$ monthly for compute in eu-west-1",
+        "fact_id": "FACTID-00938"
+      },
+      {
+        "content": "FACTID-00939: repository repo-00939 deploys via CI pipeline pipe-00939 triggered on push to main branch",
+        "fact_id": "FACTID-00939"
+      },
+      {
+        "content": "FACTID-00940: production cluster k8s-prod-00940 runs in region us-east-1 with namespace platform-ns-00940",
+        "fact_id": "FACTID-00940"
+      },
+      {
+        "content": "FACTID-00941: team uses Helm for staging environment deployments (node-00941)",
+        "fact_id": "FACTID-00941"
+      },
+      {
+        "content": "FACTID-00942: on-call rotation slot-00942 covers service svc-00942 with PagerDuty escalation level 1",
+        "fact_id": "FACTID-00942"
+      },
+      {
+        "content": "FACTID-00943: cost centre cc-00943 allocated 800$ monthly for compute in ap-southeast-1",
+        "fact_id": "FACTID-00943"
+      },
+      {
+        "content": "FACTID-00944: repository repo-00944 deploys via CI pipeline pipe-00944 triggered on push to main branch",
+        "fact_id": "FACTID-00944"
+      },
+      {
+        "content": "FACTID-00945: production cluster k8s-prod-00945 runs in region us-west-2 with namespace platform-ns-00945",
+        "fact_id": "FACTID-00945"
+      },
+      {
+        "content": "FACTID-00946: team uses Vault for staging environment deployments (node-00946)",
+        "fact_id": "FACTID-00946"
+      },
+      {
+        "content": "FACTID-00947: on-call rotation slot-00947 covers service svc-00947 with PagerDuty escalation level 3",
+        "fact_id": "FACTID-00947"
+      },
+      {
+        "content": "FACTID-00948: cost centre cc-00948 allocated 400$ monthly for compute in us-east-1",
+        "fact_id": "FACTID-00948"
+      },
+      {
+        "content": "FACTID-00949: repository repo-00949 deploys via CI pipeline pipe-00949 triggered on push to main branch",
+        "fact_id": "FACTID-00949"
+      },
+      {
+        "content": "FACTID-00950: production cluster k8s-prod-00950 runs in region eu-west-1 with namespace platform-ns-00950",
+        "fact_id": "FACTID-00950"
+      },
+      {
+        "content": "FACTID-00951: team uses Helm for staging environment deployments (node-00951)",
+        "fact_id": "FACTID-00951"
+      },
+      {
+        "content": "FACTID-00952: on-call rotation slot-00952 covers service svc-00952 with PagerDuty escalation level 2",
+        "fact_id": "FACTID-00952"
+      },
+      {
+        "content": "FACTID-00953: cost centre cc-00953 allocated 900$ monthly for compute in us-west-2",
+        "fact_id": "FACTID-00953"
+      },
+      {
+        "content": "FACTID-00954: repository repo-00954 deploys via CI pipeline pipe-00954 triggered on push to main branch",
+        "fact_id": "FACTID-00954"
+      },
+      {
+        "content": "FACTID-00955: production cluster k8s-prod-00955 runs in region ap-southeast-1 with namespace platform-ns-00955",
+        "fact_id": "FACTID-00955"
+      },
+      {
+        "content": "FACTID-00956: team uses Vault for staging environment deployments (node-00956)",
+        "fact_id": "FACTID-00956"
+      },
+      {
+        "content": "FACTID-00957: on-call rotation slot-00957 covers service svc-00957 with PagerDuty escalation level 1",
+        "fact_id": "FACTID-00957"
+      },
+      {
+        "content": "FACTID-00958: cost centre cc-00958 allocated 500$ monthly for compute in eu-west-1",
+        "fact_id": "FACTID-00958"
+      },
+      {
+        "content": "FACTID-00959: repository repo-00959 deploys via CI pipeline pipe-00959 triggered on push to main branch",
+        "fact_id": "FACTID-00959"
+      },
+      {
+        "content": "FACTID-00960: production cluster k8s-prod-00960 runs in region us-east-1 with namespace platform-ns-00960",
+        "fact_id": "FACTID-00960"
+      },
+      {
+        "content": "FACTID-00961: team uses Helm for staging environment deployments (node-00961)",
+        "fact_id": "FACTID-00961"
+      },
+      {
+        "content": "FACTID-00962: on-call rotation slot-00962 covers service svc-00962 with PagerDuty escalation level 3",
+        "fact_id": "FACTID-00962"
+      },
+      {
+        "content": "FACTID-00963: cost centre cc-00963 allocated 100$ monthly for compute in ap-southeast-1",
+        "fact_id": "FACTID-00963"
+      },
+      {
+        "content": "FACTID-00964: repository repo-00964 deploys via CI pipeline pipe-00964 triggered on push to main branch",
+        "fact_id": "FACTID-00964"
+      },
+      {
+        "content": "FACTID-00965: production cluster k8s-prod-00965 runs in region us-west-2 with namespace platform-ns-00965",
+        "fact_id": "FACTID-00965"
+      },
+      {
+        "content": "FACTID-00966: team uses Vault for staging environment deployments (node-00966)",
+        "fact_id": "FACTID-00966"
+      },
+      {
+        "content": "FACTID-00967: on-call rotation slot-00967 covers service svc-00967 with PagerDuty escalation level 2",
+        "fact_id": "FACTID-00967"
+      },
+      {
+        "content": "FACTID-00968: cost centre cc-00968 allocated 600$ monthly for compute in us-east-1",
+        "fact_id": "FACTID-00968"
+      },
+      {
+        "content": "FACTID-00969: repository repo-00969 deploys via CI pipeline pipe-00969 triggered on push to main branch",
+        "fact_id": "FACTID-00969"
+      },
+      {
+        "content": "FACTID-00970: production cluster k8s-prod-00970 runs in region eu-west-1 with namespace platform-ns-00970",
+        "fact_id": "FACTID-00970"
+      },
+      {
+        "content": "FACTID-00971: team uses Helm for staging environment deployments (node-00971)",
+        "fact_id": "FACTID-00971"
+      },
+      {
+        "content": "FACTID-00972: on-call rotation slot-00972 covers service svc-00972 with PagerDuty escalation level 1",
+        "fact_id": "FACTID-00972"
+      },
+      {
+        "content": "FACTID-00973: cost centre cc-00973 allocated 200$ monthly for compute in us-west-2",
+        "fact_id": "FACTID-00973"
+      },
+      {
+        "content": "FACTID-00974: repository repo-00974 deploys via CI pipeline pipe-00974 triggered on push to main branch",
+        "fact_id": "FACTID-00974"
+      },
+      {
+        "content": "FACTID-00975: production cluster k8s-prod-00975 runs in region ap-southeast-1 with namespace platform-ns-00975",
+        "fact_id": "FACTID-00975"
+      },
+      {
+        "content": "FACTID-00976: team uses Vault for staging environment deployments (node-00976)",
+        "fact_id": "FACTID-00976"
+      },
+      {
+        "content": "FACTID-00977: on-call rotation slot-00977 covers service svc-00977 with PagerDuty escalation level 3",
+        "fact_id": "FACTID-00977"
+      },
+      {
+        "content": "FACTID-00978: cost centre cc-00978 allocated 700$ monthly for compute in eu-west-1",
+        "fact_id": "FACTID-00978"
+      },
+      {
+        "content": "FACTID-00979: repository repo-00979 deploys via CI pipeline pipe-00979 triggered on push to main branch",
+        "fact_id": "FACTID-00979"
+      },
+      {
+        "content": "FACTID-00980: production cluster k8s-prod-00980 runs in region us-east-1 with namespace platform-ns-00980",
+        "fact_id": "FACTID-00980"
+      },
+      {
+        "content": "FACTID-00981: team uses Helm for staging environment deployments (node-00981)",
+        "fact_id": "FACTID-00981"
+      },
+      {
+        "content": "FACTID-00982: on-call rotation slot-00982 covers service svc-00982 with PagerDuty escalation level 2",
+        "fact_id": "FACTID-00982"
+      },
+      {
+        "content": "FACTID-00983: cost centre cc-00983 allocated 300$ monthly for compute in ap-southeast-1",
+        "fact_id": "FACTID-00983"
+      },
+      {
+        "content": "FACTID-00984: repository repo-00984 deploys via CI pipeline pipe-00984 triggered on push to main branch",
+        "fact_id": "FACTID-00984"
+      },
+      {
+        "content": "FACTID-00985: production cluster k8s-prod-00985 runs in region us-west-2 with namespace platform-ns-00985",
+        "fact_id": "FACTID-00985"
+      },
+      {
+        "content": "FACTID-00986: team uses Vault for staging environment deployments (node-00986)",
+        "fact_id": "FACTID-00986"
+      },
+      {
+        "content": "FACTID-00987: on-call rotation slot-00987 covers service svc-00987 with PagerDuty escalation level 1",
+        "fact_id": "FACTID-00987"
+      },
+      {
+        "content": "FACTID-00988: cost centre cc-00988 allocated 800$ monthly for compute in us-east-1",
+        "fact_id": "FACTID-00988"
+      },
+      {
+        "content": "FACTID-00989: repository repo-00989 deploys via CI pipeline pipe-00989 triggered on push to main branch",
+        "fact_id": "FACTID-00989"
+      },
+      {
+        "content": "FACTID-00990: production cluster k8s-prod-00990 runs in region eu-west-1 with namespace platform-ns-00990",
+        "fact_id": "FACTID-00990"
+      },
+      {
+        "content": "FACTID-00991: team uses Helm for staging environment deployments (node-00991)",
+        "fact_id": "FACTID-00991"
+      },
+      {
+        "content": "FACTID-00992: on-call rotation slot-00992 covers service svc-00992 with PagerDuty escalation level 3",
+        "fact_id": "FACTID-00992"
+      },
+      {
+        "content": "FACTID-00993: cost centre cc-00993 allocated 400$ monthly for compute in us-west-2",
+        "fact_id": "FACTID-00993"
+      },
+      {
+        "content": "FACTID-00994: repository repo-00994 deploys via CI pipeline pipe-00994 triggered on push to main branch",
+        "fact_id": "FACTID-00994"
+      },
+      {
+        "content": "FACTID-00995: production cluster k8s-prod-00995 runs in region ap-southeast-1 with namespace platform-ns-00995",
+        "fact_id": "FACTID-00995"
+      },
+      {
+        "content": "FACTID-00996: team uses Vault for staging environment deployments (node-00996)",
+        "fact_id": "FACTID-00996"
+      },
+      {
+        "content": "FACTID-00997: on-call rotation slot-00997 covers service svc-00997 with PagerDuty escalation level 2",
+        "fact_id": "FACTID-00997"
+      },
+      {
+        "content": "FACTID-00998: cost centre cc-00998 allocated 900$ monthly for compute in eu-west-1",
+        "fact_id": "FACTID-00998"
+      },
+      {
+        "content": "FACTID-00999: repository repo-00999 deploys via CI pipeline pipe-00999 triggered on push to main branch",
+        "fact_id": "FACTID-00999"
+      }
+    ]
+  }
+}

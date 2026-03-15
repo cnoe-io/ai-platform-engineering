@@ -12,6 +12,20 @@ This guide helps you deploy **CAIPE** (Community AI Platform Engineering) on any
 
 ---
 
+## Quickstart
+
+No clone required. Run this in your terminal and follow the prompts:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/cnoe-io/ai-platform-engineering/main/setup-caipe.sh | bash
+```
+
+The interactive script will ask for your LLM provider, API key, optional components (RAG, tracing, persistence), and whether to create a Kind cluster or use an existing one. That's it.
+
+> **Want to inspect the script first?** View it at [`setup-caipe.sh`](https://github.com/cnoe-io/ai-platform-engineering/blob/main/setup-caipe.sh) before running.
+
+---
+
 ## Step 1: Clone the repository (optional but recommended)
 
 Cloning the repo gives you the chart source, examples, and EKS/config references:

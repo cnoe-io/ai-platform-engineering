@@ -34,10 +34,24 @@ dependencies = [
     "clorm>=1.4.0",
     # MongoDB client for reading task configs from shared MongoDB
     "pymongo>=4.7.0",
+    # Redis checkpoint saver and store for LangGraph persistence
+    "langgraph-checkpoint-redis>=0.3.5",
+    # Postgres checkpoint saver and store for LangGraph persistence
+    "langgraph-checkpoint-postgres>=2.0.0",
+    # psycopg binary bundle required by AsyncPostgresSaver in containerised environments
+    # (no system libpq available); the binary wheel bundles its own libpq
+    "psycopg[binary]>=3.3.3",
+    # MongoDB checkpoint saver for LangGraph persistence
+    "langgraph-checkpoint-mongodb>=0.3.0",
+    # Async MongoDB driver for MongoDB store
+    "motor>=3.4.0",
 ]
 
 [tool.pytest.ini_options]
 testpaths = ["ai_platform_engineering/utils", "ai_platform_engineering/multi_agents"]
+markers = [
+  "integration: marks tests as integration tests requiring live services (deselect with '-m not integration')",
+]
 
 [tool.ruff]
 # Allow lines to be as long as 300.
@@ -66,6 +80,8 @@ major_version_zero = true
 
 [dependency-groups]
 dev = [
+    "asyncpg>=0.31.0",
+    "psycopg[binary]>=3.3.3",
     "ruff>=0.14.8",
 ]
 unittest = [

@@ -714,12 +714,15 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
             trace_id = str(uuid.uuid4()).replace('-', '').lower()
             logger.info(f"Generated ROOT trace_id: {trace_id}")
 
-        # Extract user_id from A2A message metadata (set by client or gateway)
+        # Extract user_id from A2A message metadata (set by client or gateway),
+        # falling back to the email extracted from the query prefix.
         user_id = None
         if context.message and context.message.metadata:
             meta = context.message.metadata
             if isinstance(meta, dict):
                 user_id = meta.get("user_id") or meta.get("user_email")
+        if not user_id and user_email:
+            user_id = user_email
 
         # Initialize state
         state = StreamState()

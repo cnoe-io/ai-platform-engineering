@@ -1,348 +1,183 @@
-# RAG Stack Helm Chart
-
-A complete RAG (Retrieval-Augmented Generation) stack with hybrid search, graph RAG, and multi-source ingestion.
-
-## Quick Start
-
-```bash
-# Install with defaults
-helm install rag-stack ./charts/rag-stack
-
-# Install with custom values
-helm install rag-stack ./charts/rag-stack -f custom-values.yaml
-```
-
-## Components
-
-### Core Services
-- **rag-server** - REST API, ingestion, search, MCP tools (Port: 9446)
-- **agent-ontology** - Automatic schema discovery with LLM evaluation (Port: 8098)
-- **web-ingestor** - URL/sitemap ingestion (sidecar in rag-server pod)
-
-### Databases
-- **neo4j** - Graph database for entities and relationships
-- **rag-redis** - Cache and job queue
-- **milvus** - Vector database with etcd and minio
-
-### Optional Ingestors
-- **rag-ingestors** - Deploy multiple ingestors (AWS, K8s, ArgoCD, Slack, Webex, Backstage)
-
-## Configuration
-
-RAG server and web ingestor configuration is done via environment variables using the `env:` map in values.yaml.
-
-### RAG Server Configuration
-
-```yaml
-rag-server:
-  # Feature flag with global fallback
-  enableGraphRag: true
-
-  # All other config via env map
-  env:
-    ENABLE_MCP: "true"
-    EMBEDDINGS_PROVIDER: "azure-openai"
-    EMBEDDINGS_MODEL: "text-embedding-3-small"
-    LOG_LEVEL: "INFO"
-    # ... see values.yaml for all options
-```
-
-### RAG Server Environment Variables
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `ENABLE_MCP` | `true` | Enable/disable MCP tools for AI agents |
-| `SKIP_INIT_TESTS` | `false` | Skip connection tests on startup |
-| `EMBEDDINGS_PROVIDER` | `azure-openai` | Provider: `azure-openai`, `openai`, `litellm` |
-| `EMBEDDINGS_MODEL` | `text-embedding-3-small` | Embeddings model name |
-| `LITELLM_API_BASE` | - | LiteLLM proxy URL (required when using `litellm` provider) |
-| `LOG_LEVEL` | `INFO` | Logging level: DEBUG, INFO, WARNING, ERROR |
-| `MAX_DOCUMENTS_PER_INGEST` | `1000` | Max documents per ingestion request |
-| `MAX_RESULTS_PER_QUERY` | `100` | Max results per query |
-| `ALLOW_UNAUTHENTICATED` | `true` | Allow access without authentication |
-| `RBAC_ADMIN_GROUPS` | `` | Comma-separated group names with admin access |
-| `RBAC_READONLY_GROUPS` | `` | Comma-separated group names with read-only access |
-| `RBAC_DEFAULT_ROLE` | `readonly` | Default role when user doesn't match any group |
-
-### Web Ingestor Configuration
-
-```yaml
-rag-server:
-  webIngestor:
-    enabled: true
-    env:
-      LOG_LEVEL: "INFO"
-      WEBLOADER_MAX_CONCURRENCY: "10"
-      # Scrapy settings (optional)
-      SCRAPY_CONCURRENT_REQUESTS: "16"
-      SCRAPY_JAVASCRIPT_ENABLED: "true"
-```
-
-## High Availability & Production Readiness
-
-### PodDisruptionBudgets (PDBs)
-
-PodDisruptionBudgets protect stateful components during voluntary disruptions (node drains, cluster autoscaling, rolling updates). The chart supports optional PDBs for:
-
-| Component | Default Replicas | Recommended PDB Setting |
-|-----------|------------------|------------------------|
-| MinIO | 4 | maxUnavailable: 1 |
-| etcd | 3 | maxUnavailable: 1 |
-| queryNode | 1 | maxUnavailable: 1 |
-| dataNode | 1 | maxUnavailable: 1 |
-
-**Enable PDBs for production deployments:**
-
-```yaml
-milvus:
-  minio:
-    podDisruptionBudget:
-      enabled: true
-      maxUnavailable: 1  # Only allow 1 pod down during voluntary disruptions
-
-  etcd:
-    podDisruptionBudget:
-      enabled: true
-      maxUnavailable: 1  # Maintains quorum (2/3 pods available)
-
-  queryNode:
-    podDisruptionBudget:
-      enabled: true
-      maxUnavailable: 1  # Protect search capacity
-
-  dataNode:
-    podDisruptionBudget:
-      enabled: true
-      maxUnavailable: 1  # Protect data persistence
-```
-
-**Alternative: Use `minAvailable` instead:**
-
-```yaml
-milvus:
-  minio:
-    podDisruptionBudget:
-      enabled: true
-      minAvailable: 3  # Ensure 3/4 pods available (maintains quorum)
-
-  etcd:
-    podDisruptionBudget:
-      enabled: true
-      minAvailable: 2  # Ensure 2/3 pods available (maintains quorum)
-```
-
-**Note:** PDBs only protect against voluntary disruptions. They do not prevent involuntary disruptions like node failures, OOM kills, or application crashes.
-
-## Environment Variables
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `LOG_LEVEL` | `INFO` | Logging level |
-| `WEBLOADER_MAX_CONCURRENCY` | `10` | Max concurrent HTTP requests per ingestion |
-| `WEBLOADER_MAX_INGESTION_TASKS` | `5` | Max concurrent ingestion tasks |
-| `WEBLOADER_RELOAD_INTERVAL` | `86400` | Auto-reload interval in seconds (24 hours) |
-| `SCRAPY_CONCURRENT_REQUESTS` | `16` | Scrapy concurrent requests |
-| `SCRAPY_DOWNLOAD_DELAY` | `0` | Delay between requests in seconds |
-| `SCRAPY_DEPTH_LIMIT` | `0` | Max crawl depth (0 = unlimited) |
-| `SCRAPY_JAVASCRIPT_ENABLED` | `false` | Enable JavaScript rendering via Playwright |
-
-### LiteLLM Embeddings Example
-
-To use LiteLLM proxy for embeddings:
-
-```yaml
-rag-server:
-  env:
-    EMBEDDINGS_PROVIDER: "litellm"
-    EMBEDDINGS_MODEL: "azure/text-embedding-3-small"
-    LITELLM_API_BASE: "http://litellm-proxy:4000"
-    # LITELLM_API_KEY: "sk-..." # or use envFrom with a secret
-```
-
-### Using Secrets
-
-For sensitive values, use `envFrom` to reference a Kubernetes Secret:
-
-```yaml
-rag-server:
-  envFrom:
-    - secretRef:
-        name: rag-server-secrets
-```
-
-## Secrets Required
-
-### LLM Secrets (for agent-ontology)
-
-```yaml
-apiVersion: v1
-kind: Secret
-metadata:
-  name: llm-secret
-stringData:
-  OPENAI_API_KEY: "sk-..."
-```
-
-Or configure via global values:
-
-```yaml
-global:
-  llmSecrets:
-    data:
-      OPENAI_API_KEY: "sk-..."
-```
-
-### Ingestor Secrets
-
-See `values.yaml` under `rag-ingestors.ingestors[]` for examples of:
-- AWS credentials
-- ArgoCD auth tokens
-- Slack bot tokens
-- Webex access tokens
-- Backstage API tokens
-- Kubeconfig for external K8s clusters
-
-## Ingestor Configuration
-
-Deploy multiple ingestors by configuring the `rag-ingestors` chart:
-
-```yaml
-rag-ingestors:
-  enabled: true
-  ingestors:
-    - name: aws-prod
-      type: aws
-      syncInterval: 86400       # 24 hours
-      env:
-        AWS_REGION: us-east-1
-      envFrom:
-        - secretRef:
-            name: aws-credentials
-```
-
-See `values.yaml` for complete examples of:
-- AWS ingestor
-- K8s in-cluster ingestor
-- K8s external ingestor with kubeconfig
-- ArgoCD ingestor
-- Slack ingestor with channels
-- Webex ingestor with spaces
-- Backstage ingestor
-
-## Authentication (Optional)
-
-The RAG server supports RBAC via environment variables:
-
-```yaml
-rag-server:
-  env:
-    ALLOW_UNAUTHENTICATED: "false"
-    RBAC_READONLY_GROUPS: "viewers,engineers"
-    RBAC_ADMIN_GROUPS: "admins"
-    RBAC_DEFAULT_ROLE: "readonly"
-```
-
-RBAC roles: `readonly` (search only), `ingestonly` (ingest only), `admin` (full access).
-
-## Access Points
-
-| Service | URL | Description |
-|---------|-----|-------------|
-| REST API | `http://rag-server:9446/docs` | Swagger docs |
-| MCP Tools | `http://rag-server:9446/mcp` | MCP endpoint |
-| Neo4j | `http://rag-neo4j:7474` | Graph browser |
-
-## Common Operations
-
-### Update dependencies
-```bash
-helm dependency update ./charts/rag-stack
-```
-
-### Upgrade release
-```bash
-helm upgrade rag-stack ./charts/rag-stack -f custom-values.yaml
-```
-
-### View logs
-```bash
-kubectl logs -f deployment/rag-server
-kubectl logs -f deployment/agent-ontology
-kubectl logs -f deployment/rag-ingestors-<name>
-```
-
-### Check health
-```bash
-kubectl exec deployment/rag-server -- curl http://localhost:9446/healthz
-```
-
-## Migration Guide
-
-If upgrading from a previous version that used individual values.yaml keys, migrate to the new `env:` map format:
-
-### RAG Server Settings
-
-| Old values.yaml Key | New env: Key |
-|---------------------|--------------|
-| `enableMcp` | `ENABLE_MCP` |
-| `skipInitTests` | `SKIP_INIT_TESTS` |
-| `embeddingsProvider` | `EMBEDDINGS_PROVIDER` |
-| `embeddingsModel` | `EMBEDDINGS_MODEL` |
-| `maxDocumentsPerIngest` | `MAX_DOCUMENTS_PER_INGEST` |
-| `maxResultsPerQuery` | `MAX_RESULTS_PER_QUERY` |
-| `maxIngestionConcurrency` | `MAX_INGESTION_CONCURRENCY` |
-| `maxGraphRawQueryResults` | `MAX_GRAPH_RAW_QUERY_RESULTS` |
-| `maxGraphRawQueryTokens` | `MAX_GRAPH_RAW_QUERY_TOKENS` |
-| `searchResultTruncateLength` | `SEARCH_RESULT_TRUNCATE_LENGTH` |
-| `logLevel` | `LOG_LEVEL` |
-| `uiUrl` | `UI_URL` |
-| `sleepOnInitFailureSeconds` | `SLEEP_ON_INIT_FAILURE_SECONDS` |
-| `cleanupInterval` | `CLEANUP_INTERVAL` |
-| `rbac.allowUnauthenticated` | `ALLOW_UNAUTHENTICATED` |
-| `rbac.readonlyGroups` | `RBAC_READONLY_GROUPS` |
-| `rbac.ingestonlyGroups` | `RBAC_INGESTONLY_GROUPS` |
-| `rbac.adminGroups` | `RBAC_ADMIN_GROUPS` |
-| `rbac.defaultRole` | `RBAC_DEFAULT_ROLE` |
-
-### Web Ingestor Settings
-
-| Old values.yaml Key | New env: Key |
-|---------------------|--------------|
-| `webIngestor.logLevel` | `LOG_LEVEL` |
-| `webIngestor.maxConcurrency` | `WEBLOADER_MAX_CONCURRENCY` |
-| `webIngestor.maxIngestionTasks` | `WEBLOADER_MAX_INGESTION_TASKS` |
-| `webIngestor.reloadInterval` | `WEBLOADER_RELOAD_INTERVAL` |
-
-### Example Migration
-
-**Before (old format):**
-```yaml
-rag-server:
-  enableMcp: true
-  embeddingsProvider: azure-openai
-  logLevel: INFO
-  rbac:
-    allowUnauthenticated: true
-    adminGroups: "admins"
-```
-
-**After (new format):**
-```yaml
-rag-server:
-  env:
-    ENABLE_MCP: "true"
-    EMBEDDINGS_PROVIDER: "azure-openai"
-    LOG_LEVEL: "INFO"
-    ALLOW_UNAUTHENTICATED: "true"
-    RBAC_ADMIN_GROUPS: "admins"
-```
-
-**Note:** `enableGraphRag` remains unchanged as it has global fallback support via `global.enableGraphRag`.
-
-## Notes
-
-- Change Neo4j password from `dummy_password` in production
-- All configuration options are documented in `values.yaml`
-- Store sensitive credentials in Kubernetes Secrets
-- Default sync intervals: 24 hours for ingestors, 72 hours for ontology agent
-- Default resource limits are suitable for development; increase for production
+# rag-stack
+
+![Version: 0.2.38-rc.helm.2](https://img.shields.io/badge/Version-0.2.38--rc.helm.2-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 0.2.38](https://img.shields.io/badge/AppVersion-0.2.38-informational?style=flat-square)
+
+A complete RAG stack including server, agents, Redis, Neo4j and Milvus
+
+## Requirements
+
+| Repository | Name | Version |
+|------------|------|---------|
+| file://./charts/agent-ontology | agent-ontology | 0.2.38-rc.helm.1 |
+| file://./charts/rag-ingestors | rag-ingestors | 0.2.38-rc.helm.1 |
+| file://./charts/rag-redis | rag-redis | 0.2.38-rc.helm.1 |
+| file://./charts/rag-server | rag-server | 0.2.38-rc.helm.1 |
+| https://helm.neo4j.com/neo4j | neo4j(neo4j) | 2025.07.1 |
+| https://zilliztech.github.io/milvus-helm/ | milvus | 5.0.2 |
+
+## Values
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| agent-ontology.agentRecursionLimit | int | `100` |  |
+| agent-ontology.countChangeThresholdRatio | float | `0.1` |  |
+| agent-ontology.debugAgent | bool | `false` |  |
+| agent-ontology.enabled | bool | `true` |  |
+| agent-ontology.fullnameOverride | string | `"agent-ontology"` |  |
+| agent-ontology.image.pullPolicy | string | `"Always"` |  |
+| agent-ontology.image.repository | string | `"ghcr.io/cnoe-io/caipe-rag-agent-ontology"` |  |
+| agent-ontology.image.tag | string | `""` |  |
+| agent-ontology.livenessProbe.failureThreshold | int | `10` |  |
+| agent-ontology.livenessProbe.initialDelaySeconds | int | `60` |  |
+| agent-ontology.livenessProbe.periodSeconds | int | `10` |  |
+| agent-ontology.livenessProbe.tcpSocket.port | string | `"http"` |  |
+| agent-ontology.livenessProbe.timeoutSeconds | int | `5` |  |
+| agent-ontology.logLevel | string | `"INFO"` |  |
+| agent-ontology.maxConcurrentEvaluation | int | `10` |  |
+| agent-ontology.maxLlmTokens | int | `100000` |  |
+| agent-ontology.minCountForEval | int | `3` |  |
+| agent-ontology.podAnnotations | object | `{}` |  |
+| agent-ontology.readinessProbe.failureThreshold | int | `10` |  |
+| agent-ontology.readinessProbe.initialDelaySeconds | int | `60` |  |
+| agent-ontology.readinessProbe.periodSeconds | int | `10` |  |
+| agent-ontology.readinessProbe.tcpSocket.port | string | `"http"` |  |
+| agent-ontology.readinessProbe.timeoutSeconds | int | `5` |  |
+| agent-ontology.resources.limits.cpu | string | `"1500m"` |  |
+| agent-ontology.resources.limits.ephemeral-storage | string | `"3Gi"` |  |
+| agent-ontology.resources.limits.memory | string | `"3Gi"` |  |
+| agent-ontology.resources.requests.cpu | string | `"500m"` |  |
+| agent-ontology.resources.requests.ephemeral-storage | string | `"1Gi"` |  |
+| agent-ontology.resources.requests.memory | string | `"1Gi"` |  |
+| agent-ontology.serverPort | int | `8098` |  |
+| agent-ontology.service.port | int | `8098` |  |
+| agent-ontology.service.type | string | `"ClusterIP"` |  |
+| agent-ontology.syncInterval | int | `0` |  |
+| agentExports.data.enabled | bool | `true` |  |
+| global.llmSecrets.create | bool | `true` |  |
+| global.llmSecrets.data | object | `{}` |  |
+| global.llmSecrets.externalSecrets.data | list | `[]` |  |
+| global.llmSecrets.externalSecrets.enabled | bool | `false` |  |
+| global.llmSecrets.externalSecrets.secretStoreRef.kind | string | `"ClusterSecretStore"` |  |
+| global.llmSecrets.externalSecrets.secretStoreRef.name | string | `""` |  |
+| global.llmSecrets.secretName | string | `"llm-secret"` |  |
+| global.rag.enableGraphRag | bool | `true` |  |
+| global.rag.neo4j.host | string | `"rag-neo4j"` |  |
+| global.rag.neo4j.password | string | `"dummy_password"` |  |
+| global.rag.neo4j.port | int | `7687` |  |
+| global.rag.neo4j.username | string | `"neo4j"` |  |
+| global.rag.ontologyAgentRestapi.host | string | `"agent-ontology"` |  |
+| global.rag.ontologyAgentRestapi.port | int | `8098` |  |
+| global.rag.ragServer.host | string | `"rag-server"` |  |
+| global.rag.ragServer.port | int | `9446` |  |
+| global.rag.redis.db | int | `0` |  |
+| global.rag.redis.host | string | `"rag-redis"` |  |
+| global.rag.redis.port | int | `6379` |  |
+| milvus.dataNode.annotations | object | `{}` |  |
+| milvus.dataNode.podDisruptionBudget.enabled | bool | `false` |  |
+| milvus.dataNode.resources.limits.cpu | string | `"200m"` |  |
+| milvus.dataNode.resources.limits.memory | string | `"256Mi"` |  |
+| milvus.etcd.podAnnotations | object | `{}` |  |
+| milvus.etcd.podDisruptionBudget.enabled | bool | `false` |  |
+| milvus.minio.podAnnotations | object | `{}` |  |
+| milvus.minio.podDisruptionBudget.enabled | bool | `false` |  |
+| milvus.mixCoordinator.annotations | object | `{}` |  |
+| milvus.proxy.annotations | object | `{}` |  |
+| milvus.pulsarv3.enabled | bool | `false` |  |
+| milvus.queryNode.annotations | object | `{}` |  |
+| milvus.queryNode.podDisruptionBudget.enabled | bool | `false` |  |
+| milvus.queryNode.resources.limits.cpu | string | `"200m"` |  |
+| milvus.queryNode.resources.limits.memory | string | `"256Mi"` |  |
+| milvus.woodpecker.enabled | bool | `true` |  |
+| neo4j.apoc_config."apoc.import.file.enabled" | string | `"true"` |  |
+| neo4j.apoc_config."apoc.trigger.enabled" | string | `"true"` |  |
+| neo4j.config."dbms.security.procedures.allowlist" | string | `"apoc.*"` |  |
+| neo4j.config."dbms.security.procedures.unrestricted" | string | `"apoc.*"` |  |
+| neo4j.config."server.config.strict_validation.enabled" | string | `"false"` |  |
+| neo4j.config."server.directories.plugins" | string | `"/var/lib/neo4j/labs"` |  |
+| neo4j.disableLookups | bool | `true` |  |
+| neo4j.enabled | bool | `true` |  |
+| neo4j.fullnameOverride | string | `"rag-neo4j"` |  |
+| neo4j.neo4j.name | string | `"rag-neo4j"` |  |
+| neo4j.neo4j.password | string | `"dummy_password"` |  |
+| neo4j.neo4j.resources.cpu | string | `"1"` |  |
+| neo4j.neo4j.resources.memory | string | `"2Gi"` |  |
+| neo4j.podSpec.annotations | object | `{}` |  |
+| neo4j.services.neo4j.enabled | bool | `false` |  |
+| neo4j.volumes.data.dynamic.storageClassName | string | `"gp2"` |  |
+| neo4j.volumes.data.mode | string | `"dynamic"` |  |
+| rag-ingestors.enabled | bool | `false` |  |
+| rag-ingestors.ingestors | list | `[]` |  |
+| rag-ingestors.ragServerUrl | string | `"http://rag-server:9446"` |  |
+| rag-redis.enabled | bool | `true` |  |
+| rag-redis.fullnameOverride | string | `"rag-redis"` |  |
+| rag-redis.image.pullPolicy | string | `"IfNotPresent"` |  |
+| rag-redis.image.repository | string | `"redis"` |  |
+| rag-redis.image.tag | string | `"7.2-alpine"` |  |
+| rag-redis.persistence.enabled | bool | `true` |  |
+| rag-redis.persistence.size | string | `"1Gi"` |  |
+| rag-redis.persistence.storageClass | string | `""` |  |
+| rag-redis.podAnnotations | object | `{}` |  |
+| rag-redis.redis.appendonly | string | `"yes"` |  |
+| rag-redis.redis.maxmemory | string | `"256mb"` |  |
+| rag-redis.redis.maxmemoryPolicy | string | `"allkeys-lru"` |  |
+| rag-redis.redis.save | string | `"60 1"` |  |
+| rag-redis.resources.limits.cpu | string | `"200m"` |  |
+| rag-redis.resources.limits.memory | string | `"256Mi"` |  |
+| rag-redis.resources.requests.cpu | string | `"100m"` |  |
+| rag-redis.resources.requests.memory | string | `"128Mi"` |  |
+| rag-redis.service.port | int | `6379` |  |
+| rag-redis.service.type | string | `"ClusterIP"` |  |
+| rag-server.enableGraphRag | bool | `true` |  |
+| rag-server.enabled | bool | `true` |  |
+| rag-server.env.ALLOW_UNAUTHENTICATED | string | `"true"` |  |
+| rag-server.env.CLEANUP_INTERVAL | string | `"86400"` |  |
+| rag-server.env.EMBEDDINGS_MODEL | string | `"text-embedding-3-small"` |  |
+| rag-server.env.EMBEDDINGS_PROVIDER | string | `"azure-openai"` |  |
+| rag-server.env.ENABLE_MCP | string | `"true"` |  |
+| rag-server.env.LOG_LEVEL | string | `"DEBUG"` |  |
+| rag-server.env.MAX_DOCUMENTS_PER_INGEST | string | `"1000"` |  |
+| rag-server.env.MAX_GRAPH_RAW_QUERY_RESULTS | string | `"100"` |  |
+| rag-server.env.MAX_GRAPH_RAW_QUERY_TOKENS | string | `"80000"` |  |
+| rag-server.env.MAX_INGESTION_CONCURRENCY | string | `"30"` |  |
+| rag-server.env.MAX_RESULTS_PER_QUERY | string | `"100"` |  |
+| rag-server.env.RBAC_ADMIN_GROUPS | string | `""` |  |
+| rag-server.env.RBAC_DEFAULT_ROLE | string | `"readonly"` |  |
+| rag-server.env.RBAC_INGESTONLY_GROUPS | string | `""` |  |
+| rag-server.env.RBAC_READONLY_GROUPS | string | `""` |  |
+| rag-server.env.SEARCH_RESULT_TRUNCATE_LENGTH | string | `"500"` |  |
+| rag-server.env.SKIP_INIT_TESTS | string | `"false"` |  |
+| rag-server.env.SLEEP_ON_INIT_FAILURE_SECONDS | string | `"180"` |  |
+| rag-server.env.UI_URL | string | `"http://localhost:9447"` |  |
+| rag-server.envFrom | list | `[]` |  |
+| rag-server.fullnameOverride | string | `"rag-server"` |  |
+| rag-server.image.pullPolicy | string | `"Always"` |  |
+| rag-server.image.repository | string | `"ghcr.io/cnoe-io/caipe-rag-server"` |  |
+| rag-server.image.tag | string | `""` |  |
+| rag-server.podAnnotations | object | `{}` |  |
+| rag-server.resources.limits.cpu | string | `"500m"` |  |
+| rag-server.resources.limits.ephemeral-storage | string | `"1Gi"` |  |
+| rag-server.resources.limits.memory | string | `"512Mi"` |  |
+| rag-server.resources.requests.cpu | string | `"100m"` |  |
+| rag-server.resources.requests.ephemeral-storage | string | `"256Mi"` |  |
+| rag-server.resources.requests.memory | string | `"128Mi"` |  |
+| rag-server.service.port | int | `9446` |  |
+| rag-server.service.type | string | `"ClusterIP"` |  |
+| rag-server.webIngestor.enabled | bool | `true` |  |
+| rag-server.webIngestor.env.LOG_LEVEL | string | `"INFO"` |  |
+| rag-server.webIngestor.env.WEBLOADER_MAX_CONCURRENCY | string | `"10"` |  |
+| rag-server.webIngestor.env.WEBLOADER_MAX_INGESTION_TASKS | string | `"5"` |  |
+| rag-server.webIngestor.env.WEBLOADER_RELOAD_INTERVAL | string | `"86400"` |  |
+| rag-server.webIngestor.envFrom | list | `[]` |  |
+| rag-server.webIngestor.image.pullPolicy | string | `"Always"` |  |
+| rag-server.webIngestor.image.repository | string | `"ghcr.io/cnoe-io/caipe-rag-ingestors"` |  |
+| rag-server.webIngestor.image.tag | string | `""` |  |
+| rag-server.webIngestor.resources.limits.cpu | string | `"500m"` |  |
+| rag-server.webIngestor.resources.limits.ephemeral-storage | string | `"1Gi"` |  |
+| rag-server.webIngestor.resources.limits.memory | string | `"1Gi"` |  |
+| rag-server.webIngestor.resources.requests.cpu | string | `"100m"` |  |
+| rag-server.webIngestor.resources.requests.ephemeral-storage | string | `"256Mi"` |  |
+| rag-server.webIngestor.resources.requests.memory | string | `"256Mi"` |  |
+| sunnyTesting | bool | `true` |  |
+
+----------------------------------------------
+Autogenerated from chart metadata using [helm-docs v1.14.2](https://github.com/norwoodj/helm-docs/releases/v1.14.2)

@@ -9,3 +9,5 @@ To get started with the installation process, you can choose from the following 
 - [Docker Compose](./docker-compose.md): Ideal for local development and testing.
 - [Kind](./kind.md): A lightweight Kubernetes solution for local clusters.
 - [EKS](./eks.md): For deploying on Amazon Elastic Kubernetes Service (EKS) in production environments.
+- [Helm](./helm.md): Full Helm chart reference — agents, profiles, secrets, ingress, and optional components.
+- [Persistence](./persistence.md): Enable durable conversation checkpoints and cross-thread memory with Redis, PostgreSQL, or MongoDB.

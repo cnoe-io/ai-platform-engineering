@@ -1,45 +1,41 @@
-# Default values for supervisor-agent.
-# This is a YAML-formatted file.
-# Declare variables to be passed into your templates.
-
-# This is to override the chart name.
+# -- Override the chart name
 nameOverride: ""
+# -- Override the full release name
 fullnameOverride: ""
 
-# This sets the container image more information can be found here: https://kubernetes.io/docs/concepts/containers/images/
 image:
-  # This sets the image repository for the corresponding agent.
+  # -- Container image repository
   repository: "ghcr.io/cnoe-io/ai-platform-engineering"
+  # -- Image pull policy
   pullPolicy: "Always"
-  # tag defaults to .Chart.AppVersion when not specified
+  # -- Image tag. Defaults to chart appVersion when not set
   tag: ""
+  # -- Container args
   args: ["platform-engineer"]
 
-# This is for the secrets for pulling an image from a private repository more information can be found here: https://kubernetes.io/docs/tasks/configure-pod-container/pull-image-private-registry/
+# -- Image pull secrets for private registries
 imagePullSecrets: []
 
-# This section builds out the service account more information can be found here: https://kubernetes.io/docs/concepts/security/service-accounts/
 serviceAccount:
-  # Specifies whether a service account should be created
+  # -- Create a service account
   create: true
-  # Automatically mount a ServiceAccount's API credentials?
+  # -- Automount the service account API token
   automount: true
-  # Annotations to add to the service account
+  # -- Annotations to add to the service account
   annotations: {}
-  # The name of the service account to use.
-  # If not set and create is true, a name is generated using the fullname template
+  # -- Override the service account name. Generated from fullname template when empty
   name: ""
 
-# This is for setting Kubernetes Annotations to a Pod.
-# For more information checkout: https://kubernetes.io/docs/concepts/overview/working-with-objects/annotations/
+# -- Extra annotations added to the pod
 podAnnotations: {}
-# This is for setting Kubernetes Labels to a Pod.
-# For more information checkout: https://kubernetes.io/docs/concepts/overview/working-with-objects/labels/
+# -- Extra labels added to the pod
 podLabels: {}
 
+# -- Pod-level security context
 podSecurityContext: {}
   # fsGroup: 2000
 
+# -- Container-level security context
 securityContext: {}
   # capabilities:
   #   drop:
@@ -48,38 +44,37 @@ securityContext: {}
   # runAsNonRoot: true
   # runAsUser: 1000
 
-# This is for setting up a service more information can be found here: https://kubernetes.io/docs/concepts/services-networking/service/
 service:
-  # This sets the service type more information can be found here: https://kubernetes.io/docs/concepts/services-networking/service/#publishing-services-service-types
+  # -- Kubernetes service type
   type: ClusterIP
-  # This sets the ports more information can be found here: https://kubernetes.io/docs/concepts/services-networking/service/#field-spec-ports
+  # -- Service port
   port: 8000
 
-# This block is for setting up the ingress for more information can be found here: https://kubernetes.io/docs/concepts/services-networking/ingress/
 ingress:
+  # -- Enable ingress
   enabled: false
+  # -- Ingress class name
   className: ""
+  # -- Ingress annotations
   annotations: {}
     # kubernetes.io/ingress.class: nginx
     # kubernetes.io/tls-acme: "true"
+  # -- Ingress host rules
   hosts: []
+  # -- Ingress TLS configuration
   tls: []
   #  - secretName: chart-example-tls
   #    hosts:
   #      - supervisor-agent.local
 
-# This will set the replicaset count more information can be found here: https://kubernetes.io/docs/concepts/workloads/controllers/replicaset/
+# -- Number of replicas
 replicaCount: 1
 
-# This sets the number of old ReplicaSets to retain for rollback
-# Kubernetes will automatically clean up ReplicaSets beyond this limit
+# -- Number of old ReplicaSets to retain for rollback
 revisionHistoryLimit: 3
 
+# -- CPU/memory requests and limits
 resources: {}
-  # We usually recommend not to specify default resources and to leave this as a conscious
-  # choice for the user. This also increases chances charts run on environments with little
-  # resources, such as Minikube. If you do want to specify resources, uncomment the following
-  # lines, adjust them as necessary, and remove the curly braces after 'resources:'.
   # limits:
   #   cpu: 100m
   #   memory: 128Mi
@@ -87,7 +82,7 @@ resources: {}
   #   cpu: 100m
   #   memory: 128Mi
 
-# This is to setup the liveness and readiness probes more information can be found here: https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/
+# -- Liveness probe configuration
 livenessProbe:
   tcpSocket:
     port: http
@@ -95,6 +90,8 @@ livenessProbe:
   periodSeconds: 10
   timeoutSeconds: 5
   failureThreshold: 3
+
+# -- Readiness probe configuration
 readinessProbe:
   tcpSocket:
     port: http
@@ -103,108 +100,160 @@ readinessProbe:
   timeoutSeconds: 3
   failureThreshold: 3
 
-# This section is for setting up autoscaling more information can be found here: https://kubernetes.io/docs/concepts/workloads/autoscaling/
 autoscaling:
+  # -- Enable Horizontal Pod Autoscaler
   enabled: false
+  # -- HPA minimum replicas
   minReplicas: 1
+  # -- HPA maximum replicas
   maxReplicas: 100
+  # -- HPA target CPU utilization percentage
   targetCPUUtilizationPercentage: 80
   # targetMemoryUtilizationPercentage: 80
 
-# Additional volumes on the output Deployment definition.
+# -- Extra volumes
 volumes: []
-# - name: foo
-#   secret:
-#     secretName: mysecret
-#     optional: false
-
-# Additional volumeMounts on the output Deployment definition.
+# -- Extra volume mounts
 volumeMounts: []
-# - name: foo
-#   mountPath: "/etc/foo"
-#   readOnly: true
 
+# -- Node selector labels
 nodeSelector: {}
-
+# -- Pod tolerations
 tolerations: []
-
+# -- Pod affinity rules
 affinity: {}
 
-# Secrets configuration for LLM providers
-# When used as a subchart, global values can override these values
-# When used as a standalone agent, this will be the secret for the LLM provider
 llmSecrets:
-  create: true # if false, it'll assume that the secret already exists
+  # -- Create the LLM secret. Set false if the secret already exists in the cluster
+  create: true
+  # -- Name of the LLM secret
   secretName: "llm-secret"
+  # -- Key/value pairs for the LLM secret
   data: {}
   externalSecrets:
+    # -- Use External Secrets Operator for the LLM secret
     enabled: false
     secretStoreRef:
-      name: "" # Use your secret store
-      kind: ClusterSecretStore # Use your secret store kind
+      # -- ESO SecretStore name
+      name: ""
+      # -- ESO SecretStore kind
+      kind: ClusterSecretStore
+    # -- ESO data mappings
     data: []
 
-# External Secrets configuration - this will be populated by the parent chart
 externalSecrets:
+  # -- Enable External Secrets Operator integration
   enabled: false
-  # List of external secret names this agent should reference
+  # -- List of existing ESO secret names to reference
   secretNames: []
 
-# Environment variables (non-sensitive and sensitive from secrets)
+# -- Non-sensitive environment variables injected into the supervisor container
 env:
-  EXTERNAL_URL: "http://localhost:8000"  # Agent url for the client
+  EXTERNAL_URL: "http://localhost:8000"
 
 multiAgentConfig:
+  # -- Agent-to-agent protocol (`a2a` or `slim`)
   protocol: "a2a"
+  # -- Port advertised to peer agents
   port: "8000"
+  # -- Explicit agent list. Auto-discovered when empty
   agents: []
 
-# Slim transport configuration - fallback values for standalone testing
-# In production, these are provided by the parent chart's global.slim section
 slim:
+  # -- Enable SLIM transport (standalone fallback; in production provided by global.slim)
   enabled: false
+  # -- SLIM endpoint URL
   endpoint: "http://ai-platform-engineering-slim:46357"
+  # -- Transport label passed to agents
   transport: "slim"
 
-# Prometheus metrics configuration
-# The agent exposes metrics at /metrics endpoint
-# Note: ServiceMonitor is managed at the parent chart level (one for all)
 metrics:
-  # Enable metrics endpoint
+  # -- Expose /metrics endpoint for Prometheus scraping
   enabled: true
 
-# Cross-thread memory persistence (LangGraph Store)
-# Backend for user memories and conversation summaries across threads.
-# Options: memory (in-process, default) | redis | postgres
-#
-# Bring your own (BYO) / external backends:
-# - Redis: in-cluster (e.g. rag-redis), external Redis, or AWS ElastiCache for Redis.
-#   Set redis.url or redis.existingSecret (recommended for credentials).
-# - Postgres: external or managed Postgres. Set postgres.dsn or postgres.existingSecret.
+# Cross-thread memory persistence (LangGraph Store).
+# Persists user facts and conversation summaries across separate threads.
 memoryPersistence:
-  # Store type: "memory", "redis", or "postgres"
+  # -- Memory store backend. One of: `memory` (in-process default), `redis`, `postgres`, `mongodb`
   type: "memory"
-  # Redis (type=redis): BYO / external / AWS ElastiCache for Redis
   redis:
-    # Connection URL (e.g. redis://host:6379/0, redis://user:pass@host:6379/0, ElastiCache endpoint)
+    # -- Redis URL (e.g. `redis://host:6379/0`). Takes precedence over autoDiscoverService
     url: ""
-    # Or pull URL from a Kubernetes Secret (recommended for credentials)
     existingSecret:
-      name: ""   # Secret name
-      key: ""   # Key in secret (e.g. REDIS_URL or LANGGRAPH_STORE_REDIS_URL)
-    # Key/namespace prefix when using a shared Redis (BYO). All store keys are namespaced so
-    # multiple deployments (e.g. prod, staging, tenant-a) can share one Redis without collision.
-    # Example: release name, "caipe-prod", "tenant-xyz". Leave empty for dedicated Redis.
+      # -- Name of a Kubernetes Secret containing the Redis URL
+      name: ""
+      # -- Key inside the secret (e.g. `REDIS_URL`)
+      key: ""
+    # -- In-cluster Redis service name to auto-build the URL from (`redis://<release>-<service>:6379/<dbIndex>`). Common values: `langgraph-redis`, `rag-redis`
+    autoDiscoverService: ""
+    # -- Redis DB index. Use 1+ when sharing with RAG Redis (db 0 is RAG data)
+    dbIndex: 0
+    # -- Key namespace prefix for shared Redis instances. Prevents key collisions across deployments
     keyPrefix: ""
-  # Postgres (type=postgres): BYO / external / managed Postgres
   postgres:
-    # DSN (e.g. postgresql://user:pass@host:5432/dbname). Prefer existingSecret for credentials.
+    # -- PostgreSQL DSN (e.g. `postgresql://user:pass@host:5432/db`). Prefer existingSecret for credentials
     dsn: ""
-    # Or pull DSN from a Kubernetes Secret
     existingSecret:
-      name: ""   # Secret name
-      key: ""   # Key in secret (e.g. DATABASE_URL or LANGGRAPH_STORE_POSTGRES_DSN)
-  # TTL for stored items in minutes (default 10080 = 7 days)
+      # -- Name of a Kubernetes Secret containing the Postgres DSN
+      name: ""
+      # -- Key inside the secret (e.g. `DATABASE_URL`)
+      key: ""
+  mongodb:
+    # -- MongoDB connection URI (e.g. `mongodb://host:27017`)
+    uri: ""
+    existingSecret:
+      # -- Name of a Kubernetes Secret containing the MongoDB URI
+      name: ""
+      # -- Key inside the secret (e.g. `MONGODB_URI`)
+      key: ""
+  embeddings:
+    # -- Embedding provider for semantic memory search (`openai`, `azure-openai`, `litellm`)
+    provider: ""
+    # -- Embedding model name (e.g. `text-embedding-3-small`)
+    model: ""
+    # -- Embedding dimensions. Auto-detected for known models when empty
+    dims: ""
+  # -- TTL for stored memory items in minutes. `0` disables expiry
   ttlMinutes: 10080
-  # Enable automatic fact extraction from conversations (LangMem). Default false.
+  # -- Automatically extract facts from every conversation turn and store them for cross-thread recall
   enableFactExtraction: false
+  # -- Maximum number of memory facts returned to the LLM per cross-thread context query
+  maxMemories: 50
+  # -- Maximum number of conversation summaries returned to the LLM per cross-thread context query
+  maxSummaries: 10
+
+# In-thread checkpoint persistence (LangGraph Checkpointer).
+# Persists conversation graph state within a single thread across pod restarts.
+checkpointPersistence:
+  # -- Checkpoint backend. One of: `memory` (in-process default), `redis`, `postgres`, `mongodb`
+  type: "memory"
+  redis:
+    # -- Redis URL. Requires Redis Stack with RedisJSON + RediSearch modules
+    url: ""
+    existingSecret:
+      # -- Name of a Kubernetes Secret containing the Redis URL
+      name: ""
+      # -- Key inside the secret
+      key: ""
+    # -- In-cluster Redis service name to auto-build the URL from
+    autoDiscoverService: ""
+    # -- Redis DB index
+    dbIndex: 0
+  postgres:
+    # -- PostgreSQL DSN
+    dsn: ""
+    existingSecret:
+      # -- Name of a Kubernetes Secret containing the Postgres DSN
+      name: ""
+      # -- Key inside the secret
+      key: ""
+  mongodb:
+    # -- MongoDB connection URI
+    uri: ""
+    existingSecret:
+      # -- Name of a Kubernetes Secret containing the MongoDB URI
+      name: ""
+      # -- Key inside the secret
+      key: ""
+  # -- TTL for checkpoints in minutes. `0` disables expiry
+  ttlMinutes: 0

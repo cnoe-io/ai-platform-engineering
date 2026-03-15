@@ -37,6 +37,15 @@ jobs:
         uses: actions/setup-node@v6
         with:
           node-version: 'lts/*'  # Use the latest LTS version of Node.js
+      - name: Install helm-docs
+        env:
+          HELM_DOCS_VERSION: "1.14.2"
+        run: |
+          curl -sSL "https://github.com/norwoodj/helm-docs/releases/download/v${HELM_DOCS_VERSION}/helm-docs_${HELM_DOCS_VERSION}_Linux_x86_64.tar.gz" \
+            | tar -xz helm-docs
+          sudo mv helm-docs /usr/local/bin/helm-docs
+      - name: Generate Helm chart docs
+        run: make helm-docs
       - name: Install dependencies
         run: |
           cd docs
