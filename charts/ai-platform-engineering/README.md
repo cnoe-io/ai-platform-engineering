@@ -300,6 +300,70 @@ helm uninstall ai-platform-engineering
 sudo sed -i '/agent-[AGENT_NAME].local/d' /etc/hosts
 ```
 
+## Persistence
+
+By default all state is in-memory and lost on restart. Three options are supported:
+
+| Option | Config | Behavior |
+|---|---|---|
+| Default | _(nothing)_ | In-memory, resets on restart |
+| Redis persistence | `memoryPersistence.type: redis` + `checkpointPersistence.type: redis` | Survives pod restarts |
+| Redis + fact extraction | above + `enableFactExtraction: true` | Auto-extracts facts from every conversation turn |
+
+### Quick start — Redis (bundled subchart)
+
+```yaml
+global:
+  langgraphRedis:
+    enabled: true                      # deploy the Redis Stack subchart
+
+supervisor-agent:
+  checkpointPersistence:
+    type: redis
+    redis:
+      autoDiscoverService: langgraph-redis
+
+  memoryPersistence:
+    type: redis
+    redis:
+      autoDiscoverService: langgraph-redis
+    enableFactExtraction: true
+    maxMemories: 50
+    maxSummaries: 10
+```
+
+```bash
+helm install ai-platform-engineering . \
+  --values values-secrets.yaml \
+  --set global.langgraphRedis.enabled=true \
+  --set supervisor-agent.checkpointPersistence.type=redis \
+  --set supervisor-agent.checkpointPersistence.redis.autoDiscoverService=langgraph-redis \
+  --set supervisor-agent.memoryPersistence.type=redis \
+  --set supervisor-agent.memoryPersistence.redis.autoDiscoverService=langgraph-redis \
+  --set supervisor-agent.memoryPersistence.enableFactExtraction=true
+```
+
+Or with `setup-caipe.sh`:
+
+```bash
+./setup-caipe.sh --non-interactive --persistence
+```
+
+See [`charts/supervisor-agent/README.md`](./charts/supervisor-agent/README.md) for the full persistence parameter reference.
+See [`charts/langgraph-redis/README.md`](./charts/langgraph-redis/README.md) for the Redis subchart parameter reference.
+
+## Subcharts
+
+| Chart | Description | README |
+|---|---|---|
+| `supervisor-agent` | LangGraph orchestrator / supervisor | [README](./charts/supervisor-agent/README.md) |
+| `agent` | Generic agent subchart (used with aliases per integration) | — |
+| `langgraph-redis` | Redis Stack for checkpoint + memory persistence | [README](./charts/langgraph-redis/README.md) |
+| `caipe-ui` | CAIPE web UI | — |
+| `rag-stack` | RAG pipeline (Milvus, Langfuse, embedding server) | — |
+| `slim` / `slim-control-plane` | AGNTCY SLIM dataplane | — |
+| `slack-bot` | Slack bot integration | — |
+
 ## Security Notes
 
 - Always use Kubernetes secrets for sensitive data
