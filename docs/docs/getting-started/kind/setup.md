@@ -10,20 +10,21 @@ This guide gets you from zero to a running **CAIPE** (Community AI Platform Engi
 
 ---
 
-## Step 1: Clone the repository
+## Quickstart
 
-Open a terminal and clone the CAIPE repository. You need this repo to run the setup script.
+No clone required. Run this in your terminal and follow the prompts:
 
 ```bash
-git clone https://github.com/cnoe-io/ai-platform-engineering.git
-cd ai-platform-engineering
+curl -fsSL https://raw.githubusercontent.com/cnoe-io/ai-platform-engineering/main/setup-caipe.sh | bash
 ```
 
-You now have the project on your machine. The script we use next lives at the **root** of this repo: `setup-caipe.sh`.
+The interactive script will ask for your LLM provider, API key, and optional components (RAG, tracing, persistence). That's it.
+
+> **Want to inspect the script first?** View it at [`setup-caipe.sh`](https://github.com/cnoe-io/ai-platform-engineering/blob/main/setup-caipe.sh) before running.
 
 ---
 
-## Step 2: Prerequisites
+## Step 1: Prerequisites
 
 Before running the setup script, install these tools if you don’t have them yet:
 
