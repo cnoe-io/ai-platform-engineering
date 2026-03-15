@@ -9,7 +9,6 @@ Run with: PYTHONPATH=. uv run pytest tests/test_aws_agent_tools.py -v
 import json
 import sys
 from pathlib import Path
-from unittest import mock
 
 import pytest
 
