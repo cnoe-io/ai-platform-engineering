@@ -272,3 +272,6 @@ coverage.json
 
 # Local CA certificate bundles (host-specific)
 certs/
+
+# Benchmark intermediate output (published version lives in docs/docs/evaluations/)
+integration/benchmark_results.md
