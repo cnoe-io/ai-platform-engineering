@@ -1,6 +1,6 @@
 # ai-platform-engineering
 
-![Version: 0.2.38-rc.helm.2](https://img.shields.io/badge/Version-0.2.38--rc.helm.2-informational?style=flat-square) ![AppVersion: 0.2.38](https://img.shields.io/badge/AppVersion-0.2.38-informational?style=flat-square)
+![Version: 0.2.38-rc.helm.5](https://img.shields.io/badge/Version-0.2.38--rc.helm.5-informational?style=flat-square) ![AppVersion: 0.2.38](https://img.shields.io/badge/AppVersion-0.2.38-informational?style=flat-square)
 
 Parent chart to deploy multiple agent subcharts as different platform agents
 
@@ -12,29 +12,29 @@ Parent chart to deploy multiple agent subcharts as different platform agents
 
 | Repository | Name | Version |
 |------------|------|---------|
-|  | agent-victorops(agent) | 0.2.38 |
-|  | agent-pagerduty(agent) | 0.2.38 |
-|  | agent-aws(agent) | 0.2.38 |
-|  | agent-backstage(agent) | 0.2.38 |
-|  | agent-confluence(agent) | 0.2.38 |
-|  | agent-github(agent) | 0.2.38 |
-|  | agent-gitlab(agent) | 0.2.38 |
-|  | agent-jira(agent) | 0.2.38 |
-|  | agent-komodor(agent) | 0.2.38 |
-|  | agent-petstore(agent) | 0.2.38 |
-|  | agent-slack(agent) | 0.2.38 |
-|  | agent-splunk(agent) | 0.2.38 |
-|  | agent-argocd(agent) | 0.2.38 |
-|  | agent-netutils(agent) | 0.2.38 |
-|  | agent-webex(agent) | 0.2.38 |
-|  | agent-weather(agent) | 0.2.38 |
-|  | backstage-plugin-agent-forge | 0.2.38 |
-|  | caipe-ui | 0.2.38-rc.helm.1 |
-|  | mongodb(caipe-ui-mongodb) | 0.2.38 |
-|  | dynamic-agents | 0.2.38 |
-|  | slack-bot | 0.2.38-rc.helm.1 |
-|  | supervisor-agent | 0.2.38 |
-| file://../rag-stack | rag-stack | 0.2.38 |
+|  | agent-victorops(agent) | 0.2.38-rc.helm.1 |
+|  | agent-pagerduty(agent) | 0.2.38-rc.helm.1 |
+|  | agent-aws(agent) | 0.2.38-rc.helm.1 |
+|  | agent-backstage(agent) | 0.2.38-rc.helm.1 |
+|  | agent-confluence(agent) | 0.2.38-rc.helm.1 |
+|  | agent-github(agent) | 0.2.38-rc.helm.1 |
+|  | agent-gitlab(agent) | 0.2.38-rc.helm.1 |
+|  | agent-jira(agent) | 0.2.38-rc.helm.1 |
+|  | agent-komodor(agent) | 0.2.38-rc.helm.1 |
+|  | agent-webex(agent) | 0.2.38-rc.helm.1 |
+|  | agent-slack(agent) | 0.2.38-rc.helm.1 |
+|  | agent-splunk(agent) | 0.2.38-rc.helm.1 |
+|  | agent-argocd(agent) | 0.2.38-rc.helm.1 |
+|  | agent-netutils(agent) | 0.2.38-rc.helm.1 |
+|  | agent-petstore(agent) | 0.2.38-rc.helm.1 |
+|  | agent-weather(agent) | 0.2.38-rc.helm.1 |
+|  | caipe-ui | 0.2.38-rc.helm.2 |
+|  | mongodb(caipe-ui-mongodb) | 0.2.38-rc.helm.1 |
+|  | dynamic-agents | 0.2.38-rc.helm.1 |
+|  | langgraph-redis | 0.2.38 |
+|  | slack-bot | 0.2.38-rc.helm.2 |
+|  | supervisor-agent | 0.2.38-rc.helm.2 |
+| file://../rag-stack | rag-stack | 0.2.38-rc.helm.2 |
 | oci://ghcr.io/agntcy/slim/helm | slim | v0.1.8 |
 | oci://ghcr.io/agntcy/slim/helm | slim-control-plane | v0.1.3 |
 
@@ -189,16 +189,6 @@ Parent chart to deploy multiple agent subcharts as different platform agents
 | agent-webex.mcp.mode | string | `"http"` |  |
 | agent-webex.mcp.port | int | `8000` |  |
 | agent-webex.nameOverride | string | `"agent-webex"` |  |
-| backstage-plugin-agent-forge.image.pullPolicy | string | `"Always"` |  |
-| backstage-plugin-agent-forge.image.repository | string | `"ghcr.io/cnoe-io/backstage-plugin-agent-forge"` |  |
-| backstage-plugin-agent-forge.image.tag | string | `""` |  |
-| backstage-plugin-agent-forge.nameOverride | string | `"backstage-plugin-agent-forge"` |  |
-| backstage-plugin-agent-forge.service.ports[0].name | string | `"http"` |  |
-| backstage-plugin-agent-forge.service.ports[0].port | int | `3000` |  |
-| backstage-plugin-agent-forge.service.ports[0].protocol | string | `"TCP"` |  |
-| backstage-plugin-agent-forge.service.ports[1].name | string | `"backend"` |  |
-| backstage-plugin-agent-forge.service.ports[1].port | int | `7007` |  |
-| backstage-plugin-agent-forge.service.ports[1].protocol | string | `"TCP"` |  |
 | caipe-ui.config.APP_NAME | string | `"CAIPE"` |  |
 | caipe-ui.config.DESCRIPTION | string | `"Where Humans and AI agents collaborate to deliver high quality outcomes."` |  |
 | caipe-ui.config.DYNAMIC_AGENTS_ENABLED | string | `"false"` |  |
@@ -272,6 +262,7 @@ Parent chart to deploy multiple agent subcharts as different platform agents
 | global.deploymentMode | string | `"multi-node"` |  |
 | global.externalSecrets.apiVersion | string | `"v1beta1"` |  |
 | global.externalSecrets.enabled | bool | `false` |  |
+| global.langgraphRedis.enabled | bool | `false` |  |
 | global.llmSecrets.create | bool | `false` |  |
 | global.llmSecrets.secretName | string | `"llm-secret"` |  |
 | global.metrics.enabled | bool | `false` |  |
@@ -308,10 +299,6 @@ Parent chart to deploy multiple agent subcharts as different platform agents
 | rag-stack.rag-server.image.pullPolicy | string | `"Always"` |  |
 | rag-stack.rag-server.image.repository | string | `"ghcr.io/cnoe-io/caipe-rag-server"` |  |
 | rag-stack.rag-server.image.tag | string | `""` |  |
-| rag-stack.rag-webui.enabled | bool | `true` |  |
-| rag-stack.rag-webui.image.pullPolicy | string | `"Always"` |  |
-| rag-stack.rag-webui.image.repository | string | `"ghcr.io/cnoe-io/caipe-rag-webui"` |  |
-| rag-stack.rag-webui.image.tag | string | `""` |  |
 | ragPromptConfig | string | `""` |  |
 | slack-bot.appName | string | `"CAIPE"` |  |
 | slack-bot.auth.audience | string | `""` |  |
@@ -338,8 +325,19 @@ Parent chart to deploy multiple agent subcharts as different platform agents
 | slack-bot.resources.requests.memory | string | `"256Mi"` |  |
 | slack-bot.silenceEnv | string | `"false"` |  |
 | slack-bot.slack.tokenSecretRef | string | `"slack-bot-secrets"` |  |
+| supervisor-agent.checkpointPersistence.mongodb.existingSecret | object | `{}` |  |
+| supervisor-agent.checkpointPersistence.mongodb.uri | string | `""` |  |
+| supervisor-agent.checkpointPersistence.postgres.dsn | string | `""` |  |
+| supervisor-agent.checkpointPersistence.postgres.existingSecret | object | `{}` |  |
+| supervisor-agent.checkpointPersistence.redis.autoDiscoverService | string | `""` |  |
+| supervisor-agent.checkpointPersistence.redis.dbIndex | int | `0` |  |
+| supervisor-agent.checkpointPersistence.redis.existingSecret | object | `{}` |  |
+| supervisor-agent.checkpointPersistence.redis.url | string | `""` |  |
+| supervisor-agent.checkpointPersistence.ttlMinutes | int | `0` |  |
+| supervisor-agent.checkpointPersistence.type | string | `"memory"` |  |
 | supervisor-agent.env.AGENT_CONNECTIVITY_ENABLE_BACKGROUND | string | `"true"` |  |
 | supervisor-agent.env.EXTERNAL_URL | string | `"http://localhost:8000"` |  |
+| supervisor-agent.env.POLICY_FILE_PATH | string | `"/app/policy.lp"` |  |
 | supervisor-agent.env.SKIP_AGENT_CONNECTIVITY_CHECK | string | `"false"` |  |
 | supervisor-agent.env.TASK_CONFIG_PATH | string | `"/app/task_config.yaml"` |  |
 | supervisor-agent.env.USE_STRUCTURED_RESPONSE | string | `"true"` |  |
@@ -347,9 +345,18 @@ Parent chart to deploy multiple agent subcharts as different platform agents
 | supervisor-agent.image.pullPolicy | string | `"Always"` |  |
 | supervisor-agent.image.repository | string | `"ghcr.io/cnoe-io/ai-platform-engineering"` |  |
 | supervisor-agent.image.tag | string | `""` |  |
+| supervisor-agent.memoryPersistence.embeddings.dims | string | `""` |  |
+| supervisor-agent.memoryPersistence.embeddings.model | string | `""` |  |
+| supervisor-agent.memoryPersistence.embeddings.provider | string | `""` |  |
 | supervisor-agent.memoryPersistence.enableFactExtraction | bool | `false` |  |
+| supervisor-agent.memoryPersistence.maxMemories | int | `50` |  |
+| supervisor-agent.memoryPersistence.maxSummaries | int | `10` |  |
+| supervisor-agent.memoryPersistence.mongodb.existingSecret | object | `{}` |  |
+| supervisor-agent.memoryPersistence.mongodb.uri | string | `""` |  |
 | supervisor-agent.memoryPersistence.postgres.dsn | string | `""` |  |
 | supervisor-agent.memoryPersistence.postgres.existingSecret | object | `{}` |  |
+| supervisor-agent.memoryPersistence.redis.autoDiscoverService | string | `""` |  |
+| supervisor-agent.memoryPersistence.redis.dbIndex | int | `0` |  |
 | supervisor-agent.memoryPersistence.redis.existingSecret | object | `{}` |  |
 | supervisor-agent.memoryPersistence.redis.keyPrefix | string | `""` |  |
 | supervisor-agent.memoryPersistence.redis.url | string | `""` |  |
@@ -391,7 +398,6 @@ Parent chart to deploy multiple agent subcharts as different platform agents
 | tags.agent-weather | bool | `false` |  |
 | tags.agent-weather | bool | `false` |  |
 | tags.agent-webex | bool | `false` |  |
-| tags.backstage-agent-forge | bool | `false` |  |
 | tags.basic | bool | `false` |  |
 | tags.caipe-ui | bool | `false` |  |
 | tags.complete | bool | `false` |  |
