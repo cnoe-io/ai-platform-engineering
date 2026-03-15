@@ -1,6 +1,6 @@
 # dynamic-agents
 
-![Version: 0.2.38](https://img.shields.io/badge/Version-0.2.38-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 0.2.38](https://img.shields.io/badge/AppVersion-0.2.38-informational?style=flat-square)
+![Version: 0.2.38-rc.helm.1](https://img.shields.io/badge/Version-0.2.38--rc.helm.1-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 0.2.38](https://img.shields.io/badge/AppVersion-0.2.38-informational?style=flat-square)
 
 A Helm chart for Dynamic Agents - Standalone agent builder service with MCP tool support
 

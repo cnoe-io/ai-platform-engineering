@@ -1,6 +1,6 @@
 # rag-stack
 
-![Version: 0.2.38-rc.helm.1](https://img.shields.io/badge/Version-0.2.38--rc.helm.1-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 0.2.38](https://img.shields.io/badge/AppVersion-0.2.38-informational?style=flat-square)
+![Version: 0.2.38-rc.helm.2](https://img.shields.io/badge/Version-0.2.38--rc.helm.2-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 0.2.38](https://img.shields.io/badge/AppVersion-0.2.38-informational?style=flat-square)
 
 A complete RAG stack including server, agents, Redis, Neo4j and Milvus
 
@@ -8,10 +8,10 @@ A complete RAG stack including server, agents, Redis, Neo4j and Milvus
 
 | Repository | Name | Version |
 |------------|------|---------|
-| file://./charts/agent-ontology | agent-ontology | 0.2.38 |
-| file://./charts/rag-ingestors | rag-ingestors | 0.2.38 |
-| file://./charts/rag-redis | rag-redis | 0.2.38 |
-| file://./charts/rag-server | rag-server | 0.2.38 |
+| file://./charts/agent-ontology | agent-ontology | 0.2.38-rc.helm.1 |
+| file://./charts/rag-ingestors | rag-ingestors | 0.2.38-rc.helm.1 |
+| file://./charts/rag-redis | rag-redis | 0.2.38-rc.helm.1 |
+| file://./charts/rag-server | rag-server | 0.2.38-rc.helm.1 |
 | https://helm.neo4j.com/neo4j | neo4j(neo4j) | 2025.07.1 |
 | https://zilliztech.github.io/milvus-helm/ | milvus | 5.0.2 |
 

@@ -1,3 +1,7 @@
+---
+sidebar_label: supervisor-agent
+---
+
 # supervisor-agent
 
 A Helm chart for the Supervisor Agent

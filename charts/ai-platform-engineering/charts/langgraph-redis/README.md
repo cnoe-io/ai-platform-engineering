@@ -1,3 +1,7 @@
+---
+sidebar_label: langgraph-redis
+---
+
 # langgraph-redis
 
 Redis Stack for LangGraph checkpoint and store persistence

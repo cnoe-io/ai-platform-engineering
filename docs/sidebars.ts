@@ -112,6 +112,22 @@ const sidebars: SidebarsConfig = {
               type: 'doc',
               id: 'getting-started/helm/setup',
             },
+            {
+              type: 'category',
+              label: 'Chart Reference',
+              items: [
+                {
+                  type: 'doc',
+                  id: 'installation/helm-charts/supervisor-agent',
+                  label: 'supervisor-agent',
+                },
+                {
+                  type: 'doc',
+                  id: 'installation/helm-charts/langgraph-redis',
+                  label: 'langgraph-redis',
+                },
+              ],
+            },
           ],
         },
         {

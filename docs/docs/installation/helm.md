@@ -41,9 +41,9 @@ ai-platform-engineering/        # Parent chart
 
 Full parameter tables for each chart:
 
-- [`charts/ai-platform-engineering/README.md`](https://github.com/cnoe-io/ai-platform-engineering/blob/main/charts/ai-platform-engineering/README.md)
-- [`charts/ai-platform-engineering/charts/supervisor-agent/README.md`](https://github.com/cnoe-io/ai-platform-engineering/blob/main/charts/ai-platform-engineering/charts/supervisor-agent/README.md)
-- [`charts/ai-platform-engineering/charts/langgraph-redis/README.md`](https://github.com/cnoe-io/ai-platform-engineering/blob/main/charts/ai-platform-engineering/charts/langgraph-redis/README.md)
+- [supervisor-agent](./helm-charts/supervisor-agent) — orchestrator values, persistence, LLM secrets
+- [langgraph-redis](./helm-charts/langgraph-redis) — Redis Stack subchart values
+- [`ai-platform-engineering` (parent)](https://github.com/cnoe-io/ai-platform-engineering/blob/main/charts/ai-platform-engineering/README.md) — agent tags, global values, subcharts table
 
 ## Step 1 — Get example values files
 

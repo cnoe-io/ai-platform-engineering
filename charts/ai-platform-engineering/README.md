@@ -29,12 +29,12 @@ Parent chart to deploy multiple agent subcharts as different platform agents
 |  | agent-petstore(agent) | 0.2.38-rc.helm.1 |
 |  | agent-weather(agent) | 0.2.38-rc.helm.1 |
 |  | caipe-ui | 0.2.38-rc.helm.2 |
-|  | mongodb(caipe-ui-mongodb) | 0.2.38 |
-|  | dynamic-agents | 0.2.38 |
+|  | mongodb(caipe-ui-mongodb) | 0.2.38-rc.helm.1 |
+|  | dynamic-agents | 0.2.38-rc.helm.1 |
 |  | langgraph-redis | 0.2.38 |
-|  | slack-bot | 0.2.38-rc.helm.1 |
+|  | slack-bot | 0.2.38-rc.helm.2 |
 |  | supervisor-agent | 0.2.38-rc.helm.2 |
-| file://../rag-stack | rag-stack | 0.2.38-rc.helm.1 |
+| file://../rag-stack | rag-stack | 0.2.38-rc.helm.2 |
 | oci://ghcr.io/agntcy/slim/helm | slim | v0.1.8 |
 | oci://ghcr.io/agntcy/slim/helm | slim-control-plane | v0.1.3 |
 
