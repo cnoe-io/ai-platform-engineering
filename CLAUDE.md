@@ -3,8 +3,18 @@
 ## Git Workflow
 
 - Always work on a **new branch** -- never commit directly to `main`
-- Branch naming convention: `prebuild/<short-description>`
-  - e.g. `prebuild/fix-supervisor-streaming-json-and-orphaned-tool-calls`
+- Use **git worktree** to work in isolated branches (preferred over `git checkout -b`):
+  ```bash
+  # Claude Code: use EnterWorktree tool with the branch name
+  # Manual equivalent (run from repo root):
+  git worktree add ../ai-platform-engineering-<short-name> -b prebuild/<type>/<short-name>
+  ```
+  Worktrees live **sibling to the repo** at the cnoe level: `../ai-platform-engineering-<short-name>`
+- Branch naming convention: `prebuild/<type>/<short-description>`
+  - `<type>` matches the conventional commit type: `feat`, `fix`, `docs`, `chore`, `refactor`, `test`, `ci`
+  - e.g. `prebuild/fix/supervisor-streaming-json-and-orphaned-tool-calls`
+  - e.g. `prebuild/docs/enterprise-identity-federation`
+  - e.g. `prebuild/feat/langgraph-redis-checkpoint-persistence`
 - Push the branch and **create a PR using `gh pr create`** (see below)
 
 ## Commit Style -- Conventional Commits + DCO
