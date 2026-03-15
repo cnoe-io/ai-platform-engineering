@@ -409,6 +409,19 @@ agent-aws:
       pullPolicy: "Always"
     mode: "http" # Options: stdio, http
     port: 8000
+  env:
+    # -- Block kubectl get/describe secret(s) and redact Secret data from output. Defaults to true (on).
+    RESTRICT_KUBECTL_SECRETS: "true"
+    # -- Block kubectl proxy, which exposes the entire Kubernetes API server. Defaults to true (on).
+    RESTRICT_KUBECTL_PROXY: "true"
+    # -- Block kubectl exec (shell access inside pods). Defaults to false (off); enable for stricter environments.
+    RESTRICT_KUBECTL_EXEC: "false"
+    # -- Block kubectl attach (attach to a running process inside a pod). Defaults to false (off).
+    RESTRICT_KUBECTL_ATTACH: "false"
+    # -- Block kubectl cp (copy files out of pods). Defaults to false (off).
+    RESTRICT_KUBECTL_CP: "false"
+    # -- Block kubectl port-forward (tunnel internal services). Defaults to false (off).
+    RESTRICT_KUBECTL_PORT_FORWARD: "false"
 
 agent-splunk:
   nameOverride: "agent-splunk"
