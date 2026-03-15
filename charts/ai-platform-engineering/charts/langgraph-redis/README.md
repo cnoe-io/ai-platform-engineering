@@ -1,4 +1,5 @@
 ---
+id: installation/helm-charts/langgraph-redis
 sidebar_label: langgraph-redis
 ---
 
