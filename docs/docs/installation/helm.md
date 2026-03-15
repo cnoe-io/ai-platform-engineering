@@ -4,7 +4,7 @@ sidebar_position: 4
 
 # Helm
 
-Deploy AI Platform Engineering on any Kubernetes cluster using the official Helm chart.
+Deploy AI Platform Engineering on any Kubernetes cluster using the official Helm chart published to GitHub Container Registry.
 
 ## Prerequisites
 
@@ -12,21 +12,31 @@ Deploy AI Platform Engineering on any Kubernetes cluster using the official Helm
 - [kubectl](https://kubernetes.io/docs/tasks/tools/) configured against your cluster
 - A running cluster ([Minikube](https://minikube.sigs.k8s.io/docs/start/), Kind, EKS, GKE, AKS, etc.)
 
+## Chart registry
+
+The chart is published as an OCI artifact:
+
+```
+oci://ghcr.io/cnoe-io/charts/ai-platform-engineering
+```
+
+Browse available versions (stable releases only, no RCs):
+👉 **[ghcr.io/cnoe-io/charts/ai-platform-engineering](https://github.com/cnoe-io/ai-platform-engineering/pkgs/container/charts%2Fai-platform-engineering)**
+
 ## Chart structure
 
 ```
-charts/
-└── ai-platform-engineering/        # Parent chart
-    ├── README.md                   # Full parameter reference
-    └── charts/
-        ├── supervisor-agent/       # Orchestrator / LangGraph supervisor
-        │   └── README.md
-        ├── agent/                  # Generic agent subchart (aliased per integration)
-        ├── langgraph-redis/        # Redis Stack for persistence (optional)
-        │   └── README.md
-        ├── caipe-ui/               # CAIPE web UI (optional)
-        ├── rag-stack/              # RAG pipeline (optional)
-        └── slim/ slim-control-plane/  # AGNTCY SLIM dataplane (optional)
+ai-platform-engineering/        # Parent chart
+├── README.md                   # Full parameter reference
+└── charts/
+    ├── supervisor-agent/       # Orchestrator / LangGraph supervisor
+    │   └── README.md
+    ├── agent/                  # Generic agent subchart (aliased per integration)
+    ├── langgraph-redis/        # Redis Stack for persistence (optional)
+    │   └── README.md
+    ├── caipe-ui/               # CAIPE web UI (optional)
+    ├── rag-stack/              # RAG pipeline (optional)
+    └── slim/ slim-control-plane/  # AGNTCY SLIM dataplane (optional)
 ```
 
 Full parameter tables for each chart:
@@ -35,18 +45,28 @@ Full parameter tables for each chart:
 - [`charts/ai-platform-engineering/charts/supervisor-agent/README.md`](https://github.com/cnoe-io/ai-platform-engineering/blob/main/charts/ai-platform-engineering/charts/supervisor-agent/README.md)
 - [`charts/ai-platform-engineering/charts/langgraph-redis/README.md`](https://github.com/cnoe-io/ai-platform-engineering/blob/main/charts/ai-platform-engineering/charts/langgraph-redis/README.md)
 
-## Step 1 — Secrets
+## Step 1 — Get example values files
+
+Pull the chart locally to access the bundled example values files:
+
+```bash
+helm pull oci://ghcr.io/cnoe-io/charts/ai-platform-engineering --version <VERSION> --untar
+```
+
+Replace `<VERSION>` with the latest stable version from the [registry page](https://github.com/cnoe-io/ai-platform-engineering/pkgs/container/charts%2Fai-platform-engineering).
+
+## Step 2 — Configure secrets
 
 Choose one of three approaches to provide API keys and agent credentials.
 
 ### Option A — Direct values file (development)
 
 ```bash
-cp charts/ai-platform-engineering/values-secrets.yaml.example values-secrets.yaml
+cp ai-platform-engineering/values-secrets.yaml.example values-secrets.yaml
 # Edit values-secrets.yaml with your LLM keys and agent credentials
 ```
 
-> Never commit `values-secrets.yaml` — it is in `.gitignore`.
+> Never commit `values-secrets.yaml`.
 
 ### Option B — Existing Kubernetes Secrets
 
@@ -62,11 +82,11 @@ agent-argocd:
 ### Option C — External Secrets Operator (recommended for production)
 
 ```bash
-cp charts/ai-platform-engineering/values-external-secrets.yaml.example values-external-secrets.yaml
+cp ai-platform-engineering/values-external-secrets.yaml.example values-external-secrets.yaml
 # Edit to point at your Vault / AWS Secrets Manager / GCP Secret Manager store
 ```
 
-## Step 2 — Choose agents
+## Step 3 — Choose agents
 
 Agents are enabled via Helm tags. Common profiles:
 
@@ -76,35 +96,30 @@ Agents are enabled via Helm tags. Common profiles:
 | `complete` | all agents |
 | Individual | `agent-argocd`, `agent-github`, `agent-jira`, `agent-slack`, … |
 
-```bash
-# Deploy with basic agents
-helm install ai-platform-engineering ./charts/ai-platform-engineering \
-  --values values-secrets.yaml \
-  --set tags.basic=true
-
-# Deploy with specific agents
-helm install ai-platform-engineering ./charts/ai-platform-engineering \
-  --values values-secrets.yaml \
-  --set tags.agent-argocd=true \
-  --set tags.agent-github=true
-```
-
-## Step 3 — Install
+## Step 4 — Install
 
 ```bash
 # Minimal (in-memory, no persistence)
-helm install ai-platform-engineering ./charts/ai-platform-engineering \
+helm install ai-platform-engineering \
+  oci://ghcr.io/cnoe-io/charts/ai-platform-engineering \
+  --version <VERSION> \
   --values values-secrets.yaml
 
-# With existing Kubernetes secrets
-helm install ai-platform-engineering ./charts/ai-platform-engineering
+# With basic agents
+helm install ai-platform-engineering \
+  oci://ghcr.io/cnoe-io/charts/ai-platform-engineering \
+  --version <VERSION> \
+  --values values-secrets.yaml \
+  --set tags.basic=true
 
 # With External Secrets Operator
-helm install ai-platform-engineering ./charts/ai-platform-engineering \
+helm install ai-platform-engineering \
+  oci://ghcr.io/cnoe-io/charts/ai-platform-engineering \
+  --version <VERSION> \
   --values values-external-secrets.yaml
 ```
 
-## Step 4 — Verify
+## Step 5 — Verify
 
 ```bash
 kubectl get pods
@@ -113,7 +128,7 @@ kubectl get services
 
 Wait for pods to reach `Running` / `1/1 Ready`.
 
-## Step 5 — Access
+## Step 6 — Access
 
 ### Port-forward (quickest)
 
@@ -133,10 +148,12 @@ uvx --no-cache git+https://github.com/cnoe-io/agent-chat-cli.git a2a --host loca
 # Enable ingress on Minikube
 minikube addons enable ingress
 
-# Deploy with ingress values
-helm upgrade ai-platform-engineering ./charts/ai-platform-engineering \
+# Deploy with ingress
+helm upgrade ai-platform-engineering \
+  oci://ghcr.io/cnoe-io/charts/ai-platform-engineering \
+  --version <VERSION> \
   --values values-secrets.yaml \
-  --values charts/ai-platform-engineering/values-ingress.yaml.example
+  --values ai-platform-engineering/values-ingress.yaml.example
 
 # Add Minikube IP to /etc/hosts
 echo "$(minikube ip) supervisor-agent.local" | sudo tee -a /etc/hosts
@@ -145,8 +162,11 @@ echo "$(minikube ip) supervisor-agent.local" | sudo tee -a /etc/hosts
 ## Upgrade and uninstall
 
 ```bash
-# Upgrade
-helm upgrade ai-platform-engineering ./charts/ai-platform-engineering --values values-secrets.yaml
+# Upgrade to a new version
+helm upgrade ai-platform-engineering \
+  oci://ghcr.io/cnoe-io/charts/ai-platform-engineering \
+  --version <NEW_VERSION> \
+  --values values-secrets.yaml
 
 # Uninstall
 helm uninstall ai-platform-engineering
@@ -161,7 +181,9 @@ helm uninstall ai-platform-engineering
 | `promptConfig: \|` | Provide a fully custom prompt config inline |
 
 ```bash
-helm install ai-platform-engineering ./charts/ai-platform-engineering \
+helm install ai-platform-engineering \
+  oci://ghcr.io/cnoe-io/charts/ai-platform-engineering \
+  --version <VERSION> \
   --values values-secrets.yaml \
   --set promptConfigType=deep_agent
 ```
@@ -194,7 +216,9 @@ supervisor-agent:
 ```
 
 ```bash
-helm install ai-platform-engineering ./charts/ai-platform-engineering \
+helm install ai-platform-engineering \
+  oci://ghcr.io/cnoe-io/charts/ai-platform-engineering \
+  --version <VERSION> \
   --values values-secrets.yaml \
   --values values-persistence.yaml
 ```
@@ -202,7 +226,9 @@ helm install ai-platform-engineering ./charts/ai-platform-engineering \
 Or as `--set` flags:
 
 ```bash
-helm install ai-platform-engineering ./charts/ai-platform-engineering \
+helm install ai-platform-engineering \
+  oci://ghcr.io/cnoe-io/charts/ai-platform-engineering \
+  --version <VERSION> \
   --values values-secrets.yaml \
   --set global.langgraphRedis.enabled=true \
   --set supervisor-agent.checkpointPersistence.type=redis \
