@@ -51,6 +51,12 @@ Parent chart to deploy multiple agent subcharts as different platform agents
 | agent-argocd.mcp.mode | string | `"http"` |  |
 | agent-argocd.mcp.port | int | `8000` |  |
 | agent-argocd.nameOverride | string | `"agent-argocd"` |  |
+| agent-aws.env.RESTRICT_KUBECTL_ATTACH | string | `"false"` | Block kubectl attach (attach to a running process inside a pod). Defaults to false (off). |
+| agent-aws.env.RESTRICT_KUBECTL_CP | string | `"false"` | Block kubectl cp (copy files out of pods). Defaults to false (off). |
+| agent-aws.env.RESTRICT_KUBECTL_EXEC | string | `"false"` | Block kubectl exec (shell access inside pods). Defaults to false (off); enable for stricter environments. |
+| agent-aws.env.RESTRICT_KUBECTL_PORT_FORWARD | string | `"false"` | Block kubectl port-forward (tunnel internal services). Defaults to false (off). |
+| agent-aws.env.RESTRICT_KUBECTL_PROXY | string | `"true"` | Block kubectl proxy, which exposes the entire Kubernetes API server. Defaults to true (on). |
+| agent-aws.env.RESTRICT_KUBECTL_SECRETS | string | `"true"` | Block kubectl get/describe secret(s) and redact Secret data from output. Defaults to true (on). |
 | agent-aws.image.pullPolicy | string | `"Always"` |  |
 | agent-aws.image.repository | string | `"ghcr.io/cnoe-io/agent-aws"` |  |
 | agent-aws.mcp.image.pullPolicy | string | `"Always"` |  |
