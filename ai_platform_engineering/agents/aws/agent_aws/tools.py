@@ -45,14 +45,62 @@ AWS_CLI_TIMEOUT = int(os.getenv("AWS_CLI_MAX_EXECUTION_TIME", "30"))
 KUBECTL_TIMEOUT = int(os.getenv("KUBECTL_MAX_EXECUTION_TIME", "45"))
 JQ_TIMEOUT = 10  # jq should be fast
 
-# kubectl commands that expose secret values to the LLM are blocked.
-# Output is also sanitized to redact any Secret data that slips through
-# (e.g. via custom jsonpath queries that reference secret fields).
-BLOCKED_KUBECTL_PATTERNS = [
+# When True, kubectl get/describe secret commands are blocked and output is
+# sanitized to redact any Secret data returned to the LLM.
+# Set RESTRICT_KUBECTL_SECRETS=false to disable; defaults to true.
+RESTRICT_KUBECTL_SECRETS = os.getenv("RESTRICT_KUBECTL_SECRETS", "true").lower() == "true"
+
+# When True, kubectl proxy is blocked to prevent exposing the Kubernetes API.
+# Set RESTRICT_KUBECTL_PROXY=false to disable; defaults to true.
+RESTRICT_KUBECTL_PROXY = os.getenv("RESTRICT_KUBECTL_PROXY", "true").lower() == "true"
+
+# The following restrictions default to false (opt-in) as these commands are
+# often needed for legitimate debugging.
+
+# When True, kubectl exec is blocked to prevent shell access inside pods.
+RESTRICT_KUBECTL_EXEC = os.getenv("RESTRICT_KUBECTL_EXEC", "false").lower() == "true"
+
+# When True, kubectl attach is blocked to prevent attaching to running processes.
+RESTRICT_KUBECTL_ATTACH = os.getenv("RESTRICT_KUBECTL_ATTACH", "false").lower() == "true"
+
+# When True, kubectl cp is blocked to prevent copying files out of pods.
+RESTRICT_KUBECTL_CP = os.getenv("RESTRICT_KUBECTL_CP", "false").lower() == "true"
+
+# When True, kubectl port-forward is blocked to prevent tunneling internal services.
+RESTRICT_KUBECTL_PORT_FORWARD = os.getenv("RESTRICT_KUBECTL_PORT_FORWARD", "false").lower() == "true"
+
+# kubectl patterns gated by RESTRICT_KUBECTL_SECRETS
+BLOCKED_KUBECTL_SECRET_PATTERNS = [
     # get secret / get secrets / get secret/name
     r"^\s*get\s+secrets?(\s|/|$)",
     # describe secret / describe secrets / describe secret/name
     r"^\s*describe\s+secrets?(\s|/|$)",
+]
+
+# kubectl patterns gated by RESTRICT_KUBECTL_PROXY
+BLOCKED_KUBECTL_PROXY_PATTERNS = [
+    # proxy opens a tunnel to the entire Kubernetes API
+    r"^\s*proxy(\s|$)",
+]
+
+# kubectl patterns gated by RESTRICT_KUBECTL_EXEC
+BLOCKED_KUBECTL_EXEC_PATTERNS = [
+    r"^\s*exec(\s|$)",
+]
+
+# kubectl patterns gated by RESTRICT_KUBECTL_ATTACH
+BLOCKED_KUBECTL_ATTACH_PATTERNS = [
+    r"^\s*attach(\s|$)",
+]
+
+# kubectl patterns gated by RESTRICT_KUBECTL_CP
+BLOCKED_KUBECTL_CP_PATTERNS = [
+    r"^\s*cp(\s|$)",
+]
+
+# kubectl patterns gated by RESTRICT_KUBECTL_PORT_FORWARD
+BLOCKED_KUBECTL_PORT_FORWARD_PATTERNS = [
+    r"^\s*port-forward(\s|$)",
 ]
 
 # Maximum output size - keep small to avoid context overflow (128K token limit)
@@ -646,21 +694,41 @@ class EKSKubectlTool(BaseTool):
     args_schema: type[BaseModel] = EKSKubectlToolInput
 
     def _validate_kubectl_command(self, command: str) -> tuple[bool, str]:
-        """Block commands that would fetch Kubernetes secret values."""
-        for pattern in BLOCKED_KUBECTL_PATTERNS:
-            if re.search(pattern, command.strip(), re.IGNORECASE):
-                return False, (
-                    "Fetching Kubernetes Secrets is not allowed. "
-                    "`kubectl get/describe secret(s)` commands are blocked to prevent "
-                    "secret data from being returned to the LLM. "
-                    "Use the appropriate secrets manager (e.g. AWS Secrets Manager, Vault) "
-                    "to inspect secret values through secure channels."
-                )
+        """Block kubectl commands based on active restriction flags."""
+        stripped = command.strip()
+        checks = [
+            (RESTRICT_KUBECTL_SECRETS, BLOCKED_KUBECTL_SECRET_PATTERNS,
+             "Fetching Kubernetes Secrets is not allowed. "
+             "`kubectl get/describe secret(s)` commands are blocked to prevent "
+             "secret data from being returned to the LLM. "
+             "Use the appropriate secrets manager (e.g. AWS Secrets Manager, Vault) "
+             "to inspect secret values through secure channels."),
+            (RESTRICT_KUBECTL_PROXY, BLOCKED_KUBECTL_PROXY_PATTERNS,
+             "`kubectl proxy` is not allowed. "
+             "It opens a tunnel to the entire Kubernetes API server."),
+            (RESTRICT_KUBECTL_EXEC, BLOCKED_KUBECTL_EXEC_PATTERNS,
+             "`kubectl exec` is not allowed. "
+             "It provides shell access inside pods."),
+            (RESTRICT_KUBECTL_ATTACH, BLOCKED_KUBECTL_ATTACH_PATTERNS,
+             "`kubectl attach` is not allowed. "
+             "It attaches to a running process inside a pod."),
+            (RESTRICT_KUBECTL_CP, BLOCKED_KUBECTL_CP_PATTERNS,
+             "`kubectl cp` is not allowed. "
+             "It can be used to copy files out of pods."),
+            (RESTRICT_KUBECTL_PORT_FORWARD, BLOCKED_KUBECTL_PORT_FORWARD_PATTERNS,
+             "`kubectl port-forward` is not allowed. "
+             "It tunnels internal services to the local network."),
+        ]
+        for enabled, patterns, message in checks:
+            if enabled:
+                for pattern in patterns:
+                    if re.search(pattern, stripped, re.IGNORECASE):
+                        return False, message
         return True, ""
 
     def _sanitize_output(self, output: str) -> str:
         """Redact Secret data values from kubectl output (JSON or YAML/text)."""
-        if not output:
+        if not output or not RESTRICT_KUBECTL_SECRETS:
             return output
 
         # Try JSON sanitization first (most kubectl -o json output)
