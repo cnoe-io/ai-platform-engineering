@@ -20,7 +20,8 @@ APP_NAME ?= ai-platform-engineering
 	beads-gh-issues-sync beads-gh-issues-sync-run beads-list beads-ready beads-sync \
 	caipe-ui caipe-ui-install caipe-ui-build caipe-ui-dev caipe-ui-tests \
 	build-caipe-ui run-caipe-ui-docker caipe-ui-docker-compose \
-	docs docs-install docs-build docs-dev docs-start docs-serve
+	docs docs-install docs-build docs-dev docs-start docs-serve \
+	check-helm-docs helm-docs
 
 .DEFAULT_GOAL := run
 
@@ -404,6 +405,30 @@ release: setup-venv  ## Bump version and create a release
 	@git commit -m "docs: update changelog"
 	@cz bump --increment $${INCREMENT:-PATCH}
 	@echo "Version bumped updated successfully."
+
+## ========== Helm Docs ==========
+
+check-helm-docs: ## Check that helm-docs is installed (prints install instructions if missing)
+	@if ! which helm-docs > /dev/null 2>&1; then \
+		echo ""; \
+		echo "helm-docs is not installed. Install it with one of:"; \
+		echo ""; \
+		echo "  macOS / Linux (Homebrew):"; \
+		echo "    brew install helm-docs"; \
+		echo ""; \
+		echo "  Any platform (Go):"; \
+		echo "    go install github.com/norwoodj/helm-docs/cmd/helm-docs@latest"; \
+		echo ""; \
+		echo "  Binary download (Linux / macOS / Windows):"; \
+		echo "    https://github.com/norwoodj/helm-docs/releases"; \
+		echo ""; \
+		exit 1; \
+	fi
+
+helm-docs: check-helm-docs ## Regenerate Helm chart README.md files from values.yaml comments
+	@echo "Generating Helm chart documentation..."
+	@helm-docs --chart-search-root charts/
+	@echo "✓ Helm chart documentation updated"
 
 ## ========== Help ==========
 

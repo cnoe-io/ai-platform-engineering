@@ -1,34 +1,53 @@
+# -- Number of replicas
 replicaCount: 1
+# -- Number of old ReplicaSets to retain for rollback
 revisionHistoryLimit: 3
 
 image:
+  # -- Container image repository
   repository: redis
+  # -- Image tag
   tag: "8.0-alpine"
+  # -- Image pull policy
   pullPolicy: IfNotPresent
 
+# -- Image pull secrets for private registries
 imagePullSecrets: []
+# -- Override the chart name
 nameOverride: ""
+# -- Override the full release name
 fullnameOverride: ""
 
 service:
+  # -- Kubernetes service type
   type: ClusterIP
+  # -- Redis port
   port: 6379
 
 persistence:
+  # -- Enable PersistentVolumeClaim for Redis data
   enabled: true
+  # -- Storage class name. Empty string uses the cluster default
   storageClass: ""
+  # -- PVC access modes
   accessModes:
     - ReadWriteOnce
+  # -- PVC size
   size: 2Gi
 
 resources:
   requests:
+    # -- CPU request
     cpu: 100m
+    # -- Memory request
     memory: 256Mi
   limits:
+    # -- CPU limit
     cpu: 500m
+    # -- Memory limit
     memory: 512Mi
 
+# -- Liveness probe configuration
 livenessProbe:
   exec:
     command:
@@ -37,6 +56,7 @@ livenessProbe:
   initialDelaySeconds: 15
   periodSeconds: 10
 
+# -- Readiness probe configuration
 readinessProbe:
   exec:
     command:
@@ -46,29 +66,45 @@ readinessProbe:
   periodSeconds: 5
 
 serviceAccount:
+  # -- Create a service account
   create: true
+  # -- Automount the service account API token
   automount: true
+  # -- Annotations to add to the service account
   annotations: {}
+  # -- Override the service account name
   name: ""
 
+# -- Extra annotations added to the pod
 podAnnotations: {}
+# -- Extra labels added to the pod
 podLabels: {}
 
 podSecurityContext:
+  # -- fsGroup for the pod
   fsGroup: 1000
 
 securityContext:
+  # -- Prevent privilege escalation
   allowPrivilegeEscalation: false
+  # -- Read-only root filesystem
   readOnlyRootFilesystem: false
+  # -- Run as non-root user
   runAsNonRoot: true
+  # -- UID to run as
   runAsUser: 999
   capabilities:
     drop:
       - ALL
 
+# -- Node selector labels
 nodeSelector: {}
+# -- Pod tolerations
 tolerations: []
+# -- Pod affinity rules
 affinity: {}
 
+# -- Extra volumes
 volumes: []
+# -- Extra volume mounts
 volumeMounts: []
