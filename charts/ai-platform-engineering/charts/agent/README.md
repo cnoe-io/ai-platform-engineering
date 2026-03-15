@@ -1,6 +1,6 @@
 # agent
 
-![Version: 0.2.38-rc.helm.1](https://img.shields.io/badge/Version-0.2.38--rc.helm.1-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 0.2.38](https://img.shields.io/badge/AppVersion-0.2.38-informational?style=flat-square)
+![Version: 0.2.38](https://img.shields.io/badge/Version-0.2.38-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 0.2.38](https://img.shields.io/badge/AppVersion-0.2.38-informational?style=flat-square)
 
 A Helm chart for Kubernetes
 
@@ -24,19 +24,6 @@ A Helm chart for Kubernetes
 | autoscaling.maxReplicas | int | `100` |  |
 | autoscaling.minReplicas | int | `1` |  |
 | autoscaling.targetCPUUtilizationPercentage | int | `80` |  |
-| checkpointPersistence.mongodb.existingSecret.key | string | `""` |  |
-| checkpointPersistence.mongodb.existingSecret.name | string | `""` |  |
-| checkpointPersistence.mongodb.uri | string | `""` |  |
-| checkpointPersistence.postgres.dsn | string | `""` |  |
-| checkpointPersistence.postgres.existingSecret.key | string | `""` |  |
-| checkpointPersistence.postgres.existingSecret.name | string | `""` |  |
-| checkpointPersistence.redis.autoDiscoverService | string | `""` |  |
-| checkpointPersistence.redis.dbIndex | int | `0` |  |
-| checkpointPersistence.redis.existingSecret.key | string | `""` |  |
-| checkpointPersistence.redis.existingSecret.name | string | `""` |  |
-| checkpointPersistence.redis.url | string | `""` |  |
-| checkpointPersistence.ttlMinutes | int | `0` |  |
-| checkpointPersistence.type | string | `"memory"` |  |
 | customPromptConfig | string | `""` |  |
 | env | object | `{}` |  |
 | fullnameOverride | string | `""` |  |

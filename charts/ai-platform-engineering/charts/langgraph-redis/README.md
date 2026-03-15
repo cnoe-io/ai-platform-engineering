@@ -1,53 +1,67 @@
----
-sidebar_label: langgraph-redis
----
+# backstage-plugin-agent-forge
 
-# langgraph-redis
+![Version: 0.2.38](https://img.shields.io/badge/Version-0.2.38-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 0.2.38](https://img.shields.io/badge/AppVersion-0.2.38-informational?style=flat-square)
 
-Redis Stack for LangGraph checkpoint and store persistence
-
-Enabled via `global.langgraphRedis.enabled: true` in the parent chart.
-
-## Parameters
+A Helm chart for Backstage Plugin Agent Forge
 
 ## Values
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| affinity | object | `{}` | Pod affinity rules |
-| fullnameOverride | string | `""` | Override the full release name |
-| image.pullPolicy | string | `"IfNotPresent"` | Image pull policy |
-| image.repository | string | `"redis"` | Container image repository |
-| image.tag | string | `"8.0-alpine"` | Image tag |
-| imagePullSecrets | list | `[]` | Image pull secrets for private registries |
-| livenessProbe | object | `{"exec":{"command":["redis-cli","ping"]},"initialDelaySeconds":15,"periodSeconds":10}` | Liveness probe configuration |
-| nameOverride | string | `""` | Override the chart name |
-| nodeSelector | object | `{}` | Node selector labels |
-| persistence.accessModes | list | `["ReadWriteOnce"]` | PVC access modes |
-| persistence.enabled | bool | `true` | Enable PersistentVolumeClaim for Redis data |
-| persistence.size | string | `"2Gi"` | PVC size |
-| persistence.storageClass | string | `""` | Storage class name. Empty string uses the cluster default |
-| podAnnotations | object | `{}` | Extra annotations added to the pod |
-| podLabels | object | `{}` | Extra labels added to the pod |
-| podSecurityContext.fsGroup | int | `1000` | fsGroup for the pod |
-| readinessProbe | object | `{"exec":{"command":["redis-cli","ping"]},"initialDelaySeconds":5,"periodSeconds":5}` | Readiness probe configuration |
-| replicaCount | int | `1` | Number of replicas |
-| resources.limits.cpu | string | `"500m"` | CPU limit |
-| resources.limits.memory | string | `"512Mi"` | Memory limit |
-| resources.requests.cpu | string | `"100m"` | CPU request |
-| resources.requests.memory | string | `"256Mi"` | Memory request |
-| revisionHistoryLimit | int | `3` | Number of old ReplicaSets to retain for rollback |
-| securityContext.allowPrivilegeEscalation | bool | `false` | Prevent privilege escalation |
-| securityContext.capabilities.drop[0] | string | `"ALL"` |  |
-| securityContext.readOnlyRootFilesystem | bool | `false` | Read-only root filesystem |
-| securityContext.runAsNonRoot | bool | `true` | Run as non-root user |
-| securityContext.runAsUser | int | `999` | UID to run as |
-| service.port | int | `6379` | Redis port |
-| service.type | string | `"ClusterIP"` | Kubernetes service type |
-| serviceAccount.annotations | object | `{}` | Annotations to add to the service account |
-| serviceAccount.automount | bool | `true` | Automount the service account API token |
-| serviceAccount.create | bool | `true` | Create a service account |
-| serviceAccount.name | string | `""` | Override the service account name |
-| tolerations | list | `[]` | Pod tolerations |
-| volumeMounts | list | `[]` | Extra volume mounts |
-| volumes | list | `[]` | Extra volumes |
+| affinity | object | `{}` |  |
+| autoscaling.enabled | bool | `false` |  |
+| autoscaling.maxReplicas | int | `100` |  |
+| autoscaling.minReplicas | int | `1` |  |
+| autoscaling.targetCPUUtilizationPercentage | int | `80` |  |
+| env | object | `{}` |  |
+| externalSecrets.enabled | bool | `false` |  |
+| externalSecrets.secretNames | list | `[]` |  |
+| fullnameOverride | string | `""` |  |
+| image.pullPolicy | string | `"Always"` |  |
+| image.repository | string | `"ghcr.io/cnoe-io/backstage-plugin-agent-forge"` |  |
+| image.tag | string | `""` |  |
+| imagePullSecrets | list | `[]` |  |
+| ingress.annotations | object | `{}` |  |
+| ingress.className | string | `"nginx"` |  |
+| ingress.enabled | bool | `false` |  |
+| ingress.hosts[0].host | string | `"agent.local"` |  |
+| ingress.hosts[0].paths[0].path | string | `"/"` |  |
+| ingress.hosts[0].paths[0].pathType | string | `"Prefix"` |  |
+| ingress.tls | list | `[]` |  |
+| livenessProbe.failureThreshold | int | `3` |  |
+| livenessProbe.initialDelaySeconds | int | `30` |  |
+| livenessProbe.periodSeconds | int | `10` |  |
+| livenessProbe.tcpSocket.port | string | `"http"` |  |
+| livenessProbe.timeoutSeconds | int | `5` |  |
+| nameOverride | string | `""` |  |
+| nodeSelector | object | `{}` |  |
+| podAnnotations | object | `{}` |  |
+| podLabels | object | `{}` |  |
+| podSecurityContext | object | `{}` |  |
+| readinessProbe.failureThreshold | int | `3` |  |
+| readinessProbe.initialDelaySeconds | int | `5` |  |
+| readinessProbe.periodSeconds | int | `5` |  |
+| readinessProbe.tcpSocket.port | string | `"http"` |  |
+| readinessProbe.timeoutSeconds | int | `3` |  |
+| replicaCount | int | `1` |  |
+| resources | object | `{}` |  |
+| secrets.data | object | `{}` |  |
+| secrets.secretName | string | `""` |  |
+| securityContext | object | `{}` |  |
+| service.ports[0].name | string | `"http"` |  |
+| service.ports[0].port | int | `3000` |  |
+| service.ports[0].protocol | string | `"TCP"` |  |
+| service.ports[1].name | string | `"backend"` |  |
+| service.ports[1].port | int | `7007` |  |
+| service.ports[1].protocol | string | `"TCP"` |  |
+| service.type | string | `"ClusterIP"` |  |
+| serviceAccount.annotations | object | `{}` |  |
+| serviceAccount.automount | bool | `true` |  |
+| serviceAccount.create | bool | `true` |  |
+| serviceAccount.name | string | `""` |  |
+| tolerations | list | `[]` |  |
+| volumeMounts | list | `[]` |  |
+| volumes | list | `[]` |  |
+
+----------------------------------------------
+Autogenerated from chart metadata using [helm-docs v1.14.2](https://github.com/norwoodj/helm-docs/releases/v1.14.2)
