@@ -4,7 +4,23 @@ sidebar_position: 2
 
 # 🚀 Quick Start
 
-Get started with CAIPE quickly using Docker Compose on your laptop or VM.
+## One-command setup
+
+No clone required. Run this in your terminal and follow the interactive prompts:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/cnoe-io/ai-platform-engineering/main/setup-caipe.sh | bash
+```
+
+The script will ask for your LLM provider, API key, and optional components (RAG, tracing, persistence). It can also create a local [KinD](kind/setup) cluster for you.
+
+> **Want to inspect the script first?** View it at [`setup-caipe.sh`](https://github.com/cnoe-io/ai-platform-engineering/blob/main/setup-caipe.sh) before running.
+
+---
+
+## Manual setup with Docker Compose
+
+If you prefer a step-by-step setup or need more control, follow the Docker Compose path below.
 
 <div style={{paddingBottom: '56.25%', position: 'relative', display: 'block', width: '100%'}}>
 	<iframe src="https://app.vidcast.io/share/embed/40364232-f609-43d7-9578-07aef9c25893?mute=1&autoplay=1&disableCopyDropdown=1" width="100%" height="100%" title="CAIPE Getting Started with Docker Compose Demo" loading="lazy" allow="fullscreen *;autoplay *;" style={{position: 'absolute', top: 0, left: 0, border: 'solid', borderRadius: '12px'}}></iframe>
