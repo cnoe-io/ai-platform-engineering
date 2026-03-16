@@ -980,6 +980,9 @@ const storeImplementation = (set: any, get: any) => ({
                 is_final: msg.isFinal ?? false,
                 ...(msg.taskId && { task_id: msg.taskId }),
                 ...(msg.isInterrupted && { is_interrupted: msg.isInterrupted }),
+                ...(msg.timelineSegments && msg.timelineSegments.length > 0 && {
+                  timeline_segments: msg.timelineSegments,
+                }),
               },
               a2a_events: serializedEvents,
             });
@@ -1220,6 +1223,11 @@ const storeImplementation = (set: any, get: any) => ({
               senderEmail: msg.sender_email,
               senderName: msg.sender_name,
               senderImage: msg.sender_image,
+              // Restore timeline segments from MongoDB metadata
+              timelineSegments: msg.metadata?.timeline_segments?.map((seg: any) => ({
+                ...seg,
+                timestamp: new Date(seg.timestamp),
+              })),
             };
 
             return chatMsg;
@@ -1541,6 +1549,11 @@ export const useChatStore = shouldUseLocalStorage()
                   isInterrupted: healed
                     ? false
                     : (msg.role === 'assistant' && !msg.isFinal ? true : msg.isInterrupted),
+                  // Rehydrate Date objects in timeline segments
+                  timelineSegments: msg.timelineSegments?.map((seg: any) => ({
+                    ...seg,
+                    timestamp: new Date(seg.timestamp),
+                  })),
                 };
               }),
             }));

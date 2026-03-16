@@ -71,6 +71,7 @@ function normalizePlanStatus(status: string): PlanStep["status"] {
   const s = status?.toLowerCase();
   if (s === "completed" || s === "complete") return "completed";
   if (s === "in_progress") return "in_progress";
+  if (s === "input_required") return "input_required";
   if (s === "failed" || s === "error") return "failed";
   return "pending";
 }

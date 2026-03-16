@@ -13,7 +13,36 @@ export class TimelineManager {
   private currentThinkingId: string | null = null;
   private currentPlanStepId: string | null = null;
   private hasPlan = false;
-  private streamingFinalAnswer = false;
+
+  /**
+   * Seed the timeline with an existing plan (e.g. from a previous message).
+   * Used by HITL resume to carry a plan forward across form submissions.
+   * Also accepts tool/thinking segments that were nested under the plan.
+   */
+  seedFromPrevious(segments: TimelineSegment[]): void {
+    // Import the execution plan
+    const planSeg = segments.find((s) => s.type === "execution_plan");
+    if (planSeg) {
+      this.segments.push({ ...planSeg });
+      this.hasPlan = true;
+      const activeStep = planSeg.planSteps?.find((s) => s.status === "in_progress");
+      this.currentPlanStepId = activeStep ? activeStep.id : null;
+    }
+
+    // Import tool calls that are nested under plan steps
+    for (const seg of segments) {
+      if (seg.type === "tool_call" && seg.toolCall?.planStepId) {
+        this.segments.push({ ...seg });
+      }
+    }
+
+    // Import thinking segments nested under plan steps
+    for (const seg of segments) {
+      if (seg.type === "thinking" && seg.planStepId) {
+        this.segments.push({ ...seg });
+      }
+    }
+  }
 
   /** End the current thinking segment (set isStreaming=false, clear tracking). */
   endThinking(): void {
@@ -24,41 +53,8 @@ export class TimelineManager {
     }
   }
 
-  /** Check whether the currently active plan step is the last one in the plan. */
-  private isLastPlanStepActive(): boolean {
-    if (!this.hasPlan || !this.currentPlanStepId) return false;
-    const planSeg = this.segments.find((s) => s.type === "execution_plan");
-    const steps = planSeg?.planSteps;
-    if (!steps || steps.length === 0) return false;
-    const lastStep = steps[steps.length - 1];
-    return lastStep.id === this.currentPlanStepId && lastStep.status === "in_progress";
-  }
-
   /** Append to current thinking or create a new one. Tags with planStepId if post-plan. */
   pushThinking(content: string, eventNum: number): void {
-    // When the last plan step is active (or we already started streaming
-    // the final answer), route content to the final_answer segment.
-    // The streamingFinalAnswer flag ensures we keep routing here even after
-    // a plan status update marks all steps completed (clearing currentPlanStepId).
-    if (this.streamingFinalAnswer || this.isLastPlanStepActive()) {
-      this.streamingFinalAnswer = true;
-      this.endThinking();
-      const existing = this.segments.find((s) => s.type === "final_answer");
-      if (existing) {
-        existing.content = (existing.content || "") + content;
-        existing.isStreaming = true;
-      } else {
-        this.segments.push({
-          id: `answer-${eventNum}`,
-          type: "final_answer",
-          timestamp: new Date(),
-          content,
-          isStreaming: true,
-        });
-      }
-      return;
-    }
-
     if (this.currentThinkingId) {
       const seg = this.segments.find((s) => s.id === this.currentThinkingId);
       if (seg) {
@@ -84,16 +80,22 @@ export class TimelineManager {
     const existingIdx = this.segments.findIndex((s) => s.type === "execution_plan");
 
     if (existingIdx >= 0) {
-      // Merge: preserve completed/failed statuses from existing steps
+      // Merge incoming steps INTO the existing plan.
+      // Status updates only contain changed steps, not the full plan,
+      // so we must preserve all existing steps and apply updates by id.
       const existing = this.segments[existingIdx].planSteps || [];
-      const existingMap = new Map(existing.map((s) => [s.id, s]));
-      const merged = planSteps.map((s) => {
-        const old = existingMap.get(s.id);
-        if (old && (old.status === "completed" || old.status === "failed")) {
-          return { ...s, status: old.status };
-        }
+      const incomingMap = new Map(planSteps.map((s) => [s.id, s]));
+      const merged = existing.map((s) => {
+        const update = incomingMap.get(s.id);
+        if (update) return update;
         return s;
       });
+      // Append any new steps not already in the plan
+      for (const s of planSteps) {
+        if (!merged.some((m) => m.id === s.id)) {
+          merged.push(s);
+        }
+      }
       this.segments[existingIdx] = {
         ...this.segments[existingIdx],
         planSteps: merged,
@@ -110,11 +112,20 @@ export class TimelineManager {
     }
 
     // Track active plan step for nesting.
-    // Clear when no step is in_progress so the LLM's final answer
-    // (streamed as thinking) doesn't nest under the last completed step.
+    // Use the merged plan (not just incoming steps) to find the active step,
+    // since status updates only contain changed steps.
     this.hasPlan = true;
-    const activeStep = planSteps.find((s) => s.status === "in_progress");
+    const currentPlan = this.segments[existingIdx >= 0 ? existingIdx : this.segments.length - 1]?.planSteps || planSteps;
+    const activeStep = currentPlan.find((s) => s.status === "in_progress");
     this.currentPlanStepId = activeStep ? activeStep.id : null;
+  }
+
+  /** Mark the current in_progress plan step as input_required (waiting for user). */
+  markPlanInputRequired(): void {
+    if (!this.hasPlan || !this.currentPlanStepId) return;
+    const planSeg = this.segments.find((s) => s.type === "execution_plan");
+    const step = planSeg?.planSteps?.find((s) => s.id === this.currentPlanStepId);
+    if (step) step.status = "input_required";
   }
 
   /** Create a tool_call segment (status=running). Calls endThinking() first. */
@@ -150,33 +161,46 @@ export class TimelineManager {
     }
   }
 
-  /** Create or append to a final_answer segment. */
-  pushFinalAnswer(content: string, eventNum: number): void {
-    // The last thinking segment likely contains the same content that's now
-    // arriving as the final answer (the LLM streams answer text before
-    // final_result is emitted). Remove it to avoid duplication.
-    const lastThinkingIdx = this.currentThinkingId
-      ? this.segments.findIndex((s) => s.id === this.currentThinkingId)
-      : -1;
-    if (lastThinkingIdx >= 0) {
-      this.segments.splice(lastThinkingIdx, 1);
-      this.currentThinkingId = null;
-    } else {
-      this.endThinking();
-    }
-
-    // If a final_answer segment already exists (e.g. from streaming last-step
-    // thinking), replace its content with the authoritative final_result.
+  /**
+   * Create, append to, or replace a final_answer segment.
+   *
+   * @param authoritative When true (default), replaces any existing final_answer
+   *   content — used for the definitive final_result/partial_result artifact.
+   *   When false, appends to the existing segment — used for live-streaming
+   *   chunks tagged with is_final_answer by the backend.
+   */
+  pushFinalAnswer(content: string, eventNum: number, authoritative = true): void {
     const existing = this.segments.find((s) => s.type === "final_answer");
+
     if (existing) {
-      existing.content = content;
-      existing.isStreaming = false;
+      if (authoritative) {
+        // Authoritative final_result replaces whatever was streamed so far
+        existing.content = content;
+        existing.isStreaming = false;
+      } else {
+        // Streaming chunk — append
+        existing.content = (existing.content || "") + content;
+        existing.isStreaming = true;
+      }
     } else {
+      // First final_answer — remove the current thinking segment to avoid
+      // duplication (the LLM streams answer text before final_result is emitted).
+      const lastThinkingIdx = this.currentThinkingId
+        ? this.segments.findIndex((s) => s.id === this.currentThinkingId)
+        : -1;
+      if (lastThinkingIdx >= 0) {
+        this.segments.splice(lastThinkingIdx, 1);
+        this.currentThinkingId = null;
+      } else {
+        this.endThinking();
+      }
+
       this.segments.push({
         id: `answer-${eventNum}`,
         type: "final_answer",
         timestamp: new Date(),
         content,
+        isStreaming: !authoritative,
       });
     }
   }

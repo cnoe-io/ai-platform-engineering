@@ -83,6 +83,24 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
         # marks a step as in_progress). All tool notifications inherit this.
         self._current_plan_step_id: str | None = None
 
+    def _is_last_plan_step_active(self) -> bool:
+        """Check if the last plan step is currently in_progress.
+
+        TODO: This is a heuristic — it assumes the supervisor's streaming tokens
+        are the final answer when the last plan step is active. This can be wrong
+        if the LLM dynamically adds more steps after the "last" one. A more
+        reliable signal would be the LangGraph framework explicitly tagging the
+        supervisor's synthesis phase, but that isn't available today. Bring this
+        up with the deepagents/langgraph maintainers for a deterministic signal.
+        """
+        if not self._execution_plan_emitted or not self._latest_execution_plan:
+            return False
+        last_step = self._latest_execution_plan[-1]
+        return (
+            last_step.get('status') == 'in_progress'
+            and last_step.get('step_id') == self._current_plan_step_id
+        )
+
     # ─────────────────────────────────────────────────────────────────────────
     # Helper Methods
     # ─────────────────────────────────────────────────────────────────────────
@@ -423,11 +441,28 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                 elif part.get('data'):
                     artifact_parts.append(Part(root=DataPart(data=part['data'])))
 
+        existing_metadata = artifact_data.get('metadata', {})
+        source_agent = (
+            existing_metadata.get('sourceAgent') or
+            event.get('source_agent') or
+            state.current_agent or
+            'sub-agent'
+        )
+        meta = {
+            'sourceAgent': source_agent,
+            'agentType': 'sub-agent',
+            **existing_metadata,
+        }
+        # Propagate plan_step_id so the UI nests sub-agent tools under the plan step
+        if 'plan_step_id' not in meta and self._current_plan_step_id:
+            meta['plan_step_id'] = self._current_plan_step_id
+
         artifact = Artifact(
             artifactId=artifact_data.get('artifactId'),
             name=artifact_name,
             description=artifact_data.get('description', 'From sub-agent'),
-            parts=artifact_parts
+            parts=artifact_parts,
+            metadata=meta,
         )
 
         # Track artifact ID for append logic
@@ -551,6 +586,14 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
             )
             artifact.artifact_id = state.streaming_artifact_id
             use_append = True
+
+        # Tag streaming chunks as final answer when the last plan step is active.
+        # This lets the UI stream the answer live below the plan instead of
+        # waiting for the final_result artifact.
+        if not is_tool_notification and self._is_last_plan_step_active():
+            if artifact.metadata is None:
+                artifact.metadata = {}
+            artifact.metadata['is_final_answer'] = True
 
         await self._send_artifact(event_queue, task, artifact, append=use_append)
 
@@ -804,12 +847,28 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                         use_append = state.first_artifact_sent
                         if not state.first_artifact_sent:
                             state.first_artifact_sent = True
+
+                        # Propagate plan_step_id to sub-agent artifacts so
+                        # the UI can nest them under the correct plan step.
+                        artifact = event.artifact
+                        if artifact and self._current_plan_step_id:
+                            meta = dict(artifact.metadata or {})
+                            if 'plan_step_id' not in meta:
+                                meta['plan_step_id'] = self._current_plan_step_id
+                                artifact = Artifact(
+                                    artifactId=artifact.artifactId,
+                                    name=artifact.name,
+                                    description=artifact.description,
+                                    parts=artifact.parts,
+                                    metadata=meta,
+                                )
+
                         transformed = TaskArtifactUpdateEvent(
                             append=use_append,
                             context_id=event.context_id,
                             task_id=task.id,
                             lastChunk=event.lastChunk,
-                            artifact=event.artifact
+                            artifact=artifact,
                         )
                         await self._safe_enqueue_event(event_queue, transformed)
                     else:

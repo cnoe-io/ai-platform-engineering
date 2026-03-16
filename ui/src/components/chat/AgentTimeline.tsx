@@ -12,6 +12,7 @@ import {
   ListTodo,
   Wrench,
   MessageSquareText,
+  PauseCircle,
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -480,6 +481,7 @@ function PlanSegment({
                       step.status === "completed" &&
                         "text-muted-foreground line-through opacity-60",
                       step.status === "in_progress" && "text-foreground font-medium",
+                      step.status === "input_required" && "text-amber-400 font-medium",
                       step.status === "pending" && "text-foreground/70",
                     )}
                   >
@@ -511,6 +513,8 @@ function StepStatusIcon({ status }: { status: PlanStep["status"] }) {
       return <CheckCircle className="h-3.5 w-3.5 text-emerald-500 shrink-0" />;
     case "in_progress":
       return <Loader2 className="h-3.5 w-3.5 text-sky-400 animate-spin shrink-0" />;
+    case "input_required":
+      return <PauseCircle className="h-3.5 w-3.5 text-amber-400 shrink-0" />;
     case "failed":
       return <XCircle className="h-3.5 w-3.5 text-red-500 shrink-0" />;
     default:

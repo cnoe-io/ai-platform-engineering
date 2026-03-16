@@ -574,10 +574,20 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
           timeline.completeToolByName(toolName);
         } else if (
           artifactName === "final_result" ||
-          artifactName === "partial_result" ||
-          artifactName === "complete_result"
+          artifactName === "partial_result"
         ) {
-          if (newContent) timeline.pushFinalAnswer(newContent, eventNum);
+          // final_result = supervisor's authoritative answer (from ResponseFormat tool)
+          // partial_result = fallback final answer (stream ended without explicit completion)
+          // Both represent the final answer. complete_result is a sub-agent result
+          // that streams inline under plan steps as thinking — NOT the final answer.
+          if (newContent) {
+            timeline.pushFinalAnswer(newContent, eventNum);
+          }
+        } else if (artifactName === "complete_result") {
+          // Sub-agent complete_result streams inline as thinking under the plan step
+          if (newContent) {
+            timeline.pushThinking(newContent, eventNum);
+          }
         } else if (
           newContent &&
           !isImportantArtifact &&
@@ -585,7 +595,14 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
           artifactName !== "tool_notification_start" &&
           artifactName !== "tool_notification_end"
         ) {
-          timeline.pushThinking(newContent, eventNum);
+          // Check if the backend tagged this streaming chunk as the final answer
+          // (last plan step is active — supervisor is synthesizing)
+          const isFinalAnswer = (event.raw as any)?.artifact?.metadata?.is_final_answer === true;
+          if (isFinalAnswer) {
+            timeline.pushFinalAnswer(newContent, eventNum, false);
+          } else {
+            timeline.pushThinking(newContent, eventNum);
+          }
         }
 
         // Flush timeline segments to store immediately for important artifacts
@@ -608,6 +625,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
           if (metadata.input_fields && metadata.input_fields.length > 0) {
             console.log(`[ChatPanel] 📝 Form has ${metadata.input_fields.length} fields:`, metadata.input_fields.map(f => f.field_name));
             hitlFormRequested = true;
+            timeline.markPlanInputRequired();
             setPendingUserInput({
               messageId: assistantMsgId,
               metadata,
@@ -615,7 +633,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
             });
             if (metadata.response) {
               accumulatedText = metadata.response;
-              updateMessage(convId!, assistantMsgId, { content: accumulatedText });
+              updateMessage(convId!, assistantMsgId, { content: accumulatedText, timelineSegments: timeline.getSegments() });
             }
           }
         }
@@ -640,6 +658,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
           }));
 
           hitlFormRequested = true;
+          timeline.markPlanInputRequired();
           setPendingUserInput({
             messageId: assistantMsgId,
             metadata: {
@@ -656,7 +675,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
           // Update message content with the prompt
           if (prompt) {
             accumulatedText = prompt;
-            updateMessage(convId!, assistantMsgId, { content: accumulatedText });
+            updateMessage(convId!, assistantMsgId, { content: accumulatedText, timelineSegments: timeline.getSegments() });
           }
         }
 
@@ -955,13 +974,15 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
     const assistantMsgId = addMessage(activeConversationId, { role: "assistant", content: "" }, turnId);
 
     const contextId = pendingUserInput.contextId || activeConversationId;
-    dismissedInputForMessageRef.current.add(pendingUserInput.messageId);
+    const prevMessageId = pendingUserInput.messageId;
+    const inputFields = pendingUserInput.metadata.input_fields || [];
+    dismissedInputForMessageRef.current.add(prevMessageId);
     setPendingUserInput(null);
 
     const client = new A2ASDKClient({ endpoint, accessToken });
 
     // Build HITL decision with form values for the backend executor's resume handler
-    const inputFieldsWithValues = (pendingUserInput.metadata.input_fields || []).map(field => ({
+    const inputFieldsWithValues = inputFields.map(field => ({
       ...field,
       value: formData[field.field_name] || '',
     }));
@@ -988,14 +1009,89 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
     let eventCounter = 0;
     let hasReceivedCompleteResult = false;
 
+    // Timeline manager — seed with previous message's plan for continuity
+    const timeline = new TimelineManager();
+    const prevMsg = useChatStore.getState().conversations
+      .find((c) => c.id === activeConversationId)?.messages
+      .find((m) => m.id === prevMessageId);
+    if (prevMsg?.timelineSegments) {
+      timeline.seedFromPrevious(prevMsg.timelineSegments);
+      // Remove plan + nested segments from the old message (it moved forward)
+      const planStepIds = new Set(
+        prevMsg.timelineSegments.find((s) => s.type === "execution_plan")?.planSteps?.map((s) => s.id) || [],
+      );
+      const keptSegments = prevMsg.timelineSegments.filter((s) => {
+        if (s.type === "execution_plan") return false;
+        if (s.type === "tool_call" && s.toolCall?.planStepId && planStepIds.has(s.toolCall.planStepId)) return false;
+        if (s.type === "thinking" && s.planStepId && planStepIds.has(s.planStepId)) return false;
+        return true;
+      });
+      updateMessage(activeConversationId, prevMessageId, { timelineSegments: keptSegments });
+    }
+
     try {
       for await (const event of client.sendHITLResponse(contextId, [decision])) {
         eventCounter++;
+        const eventNum = eventCounter;
         const artifactName = event.artifactName || "";
         const newContent = event.displayContent;
 
-        const storeEvent = toStoreEvent(event, `event-${eventCounter}-${Date.now()}`);
+        const storeEvent = toStoreEvent(event, `event-${eventNum}-${Date.now()}`);
         addA2AEvent(storeEvent as Parameters<typeof addA2AEvent>[0], activeConversationId);
+
+        // ── Build timeline segments (mirrors main streaming loop) ──
+        if (artifactName === "execution_plan_update" || artifactName === "execution_plan_status_update") {
+          const rawArtifact = (event.raw as any)?.artifact;
+          let planSteps: PlanStep[] = [];
+          if (rawArtifact?.parts) {
+            for (const part of rawArtifact.parts) {
+              if (part.kind === "data" && part.data) {
+                planSteps = parsePlanStepsFromData(part.data);
+                if (planSteps.length > 0) break;
+              }
+            }
+          }
+          if (planSteps.length > 0) timeline.pushPlan(planSteps, eventNum);
+        } else if (artifactName === "tool_notification_start") {
+          const rawArtifact = (event.raw as any)?.artifact;
+          const toolInfo = rawArtifact ? parseToolFromArtifact({
+            artifactId: rawArtifact.artifactId || "",
+            name: rawArtifact.name || "",
+            description: rawArtifact.description || "",
+            parts: rawArtifact.parts || [],
+            metadata: rawArtifact.metadata,
+          }) : null;
+          if (toolInfo) timeline.pushToolStart(toolInfo, eventNum);
+        } else if (artifactName === "tool_notification_end") {
+          const rawArtifact = (event.raw as any)?.artifact;
+          const description = rawArtifact?.description || "";
+          const descMatch = description.match(/Tool call (?:completed|started):\s*(.+)/i);
+          const toolName = descMatch ? descMatch[1].trim() : "";
+          timeline.completeToolByName(toolName);
+        } else if (
+          artifactName === "final_result" ||
+          artifactName === "partial_result"
+        ) {
+          if (newContent) {
+            timeline.pushFinalAnswer(newContent, eventNum);
+          }
+        } else if (artifactName === "complete_result") {
+          if (newContent) {
+            timeline.pushThinking(newContent, eventNum);
+          }
+        } else if (
+          newContent &&
+          (event.type === "message" || event.type === "artifact") &&
+          artifactName !== "tool_notification_start" &&
+          artifactName !== "tool_notification_end"
+        ) {
+          const isFinalAnswer = (event.raw as any)?.artifact?.metadata?.is_final_answer === true;
+          if (isFinalAnswer) {
+            timeline.pushFinalAnswer(newContent, eventNum, false);
+          } else {
+            timeline.pushThinking(newContent, eventNum);
+          }
+        }
 
         if (artifactName === "partial_result" || artifactName === "final_result" || artifactName === "complete_result") {
           if (newContent) {
@@ -1006,6 +1102,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
               content: accumulatedText,
               rawStreamContent,
               isFinal: true,
+              timelineSegments: timeline.getSegments(),
             });
           } else if (accumulatedText.length > 0) {
             rawStreamContent += `\n\n[${artifactName}] (using accumulated content)`;
@@ -1014,6 +1111,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
               content: accumulatedText,
               rawStreamContent,
               isFinal: true,
+              timelineSegments: timeline.getSegments(),
             });
           }
         }
@@ -1026,7 +1124,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
         if (!newContent) continue;
 
         // Skip tool notifications and execution plans from chat text —
-        // they are shown in the Tasks panel via A2A events
+        // they are shown in the timeline via TimelineManager
         const isToolOrPlanArtifact =
           artifactName === "tool_notification_start" ||
           artifactName === "tool_notification_end" ||
@@ -1034,6 +1132,12 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
           artifactName === "execution_plan_status_update";
 
         if (isToolOrPlanArtifact) {
+          // Still flush timeline segments so the UI renders plan/tool updates
+          updateMessage(activeConversationId, assistantMsgId, {
+            content: accumulatedText,
+            rawStreamContent,
+            timelineSegments: timeline.getSegments(),
+          });
           continue;
         }
 
@@ -1045,8 +1149,16 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
           accumulatedText += newContent;
         }
         rawStreamContent += newContent;
-        updateMessage(activeConversationId, assistantMsgId, { content: accumulatedText, rawStreamContent });
+        updateMessage(activeConversationId, assistantMsgId, {
+          content: accumulatedText,
+          rawStreamContent,
+          timelineSegments: timeline.getSegments(),
+        });
       }
+
+      // Finalize timeline
+      timeline.finalize();
+      const finalSegments = timeline.getSegments();
 
       if (!hasReceivedCompleteResult) {
         if (accumulatedText.length > 0) {
@@ -1055,13 +1167,14 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
             content: accumulatedText,
             rawStreamContent,
             isFinal: true,
+            timelineSegments: finalSegments,
           });
         } else {
           console.log(`[ChatPanel] HITL: stream ended with no content`);
-          updateMessage(activeConversationId, assistantMsgId, { rawStreamContent, isFinal: true });
+          updateMessage(activeConversationId, assistantMsgId, { rawStreamContent, isFinal: true, timelineSegments: finalSegments });
         }
       } else {
-        updateMessage(activeConversationId, assistantMsgId, { rawStreamContent });
+        updateMessage(activeConversationId, assistantMsgId, { rawStreamContent, timelineSegments: finalSegments });
       }
       setConversationStreaming(activeConversationId, null);
     } catch (error) {
@@ -1086,7 +1199,8 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
     addMessage(activeConversationId, { role: "user", content: selectionSummary || "Form submitted." }, turnId);
     const assistantMsgId = addMessage(activeConversationId, { role: "assistant", content: "" }, turnId);
 
-    dismissedInputForMessageRef.current.add(pendingUserInput.messageId);
+    const prevMessageId = pendingUserInput.messageId;
+    dismissedInputForMessageRef.current.add(prevMessageId);
     const agentId = pendingUserInput.agentId;
     setPendingUserInput(null);
 
@@ -1111,9 +1225,29 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
     let hasReceivedCompleteResult = false;
     let hitlFormRequested = false;
 
+    // Timeline manager — seed with previous message's plan for continuity
+    const timeline = new TimelineManager();
+    const prevMsgSSE = useChatStore.getState().conversations
+      .find((c) => c.id === activeConversationId)?.messages
+      .find((m) => m.id === prevMessageId);
+    if (prevMsgSSE?.timelineSegments) {
+      timeline.seedFromPrevious(prevMsgSSE.timelineSegments);
+      const planStepIds = new Set(
+        prevMsgSSE.timelineSegments.find((s) => s.type === "execution_plan")?.planSteps?.map((s) => s.id) || [],
+      );
+      const keptSegments = prevMsgSSE.timelineSegments.filter((s) => {
+        if (s.type === "execution_plan") return false;
+        if (s.type === "tool_call" && s.toolCall?.planStepId && planStepIds.has(s.toolCall.planStepId)) return false;
+        if (s.type === "thinking" && s.planStepId && planStepIds.has(s.planStepId)) return false;
+        return true;
+      });
+      updateMessage(activeConversationId, prevMessageId, { timelineSegments: keptSegments });
+    }
+
     try {
       for await (const event of dynClient.resumeStream(activeConversationId, agentId, formDataJson)) {
         eventCounter++;
+        const eventNum = eventCounter;
         const sseEvent = event as SSEAgentEvent;
 
         // Buffer event for store
@@ -1123,7 +1257,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
         if (sseEvent.type === "input_required" && sseEvent.inputRequiredData) {
           console.log(`[ChatPanel] 📝 SSE Additional input required:`, sseEvent.inputRequiredData);
           const { prompt, fields } = sseEvent.inputRequiredData;
-          
+
           const inputFields: InputField[] = fields.map(f => ({
             field_name: f.field_name,
             field_label: f.field_label,
@@ -1136,6 +1270,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
           }));
 
           hitlFormRequested = true;
+          timeline.markPlanInputRequired();
           setPendingUserInput({
             messageId: assistantMsgId,
             metadata: {
@@ -1151,7 +1286,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
 
           if (prompt) {
             accumulatedText = prompt;
-            updateMessage(activeConversationId, assistantMsgId, { content: accumulatedText });
+            updateMessage(activeConversationId, assistantMsgId, { content: accumulatedText, timelineSegments: timeline.getSegments() });
           }
           break; // Stream pauses for user input
         }
@@ -1161,18 +1296,25 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
           accumulatedText = sseEvent.content;
           rawStreamContent += `\n\n[final_result]\n${sseEvent.content}`;
           hasReceivedCompleteResult = true;
+          timeline.pushFinalAnswer(sseEvent.content, eventNum);
           updateMessage(activeConversationId, assistantMsgId, {
             content: accumulatedText,
             rawStreamContent,
             isFinal: true,
+            timelineSegments: timeline.getSegments(),
           });
         }
 
-        // Handle content tokens
+        // Handle content tokens — route through timeline as thinking
         if (sseEvent.type === "content" && sseEvent.content) {
           accumulatedText += sseEvent.content;
           rawStreamContent += sseEvent.content;
-          updateMessage(activeConversationId, assistantMsgId, { content: accumulatedText, rawStreamContent });
+          timeline.pushThinking(sseEvent.content, eventNum);
+          updateMessage(activeConversationId, assistantMsgId, {
+            content: accumulatedText,
+            rawStreamContent,
+            timelineSegments: timeline.getSegments(),
+          });
         }
 
         // Handle errors
@@ -1184,6 +1326,10 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
         }
       }
 
+      // Finalize timeline
+      timeline.finalize();
+      const finalSegments = timeline.getSegments();
+
       if (!hitlFormRequested && !hasReceivedCompleteResult) {
         if (accumulatedText.length > 0) {
           console.log(`[ChatPanel] SSE HITL resume: no final_result - using accumulated content (${accumulatedText.length} chars)`);
@@ -1191,10 +1337,11 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
             content: accumulatedText,
             rawStreamContent,
             isFinal: true,
+            timelineSegments: finalSegments,
           });
         } else {
           console.log(`[ChatPanel] SSE HITL resume: stream ended with no content`);
-          updateMessage(activeConversationId, assistantMsgId, { rawStreamContent, isFinal: true });
+          updateMessage(activeConversationId, assistantMsgId, { rawStreamContent, isFinal: true, timelineSegments: finalSegments });
         }
       }
       setConversationStreaming(activeConversationId, null);

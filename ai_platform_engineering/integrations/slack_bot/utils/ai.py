@@ -34,7 +34,7 @@ class StreamBuffer:
     or *flush()* is called explicitly (e.g. before a plan-update or tool event).
     """
 
-    def __init__(self, slack_client, channel_id, stream_ts, flush_interval=0.25):
+    def __init__(self, slack_client, channel_id, stream_ts, flush_interval=0.5):
         self.slack_client = slack_client
         self.channel_id = channel_id
         self.stream_ts = stream_ts

@@ -224,7 +224,7 @@ export interface PlanStep {
   id: string;
   agent: string;
   description: string;
-  status: "pending" | "in_progress" | "completed" | "failed";
+  status: "pending" | "in_progress" | "completed" | "failed" | "input_required";
 }
 
 export interface TimelineSegment {
