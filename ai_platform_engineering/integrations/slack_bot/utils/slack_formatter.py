@@ -51,10 +51,78 @@ def split_text_into_blocks(text: str, max_length: int = 3000) -> List[str]:
     return chunks
 
 
+def _convert_markdown_tables(text: str) -> str:
+    """Convert markdown tables to a Slack-friendly format.
+
+    Markdown tables (``| col | col |``) are not rendered by Slack.
+    This converts them into labelled rows that read naturally.
+    """
+    import re
+
+    lines = text.split("\n")
+    result = []
+    i = 0
+
+    while i < len(lines):
+        line = lines[i].strip()
+
+        if "|" in line and line.startswith("|") and line.endswith("|"):
+            header_cells = [c.strip() for c in line.strip("|").split("|")]
+
+            separator_idx = i + 1
+            if separator_idx < len(lines):
+                sep_line = lines[separator_idx].strip()
+                is_separator = (
+                    sep_line.startswith("|")
+                    and all(
+                        c in "-|: " for c in sep_line
+                    )
+                )
+            else:
+                is_separator = False
+
+            if is_separator:
+                data_start = separator_idx + 1
+            else:
+                data_start = i + 1
+
+            rows = []
+            j = data_start
+            while j < len(lines):
+                row_line = lines[j].strip()
+                if row_line.startswith("|") and row_line.endswith("|"):
+                    cells = [c.strip() for c in row_line.strip("|").split("|")]
+                    rows.append(cells)
+                    j += 1
+                else:
+                    break
+
+            if rows:
+                for row in rows:
+                    parts = []
+                    for col_idx, cell in enumerate(row):
+                        if not cell:
+                            continue
+                        if col_idx < len(header_cells) and header_cells[col_idx]:
+                            parts.append(f"*{header_cells[col_idx]}:* {cell}")
+                        else:
+                            parts.append(cell)
+                    result.append(" | ".join(parts))
+                result.append("")
+                i = j
+                continue
+
+        result.append(lines[i])
+        i += 1
+
+    return "\n".join(result)
+
+
 def convert_markdown_to_slack(text: str) -> str:
     """Convert markdown formatting to Slack mrkdwn format."""
     from markdown_to_mrkdwn import SlackMarkdownConverter
 
+    text = _convert_markdown_tables(text)
     converter = SlackMarkdownConverter()
     return converter.convert(text)
 
@@ -203,3 +271,59 @@ def format_execution_plan_from_steps(steps: List[Dict[str, Any]]) -> str:
             description=step.get("description"),
         )
     return format_execution_plan(plan)
+
+
+_AGENT_DISPLAY_NAMES = {
+    "github": "GitHub",
+    "jira": "Jira",
+    "argocd": "ArgoCD",
+    "pagerduty": "PagerDuty",
+    "splunk": "Splunk",
+    "backstage": "Backstage",
+    "confluence": "Confluence",
+    "komodor": "Komodor",
+    "slack": "Slack",
+    "webex": "Webex",
+    "aws": "AWS",
+    "aigateway": "AI Gateway",
+    "weather": "Weather",
+    "rag": "Knowledge Base",
+}
+
+
+def format_tool_display_name(raw_name: str) -> str:
+    """Format a raw tool/agent name into a human-friendly display name.
+
+    Examples: 'call_github_agent' -> 'GitHub', 'search' -> 'Search'
+    """
+    if not raw_name:
+        return "Agent"
+
+    cleaned = raw_name.lower()
+    for prefix in ("call_", "agent_", "tool_"):
+        cleaned = cleaned.removeprefix(prefix)
+    for suffix in ("_agent", "_tool", "_mcp"):
+        cleaned = cleaned.removesuffix(suffix)
+
+    if cleaned in _AGENT_DISPLAY_NAMES:
+        return _AGENT_DISPLAY_NAMES[cleaned]
+
+    return cleaned.replace("_", " ").title()
+
+
+def to_slack_task_status(internal_status: str) -> str:
+    """Map internal/A2A status strings to Slack task_update status values.
+
+    Slack accepts: 'pending', 'in_progress', 'complete', 'error'
+    """
+    mapping = {
+        "pending": "pending",
+        "running": "in_progress",
+        "in_progress": "in_progress",
+        "completed": "complete",
+        "complete": "complete",
+        "done": "complete",
+        "failed": "error",
+        "error": "error",
+    }
+    return mapping.get(internal_status.lower(), "pending")

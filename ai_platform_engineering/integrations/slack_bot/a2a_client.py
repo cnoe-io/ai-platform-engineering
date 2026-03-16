@@ -129,6 +129,7 @@ class A2AClient:
         self.channel_id = channel_id
         self.auth_client = auth_client
         self.request_id_counter = 1
+        self._current_response = None
 
     def _get_next_request_id(self) -> int:
         """Get next request ID for JSON-RPC"""
@@ -205,59 +206,73 @@ class A2AClient:
                 f"HTTP error {response.status_code} from {self.base_url}: {error_detail}"
             )
 
+        self._current_response = response
+
         # Parse SSE stream
         buffer = ""
         event_data_buffer = ""
 
-        for chunk in response.iter_content(chunk_size=None, decode_unicode=True):
-            if chunk:
-                buffer += chunk
+        try:
+            for chunk in response.iter_content(chunk_size=None, decode_unicode=True):
+                if chunk:
+                    buffer += chunk
 
-                # Process complete lines
-                while "\n" in buffer:
-                    line_end = buffer.index("\n")
-                    line = buffer[:line_end].strip()
-                    buffer = buffer[line_end + 1 :]
+                    # Process complete lines
+                    while "\n" in buffer:
+                        line_end = buffer.index("\n")
+                        line = buffer[:line_end].strip()
+                        buffer = buffer[line_end + 1 :]
 
-                    if line == "":
-                        # Empty line = end of event
-                        if event_data_buffer:
-                            try:
-                                # Parse the accumulated SSE event data
-                                event_json = json.loads(event_data_buffer)
+                        if line == "":
+                            # Empty line = end of event
+                            if event_data_buffer:
+                                try:
+                                    # Parse the accumulated SSE event data
+                                    event_json = json.loads(event_data_buffer)
 
-                                # Check for JSON-RPC error
-                                if "error" in event_json:
-                                    error = event_json["error"]
-                                    raise Exception(
-                                        f"A2A Error: {error.get('message', 'Unknown error')} "
-                                        f"(Code: {error.get('code', 'unknown')})"
-                                    )
+                                    # Check for JSON-RPC error
+                                    if "error" in event_json:
+                                        error = event_json["error"]
+                                        raise Exception(
+                                            f"A2A Error: {error.get('message', 'Unknown error')} "
+                                            f"(Code: {error.get('code', 'unknown')})"
+                                        )
 
-                                # Extract and yield the result
-                                if "result" in event_json:
-                                    yield event_json["result"]
+                                    # Extract and yield the result
+                                    if "result" in event_json:
+                                        yield event_json["result"]
 
-                            except json.JSONDecodeError as e:
-                                print(f"Error parsing SSE event data: {e}")
-                                print(f"Data: {event_data_buffer}")
-                            finally:
-                                event_data_buffer = ""
+                                except json.JSONDecodeError as e:
+                                    print(f"Error parsing SSE event data: {e}")
+                                    print(f"Data: {event_data_buffer}")
+                                finally:
+                                    event_data_buffer = ""
 
-                    elif line.startswith("data:"):
-                        # Accumulate data lines
-                        event_data_buffer += line[5:].strip()
-                    elif line.startswith(":"):
-                        # Comment line, ignore
-                        pass
+                        elif line.startswith("data:"):
+                            # Accumulate data lines
+                            event_data_buffer += line[5:].strip()
+                        elif line.startswith(":"):
+                            # Comment line, ignore
+                            pass
 
-        # Process any remaining buffered data
-        if event_data_buffer:
+            # Process any remaining buffered data
+            if event_data_buffer:
+                try:
+                    event_json = json.loads(event_data_buffer)
+                    if "result" in event_json:
+                        yield event_json["result"]
+                except json.JSONDecodeError:
+                    pass
+        finally:
+            self._current_response = None
+
+    def close_stream(self):
+        """Close the active SSE response, unblocking send_message_stream()."""
+        resp = self._current_response
+        if resp:
             try:
-                event_json = json.loads(event_data_buffer)
-                if "result" in event_json:
-                    yield event_json["result"]
-            except json.JSONDecodeError:
+                resp.close()
+            except Exception:
                 pass
 
     def get_agent_card(self) -> Dict[str, Any]:

@@ -18,9 +18,10 @@ from loguru import logger
 from utils.config import config
 from utils import utils
 from utils import ai
+from utils import active_streams
 from utils import slack_context
 from utils import slack_formatter
-from utils.hitl_handler import HITLCallbackHandler
+from utils.hitl_handler import HITLCallbackHandler, get_pending_form, format_hitl_modal_view
 
 from a2a_client import A2AClient
 from utils.session_manager import SessionManager
@@ -226,6 +227,7 @@ def handle_qanda_message(event, say, client):
         thread_ts = event.get("ts")
         user_id = event.get("user")
         team_id = event.get("team")
+
         message_text = slack_context.extract_message_text(event)
 
         user_name, user_email = utils.get_message_author_info(event, client)
@@ -293,6 +295,7 @@ def handle_dm_message(event, say, client):
 
         thread_ts = event.get("thread_ts") or event.get("ts")
         user_id = event.get("user")
+
         message_text = slack_context.extract_message_text(event)
 
         user_name, user_email = utils.get_message_author_info(event, client)
@@ -489,6 +492,104 @@ def handle_hitl_action(ack, body, client):
             logger.info(f"HITL action processed: {result}")
     except Exception as e:
         logger.exception(f"Error handling HITL action: {e}")
+
+
+# =============================================================================
+# HITL Modal: Open Form button -> opens modal with input fields
+# =============================================================================
+@app.action("hitl_open_form")
+def handle_hitl_open_form(ack, body, client):
+    """Open a modal form when the user clicks the 'Open Form' button."""
+    ack()
+    try:
+        form_id = body.get("actions", [{}])[0].get("value")
+        if not form_id:
+            return
+
+        form = get_pending_form(form_id)
+        if not form:
+            logger.warning(f"Pending form not found: {form_id}")
+            user_id = body.get("user", {}).get("id")
+            channel_id = body.get("channel", {}).get("id")
+            if user_id and channel_id:
+                client.chat_postEphemeral(
+                    channel=channel_id,
+                    user=user_id,
+                    text="This form has expired. Please ask again to get a new form.",
+                )
+            return
+
+        channel_id = body.get("channel", {}).get("id")
+        message = body.get("message", {})
+        thread_ts = message.get("thread_ts") or message.get("ts")
+        button_message_ts = message.get("ts")
+
+        view = format_hitl_modal_view(
+            form,
+            channel_id=channel_id,
+            thread_ts=thread_ts,
+            button_message_ts=button_message_ts,
+        )
+        client.views_open(trigger_id=body["trigger_id"], view=view)
+
+    except Exception as e:
+        logger.exception(f"Error opening HITL modal: {e}")
+
+
+# =============================================================================
+# HITL Modal: view_submission handler
+# =============================================================================
+@app.view("hitl_form_modal")
+def handle_hitl_modal_submission(ack, body, client, view):
+    """Handle submission of a HITL modal form and stream the continuation."""
+    ack()
+    try:
+        result = hitl_handler.handle_modal_submission(body, client)
+        if not result:
+            return
+
+        channel_id = result["channel_id"]
+        thread_ts = result["thread_ts"]
+        context_id = result["context_id"]
+        response_message = result["response_message"]
+        user_id = body.get("user", {}).get("id")
+        team_id = body.get("team", {}).get("id")
+
+        ai.stream_a2a_response(
+            a2a_client=a2a_client,
+            slack_client=client,
+            channel_id=channel_id,
+            thread_ts=thread_ts,
+            message_text=response_message,
+            team_id=team_id,
+            user_id=user_id,
+            context_id=context_id,
+            session_manager=session_manager,
+        )
+    except Exception as e:
+        logger.exception(f"Error handling HITL modal submission: {e}")
+
+
+# =============================================================================
+# Stop / Cancel Active Stream
+# =============================================================================
+@app.action("caipe_stop")
+def handle_caipe_stop(ack, body, client):
+    """Handle the 'Stop generating' button click."""
+    ack()
+    try:
+        thread_ts = (body.get("actions", [{}])[0]).get("value")
+        if not thread_ts:
+            return
+
+        user_id = body.get("user", {}).get("id")
+        logger.info(f"[{thread_ts}] Stop requested by <@{user_id}>")
+
+        cancelled = active_streams.cancel(thread_ts)
+        if not cancelled:
+            logger.info(f"[{thread_ts}] No active stream to cancel (already finished)")
+    except Exception as e:
+        logger.exception(f"Error handling stop action: {e}")
 
 
 # =============================================================================
