@@ -888,5 +888,85 @@ class TestGetArtifactNameForNotification(unittest.TestCase):
         self.assertEqual(name, 'tool_notification_start')
 
 
+# ===================================================================
+# _is_last_plan_step_active + is_final_answer metadata Tests
+# ===================================================================
+
+class TestIsFinalAnswerTagging(unittest.IsolatedAsyncioTestCase):
+    """Verify _is_last_plan_step_active heuristic and is_final_answer metadata on streaming artifacts.
+
+    TODO: This is a heuristic — it assumes the supervisor's streaming tokens
+    are the final answer when the last plan step is active. This can be wrong
+    if the LLM dynamically adds more steps after the "last" one. A more
+    reliable signal would be the LangGraph framework explicitly tagging the
+    supervisor's synthesis phase, but that isn't available today. Bring this
+    up with the deepagents/langgraph maintainers for a deterministic signal.
+    """
+
+    def test_last_plan_step_active_returns_true(self):
+        executor = _make_executor()
+        executor._execution_plan_emitted = True
+        executor._latest_execution_plan = [
+            {'step_id': 's1', 'status': 'completed'},
+            {'step_id': 's2', 'status': 'completed'},
+            {'step_id': 's3', 'status': 'in_progress'},
+        ]
+        executor._current_plan_step_id = 's3'
+        self.assertTrue(executor._is_last_plan_step_active())
+
+    def test_intermediate_step_active_returns_false(self):
+        executor = _make_executor()
+        executor._execution_plan_emitted = True
+        executor._latest_execution_plan = [
+            {'step_id': 's1', 'status': 'completed'},
+            {'step_id': 's2', 'status': 'in_progress'},
+            {'step_id': 's3', 'status': 'pending'},
+        ]
+        executor._current_plan_step_id = 's2'
+        self.assertFalse(executor._is_last_plan_step_active())
+
+    def test_no_plan_returns_false(self):
+        executor = _make_executor()
+        self.assertFalse(executor._is_last_plan_step_active())
+
+    async def test_streaming_chunk_tagged_as_final_answer_when_last_step_active(self):
+        executor = _make_executor()
+        executor._execution_plan_emitted = True
+        executor._latest_execution_plan = [
+            {'step_id': 's1', 'status': 'completed'},
+            {'step_id': 's2', 'status': 'in_progress'},
+        ]
+        executor._current_plan_step_id = 's2'
+
+        state = StreamState()
+        task = _make_task()
+        eq = _make_event_queue()
+
+        await executor._handle_streaming_chunk({}, state, 'Final synthesis text', task, eq)
+
+        event_sent = executor._safe_enqueue_event.call_args[0][1]
+        artifact = event_sent.artifact
+        self.assertTrue(artifact.metadata.get('is_final_answer'))
+
+    async def test_streaming_chunk_not_tagged_when_intermediate_step(self):
+        executor = _make_executor()
+        executor._execution_plan_emitted = True
+        executor._latest_execution_plan = [
+            {'step_id': 's1', 'status': 'in_progress'},
+            {'step_id': 's2', 'status': 'pending'},
+        ]
+        executor._current_plan_step_id = 's1'
+
+        state = StreamState()
+        task = _make_task()
+        eq = _make_event_queue()
+
+        await executor._handle_streaming_chunk({}, state, 'Intermediate narration', task, eq)
+
+        event_sent = executor._safe_enqueue_event.call_args[0][1]
+        artifact = event_sent.artifact
+        self.assertNotIn('is_final_answer', artifact.metadata)
+
+
 if __name__ == '__main__':
     unittest.main()
