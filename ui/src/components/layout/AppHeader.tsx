@@ -273,6 +273,22 @@ export function AppHeader() {
               Knowledge Bases
             </GuardedLink>
           )}
+          {/* Dynamic Agents tab - admin only */}
+          {isAdmin && storageMode === 'mongodb' && config.dynamicAgentsEnabled && (
+            <GuardedLink
+              href="/dynamic-agents"
+              prefetch={true}
+              className={cn(
+                "flex items-center gap-1.5 px-4 py-1.5 rounded-full text-sm font-medium transition-all",
+                activeTab === "dynamic-agents"
+                  ? "bg-purple-500 text-white shadow-sm"
+                  : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              <Bot className="h-3.5 w-3.5" />
+              Custom Agents
+            </GuardedLink>
+          )}
           {/* Admin tab - visible to all authenticated users (readonly), admins get full access */}
           {canViewAdmin && (
             <TooltipProvider delayDuration={300}>
@@ -315,22 +331,6 @@ export function AppHeader() {
                 )}
               </Tooltip>
             </TooltipProvider>
-          )}
-          {/* Dynamic Agents tab - admin only */}
-          {isAdmin && storageMode === 'mongodb' && (
-            <GuardedLink
-              href="/dynamic-agents"
-              prefetch={true}
-              className={cn(
-                "flex items-center gap-1.5 px-4 py-1.5 rounded-full text-sm font-medium transition-all",
-                activeTab === "dynamic-agents"
-                  ? "bg-purple-500 text-white shadow-sm"
-                  : "text-muted-foreground hover:text-foreground"
-              )}
-            >
-              <Bot className="h-3.5 w-3.5" />
-              Custom Agents
-            </GuardedLink>
           )}
         </div>
       </div>
