@@ -11,6 +11,7 @@ This module handles all interactions with the CAIPE supervisor, including:
 """
 
 import os
+import time
 
 APP_NAME = os.environ.get("SLACK_INTEGRATION_APP_NAME", os.environ.get("APP_NAME", "CAIPE"))
 
@@ -23,6 +24,52 @@ from .event_parser import (
 )
 from . import slack_formatter
 from .throttler import create_throttled_updater
+
+
+class StreamBuffer:
+    """Batches markdown text chunks before flushing to Slack's appendStream.
+
+    Instead of making one API call per token, this buffers text and flushes
+    when either *flush_interval* seconds have elapsed since the last flush
+    or *flush()* is called explicitly (e.g. before a plan-update or tool event).
+    """
+
+    def __init__(self, slack_client, channel_id, stream_ts, flush_interval=0.25):
+        self.slack_client = slack_client
+        self.channel_id = channel_id
+        self.stream_ts = stream_ts
+        self.flush_interval = flush_interval
+        self._buffer = ""
+        self._last_flush = time.monotonic()
+        self._flushed_any = False
+
+    @property
+    def has_flushed(self):
+        return self._flushed_any
+
+    def append(self, text):
+        """Add text to the buffer; auto-flush if the interval has elapsed."""
+        self._buffer += text
+        if time.monotonic() - self._last_flush >= self.flush_interval:
+            self.flush()
+
+    def flush(self):
+        """Send buffered text to Slack immediately. No-op if buffer is empty."""
+        if not self._buffer:
+            return False
+        text = self._buffer
+        self._buffer = ""
+        self._last_flush = time.monotonic()
+        try:
+            self.slack_client.chat_appendStream(
+                channel=self.channel_id, ts=self.stream_ts,
+                chunks=[{"type": "markdown_text", "text": text}],
+            )
+            self._flushed_any = True
+            return True
+        except Exception as e:
+            logger.warning(f"SLACK appendStream text FAILED: {e}")
+            return False
 
 
 def _build_footer_text(triggered_by_user_id=None, additional_footer=None) -> str:
@@ -101,6 +148,7 @@ def stream_a2a_response(
 
     # Plan-mode streaming state
     stream_ts = None              # ts from chat.startStream (None = not started)
+    stream_buf = None             # StreamBuffer instance (created when stream starts)
     plan_steps = {}               # step_id -> step dict (latest plan state)
     sent_step_status = {}         # step_id -> last status we sent to Slack
     step_thinking = {}            # step_id -> accumulated thinking text per step
@@ -138,7 +186,7 @@ def stream_a2a_response(
 
     def _start_stream_if_needed():
         """Lazily start the Slack stream on first real content. Returns stream_ts or None."""
-        nonlocal stream_ts
+        nonlocal stream_ts, stream_buf
         if stream_ts:
             return stream_ts  # Already started
         if not can_stream or overthink_mode:
@@ -152,6 +200,7 @@ def stream_a2a_response(
                 task_display_mode="plan",
             )
             stream_ts = start_response["ts"]
+            stream_buf = StreamBuffer(slack_client, channel_id, stream_ts)
             logger.info(f"[{thread_ts}] SLACK startStream -> ts={stream_ts}")
             # Clear the typing status now that the stream message is visible
             _set_typing_status("")
@@ -199,7 +248,7 @@ def stream_a2a_response(
     current_tool = None
     task_error = None  # Track errors but don't raise immediately - allow recovery
     trace_id = None  # Langfuse trace ID for feedback scoring
-    streamed_any_text = False  # Track if any text was streamed via appendStream
+    # streamed_any_text is tracked by stream_buf.has_flushed
     streaming_final_answer = False  # Latch: once last plan step streams, keep streaming
 
     try:
@@ -271,19 +320,12 @@ def stream_a2a_response(
 
                     # Stream markdown (no plan, or final answer)
                     _start_stream_if_needed()
-                    if stream_ts:
+                    if stream_buf:
                         text = parsed.text_content
-                        if needs_separator and streamed_any_text:
+                        if needs_separator and stream_buf.has_flushed:
                             text = "\n\n" + text
                             needs_separator = False
-                        try:
-                            slack_client.chat_appendStream(
-                                channel=channel_id, ts=stream_ts,
-                                chunks=[{"type": "markdown_text", "text": text}],
-                            )
-                            streamed_any_text = True
-                        except Exception as e:
-                            logger.warning(f"[{thread_ts}] SLACK appendStream text FAILED: {e}")
+                        stream_buf.append(text)
 
                 # Update progress for non-streaming fallback (bot users)
                 if throttler and throttler.should_update():
@@ -314,6 +356,8 @@ def stream_a2a_response(
                     )
 
             elif parsed.event_type == EventType.TOOL_NOTIFICATION_START:
+                if stream_buf:
+                    stream_buf.flush()
                 if parsed.tool_notification:
                     tool_name = parsed.tool_notification.tool_name
                     tool_id = parsed.tool_notification.tool_id
@@ -345,6 +389,8 @@ def stream_a2a_response(
                         throttler.force_update(blocks, "Working on your request...")
 
             elif parsed.event_type == EventType.EXECUTION_PLAN:
+                if stream_buf:
+                    stream_buf.flush()
                 if parsed.plan_data and parsed.plan_data.get("steps"):
                     # Update plan state from structured DataPart
                     for step in parsed.plan_data["steps"]:
@@ -525,6 +571,11 @@ def stream_a2a_response(
 
         if stream_ts:
             # Everything in ONE stream message
+            # Flush any remaining buffered text before finalizing
+            if stream_buf:
+                stream_buf.flush()
+
+            streamed_any_text = stream_buf.has_flushed if stream_buf else False
             logger.info(
                 f"[{thread_ts}] Finalizing plan stream: {len(final_text)} chars, "
                 f"streamed_any_text={streamed_any_text}, "

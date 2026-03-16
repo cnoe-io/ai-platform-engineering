@@ -2,12 +2,14 @@
 
 Covers: lazy stream start, setStatus behavior, plan step streaming,
 force-complete at finalization, no markdown streaming with plan,
-should_append=False replaces thinking, bot user guard, and stopStream final answer.
+should_append=False replaces thinking, bot user guard, stopStream final answer,
+and StreamBuffer batching.
 """
 
+import time
 from unittest.mock import Mock
 
-from ai_platform_engineering.integrations.slack_bot.utils.ai import stream_a2a_response
+from ai_platform_engineering.integrations.slack_bot.utils.ai import stream_a2a_response, StreamBuffer
 
 
 # ---------------------------------------------------------------------------
@@ -457,6 +459,7 @@ class TestStreamWithoutPlanStreamsMarkdown:
         )
 
         # appendStream should have been called with markdown_text chunks
+        # (StreamBuffer may batch multiple tokens into fewer API calls)
         markdown_texts = []
         for c in mock_slack.chat_appendStream.call_args_list:
             chunks = c.kwargs.get("chunks", [])
@@ -464,11 +467,79 @@ class TestStreamWithoutPlanStreamsMarkdown:
                 if chunk.get("type") == "markdown_text":
                     markdown_texts.append(chunk["text"])
 
-        assert len(markdown_texts) == 2
-        assert "Hello " in markdown_texts[0]
-        assert "world" in markdown_texts[1]
+        combined = "".join(markdown_texts)
+        assert "Hello " in combined
+        assert "world" in combined
+        assert len(markdown_texts) >= 1
 
         # stopStream should NOT carry final text since text was already streamed
         stop_call = mock_slack.chat_stopStream.call_args
         chunks = stop_call.kwargs.get("chunks")
         assert chunks is None, "stopStream should not duplicate already-streamed text"
+
+
+class TestStreamBuffer:
+    """Tests for the StreamBuffer batching logic."""
+
+    def test_append_buffers_within_interval(self):
+        """Multiple appends within the flush interval produce a single API call."""
+        mock_slack = Mock()
+        mock_slack.chat_appendStream.return_value = {"ok": True}
+        buf = StreamBuffer(mock_slack, "C1", "ts1", flush_interval=1.0)
+
+        buf.append("Hello ")
+        buf.append("world")
+        # Neither append should have triggered a flush (interval=1s, instant calls)
+        mock_slack.chat_appendStream.assert_not_called()
+
+        buf.flush()
+        mock_slack.chat_appendStream.assert_called_once()
+        chunks = mock_slack.chat_appendStream.call_args.kwargs["chunks"]
+        assert chunks == [{"type": "markdown_text", "text": "Hello world"}]
+
+    def test_append_auto_flushes_after_interval(self):
+        """An append after the flush interval triggers an automatic flush."""
+        mock_slack = Mock()
+        mock_slack.chat_appendStream.return_value = {"ok": True}
+        buf = StreamBuffer(mock_slack, "C1", "ts1", flush_interval=0.05)
+
+        buf.append("first")
+        time.sleep(0.06)
+        buf.append("second")  # Should trigger flush of "firstsecond"
+
+        assert mock_slack.chat_appendStream.call_count == 1
+        chunks = mock_slack.chat_appendStream.call_args.kwargs["chunks"]
+        assert chunks[0]["text"] == "firstsecond"
+
+    def test_flush_is_noop_when_empty(self):
+        """Flushing an empty buffer does nothing."""
+        mock_slack = Mock()
+        buf = StreamBuffer(mock_slack, "C1", "ts1")
+
+        result = buf.flush()
+        assert result is False
+        mock_slack.chat_appendStream.assert_not_called()
+
+    def test_has_flushed_tracks_state(self):
+        """has_flushed is False initially and True after a successful flush."""
+        mock_slack = Mock()
+        mock_slack.chat_appendStream.return_value = {"ok": True}
+        buf = StreamBuffer(mock_slack, "C1", "ts1")
+
+        assert buf.has_flushed is False
+        buf.append("text")
+        buf.flush()
+        assert buf.has_flushed is True
+
+    def test_flush_handles_api_error(self):
+        """If appendStream raises, buffer is cleared and has_flushed stays False."""
+        mock_slack = Mock()
+        mock_slack.chat_appendStream.side_effect = Exception("rate limited")
+        buf = StreamBuffer(mock_slack, "C1", "ts1")
+
+        buf.append("text")
+        result = buf.flush()
+        assert result is False
+        assert buf.has_flushed is False
+        # Buffer should be cleared even on error (don't re-send stale content)
+        assert buf._buffer == ""
