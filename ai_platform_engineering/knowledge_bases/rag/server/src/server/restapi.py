@@ -850,6 +850,12 @@ async def ingest_confluence_page(confluence_request: ConfluenceIngestRequest, us
       logger.info(f"Added page {page_id} to {datasource_id}")
 
     existing_datasource.metadata["page_configs"] = page_configs
+    # Update title filter patterns if provided
+    if confluence_request.allowed_title_patterns is not None:
+      existing_datasource.metadata["allowed_title_patterns"] = confluence_request.allowed_title_patterns
+    if confluence_request.denied_title_patterns is not None:
+      existing_datasource.metadata["denied_title_patterns"] = confluence_request.denied_title_patterns
+    existing_datasource.metadata["confluence_ingest_request"] = confluence_request.model_dump()
     await metadata_storage.store_datasource_info(existing_datasource)
   else:
     # Create new datasource
@@ -871,6 +877,8 @@ async def ingest_confluence_page(confluence_request: ConfluenceIngestRequest, us
         "space_key": space_key,
         "page_configs": [page_config],
         "confluence_url": confluence_url_base,
+        **({"allowed_title_patterns": confluence_request.allowed_title_patterns} if confluence_request.allowed_title_patterns else {}),
+        **({"denied_title_patterns": confluence_request.denied_title_patterns} if confluence_request.denied_title_patterns else {}),
       },
     )
 

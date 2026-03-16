@@ -1304,3 +1304,65 @@ class TestGenerateDatasourceIdEdgeCases:
         assert parts[0] == "src_confluence"
         domain_space = parts[1].split("__")
         assert domain_space[-1] == "SRE"
+
+
+# ===========================================================================
+# Title filtering tests
+# ===========================================================================
+
+
+class TestShouldSkipPage:
+    """Verify title-based include/exclude filtering (mirrors webloader URL patterns)."""
+
+    def test_denied_patterns_filter_matching_titles(self):
+        """Pages with titles matching denied patterns are skipped; others pass through."""
+        loader = make_loader()
+        loader.denied_title_patterns = [r"Deprecated", r"Do Not Use"]
+
+        assert loader.should_skip_page("Deprecated: Old Runbook") is True
+        assert loader.should_skip_page("Do Not Use - Legacy API") is True
+        assert loader.should_skip_page("SRE Runbook - Active") is False
+        # Case-insensitive
+        assert loader.should_skip_page("deprecated service guide") is True
+
+    def test_allowed_patterns_restrict_to_matching_titles(self):
+        """When allowed patterns are set, only matching titles are ingested."""
+        loader = make_loader()
+        loader.allowed_title_patterns = [r"^SRE", r"Runbook"]
+
+        assert loader.should_skip_page("SRE Handbook") is False
+        assert loader.should_skip_page("Production Runbook") is False
+        assert loader.should_skip_page("Marketing Plan") is True
+
+
+class TestLoadPagesTitleFiltering:
+    """Verify that load_pages applies title filters end-to-end."""
+
+    @pytest.mark.asyncio
+    async def test_denied_patterns_filter_pages_in_load_pages(self):
+        """Pages matching denied title patterns are excluded from load_pages results."""
+        loader = make_loader()
+        loader.denied_title_patterns = [r"Deprecated", r"Do Not Use"]
+
+        # Mock the session to return pages when enumerating a space
+        active_page = make_page(page_id="1", title="Active Guide")
+        deprecated_page = make_page(page_id="2", title="Deprecated: Old Guide")
+        do_not_use_page = make_page(page_id="3", title="Do Not Use - Legacy")
+
+        mock_response = MagicMock()
+        mock_response.status = 200
+        mock_response.json = AsyncMock(return_value={
+            "results": [active_page, deprecated_page, do_not_use_page]
+        })
+        mock_response.__aenter__ = AsyncMock(return_value=mock_response)
+        mock_response.__aexit__ = AsyncMock(return_value=False)
+
+        mock_session = MagicMock()
+        mock_session.get = MagicMock(return_value=mock_response)
+        loader.session = mock_session
+
+        pages, failed = await loader.load_pages("SRE")
+
+        assert len(pages) == 1
+        assert pages[0]["id"] == "1"
+        assert len(failed) == 0

@@ -99,7 +99,7 @@ Ingests pages from Confluence spaces with incremental sync support.
 |---------|-------------|
 | **Input** | Confluence REST API |
 | **Output** | Documents |
-| **Features** | Incremental sync, space filtering |
+| **Features** | Incremental sync, space filtering, title-based include/exclude regex patterns |
 | **Documentation** | [Confluence README](https://github.com/cnoe-io/ai-platform-engineering/tree/main/ai_platform_engineering/knowledge_bases/rag/ingestors/src/ingestors/confluence/README.md) |
 
 ### Slack
