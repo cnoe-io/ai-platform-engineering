@@ -6,6 +6,10 @@ This document describes the architecture and implementation patterns for propaga
 
 The core challenge in an enterprise agentic platform is maintaining a **chain of trust** from the human user through multiple service hops — without over-privileging any individual agent or service. This document addresses that challenge using standards-based OAuth 2.0 Token Exchange (RFC 8693), On-Behalf-Of (OBO) delegation, and Keycloak as the central identity broker.
 
+:::tip Visual Reference
+For a diagram-focused view of the Slack Bot authorization flow with scope validation at every boundary, see [Slack Bot Authorization Architecture](./slack-bot-authorization.md).
+:::
+
 ### Goals
 
 - **User-level accountability**: Every action taken by a CAIPE agent is attributable to the human user who initiated it
