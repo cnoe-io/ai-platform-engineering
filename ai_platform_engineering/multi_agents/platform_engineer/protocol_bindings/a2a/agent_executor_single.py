@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import logging
+import os
 import uuid
 from dataclasses import dataclass, field
 from typing import Optional, List, Dict
@@ -28,6 +29,7 @@ from ai_platform_engineering.multi_agents.platform_engineer.protocol_bindings.a2
 from cnoe_agent_utils.tracing import extract_trace_id_from_context
 from langchain_core.messages.base import message_to_dict
 from langgraph.types import Command
+from ai_platform_engineering.utils.auth.user_context import verified_user_var
 
 logger = logging.getLogger(__name__)
 
@@ -713,20 +715,47 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                     query = None  # Don't use query when resuming
                     logger.info(f"📦 Constructed resume Command from form text for task {task.id}")
 
-        # Extract user email from "by user: email\n\n..." prefix injected by UI
+        # Resolve user identity from verified JWT (set by OAuth2Middleware)
+        # Falls back to A2A message metadata or "by user:" prefix
         user_email = None
-        raw_query = context.get_user_input() or ""
-        if raw_query.startswith("by user: "):
-            first_line = raw_query.split("\n", 1)[0]
-            user_email = first_line.replace("by user: ", "").strip()
-            if user_email:
-                logger.info(f"📧 Extracted user email from message: {user_email}")
+        user_role = None
+        verified_user = verified_user_var.get(None)
+
+        if verified_user:
+            user_email = verified_user.email
+            user_role = verified_user.role
+            logger.info(f"📧 Verified user from JWT: email={user_email}, role={user_role}, email_verified={verified_user.email_is_verified}")
+
+        # When the JWT email is not a real address (e.g. Duo SSO sub is a
+        # hash), fall back to the email the UI put in message metadata or
+        # the legacy "by user:" text prefix.
+        if not user_email or (verified_user and not verified_user.email_is_verified):
+            meta_email = None
+            if context.message and hasattr(context.message, 'metadata') and context.message.metadata:
+                meta = context.message.metadata
+                if isinstance(meta, dict):
+                    meta_email = meta.get("user_email")
+            if meta_email and "@" in meta_email:
+                logger.info(f"📧 Using email from A2A message metadata (JWT sub was opaque): {meta_email}")
+                user_email = meta_email
+            else:
+                raw_query = context.get_user_input() or ""
+                if raw_query.startswith("by user: "):
+                    first_line = raw_query.split("\n", 1)[0]
+                    parsed = first_line.replace("by user: ", "").strip()
+                    if parsed and "@" in parsed:
+                        logger.info(f"📧 Extracted user email from message text (fallback): {parsed}")
+                        user_email = parsed
+
+        # Strip the "by user:" prefix from the query so the LLM gets clean input
+        if query and query.startswith("by user: "):
+            query = query.split("\n\n", 1)[1] if "\n\n" in query else query
 
         # Initialize state
         state = StreamState()
 
         try:
-            async for event in self.agent.stream(query, context_id, trace_id, command=resume_cmd, user_email=user_email):
+            async for event in self.agent.stream(query, context_id, trace_id, command=resume_cmd, user_email=user_email, user_role=user_role):
                 # Drain remaining events after the executor has finished
                 # processing to let the LangGraph generator close naturally.
                 if state.stream_finished:

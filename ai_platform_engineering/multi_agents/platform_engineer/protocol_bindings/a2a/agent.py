@@ -195,18 +195,34 @@ class AIPlatformEngineerA2ABinding:
 
   @trace_agent_stream("platform_engineer", update_input=True)
   async def stream(self, query, context_id, trace_id=None, user_id=None) -> AsyncIterable[dict[str, Any]]:
-      # user_email is passed via _pending_user_email to avoid the
+      # user_email/user_role are passed via _pending_* attrs to avoid the
       # trace_agent_stream decorator stripping unknown kwargs.
       user_email = getattr(self, '_pending_user_email', None)
       self._pending_user_email = None
-      logging.debug(f"Starting stream with query: {query}, context_id: {context_id}, trace_id: {trace_id}, user_email: {user_email}")
+      user_role = getattr(self, '_pending_user_role', None)
+      self._pending_user_role = None
+      logging.debug(f"Starting stream with query: {query}, context_id: {context_id}, trace_id: {trace_id}, user_email: {user_email}, user_role: {user_role}")
       # Reset execution plan state for each new stream
       self._execution_plan_sent = False
 
       # Track tool calls to ensure every AIMessage.tool_call gets a ToolMessage
       pending_tool_calls = {}  # {tool_call_id: tool_name}
 
-      inputs = {'messages': [('user', query)]}
+      effective_query = query
+      if user_email:
+          from datetime import datetime
+          ctx = f"Authenticated user email: {user_email}"
+          if user_role:
+              ctx += f", role: {user_role}"
+          now = datetime.now()
+          ctx += f", Current date: {now.strftime('%Y-%m-%d')}, Current date/time: {now.strftime('%Y-%m-%d %H:%M:%S')}"
+          effective_query = f"{query}\n\n[{ctx}]"
+
+      inputs = {'messages': [('user', effective_query)]}
+      if user_email:
+          inputs['user_email'] = user_email
+      if user_role:
+          inputs['verified_user_role'] = user_role
       config = self.tracing.create_config(context_id)
 
       # Ensure metadata exists in config for tools to access
@@ -218,10 +234,13 @@ class AIPlatformEngineerA2ABinding:
           config['metadata']['context_id'] = context_id
           logging.info(f"Added context_id to config metadata: {context_id}")
 
-      # Add user_email to metadata so sub-agent tools can forward it
+      # Add user identity to metadata so sub-agent tools can forward it
       if user_email:
           config['metadata']['user_email'] = user_email
           logging.info(f"Added user_email to config metadata: {user_email}")
+      if user_role:
+          config['metadata']['verified_user_role'] = user_role
+          logging.info(f"Added verified_user_role to config metadata: {user_role}")
 
       # Add user_id to metadata for cross-thread memory scoping
       if user_id:

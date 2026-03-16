@@ -10,6 +10,7 @@
 % tool_call(ToolName, AgentName).
 % agent_type(AgentName, Type).  % Type: deep_agent | subagent
 % self_service_mode.            % Present when running in self-service workflow
+% user_role(Role).              % Role: admin | user (from verified JWT identity)
 
 % === Read-Only GitHub MCP Tools (Always Allowed) ===
 
@@ -100,6 +101,13 @@ non_github_agent(confluence).
 non_github_agent(aws).
 non_github_agent(caipe).
 
+% === Admin-Only Tools ===
+% These tools require the admin role regardless of agent.
+% Non-admin users will be denied even if the agent is otherwise allowed.
+
+admin_only_tool(get_keys_for_multiple_users).
+admin_only_tool(add_bulk_users).
+
 % === Authorization Rules ===
 
 % Allow read-only GitHub tools for all agents
@@ -114,8 +122,11 @@ allow(Tool, Agent) :- tool_call(Tool, Agent), self_service_tool(Tool), self_serv
 % Allow all tools for deep_agent supervisor (it orchestrates subagents)
 allow(Tool, Agent) :- tool_call(Tool, Agent), agent_type(Agent, deep_agent).
 
-% Allow all tools for non-GitHub agents
-allow(Tool, Agent) :- tool_call(Tool, Agent), non_github_agent(Agent).
+% Allow non-GitHub agent tools UNLESS they are admin-only
+allow(Tool, Agent) :- tool_call(Tool, Agent), non_github_agent(Agent), not admin_only_tool(Tool).
+
+% Admin-only tools require admin role regardless of agent
+allow(Tool, Agent) :- tool_call(Tool, Agent), admin_only_tool(Tool), user_role(admin).
 
 % === Default Deny ===
 % Tool is denied if not explicitly allowed (closed-world assumption)

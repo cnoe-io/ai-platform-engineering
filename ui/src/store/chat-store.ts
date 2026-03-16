@@ -1503,11 +1503,15 @@ export const useChatStore = shouldUseLocalStorage()
         partialize: (state) => ({
           conversations: state.conversations.map((conv) => ({
             ...conv,
-            a2aEvents: [], // Don't persist events (too large)
+            a2aEvents: (conv.a2aEvents || []).filter(
+              (e: A2AEvent) => e.artifact?.name === 'UserInputMetaData'
+            ),
             sseEvents: [], // Don't persist SSE events (too large)
             messages: conv.messages.map((msg) => ({
               ...msg,
-              events: [], // Don't persist events
+              events: (msg.events || []).filter(
+                (e: A2AEvent) => e.artifact?.name === 'UserInputMetaData'
+              ),
             })),
           })),
           activeConversationId: state.activeConversationId,
@@ -1519,7 +1523,7 @@ export const useChatStore = shouldUseLocalStorage()
               ...conv,
               createdAt: new Date(conv.createdAt),
               updatedAt: new Date(conv.updatedAt),
-              a2aEvents: [],
+              a2aEvents: conv.a2aEvents || [],
               sseEvents: [],
               messages: conv.messages.map((msg, idx, allMsgs) => {
                 // CRASH RECOVERY: Mark non-final assistant messages as interrupted.
@@ -1536,7 +1540,7 @@ export const useChatStore = shouldUseLocalStorage()
                 return {
                   ...msg,
                   timestamp: new Date(msg.timestamp),
-                  events: [],
+                  events: msg.events || [],
                   isFinal: healed ? true : msg.isFinal,
                   isInterrupted: healed
                     ? false

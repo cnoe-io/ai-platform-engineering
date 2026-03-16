@@ -243,12 +243,8 @@ ui/next-env.d.ts
 # Use case data storage (file-based)
 ui/data/
 data/
-# Skill templates in Helm chart data must be tracked
+# Helm chart data must be tracked. Please do not add ignores on this directory!!!
 !charts/ai-platform-engineering/data/
-charts/ai-platform-engineering/data/*
-!charts/ai-platform-engineering/data/skills/
-!charts/ai-platform-engineering/data/skills/**
-!charts/ai-platform-engineering/data/task_config.yaml
 
 # TypeScript build cache
 *.tsbuildinfo
@@ -271,3 +267,6 @@ coverage.json
 
 # Local CA certificate bundles (host-specific)
 certs/
+
+# We no longer have a separate docker-compose directory.
+docker-compose/*

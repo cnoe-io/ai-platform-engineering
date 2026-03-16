@@ -3,6 +3,7 @@
 
 import inspect
 import logging
+import os
 import uuid
 from dataclasses import dataclass, field
 from typing import Optional, List, Dict
@@ -699,14 +700,45 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                 raise Exception("Failed to create task")
             await self._safe_enqueue_event(event_queue, task)
 
-        # Extract user email from "by user: email\n\n..." prefix injected by UI
+        # Resolve user identity from verified JWT (set by OAuth2Middleware)
+        # Falls back to A2A message metadata or "by user:" prefix
         user_email = None
-        raw_query = query or ""
-        if raw_query.startswith("by user: "):
-            first_line = raw_query.split("\n", 1)[0]
-            user_email = first_line.replace("by user: ", "").strip()
-            if user_email:
-                logger.info(f"📧 Extracted user email from message: {user_email}")
+        user_role = None
+        try:
+            from ai_platform_engineering.utils.auth.user_context import verified_user_var
+            verified_user = verified_user_var.get(None)
+        except ImportError:
+            verified_user = None
+
+        if verified_user:
+            user_email = verified_user.email
+            user_role = verified_user.role
+            logger.info(f"📧 Verified user from JWT: email={user_email}, role={user_role}, email_verified={verified_user.email_is_verified}")
+
+        # When the JWT email is not a real address (e.g. Duo SSO sub is a
+        # hash), fall back to the email the UI put in message metadata or
+        # the legacy "by user:" text prefix.
+        if not user_email or (verified_user and not verified_user.email_is_verified):
+            meta_email = None
+            if context.message and hasattr(context.message, 'metadata') and context.message.metadata:
+                meta = context.message.metadata
+                if isinstance(meta, dict):
+                    meta_email = meta.get("user_email")
+            if meta_email and "@" in meta_email:
+                logger.info(f"📧 Using email from A2A message metadata (JWT sub was opaque): {meta_email}")
+                user_email = meta_email
+            else:
+                raw_query = query or ""
+                if raw_query.startswith("by user: "):
+                    first_line = raw_query.split("\n", 1)[0]
+                    parsed = first_line.replace("by user: ", "").strip()
+                    if parsed and "@" in parsed:
+                        logger.info(f"📧 Extracted user email from message text (fallback): {parsed}")
+                        user_email = parsed
+
+        # Strip the "by user:" prefix from the query so the LLM gets clean input
+        if query and query.startswith("by user: "):
+            query = query.split("\n\n", 1)[1] if "\n\n" in query else query
 
         # Extract trace_id from A2A context (or generate if root)
         trace_id = extract_trace_id_from_context(context)
@@ -727,6 +759,7 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
 
         try:
             self.agent._pending_user_email = user_email
+            self.agent._pending_user_role = user_role
             stream_params = inspect.signature(self.agent.stream).parameters
             stream_kwargs = {"user_id": user_id} if "user_id" in stream_params else {}
             async for event in self.agent.stream(query, context_id, trace_id, **stream_kwargs):

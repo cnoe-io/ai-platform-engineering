@@ -341,8 +341,9 @@ class AIPlatformEngineerA2ABinding:
       trace_id: Optional[str] = None,
       command: Optional[Command] = None,
       user_email: Optional[str] = None,
+      user_role: Optional[str] = None,
   ) -> AsyncIterable[dict[str, Any]]:
-      logging.debug(f"Starting stream with query: {query}, context_id: {context_id}, trace_id: {trace_id}, has_command: {command is not None}, user_email: {user_email}")
+      logging.debug(f"Starting stream with query: {query}, context_id: {context_id}, trace_id: {trace_id}, has_command: {command is not None}, user_email: {user_email}, user_role: {user_role}")
       
       # Ensure agent is initialized with MCP tools (lazy loading on first stream)
       await self.ensure_initialized()
@@ -354,11 +355,23 @@ class AIPlatformEngineerA2ABinding:
       if command is not None:
           inputs = command
       else:
-          
-          state_dict = {'messages': [('user', query or '')]}
-          # Store user_email in graph state for middleware to use in task prompts
+          # Inject verified user context into the message so the LLM knows
+          # who is asking.  The email/role come from the JWT, not client text.
+          effective_query = query or ''
+          if user_email:
+              from datetime import datetime
+              ctx = f"Authenticated user email: {user_email}"
+              if user_role:
+                  ctx += f", role: {user_role}"
+              now = datetime.now()
+              ctx += f", Current date: {now.strftime('%Y-%m-%d')}, Current date/time: {now.strftime('%Y-%m-%d %H:%M:%S')}"
+              effective_query = f"{effective_query}\n\n[{ctx}]"
+
+          state_dict = {'messages': [('user', effective_query)]}
           if user_email:
               state_dict['user_email'] = user_email
+          if user_role:
+              state_dict['verified_user_role'] = user_role
           inputs = state_dict
       
       config = self.tracing.create_config(context_id)
@@ -377,10 +390,13 @@ class AIPlatformEngineerA2ABinding:
           config['metadata']['context_id'] = context_id
           logging.info(f"Added context_id to config metadata: {context_id}")
 
-      # Add user_email to metadata for tools and subagents
+      # Add user identity to metadata for tools and subagents
       if user_email:
           config['metadata']['user_email'] = user_email
           logging.info(f"Added user_email to config metadata: {user_email}")
+      if user_role:
+          config['metadata']['verified_user_role'] = user_role
+          logging.info(f"Added verified_user_role to config metadata: {user_role}")
 
       # Add trace_id to metadata for distributed tracing
       if trace_id:

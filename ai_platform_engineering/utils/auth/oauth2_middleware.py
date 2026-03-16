@@ -10,13 +10,15 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse, PlainTextResponse
 try:
-    # Try absolute import (when run directly)
     from ai_platform_engineering.utils.auth.jwks_cache import JwksCache
 except ImportError:
-    # Fall back to relative import (when run as module)
     from .jwks_cache import JwksCache
 
-# Load environment variables from .env file
+from ai_platform_engineering.utils.auth.user_context import (
+    verified_user_var,
+    build_user_context_from_token,
+)
+
 load_dotenv()
 
 logger = logging.getLogger(__name__)
@@ -25,13 +27,10 @@ A2A_AUTH_OAUTH2 = os.getenv('A2A_AUTH_OAUTH2', 'false').lower() == 'true'
 
 if A2A_AUTH_OAUTH2:
   CLOCK_SKEW_LEEWAY = 10
-  # Support multiple JWT signing algorithms (RS256, ES256, etc.)
-  # Can be configured via ALLOWED_ALGORITHMS env var (comma-separated)
   ALGORITHMS = os.environ.get("ALLOWED_ALGORITHMS", "RS256,ES256").split(",")
   JWKS_URI = os.environ["JWKS_URI"]
-  AUDIENCE = os.environ["AUDIENCE"]  # expected 'aud' claim in token
+  AUDIENCE = os.environ["AUDIENCE"]
   ISSUER = os.environ["ISSUER"]
-  # Comma-separated list of allowed client IDs for cid claim validation.
   OAUTH2_CLIENT_IDS = {cid.strip() for cid in os.environ["OAUTH2_CLIENT_ID"].split(",") if cid.strip()}
   DEBUG_UNMASK_AUTH_HEADER = os.environ.get("DEBUG_UNMASK_AUTH_HEADER", "false").lower() == "true"
   _jwks_cache = JwksCache(JWKS_URI)
@@ -42,14 +41,8 @@ if A2A_AUTH_OAUTH2:
   print("="*40 + "\n")
 
 
-
-# ------------------------------------------------------------------------------
-# Public key builder from JWK (supports RSA and EC)
-# ------------------------------------------------------------------------------
 def _public_key_from_jwk(jwk: dict):
-    """
-    Build a public key object from a JWK. Supports RSA and EC.
-    """
+    """Build a public key object from a JWK. Supports RSA and EC."""
     kty = jwk.get("kty")
     if kty == "RSA":
         return jwt.algorithms.RSAAlgorithm.from_jwk(json.dumps(jwk))
@@ -59,79 +52,78 @@ def _public_key_from_jwk(jwk: dict):
     raise ValueError(f"Unsupported key type: {kty}")
 
 
-# ------------------------------------------------------------------------------
-# Token verification
-# ------------------------------------------------------------------------------
-def verify_token(token: str) -> bool:
-    """
-    Local JWT validation with JWKS. Returns True if token is valid and intended for this agent.
-    - Verifies signature.
-    - Checks iss, aud, exp, nbf.
+def verify_token(token: str) -> dict | None:
+    """Validate JWT and return the decoded claims payload, or None on failure.
+
+    Verifies signature, iss, aud, exp, nbf. Optionally validates the
+    ``cid`` claim against ``OAUTH2_CLIENT_IDS``.
     """
     try:
         header = jwt.get_unverified_header(token)
     except InvalidTokenError as e:
-        logger.warning(f"Invalid token header: {e}")
-        return False
+        logger.warning("Invalid token header: %s", e)
+        return None
     except Exception as e:
-        logger.warning(f"Unexpected error parsing token header: {e}")
-        return False
+        logger.warning("Unexpected error parsing token header: %s", e)
+        return None
 
     kid = header.get("kid")
     if not kid:
         logger.warning("Missing kid in token header")
-        return False
+        return None
 
     jwk = _jwks_cache.get_jwk(kid)
     if not jwk:
         logger.warning("Unknown signing key (kid=%s)", kid)
-        return False
+        return None
 
     try:
         public_key = _public_key_from_jwk(jwk)
-        # aud and exp validation happen inside jwt.decode:
-        # - audience=AUDIENCE sets expected aud (aud claim must match).
-        # - options.verify_exp=True enforces exp claim (not expired).
-        # - options.verify_aud=True enables the aud check.
         payload = jwt.decode(
             token,
             public_key,
             algorithms=ALGORITHMS,
-            audience=AUDIENCE,           # aud validated against this value
-            issuer=ISSUER,               # iss must match this value
+            audience=AUDIENCE,
+            issuer=ISSUER,
             options={
                 "require": ["exp", "iss", "aud"],
                 "verify_signature": True,
-                "verify_exp": True,      # exp validation enabled
-                "verify_nbf": True,      # nbf validation enabled
-                "verify_iss": True,      # iss validation enabled
-                "verify_aud": True,      # aud validation enabled
+                "verify_exp": True,
+                "verify_nbf": True,
+                "verify_iss": True,
+                "verify_aud": True,
             },
-            leeway=CLOCK_SKEW_LEEWAY,    # small clock skew tolerance (seconds)
+            leeway=CLOCK_SKEW_LEEWAY,
         )
-        # Check if 'cid' claim exists and validate it against the allowed set.
         if "cid" in payload:
             token_cid = payload["cid"]
             if token_cid in OAUTH2_CLIENT_IDS:
-                logger.debug(f"Token CID matches allowed client ID: {token_cid}")
-                return True
+                logger.debug("Token CID matches allowed client ID: %s", token_cid)
+                return payload
             else:
-                logger.warning(f"Token CID '{token_cid}' not in allowed client IDs {OAUTH2_CLIENT_IDS}")
-                return False
+                logger.warning("Token CID '%s' not in allowed client IDs %s", token_cid, OAUTH2_CLIENT_IDS)
+                return None
         else:
-            print("\n" + "="*40)
-            print("Token missing 'cid' claim. Moving on and return True")
-            print("="*40 + "\n")
+            logger.debug("Token missing 'cid' claim; proceeding without CID validation")
+        return payload
     except InvalidTokenError as e:
         logger.warning("Token validation failed: %s", e)
-        return False
+        return None
     except Exception as e:
         logger.warning("Token verification error: %s", e)
-        return False
-    return True
+        return None
+
 
 class OAuth2Middleware(BaseHTTPMiddleware):
-    """Starlette middleware that authenticates A2A access using an OAuth2 bearer token."""
+    """Starlette middleware that authenticates A2A requests via OAuth2 bearer token.
+
+    After successful JWT validation the middleware:
+    1. Builds a ``UserContext`` (email from JWT claims, groups from the
+       OIDC ``/userinfo`` endpoint, role resolved from OIDC admin group).
+    2. Stores it in ``verified_user_var`` (a ``contextvars.ContextVar``)
+       so downstream code (the A2A executor) can read verified identity
+       without relying on client-controlled message body text.
+    """
 
     def __init__(
         self,
@@ -144,23 +136,15 @@ class OAuth2Middleware(BaseHTTPMiddleware):
         self.public_paths = set(public_paths or [])
 
     async def dispatch(self, request: Request, call_next):
-        """
-        Middleware to authenticate requests using OAuth2 bearer tokens.
-        :param request:
-        :param call_next:
-        :return:
-        """
         path = request.url.path
 
-        # Allow OPTIONS requests (CORS preflight) without authentication
         if request.method == "OPTIONS":
             return await call_next(request)
 
         for header_name, header_value in request.headers.items():
             if header_name.lower() == 'authorization' and not DEBUG_UNMASK_AUTH_HEADER:
-                # Mask the Authorization header for security
                 if header_value.startswith('Bearer '):
-                    token = header_value[7:]  # Remove 'Bearer ' prefix
+                    token = header_value[7:]
                     masked_token = f"{token[:3]}***{token[-3:]}" if len(token) > 20 else "***"
                     print(f"{header_name}: Bearer {masked_token}")
                 else:
@@ -168,12 +152,9 @@ class OAuth2Middleware(BaseHTTPMiddleware):
             else:
                 print(f"{header_name}: {header_value}")
 
-
-        # Allow public paths and anonymous access
         if path in self.public_paths:
             return await call_next(request)
 
-        # Authenticate the request
         auth_header = request.headers.get('Authorization')
         if not auth_header or not auth_header.startswith('Bearer '):
             logger.warning('Missing or malformed Authorization header')
@@ -184,9 +165,8 @@ class OAuth2Middleware(BaseHTTPMiddleware):
         access_token = auth_header.split('Bearer ')[1]
 
         try:
-
-            is_valid = verify_token(access_token)
-            if not is_valid:
+            claims = verify_token(access_token)
+            if claims is None:
                 logger.warning('Invalid or expired access token')
                 return self._unauthorized(
                     'Invalid or expired access token.', request
@@ -195,15 +175,28 @@ class OAuth2Middleware(BaseHTTPMiddleware):
             logger.error('Dispatch error: %s', e, exc_info=True)
             return self._forbidden(f'Authentication failed: {e}', request)
 
-        return await call_next(request)
+        # Build verified identity from JWT claims + /userinfo groups
+        token_for_ctx = verified_user_var.set(None)
+        try:
+            user_context = await build_user_context_from_token(access_token, claims)
+            verified_user_var.set(user_context)
+            logger.info(
+                "Verified user: email=%s, role=%s",
+                user_context.email, user_context.role,
+            )
+        except Exception as e:
+            logger.warning(
+                "Failed to build user context (proceeding without role): %s", e
+            )
+
+        try:
+            response = await call_next(request)
+        finally:
+            verified_user_var.reset(token_for_ctx)
+
+        return response
 
     def _forbidden(self, reason: str, request: Request):
-        """
-        Returns a 403 Forbidden response with a reason.
-        :param reason:
-        :param request:
-        :return:
-        """
         accept_header = request.headers.get('accept', '')
         if 'text/event-stream' in accept_header:
             return PlainTextResponse(
@@ -216,12 +209,6 @@ class OAuth2Middleware(BaseHTTPMiddleware):
         )
 
     def _unauthorized(self, reason: str, request: Request):
-        """
-        Returns a 401 Unauthorized response with a reason.
-        :param reason:
-        :param request:
-        :return:
-        """
         accept_header = request.headers.get('accept', '')
         if 'text/event-stream' in accept_header:
             return PlainTextResponse(
