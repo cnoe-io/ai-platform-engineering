@@ -29,12 +29,14 @@ from .throttler import create_throttled_updater
 class StreamBuffer:
     """Batches markdown text chunks before flushing to Slack's appendStream.
 
-    Instead of making one API call per token, this buffers text and flushes
-    when either *flush_interval* seconds have elapsed since the last flush
-    or *flush()* is called explicitly (e.g. before a plan-update or tool event).
+    Flushes on newline boundaries to avoid splitting mid-markdown (e.g.
+    sending ``**bold`` in one chunk and `` text**`` in the next, which
+    Slack renders as broken formatting).  A max-interval flush (default 1s)
+    acts as a safety net so content never stalls for too long even if
+    newlines are sparse.
     """
 
-    def __init__(self, slack_client, channel_id, stream_ts, flush_interval=0.5):
+    def __init__(self, slack_client, channel_id, stream_ts, flush_interval=1.0):
         self.slack_client = slack_client
         self.channel_id = channel_id
         self.stream_ts = stream_ts
@@ -48,17 +50,33 @@ class StreamBuffer:
         return self._flushed_any
 
     def append(self, text):
-        """Add text to the buffer; auto-flush if the interval has elapsed."""
+        """Add text to the buffer; auto-flush on newline or after the interval."""
         self._buffer += text
-        if time.monotonic() - self._last_flush >= self.flush_interval:
+
+        elapsed = time.monotonic() - self._last_flush
+
+        # Prefer flushing on newline boundaries so markdown isn't split mid-token
+        if "\n" in self._buffer:
+            # Flush up to (and including) the last newline; keep the remainder
+            last_nl = self._buffer.rfind("\n")
+            to_flush = self._buffer[: last_nl + 1]
+            self._buffer = self._buffer[last_nl + 1 :]
+            if to_flush:
+                self._send(to_flush)
+        elif elapsed >= self.flush_interval:
+            # No newline seen for a while — flush everything as a safety net
             self.flush()
 
     def flush(self):
-        """Send buffered text to Slack immediately. No-op if buffer is empty."""
+        """Send all buffered text to Slack immediately. No-op if buffer is empty."""
         if not self._buffer:
             return False
         text = self._buffer
         self._buffer = ""
+        return self._send(text)
+
+    def _send(self, text):
+        """Send *text* to Slack and update bookkeeping."""
         self._last_flush = time.monotonic()
         try:
             self.slack_client.chat_appendStream(
@@ -258,6 +276,25 @@ def stream_a2a_response(
             metadata=metadata,
         ):
             parsed = parse_event(event_data)
+
+            # # Debug: uncomment to log every A2A event for diagnostics
+            # _artifact_name = parsed.artifact_name or ""
+            # _text_len = len(parsed.text_content) if parsed.text_content else 0
+            # _extra = ""
+            # if parsed.plan_data:
+            #     _statuses = [f"{s.get('step_id','?')}:{s.get('status','?')}" for s in parsed.plan_data.get("steps", [])]
+            #     _extra = f" steps=[{', '.join(_statuses)}]"
+            # elif parsed.tool_notification:
+            #     _extra = f" tool={parsed.tool_notification.tool_name} status={parsed.tool_notification.status}"
+            # elif _text_len:
+            #     _preview = (parsed.text_content or "")[:80].replace("\n", "\\n")
+            #     _extra = f" preview={_preview!r}"
+            # logger.info(
+            #     f"[{thread_ts}] A2A #{event_data.get('kind', '?')}: "
+            #     f"type={parsed.event_type.value} artifact={_artifact_name!r} "
+            #     f"text_len={_text_len} append={parsed.should_append} "
+            #     f"final={parsed.is_final}{_extra}"
+            # )
 
             if parsed.event_type == EventType.TASK:
                 if parsed.context_id and is_new_context and session_manager:

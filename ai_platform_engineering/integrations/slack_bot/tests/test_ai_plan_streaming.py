@@ -531,6 +531,34 @@ class TestStreamBuffer:
         buf.flush()
         assert buf.has_flushed is True
 
+    def test_append_flushes_on_newline_boundary(self):
+        """Appending text with a newline flushes up to the newline, keeps remainder."""
+        mock_slack = Mock()
+        mock_slack.chat_appendStream.return_value = {"ok": True}
+        buf = StreamBuffer(mock_slack, "C1", "ts1", flush_interval=10.0)
+
+        buf.append("**bold text**\nstart of next")
+
+        mock_slack.chat_appendStream.assert_called_once()
+        chunks = mock_slack.chat_appendStream.call_args.kwargs["chunks"]
+        assert chunks == [{"type": "markdown_text", "text": "**bold text**\n"}]
+        # Remainder stays in buffer
+        assert buf._buffer == "start of next"
+
+    def test_no_flush_mid_markdown_without_newline(self):
+        """Without a newline or interval, buffer holds — avoids splitting markdown."""
+        mock_slack = Mock()
+        mock_slack.chat_appendStream.return_value = {"ok": True}
+        buf = StreamBuffer(mock_slack, "C1", "ts1", flush_interval=10.0)
+
+        buf.append("**bold")
+        buf.append(" text**")
+        mock_slack.chat_appendStream.assert_not_called()
+
+        buf.flush()
+        chunks = mock_slack.chat_appendStream.call_args.kwargs["chunks"]
+        assert chunks == [{"type": "markdown_text", "text": "**bold text**"}]
+
     def test_flush_handles_api_error(self):
         """If appendStream raises, buffer is cleared and has_flushed stays False."""
         mock_slack = Mock()
