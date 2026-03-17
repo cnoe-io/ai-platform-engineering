@@ -3,13 +3,55 @@ id: langgraph-redis-chart
 sidebar_label: langgraph-redis
 ---
 
+:::caution Auto-generated
+This page is auto-generated from the Helm chart source. Do not edit directly.
+Regenerate with `make docs-helm-charts`.
+:::
+
 # langgraph-redis
 
 Redis Stack for LangGraph checkpoint and store persistence
 
-Enabled via `global.langgraphRedis.enabled: true` in the parent chart.
+| | |
+|---|---|
+| **Version** | `0.2.38` |
+| **Type** | application |
 
-## Parameters
+## Quick Start
+
+```bash
+# Add and install the chart
+helm install langgraph-redis oci://ghcr.io/cnoe-io/charts/langgraph-redis --version 0.2.38
+
+# Upgrade an existing release
+helm upgrade langgraph-redis oci://ghcr.io/cnoe-io/charts/langgraph-redis --version 0.2.38
+```
+
+## Customizing Values
+
+Override default values using `--set` flags or a custom values file:
+
+```bash
+# Override individual values
+helm install langgraph-redis oci://ghcr.io/cnoe-io/charts/langgraph-redis --version 0.2.38 \
+  --set replicaCount=2
+
+# Use a custom values file
+helm install langgraph-redis oci://ghcr.io/cnoe-io/charts/langgraph-redis --version 0.2.38 \
+  -f custom-values.yaml
+
+# Show all configurable values
+helm show values oci://ghcr.io/cnoe-io/charts/langgraph-redis --version 0.2.38
+```
+
+## Reading the Values Table
+
+| Column | Meaning |
+|--------|---------|
+| **Key** | Dot-separated path into `values.yaml` (e.g. `image.repository`) |
+| **Type** | Go/Helm data type (`string`, `int`, `bool`, `object`, `list`) |
+| **Default** | Value used when not overridden |
+| **Description** | What the parameter controls |
 
 ## Values
 
@@ -52,3 +94,4 @@ Enabled via `global.langgraphRedis.enabled: true` in the parent chart.
 | tolerations | list | `[]` | Pod tolerations |
 | volumeMounts | list | `[]` | Extra volume mounts |
 | volumes | list | `[]` | Extra volumes |
+
