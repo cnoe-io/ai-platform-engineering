@@ -86,6 +86,7 @@ export interface Message {
     latency_ms?: number;
     agent_name?: string;
     is_final?: boolean;
+    timeline_segments?: any[]; // TimelineSegment[] persisted for plan/thinking/answer reconstruction
   };
   artifacts?: Artifact[];
   a2a_events?: any[]; // A2A events (tasks, tool calls, debug) serialized for persistence
@@ -243,6 +244,7 @@ export interface AddMessageRequest {
     latency_ms?: number;
     agent_name?: string;
     is_final?: boolean;
+    timeline_segments?: any[]; // TimelineSegment[] for plan/thinking/answer reconstruction
   };
   artifacts?: Artifact[];
   a2a_events?: any[]; // A2A events (tasks, tool calls, debug)

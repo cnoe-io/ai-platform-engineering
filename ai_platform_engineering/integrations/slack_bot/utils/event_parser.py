@@ -79,6 +79,9 @@ class ParsedEvent:
     # HITL form data
     form_data: Optional[Dict[str, Any]] = None
 
+    # Structured plan data from DataPart (when available)
+    plan_data: Optional[Dict[str, Any]] = None
+
 
 def parse_event(event_data: Dict[str, Any]) -> ParsedEvent:
     """
@@ -187,10 +190,23 @@ def _parse_artifact_update(event_data: Dict[str, Any]) -> ParsedEvent:
     if event_type in [EventType.TOOL_NOTIFICATION_START, EventType.TOOL_NOTIFICATION_END]:
         parsed.tool_notification = _extract_tool_notification(artifact, event_type)
 
+    if event_type == EventType.EXECUTION_PLAN:
+        parsed.plan_data = _extract_plan_data_from_parts(parts)
+
     if event_type == EventType.CAIPE_FORM:
         parsed.form_data = _extract_form_data(artifact)
 
     return parsed
+
+
+def _extract_plan_data_from_parts(parts: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    """Extract structured plan data from DataPart in artifact parts."""
+    for part in parts:
+        if part.get("kind") == "data" and isinstance(part.get("data"), dict):
+            data = part["data"]
+            if "steps" in data and isinstance(data["steps"], list):
+                return data
+    return None
 
 
 def _classify_artifact_type(artifact_name: str) -> EventType:

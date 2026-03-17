@@ -39,6 +39,7 @@ class TestChannelIDToJira:
             Config.from_env()
 
     def test_config_missing_default_raises(self, monkeypatch):
+        monkeypatch.delenv("SLACK_INTEGRATION_BOT_CONFIG", raising=False)
         monkeypatch.setenv(
             "CAIPE_BOT_CONFIG",
             '{"C123": {"name": "#test-channel", "ai_enabled": "true", "qanda": {"enabled": "false"}, "ai_alerts": {"enabled": "false"}}}',
@@ -47,6 +48,7 @@ class TestChannelIDToJira:
             Config.from_env()
 
     def test_config_with_custom_prompt(self, monkeypatch):
+        monkeypatch.delenv("SLACK_INTEGRATION_BOT_CONFIG", raising=False)
         monkeypatch.setenv(
             "CAIPE_BOT_CONFIG",
             '{"C123": {"name": "#test-channel", "ai_enabled": "true", "qanda": {"enabled": "true", "custom_prompt": "Custom: {message_text}"}, "ai_alerts": {"enabled": "false"}, "default": {"project_key": "TEST"}}}',
@@ -71,6 +73,7 @@ class TestChannelIDToJira:
         assert cfg.channels["C123"].qanda.custom_prompt == cfg.defaults.default_qanda_prompt
 
     def test_config_preserves_explicit_values(self, monkeypatch):
+        monkeypatch.delenv("SLACK_INTEGRATION_BOT_CONFIG", raising=False)
         monkeypatch.setenv(
             "CAIPE_BOT_CONFIG",
             '{"C123": {"name": "#test-channel", "ai_enabled": "true", "qanda": {"enabled": "true", "custom_prompt": "test"}, "ai_alerts": {"enabled": "false"}, "default": {"project_key": "TEST"}}}',
@@ -86,6 +89,7 @@ class TestChannelIDToJira:
         assert cfg.defaults.response_style_instruction in cfg.channels["C123"].qanda.custom_prompt
 
     def test_config_include_bots(self, monkeypatch):
+        monkeypatch.delenv("SLACK_INTEGRATION_BOT_CONFIG", raising=False)
         monkeypatch.setenv(
             "CAIPE_BOT_CONFIG",
             '{"C123": {"name": "#test-channel", "ai_enabled": "true", "qanda": {"enabled": "true", "include_bots": {"enabled": "true", "bot_list": ["Bot1", "Bot2"]}}, "ai_alerts": {"enabled": "false"}, "default": {"project_key": "TEST"}}}',
@@ -120,6 +124,7 @@ C123:
 
     def test_config_mutual_exclusivity_validation(self, monkeypatch):
         # Both ai_alerts and qanda.include_bots enabled should raise error
+        monkeypatch.delenv("SLACK_INTEGRATION_BOT_CONFIG", raising=False)
         monkeypatch.setenv(
             "CAIPE_BOT_CONFIG",
             '{"C123": {"name": "#test-channel", "ai_enabled": "true", "qanda": {"enabled": "true", "include_bots": {"enabled": "true"}}, "ai_alerts": {"enabled": "true"}, "default": {"project_key": "TEST"}}}',
