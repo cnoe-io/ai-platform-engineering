@@ -39,10 +39,10 @@ export async function POST(request: NextRequest): Promise<Response> {
   }
 
   // Authenticate the request
-  let session: { accessToken?: string };
+  let accessToken: string | undefined;
   try {
-    const auth = await getAuthenticatedUser(request);
-    session = auth.session;
+    const { session } = await getAuthenticatedUser(request);
+    accessToken = "accessToken" in session ? session.accessToken : undefined;
   } catch {
     return NextResponse.json(
       { success: false, error: "Unauthorized" },
@@ -75,8 +75,8 @@ export async function POST(request: NextRequest): Promise<Response> {
   };
 
   // Forward the access token to the Dynamic Agents backend
-  if (session.accessToken) {
-    backendHeaders["Authorization"] = `Bearer ${session.accessToken}`;
+  if (accessToken) {
+    backendHeaders["Authorization"] = `Bearer ${accessToken}`;
   }
 
   const backendUrl = `${dynamicAgentsUrl}/api/v1/chat/resume-stream`;
