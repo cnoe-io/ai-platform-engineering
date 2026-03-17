@@ -1,5 +1,4 @@
 ---
-id: installation/helm-charts/supervisor-agent
 sidebar_label: supervisor-agent
 ---
 

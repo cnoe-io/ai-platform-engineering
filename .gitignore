@@ -254,8 +254,14 @@ charts/ai-platform-engineering/data/*
 # TypeScript build cache
 *.tsbuildinfo
 
-# Claude Code configuration
-.claude/
+# Cursor — track commands and rules, ignore everything else
+.cursor/*
+!.cursor/commands/
+!.cursor/rules/
+
+# Claude Code — track commands, ignore everything else
+.claude/*
+!.claude/commands/
 
 # UI Core (local development)
 caipe-ui-core/
