@@ -11,48 +11,75 @@ import { BUILTIN_QUICK_START_TEMPLATES } from "@/types/agent-config";
 
 /**
  * Seed API Route
- * 
+ *
  * POST /api/agent-configs/seed
  * Seeds the database with built-in templates if they don't exist.
  * Can be called on app startup or manually by admin.
- * 
+ * Removes system templates that are no longer in the whitelist.
+ *
  * GET /api/agent-configs/seed
  * Checks if seeding is needed (returns { needsSeeding: boolean, count: number })
+ *
+ * The BUILTIN_SKILL_IDS env var controls which built-in templates are seeded.
+ * When set, only templates whose IDs appear in the comma-separated list are seeded.
+ * When unset or empty, all templates are seeded.
  */
+
+/**
+ * Returns the subset of BUILTIN_QUICK_START_TEMPLATES allowed by the
+ * BUILTIN_SKILL_IDS environment variable. If the variable is unset or
+ * empty, all templates are returned.
+ */
+function getEnabledTemplates(): AgentConfig[] {
+  const raw = process.env.BUILTIN_SKILL_IDS?.trim();
+  if (!raw) {
+    return BUILTIN_QUICK_START_TEMPLATES;
+  }
+  const allowedIds = new Set(raw.split(",").map((id) => id.trim()).filter(Boolean));
+  return BUILTIN_QUICK_START_TEMPLATES.filter((t) => allowedIds.has(t.id));
+}
 
 // Check if seeding is needed
 async function checkSeedingStatus(): Promise<{ needsSeeding: boolean; existingCount: number; templateCount: number }> {
+  const enabledTemplates = getEnabledTemplates();
+
   if (!isMongoDBConfigured) {
-    return { needsSeeding: false, existingCount: 0, templateCount: BUILTIN_QUICK_START_TEMPLATES.length };
+    return { needsSeeding: false, existingCount: 0, templateCount: enabledTemplates.length };
   }
 
   const collection = await getCollection<AgentConfig>("agent_configs");
-  
-  // Check how many system templates exist
-  const existingSystemConfigs = await collection.countDocuments({ is_system: true });
-  
+  const enabledIds = enabledTemplates.map((t) => t.id);
+
+  // Count how many of the enabled templates already exist
+  const existingCount = await collection.countDocuments({
+    is_system: true,
+    id: { $in: enabledIds },
+  });
+
   return {
-    needsSeeding: existingSystemConfigs < BUILTIN_QUICK_START_TEMPLATES.length,
-    existingCount: existingSystemConfigs,
-    templateCount: BUILTIN_QUICK_START_TEMPLATES.length,
+    needsSeeding: existingCount < enabledTemplates.length,
+    existingCount,
+    templateCount: enabledTemplates.length,
   };
 }
 
-// Seed the database with built-in templates
-async function seedBuiltinTemplates(): Promise<{ seeded: number; skipped: number }> {
+// Seed the database with enabled built-in templates and remove non-whitelisted ones
+async function seedBuiltinTemplates(): Promise<{ seeded: number; skipped: number; removed: number }> {
   if (!isMongoDBConfigured) {
     throw new ApiError("MongoDB is not configured", 503);
   }
 
   const collection = await getCollection<AgentConfig>("agent_configs");
-  
+  const enabledTemplates = getEnabledTemplates();
+  const enabledIds = new Set(enabledTemplates.map((t) => t.id));
+
   let seeded = 0;
   let skipped = 0;
 
-  for (const template of BUILTIN_QUICK_START_TEMPLATES) {
+  for (const template of enabledTemplates) {
     // Check if this template already exists
     const existing = await collection.findOne({ id: template.id });
-    
+
     if (existing) {
       skipped++;
       continue;
@@ -72,25 +99,42 @@ async function seedBuiltinTemplates(): Promise<{ seeded: number; skipped: number
     console.log(`[Seed] Seeded template: ${template.name}`);
   }
 
-  return { seeded, skipped };
+  // Remove system templates that are no longer in the whitelist
+  const allSystemIds = BUILTIN_QUICK_START_TEMPLATES.map((t) => t.id);
+  const disabledIds = allSystemIds.filter((id) => !enabledIds.has(id));
+  let removed = 0;
+  if (disabledIds.length > 0) {
+    const result = await collection.deleteMany({
+      is_system: true,
+      id: { $in: disabledIds },
+    });
+    removed = result.deletedCount;
+    if (removed > 0) {
+      console.log(`[Seed] Removed ${removed} non-whitelisted system template(s)`);
+    }
+  }
+
+  return { seeded, skipped, removed };
 }
 
 // GET /api/agent-configs/seed - Check if seeding is needed
 export const GET = withErrorHandler(async (request: NextRequest) => {
+  const enabledTemplates = getEnabledTemplates();
+
   if (!isMongoDBConfigured) {
     return NextResponse.json({
       needsSeeding: false,
       message: "MongoDB not configured - using built-in templates from code",
       existingCount: 0,
-      templateCount: BUILTIN_QUICK_START_TEMPLATES.length,
+      templateCount: enabledTemplates.length,
     });
   }
 
   const status = await checkSeedingStatus();
-  
+
   return NextResponse.json({
     ...status,
-    message: status.needsSeeding 
+    message: status.needsSeeding
       ? `${status.templateCount - status.existingCount} templates need to be seeded`
       : "All templates are already seeded",
   });
@@ -116,24 +160,13 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
     isAdmin = false;
   }
 
-  // Check current status
-  const status = await checkSeedingStatus();
-  
-  if (!status.needsSeeding) {
-    return successResponse({
-      message: "All templates are already seeded",
-      seeded: 0,
-      skipped: status.existingCount,
-    });
-  }
-
-  // Perform seeding
+  // Perform seeding (also removes non-whitelisted system templates)
   const result = await seedBuiltinTemplates();
-  
-  console.log(`[Seed] Seeding complete: ${result.seeded} seeded, ${result.skipped} skipped`);
+
+  console.log(`[Seed] Seeding complete: ${result.seeded} seeded, ${result.skipped} skipped, ${result.removed} removed`);
 
   return successResponse({
-    message: `Successfully seeded ${result.seeded} templates`,
+    message: `Successfully seeded ${result.seeded} templates (${result.removed} removed)`,
     ...result,
   }, 201);
 });

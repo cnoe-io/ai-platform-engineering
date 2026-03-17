@@ -207,15 +207,15 @@ export function SkillsGallery({
     }
   }, [configs, activeFormConfig]); // Re-run when configs change or activeFormConfig changes
 
-  // Check if user can edit/delete a config
-  const canModifyConfig = (config: AgentConfig) => {
-    // Admins can modify system configs
-    if (config.is_system) {
-      console.log(`[canModifyConfig] System config ${config.id}, isAdmin: ${isAdmin}`);
-      return isAdmin;
-    }
-    // Users can modify their own configs
+  // Check if user can edit a config (admins can edit system configs)
+  const canEditConfig = (config: AgentConfig) => {
+    if (config.is_system) return isAdmin;
     return true;
+  };
+
+  // Check if user can delete a config (system configs are never deletable)
+  const canDeleteConfig = (config: AgentConfig) => {
+    return !config.is_system;
   };
 
   // Load configs on mount
@@ -276,12 +276,9 @@ export function SkillsGallery({
   const handleDelete = async (config: AgentConfig, e: React.MouseEvent) => {
     e.stopPropagation();
 
-    // Confirm deletion
-    const confirmMessage = config.is_system
-      ? `Are you sure you want to delete the system template "${config.name}"? This action requires admin privileges.`
-      : `Are you sure you want to delete "${config.name}"?`;
+    if (config.is_system) return;
 
-    if (!confirm(confirmMessage)) return;
+    if (!confirm(`Are you sure you want to delete "${config.name}"?`)) return;
 
     setDeletingId(config.id);
     try {
@@ -572,7 +569,7 @@ export function SkillsGallery({
                         >
                           <Star className="h-4 w-4 fill-current" />
                         </Button>
-                        {canModifyConfig(config) && (
+                        {canEditConfig(config) && (
                           <>
                             <div className="h-4 w-px bg-border/50" />
                             <Button
@@ -584,17 +581,29 @@ export function SkillsGallery({
                             >
                               <Edit className="h-3.5 w-3.5" />
                             </Button>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-7 w-7 text-red-400 hover:text-red-500"
-                              onClick={(e) => handleDelete(config, e)}
-                              disabled={deletingId === config.id}
-                              title="Delete"
-                            >
-                              {deletingId === config.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
-                            </Button>
                           </>
+                        )}
+                        {canDeleteConfig(config) ? (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7 text-red-400 hover:text-red-500"
+                            onClick={(e) => handleDelete(config, e)}
+                            disabled={deletingId === config.id}
+                            title="Delete"
+                          >
+                            {deletingId === config.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+                          </Button>
+                        ) : (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7 text-muted-foreground/40 cursor-not-allowed"
+                            disabled
+                            title="Built-in skills cannot be deleted"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
                         )}
                       </div>
                     </motion.div>
@@ -673,19 +682,28 @@ export function SkillsGallery({
                         >
                           <Star className={cn("h-4 w-4", isFavorite(config.id) && "fill-current")} />
                         </Button>
-                        {canModifyConfig(config) && (
+                        {canEditConfig(config) && (
                           <>
                             <div className="h-4 w-px bg-border/50" />
                             <Button variant="ghost" size="icon" className="h-7 w-7" onClick={(e) => { e.stopPropagation(); onEditConfig?.(config); }} title="Edit">
                               <Edit className="h-3.5 w-3.5" />
                             </Button>
-                            <Button
-                              variant="ghost" size="icon" className="h-7 w-7 text-red-400 hover:text-red-500"
-                              onClick={(e) => handleDelete(config, e)} disabled={deletingId === config.id} title="Delete"
-                            >
-                              {deletingId === config.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
-                            </Button>
                           </>
+                        )}
+                        {canDeleteConfig(config) ? (
+                          <Button
+                            variant="ghost" size="icon" className="h-7 w-7 text-red-400 hover:text-red-500"
+                            onClick={(e) => handleDelete(config, e)} disabled={deletingId === config.id} title="Delete"
+                          >
+                            {deletingId === config.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+                          </Button>
+                        ) : (
+                          <Button
+                            variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground/40 cursor-not-allowed"
+                            disabled title="Built-in skills cannot be deleted"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
                         )}
                       </div>
                     </motion.div>
@@ -787,7 +805,7 @@ export function SkillsGallery({
                         >
                           <Star className={cn("h-4 w-4", isFavorite(config.id) && "fill-current")} />
                         </Button>
-                        {canModifyConfig(config) && (
+                        {canEditConfig(config) && (
                           <>
                             <div className="h-4 w-px bg-border/50" />
                             <Button
@@ -799,17 +817,29 @@ export function SkillsGallery({
                             >
                               <Edit className="h-3.5 w-3.5" />
                             </Button>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-7 w-7 text-red-400 hover:text-red-500"
-                              onClick={(e) => handleDelete(config, e)}
-                              disabled={deletingId === config.id}
-                              title="Delete template"
-                            >
-                              {deletingId === config.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
-                            </Button>
                           </>
+                        )}
+                        {canDeleteConfig(config) ? (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7 text-red-400 hover:text-red-500"
+                            onClick={(e) => handleDelete(config, e)}
+                            disabled={deletingId === config.id}
+                            title="Delete template"
+                          >
+                            {deletingId === config.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+                          </Button>
+                        ) : (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7 text-muted-foreground/40 cursor-not-allowed"
+                            disabled
+                            title="Built-in skills cannot be deleted"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
                         )}
                       </div>
                     </motion.div>
@@ -879,16 +909,22 @@ export function SkillsGallery({
                         <Button variant="ghost" size="icon" className="h-8 w-8" onClick={(e) => { e.stopPropagation(); onSelectConfig?.(config); }}>
                           <Play className="h-4 w-4" />
                         </Button>
-                        {canModifyConfig(config) && (
+                        {canEditConfig(config) && (
                           <>
                             <div className="h-5 w-px bg-border/50" />
                             <Button variant="ghost" size="icon" className="h-8 w-8" onClick={(e) => { e.stopPropagation(); onEditConfig?.(config); }}>
                               <Edit className="h-4 w-4" />
                             </Button>
-                            <Button variant="ghost" size="icon" className="h-8 w-8 text-red-400 hover:text-red-500" onClick={(e) => handleDelete(config, e)} disabled={deletingId === config.id}>
-                              {deletingId === config.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
-                            </Button>
                           </>
+                        )}
+                        {canDeleteConfig(config) ? (
+                          <Button variant="ghost" size="icon" className="h-8 w-8 text-red-400 hover:text-red-500" onClick={(e) => handleDelete(config, e)} disabled={deletingId === config.id}>
+                            {deletingId === config.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+                          </Button>
+                        ) : (
+                          <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground/40 cursor-not-allowed" disabled title="Built-in skills cannot be deleted">
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
                         )}
                       </div>
                     </motion.div>

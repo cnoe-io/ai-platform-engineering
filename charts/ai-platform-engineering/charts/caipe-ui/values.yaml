@@ -145,6 +145,10 @@ config:
   # Feature flags
   ENABLE_SUBAGENT_CARDS: "true"
   SSO_ENABLED: "true"
+  # Built-in skill IDs to seed (comma-separated whitelist).
+  # When set, only listed templates are seeded; unlisted ones are removed.
+  # Leave empty to seed all built-in templates.
+  # BUILTIN_SKILL_IDS: ""
   # NextAuth URL (non-sensitive)
   NEXTAUTH_URL: "http://localhost:3000"
   # Node environment
