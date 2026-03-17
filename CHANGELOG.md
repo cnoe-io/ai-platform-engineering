@@ -1,4 +1,184 @@
-## 0.2.38 (2026-03-11)
+## 0.2.39 (2026-03-17)
+
+## 0.2.38-rc.15 (2026-03-17)
+
+### Feat
+
+- **ui,slack-bot**: add structured timeline and plan-mode streaming (#985)
+
+## 0.2.38-rc.14 (2026-03-17)
+
+### Feat
+
+- **docs**: implement helm chart documentation generator (#1003)
+
+### Fix
+
+- **slack-bot**: improve kb search prompt for better retrieval and confidence assessment (#1009)
+- **setup**: support curl-pipe execution and add welcome banner (#1004)
+- **docs**: resolve broken links, fix Helm chart symlinks, and fix setup script (#1002)
+- **ui**: respect DYNAMIC_AGENTS_ENABLED flag and reorder Custom Agents tab
+
+## 0.2.38-rc.13 (2026-03-15)
+
+### Feat
+
+- **aws-agent**: block kubectl get/describe secrets and sanitize output (#977)
+
+### Fix
+
+- **docs**: add Docusaurus id to helm-docs templates for symlinked chart pages (#990)
+
+## 0.2.38-rc.12 (2026-03-15)
+
+### Feat
+
+- **persistence**: add Redis, Postgres, and MongoDB checkpoint and store persistence (#909)
+
+## 0.2.38-rc.11 (2026-03-13)
+
+## 0.2.38-rc.10 (2026-03-13)
+
+### Feat
+
+- **docker**: add build context and volume mounts for RAG dev services (#986)
+
+## 0.2.38-rc.9 (2026-03-13)
+
+### Refactor
+
+- **ui**: proxy write operations to dynamic-agents backend
+
+## 0.2.38-rc.8 (2026-03-13)
+
+### Fix
+
+- **caipe**: allow file writes after form collection
+- **caipe**: allow CAIPE subagent to write files after form collection
+- **task-config**: simplify Jira step display text
+- **task-config**: move Jira step to end and only create ticket on error
+- **task-config**: auto-merge on auto_approve and consistent Jira failure-only logic
+- **middleware**: prevent write_todos infinite loop via after_model hook
+
+### Refactor
+
+- **charts**: replace task_config and policy with stubs
+
+## 0.2.38-rc.7 (2026-03-13)
+
+### Fix
+
+- **dynamic-agents**: load all seed config (models, servers, agents) at startup
+- **dynamic-agents**: read SEED_CONFIG_PATH env var for models config
+- **dynamic-agents**: use timezone-aware datetime and add auth guard
+
+### Refactor
+
+- **dynamic-agents**: use timezone-aware datetimes throughout
+
+## 0.2.38-rc.6 (2026-03-12)
+
+### Feat
+
+- **dynamic-agents**: add HITL forms using HumanInTheLoopMiddleware pattern
+- **ui**: add VictorOps icon to integration orbit (#972)
+
+## 0.2.38-rc.5 (2026-03-12)
+
+### Feat
+
+- **dynamic-agents**: add conversation ID display and improve logging
+- **dynamic-agents**: add builtin tools and API restructuring
+
+### Fix
+
+- **dynamic-agents**: remove unused asyncio import
+- **dynamic-agents**: initialize default-enabled builtin tools in config
+
+## 0.2.38-rc.4 (2026-03-11)
+
+### Feat
+
+- **dynamic-agents**: add llmSecret support for LLM credentials
+- **dynamic-agents**: add seedConfig support for MCP servers and agents
+
+### Fix
+
+- **dynamic-agents**: use /healthz for health probes
+- **dynamic-agents**: correct transport type in example comments
+
+### Refactor
+
+- **dynamic-agents**: rename model to model_id in models config
+
+## 0.2.38-rc.3 (2026-03-11)
+
+### BREAKING CHANGE
+
+- Model config field renamed from 'id' to 'model'
+
+### Feat
+
+- properly support all llm providers
+- **single-node**: allow sub-agent level llm key
+- **helm**: add dynamic-agents feature flags to caipe-ui config
+- **helm**: add dynamic-agents subchart
+- **dynamic-agents**: add CI/CD infrastructure
+- **dynamic-agents**: add config-driven seed agents and MCP servers
+- **dynamic-agents**: persist MCP warnings across chat messages
+- **dynamic-agents**: add resilient MCP connections, restart runtime, and session logging
+- **dynamic-agents**: add team sharing UI for visibility selection
+- **custom-agents**: warn users when MCP tools are unavailable
+- **custom-agents**: UX makeover with step wizard and improved tools UI
+- **dynamic-agents**: fix model/provider sync and enhance UI
+- **dynamic-agents**: add model selection with provider support
+- **dynamic-agents**: add fetch_url built-in tool with domain ACL
+- **dynamic-agents**: add subagent delegation support
+- **dynamic-agents**: add Langfuse tracing support
+- **ui**: separate chat views for Platform Engineer and Dynamic Agents
+- **ui**: improve Dynamic Agents chat UX with agent selection
+- **ui**: add Dynamic Agents admin UI and chat integration
+- **dynamic-agents**: add FastAPI backend service for dynamic agent builder
+- **slack-bot**: add podAnnotations support to helm chart (#943)
+- **slack-bot**: add podAnnotations support to helm chart (#943)
+
+### Fix
+
+- **dynamic-agents**: resolve circular import for session_id_var
+- **dynamic-agents**: use JSON array format for CORS_ORIGINS config
+- **charts**: update dynamic-agents dependency version to 0.2.38
+- **helm**: update dynamic-agents dependency version to 0.2.36
+- **dynamic-agents**: make disabled agents read-only and fix subagent filtering
+- **ui**: prevent context panel overlay on narrow viewports
+- **dynamic-agents**: fix model selector parsing for IDs containing colons
+- **dynamic-agents**: handle MCP server connection failures gracefully
+- **dynamic-agents**: use removeprefix for tool name prefix stripping
+- **dynamic-agents**: truncate agent description in list view
+- **dynamic-agents**: display warning events in Events panel
+- **dynamic-agents**: handle warning SSE events in client
+- **ui**: show 'Unknown' for deleted agents in chat list
+- **dynamic-agents**: invalidate runtime cache when agent config changes
+- **dynamic-agents**: show team agents to their owners
+- **ui**: prevent sidebar flicker when switching conversations
+- **ui**: reactive agent_id loading and enhanced Agent Info tab
+- **ui**: preserve agent_id when loading conversations from server
+- **ui**: correct API response parsing in NewChatButton
+- **task-config**: only create Jira ticket on deployment failure
+- **middleware**: catch task errors and continue workflow instead of crashing
+- **middleware**: handle task errors gracefully instead of crashing workflow
+- **github-mcp**: handle branch already exists in create_branch gracefully
+- **deepagent**: prevent write_todos infinite loop when all tasks completed
+- **policy**: include policy.lp in helm chart and handle empty policy file
+- **auth**: forward OAuth2 token in /api/agents/tools proxy route
+
+### Refactor
+
+- **dynamic-agents**: move imports to top of files
+- **dynamic-agents**: rename model config 'id' to 'model'
+- **dynamic-agents**: replace verbose SSE events with structured JSON
+- **ui**: remove AgentSelector from chat panel header
+
+## 0.2.38-rc.2 (2026-03-11)
 
 ### Feat
 
@@ -8,16 +188,18 @@
 
 - **ci**: github action to trigger ci properly in a new step
 
-## 0.2.37-rc.1 (2026-03-11)
+## 0.2.37 (2026-03-11)
 
 ### Fix
 
 - prevent auto-redirect to shared/public conversations leaking context_id across users
 
-## 0.2.36-rc.1 (2026-03-09)
+## 0.2.36 (2026-03-09)
 
 ### Feat
 
+- **policy**: add two-tier policy system with dynamic tool discovery
+- **ui**: add Task Builder card to home page platform capabilities
 - sub-agent to use context summarisation + refine search req
 - **rag**: replace single graph_tools_enabled toggle with individual per-tool flags
 - use Github app to bypass branch protection rule during release
@@ -28,11 +210,21 @@
 ### Fix
 
 - **a2a**: make user_id passing conditional in agent executor (#937)
+- **tasks**: apply env var substitution to MongoDB-sourced task configs
+- **single-node**: load GitHub MCP tools via local go run server
+- **single-node**: return USER_FORM_SUBMITTED signal from CAIPEAgentResponse
+- **aigateway**: handle key alias conflict from parallel tool calls
+- **ui**: remove X close button from input form header
+- **aigateway**: filter spend activity by user's API key
 - **single-node**: send text artifact before input_required status
 - **single-node**: robust HITL resume parsing and local MongoDB support
 - **supervisor**: port Phase 1/Phase 2 error recovery to single-node agent
 - **docker**: include vault_utils.py in supervisor image
 - resolve merge conflicts with main
+
+### Refactor
+
+- **ui**: use dynamic APP_NAME in task builder instead of hardcoded CAIPE
 
 ## 0.2.35 (2026-03-05)
 
