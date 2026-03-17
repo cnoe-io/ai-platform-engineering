@@ -65,12 +65,12 @@ class AIPlatformEngineerA2ABinding:
       self._task_plan_entries: dict[str, dict] = {}  # Track task (subagent) calls for execution plan
       self._in_self_service_workflow = False  # Suppress intermediate text during deterministic workflows
       self._initialized = False
-  
+
   async def ensure_initialized(self) -> None:
       """Ensure the agent is initialized with MCP tools loaded."""
       if self._initialized:
           return
-      
+
       await self._mas_instance.ensure_initialized()
       self.graph = self._mas_instance.get_graph()
       self._initialized = True
@@ -315,8 +315,8 @@ class AIPlatformEngineerA2ABinding:
           "is_task_complete": False,
           "require_user_input": True,
           "content": form_response,
-          "agent_type": "caipe",
-          "node_name": "caipe",
+          "agent_type": "user_input",
+          "node_name": "user_input",
       }
 
   def _handle_interrupt_event(self, item: dict, *, label: str = "") -> dict | None:
@@ -344,7 +344,7 @@ class AIPlatformEngineerA2ABinding:
       user_role: Optional[str] = None,
   ) -> AsyncIterable[dict[str, Any]]:
       logging.debug(f"Starting stream with query: {query}, context_id: {context_id}, trace_id: {trace_id}, has_command: {command is not None}, user_email: {user_email}, user_role: {user_role}")
-      
+
       # Ensure agent is initialized with MCP tools (lazy loading on first stream)
       await self.ensure_initialized()
 
@@ -373,7 +373,7 @@ class AIPlatformEngineerA2ABinding:
           if user_role:
               state_dict['verified_user_role'] = user_role
           inputs = state_dict
-      
+
       config = self.tracing.create_config(context_id)
 
       # Set recursion limit - LangGraph default is 25 which is too low for
@@ -578,7 +578,7 @@ class AIPlatformEngineerA2ABinding:
                           name = action_req.get("name", "CAIPEAgentResponse")
                           # HITL middleware uses 'arguments', but also check 'args' for compatibility
                           args = action_req.get("arguments", {}) or action_req.get("args", {})
-                          
+
                           # The args should already contain metadata.input_fields from HITL middleware
                           # Just pass them through directly
                           tool_calls.append({
@@ -614,8 +614,8 @@ class AIPlatformEngineerA2ABinding:
                       "is_task_complete": False,
                       "require_user_input": True,
                       "content": form_response,
-                      "agent_type": "caipe",
-                      "node_name": "caipe",
+                      "agent_type": "user_input",
+                      "node_name": "user_input",
                   }
                   continue
 
@@ -1202,7 +1202,7 @@ class AIPlatformEngineerA2ABinding:
                       if not tool_name:
                           tool_name = resolved_name
                       logging.debug(f"Resolved tool call: {tool_call_id} -> {tool_name}")
-                  
+
                   # Ensure tool_name is never None
                   if not tool_name:
                       tool_name = "unknown"

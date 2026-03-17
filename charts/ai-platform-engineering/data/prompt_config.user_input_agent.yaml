@@ -3,7 +3,7 @@
 # structured user input collection via forms in self-service workflows.
 #
 # The CAIPE subagent is invoked by the supervisor when a task_config step
-# uses subagent: "caipe". It shows a form, collects user input, and writes
+# uses subagent: "user_input". It shows a form, collects user input, and writes
 # the result to the filesystem for downstream agents.
 
 system_prompt: |

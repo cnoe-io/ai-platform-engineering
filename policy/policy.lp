@@ -99,7 +99,7 @@ non_github_agent(splunk).
 non_github_agent(komodor).
 non_github_agent(confluence).
 non_github_agent(aws).
-non_github_agent(caipe).
+non_github_agent(user_input).
 
 % === Admin-Only Tools ===
 % These tools require the admin role regardless of agent.

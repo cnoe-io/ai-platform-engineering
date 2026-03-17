@@ -580,34 +580,34 @@ def create_invoke_self_service_task_tool():
 # 3. Return SubAgent dict with {name, description, system_prompt, tools}
 # 4. SubAgentMiddleware adds FilesystemMiddleware with shared StateBackend
 
-def create_caipe_subagent_def() -> dict:
-    """Create the CAIPE (user input collection) subagent definition.
+def create_user_input_subagent_def() -> dict:
+    """Create the user input collection subagent definition.
 
-    CAIPE collects user input via forms and writes results to filesystem
+    Collects user input via forms and writes results to filesystem
     for downstream agents to consume.
 
-    System prompt is loaded from prompt_config.caipe_agent.yaml via
-    load_subagent_prompt_config (same mechanism as all other per-agent configs).
+    System prompt is loaded from prompt_config.user_input_collection_agent.yaml
+    via load_subagent_prompt_config (same mechanism as all other per-agent configs).
     """
     from ai_platform_engineering.utils.subagent_prompts import load_subagent_prompt_config
 
-    config = load_subagent_prompt_config("caipe", config_path="/app/prompt_config.user_input_collection_agent.yaml")
+    config = load_subagent_prompt_config("user_input")
     system_prompt = config.raw_config.get("system_prompt") or config.get_system_instruction()
 
-    caipe_response_tool = create_caipe_agent_response_tool()
+    response_tool = create_caipe_agent_response_tool()
 
     subagent_def = {
-        "name": "caipe",
+        "name": "user_input",
         "description": "Collects user input via forms, writes to filesystem for downstream agents",
         "system_prompt": system_prompt,
-        "tools": [caipe_response_tool, tool_result_to_file, wait],
+        "tools": [response_tool, tool_result_to_file, wait],
         "interrupt_on": {"CAIPEAgentResponse": True},
         "middleware": [
-            PolicyMiddleware(agent_name="caipe", agent_type="subagent"),
+            PolicyMiddleware(agent_name="user_input", agent_type="subagent"),
         ],
     }
 
-    model_override = _get_subagent_model("caipe")
+    model_override = _get_subagent_model("user_input")
     if model_override:
         subagent_def["model"] = model_override
 
@@ -1061,11 +1061,11 @@ class PlatformEngineerDeepAgent:
             return_exceptions=True,
         )
 
-        # Add CAIPE subagent (uses local tools, no MCP)
-        caipe_subagent = create_caipe_subagent_def()
+        # Add user input collection subagent (uses local tools, no MCP)
+        user_input_subagent = create_user_input_subagent_def()
 
         # Filter out any failures and build final list
-        subagent_defs = [caipe_subagent]  # CAIPE always succeeds (no MCP)
+        subagent_defs = [user_input_subagent]  # user_input always succeeds (no MCP)
         for i, result in enumerate(mcp_subagent_results):
             if isinstance(result, Exception):
                 agent_name = enabled_agents[i][0]
