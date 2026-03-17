@@ -67,9 +67,9 @@ Implemented a structured metadata format for collecting user input in Agent-Forg
 
 ## Related
 
-- [2025-10-31: Metadata Input Implementation](./2025-10-31-metadata-input-implementation.md) - Original metadata implementation
-- [Agent-Forge Backstage Plugin](../tools-utils/agent-forge-backstage-plugin.md) - Plugin documentation
-- [A2A Protocol](../architecture/index.md) - Agent-to-Agent communication
+- [2025-10-31: Metadata Input Implementation](../metadata-input-implementation/spec) - Original metadata implementation
+- [Agent-Forge Backstage Plugin](../../tools-utils/agent-forge-backstage-plugin) - Plugin documentation
+- [A2A Protocol](../../architecture/) - Agent-to-Agent communication
 
 ---
 

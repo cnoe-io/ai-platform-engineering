@@ -103,8 +103,8 @@ Expected logs:
 
 ## Related
 
-- [Streaming Architecture](./2024-10-22-streaming-architecture.md) - Technical deep dive
-- [A2A Intermediate States](./2024-10-22-a2a-intermediate-states.md) - Tool visibility implementation
+- [Streaming Architecture](../streaming-architecture/spec) - Technical deep dive
+- [A2A Intermediate States](../a2a-intermediate-states/spec) - Tool visibility implementation
 
 
 - Architecture: [architecture.md](./architecture.md)

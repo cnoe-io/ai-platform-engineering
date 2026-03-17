@@ -66,7 +66,7 @@ Updated `charts/ai-platform-engineering/`:
 
 **Ingress Examples**:
 - `charts/caipe-ui/values-ingress-redirect.yaml.example` - Generic domain redirect example
-- [CAIPE UI Ingress Configuration Guide](2026-02-03-caipe-ui-ingress-configuration-guide.md) - Complete ingress configuration guide
+- [CAIPE UI Ingress Configuration Guide](../caipe-ui-ingress-configuration-guide/spec) - Complete ingress configuration guide
 
 
 ## Quick Start
@@ -235,7 +235,7 @@ caipe-ui:
           secretName: old-domain-example-com-tls
 ```
 
-See [CAIPE UI Ingress Configuration Guide](2026-02-03-caipe-ui-ingress-configuration-guide.md) for complete configuration guide.
+See [CAIPE UI Ingress Configuration Guide](../caipe-ui-ingress-configuration-guide/spec) for complete configuration guide.
 
 
 ## External Secrets Setup

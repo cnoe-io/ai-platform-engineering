@@ -25,7 +25,7 @@ The recommended authentication method for production deployments. Users authenti
    - Expiry (`exp`), not-before (`nbf`), issued-at (`iat`) claims
    - Audience (`aud`) matches configured `OIDC_AUDIENCE`
    - Issuer (`iss`) matches configured `OIDC_ISSUER`
-5. Server resolves user groups (see [Groups Resolution Flow](#groups-resolution-flow))
+5. Server resolves user groups (see [Groups Resolution Flow](#user-info-resolution-flow))
 6. Server assigns role based on group membership
 
 ### OAuth2 Client Credentials (Ingestors)
@@ -101,7 +101,7 @@ When detected as client credentials:
 ### User Token (SSO) Path
 
 When detected as a user token:
-- Proceeds to [Groups Resolution Flow](#groups-resolution-flow)
+- Proceeds to [Groups Resolution Flow](#user-info-resolution-flow)
 - Role determined from group membership
 
 ### Detection Criteria Summary

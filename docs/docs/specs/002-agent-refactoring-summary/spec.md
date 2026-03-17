@@ -124,9 +124,9 @@ argocd: Tool result received - list_applications (success)
 
 ## Related
 
-- [A2A Intermediate States](./2024-10-22-a2a-intermediate-states.md) - Tool visibility implementation
-- [Enhanced Streaming Feature](./2024-10-22-enhanced-streaming-feature.md) - Parallel streaming
-- [Streaming Architecture](./2024-10-22-streaming-architecture.md) - Technical deep dive
+- [A2A Intermediate States](../a2a-intermediate-states/spec) - Tool visibility implementation
+- [Enhanced Streaming Feature](../enhanced-streaming-feature/spec) - Parallel streaming
+- [Streaming Architecture](../streaming-architecture/spec) - Technical deep dive
 
 
 - Architecture: [architecture.md](./architecture.md)

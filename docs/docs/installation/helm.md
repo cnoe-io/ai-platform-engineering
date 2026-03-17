@@ -41,8 +41,8 @@ ai-platform-engineering/        # Parent chart
 
 Full parameter tables for each chart:
 
-- [supervisor-agent](./helm-charts/supervisor-agent) — orchestrator values, persistence, LLM secrets
-- [langgraph-redis](./helm-charts/langgraph-redis) — Redis Stack subchart values
+- [supervisor-agent](./helm-charts/supervisor-agent-chart) — orchestrator values, persistence, LLM secrets
+- [langgraph-redis](./helm-charts/langgraph-redis-chart) — Redis Stack subchart values
 - [`ai-platform-engineering` (parent)](https://github.com/cnoe-io/ai-platform-engineering/blob/main/charts/ai-platform-engineering/README.md) — agent tags, global values, subcharts table
 
 ## Step 1 — Get example values files

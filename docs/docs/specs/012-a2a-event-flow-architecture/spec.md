@@ -42,11 +42,11 @@ curl -X POST http://localhost:8001 \
 - [LangGraph Event Streaming](https://python.langchain.com/docs/langgraph/) - LangGraph streaming guide
 
 ### Internal Documentation
-- [Sub-Agent Tool Message Streaming (Oct 25, 2024)](./2024-10-25-sub-agent-tool-message-streaming.md) - Historical debugging investigation
+- [Sub-Agent Tool Message Streaming (Oct 25, 2024)](../sub-agent-tool-message-streaming/spec) - Historical debugging investigation
   - Documents LangGraph streaming limitations
   - Investigation of sub-agent tool message visibility
   - Architectural discoveries and attempted solutions
-- [Session Context (Oct 25, 2024)](./2024-10-25-session-context.md) - Earlier investigation session
+- [Session Context (Oct 25, 2024)](../session-context/spec) - Earlier investigation session
 
 
 

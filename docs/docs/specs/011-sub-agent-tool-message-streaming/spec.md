@@ -10,7 +10,7 @@ title: "2024-10-25: Sub-Agent Tool Message Streaming Analysis"
 **Category**: Architecture & Core Design
 **Date**: October 25, 2024
 
-> **Note**: This is a historical debugging/investigation document from October 2024. For comprehensive A2A protocol documentation with actual event data, see [A2A Event Flow Architecture](./2025-10-27-a2a-event-flow-architecture.md).
+> **Note**: This is a historical debugging/investigation document from October 2024. For comprehensive A2A protocol documentation with actual event data, see [A2A Event Flow Architecture](../a2a-event-flow-architecture/spec).
 
 ## Overview
 
@@ -91,7 +91,7 @@ docker logs platform-engineer-p2p --since=2m | grep -E "(Streamed.*accumulated|P
 
 For the **current, comprehensive A2A protocol documentation** with actual event data, real-world examples, and complete event flow analysis, see:
 
-### 📚 [A2A Event Flow Architecture (2025-10-27)](./2025-10-27-a2a-event-flow-architecture.md)
+### 📚 [A2A Event Flow Architecture (2025-10-27)](../a2a-event-flow-architecture/spec)
 
 **What's included in the new documentation:**
 - ✅ Complete architecture flowchart (Client → Supervisor → Sub-Agent → MCP → Tools)
@@ -112,7 +112,7 @@ For the **current, comprehensive A2A protocol documentation** with actual event 
 ---
 
 **Investigation Date:** October 25, 2024
-**Document Status:** Historical - See [2025-10-27-a2a-event-flow-architecture.md](./2025-10-27-a2a-event-flow-architecture.md) for current documentation
+**Document Status:** Historical - See [2025-10-27-a2a-event-flow-architecture.md](../a2a-event-flow-architecture/spec) for current documentation
 **Findings:** Infrastructure Complete - Architecture Limitation Identified
 **Outcome:** LangGraph streaming limitation documented; sub-agent tool details not visible to end users via `astream_events`
 

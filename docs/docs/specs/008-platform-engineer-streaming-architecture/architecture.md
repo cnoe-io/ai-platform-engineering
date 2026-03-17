@@ -21,7 +21,13 @@ sidebar_label: Architecture
 9. [Future Enhancements](#future-enhancements)
 
 
-## Architecture Diagram
+## Executive Summary
+
+The Platform Engineer streaming architecture provides intelligent routing (DIRECT, PARALLEL, COMPLEX) for optimal performance while maintaining full backward compatibility with existing A2A clients.
+
+## Architecture Overview
+
+### Architecture Diagram
 
 ```mermaid
 graph TD

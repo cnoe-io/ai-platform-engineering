@@ -124,8 +124,8 @@ komodor: Tool result received - list_clusters (success)
 
 ## Related
 
-- [Enhanced Streaming Feature](./2024-10-22-enhanced-streaming-feature.md)
-- [Streaming Architecture](./2024-10-22-streaming-architecture.md)
+- [Enhanced Streaming Feature](../enhanced-streaming-feature/spec)
+- [Streaming Architecture](../streaming-architecture/spec)
 
 
 - Architecture: [architecture.md](./architecture.md)
