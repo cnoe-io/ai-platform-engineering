@@ -246,6 +246,10 @@ spec:
               subPath: policy.lp
               readOnly: true
             {{- if eq .Values.global.deploymentMode "single-node" }}
+            - name: prompt-config-user-input
+              mountPath: /app/prompt_config.user_input_agent.yaml
+              subPath: prompt_config.user_input_agent.yaml
+              readOnly: true
             {{- range $name, $enabled := (default dict .Values.singleNode.enabledSubAgents) }}
             {{- if $enabled }}
             - name: prompt-config-{{ $name | replace "_" "-" }}
@@ -272,6 +276,10 @@ spec:
           configMap:
             name: policy-config
         {{- if eq .Values.global.deploymentMode "single-node" }}
+        - name: prompt-config-user-input
+          configMap:
+            name: prompt-config-user-input
+            optional: true
         {{- range $name, $enabled := (default dict .Values.singleNode.enabledSubAgents) }}
         {{- if $enabled }}
         - name: prompt-config-{{ $name | replace "_" "-" }}

@@ -125,6 +125,7 @@ supervisor-agent:
   # Chart.yaml import-values into global.enabledSubAgents — do NOT put
   # enabledSubAgents under global: or it will conflict with that mechanism.
   singleNode:
+    userInputPromptConfig: ""  # Custom user input subagent prompt config (overrides default if set)
     enabledSubAgents:
       aigateway: true
       argocd: true
@@ -234,6 +235,8 @@ supervisor-agent:
 # In single-node mode, single-node-agent-secrets.yaml creates an ExternalSecret
 # from this configuration.  A proper aigateway subchart is a follow-up.
 agent-aigateway:
+  mcp:
+    mode: "stdio" # this is a special tool and doesn't have MCP
   agentSecrets:
     secretName: "agent-aigateway-secret"
     # externalSecrets:
