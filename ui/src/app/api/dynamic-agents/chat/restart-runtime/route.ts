@@ -11,6 +11,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { getServerConfig } from "@/lib/config";
+import { getAuthenticatedUser } from "@/lib/api-middleware";
 
 export async function POST(request: NextRequest): Promise<Response> {
   const config = getServerConfig();
@@ -27,6 +28,18 @@ export async function POST(request: NextRequest): Promise<Response> {
     return NextResponse.json(
       { success: false, error: "Dynamic agents URL not configured" },
       { status: 500 }
+    );
+  }
+
+  // Authenticate the request
+  let session: { accessToken?: string };
+  try {
+    const auth = await getAuthenticatedUser(request);
+    session = auth.session;
+  } catch {
+    return NextResponse.json(
+      { success: false, error: "Unauthorized" },
+      { status: 401 }
     );
   }
 
@@ -53,10 +66,9 @@ export async function POST(request: NextRequest): Promise<Response> {
     "Content-Type": "application/json",
   };
 
-  // Forward the access token if present
-  const authHeader = request.headers.get("Authorization");
-  if (authHeader) {
-    backendHeaders["Authorization"] = authHeader;
+  // Forward the access token to the Dynamic Agents backend
+  if (session.accessToken) {
+    backendHeaders["Authorization"] = `Bearer ${session.accessToken}`;
   }
 
   const backendUrl = `${dynamicAgentsUrl}/api/v1/chat/restart-runtime`;

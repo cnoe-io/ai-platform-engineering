@@ -41,17 +41,6 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
       backendHeaders["Authorization"] = `Bearer ${session.accessToken}`;
     }
 
-    // Forward user info headers for auth (fallback if backend uses these)
-    if (user.email) {
-      backendHeaders["X-User-Email"] = user.email;
-    }
-    if (session.role === "admin") {
-      backendHeaders["X-User-Role"] = "admin";
-    }
-    if (session.teams?.length) {
-      backendHeaders["X-User-Groups"] = session.teams.join(",");
-    }
-
     try {
       const response = await fetch(`${dynamicAgentsUrl}/api/v1/llm-models`, {
         method: "GET",
