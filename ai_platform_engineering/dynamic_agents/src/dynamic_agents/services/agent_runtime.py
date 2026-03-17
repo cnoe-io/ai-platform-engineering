@@ -15,8 +15,9 @@ from cnoe_agent_utils import LLMFactory
 from cnoe_agent_utils.tracing import TracingManager
 from deepagents import create_deep_agent
 from langchain_mcp_adapters.client import MultiServerMCPClient
-from langgraph.checkpoint.memory import InMemorySaver
+from langgraph.checkpoint.mongodb.saver import MongoDBSaver
 from langgraph.types import Command
+from pymongo import MongoClient
 
 from dynamic_agents.config import Settings, get_settings
 from dynamic_agents.models import AgentContext, DynamicAgentConfig, MCPServerConfig, SubAgentRef
@@ -84,7 +85,14 @@ class AgentRuntime:
         self._user_name = user_name
         self._user_groups = user_groups or []
         self._graph = None
-        self._checkpointer = InMemorySaver()  # Store for state access
+        self._mongo_client = MongoClient(self.settings.mongodb_uri)
+        # Use MongoDBSaver from langgraph-checkpoint-mongodb for persistent chat history
+        self._checkpointer = MongoDBSaver(
+            self._mongo_client,
+            db_name=self.settings.mongodb_database,
+            checkpoint_collection_name="conversation_checkpoints",
+            writes_collection_name="conversation_checkpoint_writes",
+        )
         self._mcp_client: MultiServerMCPClient | None = None
         self._initialized = False
         self._created_at = time.time()
@@ -95,7 +103,9 @@ class AgentRuntime:
         self._failed_servers_error: str = ""  # Error message for display
         # Track config timestamps for cache invalidation
         self._config_updated_at: datetime = config.updated_at
-        self._mcp_servers_updated_at: datetime = max((s.updated_at for s in mcp_servers), default=datetime.min.replace(tzinfo=timezone.utc))
+        self._mcp_servers_updated_at: datetime = max(
+            (s.updated_at for s in mcp_servers), default=datetime.min.replace(tzinfo=timezone.utc)
+        )
 
     async def initialize(self) -> None:
         """Build the DeepAgent graph with tools and instructions."""
@@ -864,11 +874,16 @@ class AgentRuntime:
             )
 
     async def cleanup(self) -> None:
-        """Cleanup MCP client connections."""
+        """Cleanup MCP client connections and MongoDB checkpointer."""
         if self._mcp_client:
             # Note: As of langchain-mcp-adapters 0.1.0, MultiServerMCPClient
             # doesn't require explicit cleanup when not used as context manager
             self._mcp_client = None
+
+        if self._checkpointer:
+            self._checkpointer.close()
+            logger.info("Closed MongoDB checkpointer for agent runtime")
+
         self._initialized = False
 
     @property
