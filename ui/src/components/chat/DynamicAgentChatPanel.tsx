@@ -729,7 +729,7 @@ export function DynamicAgentChatPanel({ endpoint, conversationId, conversationTi
   };
 
   return (
-    <div className="h-full w-full flex flex-col bg-background relative border-4 border-indigo-500/20 box-border" data-component="DynamicAgentChatPanel">
+    <div className="h-full w-full flex flex-col bg-background relative">
       {/* Messages Area */}
       <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
         <ScrollArea className="flex-1" viewportRef={scrollViewportRef}>
