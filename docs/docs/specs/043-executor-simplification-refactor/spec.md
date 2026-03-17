@@ -129,10 +129,10 @@ curl -s -N -X POST http://localhost:8000/ \
 
 ## Related
 
-- [Streaming Architecture](./2024-10-23-platform-engineer-streaming-architecture.md)
-- [A2A Event Flow Architecture](./2025-10-27-a2a-event-flow-architecture.md)
-- [TODO-based Execution Plan](./2025-11-05-todo-based-execution-plan.md)
-- [A2A Artifact Streaming Fix](./2025-11-05-a2a-artifact-streaming-fix.md)
+- [Streaming Architecture](../platform-engineer-streaming-architecture/spec)
+- [A2A Event Flow Architecture](../a2a-event-flow-architecture/spec)
+- [TODO-based Execution Plan](../todo-based-execution-plan/spec)
+- [A2A Artifact Streaming Fix](../a2a-artifact-streaming-fix/spec)
 
 ---
 

@@ -168,7 +168,7 @@ pytest integration/test_a2a_protocol.py -v -k "test_data_part"
 - [A2A Protocol Specification - DataPart](https://a2a-protocol.org/latest/topics/key-concepts/#core-actors-in-a2a-interactions)
 - [A2A Python SDK - DataPart Examples](https://github.com/a2aproject/a2a-python)
 - [A2A Samples - Marvin Agent Executor](https://github.com/a2aproject/a2a-samples/blob/main/samples/python/agents/marvin/agent_executor.py)
-- [User Input Metadata Format ADR](2025-11-07-user-input-metadata-format.md)
+- [User Input Metadata Format ADR](../user-input-metadata-format/spec)
 - [Agent Forge - DataPart Handling](https://github.com/cnoe-io/community-plugins/tree/main/workspaces/agent-forge/docs/docs/changes)
 
 

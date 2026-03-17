@@ -323,7 +323,7 @@ NEXTAUTH_URL=http://localhost:3000
 
 ## Related Documentation
 
-- [OIDC Configuration](./configuration.md#oidc-sso-configuration)
+- [OIDC Configuration](./configuration.md#oauth-20-configuration)
 - [Development Guide](./development.md)
 - [API Reference](./api-reference.md)
 - [Troubleshooting](./troubleshooting.md)

@@ -57,8 +57,8 @@ docker logs platform-engineer-p2p 2>&1 | grep "Enhanced streaming"
   - **Status**: ✅ Merged into `_stream_from_sub_agent()`
 
 ### Documentation
-- [Streaming Architecture](./2024-10-22-streaming-architecture.md) - Technical deep dive
-- [Enhanced Streaming Feature](./2024-10-22-enhanced-streaming-feature.md) - User guide
+- [Streaming Architecture](../streaming-architecture/spec) - Technical deep dive
+- [Enhanced Streaming Feature](../enhanced-streaming-feature/spec) - User guide
 
 
 ## Rollout Recommendation

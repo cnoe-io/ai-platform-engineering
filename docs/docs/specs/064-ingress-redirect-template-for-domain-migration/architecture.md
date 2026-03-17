@@ -115,7 +115,7 @@ spec:
 ### 2. Documentation
 
 **Generic Documentation** (no org-specific content):
-- [CAIPE UI Ingress Configuration Guide](2026-02-03-caipe-ui-ingress-configuration-guide.md) - Complete ingress configuration guide
+- [CAIPE UI Ingress Configuration Guide](../caipe-ui-ingress-configuration-guide/spec) - Complete ingress configuration guide
 - `charts/caipe-ui/values-ingress-redirect.yaml.example` - Example configuration
 
 ### 3. Example Configuration

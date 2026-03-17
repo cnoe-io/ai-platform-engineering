@@ -51,8 +51,8 @@ Expected result: Final answer contains synthesized summary from all three agents
 
 ## Related
 
-- [2026-01-16-executor-simplification-refactor.md](./2026-01-16-executor-simplification-refactor.md) - Original executor refactor
-- [2025-11-05-a2a-artifact-streaming-fix.md](./2025-11-05-a2a-artifact-streaming-fix.md) - Previous streaming fixes
+- [2026-01-16-executor-simplification-refactor.md](../executor-simplification-refactor/spec) - Original executor refactor
+- [2025-11-05-a2a-artifact-streaming-fix.md](../a2a-artifact-streaming-fix/spec) - Previous streaming fixes
 
 
 - Architecture: [architecture.md](./architecture.md)

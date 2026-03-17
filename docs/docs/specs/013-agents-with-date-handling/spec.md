@@ -35,8 +35,8 @@ This document lists agents that have **enhanced date handling guidelines** enabl
 
 ## Related
 
-- **Implementation Guide**: [Date Handling Guide](./2025-10-27-date-handling-guide.md)
-- **Changelog**: [Automatic Date/Time Injection](./2025-10-27-automatic-date-time-injection.md)
+- **Implementation Guide**: [Date Handling Guide](../date-handling-guide/spec)
+- **Changelog**: [Automatic Date/Time Injection](../automatic-date-time-injection/spec)
 - **Prompt Templates**: `utils/prompt_templates.py`
 - **Base Agent**: `utils/a2a_common/base_langgraph_agent.py`
 

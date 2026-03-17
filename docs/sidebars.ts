@@ -92,12 +92,12 @@ const sidebars: SidebarsConfig = {
               items: [
                 {
                   type: 'doc',
-                  id: 'installation/helm-charts/supervisor-agent',
+                  id: 'installation/helm-charts/supervisor-agent-chart',
                   label: 'supervisor-agent',
                 },
                 {
                   type: 'doc',
-                  id: 'installation/helm-charts/langgraph-redis',
+                  id: 'installation/helm-charts/langgraph-redis-chart',
                   label: 'langgraph-redis',
                 },
               ],

@@ -1489,7 +1489,7 @@ _apply_agent_patches_volume() {
 # Root cause: OpenAI streams PlatformEngineerResponse as plain text, not tool
 # calls. The fix sets from_response_format_tool=True when handle_structured_response
 # successfully parses the response in PRIORITY 2/3 paths.
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "$0")" 2>/dev/null && pwd || pwd)"
 
 _create_agent_fix_configmap() {
   local fix_file="${SCRIPT_DIR}/agent_fix.py"

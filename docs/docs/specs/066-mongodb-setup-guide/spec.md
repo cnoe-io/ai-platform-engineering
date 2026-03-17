@@ -20,7 +20,7 @@ This setup adds MongoDB as a persistent storage backend for CAIPE UI, enabling:
 - MongoDB Chart: `charts/ai-platform-engineering/charts/caipe-ui-mongodb/`
 - CAIPE UI Chart: `charts/ai-platform-engineering/charts/caipe-ui/`
 - MongoDB Examples: `charts/ai-platform-engineering/values-mongodb.yaml.example`
-- Ingress Guide: [CAIPE UI Ingress Configuration Guide](2026-02-03-caipe-ui-ingress-configuration-guide.md)
+- Ingress Guide: [CAIPE UI Ingress Configuration Guide](../caipe-ui-ingress-configuration-guide/spec)
 - Ingress Example: `charts/ai-platform-engineering/charts/caipe-ui/values-ingress-redirect.yaml.example`
 
 

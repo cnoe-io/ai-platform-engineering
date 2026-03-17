@@ -59,7 +59,7 @@ For issues or questions:
 **Date Added:** October 30, 2025
 **Workflow Version:** 1.0
 **Maintainer:** Platform Engineering Team
-**Related Documentation:** [Agent Forge Docker Build Integration](./2025-10-30-agent-forge-docker-build.md)
+**Related Documentation:** [Agent Forge Docker Build Integration](../agent-forge-docker-build/spec)
 
 
 

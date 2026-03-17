@@ -109,9 +109,9 @@ export USECASE_STORAGE_TYPE=file
 
 ## Related
 
-- [CAIPE UI Configuration Guide](../ui/configuration.md)
-- [CAIPE UI Development Guide](../ui/development.md)
-- [CAIPE UI Troubleshooting](../ui/troubleshooting.md)
+- [CAIPE UI Configuration Guide](../../ui/configuration)
+- [CAIPE UI Development Guide](../../ui/development)
+- [CAIPE UI Troubleshooting](../../ui/troubleshooting)
 - [MongoDB Documentation](https://www.mongodb.com/docs/)
 - [Next.js Environment Variables](https://nextjs.org/docs/pages/building-your-application/configuring/environment-variables)
 
