@@ -2,7 +2,7 @@
 
 import React, { useState } from "react";
 import { motion } from "framer-motion";
-import { ChatPanel } from "@/components/chat/ChatPanel";
+import { DynamicAgentChatPanel } from "@/components/chat/DynamicAgentChatPanel";
 import { DynamicAgentContext } from "./DynamicAgentContext";
 import type { SubAgentRef } from "@/types/dynamic-agent";
 
@@ -69,13 +69,13 @@ export function DynamicAgentChatView({
         transition={{ duration: 0.2 }}
         className="flex-1 min-w-0 flex flex-col overflow-hidden"
       >
-        <ChatPanel
+        <DynamicAgentChatPanel
           endpoint={endpoint}
           conversationId={conversationId}
           conversationTitle={conversationTitle}
           readOnly={readOnly || agentNotFound || agentDisabled}
           readOnlyReason={agentNotFound ? 'agent_deleted' : agentDisabled ? 'agent_disabled' : readOnlyReason}
-          selectedAgentId={selectedAgentId}
+          agentId={selectedAgentId}
         />
       </motion.div>
 
