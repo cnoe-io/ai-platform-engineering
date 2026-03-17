@@ -145,15 +145,6 @@ supervisor-agent:
     # Uses langchain's provider:model-name format (e.g. "openai:gpt-4o").
     # When empty, falls back to the LLM_PROVIDER / model-name env vars from llm-secret.
     supervisorModel: ""
-    # Per-subagent LLM model overrides.
-    # All subagents share the supervisor's LLM by default.
-    # Set a value here to override the model for a specific subagent.
-    # Values use the provider:model-name format supported by langchain's init_chat_model.
-    # Examples: "openai:gpt-4o-mini", "anthropic:claude-sonnet-4-5-20250929"
-    subagentModels: {}
-      # github: "openai:gpt-4o-mini"
-      # jira: "openai:gpt-4o"
-      # argocd: "azure_openai:gpt-5.2"
   nameOverride: "supervisor-agent"
   image:
     repository: "ghcr.io/cnoe-io/ai-platform-engineering"
