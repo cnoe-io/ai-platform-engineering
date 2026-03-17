@@ -11,7 +11,7 @@ dependencies:
   # AI Platform Engineer Multi-Agent
   - name: supervisor-agent
     # Chart version for agent subchart
-    version: 0.2.38-rc.helm.3 # Do NOT bump this. It will be updated automatically using the PR or release workflow
+    version: 0.2.38-rc.helm.4 # Do NOT bump this. It will be updated automatically using the PR or release workflow
   # Single agent chart used multiple times with different aliases
   - name: agent
     version: 0.2.38-rc.helm.1 # Do NOT bump this. It will be updated automatically using the PR or release workflow
@@ -194,7 +194,7 @@ dependencies:
     alias: mongodb
   # Redis Stack for LangGraph checkpoint + store persistence
   - name: langgraph-redis
-    version: 0.2.38-rc.helm.1 # Do NOT bump this. It will be updated automatically using the PR or release workflow
+    version: 0.2.38-rc.helm.2 # Do NOT bump this. It will be updated automatically using the PR or release workflow
     condition: global.langgraphRedis.enabled
   # Slack Bot Integration (client, not an agent)
   - name: slack-bot
