@@ -291,26 +291,31 @@ Use this as the reference point for all date calculations. When users say "today
     async def _load_mcp_tools(self, args: dict, include_fallback: bool = True) -> list:
         """
         Load MCP tools for this agent.
-        
+
         This is extracted from _setup_mcp_and_graph to allow reuse for subagent graph creation.
-        
+
         Args:
             args: Dictionary with optional 'thread_id' for tool wrapping
             include_fallback: When True (default), return get_additional_tools() on MCP
                 failure for backward compatibility.  When False, return an empty list
                 so the caller can decide whether to add fallbacks.
-            
+
         Returns:
             List of tools loaded from MCP
         """
         agent_name = self.get_agent_name()
-        mcp_mode = os.getenv("MCP_MODE", "stdio")
-        
+        # Per-agent override (e.g. PAGERDUTY_MCP_MODE=http) takes precedence over
+        # the global MCP_MODE so individual sub-agents can mix transports.
+        mcp_mode = (
+            os.getenv(f"{agent_name.upper()}_MCP_MODE")
+            or os.getenv("MCP_MODE", "stdio")
+        )
+
         def _fallback() -> list:
             if include_fallback:
                 return self.get_additional_tools() or []
             return []
-        
+
         # Compute default server path based on agent's module location
         # This finds the MCP server relative to the agent's protocol_bindings/a2a_server/agent.py
         agent_module = self.__class__.__module__
@@ -334,22 +339,22 @@ Use this as the reference point for all date calculations. When users say "today
                 server_path = None
         else:
             server_path = None
-        
+
         # Override with environment variable if set
         env_server_path = os.getenv(f"{agent_name.upper()}_MCP_SERVER_PATH")
         if env_server_path:
             server_path = env_server_path
-        
+
         # If MCP not available, just return additional tools
         if not MCP_AVAILABLE:
             logger.warning(f"{agent_name}: MCP not available, using only additional tools")
             return _fallback()
-        
+
         client = None
-        
+
         # Check if agent provides custom HTTP config (auto-detect HTTP-only agents like GitHub)
         custom_http_config = self.get_mcp_http_config()
-        
+
         if custom_http_config:
             # Agent provides HTTP config - use HTTP mode regardless of MCP_MODE env var
             # This allows HTTP-only agents (like GitHub with Copilot API) to work automatically
@@ -362,10 +367,19 @@ Use this as the reference point for all date calculations. When users say "today
                 }
             })
         elif mcp_mode in ("http", "streamable_http"):
-            # HTTP mode requested via environment but no custom config - use localhost
+            # HTTP mode requested via environment but no custom config - use localhost.
+            # Per-agent overrides (e.g. PAGERDUTY_MCP_HOST) take precedence over the
+            # generic MCP_HOST / MCP_PORT so that a single-node container can route
+            # each sub-agent to its own dedicated MCP container.
             logger.info(f"{agent_name}: Using HTTP transport for MCP client (default localhost)")
-            mcp_host = os.getenv("MCP_HOST", "localhost")
-            mcp_port = os.getenv("MCP_PORT", "3000")
+            mcp_host = (
+                os.getenv(f"{agent_name.upper()}_MCP_HOST")
+                or os.getenv("MCP_HOST", "localhost")
+            )
+            mcp_port = (
+                os.getenv(f"{agent_name.upper()}_MCP_PORT")
+                or os.getenv("MCP_PORT", "3000")
+            )
             logger.info(f"Connecting to MCP server at {mcp_host}:{mcp_port}")
             user_jwt = "TBD_USER_JWT"
             client = MultiServerMCPClient({
@@ -379,15 +393,15 @@ Use this as the reference point for all date calculations. When users say "today
             })
         else:
             logger.info(f"{agent_name}: Using STDIO transport for MCP client")
-            
+
             if not server_path or not os.path.exists(server_path):
                 logger.warning(f"{agent_name}: MCP server path not found: {server_path}")
                 return _fallback()
-            
+
             try:
                 mcp_config = self.get_mcp_config(server_path)
                 logger.info(f"{agent_name}: MCP config loaded successfully")
-                
+
                 if mcp_config and "command" not in mcp_config:
                     logger.info(f"{agent_name}: Multi-server MCP configuration detected with {len(mcp_config)} servers")
                     client = MultiServerMCPClient(mcp_config)
@@ -398,11 +412,11 @@ Use this as the reference point for all date calculations. When users say "today
             except (ValueError, NotImplementedError) as e:
                 logger.error(f"{agent_name}: Cannot load MCP config: {e}")
                 return _fallback()
-        
+
         if not client:
             logger.warning(f"{agent_name}: No MCP client configured")
             return _fallback()
-        
+
         # Get tools from MCP client
         # Some MCP servers (notably Go-based ones like github-mcp-server) send
         # asynchronous notification messages right after initialization.  When
@@ -437,10 +451,10 @@ Use this as the reference point for all date calculations. When users say "today
                     exc_info=True,
                 )
                 return _fallback()
-        
+
         # Allow subclasses to filter tools
         tools = self._filter_mcp_tools(tools)
-        
+
         # Allow subclasses to wrap tools
         try:
             tools = self._wrap_mcp_tools(tools, args.get("thread_id", "default"))
@@ -448,7 +462,7 @@ Use this as the reference point for all date calculations. When users say "today
             logger.error(f"{agent_name}: Failed to wrap MCP tools: {e}", exc_info=True)
             # Return unwrapped tools rather than failing completely
             pass
-        
+
         logger.info(f"{agent_name}: Loaded {len(tools)} MCP tools")
         return tools
 
@@ -769,14 +783,14 @@ Use this as the reference point for all date calculations. When users say "today
                 # Check if this is an async-only tool (has coroutine but no func)
                 has_sync = hasattr(tool, 'func') and tool.func is not None
                 has_async = hasattr(tool, 'coroutine') and tool.coroutine is not None
-                
+
                 logger.debug(f"Wrapping tool {tool_name}: has_sync={has_sync}, has_async={has_async}")
-                
+
                 if has_async and not has_sync:
                     # This is an async-only tool - we need to create a new StructuredTool
                     # with both func (sync) and coroutine (async) to support sync invocation
                     original_coroutine = tool.coroutine
-                    
+
                     # Create wrapped async function with error handling
                     async def safe_coroutine(*args, _orig=original_coroutine, _tool_name=tool_name, _max_size=max_tool_output, **kwargs):
                         try:
@@ -787,7 +801,7 @@ Use this as the reference point for all date calculations. When users say "today
                             user_msg = self._parse_tool_error(e, _tool_name)
                             logger.warning(f"{self.get_agent_name()} MCP tool error: {user_msg}")
                             return (user_msg, {"error": str(e), "tool": _tool_name})
-                    
+
                     # Create sync wrapper that runs async code
                     def sync_wrapper(*args, _async_fn=safe_coroutine, _tool_name=tool_name, **kwargs):
                         try:
@@ -810,7 +824,7 @@ Use this as the reference point for all date calculations. When users say "today
                             user_msg = self._parse_tool_error(e, _tool_name)
                             logger.warning(f"{self.get_agent_name()} MCP tool sync wrapper error: {user_msg}")
                             return (user_msg, {"error": str(e), "tool": _tool_name})
-                    
+
                     # Create new StructuredTool with both sync and async support
                     new_tool = StructuredTool(
                         name=tool.name,
@@ -974,8 +988,13 @@ Use this as the reference point for all date calculations. When users say "today
         logger.info("=" * 50)
         logger.info(f"📡 Launching MCP server at: {server_path}")
 
-        # Get MCP mode from environment
-        mcp_mode = os.getenv("MCP_MODE", "stdio").lower()
+        # Get MCP mode from environment.
+        # Per-agent override (e.g. PAGERDUTY_MCP_MODE=http) takes precedence over
+        # the global MCP_MODE so individual sub-agents can mix transports.
+        mcp_mode = (
+            os.getenv(f"{agent_name.upper()}_MCP_MODE")
+            or os.getenv("MCP_MODE", "stdio")
+        ).lower()
         client = None
 
         if mcp_mode == "http" or mcp_mode == "streamable_http":
@@ -997,9 +1016,18 @@ Use this as the reference point for all date calculations. When users say "today
                     connection_config["httpx_client_factory"] = httpx_factory
                 client = MultiServerMCPClient({agent_name: connection_config})
             else:
-                # Use default HTTP configuration (localhost)
-                mcp_host = os.getenv("MCP_HOST", "localhost")
-                mcp_port = os.getenv("MCP_PORT", "3000")
+                # Use default HTTP configuration (localhost).
+                # Per-agent overrides (e.g. PAGERDUTY_MCP_HOST) take precedence over the
+                # generic MCP_HOST / MCP_PORT so that a single-node container can route
+                # each sub-agent to its own dedicated MCP container.
+                mcp_host = (
+                    os.getenv(f"{agent_name.upper()}_MCP_HOST")
+                    or os.getenv("MCP_HOST", "localhost")
+                )
+                mcp_port = (
+                    os.getenv(f"{agent_name.upper()}_MCP_PORT")
+                    or os.getenv("MCP_PORT", "3000")
+                )
                 logging.info(f"Connecting to MCP server at {mcp_host}:{mcp_port}")
 
                 # TBD: Handle user authentication
