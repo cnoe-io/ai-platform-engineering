@@ -45,9 +45,25 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
       const expiredIds = expired.map(c => c._id);
       await conversations.deleteMany({ _id: { $in: expiredIds } });
 
-      // Also delete messages for purged conversations
+      // Delete messages for purged Platform Engineer conversations
       const messages = await getCollection('messages');
       await messages.deleteMany({ conversation_id: { $in: expiredIds } });
+
+      // Delete checkpoint data for purged Dynamic Agent conversations
+      // Dynamic Agent conversations have an agent_id field set
+      const dynamicAgentIds = expired
+        .filter(c => c.agent_id)
+        .map(c => c._id);
+
+      if (dynamicAgentIds.length > 0) {
+        const checkpoints = await getCollection('conversation_checkpoints');
+        const checkpointWrites = await getCollection('conversation_checkpoint_writes');
+
+        await checkpoints.deleteMany({ thread_id: { $in: dynamicAgentIds } });
+        await checkpointWrites.deleteMany({ thread_id: { $in: dynamicAgentIds } });
+
+        console.log(`[Trash] Also purged checkpoint data for ${dynamicAgentIds.length} Dynamic Agent conversations`);
+      }
 
       console.log(`[Trash] Auto-purged ${expired.length} conversations older than ${ARCHIVE_RETENTION_DAYS} days for ${user.email}`);
     }
