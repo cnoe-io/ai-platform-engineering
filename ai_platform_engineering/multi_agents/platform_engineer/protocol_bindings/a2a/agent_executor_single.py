@@ -572,7 +572,7 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
         # 2. Message parts containing DataPart with resume key (A2A SDK)
         resume_cmd: Optional[Command] = None
         metadata = getattr(context, "metadata", None) or {}
-        
+
         # Also check message parts for DataPart containing resume
         if context.message and hasattr(context.message, 'parts'):
             for part in context.message.parts:
@@ -596,14 +596,14 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                         logger.info("📦 Found resume command in dict DataPart")
                         metadata = data_content
                         break
-        
+
         if isinstance(metadata, dict) and metadata.get("resume"):
             # Convert frontend decisions to HITL response format
             logger.info("🔄 Processing resume command from form submission")
             decisions = metadata["resume"].get("decisions", [])
             responses = []
             is_response = False
-            
+
             for decision in decisions:
                 decision_type = decision.get("type", "")
                 edited_action = decision.get("edited_action") or {}
@@ -612,15 +612,15 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                     or edited_action.get("name", "")
                 )
                 logger.info(f"  Decision: type={decision_type}, action={action_name}")
-                
+
                 # Extract args: prefer edited_action.args (LangGraph HITL format),
                 # fall back to legacy decision.args.args path
                 inner_args = edited_action.get("args") or decision.get("args", {}).get("args", {})
-                
+
                 # Log user's form selections (passed via HITL resume mechanism)
                 if action_name == "CAIPEAgentResponse" and isinstance(inner_args, dict):
                     user_inputs = inner_args.get("user_inputs", {})
-                    
+
                     if not user_inputs:
                         meta = inner_args.get("metadata", {})
                         input_fields = meta.get("input_fields", [])
@@ -632,10 +632,10 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                                 field_value = fld.get("value")
                                 if field_name and field_value is not None:
                                     user_inputs[field_name] = field_value
-                    
+
                     if user_inputs:
                         logger.info(f"  📋 Form has {len(user_inputs)} user inputs (passed via HITL resume)")
-                
+
                 if decision_type in ("accept", "approve"):
                     responses.append({"type": "approve"})
                 elif decision_type == "edit":
@@ -659,7 +659,7 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                         "type": "reject",
                         "message": message
                     })
-            
+
             logger.info(f"📦 Created resume Command with {len(responses)} decisions")
             # LangChain HITL expects resume={"decisions": [...]}
             resume_cmd = Command(
@@ -667,7 +667,7 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                 update={"inputs": [{"tasks": []}]} if is_response else {}
             )
             query = None  # Don't use query when resuming
-        
+
         # Fallback: When UI sends form data as plain text (not DataPart resume),
         # detect input_required state and construct a resume Command from the text.
         # The UI's handleUserInputSubmit sends "key: value\nkey: value\n..." as a
@@ -682,19 +682,19 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                 if form_text.startswith("by user: "):
                     parts = form_text.split("\n\n", 1)
                     form_text = parts[1] if len(parts) > 1 else parts[0]
-                
+
                 # Parse key: value pairs from the text
                 user_inputs = {}
                 for line in form_text.strip().split("\n"):
                     if ": " in line:
                         key, _, value = line.partition(": ")
                         user_inputs[key.strip()] = value.strip()
-                
+
                 if user_inputs:
                     logger.info(f"📝 Detected form text submission for input_required task: {len(user_inputs)} fields")
                     for k, v in user_inputs.items():
                         logger.info(f"  📋 {k}: {v}")
-                    
+
                     # Build resume with approve + edited args containing user inputs
                     resume_cmd = Command(
                         resume={"decisions": [{
@@ -824,7 +824,7 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                             # Fallback: wrap the raw AIMessage for backward compatibility
                             data = message_to_dict(msg)["data"]
                             ak = data.get("additional_kwargs") or {}
-                            ak["agent_type"] = event.get("agent_type", "caipe")
+                            ak["agent_type"] = event.get("agent_type", "user_input")
                             data["additional_kwargs"] = ak
                             form_metadata = data
                             logger.warning(f"Task {task.id}: Could not extract input_fields from interrupt, using raw message data")
@@ -858,7 +858,7 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                         )
                         await self._send_artifact(event_queue, task, form_artifact, append=False)
                         logger.info(f"Task {task.id} sent UserInputMetaData artifact with {len(form_metadata.get('input_fields', []))} fields.")
-                        
+
                         # Then send the input-required status (final=True will end the stream)
                         status_text = form_response_text or "Please provide the required information."
                         await self._safe_enqueue_event(
@@ -877,7 +877,7 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                                 task_id=task.id,
                             )
                         )
-                        
+
                         state.user_input_required = True
                         logger.info(f"Task {task.id} requires user input (HITL form).")
                         state.stream_finished = True
