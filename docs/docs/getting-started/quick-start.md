@@ -28,6 +28,6 @@ The script asks for your LLM provider, API key, and optional components (RAG, tr
 | [**IDP Builder**](idpbuilder/setup.md) | Full platform stack with Backstage, ArgoCD, Gitea |
 | [**EKS**](eks/setup.md) | AWS production deployment |
 
-<div style={{paddingBottom: '56.25%', position: 'relative', display: 'block', width: '100%'}}>
-  <iframe src="https://app.vidcast.io/share/embed/40364232-f609-43d7-9578-07aef9c25893?mute=1&autoplay=1&disableCopyDropdown=1" width="100%" height="100%" title="CAIPE Getting Started with Docker Compose Demo" loading="lazy" allow="fullscreen *;autoplay *;" style={{position: 'absolute', top: 0, left: 0, border: 'solid', borderRadius: '12px'}}></iframe>
-</div>
+<iframe src="https://asciinema.org/a/845278/iframe" width="100%" height="600" style={{border: 'none', borderRadius: '8px', overflow: 'hidden'}} scrolling="no" allowFullScreen />
+
+> [View full screen recording on asciinema](https://asciinema.org/a/845278)

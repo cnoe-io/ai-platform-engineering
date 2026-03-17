@@ -22,6 +22,10 @@ The interactive script will ask for your LLM provider, API key, and optional com
 
 > **Want to inspect the script first?** View it at [`setup-caipe.sh`](https://github.com/cnoe-io/ai-platform-engineering/blob/main/setup-caipe.sh) before running.
 
+<iframe src="https://asciinema.org/a/845278/iframe" width="100%" height="600" style={{border: 'none', borderRadius: '8px', overflow: 'hidden'}} scrolling="no" allowFullScreen />
+
+> [View full screen recording on asciinema](https://asciinema.org/a/845278)
+
 ---
 
 ## Step 1: Prerequisites
