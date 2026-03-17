@@ -3,11 +3,55 @@ id: supervisor-agent-chart
 sidebar_label: supervisor-agent
 ---
 
+:::caution Auto-generated
+This page is auto-generated from the Helm chart source. Do not edit directly.
+Regenerate with `make docs-helm-charts`.
+:::
+
 # supervisor-agent
 
 A Helm chart for the Supervisor Agent
 
-## Parameters
+| | |
+|---|---|
+| **Version** | `0.2.38` |
+| **Type** | application |
+
+## Quick Start
+
+```bash
+# Add and install the chart
+helm install supervisor-agent oci://ghcr.io/cnoe-io/charts/supervisor-agent --version 0.2.38
+
+# Upgrade an existing release
+helm upgrade supervisor-agent oci://ghcr.io/cnoe-io/charts/supervisor-agent --version 0.2.38
+```
+
+## Customizing Values
+
+Override default values using `--set` flags or a custom values file:
+
+```bash
+# Override individual values
+helm install supervisor-agent oci://ghcr.io/cnoe-io/charts/supervisor-agent --version 0.2.38 \
+  --set replicaCount=2
+
+# Use a custom values file
+helm install supervisor-agent oci://ghcr.io/cnoe-io/charts/supervisor-agent --version 0.2.38 \
+  -f custom-values.yaml
+
+# Show all configurable values
+helm show values oci://ghcr.io/cnoe-io/charts/supervisor-agent --version 0.2.38
+```
+
+## Reading the Values Table
+
+| Column | Meaning |
+|--------|---------|
+| **Key** | Dot-separated path into `values.yaml` (e.g. `image.repository`) |
+| **Type** | Go/Helm data type (`string`, `int`, `bool`, `object`, `list`) |
+| **Default** | Value used when not overridden |
+| **Description** | What the parameter controls |
 
 ## Values
 
@@ -65,7 +109,7 @@ A Helm chart for the Supervisor Agent
 | memoryPersistence.postgres.dsn | string | `""` | PostgreSQL DSN (e.g. `postgresql://user:pass@host:5432/db`). Prefer existingSecret for credentials |
 | memoryPersistence.postgres.existingSecret.key | string | `""` | Key inside the secret (e.g. `DATABASE_URL`) |
 | memoryPersistence.postgres.existingSecret.name | string | `""` | Name of a Kubernetes Secret containing the Postgres DSN |
-| memoryPersistence.redis.autoDiscoverService | string | `""` | In-cluster Redis service name to auto-build the URL from (`redis://<release>-<service>:6379/<dbIndex>`). Common values: `langgraph-redis`, `rag-redis` |
+| memoryPersistence.redis.autoDiscoverService | string | `""` | In-cluster Redis service name to auto-build the URL from (`redis://`release`-`service`:6379/`dbIndex``). Common values: `langgraph-redis`, `rag-redis` |
 | memoryPersistence.redis.dbIndex | int | `0` | Redis DB index. Use 1+ when sharing with RAG Redis (db 0 is RAG data) |
 | memoryPersistence.redis.existingSecret.key | string | `""` | Key inside the secret (e.g. `REDIS_URL`) |
 | memoryPersistence.redis.existingSecret.name | string | `""` | Name of a Kubernetes Secret containing the Redis URL |
@@ -99,3 +143,4 @@ A Helm chart for the Supervisor Agent
 | tolerations | list | `[]` | Pod tolerations |
 | volumeMounts | list | `[]` | Extra volume mounts |
 | volumes | list | `[]` | Extra volumes |
+

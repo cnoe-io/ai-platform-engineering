@@ -22,7 +22,7 @@ APP_NAME ?= ai-platform-engineering
 	caipe-ui caipe-ui-install caipe-ui-build caipe-ui-dev caipe-ui-tests \
 	build-caipe-ui run-caipe-ui-docker caipe-ui-docker-compose \
 	docs docs-install docs-build docs-dev docs-start docs-serve \
-	check-helm-docs helm-docs
+	check-helm-docs helm-docs check-yq docs-helm-charts docs-helm-validate
 
 .DEFAULT_GOAL := run
 
@@ -446,6 +446,38 @@ helm-docs: check-helm-docs ## Regenerate Helm chart README.md files from values.
 	@echo "Generating Helm chart documentation..."
 	@helm-docs --chart-search-root charts/
 	@echo "✓ Helm chart documentation updated"
+
+## ========== Helm Chart Docs Generator ==========
+
+check-yq: ## Check that yq is installed (prints install instructions if missing)
+	@if ! which yq > /dev/null 2>&1; then \
+		echo ""; \
+		echo "yq is not installed. Install it with one of:"; \
+		echo ""; \
+		echo "  macOS / Linux (Homebrew):"; \
+		echo "    brew install yq"; \
+		echo ""; \
+		echo "  Any platform (Go):"; \
+		echo "    go install github.com/mikefarah/yq/v4@latest"; \
+		echo ""; \
+		echo "  Binary download:"; \
+		echo "    https://github.com/mikefarah/yq/releases"; \
+		echo ""; \
+		exit 1; \
+	fi
+
+docs-helm-charts: check-yq check-helm-docs ## Generate Helm chart documentation (READMEs + Docusaurus pages)
+	@echo "Generating Helm chart documentation..."
+	@CHART_VERSION=$(CHART_VERSION) ./scripts/generate-helm-chart-docs.sh
+	@echo "✓ Helm chart documentation generated"
+
+docs-helm-validate: docs-helm-charts docs-build ## End-to-end validation: generate docs + Docusaurus build + RC check
+	@echo "Checking for RC version patterns in generated docs..."
+	@if grep -rE '-(rc|alpha|beta|pre)\.' docs/docs/installation/helm-charts/ 2>/dev/null; then \
+		echo "FAIL: RC version patterns found in generated docs"; \
+		exit 1; \
+	fi
+	@echo "✓ Helm chart docs validation passed"
 
 ## ========== Help ==========
 
