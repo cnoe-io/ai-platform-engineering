@@ -15,6 +15,7 @@ APP_NAME ?= ai-platform-engineering
 	build install build-docker run run-ai-platform-engineer langgraph-dev \
 	run-a2a run-a2a-client run-a2a-client-local \
 	generate-docker-compose generate-docker-compose-dev generate-docker-compose-all clean-docker-compose \
+	generate-agent-commands \
 	lint lint-fix test test-compose-generator test-compose-generator-coverage \
 	test-rag-unit test-rag-coverage test-rag-memory test-rag-scale validate lock-all help \
 	beads-gh-issues-sync beads-gh-issues-sync-run beads-list beads-ready beads-sync \
@@ -221,6 +222,22 @@ docs-start: docs-dev ## Alias for docs-dev (start documentation development serv
 docs-serve: docs-build ## Serve documentation static site
 	@echo "Serving documentation static site..."
 	@cd docs && npm run serve
+
+## ========== Spec-Kit Agent Commands ==========
+
+SPECKIT_SRC := .specify/templates/commands
+CURSOR_DST  := .cursor/commands
+CLAUDE_DST  := .claude/commands
+
+generate-agent-commands: ## Generate .cursor and .claude command files from .specify/templates/commands
+	@echo "Generating agent command files from $(SPECKIT_SRC)..."
+	@mkdir -p $(CURSOR_DST) $(CLAUDE_DST)
+	@for src in $(SPECKIT_SRC)/*.md; do \
+		name=$$(basename "$$src" .md); \
+		cp "$$src" "$(CURSOR_DST)/speckit.$$name.md"; \
+		cp "$$src" "$(CLAUDE_DST)/speckit.$$name.md"; \
+	done
+	@echo "✓ Generated commands in $(CURSOR_DST)/ and $(CLAUDE_DST)/"
 
 ## ========== Lint ==========
 

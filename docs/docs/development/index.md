@@ -6,6 +6,7 @@ Welcome to the CAIPE development documentation! This section provides comprehens
 
 This development guide covers:
 
+- **[Spec-Driven Development](./spec-driven-development)** - How CAIPE uses spec-kit for agentic software development
 - **[Development Environment Setup](./development-environment)** - Configure your local development environment
 - **[Creating an Agent](./creating-an-agent)** - Build a new AI agent from scratch
 - **[Creating an MCP Server](./creating-mcp-server)** - Develop a Model Context Protocol server
@@ -31,10 +32,11 @@ Before you begin, you should have:
 
 ## 🚀 Quick Start Path
 
-1. **[Set up your development environment](./development-environment)** - Install dependencies and configure your workspace
-2. **[Explore the template agent](./creating-an-agent#understanding-the-template)** - Understand the project structure
-3. **[Build your first agent](./creating-an-agent#step-1-clone-the-template)** - Follow the step-by-step guide
-4. **[Add an MCP server](./creating-mcp-server)** - Connect your agent to external APIs
+1. **[Understand spec-driven development](./spec-driven-development)** - How CAIPE uses spec-kit for feature development
+2. **[Set up your development environment](./development-environment)** - Install dependencies and configure your workspace
+3. **[Explore the template agent](./creating-an-agent#understanding-the-template)** - Understand the project structure
+4. **[Build your first agent](./creating-an-agent#step-1-clone-the-template)** - Follow the step-by-step guide
+5. **[Add an MCP server](./creating-mcp-server)** - Connect your agent to external APIs
 
 ## 📖 Additional Resources
 
