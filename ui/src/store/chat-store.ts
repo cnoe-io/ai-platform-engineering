@@ -34,7 +34,7 @@ interface ChatState {
   // Actions
   createConversation: (agentId?: string) => string;
   setActiveConversation: (id: string) => void;
-  addMessage: (conversationId: string, message: Omit<ChatMessage, "id" | "timestamp" | "events">, turnId?: string) => string;
+  addMessage: (conversationId: string, message: Omit<ChatMessage, "id" | "timestamp" | "events">, turnId?: string, messageId?: string) => string;
   updateMessage: (conversationId: string, messageId: string, updates: Partial<ChatMessage>) => void;
   appendToMessage: (conversationId: string, messageId: string, content: string) => void;
   addEventToMessage: (conversationId: string, messageId: string, event: A2AEvent) => void;
@@ -209,8 +209,8 @@ const storeImplementation = (set: any, get: any) => ({
         });
       },
 
-      addMessage: (conversationId: string, message: Omit<ChatMessage, "id" | "timestamp" | "events">, turnId?: string) => {
-        const messageId = generateId();
+      addMessage: (conversationId: string, message: Omit<ChatMessage, "id" | "timestamp" | "events">, turnId?: string, messageId?: string) => {
+        const msgId = messageId || generateId();
 
         // Generate turnId for user messages, use provided turnId for assistant messages
         let messageTurnId = turnId;
@@ -220,7 +220,7 @@ const storeImplementation = (set: any, get: any) => ({
 
         const newMessage: ChatMessage = {
           ...message,
-          id: messageId,
+          id: msgId,
           timestamp: new Date(),
           events: [],
           turnId: messageTurnId,
@@ -265,7 +265,7 @@ const storeImplementation = (set: any, get: any) => ({
           });
         }
 
-        return messageId;
+        return msgId;
       },
 
       updateMessage: (conversationId: string, messageId: string, updates: Partial<ChatMessage>) => {
