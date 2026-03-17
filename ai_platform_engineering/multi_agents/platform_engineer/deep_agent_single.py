@@ -586,7 +586,7 @@ def create_user_input_subagent_def() -> dict:
     Collects user input via forms and writes results to filesystem
     for downstream agents to consume.
 
-    System prompt is loaded from prompt_config.user_input_collection_agent.yaml
+    System prompt is loaded from prompt_config.user_input_agent.yaml
     via load_subagent_prompt_config (same mechanism as all other per-agent configs).
     """
     from ai_platform_engineering.utils.subagent_prompts import load_subagent_prompt_config

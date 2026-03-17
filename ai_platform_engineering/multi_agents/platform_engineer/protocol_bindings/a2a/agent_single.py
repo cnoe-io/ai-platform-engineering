@@ -1209,6 +1209,13 @@ class AIPlatformEngineerA2ABinding:
 
                   logging.debug(f"Tool call completed: {tool_name} (content: {len(tool_content)} chars)")
 
+                  # If invoke_self_service_task returned an error (e.g. "Task not found"),
+                  # exit self-service mode so sibling tool outputs aren't suppressed.
+                  if tool_name == "invoke_self_service_task" and self._in_self_service_workflow:
+                      if tool_content and ("not found" in tool_content.lower() or "no steps" in tool_content.lower()):
+                          self._in_self_service_workflow = False
+                          logging.info("⚠️ invoke_self_service_task failed — exiting self-service suppression mode")
+
                   # Track sub-agent responses for fallback if synthesis fails
                   # Only track significant responses (sub-agent tools like 'task', agent names)
                   if tool_content and len(tool_content) > 100:
@@ -1341,9 +1348,11 @@ class AIPlatformEngineerA2ABinding:
                       }
                   # Stream other tool content as a tool notification (not chat text)
                   # During self-service workflows, suppress intermediate tool output —
-                  # the final structured response will contain a clean summary
+                  # the final structured response will contain a clean summary.
+                  # Exception: never suppress "task" (subagent) outputs — those are
+                  # user-facing results that must always reach the LLM for synthesis.
                   elif tool_content and tool_content.strip():
-                      if self._in_self_service_workflow:
+                      if self._in_self_service_workflow and tool_name != "task":
                           logging.debug(f"Suppressed tool output ({tool_name}, {len(tool_content)} chars) during self-service workflow")
                       else:
                           yield {
