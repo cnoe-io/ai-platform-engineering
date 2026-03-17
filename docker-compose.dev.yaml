@@ -1099,13 +1099,14 @@ services:
   #   - 8100: Dynamic Agents API (proxied via UI at /api/dynamic-agents)
   dynamic-agents:
     build:
-      context: ./ai_platform_engineering/dynamic_agents
-      dockerfile: build/Dockerfile
+      context: .
+      dockerfile: ai_platform_engineering/dynamic_agents/build/Dockerfile
     container_name: dynamic-agents
     ports: ["8100:8001"]
     volumes:
       # Mount source for hot reload in development
       - ./ai_platform_engineering/dynamic_agents/src:/app/dynamic_agents/src
+      - ./ai_platform_engineering/utils:/app/utils
     env_file: [.env]
     environment:
       # MongoDB (same as CAIPE UI)
@@ -1125,9 +1126,9 @@ services:
       - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
       # Runtime configuration
       - AGENT_RUNTIME_TTL_SECONDS=${AGENT_RUNTIME_TTL_SECONDS:-3600}
-      - CORS_ORIGINS=${DYNAMIC_AGENTS_CORS_ORIGINS:-*}
+      - CORS_ORIGINS=${DYNAMIC_AGENTS_CORS_ORIGINS:-["*"]}
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/health')"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/healthz')"]
       interval: 30s
       timeout: 5s
       retries: 3

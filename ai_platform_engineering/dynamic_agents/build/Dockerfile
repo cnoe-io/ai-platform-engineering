@@ -1,5 +1,7 @@
 # Dynamic Agents Service Dockerfile
 # Two-stage build for secure, minimal production image
+#
+# Build context: repository root (so that ai_platform_engineering/utils is accessible)
 
 # =============================================================================
 # Stage 1: Builder - Install dependencies with uv
@@ -11,16 +13,25 @@ ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy
 # Use system Python (same version as final image)
 ENV UV_PYTHON_DOWNLOADS=0
 
+WORKDIR /app
+
+# Copy the shared utils package to /app/utils (matches pyproject.toml path: ../utils)
+COPY --chown=root:root ./ai_platform_engineering/utils /app/utils/
+
+# Create namespace symlink so "from ai_platform_engineering.utils..." resolves via PYTHONPATH
+RUN mkdir -p /app/ai_platform_engineering && \
+    ln -s /app/utils /app/ai_platform_engineering/utils
+
 WORKDIR /app/dynamic_agents
 
 # Install dependencies first (cached layer)
 RUN --mount=type=cache,target=/root/.cache/uv \
-    --mount=type=bind,source=uv.lock,target=uv.lock \
-    --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
+    --mount=type=bind,source=ai_platform_engineering/dynamic_agents/uv.lock,target=uv.lock \
+    --mount=type=bind,source=ai_platform_engineering/dynamic_agents/pyproject.toml,target=pyproject.toml \
     UV_HTTP_TIMEOUT=300 uv sync --locked --no-install-project --no-dev
 
-# Copy source code and install project
-COPY . .
+# Copy dynamic_agents source code and install project
+COPY ./ai_platform_engineering/dynamic_agents/ .
 RUN --mount=type=cache,target=/root/.cache/uv \
     UV_HTTP_TIMEOUT=300 uv sync --locked --no-dev
 
@@ -46,8 +57,9 @@ COPY --from=builder --chown=app:app /app /app
 
 WORKDIR /app/dynamic_agents
 
-# Add virtual environment to PATH
-ENV PATH="/app/dynamic_agents/.venv/bin:$PATH"
+# Add virtual environment to PATH; PYTHONPATH lets Python find ai_platform_engineering namespace
+ENV PATH="/app/dynamic_agents/.venv/bin:$PATH" \
+    PYTHONPATH="/app"
 
 # Run as non-root user
 USER app
@@ -57,7 +69,7 @@ EXPOSE 8001
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8001/health')" || exit 1
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8001/healthz')" || exit 1
 
 # Run the application
 CMD ["python3", "src/dynamic_agents/main.py"]

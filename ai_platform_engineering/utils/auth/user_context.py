@@ -258,30 +258,37 @@ async def fetch_userinfo_cached(
 async def build_user_context_from_token(
     access_token: str,
     jwt_claims: dict[str, Any],
+    *,
+    issuer: str | None = None,
+    group_claim_override: str | None = None,
+    admin_group_override: str | None = None,
 ) -> UserContext:
     """Build a fully-resolved ``UserContext`` from a validated JWT.
 
     1. Extracts email from JWT claims.
     2. Calls ``/userinfo`` (cached) for groups.
     3. Resolves admin role from groups.
+
+    Optional overrides allow callers (e.g. Dynamic Agents) to pass
+    configuration values explicitly instead of relying on env vars.
     """
     email = extract_email_from_claims(jwt_claims)
     name: str | None = None
 
-    userinfo = await fetch_userinfo_cached(access_token)
+    userinfo = await fetch_userinfo_cached(access_token, issuer=issuer)
     if userinfo:
-        groups = extract_groups_from_claims(userinfo)
+        groups = extract_groups_from_claims(userinfo, group_claim_override=group_claim_override)
         ui_email = extract_email_from_claims(userinfo)
         if ui_email and ui_email != "unknown":
             email = ui_email
         name = extract_name_from_claims(userinfo)
         logger.info("User resolved via userinfo: email=%s, groups_count=%d", email, len(groups))
     else:
-        groups = extract_groups_from_claims(jwt_claims)
+        groups = extract_groups_from_claims(jwt_claims, group_claim_override=group_claim_override)
         name = extract_name_from_claims(jwt_claims)
         logger.info("User resolved via JWT claims (userinfo unavailable): email=%s, groups_count=%d", email, len(groups))
 
-    is_admin = check_admin_role(groups)
+    is_admin = check_admin_role(groups, admin_group_override=admin_group_override)
     role = "admin" if is_admin else "user"
     verified = _email_looks_real(email)
 

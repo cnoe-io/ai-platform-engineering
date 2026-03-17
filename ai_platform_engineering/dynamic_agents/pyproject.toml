@@ -16,6 +16,7 @@ dependencies = [
     "PyJWT[crypto]>=2.8.0",
     "requests>=2.31.0",
     "beautifulsoup4>=4.12.0",
+    "ai-platform-engineering-utils",
 ]
 
 [project.optional-dependencies]
@@ -25,6 +26,9 @@ dev = [
     "pytest-cov>=4.0.0",
     "ruff>=0.1.0",
 ]
+
+[tool.uv.sources]
+ai-platform-engineering-utils = { path = "../utils" }
 
 [build-system]
 requires = ["hatchling"]

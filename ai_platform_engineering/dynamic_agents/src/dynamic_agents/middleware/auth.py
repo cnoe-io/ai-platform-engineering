@@ -5,18 +5,15 @@ Supports:
 - Userinfo endpoint for fetching groups (access tokens often don't contain groups)
 - Auth bypass for local development (AUTH_ENABLED=false)
 
-Stateless claim extraction helpers (UserContext, extract_email_from_claims,
-extract_groups_from_claims, check_admin_role, etc.) are imported from the
-shared ``ai_platform_engineering.utils.auth.user_context`` module so that the
-same logic is used by both the Dynamic Agents service and the main A2A
-OAuth2Middleware.  Settings-based infrastructure (JWKS, discovery, userinfo
-fetching, token validation) remains local because it depends on the
+Stateless claim extraction helpers and UserContext are imported from the shared
+``ai_platform_engineering.utils.auth.user_context`` module so that the same
+logic is used by both the Dynamic Agents service and the main A2A
+OAuth2Middleware.  OIDC discovery and JWKS fetching remain local because they
+use async httpx (the shared JwksCache is synchronous) and are wired to the
 Dynamic Agents ``Settings`` pydantic model.
 """
 
-import hashlib
 import logging
-import time
 from typing import Any, Optional
 
 import httpx
@@ -24,48 +21,11 @@ import jwt
 from fastapi import Depends, HTTPException, Request
 from jwt import PyJWK
 
+from ai_platform_engineering.utils.auth.user_context import (
+    UserContext,
+    build_user_context_from_token,
+)
 from dynamic_agents.config import Settings, get_settings
-
-# ---------------------------------------------------------------------------
-# Import shared helpers; fall back to minimal local definitions so that the
-# Dynamic Agents service can run standalone without the full ai_platform_engineering
-# package installed.
-# ---------------------------------------------------------------------------
-try:
-    from ai_platform_engineering.utils.auth.user_context import (
-        UserContext,
-        extract_email_from_claims,
-        extract_name_from_claims,
-        extract_groups_from_claims,
-        check_admin_role,
-    )
-except ImportError:
-    from pydantic import BaseModel
-
-    class UserContext(BaseModel):  # type: ignore[no-redef]
-        """Fallback when shared module is not available."""
-        email: str
-        name: str | None = None
-        groups: list[str] = []
-        is_admin: bool = False
-        role: str = "user"
-        raw_claims: dict[str, Any] = {}
-
-    def extract_email_from_claims(claims: dict[str, Any]) -> str:  # type: ignore[misc]
-        return claims.get("email") or claims.get("preferred_username") or claims.get("upn") or claims.get("sub") or "unknown"
-
-    def extract_name_from_claims(claims: dict[str, Any]) -> str | None:  # type: ignore[misc]
-        return claims.get("name")
-
-    def extract_groups_from_claims(claims: dict[str, Any], group_claim_override: str | None = None) -> list[str]:  # type: ignore[misc]
-        for key in ["members", "memberOf", "groups", "group", "roles"]:
-            val = claims.get(key)
-            if isinstance(val, list):
-                return [str(g) for g in val]
-        return []
-
-    def check_admin_role(groups: list[str], admin_group_override: str | None = None) -> bool:  # type: ignore[misc]
-        return any("admin" in g.lower() for g in groups)
 
 logger = logging.getLogger(__name__)
 
@@ -75,8 +35,6 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 _jwks_cache: dict[str, Any] | None = None
 _discovery_cache: dict[str, Any] | None = None
-_userinfo_cache: dict[str, tuple[dict[str, Any], float]] = {}
-USERINFO_CACHE_TTL_SECONDS = 600  # 10 minutes
 
 
 async def get_oidc_discovery(settings: Settings) -> dict[str, Any]:
@@ -139,71 +97,6 @@ async def get_jwks(settings: Settings) -> dict[str, Any]:
             )
 
     return result
-
-
-async def fetch_userinfo(token: str, settings: Settings) -> Optional[dict[str, Any]]:
-    """Fetch user info from OIDC userinfo endpoint.
-
-    Access tokens often don't contain group claims. The userinfo endpoint
-    provides authoritative user information including groups.
-    """
-    try:
-        discovery_doc = await get_oidc_discovery(settings)
-        userinfo_endpoint = discovery_doc.get("userinfo_endpoint")
-
-        if not userinfo_endpoint:
-            logger.warning("No userinfo_endpoint in OIDC discovery document")
-            return None
-
-        async with httpx.AsyncClient() as client:
-            response = await client.get(
-                userinfo_endpoint,
-                headers={"Authorization": f"Bearer {token}"},
-                timeout=10.0,
-            )
-            response.raise_for_status()
-            userinfo = response.json()
-            logger.debug("Userinfo response keys: %s", list(userinfo.keys()))
-            return userinfo
-
-    except httpx.HTTPError as e:
-        logger.warning("Failed to fetch userinfo: %s", e)
-        return None
-    except Exception as e:
-        logger.warning("Unexpected error fetching userinfo: %s", e)
-        return None
-
-
-async def fetch_userinfo_cached_with_settings(
-    token: str,
-    settings: Settings,
-) -> Optional[dict[str, Any]]:
-    """Fetch userinfo with 10-minute caching to reduce OIDC provider load.
-
-    This is the Settings-aware variant used by the Dynamic Agents service.
-    """
-    global _userinfo_cache
-
-    token_hash = hashlib.sha256(token.encode()).hexdigest()[:16]
-    now = time.time()
-
-    if token_hash in _userinfo_cache:
-        userinfo, expires_at = _userinfo_cache[token_hash]
-        if now < expires_at:
-            logger.debug("Userinfo cache hit for token %s...", token_hash[:8])
-            return userinfo
-        del _userinfo_cache[token_hash]
-
-    userinfo = await fetch_userinfo(token, settings)
-    if userinfo:
-        _userinfo_cache[token_hash] = (userinfo, now + USERINFO_CACHE_TTL_SECONDS)
-
-        if len(_userinfo_cache) > 1000:
-            expired_keys = [k for k, (_, exp) in _userinfo_cache.items() if now >= exp]
-            for k in expired_keys:
-                del _userinfo_cache[k]
-
-    return userinfo
 
 
 async def validate_token(token: str, settings: Settings) -> dict[str, Any]:
@@ -304,47 +197,14 @@ async def get_current_user(
         )
 
     token = auth_header[7:]
-
     claims = await validate_token(token, settings)
-    email = extract_email_from_claims(claims)
-    name: str | None = None
 
-    userinfo = await fetch_userinfo_cached_with_settings(token, settings)
-
-    if userinfo:
-        groups = extract_groups_from_claims(
-            userinfo, group_claim_override=settings.oidc_group_claim
-        )
-        userinfo_email = extract_email_from_claims(userinfo)
-        if userinfo_email and userinfo_email != "unknown":
-            email = userinfo_email
-        name = extract_name_from_claims(userinfo)
-        logger.info(
-            "User authenticated via userinfo: email=%s, name=%s, groups_count=%d",
-            email, name, len(groups),
-        )
-    else:
-        groups = extract_groups_from_claims(
-            claims, group_claim_override=settings.oidc_group_claim
-        )
-        name = extract_name_from_claims(claims)
-        logger.info(
-            "User authenticated via access token (userinfo unavailable): email=%s, name=%s, groups_count=%d",
-            email, name, len(groups),
-        )
-
-    is_admin = check_admin_role(
-        groups, admin_group_override=settings.oidc_required_admin_group
-    )
-    role = "admin" if is_admin else "user"
-
-    return UserContext(
-        email=email,
-        name=name,
-        groups=groups,
-        is_admin=is_admin,
-        role=role,
-        raw_claims=claims,
+    return await build_user_context_from_token(
+        token,
+        claims,
+        issuer=settings.oidc_issuer,
+        group_claim_override=settings.oidc_group_claim,
+        admin_group_override=settings.oidc_required_admin_group,
     )
 
 
