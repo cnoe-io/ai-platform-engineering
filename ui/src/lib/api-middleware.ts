@@ -49,8 +49,8 @@ export async function getAuthenticatedUser(
   if (!session || !session.user?.email) {
     const { allowAnonymous = false } = options;
     if (allowAnonymous && !getConfig('ssoEnabled')) {
-      const fallbackUser = { email: 'anonymous@local', name: 'Anonymous', role: 'user' };
-      return { user: fallbackUser, session: { role: 'user', canViewAdmin: false } };
+      const fallbackUser = { email: 'anonymous@local', name: 'Anonymous', role: 'admin' };
+      return { user: fallbackUser, session: { role: 'admin', canViewAdmin: true } };
     }
     throw new ApiError('Unauthorized', 401);
   }
@@ -85,7 +85,8 @@ export async function getAuthenticatedUser(
 /**
  * Require authentication for API route
  * Use this as a wrapper for protected endpoints.
- * No session → 401 (never uses anonymous fallback).
+ * When SSO is disabled, all requests are treated as anonymous admin (local dev mode).
+ * When SSO is enabled, no session → 401.
  */
 export async function withAuth<T>(
   request: NextRequest,
@@ -95,7 +96,7 @@ export async function withAuth<T>(
     session: any
   ) => Promise<T>
 ): Promise<T> {
-  const { user, session } = await getAuthenticatedUser(request, { allowAnonymous: false });
+  const { user, session } = await getAuthenticatedUser(request, { allowAnonymous: true });
   return handler(request, user, session);
 }
 
