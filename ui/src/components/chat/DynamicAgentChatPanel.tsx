@@ -112,6 +112,11 @@ export function DynamicAgentChatPanel({ endpoint, conversationId, conversationTi
 
   const conversation = getActiveConversation();
 
+  // State for tracking history loading
+  const [isLoadingHistory, setIsLoadingHistory] = useState(false);
+  const [historyLoadError, setHistoryLoadError] = useState<string | null>(null);
+  const historyLoadedRef = useRef<Set<string>>(new Set());
+
   // Check if THIS conversation is streaming (not global)
   const isThisConversationStreaming = activeConversationId
     ? isConversationStreaming(activeConversationId)
@@ -191,6 +196,101 @@ export function DynamicAgentChatPanel({ endpoint, conversationId, conversationTi
 
   // RECOVERY LOGIC REMOVED (A2A specific)
   const recoveringMessageId = null; 
+
+  // ═══════════════════════════════════════════════════════════════
+  // LOAD CHAT HISTORY from checkpointer on mount/conversation change
+  // ═══════════════════════════════════════════════════════════════
+  useEffect(() => {
+    // Skip if no conversationId (new conversation) or agentId
+    if (!conversationId || !agentId) return;
+    
+    // Skip if already loaded this conversation
+    if (historyLoadedRef.current.has(conversationId)) return;
+    
+    // Skip if conversation already has messages (e.g., from streaming session)
+    if (conversation?.messages && conversation.messages.length > 0) {
+      historyLoadedRef.current.add(conversationId);
+      return;
+    }
+
+    const loadHistory = async () => {
+      setIsLoadingHistory(true);
+      setHistoryLoadError(null);
+      
+      try {
+        const response = await fetch(
+          `/api/dynamic-agents/conversations/${conversationId}/messages?agent_id=${encodeURIComponent(agentId)}`
+        );
+        
+        if (!response.ok) {
+          if (response.status === 404) {
+            // Conversation doesn't exist yet - this is fine for new conversations
+            console.log(`[DynamicAgentChatPanel] Conversation ${conversationId} not found, starting fresh`);
+            historyLoadedRef.current.add(conversationId);
+            return;
+          }
+          throw new Error(`Failed to load history: ${response.status}`);
+        }
+        
+        const data = await response.json();
+        
+        // Mark as loaded before populating to avoid race conditions
+        historyLoadedRef.current.add(conversationId);
+        
+        // Populate messages into the store
+        if (data.messages && data.messages.length > 0) {
+          console.log(`[DynamicAgentChatPanel] Loaded ${data.messages.length} messages from checkpointer`);
+          
+          for (const msg of data.messages) {
+            addMessage(conversationId, {
+              role: msg.role as "user" | "assistant",
+              content: msg.content,
+              // Use the message ID from the checkpointer
+            }, undefined, msg.id);
+          }
+        }
+        
+        // Handle pending interrupt - restore the HITL form if present
+        if (data.has_pending_interrupt && data.interrupt_data) {
+          const { prompt, fields } = data.interrupt_data;
+          const lastMsg = data.messages?.[data.messages.length - 1];
+          
+          if (lastMsg && lastMsg.role === "assistant") {
+            const inputFields: InputField[] = fields.map((f: { field_name: string; field_label?: string; field_description?: string; field_type?: string; field_values?: string[]; required?: boolean; default_value?: string; placeholder?: string }) => ({
+              field_name: f.field_name,
+              field_label: f.field_label,
+              field_description: f.field_description,
+              field_type: f.field_type,
+              field_values: f.field_values,
+              required: f.required,
+              default_value: f.default_value,
+              placeholder: f.placeholder,
+            }));
+
+            setPendingUserInput({
+              messageId: lastMsg.id,
+              metadata: {
+                user_input: true,
+                input_title: `Input Required`,
+                input_description: prompt,
+                input_fields: inputFields,
+              },
+              contextId: conversationId,
+              isSSE: true,
+              agentId: agentId,
+            });
+          }
+        }
+      } catch (error) {
+        console.error("[DynamicAgentChatPanel] Failed to load history:", error);
+        setHistoryLoadError((error as Error).message);
+      } finally {
+        setIsLoadingHistory(false);
+      }
+    };
+
+    loadHistory();
+  }, [conversationId, agentId, conversation?.messages?.length, addMessage]); 
 
   // ═══════════════════════════════════════════════════════════════
   // RESTORE PENDING USER INPUT FORM after page refresh / navigation.
@@ -737,11 +837,21 @@ export function DynamicAgentChatPanel({ endpoint, conversationId, conversationTi
             {!conversation?.messages.length && (
               <div className="text-center py-20">
                 <div className="w-16 h-16 mx-auto mb-6 rounded-2xl bg-gradient-to-br from-primary to-primary/60 flex items-center justify-center">
-                  <Sparkles className="h-8 w-8 text-white" />
+                  {isLoadingHistory ? (
+                    <Loader2 className="h-8 w-8 text-white animate-spin" />
+                  ) : (
+                    <Sparkles className="h-8 w-8 text-white" />
+                  )}
                 </div>
-                <h2 className="text-2xl font-bold mb-2">Welcome to {getConfig('appName')}</h2>
+                <h2 className="text-2xl font-bold mb-2">
+                  {isLoadingHistory ? "Loading conversation..." : `Welcome to ${getConfig('appName')}`}
+                </h2>
                 <p className="text-muted-foreground max-w-md mx-auto mb-1">
-                  {conversationTitle || "Start chatting with the agent"}
+                  {isLoadingHistory 
+                    ? "Retrieving your conversation history"
+                    : historyLoadError 
+                      ? `Failed to load history: ${historyLoadError}`
+                      : (conversationTitle || "Start chatting with the agent")}
                 </p>
               </div>
             )}
