@@ -10,6 +10,7 @@ import { cn } from "@/lib/utils";
 import { apiClient } from "@/lib/api-client";
 import { getConfig } from "@/lib/config";
 import { isFeatureEnabled } from "@/store/feature-flag-store";
+import { gradientThemes, type GradientThemeId } from "@/lib/gradient-themes";
 
 // Font size options
 const fontSizes = [
@@ -39,77 +40,11 @@ const themes = [
   { id: "matrix", label: "Matrix", description: "Green phosphor rain" },
 ] as const;
 
-// Gradient theme options
-const gradientThemes = [
-  {
-    id: "default",
-    label: "Default (Teal → Purple)",
-    description: "Original vibrant gradient",
-    from: "hsl(173,80%,40%)",
-    to: "hsl(270,75%,60%)",
-    preview: "from-[hsl(173,80%,40%)] to-[hsl(270,75%,60%)]"
-  },
-  {
-    id: "minimal",
-    label: "Minimal (Gray → Dark Gray)",
-    description: "Subtle, professional",
-    from: "hsl(220,10%,40%)",
-    to: "hsl(220,10%,25%)",
-    preview: "from-gray-600 to-gray-800"
-  },
-  {
-    id: "professional",
-    label: "Professional (Blue → Navy)",
-    description: "Corporate, trustworthy",
-    from: "hsl(210,60%,50%)",
-    to: "hsl(210,80%,30%)",
-    preview: "from-blue-500 to-blue-800"
-  },
-  {
-    id: "ocean",
-    label: "Ocean (Cyan → Blue)",
-    description: "Cool, calming",
-    from: "hsl(195,80%,45%)",
-    to: "hsl(220,80%,45%)",
-    preview: "from-cyan-500 to-blue-600"
-  },
-  {
-    id: "sunset",
-    label: "Sunset (Orange → Pink)",
-    description: "Warm, energetic",
-    from: "hsl(30,80%,55%)",
-    to: "hsl(340,70%,55%)",
-    preview: "from-orange-500 to-pink-500"
-  },
-  {
-    id: "cyberpunk",
-    label: "Cyberpunk (Pink → Cyan)",
-    description: "Neon-soaked, high-contrast",
-    from: "hsl(330,100%,50%)",
-    to: "hsl(180,100%,50%)",
-    preview: "from-[hsl(330,100%,50%)] to-[hsl(180,100%,50%)]"
-  },
-  {
-    id: "tron",
-    label: "Tron (Cyan → Blue)",
-    description: "Electric glow, digital frontier",
-    from: "hsl(190,100%,50%)",
-    to: "hsl(210,80%,40%)",
-    preview: "from-[hsl(190,100%,50%)] to-[hsl(210,80%,40%)]"
-  },
-  {
-    id: "matrix",
-    label: "Matrix (Green → Dark Green)",
-    description: "Phosphor glow, digital rain",
-    from: "hsl(120,100%,45%)",
-    to: "hsl(140,60%,25%)",
-    preview: "from-[hsl(120,100%,45%)] to-[hsl(140,60%,25%)]"
-  },
-] as const;
+// Gradient themes are imported from @/lib/gradient-themes
 
 type FontSize = typeof fontSizes[number]["id"];
 type FontFamily = typeof fontFamilies[number]["id"];
-type GradientTheme = typeof gradientThemes[number]["id"];
+type GradientTheme = GradientThemeId;
 
 // Sync status type for UI indicator
 type SyncStatus = 'idle' | 'syncing' | 'synced' | 'error';

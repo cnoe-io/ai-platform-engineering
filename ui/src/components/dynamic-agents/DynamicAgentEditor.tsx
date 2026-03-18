@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { ArrowLeft, Loader2, Globe, Users, Lock, ChevronLeft, ChevronRight } from "lucide-react";
+import { ArrowLeft, Loader2, Globe, Users, Lock, ChevronLeft, ChevronRight, Check } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type {
   DynamicAgentConfig,
@@ -15,10 +15,12 @@ import type {
   VisibilityType,
   SubAgentRef,
   BuiltinToolsConfig,
+  AgentUIConfig,
 } from "@/types/dynamic-agent";
 import { AllowedToolsPicker } from "./AllowedToolsPicker";
 import { BuiltinToolsPicker } from "./BuiltinToolsPicker";
 import { SubagentPicker } from "./SubagentPicker";
+import { gradientThemes } from "@/lib/gradient-themes";
 
 interface DynamicAgentEditorProps {
   agent: DynamicAgentConfig | null; // null = creating new
@@ -162,6 +164,9 @@ export function DynamicAgentEditor({ agent, cloneFrom, onSave, onCancel }: Dynam
   );
   const [modelId, setModelId] = React.useState(source?.model_id || "");
   const [modelProvider, setModelProvider] = React.useState(source?.model_provider || "");
+  const [gradientTheme, setGradientTheme] = React.useState<string>(
+    source?.ui?.gradient_theme || "default"
+  );
 
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
@@ -308,6 +313,11 @@ export function DynamicAgentEditor({ agent, cloneFrom, onSave, onCancel }: Dynam
     }
 
     try {
+      // Build UI config if gradient theme is set
+      const uiConfig: AgentUIConfig | undefined = gradientTheme
+        ? { gradient_theme: gradientTheme }
+        : undefined;
+
       if (isEditing) {
         // Update existing agent
         const updateData: DynamicAgentConfigUpdate = {
@@ -321,6 +331,7 @@ export function DynamicAgentEditor({ agent, cloneFrom, onSave, onCancel }: Dynam
           subagents: subagents.length > 0 ? subagents : undefined,
           model_id: modelId,
           model_provider: modelProvider,
+          ui: uiConfig,
         };
 
         const response = await fetch(`/api/dynamic-agents?id=${agent._id}`, {
@@ -347,6 +358,7 @@ export function DynamicAgentEditor({ agent, cloneFrom, onSave, onCancel }: Dynam
           subagents: subagents.length > 0 ? subagents : undefined,
           model_id: modelId,
           model_provider: modelProvider,
+          ui: uiConfig,
         };
 
         const response = await fetch("/api/dynamic-agents", {
@@ -446,6 +458,46 @@ export function DynamicAgentEditor({ agent, cloneFrom, onSave, onCancel }: Dynam
                   disabled={loading}
                   rows={2}
                 />
+              </div>
+
+              {/* Agent Theme */}
+              <div className="space-y-2">
+                <Label>Agent Theme</Label>
+                <p className="text-xs text-muted-foreground mb-2">
+                  Choose a color theme for this agent&apos;s avatar.
+                </p>
+                <div className="grid grid-cols-3 gap-2">
+                  {gradientThemes.map((theme) => (
+                    <button
+                      key={theme.id}
+                      type="button"
+                      onClick={() => setGradientTheme(theme.id)}
+                      className={cn(
+                        "flex items-center gap-3 px-3 py-2.5 rounded-lg border transition-all text-left",
+                        gradientTheme === theme.id
+                          ? "border-primary bg-primary/10"
+                          : "border-border hover:border-primary/50 hover:bg-muted/50"
+                      )}
+                      disabled={loading}
+                    >
+                      <div
+                        className="w-8 h-8 rounded-lg shrink-0"
+                        style={{
+                          background: `linear-gradient(to bottom right, ${theme.from}, ${theme.to})`,
+                        }}
+                      />
+                      <div className="flex-1 min-w-0">
+                        <span className="text-sm font-medium block truncate">{theme.label.split(' (')[0]}</span>
+                        <span className="text-xs text-muted-foreground block truncate">
+                          {theme.description}
+                        </span>
+                      </div>
+                      {gradientTheme === theme.id && (
+                        <Check className="h-4 w-4 text-primary shrink-0" />
+                      )}
+                    </button>
+                  ))}
+                </div>
               </div>
 
               {/* LLM Model - Prominent selection */}

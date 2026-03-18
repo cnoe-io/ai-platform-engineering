@@ -22,6 +22,7 @@ import { getConfig } from "@/lib/config";
 import { apiClient } from "@/lib/api-client";
 import { FeedbackButton, Feedback } from "./FeedbackButton";
 import { MetadataInputForm, type UserInputMetadata, type InputField } from "./MetadataInputForm";
+import { getGradientStyle } from "@/lib/gradient-themes";
 
 type ReadOnlyReason = 'admin_audit' | 'shared_readonly' | 'agent_deleted' | 'agent_disabled';
 
@@ -32,9 +33,11 @@ interface DynamicAgentChatPanelProps {
   readOnly?: boolean;
   readOnlyReason?: ReadOnlyReason;
   agentId: string; // Mandatory for Dynamic Agents
+  agentGradient?: string | null; // Gradient theme for agent avatar
+  agentName?: string; // Agent name for display
 }
 
-export function DynamicAgentChatPanel({ endpoint, conversationId, conversationTitle, readOnly, readOnlyReason, agentId }: DynamicAgentChatPanelProps) {
+export function DynamicAgentChatPanel({ endpoint, conversationId, conversationTitle, readOnly, readOnlyReason, agentId, agentGradient, agentName }: DynamicAgentChatPanelProps) {
   const { data: session } = useSession();
   const autoScrollEnabled = useFeatureFlagStore((s) => s.flags.autoScroll ?? true);
   const showTimestamps = useFeatureFlagStore((s) => s.flags.showTimestamps ?? false);
@@ -836,23 +839,67 @@ export function DynamicAgentChatPanel({ endpoint, conversationId, conversationTi
           <div className="max-w-7xl mx-auto pl-1 pr-1 py-4 space-y-6">
             {!conversation?.messages.length && (
               <div className="text-center py-20">
-                <div className="w-16 h-16 mx-auto mb-6 rounded-2xl bg-gradient-to-br from-primary to-primary/60 flex items-center justify-center">
-                  {isLoadingHistory ? (
-                    <Loader2 className="h-8 w-8 text-white animate-spin" />
-                  ) : (
-                    <Sparkles className="h-8 w-8 text-white" />
-                  )}
-                </div>
-                <h2 className="text-2xl font-bold mb-2">
-                  {isLoadingHistory ? "Loading conversation..." : `Welcome to ${getConfig('appName')}`}
-                </h2>
-                <p className="text-muted-foreground max-w-md mx-auto mb-1">
-                  {isLoadingHistory 
-                    ? "Retrieving your conversation history"
-                    : historyLoadError 
-                      ? `Failed to load history: ${historyLoadError}`
-                      : (conversationTitle || "Start chatting with the agent")}
-                </p>
+                {isLoadingHistory ? (
+                  <>
+                    <div className="w-16 h-16 mx-auto mb-6 rounded-2xl bg-gradient-to-br from-primary to-primary/60 flex items-center justify-center">
+                      <Loader2 className="h-8 w-8 text-white animate-spin" />
+                    </div>
+                    <h2 className="text-2xl font-bold mb-2">Loading conversation...</h2>
+                    <p className="text-muted-foreground max-w-md mx-auto mb-1">
+                      Retrieving your conversation history
+                    </p>
+                  </>
+                ) : historyLoadError ? (
+                  <>
+                    <div className="w-16 h-16 mx-auto mb-6 rounded-2xl bg-gradient-to-br from-primary to-primary/60 flex items-center justify-center">
+                      <Sparkles className="h-8 w-8 text-white" />
+                    </div>
+                    <h2 className="text-2xl font-bold mb-2">Welcome to {getConfig('appName')}</h2>
+                    <p className="text-muted-foreground max-w-md mx-auto mb-1">
+                      Failed to load history: {historyLoadError}
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    {(() => {
+                      const gradientStyle = agentGradient ? getGradientStyle(agentGradient) : null;
+                      return (
+                        <div 
+                          className={cn(
+                            "w-16 h-16 mx-auto mb-6 rounded-2xl flex items-center justify-center",
+                            !gradientStyle && "bg-gradient-to-br from-primary to-primary/60"
+                          )}
+                          style={gradientStyle || undefined}
+                        >
+                          <Sparkles className="h-8 w-8 text-white" />
+                        </div>
+                      );
+                    })()}
+                    <h2 className="text-2xl font-bold mb-4">Welcome to {getConfig('appName')}</h2>
+                    <p className="text-muted-foreground mb-3">
+                      Start your conversation with
+                    </p>
+                    <div className="flex items-center justify-center gap-3">
+                      {(() => {
+                        const gradientStyle = agentGradient ? getGradientStyle(agentGradient) : null;
+                        return (
+                          <div 
+                            className={cn(
+                              "w-8 h-8 rounded-lg flex items-center justify-center",
+                              !gradientStyle && "bg-gradient-to-br from-primary to-primary/60"
+                            )}
+                            style={gradientStyle || undefined}
+                          >
+                            <Bot className="h-4 w-4 text-white" />
+                          </div>
+                        );
+                      })()}
+                      <span className="text-lg font-semibold">
+                        {agentName || "your agent"}
+                      </span>
+                    </div>
+                  </>
+                )}
               </div>
             )}
 
@@ -964,6 +1011,8 @@ export function DynamicAgentChatPanel({ endpoint, conversationId, conversationTi
                           conversationId={conversationId}
                           userDisplayName={userDisplayName}
                           showTimestamp={showTimestamps}
+                          agentGradient={agentGradient}
+                          agentName={agentName}
                         />
                       );
                     })}
@@ -1398,6 +1447,8 @@ interface ChatMessageProps {
   isRecovering?: boolean;
   userDisplayName?: string;
   showTimestamp?: boolean;
+  agentGradient?: string | null;
+  agentName?: string;
 }
 
 const ChatMessage = React.memo(function ChatMessage({
@@ -1415,6 +1466,8 @@ const ChatMessage = React.memo(function ChatMessage({
   isRecovering = false,
   userDisplayName = "You",
   showTimestamp = false,
+  agentGradient,
+  agentName,
 }: ChatMessageProps) {
   const isUser = message.role === "user";
   const showThinkingDefault = useFeatureFlagStore((s) => s.flags.showThinking ?? true);
@@ -1440,31 +1493,37 @@ const ChatMessage = React.memo(function ChatMessage({
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
     >
-      <div
-        className={cn(
-          "w-9 h-9 rounded-xl flex items-center justify-center shrink-0 shadow-sm overflow-hidden",
-          isUser
-            ? "bg-primary"
-            : "gradient-primary-br",
-          isStreaming && "animate-pulse"
-        )}
-      >
-        {isUser ? (
-          message.senderImage ? (
-            <img
-              src={message.senderImage}
-              alt={message.senderName || userDisplayName}
-              className="w-9 h-9 rounded-xl object-cover"
-            />
-          ) : (
-            <User className="h-4 w-4 text-white" />
-          )
-        ) : isStreaming ? (
-          <Loader2 className="h-4 w-4 text-white animate-spin" />
-        ) : (
-          <Bot className="h-4 w-4 text-white" />
-        )}
-      </div>
+      {(() => {
+        const gradientStyle = !isUser && agentGradient ? getGradientStyle(agentGradient) : null;
+        return (
+          <div
+            className={cn(
+              "w-9 h-9 rounded-xl flex items-center justify-center shrink-0 shadow-sm overflow-hidden",
+              isUser
+                ? "bg-primary"
+                : !gradientStyle && "gradient-primary-br",
+              isStreaming && "animate-pulse"
+            )}
+            style={gradientStyle || undefined}
+          >
+            {isUser ? (
+              message.senderImage ? (
+                <img
+                  src={message.senderImage}
+                  alt={message.senderName || userDisplayName}
+                  className="w-9 h-9 rounded-xl object-cover"
+                />
+              ) : (
+                <User className="h-4 w-4 text-white" />
+              )
+            ) : isStreaming ? (
+              <Loader2 className="h-4 w-4 text-white animate-spin" />
+            ) : (
+              <Bot className="h-4 w-4 text-white" />
+            )}
+          </div>
+        );
+      })()}
 
       <div className={cn(
         "flex-1 min-w-0",
@@ -1494,7 +1553,7 @@ const ChatMessage = React.memo(function ChatMessage({
           ) : (
             <>
               <div className="flex items-center gap-2">
-                <span className="text-xs font-medium">{getConfig('appName')}</span>
+                <span className="text-xs font-medium">{agentName || getConfig('appName')}</span>
                 {showTimestamp && (
                   <span className="text-[10px] text-muted-foreground/60 font-normal">
                     {message.timestamp instanceof Date

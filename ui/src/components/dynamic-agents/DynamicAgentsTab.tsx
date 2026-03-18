@@ -22,6 +22,7 @@ import {
 } from "lucide-react";
 import type { DynamicAgentConfig } from "@/types/dynamic-agent";
 import { DynamicAgentEditor } from "./DynamicAgentEditor";
+import { getGradientStyle } from "@/lib/gradient-themes";
 
 export function DynamicAgentsTab() {
   const [agents, setAgents] = React.useState<DynamicAgentConfig[]>([]);
@@ -106,6 +107,7 @@ export function DynamicAgentsTab() {
       allowed_tools: Object.keys(agent.allowed_tools || {}).length ? agent.allowed_tools : undefined,
       builtin_tools: agent.builtin_tools,
       subagents: agent.subagents?.length ? agent.subagents : undefined,
+      ui: agent.ui?.gradient_theme ? agent.ui : undefined,
       enabled: agent.enabled,
     };
 
@@ -279,8 +281,11 @@ export function DynamicAgentsTab() {
               >
                 <div className="col-span-4">
                     <div className="flex items-center gap-3">
-                      <div className="h-9 w-9 rounded-lg bg-purple-500/10 flex items-center justify-center shrink-0">
-                        <Bot className="h-5 w-5 text-purple-500" />
+                      <div 
+                        className="h-9 w-9 rounded-lg flex items-center justify-center shrink-0"
+                        style={getGradientStyle(agent.ui?.gradient_theme)}
+                      >
+                        <Bot className="h-5 w-5 text-white" />
                       </div>
                       <div className="min-w-0 flex-1">
                         <div className="font-medium text-sm truncate">{agent.name}</div>

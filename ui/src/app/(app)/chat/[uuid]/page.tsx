@@ -381,6 +381,7 @@ function ChatUUIDPage() {
       agentDescription={agentInfo?.description}
       agentModel={agentInfo?.model_id}
       agentVisibility={agentInfo?.visibility}
+      agentGradient={agentInfo?.ui?.gradient_theme}
       allowedTools={agentInfo?.allowed_tools}
       subagents={agentInfo?.subagents}
       agentNotFound={agentNotFound}

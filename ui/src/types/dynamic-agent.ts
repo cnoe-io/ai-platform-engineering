@@ -157,6 +157,18 @@ export type BuiltinToolsConfigWithIndex = BuiltinToolsConfig & {
 };
 
 // =============================================================================
+// Agent UI Config
+// =============================================================================
+
+/**
+ * UI configuration for dynamic agents.
+ * Controls visual appearance like gradient themes.
+ */
+export interface AgentUIConfig {
+  gradient_theme?: string;  // Theme ID (e.g., 'ocean', 'sunset') or empty for global default
+}
+
+// =============================================================================
 // Dynamic Agent Types
 // =============================================================================
 
@@ -182,6 +194,7 @@ export interface DynamicAgentConfig {
   visibility: VisibilityType;
   shared_with_teams?: string[];
   subagents: SubAgentRef[];  // Other dynamic agents that can be delegated to
+  ui?: AgentUIConfig;  // UI configuration (gradient theme, etc.)
   enabled: boolean;
   owner_id: string;
   is_system: boolean;
@@ -202,6 +215,7 @@ export interface DynamicAgentConfigCreate {
   visibility?: VisibilityType;
   shared_with_teams?: string[];
   subagents?: SubAgentRef[];
+  ui?: AgentUIConfig;
   enabled?: boolean;
 }
 
@@ -216,6 +230,7 @@ export interface DynamicAgentConfigUpdate {
   visibility?: VisibilityType;
   shared_with_teams?: string[];
   subagents?: SubAgentRef[];
+  ui?: AgentUIConfig;
   enabled?: boolean;
 }
 
