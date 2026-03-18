@@ -341,21 +341,23 @@ dynamic_agents/
 │   ├── main.py              # FastAPI application entry point
 │   ├── config.py            # Settings and configuration
 │   ├── models.py            # Pydantic models
+│   ├── logging.py           # Logging setup and request context
+│   ├── auth/
+│   │   ├── auth.py          # JWT authentication (authn)
+│   │   └── access.py        # Access control checks (authz)
 │   ├── routes/
 │   │   ├── agents.py        # Agent CRUD endpoints
 │   │   ├── mcp_servers.py   # MCP server endpoints
 │   │   ├── chat.py          # Chat streaming endpoints
 │   │   └── health.py        # Health check endpoints
-│   ├── services/
-│   │   ├── agent_runtime.py # Agent execution and caching
-│   │   ├── mongo.py         # MongoDB operations
-│   │   ├── mcp_client.py    # MCP server connections
-│   │   ├── builtin_tools.py # Built-in tool implementations
-│   │   ├── stream_events.py # SSE event builders
-│   │   ├── stream_trackers.py # Streaming state trackers
-│   │   └── models_config.py # LLM models configuration
-│   └── middleware/
-│       └── auth.py          # JWT authentication
+│   └── services/
+│       ├── agent_runtime.py # Agent execution and caching
+│       ├── mongo.py         # MongoDB operations
+│       ├── mcp_client.py    # MCP server connections
+│       ├── builtin_tools.py # Built-in tool implementations
+│       ├── stream_events.py # SSE event builders
+│       ├── stream_trackers.py # SSE event emitters
+│       └── models_config.py # LLM models configuration
 ├── tests/                   # Test files
 ├── pyproject.toml           # Project dependencies
 └── README.md                # This file
