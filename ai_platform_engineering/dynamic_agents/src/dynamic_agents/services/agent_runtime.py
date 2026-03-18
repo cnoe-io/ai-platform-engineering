@@ -21,7 +21,6 @@ from pymongo import MongoClient
 
 from dynamic_agents.config import Settings, get_settings
 from dynamic_agents.models import AgentContext, DynamicAgentConfig, MCPServerConfig, SubAgentRef
-from dynamic_agents.prompts.extension import get_default_extension_prompt
 from dynamic_agents.services.builtin_tools import (
     create_current_datetime_tool,
     create_fetch_url_tool,
@@ -210,16 +209,8 @@ class AgentRuntime:
 
     def _build_system_prompt(self) -> str:
         """Assemble the full system prompt from config."""
-        parts = []
-
-        # User instructions (required)
-        parts.append(self.config.system_prompt)
-
-        # Extension prompt (platform guidelines)
-        extension = self.settings.default_extension_prompt or get_default_extension_prompt()
-        parts.append("\n\n" + extension)
-
-        return "\n".join(parts)
+        # System prompt from agent config is the single source of truth
+        return self.config.system_prompt
 
     def _build_builtin_tools(
         self,
@@ -401,13 +392,8 @@ class AgentRuntime:
         Returns:
             System prompt string
         """
-        parts = [subagent_config.system_prompt]
-
-        # Use default extension prompt
-        extension = self.settings.default_extension_prompt or get_default_extension_prompt()
-        parts.append("\n\n" + extension)
-
-        return "\n".join(parts)
+        # System prompt from subagent config is the single source of truth
+        return subagent_config.system_prompt
 
     async def stream(
         self,

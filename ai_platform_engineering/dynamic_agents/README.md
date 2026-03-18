@@ -157,7 +157,6 @@ The API documentation is available at:
 | `OIDC_GROUP_CLAIM` | JWT claim name(s) for groups | - |
 | `OIDC_REQUIRED_ADMIN_GROUP` | Group name for admin access | - |
 | `AGENT_RUNTIME_TTL_SECONDS` | Cache TTL for agent runtimes | `3600` |
-| `DEFAULT_EXTENSION_PROMPT_PATH` | Path to custom extension prompt file | - |
 | `CORS_ORIGINS` | Allowed CORS origins | `["*"]` |
 
 ### Models Configuration
@@ -355,10 +354,8 @@ dynamic_agents/
 │   │   ├── stream_events.py # SSE event builders
 │   │   ├── stream_trackers.py # Streaming state trackers
 │   │   └── models_config.py # LLM models configuration
-│   ├── middleware/
-│   │   └── auth.py          # JWT authentication
-│   └── prompts/
-│       └── extension.py     # Default extension prompt
+│   └── middleware/
+│       └── auth.py          # JWT authentication
 ├── tests/                   # Test files
 ├── pyproject.toml           # Project dependencies
 └── README.md                # This file

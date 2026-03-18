@@ -98,11 +98,8 @@ src/dynamic_agents/
 │   ├── stream_trackers.py  # ToolTracker, TodoTracker, SubagentTracker
 │   └── seed_config.py      # Config-driven agent/server seeding
 │
-├── middleware/
-│   └── auth.py             # JWT authentication, UserContext
-│
-└── prompts/
-    └── extension.py        # Default extension prompt
+└── middleware/
+    └── auth.py             # JWT authentication, UserContext
 ```
 
 ### Key Files
