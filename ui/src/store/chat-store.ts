@@ -855,18 +855,26 @@ const storeImplementation = (set: any, get: any) => ({
             };
           });
 
-          // Keep local-only conversations that are actively streaming
-          // (just created in this session, server hasn't caught up yet)
+          // Keep local-only conversations that should not be discarded:
+          // 1. Actively streaming (just created, server hasn't caught up)
+          // 2. Currently active (e.g. audit/shared conversations that belong
+          //    to another user and won't appear in the current user's server
+          //    response). No message-count check — preserving regardless of
+          //    whether messages have loaded yet eliminates a race condition
+          //    where the refresh fires before loadMessagesFromServer completes.
           const serverIds = new Set(serverConversations.map(c => c.id));
-          const localOnlyStreaming = currentState.conversations.filter(
-            conv => !serverIds.has(conv.id) && currentState.streamingConversations.has(conv.id)
+          const localOnlyPreserved = currentState.conversations.filter(
+            conv => !serverIds.has(conv.id) && (
+              currentState.streamingConversations.has(conv.id) ||
+              conv.id === currentState.activeConversationId
+            )
           );
 
-          if (localOnlyStreaming.length > 0) {
-            console.log(`[ChatStore] Keeping ${localOnlyStreaming.length} local-only conversations (actively streaming)`);
+          if (localOnlyPreserved.length > 0) {
+            console.log(`[ChatStore] Keeping ${localOnlyPreserved.length} local-only conversations (streaming or active audit/shared)`);
           }
 
-          const allConversations = [...serverConversations, ...localOnlyStreaming];
+          const allConversations = [...serverConversations, ...localOnlyPreserved];
           const sortedConversations = allConversations.sort(
             (a, b) => b.updatedAt.getTime() - a.updatedAt.getTime()
           );
@@ -887,7 +895,7 @@ const storeImplementation = (set: any, get: any) => ({
             console.log(`[ChatStore] Active conversation ${activeId.substring(0, 8)} was deleted on another device, switching to first conversation`);
           }
 
-          console.log(`[ChatStore] Loaded ${serverConversations.length} conversations from MongoDB (${localOnlyStreaming.length} local-only streaming preserved)`);
+          console.log(`[ChatStore] Loaded ${serverConversations.length} conversations from MongoDB (${localOnlyPreserved.length} local-only preserved)`);
         } catch (error) {
           console.error('[ChatStore] Failed to load conversations from MongoDB:', error);
           console.error('[ChatStore] Error details:', {

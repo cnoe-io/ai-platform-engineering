@@ -37,6 +37,7 @@ let mockUuid = "b76e290b-d90d-4dd6-8db7-fbda49f3fa6d";
 jest.mock("next/navigation", () => ({
   useParams: () => ({ uuid: mockUuid }),
   useRouter: () => ({ push: mockPush, replace: mockReplace }),
+  useSearchParams: () => new URLSearchParams(),
 }));
 
 jest.mock("next-auth/react", () => ({

@@ -16,6 +16,8 @@ interface PlatformEngineerChatViewProps {
   readOnly?: boolean;
   /** Reason for read-only mode */
   readOnlyReason?: "admin_audit" | "shared_readonly";
+  /** Which admin tab the user navigated from */
+  adminOrigin?: "audit-logs" | "feedback" | null;
   /** Whether to show the context panel */
   contextPanelVisible?: boolean;
 }
@@ -30,9 +32,10 @@ export function PlatformEngineerChatView({
   conversationTitle,
   readOnly,
   readOnlyReason,
+  adminOrigin,
   contextPanelVisible = true,
 }: PlatformEngineerChatViewProps) {
-  const [contextPanelCollapsed, setContextPanelCollapsed] = useState(false);
+  const [contextPanelCollapsed, setContextPanelCollapsed] = useState(true);
 
   return (
     <div className="flex-1 min-w-0 flex h-full">
@@ -50,6 +53,7 @@ export function PlatformEngineerChatView({
           conversationTitle={conversationTitle}
           readOnly={readOnly}
           readOnlyReason={readOnlyReason}
+          adminOrigin={adminOrigin}
         />
       </motion.div>
 

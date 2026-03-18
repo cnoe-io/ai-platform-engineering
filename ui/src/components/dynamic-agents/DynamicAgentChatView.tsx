@@ -35,6 +35,8 @@ interface DynamicAgentChatViewProps {
   readOnly?: boolean;
   /** Reason for read-only mode */
   readOnlyReason?: "admin_audit" | "shared_readonly";
+  /** Which admin tab the user navigated from */
+  adminOrigin?: "audit-logs" | "feedback" | null;
 }
 
 /**
@@ -56,6 +58,7 @@ export function DynamicAgentChatView({
   agentDisabled,
   readOnly,
   readOnlyReason,
+  adminOrigin,
 }: DynamicAgentChatViewProps) {
   const [contextPanelCollapsed, setContextPanelCollapsed] = useState(false);
 

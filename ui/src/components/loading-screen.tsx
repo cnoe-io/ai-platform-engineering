@@ -20,7 +20,7 @@ export function LoadingScreen({
 }: LoadingScreenProps) {
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center bg-background relative overflow-hidden">
+    <div className="min-h-screen flex-1 w-full flex flex-col items-center justify-center bg-background relative overflow-hidden">
       {/* Background gradient */}
       <div
         className="absolute inset-0"

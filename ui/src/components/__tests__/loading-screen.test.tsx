@@ -157,4 +157,25 @@ describe("LoadingScreen", () => {
     render(<LoadingScreen />);
     expect(screen.getByText("Preview")).toBeInTheDocument();
   });
+
+  it("root container has flex-1 and w-full for flex parent compatibility", () => {
+    const { container } = render(<LoadingScreen />);
+    const root = container.firstChild as HTMLElement;
+    expect(root.className).toContain("flex-1");
+    expect(root.className).toContain("w-full");
+  });
+
+  it("root container retains min-h-screen for standalone usage", () => {
+    const { container } = render(<LoadingScreen />);
+    const root = container.firstChild as HTMLElement;
+    expect(root.className).toContain("min-h-screen");
+  });
+
+  it("root container centers content with flexbox", () => {
+    const { container } = render(<LoadingScreen />);
+    const root = container.firstChild as HTMLElement;
+    expect(root.className).toContain("flex");
+    expect(root.className).toContain("items-center");
+    expect(root.className).toContain("justify-center");
+  });
 });

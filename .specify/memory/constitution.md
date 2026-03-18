@@ -66,6 +66,9 @@ No production code ships without passing its defined quality gates. Tests are de
 - Red-Green-Refactor cycle is enforced: tests fail first, then implementation follows
 - CI must gate on all quality criteria defined in TESTING.md
 - `make lint`, `make test`, and `make caipe-ui-tests` must all pass before any PR merges
+- Integration smoke tests (`make quick-sanity`) must pass for changes affecting agent communication, supervisor routing, or UI-to-supervisor interactions
+- **Minimal integration test environment**: `caipe-supervisor`, `agent-github`, `agent-netutils` (profiles: `github`, `netutils-agent`) — no RAG or other agents required for basic validation
+- Start with: `docker compose -f docker-compose.dev.yaml --profile github --profile netutils-agent up -d --build`
 
 ### VIII. Structured Documentation
 
