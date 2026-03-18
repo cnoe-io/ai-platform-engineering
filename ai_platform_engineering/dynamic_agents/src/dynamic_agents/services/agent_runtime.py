@@ -133,7 +133,7 @@ class AgentRuntime:
                     error_parts = [f"{s}: {failed_errors.get(s, 'Unknown error')}" for s in failed_servers]
                     self._failed_servers_error = "; ".join(error_parts)
 
-                # 3. Filter tools based on allowed_tools config
+                # 3. Filter tools based on allowed_tools in the agent config
                 tools, missing = filter_tools_by_allowed(all_tools, self.config.allowed_tools)
 
                 # Only report missing tools for servers that connected successfully
@@ -152,17 +152,13 @@ class AgentRuntime:
                     f"Agent '{self.config.name}': loaded {len(tools)} tools from {connected_count}/{len(connections)} MCP servers"
                 )
 
-        # 4.5 Add built-in tools based on config
-        builtin_tools_to_add = self._build_builtin_tools(self._user)
-        if builtin_tools_to_add:
-            tools = tools + builtin_tools_to_add
-            logger.info(
-                f"Agent '{self.config.name}': added {len(builtin_tools_to_add)} built-in tools: "
-                f"{[t.name for t in builtin_tools_to_add]}"
-            )
+        # 4 Add built-in tools based on agent config
+        builtin_tools = self._build_builtin_tools(self._user)
+        if builtin_tools:
+            tools = tools + builtin_tools
 
-        # 5. Assemble system prompt
-        system_prompt = self._build_system_prompt()
+        # 5. System prompt from agent config
+        system_prompt = self.config.system_prompt
 
         # 6. Create the LLM
         # model_id and model_provider are required fields - no fallback to env vars
@@ -202,11 +198,6 @@ class AgentRuntime:
             f"tools={len(tools)}, subagents={len(subagents) if subagents else 0}"
         )
 
-    def _build_system_prompt(self) -> str:
-        """Assemble the full system prompt from config."""
-        # System prompt from agent config is the single source of truth
-        return self.config.system_prompt
-
     def _build_builtin_tools(self, user: UserContext | None = None) -> list:
         """Build list of built-in tools based on agent config.
 
@@ -217,6 +208,7 @@ class AgentRuntime:
             List of LangChain tools to add to the agent.
         """
         tools = []
+        config_summary: dict[str, Any] = {}
 
         if not self.config.builtin_tools:
             return tools
@@ -225,30 +217,21 @@ class AgentRuntime:
         fetch_url_config = self.config.builtin_tools.fetch_url
         if fetch_url_config and fetch_url_config.enabled:
             allowed_domains = fetch_url_config.allowed_domains or "*"
-            fetch_url_tool = create_fetch_url_tool(allowed_domains=allowed_domains)
-            tools.append(fetch_url_tool)
-
-            # Log domain restrictions
-            if allowed_domains == "*":
-                logger.debug(f"Agent '{self.config.name}': fetch_url enabled (all domains allowed)")
-            else:
-                domain_count = len([d.strip() for d in allowed_domains.split(",") if d.strip()])
-                logger.debug(f"Agent '{self.config.name}': fetch_url enabled with {domain_count} domain pattern(s)")
+            tools.append(create_fetch_url_tool(allowed_domains=allowed_domains))
+            config_summary["fetch_url"] = {"allowed_domains": allowed_domains}
 
         # current_datetime tool (enabled by default)
         current_datetime_config = self.config.builtin_tools.current_datetime
         if current_datetime_config and current_datetime_config.enabled:
-            current_datetime_tool = create_current_datetime_tool()
-            tools.append(current_datetime_tool)
-            logger.debug(f"Agent '{self.config.name}': current_datetime enabled")
+            tools.append(create_current_datetime_tool())
+            config_summary["current_datetime"] = {}
 
         # user_info tool (enabled by default)
         user_info_config = self.config.builtin_tools.user_info
         if user_info_config and user_info_config.enabled:
             if user:
-                user_info_tool = create_user_info_tool(user)
-                tools.append(user_info_tool)
-                logger.debug(f"Agent '{self.config.name}': user_info enabled for user {user.email}")
+                tools.append(create_user_info_tool(user))
+                config_summary["user_info"] = {"user": user.email}
             else:
                 logger.warning(f"Agent '{self.config.name}': user_info enabled but no user context available")
 
@@ -256,16 +239,19 @@ class AgentRuntime:
         sleep_config = self.config.builtin_tools.sleep
         if sleep_config and sleep_config.enabled:
             max_seconds = sleep_config.max_seconds or 300
-            sleep_tool = create_sleep_tool(max_seconds=max_seconds)
-            tools.append(sleep_tool)
-            logger.debug(f"Agent '{self.config.name}': sleep enabled (max_seconds={max_seconds})")
+            tools.append(create_sleep_tool(max_seconds=max_seconds))
+            config_summary["sleep"] = {"max_seconds": max_seconds}
 
         # request_user_input tool (enabled by default)
         request_user_input_config = self.config.builtin_tools.request_user_input
         if request_user_input_config and request_user_input_config.enabled:
-            request_user_input_tool = create_request_user_input_tool()
-            tools.append(request_user_input_tool)
-            logger.debug(f"Agent '{self.config.name}': request_user_input enabled")
+            tools.append(create_request_user_input_tool())
+            config_summary["request_user_input"] = {}
+
+        if tools:
+            logger.info(f"Agent '{self.config.name}': added built-in tools: {config_summary}")
+        else:
+            logger.warning(f"Agent '{self.config.name}': no built-in tools configured")
 
         return tools
 
@@ -322,8 +308,8 @@ class AgentRuntime:
             # Build MCP tools for subagent
             subagent_tools = await self._build_subagent_tools(subagent_config)
 
-            # Build system prompt for subagent
-            subagent_prompt = self._build_subagent_prompt(subagent_config)
+            # System prompt from subagent config
+            subagent_prompt = subagent_config.system_prompt
 
             # Create SubAgent dict in deepagents format
             subagent_dict: dict[str, Any] = {
@@ -367,17 +353,51 @@ class AgentRuntime:
         tools, _ = filter_tools_by_allowed(all_tools, subagent_config.allowed_tools)
         return tools
 
-    def _build_subagent_prompt(self, subagent_config: DynamicAgentConfig) -> str:
-        """Build system prompt for a subagent.
+    def _build_stream_config(self, session_id: str, user_id: str, trace_id: str | None) -> dict[str, Any]:
+        """Build config dict for stream/resume operations.
+
+        Creates the LangGraph config with:
+        - thread_id for conversation persistence (checkpointer)
+        - AgentContext for tools that need user/session info
+        - metadata for Langfuse tracing
 
         Args:
-            subagent_config: The subagent's configuration
+            session_id: Conversation/session ID
+            user_id: User's email/identifier
+            trace_id: Optional trace ID for distributed tracing
 
         Returns:
-            System prompt string
+            Config dict for astream()
         """
-        # System prompt from subagent config is the single source of truth
-        return subagent_config.system_prompt
+        config = self.tracing.create_config(session_id)
+
+        if "configurable" not in config:
+            config["configurable"] = {}
+        config["configurable"]["thread_id"] = session_id
+
+        config["context"] = AgentContext(
+            user_id=user_id,
+            agent_config_id=self.config.id,
+            session_id=session_id,
+        )
+
+        if "metadata" not in config:
+            config["metadata"] = {}
+        config["metadata"]["user_id"] = user_id
+        config["metadata"]["agent_config_id"] = self.config.id
+        config["metadata"]["agent_name"] = self.config.name
+
+        if trace_id:
+            config["metadata"]["trace_id"] = trace_id
+        else:
+            # Fallback to TracingManager context
+            current_trace_id = self.tracing.get_trace_id()
+            if current_trace_id:
+                config["metadata"]["trace_id"] = current_trace_id
+
+        self._current_trace_id = config.get("metadata", {}).get("trace_id")
+
+        return config
 
     async def stream(
         self,
@@ -409,43 +429,7 @@ class AgentRuntime:
         if not self._initialized:
             await self.initialize()
 
-        # Create tracing config using TracingManager for Langfuse integration
-        config = self.tracing.create_config(session_id)
-
-        # Ensure configurable exists and set thread_id
-        if "configurable" not in config:
-            config["configurable"] = {}
-        config["configurable"]["thread_id"] = session_id
-
-        # Add agent context
-        config["context"] = AgentContext(
-            user_id=user_id,
-            agent_config_id=self.config.id,
-            session_id=session_id,
-        )
-
-        # Ensure metadata exists
-        if "metadata" not in config:
-            config["metadata"] = {}
-
-        # Add user_id and agent info to metadata for tracing
-        config["metadata"]["user_id"] = user_id
-        config["metadata"]["agent_config_id"] = self.config.id
-        config["metadata"]["agent_name"] = self.config.name
-
-        # Add trace_id to metadata for distributed tracing
-        if trace_id:
-            config["metadata"]["trace_id"] = trace_id
-            logger.info(f"Using provided trace_id: {trace_id}")
-        else:
-            # Try to get trace_id from TracingManager context
-            current_trace_id = self.tracing.get_trace_id()
-            if current_trace_id:
-                config["metadata"]["trace_id"] = current_trace_id
-                logger.debug(f"Using trace_id from TracingManager context: {current_trace_id}")
-
-        # Store trace_id for final_result event
-        self._current_trace_id = config.get("metadata", {}).get("trace_id")
+        config = self._build_stream_config(session_id, user_id, trace_id)
 
         # Track active task tool calls (subagents) so we can emit correct end events
         # This is the minimal state needed - just tool_call_ids of task tools
@@ -710,28 +694,7 @@ class AgentRuntime:
         if not self._initialized:
             await self.initialize()
 
-        # Create config for this session
-        config = self.tracing.create_config(session_id)
-        if "configurable" not in config:
-            config["configurable"] = {}
-        config["configurable"]["thread_id"] = session_id
-
-        # Add agent context
-        config["context"] = AgentContext(
-            user_id=user_id,
-            agent_config_id=self.config.id,
-            session_id=session_id,
-        )
-
-        if "metadata" not in config:
-            config["metadata"] = {}
-        config["metadata"]["user_id"] = user_id
-        config["metadata"]["agent_config_id"] = self.config.id
-        config["metadata"]["agent_name"] = self.config.name
-        if trace_id:
-            config["metadata"]["trace_id"] = trace_id
-
-        self._current_trace_id = config.get("metadata", {}).get("trace_id")
+        config = self._build_stream_config(session_id, user_id, trace_id)
 
         # Track active task tool calls (subagents) so we can emit correct end events
         active_task_calls: set[str] = set()
