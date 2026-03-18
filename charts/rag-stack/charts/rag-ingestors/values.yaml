@@ -240,6 +240,44 @@ ingestors: []
   #       cpu: 500m
   #       memory: 512Mi
 
+  # Example Confluence Ingestor
+  # - name: confluence-wiki
+  #   type: confluence                        # INGESTOR_TYPE
+  #   syncInterval: 86400                     # CONFLUENCE_SYNC_INTERVAL (24 hours)
+  #   initDelaySeconds: 60                    # INIT_DELAY_SECONDS
+  #   logLevel: INFO                          # LOG_LEVEL
+  #
+  #   # Confluence-specific configuration
+  #   env:
+  #     CONFLUENCE_URL: https://mycompany.atlassian.net/wiki  # CONFLUENCE_URL (required)
+  #     CONFLUENCE_SSL_VERIFY: "true"         # CONFLUENCE_SSL_VERIFY
+  #     CONFLUENCE_MAX_CONCURRENCY: "5"       # CONFLUENCE_MAX_CONCURRENCY
+  #     CONFLUENCE_SPACES: |                  # CONFLUENCE_SPACES (JSON, optional)
+  #       {
+  #         "SRE": [
+  #           {"page_id": "123456", "get_child_pages": true}
+  #         ],
+  #         "DEVOPS": []
+  #       }
+  #
+  #   # Confluence credentials from secret
+  #   envFrom:
+  #     - secretRef:
+  #         name: confluence-credentials      # Must contain CONFLUENCE_USERNAME, CONFLUENCE_TOKEN
+  #
+  #   # Title filtering is configured per-datasource via the API:
+  #   #   POST /v1/ingest/confluence/page
+  #   #     { "url": "...", "denied_title_patterns": ["Deprecated", "Do Not Use"] }
+  #   # Patterns are regex, case-insensitive, and persist across reloads.
+  #
+  #   resources:
+  #     requests:
+  #       cpu: 100m
+  #       memory: 256Mi
+  #     limits:
+  #       cpu: 500m
+  #       memory: 512Mi
+
 # Default resources for ingestors (can be overridden per ingestor)
 defaultResources:
   requests:

@@ -55,6 +55,23 @@ EOF
   --base main
 ```
 
+## Worktree Environment Setup
+
+Git worktrees do **not** share the parent repo's `.venv`. After entering a worktree, set up a fresh virtual environment before running any Python commands:
+
+```bash
+uv venv --python python3.13 --clear .venv
+uv sync
+```
+
+Subpackages with their own `pyproject.toml` (e.g. RAG ingestors, RAG server, MCP agents) need their own venv built from within their directory:
+
+```bash
+cd ai_platform_engineering/knowledge_bases/rag/ingestors   # or server, agents/*/mcp, etc.
+uv venv --python python3.13 --clear .venv
+uv sync
+```
+
 ## Quality Gates
 
 Before committing, always run:
