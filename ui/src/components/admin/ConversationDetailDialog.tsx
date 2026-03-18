@@ -109,7 +109,7 @@ export function ConversationDetailDialog({
                 {copied ? <Check className="h-3 w-3 text-green-500" /> : <Copy className="h-3 w-3" />}
               </button>
               <a
-                href={`/chat/${conv._id}`}
+                href={`/chat/${conv._id}?from=audit-logs`}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="p-0.5 rounded hover:bg-muted text-primary"

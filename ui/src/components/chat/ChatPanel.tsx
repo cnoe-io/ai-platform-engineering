@@ -36,11 +36,13 @@ interface ChatPanelProps {
   conversationTitle?: string;
   readOnly?: boolean;
   readOnlyReason?: ReadOnlyReason;
+  /** Which admin tab the user navigated from (audit-logs or feedback) */
+  adminOrigin?: "audit-logs" | "feedback" | null;
   /** When set, use DynamicAgentClient instead of A2ASDKClient */
   selectedAgentId?: string;
 }
 
-export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnly, readOnlyReason, selectedAgentId }: ChatPanelProps) {
+export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnly, readOnlyReason, adminOrigin, selectedAgentId }: ChatPanelProps) {
   const { data: session } = useSession();
   const autoScrollEnabled = useFeatureFlagStore((s) => s.flags.autoScroll ?? true);
   const showTimestamps = useFeatureFlagStore((s) => s.flags.showTimestamps ?? false);
@@ -1669,11 +1671,11 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
             </div>
             {readOnlyReason === 'admin_audit' && (
             <a
-              href="/admin?tab=feedback"
+              href={adminOrigin === 'audit-logs' ? '/admin?tab=audit-logs' : '/admin?tab=feedback'}
               className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md bg-amber-600/20 text-amber-700 dark:text-amber-300 hover:bg-amber-600/30 transition-colors"
             >
               <ArrowLeft className="h-3 w-3" />
-              Back to Feedback
+              {adminOrigin === 'audit-logs' ? 'Back to Audit Logs' : 'Back to Feedback'}
             </a>
             )}
           </div>

@@ -11,7 +11,7 @@
  * - traceId fallback, conversationId
  * - disabled prop
  * - Liked/disliked styling
- * - Popover closes after submit
+ * - Dialog closes after submit
  */
 
 import React from "react";
@@ -59,17 +59,20 @@ jest.mock("@/components/ui/button", () => ({
   ),
 }));
 
-jest.mock("@/components/ui/popover", () => ({
-  Popover: ({ children }: { children?: React.ReactNode }) => (
-    <div data-testid="popover">{children}</div>
+jest.mock("@/components/ui/dialog", () => ({
+  Dialog: ({ children }: { children?: React.ReactNode }) => (
+    <div data-testid="dialog">{children}</div>
   ),
-  PopoverTrigger: ({ children, asChild }: { children?: React.ReactNode; asChild?: boolean }) => (
-    <div data-testid="popover-trigger">
+  DialogTrigger: ({ children, asChild }: { children?: React.ReactNode; asChild?: boolean }) => (
+    <div data-testid="dialog-trigger">
       {asChild && React.isValidElement(children) ? children : <div>{children}</div>}
     </div>
   ),
-  PopoverContent: ({ children }: { children?: React.ReactNode }) => (
-    <div data-testid="popover-content">{children}</div>
+  DialogContent: ({ children }: { children?: React.ReactNode }) => (
+    <div data-testid="dialog-content">{children}</div>
+  ),
+  DialogTitle: ({ children, className }: { children?: React.ReactNode; className?: string }) => (
+    <span data-testid="dialog-title" className={className}>{children}</span>
   ),
 }));
 
@@ -324,7 +327,7 @@ describe("FeedbackButton", () => {
     expect(thumbsDownBtn?.className).toMatch(/red/);
   });
 
-  it("popover closes after submit", async () => {
+  it("dialog closes after submit", async () => {
     const onFeedbackChange = jest.fn();
     render(
       <FeedbackButton
@@ -342,5 +345,107 @@ describe("FeedbackButton", () => {
         })
       );
     });
+  });
+
+  it("renders using Dialog component (not Popover)", () => {
+    render(
+      <FeedbackButton
+        messageId="msg-1"
+        feedback={{ type: "like", showFeedbackOptions: true }}
+      />
+    );
+    expect(screen.getByTestId("dialog")).toBeInTheDocument();
+    expect(screen.getByTestId("dialog-trigger")).toBeInTheDocument();
+    expect(screen.getByTestId("dialog-content")).toBeInTheDocument();
+  });
+
+  it("renders accessible DialogTitle", () => {
+    render(
+      <FeedbackButton
+        messageId="msg-1"
+        feedback={{ type: "like", showFeedbackOptions: true }}
+      />
+    );
+    const title = screen.getByTestId("dialog-title");
+    expect(title).toBeInTheDocument();
+    expect(title).toHaveClass("sr-only");
+    expect(title).toHaveTextContent("Positive Feedback");
+  });
+
+  it("renders 'Negative Feedback' DialogTitle when disliked", () => {
+    render(
+      <FeedbackButton
+        messageId="msg-1"
+        feedback={{ type: "dislike", showFeedbackOptions: true }}
+      />
+    );
+    const title = screen.getByTestId("dialog-title");
+    expect(title).toHaveTextContent("Negative Feedback");
+  });
+
+  it("includes 'Other' additional feedback in submit", async () => {
+    const onFeedbackChange = jest.fn();
+    render(
+      <FeedbackButton
+        messageId="msg-1"
+        feedback={{ type: "dislike", reason: "Other", showFeedbackOptions: true }}
+        onFeedbackChange={onFeedbackChange}
+      />
+    );
+
+    const textarea = screen.getByPlaceholderText("Provide additional feedback");
+    fireEvent.change(textarea, { target: { value: "Response was incorrect" } });
+    fireEvent.click(screen.getByText("Submit Feedback"));
+
+    await waitFor(() => {
+      expect(mockSubmitFeedback).toHaveBeenCalledWith(
+        expect.objectContaining({
+          feedbackType: "dislike",
+          reason: "Other",
+          additionalFeedback: "Response was incorrect",
+        })
+      );
+    });
+  });
+
+  it("does not include additional feedback for non-Other reasons", async () => {
+    render(
+      <FeedbackButton
+        messageId="msg-1"
+        feedback={{ type: "like", reason: "Very Helpful", showFeedbackOptions: true }}
+      />
+    );
+    fireEvent.click(screen.getByText("Submit Feedback"));
+
+    await waitFor(() => {
+      expect(mockSubmitFeedback).toHaveBeenCalledWith(
+        expect.objectContaining({
+          reason: "Very Helpful",
+          additionalFeedback: undefined,
+        })
+      );
+    });
+  });
+
+  it("switching from like to dislike changes reason options", () => {
+    const onFeedbackChange = jest.fn();
+    const { rerender } = render(
+      <FeedbackButton
+        messageId="msg-1"
+        feedback={{ type: "like", showFeedbackOptions: true }}
+        onFeedbackChange={onFeedbackChange}
+      />
+    );
+    expect(screen.getByText("Very Helpful")).toBeInTheDocument();
+
+    rerender(
+      <FeedbackButton
+        messageId="msg-1"
+        feedback={{ type: "dislike", showFeedbackOptions: true }}
+        onFeedbackChange={onFeedbackChange}
+      />
+    );
+    expect(screen.getByText("Inaccurate")).toBeInTheDocument();
+    expect(screen.queryByText("Very Helpful")).not.toBeInTheDocument();
   });
 });
