@@ -160,7 +160,7 @@ interface Team {
   }>;
 }
 
-const VALID_TABS = ['users', 'teams', 'stats', 'skills', 'feedback', 'nps', 'metrics', 'health', 'policy'];
+const VALID_TABS = ['users', 'teams', 'stats', 'skills', 'feedback', 'nps', 'metrics', 'health', 'policy', 'audit-logs'];
 
 function AdminPage() {
   const { status } = useSession();
@@ -994,7 +994,7 @@ function AdminPage() {
                             <div>
                               {entry.conversation_id ? (
                                 <a
-                                  href={`/chat/${entry.conversation_id}`}
+                                  href={`/chat/${entry.conversation_id}?from=feedback`}
                                   target="_blank"
                                   rel="noopener noreferrer"
                                   className="inline-flex items-center gap-1 text-xs text-primary hover:underline"

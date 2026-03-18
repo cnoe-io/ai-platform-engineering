@@ -106,8 +106,7 @@ Emitted when the agent calls a tool.
     "tool_name": "search_jira",
     "tool_call_id": "call_abc123",
     "args": {"query": "user tickets..."},
-    "agent": "DynamicAgent",
-    "is_builtin": false
+    "agent": "DynamicAgent"
   }
 }
 ```
@@ -119,9 +118,8 @@ Emitted when the agent calls a tool.
 | `tool_call_id` | Unique ID for this tool invocation (used to match with `tool_end`) |
 | `args` | Tool arguments (string values truncated to 100 chars) |
 | `agent` | Name of the agent making the call |
-| `is_builtin` | Whether this is a deepagents builtin tool (affects UI rendering) |
 
-**Backend source:** `stream_events.make_tool_start_event()`, `stream_trackers.ToolTracker`
+**Backend source:** `stream_events.make_tool_start_event()`
 
 ---
 
@@ -133,15 +131,21 @@ Emitted when a tool call completes.
 {
   "type": "tool_end",
   "data": {
-    "tool_name": "search_jira",
     "tool_call_id": "call_abc123",
-    "agent": "DynamicAgent",
-    "is_builtin": false
+    "agent": "DynamicAgent"
   }
 }
 ```
 
-**Backend source:** `stream_events.make_tool_end_event()`, `stream_trackers.ToolTracker`
+**Fields:**
+| Field | Description |
+|-------|-------------|
+| `tool_call_id` | Unique ID matching the `tool_start` event |
+| `agent` | Name of the agent |
+
+**Note:** The UI matches `tool_end` to `tool_start` using `tool_call_id`.
+
+**Backend source:** `stream_events.make_tool_end_event()`
 
 ---
 
@@ -170,9 +174,9 @@ Emitted when the agent calls `write_todos`. Contains the full todo list state.
 | `todos[].status` | One of `"pending"`, `"in_progress"`, `"completed"` |
 | `agent` | Name of the agent |
 
-**Backend source:** `stream_events.make_todo_update_event()`, `stream_trackers.TodoTracker`
+**Backend source:** `stream_events.make_todo_update_event()`
 
-**Note:** The TodoTracker parses the markdown output from the `write_todos` tool because we cannot modify the deepagents library to emit structured data directly.
+**Note:** Todos are extracted directly from the `write_todos` tool arguments.
 
 ---
 
@@ -184,6 +188,7 @@ Emitted when the agent calls the `task` tool to delegate work to a subagent.
 {
   "type": "subagent_start",
   "data": {
+    "tool_call_id": "call_xyz789",
     "subagent_name": "research-agent",
     "purpose": "Find documentation about the API...",
     "parent_agent": "DynamicAgent"
@@ -194,11 +199,12 @@ Emitted when the agent calls the `task` tool to delegate work to a subagent.
 **Fields:**
 | Field | Description |
 |-------|-------------|
+| `tool_call_id` | Unique ID for this invocation (used to match with `subagent_end`) |
 | `subagent_name` | Name of the subagent being invoked |
 | `purpose` | Description of what the subagent is doing (truncated to 100 chars) |
 | `parent_agent` | Name of the agent that invoked this subagent |
 
-**Backend source:** `stream_events.make_subagent_start_event()`, `stream_trackers.SubagentTracker`
+**Backend source:** `stream_events.make_subagent_start_event()`
 
 ---
 
@@ -210,13 +216,21 @@ Emitted when a subagent completes its work.
 {
   "type": "subagent_end",
   "data": {
-    "subagent_name": "research-agent",
+    "tool_call_id": "call_xyz789",
     "parent_agent": "DynamicAgent"
   }
 }
 ```
 
-**Backend source:** `stream_events.make_subagent_end_event()`, `stream_trackers.SubagentTracker`
+**Fields:**
+| Field | Description |
+|-------|-------------|
+| `tool_call_id` | Unique ID matching the `subagent_start` event |
+| `parent_agent` | Name of the agent that invoked this subagent |
+
+**Note:** The UI matches `subagent_end` to `subagent_start` using `tool_call_id`.
+
+**Backend source:** `stream_events.make_subagent_end_event()`
 
 ---
 
@@ -287,20 +301,6 @@ data: {}
 
 ---
 
-## Builtin Tools
-
-The following tools are considered "builtin" and render as compact inline chips in the UI (no borders):
-
-- `write_todos`
-- `read_file`
-- `write_file`
-- `edit_file`
-- `ls`
-
-This list is defined in:
-- **Backend:** `stream_events.BUILTIN_TOOLS`
-- **Frontend:** `sse-types.BUILTIN_TOOLS`
-
 ## File Reference
 
 ### Backend Files
@@ -308,8 +308,8 @@ This list is defined in:
 | File | Purpose |
 |------|---------|
 | `src/dynamic_agents/services/stream_events.py` | Event type constants and builder functions |
-| `src/dynamic_agents/services/stream_trackers.py` | ToolTracker, TodoTracker, SubagentTracker classes |
-| `src/dynamic_agents/services/agent_runtime.py` | Main agent runtime, uses trackers to emit events |
+| `src/dynamic_agents/services/stream_trackers.py` | Stateless event emitter functions |
+| `src/dynamic_agents/services/agent_runtime.py` | Main agent runtime, emits SSE events |
 
 ### Frontend Files
 
@@ -336,8 +336,6 @@ This list is defined in:
 │ ├─────────────────────────────────┤ │
 │ │ [ ] Generate report             │ │
 │ └─────────────────────────────────┘ │
-│                                     │
-│ [v] read_file  [v] edit_file  [v] ls│  <- Builtin tools (compact chips)
 │                                     │
 │ Running (1)                         │
 │ ┌─────────────────────────────────┐ │

@@ -15,21 +15,11 @@ import httpx
 import jwt
 from fastapi import Depends, HTTPException, Request
 from jwt import PyJWK
-from pydantic import BaseModel
 
 from dynamic_agents.config import Settings, get_settings
+from dynamic_agents.models import UserContext
 
 logger = logging.getLogger(__name__)
-
-
-class UserContext(BaseModel):
-    """Authenticated user context extracted from JWT."""
-
-    email: str
-    name: str | None = None
-    groups: list[str] = []
-    is_admin: bool = False
-    raw_claims: dict[str, Any] = {}
 
 
 # Cache for JWKS

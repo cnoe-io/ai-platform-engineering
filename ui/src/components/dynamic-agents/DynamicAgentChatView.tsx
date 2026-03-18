@@ -23,6 +23,8 @@ interface DynamicAgentChatViewProps {
   agentModel?: string;
   /** Agent visibility (private, team, global) */
   agentVisibility?: string;
+  /** Agent gradient theme (e.g., "ocean", "sunset") */
+  agentGradient?: string | null;
   /** Map of server_id -> tool names */
   allowedTools?: Record<string, string[]>;
   /** Configured subagents */
@@ -35,6 +37,8 @@ interface DynamicAgentChatViewProps {
   readOnly?: boolean;
   /** Reason for read-only mode */
   readOnlyReason?: "admin_audit" | "shared_readonly";
+  /** Which admin tab the user navigated from */
+  adminOrigin?: "audit-logs" | "feedback" | null;
 }
 
 /**
@@ -50,12 +54,14 @@ export function DynamicAgentChatView({
   agentDescription,
   agentModel,
   agentVisibility,
+  agentGradient,
   allowedTools,
   subagents,
   agentNotFound,
   agentDisabled,
   readOnly,
   readOnlyReason,
+  adminOrigin,
 }: DynamicAgentChatViewProps) {
   const [contextPanelCollapsed, setContextPanelCollapsed] = useState(false);
 
@@ -76,6 +82,8 @@ export function DynamicAgentChatView({
           readOnly={readOnly || agentNotFound || agentDisabled}
           readOnlyReason={agentNotFound ? 'agent_deleted' : agentDisabled ? 'agent_disabled' : readOnlyReason}
           agentId={selectedAgentId}
+          agentGradient={agentGradient}
+          agentName={agentName}
         />
       </motion.div>
 
@@ -86,6 +94,7 @@ export function DynamicAgentChatView({
         agentDescription={agentDescription}
         agentModel={agentModel}
         agentVisibility={agentVisibility}
+        agentGradient={agentGradient}
         allowedTools={allowedTools}
         subagents={subagents}
         agentNotFound={agentNotFound}

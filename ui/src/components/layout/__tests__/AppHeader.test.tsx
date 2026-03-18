@@ -16,7 +16,7 @@
  */
 
 import React from 'react'
-import { render, screen } from '@testing-library/react'
+import { render, screen, fireEvent } from '@testing-library/react'
 
 // ============================================================================
 // Mocks — must be before imports
@@ -92,6 +92,7 @@ jest.mock('@/hooks/use-version', () => ({
 }))
 
 // Mock config
+let mockReportProblemEnabled = false
 jest.mock('@/lib/config', () => ({
   config: {
     appName: 'Test App',
@@ -103,6 +104,7 @@ jest.mock('@/lib/config', () => ({
     ssoEnabled: true,
     envBadge: '',
     get ragEnabled() { return mockRagEnabled },
+    get reportProblemEnabled() { return mockReportProblemEnabled },
   },
   getConfig: jest.fn((key: string) => {
     const configs: Record<string, any> = {
@@ -110,10 +112,16 @@ jest.mock('@/lib/config', () => ({
       ssoEnabled: true,
       envBadge: '',
       get ragEnabled() { return mockRagEnabled },
+      get reportProblemEnabled() { return mockReportProblemEnabled },
     }
     return configs[key]
   }),
   getLogoFilterClass: jest.fn(() => ''),
+}))
+
+jest.mock('@/components/ticket/ReportProblemDialog', () => ({
+  ReportProblemDialog: ({ open }: { open: boolean }) =>
+    open ? <div data-testid="report-problem-dialog">ReportProblemDialog</div> : null,
 }))
 
 // Mock Link component
@@ -183,6 +191,7 @@ describe('AppHeader — nav tabs', () => {
     mockIsAdmin = false
     mockCanViewAdmin = false
     mockRagEnabled = false
+    mockReportProblemEnabled = false
     mockCaipeStatus = 'connected'
     mockRagStatus = 'connected'
     mockStreamingConversations = new Map()
@@ -760,5 +769,48 @@ describe('AppHeader — Chat tab notification dots', () => {
     expect(greenBadge).not.toBeInTheDocument()
     expect(amberBadge).not.toBeInTheDocument()
     expect(blueBadge).not.toBeInTheDocument()
+  })
+})
+
+// ============================================================================
+// Report a Problem button
+// ============================================================================
+
+describe('AppHeader — Report a Problem button', () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+    mockStorageMode = 'mongodb'
+    mockPathname = '/chat'
+    mockIsAdmin = false
+    mockCanViewAdmin = false
+    mockRagEnabled = false
+    mockReportProblemEnabled = false
+    mockCaipeStatus = 'connected'
+    mockRagStatus = 'connected'
+    mockStreamingConversations = new Map()
+    mockUnviewedConversations = new Set()
+    mockInputRequiredConversations = new Set()
+    mockSession.status = 'authenticated' as const
+    mockSession.data = { user: { name: 'Test User', email: 'test@test.com' } } as any
+  })
+
+  it('does NOT show "Report a Problem" button when reportProblemEnabled is false', () => {
+    mockReportProblemEnabled = false
+    render(<AppHeader />)
+    expect(screen.queryByText('Report a Problem')).not.toBeInTheDocument()
+  })
+
+  it('shows "Report a Problem" button when reportProblemEnabled is true', () => {
+    mockReportProblemEnabled = true
+    render(<AppHeader />)
+    expect(screen.getByText('Report a Problem')).toBeInTheDocument()
+  })
+
+  it('opens ReportProblemDialog when "Report a Problem" is clicked', () => {
+    mockReportProblemEnabled = true
+    render(<AppHeader />)
+    const btn = screen.getByText('Report a Problem')
+    fireEvent.click(btn)
+    expect(screen.getByTestId('report-problem-dialog')).toBeInTheDocument()
   })
 })

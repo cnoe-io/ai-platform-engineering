@@ -778,7 +778,7 @@ describe('ChatPanel', () => {
   })
 
   describe('Thinking section (showRawStream)', () => {
-    it('should show Thinking section expanded by default (showRawStream=true)', () => {
+    it('should show Thinking section expanded by default for streaming messages (isFinal=false)', () => {
       const msg = createMessage({
         role: 'assistant',
         content: '',
@@ -793,11 +793,73 @@ describe('ChatPanel', () => {
 
       render(<ChatPanel endpoint="/api/test" />)
 
-      // The "Thinking" label should be visible since showRawStream defaults to true
-      // Note: with our mocked components, the StreamingView is mocked,
-      // but we verify the overall rendering doesn't crash
-      const container = document.querySelector('.space-y-6')
-      expect(container).not.toBeNull()
+      expect(screen.getByText('Collapse')).toBeInTheDocument()
+      expect(screen.queryByText('Expand')).not.toBeInTheDocument()
+    })
+
+    it('should default Thinking section to collapsed for final messages (isFinal=true)', () => {
+      const msg = createMessage({
+        role: 'assistant',
+        content: 'Final answer here',
+        rawStreamContent: 'Streaming data from agents...',
+        isFinal: true,
+      })
+      mockGetActiveConversation.mockReturnValue(createConversation([
+        createMessage({ role: 'user', content: 'Hello' }),
+        msg,
+      ]))
+      mockIsConversationStreaming.mockReturnValue(true)
+
+      render(<ChatPanel endpoint="/api/test" />)
+
+      expect(screen.getByText('Expand')).toBeInTheDocument()
+      expect(screen.queryByText('Collapse')).not.toBeInTheDocument()
+    })
+
+    it('should remain collapsed after remount for final messages (simulates conversation switch)', () => {
+      const msg = createMessage({
+        role: 'assistant',
+        content: 'Final answer here',
+        rawStreamContent: 'Streaming data from agents...',
+        isFinal: true,
+      })
+      mockGetActiveConversation.mockReturnValue(createConversation([
+        createMessage({ role: 'user', content: 'Hello' }),
+        msg,
+      ]))
+      mockIsConversationStreaming.mockReturnValue(true)
+
+      const { unmount } = render(<ChatPanel endpoint="/api/test" />)
+      expect(screen.getByText('Expand')).toBeInTheDocument()
+
+      unmount()
+
+      render(<ChatPanel endpoint="/api/test" />)
+      expect(screen.getByText('Expand')).toBeInTheDocument()
+      expect(screen.queryByText('Collapse')).not.toBeInTheDocument()
+    })
+
+    it('should allow toggling the thinking panel regardless of initial state', () => {
+      const msg = createMessage({
+        role: 'assistant',
+        content: 'Final answer here',
+        rawStreamContent: 'Streaming data from agents...',
+        isFinal: true,
+      })
+      mockGetActiveConversation.mockReturnValue(createConversation([
+        createMessage({ role: 'user', content: 'Hello' }),
+        msg,
+      ]))
+      mockIsConversationStreaming.mockReturnValue(true)
+
+      render(<ChatPanel endpoint="/api/test" />)
+
+      expect(screen.getByText('Expand')).toBeInTheDocument()
+
+      fireEvent.click(screen.getByText('Expand'))
+
+      expect(screen.getByText('Collapse')).toBeInTheDocument()
+      expect(screen.queryByText('Expand')).not.toBeInTheDocument()
     })
   })
 
@@ -924,6 +986,108 @@ describe('ChatPanel', () => {
       act(() => { rerender(<ChatPanel endpoint="/api/test" />) })
 
       expect(scrollIntoViewMock).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('Read-only audit mode with adminOrigin', () => {
+    it('shows "Read-Only Audit Mode" banner when readOnly and readOnlyReason is admin_audit', () => {
+      mockGetActiveConversation.mockReturnValue(createConversation([]))
+      render(
+        <ChatPanel
+          endpoint="/api/test"
+          readOnly
+          readOnlyReason="admin_audit"
+        />
+      )
+      expect(screen.getByText('Read-Only Audit Mode')).toBeInTheDocument()
+    })
+
+    it('shows "Back to Feedback" link by default when adminOrigin is not set', () => {
+      mockGetActiveConversation.mockReturnValue(createConversation([]))
+      render(
+        <ChatPanel
+          endpoint="/api/test"
+          readOnly
+          readOnlyReason="admin_audit"
+        />
+      )
+      const link = screen.getByText('Back to Feedback')
+      expect(link.closest('a')).toHaveAttribute('href', '/admin?tab=feedback')
+    })
+
+    it('shows "Back to Feedback" link when adminOrigin is "feedback"', () => {
+      mockGetActiveConversation.mockReturnValue(createConversation([]))
+      render(
+        <ChatPanel
+          endpoint="/api/test"
+          readOnly
+          readOnlyReason="admin_audit"
+          adminOrigin="feedback"
+        />
+      )
+      const link = screen.getByText('Back to Feedback')
+      expect(link.closest('a')).toHaveAttribute('href', '/admin?tab=feedback')
+    })
+
+    it('shows "Back to Audit Logs" link when adminOrigin is "audit-logs"', () => {
+      mockGetActiveConversation.mockReturnValue(createConversation([]))
+      render(
+        <ChatPanel
+          endpoint="/api/test"
+          readOnly
+          readOnlyReason="admin_audit"
+          adminOrigin="audit-logs"
+        />
+      )
+      const link = screen.getByText('Back to Audit Logs')
+      expect(link.closest('a')).toHaveAttribute('href', '/admin?tab=audit-logs')
+    })
+
+    it('does not show back link when readOnlyReason is shared_readonly', () => {
+      mockGetActiveConversation.mockReturnValue(createConversation([]))
+      render(
+        <ChatPanel
+          endpoint="/api/test"
+          readOnly
+          readOnlyReason="shared_readonly"
+        />
+      )
+      expect(screen.queryByText('Back to Feedback')).not.toBeInTheDocument()
+      expect(screen.queryByText('Back to Audit Logs')).not.toBeInTheDocument()
+      expect(screen.getByText('View Only')).toBeInTheDocument()
+    })
+
+    it('shows agent deleted banner when readOnlyReason is agent_deleted', () => {
+      mockGetActiveConversation.mockReturnValue(createConversation([]))
+      render(
+        <ChatPanel
+          endpoint="/api/test"
+          readOnly
+          readOnlyReason="agent_deleted"
+        />
+      )
+      expect(screen.getByText('Agent No Longer Exists')).toBeInTheDocument()
+      expect(screen.queryByText('Back to Feedback')).not.toBeInTheDocument()
+    })
+
+    it('shows agent disabled banner when readOnlyReason is agent_disabled', () => {
+      mockGetActiveConversation.mockReturnValue(createConversation([]))
+      render(
+        <ChatPanel
+          endpoint="/api/test"
+          readOnly
+          readOnlyReason="agent_disabled"
+        />
+      )
+      expect(screen.getByText('Agent Disabled')).toBeInTheDocument()
+      expect(screen.queryByText('Back to Feedback')).not.toBeInTheDocument()
+    })
+
+    it('does not show read-only banner when readOnly is false', () => {
+      mockGetActiveConversation.mockReturnValue(createConversation([]))
+      render(<ChatPanel endpoint="/api/test" />)
+      expect(screen.queryByText('Read-Only Audit Mode')).not.toBeInTheDocument()
+      expect(screen.queryByText('View Only')).not.toBeInTheDocument()
     })
   })
 })

@@ -17,6 +17,8 @@ import {
   AlertCircle,
   Archive,
 } from "lucide-react";
+import { getGradientStyle } from "@/lib/gradient-themes";
+import type { AgentUIConfig } from "@/types/dynamic-agent";
 
 interface ConversationItem {
   id: string;
@@ -33,6 +35,7 @@ interface ConversationItem {
 interface AgentInfo {
   _id: string;
   name: string;
+  ui?: AgentUIConfig;
 }
 
 interface PaginatedResponse {
@@ -45,7 +48,7 @@ interface PaginatedResponse {
 
 export function ConversationsTab() {
   const [conversations, setConversations] = React.useState<ConversationItem[]>([]);
-  const [agents, setAgents] = React.useState<Map<string, string>>(new Map());
+  const [agents, setAgents] = React.useState<Map<string, AgentInfo>>(new Map());
   const [agentsList, setAgentsList] = React.useState<AgentInfo[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
@@ -65,9 +68,9 @@ export function ConversationsTab() {
         const data = await response.json();
         if (data.success && data.data?.items) {
           const items = data.data.items as AgentInfo[];
-          const agentMap = new Map<string, string>();
+          const agentMap = new Map<string, AgentInfo>();
           for (const agent of items) {
-            agentMap.set(agent._id, agent.name);
+            agentMap.set(agent._id, agent);
           }
           setAgents(agentMap);
           setAgentsList(items);
@@ -119,7 +122,14 @@ export function ConversationsTab() {
 
   const getAgentName = (agentId: string | null): string => {
     if (!agentId) return "Unknown";
-    return agents.get(agentId) || agentId;
+    const agent = agents.get(agentId);
+    return agent?.name || agentId;
+  };
+
+  const getAgentGradient = (agentId: string | null): string | null => {
+    if (!agentId) return null;
+    const agent = agents.get(agentId);
+    return agent?.ui?.gradient_theme || null;
   };
 
   const handleClear = async (conversationId: string) => {
@@ -286,7 +296,20 @@ export function ConversationsTab() {
 
                   <div className="col-span-2">
                     <div className="flex items-center gap-1.5">
-                      <Bot className="h-3 w-3 text-purple-500" />
+                      {(() => {
+                        const gradient = getAgentGradient(conv.agent_id);
+                        const gradientStyle = gradient ? getGradientStyle(gradient) : null;
+                        return gradientStyle ? (
+                          <div 
+                            className="h-4 w-4 rounded-full flex items-center justify-center shrink-0"
+                            style={gradientStyle}
+                          >
+                            <Bot className="h-2.5 w-2.5 text-white" />
+                          </div>
+                        ) : (
+                          <Bot className="h-3 w-3 text-purple-500" />
+                        );
+                      })()}
                       <span className="text-sm truncate">{getAgentName(conv.agent_id)}</span>
                     </div>
                   </div>

@@ -5,6 +5,7 @@ import { Plus, ChevronDown, Bot, Loader2, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { getConfig } from "@/lib/config";
+import { getGradientStyle } from "@/lib/gradient-themes";
 import type { DynamicAgentConfig } from "@/types/dynamic-agent";
 
 interface NewChatButtonProps {
@@ -198,25 +199,34 @@ export function NewChatButton({ collapsed, onNewChat }: NewChatButtonProps) {
             )}
 
             {/* Dynamic agents list */}
-            {!loading && !error && agents.map((agent) => (
-              <button
-                key={agent._id}
-                onClick={() => handleSelectAgent(agent._id)}
-                className="w-full flex items-center gap-3 px-3 py-2 text-sm hover:bg-accent transition-colors text-left"
-              >
-                <div className="w-8 h-8 rounded-full bg-gradient-to-br from-purple-500 to-pink-600 flex items-center justify-center shrink-0">
-                  <Bot className="h-4 w-4 text-white" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="font-medium truncate">{agent.name}</div>
-                  {agent.description && (
-                    <div className="text-xs text-muted-foreground truncate">
-                      {agent.description}
-                    </div>
-                  )}
-                </div>
-              </button>
-            ))}
+            {!loading && !error && agents.map((agent) => {
+              const gradientStyle = agent.ui?.gradient_theme ? getGradientStyle(agent.ui.gradient_theme) : null;
+              return (
+                <button
+                  key={agent._id}
+                  onClick={() => handleSelectAgent(agent._id)}
+                  className="w-full flex items-center gap-3 px-3 py-2 text-sm hover:bg-accent transition-colors text-left"
+                >
+                  <div 
+                    className={cn(
+                      "w-8 h-8 rounded-full flex items-center justify-center shrink-0",
+                      !gradientStyle && "bg-gradient-to-br from-purple-500 to-pink-600"
+                    )}
+                    style={gradientStyle || undefined}
+                  >
+                    <Bot className="h-4 w-4 text-white" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="font-medium truncate">{agent.name}</div>
+                    {agent.description && (
+                      <div className="text-xs text-muted-foreground truncate">
+                        {agent.description}
+                      </div>
+                    )}
+                  </div>
+                </button>
+              );
+            })}
 
             {/* No dynamic agents */}
             {!loading && !error && agents.length === 0 && (

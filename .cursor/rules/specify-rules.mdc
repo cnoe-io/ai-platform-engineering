@@ -1,0 +1,37 @@
+---
+description: Project Development Guidelines
+globs: ["**/*"]
+alwaysApply: true
+---
+
+# ai-platform-engineering-fix-thinking-collapse Development Guidelines
+
+Auto-generated from all feature plans. Last updated: 2026-03-18
+
+## Active Technologies
+- N/A (UI state only) (095-fix-thinking-panel-expand)
+
+- TypeScript (UI), React 19 + Next.js 16, React, Tailwind CSS, feature-flag store (e.g. Zustand) (094-fix-thinking-panel-expand)
+
+## Project Structure
+
+```text
+src/
+tests/
+```
+
+## Commands
+
+npm test && npm run lint
+
+## Code Style
+
+TypeScript (UI), React 19: Follow standard conventions
+
+## Recent Changes
+- 095-fix-thinking-panel-expand: Added TypeScript (UI), React 19 + Next.js 16, React, Tailwind CSS, feature-flag store (e.g. Zustand)
+
+- 094-fix-thinking-panel-expand: Added TypeScript (UI), React 19 + Next.js 16, React, Tailwind CSS, feature-flag store (e.g. Zustand)
+
+<!-- MANUAL ADDITIONS START -->
+<!-- MANUAL ADDITIONS END -->

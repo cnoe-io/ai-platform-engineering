@@ -185,6 +185,17 @@ config:
   # Header link URLs (leave empty/commented to hide)
   # DOCS_URL: "https://your-docs-site.com"
   # SOURCE_URL: "https://github.com/your-org/your-repo"
+  # Report a Problem: enabled by default, set to "false" to hide the button
+  # REPORT_PROBLEM_ENABLED: "false"
+  # Ticket integration: route reported problems to Jira/GitHub via A2A agents
+  # Jira ticket creation (set both to enable)
+  # JIRA_TICKET_ENABLED: "true"
+  # JIRA_TICKET_PROJECT: "OPENSD"
+  # JIRA_TICKET_LABEL: "caipe-reported"
+  # GitHub issue creation (set both to enable)
+  # GITHUB_TICKET_ENABLED: "true"
+  # GITHUB_TICKET_REPO: "org/repo"
+  # GITHUB_TICKET_LABEL: "caipe-reported"
 
 # Name of a pre-existing Kubernetes Secret to mount as environment variables.
 # Use this when managing secrets outside the chart (e.g. via extraDeploy, CI/CD, or manual creation).

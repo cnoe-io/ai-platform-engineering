@@ -2,7 +2,7 @@
 
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -21,6 +21,25 @@ class VisibilityType(str, Enum):
     PRIVATE = "private"
     TEAM = "team"
     GLOBAL = "global"
+
+
+# =============================================================================
+# User Context
+# =============================================================================
+
+
+class UserContext(BaseModel):
+    """Authenticated user context.
+
+    Created from JWT claims during authentication and passed through
+    to services that need user information.
+    """
+
+    email: str
+    name: str | None = None
+    groups: list[str] = []
+    is_admin: bool = False
+    raw_claims: dict[str, Any] = {}
 
 
 # =============================================================================
@@ -235,6 +254,20 @@ class InputField(BaseModel):
 
 
 # =============================================================================
+# Agent UI Config
+# =============================================================================
+
+
+class AgentUIConfig(BaseModel):
+    """UI configuration for dynamic agents."""
+
+    gradient_theme: str | None = Field(
+        None,
+        description="Gradient theme ID for agent avatar (e.g., 'ocean', 'sunset'). None uses global theme.",
+    )
+
+
+# =============================================================================
 # Dynamic Agent Config
 # =============================================================================
 
@@ -263,6 +296,10 @@ class DynamicAgentConfigBase(BaseModel):
         None,
         description="Configuration for built-in tools (fetch_url, etc.)",
     )
+    ui: AgentUIConfig | None = Field(
+        None,
+        description="UI configuration (gradient theme, etc.)",
+    )
     enabled: bool = Field(True, description="Whether the agent is active")
 
 
@@ -285,6 +322,7 @@ class DynamicAgentConfigUpdate(BaseModel):
     shared_with_teams: list[str] | None = None
     subagents: list[SubAgentRef] | None = None
     builtin_tools: BuiltinToolsConfig | None = None
+    ui: AgentUIConfig | None = None
     enabled: bool | None = None
 
 
@@ -313,13 +351,6 @@ class ChatRequest(BaseModel):
     conversation_id: str = Field(..., description="Conversation/session ID")
     agent_id: str = Field(..., description="Dynamic agent config ID")
     trace_id: str | None = Field(None, description="Optional trace ID for Langfuse tracing")
-
-
-class ChatEvent(BaseModel):
-    """SSE event from chat streaming."""
-
-    type: Literal["content", "tool_start", "tool_end", "error", "done", "event"]
-    data: str | dict | None = None
 
 
 # =============================================================================

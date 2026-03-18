@@ -80,6 +80,25 @@ All quality gates are accessible through `make`:
 | `make test-multi-agents` | Multi-agent system tests |
 | `make test-agents` | All agent MCP tests |
 | `make caipe-ui-tests` | UI Jest tests |
+| `make quick-sanity` | Integration smoke tests (A2A prompts) |
+
+### Minimal Integration Test Environment
+
+For basic integration validation, only three services are required:
+
+| Service | Profile | Port | Purpose |
+|---------|---------|------|---------|
+| `caipe-supervisor` | *(default)* | 8080 | Supervisor orchestration |
+| `agent-github` | `github` | 8001 | GitHub agent (A2A) |
+| `agent-netutils` | `netutils-agent` | 8015 | Network utilities agent (A2A + MCP) |
+
+Start the minimal environment:
+
+```bash
+docker compose -f docker-compose.dev.yaml --profile github --profile netutils-agent up -d --build
+```
+
+RAG, Slack, weather, and other agents are **not required** for basic smoke tests.
 
 ## Test Organization
 

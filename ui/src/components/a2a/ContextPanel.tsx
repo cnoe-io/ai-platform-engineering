@@ -67,16 +67,36 @@ export function ContextPanel({
           )}
         >
           {collapsed ? (
-            onCollapse && (
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => onCollapse(!collapsed)}
-                className="h-8 w-8 hover:bg-muted shrink-0"
+            <div className="flex flex-col items-center gap-2">
+              {onCollapse && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => onCollapse(!collapsed)}
+                  className="h-8 w-8 hover:bg-muted shrink-0"
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                </Button>
+              )}
+              <button
+                onClick={() => onCollapse?.(!collapsed)}
+                className="relative flex items-center justify-center h-8 w-8 rounded-md hover:bg-muted transition-colors"
+                title={`A2A Debug${eventCount > 0 ? ` (${eventCount})` : ''}`}
               >
-                <ChevronLeft className="h-4 w-4" />
-              </Button>
-            )
+                <Bug className="h-4 w-4 text-amber-400" />
+                {isActuallyStreaming && (
+                  <span className="absolute -top-0.5 -right-0.5 flex h-2.5 w-2.5">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
+                    <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-green-500" />
+                  </span>
+                )}
+              </button>
+              {eventCount > 0 && (
+                <span className="text-[9px] font-medium text-amber-400/80">
+                  {eventCount}
+                </span>
+              )}
+            </div>
           ) : (
             <>
               <div className="flex items-center gap-2 text-sm text-foreground/80">

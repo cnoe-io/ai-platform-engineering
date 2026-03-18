@@ -25,6 +25,7 @@ import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useChatStore } from "@/store/chat-store";
 import { cn } from "@/lib/utils";
+import { getGradientStyle } from "@/lib/gradient-themes";
 import {
   SSEAgentEvent,
   EMPTY_SSE_EVENTS,
@@ -40,7 +41,6 @@ interface ToolCall {
   args?: Record<string, unknown>;
   agent?: string;
   status: "running" | "completed";
-  isBuiltin: boolean;
 }
 
 // Subagent call from events
@@ -65,6 +65,8 @@ interface DynamicAgentContextProps {
   agentDescription?: string;
   agentModel?: string;
   agentVisibility?: string;
+  /** Agent gradient theme (e.g., "ocean", "sunset") */
+  agentGradient?: string | null;
   /** Map of server_id -> tool names (empty array = all tools from server) */
   allowedTools?: Record<string, string[]>;
   /** Configured subagents for delegation */
@@ -87,6 +89,7 @@ export function DynamicAgentContext({
   agentDescription,
   agentModel,
   agentVisibility,
+  agentGradient,
   allowedTools,
   subagents,
   agentNotFound,
@@ -128,26 +131,22 @@ export function DynamicAgentContext({
   }, [isStreaming, conversation]);
 
   // Parse tool calls from structured events
-  const { activeToolCalls, completedToolCalls, builtinToolCalls } = useMemo(() => {
+  const { activeToolCalls, completedToolCalls } = useMemo(() => {
     const allTools = parseToolCalls(conversationEvents);
-    const builtinTools = allTools.filter((t) => t.isBuiltin);
-    const regularTools = allTools.filter((t) => !t.isBuiltin);
     
     if (isActuallyStreaming) {
       return {
-        activeToolCalls: regularTools.filter((t) => t.status === "running"),
-        completedToolCalls: regularTools.filter((t) => t.status === "completed"),
-        builtinToolCalls: builtinTools,
+        activeToolCalls: allTools.filter((t) => t.status === "running"),
+        completedToolCalls: allTools.filter((t) => t.status === "completed"),
       };
     } else {
-      const completedTools = regularTools.map((t) => ({
+      const completedTools = allTools.map((t) => ({
         ...t,
         status: "completed" as const,
       }));
       return {
         activeToolCalls: [],
         completedToolCalls: completedTools,
-        builtinToolCalls: builtinTools,
       };
     }
   }, [conversationEvents, isActuallyStreaming]);
@@ -374,7 +373,6 @@ export function DynamicAgentContext({
                 todos={todos}
                 activeToolCalls={activeToolCalls}
                 completedToolCalls={completedToolCalls}
-                builtinToolCalls={builtinToolCalls}
                 activeSubagentCalls={activeSubagentCalls}
                 completedSubagentCalls={completedSubagentCalls}
                 toolsCollapsed={toolsCollapsed}
@@ -394,6 +392,7 @@ export function DynamicAgentContext({
                 agentDescription={agentDescription}
                 agentModel={agentModel}
                 agentVisibility={agentVisibility}
+                agentGradient={agentGradient}
                 allowedTools={allowedTools}
                 subagents={subagents}
                 failedServers={failedServers}
@@ -434,7 +433,6 @@ interface EventsContentProps {
   todos: TodoItem[];
   activeToolCalls: ToolCall[];
   completedToolCalls: ToolCall[];
-  builtinToolCalls: ToolCall[];
   activeSubagentCalls: SubagentCall[];
   completedSubagentCalls: SubagentCall[];
   toolsCollapsed: boolean;
@@ -454,7 +452,6 @@ function EventsContent({
   todos,
   activeToolCalls,
   completedToolCalls,
-  builtinToolCalls,
   activeSubagentCalls,
   completedSubagentCalls,
   toolsCollapsed,
@@ -475,7 +472,6 @@ function EventsContent({
     todos.length === 0 &&
     activeToolCalls.length === 0 &&
     completedToolCalls.length === 0 &&
-    builtinToolCalls.length === 0 &&
     activeSubagentCalls.length === 0 &&
     completedSubagentCalls.length === 0 &&
     errorMessages.length === 0 &&
@@ -681,25 +677,6 @@ function EventsContent({
         </div>
       )}
 
-      {/* Builtin tool calls - compact inline chips */}
-      {builtinToolCalls.length > 0 && (
-        <div className="flex flex-wrap gap-1">
-          {builtinToolCalls.map((tool) => (
-            <span
-              key={tool.id}
-              className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] text-muted-foreground"
-            >
-              {tool.status === "completed" ? (
-                <CheckCircle className="h-2.5 w-2.5 text-green-400" />
-              ) : (
-                <Loader2 className="h-2.5 w-2.5 animate-spin" />
-              )}
-              {tool.tool}
-            </span>
-          ))}
-        </div>
-      )}
-
       {/* Active subagent calls */}
       {activeSubagentCalls.length > 0 && (
         <div className="space-y-2">
@@ -853,6 +830,7 @@ interface AgentInfoContentProps {
   agentDescription?: string;
   agentModel?: string;
   agentVisibility?: string;
+  agentGradient?: string | null;
   allowedTools?: Record<string, string[]>;
   subagents?: SubAgentRef[];
   /** List of MCP server IDs that failed to connect */
@@ -880,6 +858,7 @@ function AgentInfoContent({
   agentDescription,
   agentModel,
   agentVisibility,
+  agentGradient,
   allowedTools,
   subagents,
   failedServers = [],
@@ -911,9 +890,20 @@ function AgentInfoContent({
     <div className="space-y-4">
       {/* Agent header */}
       <div className="flex items-center gap-3">
-        <div className="w-10 h-10 rounded-full bg-gradient-to-br from-purple-500 to-pink-600 flex items-center justify-center shrink-0">
-          <Bot className="h-5 w-5 text-white" />
-        </div>
+        {(() => {
+          const gradientStyle = agentGradient ? getGradientStyle(agentGradient) : null;
+          return (
+            <div 
+              className={cn(
+                "w-10 h-10 rounded-full flex items-center justify-center shrink-0",
+                !gradientStyle && "bg-gradient-to-br from-purple-500 to-pink-600"
+              )}
+              style={gradientStyle || undefined}
+            >
+              <Bot className="h-5 w-5 text-white" />
+            </div>
+          );
+        })()}
         <div className="min-w-0">
           <h3 className="font-semibold truncate">{agentName || "Custom Agent"}</h3>
           <p className="text-xs text-muted-foreground">Custom Agent</p>
@@ -1134,14 +1124,13 @@ function parseToolCalls(events: SSEAgentEvent[]): ToolCall[] {
 
   events.forEach((event) => {
     if (event.type === "tool_start" && event.toolData) {
-      const { tool_name, tool_call_id, args, agent, is_builtin } = event.toolData;
+      const { tool_name, tool_call_id, args, agent } = event.toolData;
       toolsMap.set(tool_call_id, {
         id: tool_call_id,
         tool: tool_name,
         args,
         agent,
         status: "running",
-        isBuiltin: is_builtin,
       });
     }
 
