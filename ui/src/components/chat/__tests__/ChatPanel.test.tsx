@@ -778,7 +778,7 @@ describe('ChatPanel', () => {
   })
 
   describe('Thinking section (showRawStream)', () => {
-    it('should show Thinking section expanded by default (showRawStream=true)', () => {
+    it('should show Thinking section expanded by default for streaming messages (isFinal=false)', () => {
       const msg = createMessage({
         role: 'assistant',
         content: '',
@@ -793,11 +793,73 @@ describe('ChatPanel', () => {
 
       render(<ChatPanel endpoint="/api/test" />)
 
-      // The "Thinking" label should be visible since showRawStream defaults to true
-      // Note: with our mocked components, the StreamingView is mocked,
-      // but we verify the overall rendering doesn't crash
-      const container = document.querySelector('.space-y-6')
-      expect(container).not.toBeNull()
+      expect(screen.getByText('Collapse')).toBeInTheDocument()
+      expect(screen.queryByText('Expand')).not.toBeInTheDocument()
+    })
+
+    it('should default Thinking section to collapsed for final messages (isFinal=true)', () => {
+      const msg = createMessage({
+        role: 'assistant',
+        content: 'Final answer here',
+        rawStreamContent: 'Streaming data from agents...',
+        isFinal: true,
+      })
+      mockGetActiveConversation.mockReturnValue(createConversation([
+        createMessage({ role: 'user', content: 'Hello' }),
+        msg,
+      ]))
+      mockIsConversationStreaming.mockReturnValue(true)
+
+      render(<ChatPanel endpoint="/api/test" />)
+
+      expect(screen.getByText('Expand')).toBeInTheDocument()
+      expect(screen.queryByText('Collapse')).not.toBeInTheDocument()
+    })
+
+    it('should remain collapsed after remount for final messages (simulates conversation switch)', () => {
+      const msg = createMessage({
+        role: 'assistant',
+        content: 'Final answer here',
+        rawStreamContent: 'Streaming data from agents...',
+        isFinal: true,
+      })
+      mockGetActiveConversation.mockReturnValue(createConversation([
+        createMessage({ role: 'user', content: 'Hello' }),
+        msg,
+      ]))
+      mockIsConversationStreaming.mockReturnValue(true)
+
+      const { unmount } = render(<ChatPanel endpoint="/api/test" />)
+      expect(screen.getByText('Expand')).toBeInTheDocument()
+
+      unmount()
+
+      render(<ChatPanel endpoint="/api/test" />)
+      expect(screen.getByText('Expand')).toBeInTheDocument()
+      expect(screen.queryByText('Collapse')).not.toBeInTheDocument()
+    })
+
+    it('should allow toggling the thinking panel regardless of initial state', () => {
+      const msg = createMessage({
+        role: 'assistant',
+        content: 'Final answer here',
+        rawStreamContent: 'Streaming data from agents...',
+        isFinal: true,
+      })
+      mockGetActiveConversation.mockReturnValue(createConversation([
+        createMessage({ role: 'user', content: 'Hello' }),
+        msg,
+      ]))
+      mockIsConversationStreaming.mockReturnValue(true)
+
+      render(<ChatPanel endpoint="/api/test" />)
+
+      expect(screen.getByText('Expand')).toBeInTheDocument()
+
+      fireEvent.click(screen.getByText('Expand'))
+
+      expect(screen.getByText('Collapse')).toBeInTheDocument()
+      expect(screen.queryByText('Expand')).not.toBeInTheDocument()
     })
   })
 
