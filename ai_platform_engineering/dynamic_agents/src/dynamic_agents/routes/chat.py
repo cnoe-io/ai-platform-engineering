@@ -8,9 +8,10 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
+from dynamic_agents.auth.access import can_use_agent
 from dynamic_agents.auth.auth import UserContext, get_current_user
 from dynamic_agents.logging import conversation_id_var
-from dynamic_agents.models import ChatRequest, DynamicAgentConfig, VisibilityType
+from dynamic_agents.models import ChatRequest, DynamicAgentConfig
 from dynamic_agents.services.agent_runtime import get_runtime_cache
 from dynamic_agents.services.mongo import MongoDBService, get_mongo_service
 
@@ -33,32 +34,6 @@ class ResumeStreamRequest(BaseModel):
     conversation_id: str
     form_data: str  # JSON string of form values, or rejection message
     trace_id: str | None = None
-
-
-def _can_use_agent(agent: DynamicAgentConfig, user: UserContext) -> bool:
-    """Check if user can use the agent."""
-    # Admin can use all agents
-    if user.is_admin:
-        return True
-
-    # Disabled agents cannot be used
-    if not agent.enabled:
-        return False
-
-    # Owner can use their own
-    if agent.owner_id == user.email:
-        return True
-
-    # Global is available to all
-    if agent.visibility == VisibilityType.GLOBAL:
-        return True
-
-    # Team visibility requires group membership
-    if agent.visibility == VisibilityType.TEAM:
-        if agent.shared_with_teams:
-            return any(team in user.groups for team in agent.shared_with_teams)
-
-    return False
 
 
 async def _generate_sse_events(
@@ -180,7 +155,7 @@ async def chat_start_stream(
         raise HTTPException(status_code=404, detail="Agent not found")
 
     # Check access
-    if not _can_use_agent(agent, user):
+    if not can_use_agent(agent, user):
         raise HTTPException(status_code=403, detail="Access denied")
 
     # Get MCP servers for this agent
@@ -299,7 +274,7 @@ async def chat_resume_stream(
         raise HTTPException(status_code=404, detail="Agent not found")
 
     # Check access
-    if not _can_use_agent(agent, user):
+    if not can_use_agent(agent, user):
         raise HTTPException(status_code=403, detail="Access denied")
 
     # Get MCP servers for this agent
@@ -350,7 +325,7 @@ async def chat_invoke(
         raise HTTPException(status_code=404, detail="Agent not found")
 
     # Check access
-    if not _can_use_agent(agent, user):
+    if not can_use_agent(agent, user):
         raise HTTPException(status_code=403, detail="Access denied")
 
     # Get MCP servers for this agent
@@ -422,7 +397,7 @@ async def restart_runtime(
         raise HTTPException(status_code=404, detail="Agent not found")
 
     # Check access - only users who can use the agent can restart it
-    if not _can_use_agent(agent, user):
+    if not can_use_agent(agent, user):
         raise HTTPException(status_code=403, detail="Access denied")
 
     # Invalidate the runtime cache

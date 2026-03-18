@@ -12,6 +12,7 @@ from typing import Literal
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 
+from dynamic_agents.auth.access import can_access_conversation
 from dynamic_agents.auth.auth import UserContext, get_current_user, require_admin
 from dynamic_agents.models import ApiResponse
 from dynamic_agents.services.agent_runtime import get_runtime_cache
@@ -47,29 +48,6 @@ class ConversationMessagesResponse(BaseModel):
     messages: list[ConversationMessage]
     has_pending_interrupt: bool = False
     interrupt_data: InterruptData | None = None
-
-
-def _can_access_conversation(conversation: dict, user: UserContext) -> bool:
-    """Check if user can access the conversation.
-
-    Access is granted if:
-    - User is admin
-    - User owns the conversation
-    - Conversation is shared with user (TODO: implement sharing check)
-    """
-    if user.is_admin:
-        return True
-
-    owner_id = conversation.get("owner_id")
-    if owner_id == user.email:
-        return True
-
-    # TODO: Check sharing settings
-    # sharing = conversation.get("sharing", {})
-    # if user.email in sharing.get("shared_with", []):
-    #     return True
-
-    return False
 
 
 @router.get("/{conversation_id}/messages", response_model=ConversationMessagesResponse)
@@ -121,7 +99,7 @@ async def get_conversation_messages(
         )
 
     # 3. Check access
-    if not _can_access_conversation(conversation, user):
+    if not can_access_conversation(conversation, user):
         raise HTTPException(status_code=403, detail="Access denied")
 
     # 4. Get MCP servers for the agent (needed to create runtime)

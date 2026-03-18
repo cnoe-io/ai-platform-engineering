@@ -4,10 +4,10 @@ import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
+from dynamic_agents.auth.access import can_view_agent
 from dynamic_agents.auth.auth import UserContext, get_current_user, require_admin
 from dynamic_agents.models import (
     ApiResponse,
-    DynamicAgentConfig,
     DynamicAgentConfigCreate,
     DynamicAgentConfigUpdate,
     PaginatedResponse,
@@ -146,7 +146,7 @@ async def get_agent(
         raise HTTPException(status_code=404, detail="Agent not found")
 
     # Check visibility
-    if not _can_view_agent(agent, user):
+    if not can_view_agent(agent, user):
         raise HTTPException(status_code=403, detail="Access denied")
 
     return ApiResponse(
@@ -327,25 +327,3 @@ def _get_ancestor_agent_ids(agent_id: str, mongo: MongoDBService) -> set[str]:
             queue.append(parent_id)
 
     return ancestors
-
-
-def _can_view_agent(agent: DynamicAgentConfig, user: UserContext) -> bool:
-    """Check if user can view the agent."""
-    # Admin can see all
-    if user.is_admin:
-        return True
-
-    # Owner can see their own
-    if agent.owner_id == user.email:
-        return True
-
-    # Global is visible to all
-    if agent.visibility == VisibilityType.GLOBAL:
-        return True
-
-    # Team visibility requires group membership
-    if agent.visibility == VisibilityType.TEAM:
-        if agent.shared_with_teams:
-            return any(team in user.groups for team in agent.shared_with_teams)
-
-    return False
