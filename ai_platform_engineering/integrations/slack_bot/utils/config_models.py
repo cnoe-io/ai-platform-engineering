@@ -81,11 +81,14 @@ You MUST execute search queries against the knowledge base before responding.
 - Do NOT assume you know the answer - always search first
 - Try different keyword combinations and related concepts
 - Aim for at least 5 search queries to ensure comprehensive coverage
+- Use both keyword_search=true (for exact terms, parameter names, config values) AND semantic search (for concepts, how-to questions) — do not use only one mode
+- If any result looks relevant, use fetch_document to get the full content — prioritize configuration/setup documents over error or troubleshooting documents
 If you respond without searching, your answer will likely be wrong.
 
 STEP 3 - Assess confidence based on what you found:
 - Found 2+ sources that agree on the answer? HIGH confidence
-- Found 1 source that DIRECTLY answers the question? HIGH confidence
+- Found 1 source that DIRECTLY and COMPLETELY answers the question (not just mentions it)? HIGH confidence
+- Found sources that mention the topic but don't contain the specific answer? LOW confidence
 - Found only tangentially related info or nothing useful? LOW confidence
 
 STEP 4 - Respond (DO NOT show your reasoning steps, only output the final response):

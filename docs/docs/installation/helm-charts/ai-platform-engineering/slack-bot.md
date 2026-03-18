@@ -1,0 +1,105 @@
+---
+id: slack-bot-chart
+sidebar_label: slack-bot
+---
+
+:::caution Auto-generated
+This page is auto-generated from the Helm chart source. Do not edit directly.
+Regenerate with `make docs-helm-charts`.
+:::
+
+# slack-bot
+
+Slack bot integration for AI Platform Engineering using A2A protocol
+
+| | |
+|---|---|
+| **Version** | `0.2.38` |
+| **Type** | application |
+
+## Quick Start
+
+```bash
+# Add and install the chart
+helm install slack-bot oci://ghcr.io/cnoe-io/charts/slack-bot --version 0.2.38
+
+# Upgrade an existing release
+helm upgrade slack-bot oci://ghcr.io/cnoe-io/charts/slack-bot --version 0.2.38
+```
+
+## Customizing Values
+
+Override default values using `--set` flags or a custom values file:
+
+```bash
+# Override individual values
+helm install slack-bot oci://ghcr.io/cnoe-io/charts/slack-bot --version 0.2.38 \
+  --set replicaCount=2
+
+# Use a custom values file
+helm install slack-bot oci://ghcr.io/cnoe-io/charts/slack-bot --version 0.2.38 \
+  -f custom-values.yaml
+
+# Show all configurable values
+helm show values oci://ghcr.io/cnoe-io/charts/slack-bot --version 0.2.38
+```
+
+## Reading the Values Table
+
+| Column | Meaning |
+|--------|---------|
+| **Key** | Dot-separated path into `values.yaml` (e.g. `image.repository`) |
+| **Type** | Go/Helm data type (`string`, `int`, `bool`, `object`, `list`) |
+| **Default** | Value used when not overridden |
+| **Description** | What the parameter controls |
+
+## Values
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| affinity | object | `{}` |  |
+| appName | string | `"CAIPE"` |  |
+| auth.audience | string | `""` |  |
+| auth.clientId | string | `""` |  |
+| auth.enabled | bool | `false` |  |
+| auth.scope | string | `""` |  |
+| auth.tokenUrl | string | `""` |  |
+| botConfig | object | `{}` |  |
+| botMode | string | `"socket"` |  |
+| caipeUrl | string | `"http://ai-platform-engineering-supervisor-agent:8000"` |  |
+| env | object | `{}` |  |
+| externalSecrets.apiVersion | string | `"v1beta1"` |  |
+| externalSecrets.data | list | `[]` |  |
+| externalSecrets.enabled | bool | `false` |  |
+| externalSecrets.secretStoreRef.kind | string | `"ClusterSecretStore"` |  |
+| externalSecrets.secretStoreRef.name | string | `"vault"` |  |
+| fullnameOverride | string | `""` |  |
+| image.pullPolicy | string | `"Always"` |  |
+| image.repository | string | `"ghcr.io/cnoe-io/caipe-slack-bot"` |  |
+| image.tag | string | `""` |  |
+| mongodb.database | string | `"caipe"` |  |
+| mongodb.uri | string | `""` |  |
+| nameOverride | string | `""` |  |
+| nodeSelector | object | `{}` |  |
+| podAnnotations | object | `{}` |  |
+| prompts.aiAlerts | string | `""` |  |
+| prompts.humbleFollowup | string | `""` |  |
+| prompts.mention | string | `""` |  |
+| prompts.overthinkQanda | string | `""` |  |
+| prompts.qanda | string | `""` |  |
+| prompts.responseStyle | string | `""` |  |
+| replicaCount | int | `1` |  |
+| resources.limits.cpu | string | `"500m"` |  |
+| resources.limits.memory | string | `"512Mi"` |  |
+| resources.requests.cpu | string | `"100m"` |  |
+| resources.requests.memory | string | `"256Mi"` |  |
+| serviceAccount.annotations | object | `{}` |  |
+| serviceAccount.create | bool | `true` |  |
+| serviceAccount.name | string | `""` |  |
+| silenceEnv | string | `"false"` |  |
+| slack.tokenSecretRef | string | `"slack-bot-secrets"` |  |
+| slackWorkspaceUrl | string | `""` |  |
+| tolerations | list | `[]` |  |
+| volumeMounts | list | `[]` |  |
+| volumes | list | `[]` |  |
+

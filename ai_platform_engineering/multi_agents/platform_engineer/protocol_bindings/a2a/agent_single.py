@@ -1318,11 +1318,7 @@ class AIPlatformEngineerA2ABinding:
                       logging.debug("📋 Skipping write_todos ToolMessage for exec plan (handled by updates handler)")
                   elif tool_name in rag_tool_names:
                     # For RAG tools, we don't want to stream the content, as its a LOT of text
-                      yield {
-                            "is_task_complete": False,
-                            "require_user_input": False,
-                            "content": f"🔍 {tool_name}...",
-                      }
+                      logging.debug(f"Suppressing RAG tool content for {tool_name} (tool_call notification already sent)")
                   # Stream other tool content as a tool notification (not chat text)
                   # During self-service workflows, suppress intermediate tool output —
                   # the final structured response will contain a clean summary

@@ -119,6 +119,29 @@ export interface Config {
   dynamicAgentsUrl: string;
   /** Whether dynamic agents feature is enabled */
   dynamicAgentsEnabled: boolean;
+  /** Whether Jira ticket creation from feedback/report is enabled */
+  jiraTicketEnabled: boolean;
+  /** Jira project key for ticket creation (e.g., "OPENSD") */
+  jiraTicketProject: string | null;
+  /** Custom label applied to Jira tickets for filtering (e.g., "caipe-reported") */
+  jiraTicketLabel: string;
+  /** Whether GitHub issue creation from feedback/report is enabled */
+  githubTicketEnabled: boolean;
+  /** GitHub repository for issue creation (e.g., "org/repo") */
+  githubTicketRepo: string | null;
+  /** Custom label applied to GitHub issues for filtering (e.g., "caipe-reported") */
+  githubTicketLabel: string;
+  /**
+   * Whether the "Report a Problem" button is shown in the header and feedback dialog.
+   * Enabled by default. Set REPORT_PROBLEM_ENABLED=false to disable.
+   * When ticketEnabled is also true, reports are routed to the configured ticket provider.
+   * When ticketEnabled is false, the dialog still opens but cannot create tickets.
+   */
+  reportProblemEnabled: boolean;
+  /** Derived: true if either Jira or GitHub ticket creation is enabled */
+  ticketEnabled: boolean;
+  /** Derived: which provider to use ('jira' takes precedence when both enabled) */
+  ticketProvider: 'jira' | 'github' | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -178,6 +201,15 @@ const DEFAULT_CONFIG: Config = {
   defaultGradientTheme: DEFAULT_GRADIENT_THEME,
   dynamicAgentsUrl: 'http://localhost:8100',
   dynamicAgentsEnabled: false,
+  reportProblemEnabled: true,
+  jiraTicketEnabled: false,
+  jiraTicketProject: null,
+  jiraTicketLabel: 'caipe-reported',
+  githubTicketEnabled: false,
+  githubTicketRepo: null,
+  githubTicketLabel: 'caipe-reported',
+  ticketEnabled: false,
+  ticketProvider: null,
 };
 
 // ---------------------------------------------------------------------------
@@ -247,6 +279,16 @@ export function getServerConfig(): Config {
   const dynamicAgentsUrl = env('DYNAMIC_AGENTS_URL')
     || (isProduction ? 'http://dynamic-agents:8100' : 'http://localhost:8100');
 
+  const reportProblemEnabled = env('REPORT_PROBLEM_ENABLED') !== 'false';
+  const jiraTicketEnabled = env('JIRA_TICKET_ENABLED') === 'true';
+  const jiraTicketProject = env('JIRA_TICKET_PROJECT') || null;
+  const jiraTicketLabel = env('JIRA_TICKET_LABEL') || 'caipe-reported';
+  const githubTicketEnabled = env('GITHUB_TICKET_ENABLED') === 'true';
+  const githubTicketRepo = env('GITHUB_TICKET_REPO') || null;
+  const githubTicketLabel = env('GITHUB_TICKET_LABEL') || 'caipe-reported';
+  const ticketEnabled = jiraTicketEnabled || githubTicketEnabled;
+  const ticketProvider: 'jira' | 'github' | null = jiraTicketEnabled ? 'jira' : githubTicketEnabled ? 'github' : null;
+
   const showPoweredByEnv = env('SHOW_POWERED_BY');
   const showPoweredBy = showPoweredByEnv !== undefined ? showPoweredByEnv !== 'false' : true;
 
@@ -294,6 +336,15 @@ export function getServerConfig(): Config {
     defaultGradientTheme: validated(env('DEFAULT_GRADIENT_THEME'), VALID_GRADIENT_THEMES, DEFAULT_GRADIENT_THEME),
     dynamicAgentsUrl,
     dynamicAgentsEnabled,
+    reportProblemEnabled,
+    jiraTicketEnabled,
+    jiraTicketProject,
+    jiraTicketLabel,
+    githubTicketEnabled,
+    githubTicketRepo,
+    githubTicketLabel,
+    ticketEnabled,
+    ticketProvider,
   };
 }
 

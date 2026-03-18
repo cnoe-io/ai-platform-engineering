@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useMemo } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { PlatformEngineerChatView } from "@/components/chat/PlatformEngineerChatView";
 import { DynamicAgentChatView } from "@/components/dynamic-agents/DynamicAgentChatView";
@@ -18,8 +18,10 @@ import type { DynamicAgentConfig } from "@/types/dynamic-agent";
 function ChatUUIDPage() {
   const params = useParams();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { data: session } = useSession();
   const uuid = params.uuid as string;
+  const adminOrigin = searchParams.get('from') as 'audit-logs' | 'feedback' | null;
 
   const [agentInfo, setAgentInfo] = useState<DynamicAgentConfig | null>(null);
   // Track when a dynamic agent has been deleted but conversation still references it
@@ -338,7 +340,7 @@ function ChatUUIDPage() {
 
   if (showSpinner) {
     return (
-      <div className="flex-1 flex items-center justify-center">
+      <div className="flex-1 flex w-full items-center justify-center">
         <CAIPESpinner size="lg" message="Loading conversation..." />
       </div>
     );
@@ -385,6 +387,7 @@ function ChatUUIDPage() {
       agentDisabled={agentInfo?.enabled === false}
       readOnly={isReadOnly}
       readOnlyReason={readOnlyReason}
+      adminOrigin={adminOrigin}
     />
   ) : (
     <PlatformEngineerChatView
@@ -393,6 +396,7 @@ function ChatUUIDPage() {
       conversationTitle={conversationTitle}
       readOnly={isReadOnly}
       readOnlyReason={readOnlyReason}
+      adminOrigin={adminOrigin}
     />
   );
 }

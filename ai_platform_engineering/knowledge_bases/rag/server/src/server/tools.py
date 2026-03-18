@@ -325,7 +325,7 @@ class AgentTools:
             
             if not results:
                 return f"Error: Document with ID '{document_id}' not found in the knowledge base."
-            
+
             return results
         except Exception as e:
             logger.error(f"Traceback: {traceback.format_exc()}")

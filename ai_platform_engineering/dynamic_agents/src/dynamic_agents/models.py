@@ -2,7 +2,7 @@
 
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -21,6 +21,25 @@ class VisibilityType(str, Enum):
     PRIVATE = "private"
     TEAM = "team"
     GLOBAL = "global"
+
+
+# =============================================================================
+# User Context
+# =============================================================================
+
+
+class UserContext(BaseModel):
+    """Authenticated user context.
+
+    Created from JWT claims during authentication and passed through
+    to services that need user information.
+    """
+
+    email: str
+    name: str | None = None
+    groups: list[str] = []
+    is_admin: bool = False
+    raw_claims: dict[str, Any] = {}
 
 
 # =============================================================================
@@ -313,13 +332,6 @@ class ChatRequest(BaseModel):
     conversation_id: str = Field(..., description="Conversation/session ID")
     agent_id: str = Field(..., description="Dynamic agent config ID")
     trace_id: str | None = Field(None, description="Optional trace ID for Langfuse tracing")
-
-
-class ChatEvent(BaseModel):
-    """SSE event from chat streaming."""
-
-    type: Literal["content", "tool_start", "tool_end", "error", "done", "event"]
-    data: str | dict | None = None
 
 
 # =============================================================================

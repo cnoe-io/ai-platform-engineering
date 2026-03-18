@@ -88,6 +88,12 @@ export function AuditLogsTab({ isAdmin }: AuditLogsTabProps) {
     };
   }, [ownerQuery]);
 
+  // Auto-load audit logs on mount so the user sees results immediately
+  useEffect(() => {
+    fetchAuditLogs(1);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   useEffect(() => {
     if (!ownerDropdownOpen) return;
     const handleClick = (e: MouseEvent) => {
@@ -442,7 +448,7 @@ export function AuditLogsTab({ isAdmin }: AuditLogsTabProps) {
                       <div className="truncate font-medium">{conv.title}</div>
                       <div className="flex items-center gap-1 min-w-0">
                         <a
-                          href={`/chat/${conv._id}`}
+                          href={`/chat/${conv._id}?from=audit-logs`}
                           target="_blank"
                           rel="noopener noreferrer"
                           onClick={(e) => e.stopPropagation()}

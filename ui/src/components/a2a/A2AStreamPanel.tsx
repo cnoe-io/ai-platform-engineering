@@ -19,7 +19,6 @@ import {
   Filter,
   Trash2,
   ChevronDown,
-  ExternalLink,
   Copy,
   Check,
   Download,
@@ -521,18 +520,6 @@ export function A2AStreamPanel() {
         )}
       </div>
 
-      {/* Footer */}
-      <div className="p-2 border-t border-border/50">
-        <a
-          href="https://a2ui.org/specification/v0.8-a2ui/"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="flex items-center justify-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
-        >
-          <span>A2A Spec v0.8</span>
-          <ExternalLink className="h-3 w-3" />
-        </a>
-      </div>
     </div>
   );
 }

@@ -128,6 +128,8 @@ services:
       - LANGFUSE_USER_ID=${LANGFUSE_USER_ID:-platform-engineer}
       - OTEL_EXPORTER_OTLP_TIMEOUT=${OTEL_EXPORTER_OTLP_TIMEOUT:-30000}
     command: platform-engineer
+    profiles:
+      - caipe-supervisor
 
   ####################################################################################################
   #                                          MongoDB                                                 #
@@ -135,7 +137,7 @@ services:
   # MongoDB for CAIPE UI chat history and user settings
   # Note: Default password "changeme" is for local development only. For production, use
   # the Helm chart and External Secrets to store the MongoDB secret in an external secrets manager.
-  caipe-ui-mongodb:
+  caipe-mongodb:
     image: mongo:7.0
     container_name: caipe-mongodb-dev
     ports:
@@ -155,7 +157,8 @@ services:
       retries: 5
       start_period: 40s
     profiles:
-      - caipe-ui-mongodb
+      - caipe-mongodb
+      - deps
 
   # MongoDB Admin UI
   caipe-ui-mongo-express:
@@ -1077,7 +1080,7 @@ services:
       - WORKFLOW_RUNNER_ENABLED=${WORKFLOW_RUNNER_ENABLED:-false}
       # MongoDB (when running with profile caipe-ui; mongodb service is in same profile)
       # (changeme default is for local dev only; for production use Helm chart and External Secrets)
-      - MONGODB_URI=${MONGODB_URI:-mongodb://admin:changeme@caipe-ui-mongodb:27017/caipe?authSource=admin}
+      - MONGODB_URI=${MONGODB_URI:-mongodb://admin:changeme@caipe-mongodb:27017/caipe?authSource=admin}
       - MONGODB_DATABASE=${MONGODB_DATABASE:-caipe}
     depends_on:
       - caipe-supervisor
@@ -1109,7 +1112,7 @@ services:
     env_file: [.env]
     environment:
       # MongoDB (same as CAIPE UI)
-      - MONGODB_URI=${MONGODB_URI:-mongodb://${MONGODB_ROOT_USERNAME:-admin}:${MONGODB_ROOT_PASSWORD:-changeme}@caipe-ui-mongodb:27017/${MONGODB_DATABASE:-caipe}?authSource=admin}
+      - MONGODB_URI=${MONGODB_URI:-mongodb://${MONGODB_ROOT_USERNAME:-admin}:${MONGODB_ROOT_PASSWORD:-changeme}@caipe-mongodb:27017/${MONGODB_DATABASE:-caipe}?authSource=admin}
       - MONGODB_DATABASE=${MONGODB_DATABASE:-caipe}
       # Authentication (same OIDC config as CAIPE UI)
       - AUTH_ENABLED=${AUTH_ENABLED:-false}
@@ -1126,6 +1129,9 @@ services:
       # Runtime configuration
       - AGENT_RUNTIME_TTL_SECONDS=${AGENT_RUNTIME_TTL_SECONDS:-3600}
       - CORS_ORIGINS=${DYNAMIC_AGENTS_CORS_ORIGINS:-*}
+      # Checkpoint configuration
+      - LANGGRAPH_CHECKPOINT_TYPE=mongodb
+      - LANGGRAPH_CHECKPOINT_MONGODB_URI=${MONGODB_URI:-mongodb://${MONGODB_ROOT_USERNAME:-admin}:${MONGODB_ROOT_PASSWORD:-changeme}@caipe-mongodb:27017/${MONGODB_DATABASE:-caipe}?authSource=admin}
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/health')"]
       interval: 30s
@@ -1487,25 +1493,7 @@ services:
       - NEO4J_apoc_import_file_use__neo4j__config=true
     profiles:
       - graph_rag
-
-  neo4j-ontology:
-    image: neo4j:latest
-    container_name: neo4j-ontology
-    volumes:
-      - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/neo4j-ontology/logs:/logs
-      - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/neo4j-ontology/config:/config
-      - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/neo4j-ontology/data:/data
-      - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/neo4j-ontology/plugins:/plugins
-    ports: ["7688:7687"]
-    restart: unless-stopped
-    environment:
-      - NEO4J_AUTH=neo4j/dummy_password
-      - NEO4J_PLUGINS='["apoc"]'
-      - NEO4J_apoc_export_file_enabled=true
-      - NEO4J_apoc_import_file_enabled=true
-      - NEO4J_apoc_import_file_use__neo4j__config=true
-    profiles:
-      - graph_rag
+      - deps
 
   rag-redis:
     image: redis
@@ -1518,6 +1506,19 @@ services:
     profiles:
       - rag
       - graph_rag
+
+  caipe-redis:
+    image: redis
+    container_name: caipe-redis
+    command:
+      - /bin/sh
+      - -c
+      - redis-server
+    ports:
+      - "6379:6379"
+    restart: unless-stopped
+    profiles:
+      - deps
 
   milvus-standalone:
     image: milvusdb/milvus:v2.6.0
@@ -1537,11 +1538,12 @@ services:
       start_period: 90s
       timeout: 20s
       retries: 3
-    ports: [":19530", ":9091"]
+    ports: ["19530:19530", "9091:9091"]
     depends_on: [etcd, milvus-minio]
     profiles:
       - rag
       - graph_rag
+      - deps
 
   etcd:
     image: quay.io/coreos/etcd:v3.5.18
@@ -1562,6 +1564,7 @@ services:
     profiles:
       - rag
       - graph_rag
+      - deps
 
   milvus-minio:
     image: minio/minio:RELEASE.2024-05-28T17-19-04Z
@@ -1569,7 +1572,6 @@ services:
     environment:
       - MINIO_ACCESS_KEY=minioadmin
       - MINIO_SECRET_KEY=minioadmin
-    ports: [":9001", ":9000"]
     volumes:
       - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/minio:/minio_data
     command: minio server /minio_data --console-address ":9001"
@@ -1581,6 +1583,7 @@ services:
     profiles:
       - rag
       - graph_rag
+      - deps
 
   # Langfuse Tracing Services
   langfuse-worker:
@@ -1805,7 +1808,7 @@ services:
       - SLACK_INTEGRATION_AUTH_SCOPE=${SLACK_INTEGRATION_AUTH_SCOPE:-}
       - SLACK_INTEGRATION_AUTH_AUDIENCE=${SLACK_INTEGRATION_AUTH_AUDIENCE:-}
       - CAIPE_URL=${CAIPE_URL:-http://caipe-supervisor:8000}
-      - MONGODB_URI=mongodb://admin:changeme@caipe-ui-mongodb:27017
+      - MONGODB_URI=mongodb://admin:changeme@caipe-mongodb:27017
       - MONGODB_DATABASE=caipe
       - CAIPE_UI_BASE_URL=${CAIPE_UI_BASE_URL:-http://localhost:3000}
       - LANGFUSE_SCORING_ENABLED=${LANGFUSE_SCORING_ENABLED:-false}
@@ -1815,7 +1818,7 @@ services:
       - SLACK_WORKSPACE_URL=${SLACK_WORKSPACE_URL:-}
     depends_on:
       - caipe-supervisor
-      - caipe-ui-mongodb
+      - caipe-mongodb
     profiles:
       - slack-bot
       - all-integrations
@@ -1852,7 +1855,7 @@ services:
     image: redis:8.0-alpine
     container_name: langgraph-redis
     ports:
-      - "6380:6379"
+      - "6381:6379"
     volumes:
       - langgraph_redis_data:/data
     healthcheck:

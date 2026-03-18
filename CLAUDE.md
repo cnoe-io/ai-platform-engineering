@@ -121,3 +121,10 @@ python skills/persistence/test_langgraph_persistence.py mongodb
 ```
 
 See [skills/README.md](./skills/README.md) for full documentation.
+
+## Active Technologies
+- TypeScript (Next.js 16, React 19) + Zustand (state management), Next.js App Router (093-fix-audit-chat-active-preserve)
+- MongoDB (server-side via API), Zustand store (client-side) (093-fix-audit-chat-active-preserve)
+
+## Recent Changes
+- 093-fix-audit-chat-active-preserve: Added TypeScript (Next.js 16, React 19) + Zustand (state management), Next.js App Router

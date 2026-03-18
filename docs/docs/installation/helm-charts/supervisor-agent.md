@@ -1,1 +1,0 @@
-../../../../charts/ai-platform-engineering/charts/supervisor-agent/README.md

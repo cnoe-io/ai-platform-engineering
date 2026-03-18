@@ -117,6 +117,19 @@ describe('getServerConfig', () => {
       expect(cfg.defaultGradientTheme).toBe('default');
     });
 
+    it('should return default ticket integration values', () => {
+      const cfg = getServerConfig();
+      expect(cfg.reportProblemEnabled).toBe(true);
+      expect(cfg.jiraTicketEnabled).toBe(false);
+      expect(cfg.jiraTicketProject).toBeNull();
+      expect(cfg.jiraTicketLabel).toBe('caipe-reported');
+      expect(cfg.githubTicketEnabled).toBe(false);
+      expect(cfg.githubTicketRepo).toBeNull();
+      expect(cfg.githubTicketLabel).toBe('caipe-reported');
+      expect(cfg.ticketEnabled).toBe(false);
+      expect(cfg.ticketProvider).toBeNull();
+    });
+
     it('should have exactly the expected Config keys (no extras)', () => {
       const cfg = getServerConfig();
       const expectedKeys: (keyof Config)[] = [
@@ -129,6 +142,10 @@ describe('getServerConfig', () => {
         'docsUrl', 'sourceUrl', 'workflowRunnerEnabled', 'feedbackEnabled', 'npsEnabled', 'auditLogsEnabled',
         'defaultFontSize', 'defaultFontFamily', 'defaultTheme', 'defaultGradientTheme',
         'dynamicAgentsEnabled', 'dynamicAgentsUrl',
+        'reportProblemEnabled',
+        'jiraTicketEnabled', 'jiraTicketProject', 'jiraTicketLabel',
+        'githubTicketEnabled', 'githubTicketRepo', 'githubTicketLabel',
+        'ticketEnabled', 'ticketProvider',
       ];
       expect(Object.keys(cfg).sort()).toEqual(expectedKeys.sort());
     });
@@ -249,6 +266,78 @@ describe('getServerConfig', () => {
       const cfg = getServerConfig();
       expect(cfg.gradientFrom).toBe('#ff0000');
       expect(cfg.gradientTo).toBe('#0000ff');
+    });
+  });
+
+  // ---------- Ticket Integration ----------
+
+  describe('ticket integration env vars', () => {
+    beforeEach(() => {
+      clearEnv(
+        'REPORT_PROBLEM_ENABLED',
+        'JIRA_TICKET_ENABLED', 'JIRA_TICKET_PROJECT', 'JIRA_TICKET_LABEL',
+        'GITHUB_TICKET_ENABLED', 'GITHUB_TICKET_REPO', 'GITHUB_TICKET_LABEL',
+      );
+    });
+
+    it('should enable Jira when JIRA_TICKET_ENABLED=true and JIRA_TICKET_PROJECT set', () => {
+      process.env.JIRA_TICKET_ENABLED = 'true';
+      process.env.JIRA_TICKET_PROJECT = 'OPENSD';
+      const cfg = getServerConfig();
+      expect(cfg.jiraTicketEnabled).toBe(true);
+      expect(cfg.jiraTicketProject).toBe('OPENSD');
+      expect(cfg.ticketEnabled).toBe(true);
+      expect(cfg.ticketProvider).toBe('jira');
+    });
+
+    it('should enable GitHub when GITHUB_TICKET_ENABLED=true and GITHUB_TICKET_REPO set', () => {
+      process.env.GITHUB_TICKET_ENABLED = 'true';
+      process.env.GITHUB_TICKET_REPO = 'org/repo';
+      const cfg = getServerConfig();
+      expect(cfg.githubTicketEnabled).toBe(true);
+      expect(cfg.githubTicketRepo).toBe('org/repo');
+      expect(cfg.ticketEnabled).toBe(true);
+      expect(cfg.ticketProvider).toBe('github');
+    });
+
+    it('should prefer Jira when both providers are enabled', () => {
+      process.env.JIRA_TICKET_ENABLED = 'true';
+      process.env.JIRA_TICKET_PROJECT = 'OPENSD';
+      process.env.GITHUB_TICKET_ENABLED = 'true';
+      process.env.GITHUB_TICKET_REPO = 'org/repo';
+      const cfg = getServerConfig();
+      expect(cfg.ticketProvider).toBe('jira');
+    });
+
+    it('should read custom Jira label', () => {
+      process.env.JIRA_TICKET_ENABLED = 'true';
+      process.env.JIRA_TICKET_LABEL = 'my-team-label';
+      const cfg = getServerConfig();
+      expect(cfg.jiraTicketLabel).toBe('my-team-label');
+    });
+
+    it('should read custom GitHub label', () => {
+      process.env.GITHUB_TICKET_ENABLED = 'true';
+      process.env.GITHUB_TICKET_LABEL = 'prod-issues';
+      const cfg = getServerConfig();
+      expect(cfg.githubTicketLabel).toBe('prod-issues');
+    });
+
+    it('should disable report problem when REPORT_PROBLEM_ENABLED=false', () => {
+      process.env.REPORT_PROBLEM_ENABLED = 'false';
+      const cfg = getServerConfig();
+      expect(cfg.reportProblemEnabled).toBe(false);
+    });
+
+    it('should enable report problem by default', () => {
+      const cfg = getServerConfig();
+      expect(cfg.reportProblemEnabled).toBe(true);
+    });
+
+    it('should derive ticketEnabled=false when no provider is enabled', () => {
+      const cfg = getServerConfig();
+      expect(cfg.ticketEnabled).toBe(false);
+      expect(cfg.ticketProvider).toBeNull();
     });
   });
 
@@ -735,6 +824,10 @@ describe('getClientConfigScript (XSS safety)', () => {
       'docsUrl', 'sourceUrl', 'workflowRunnerEnabled', 'feedbackEnabled', 'npsEnabled', 'auditLogsEnabled',
       'defaultFontSize', 'defaultFontFamily', 'defaultTheme', 'defaultGradientTheme',
       'dynamicAgentsEnabled', 'dynamicAgentsUrl',
+      'reportProblemEnabled',
+      'jiraTicketEnabled', 'jiraTicketProject', 'jiraTicketLabel',
+      'githubTicketEnabled', 'githubTicketRepo', 'githubTicketLabel',
+      'ticketEnabled', 'ticketProvider',
     ];
     expect(Object.keys(parsed).sort()).toEqual(expectedKeys.sort());
   });

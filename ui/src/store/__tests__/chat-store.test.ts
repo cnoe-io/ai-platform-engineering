@@ -1178,16 +1178,19 @@ describe('chat-store', () => {
       expect(convIds).toContain('streaming-new');
     });
 
-    it('clears active conversation if it was deleted on another device', async () => {
+    it('preserves active conversation even when absent from server response (audit/shared scenario)', async () => {
+      // When the active conversation belongs to another user (audit/shared),
+      // the server response won't include it. It must be preserved as a
+      // local-only entry so the user doesn't lose their view.
       const conv1 = makeConversation({ id: 'still-here', title: 'Still Here' });
-      const conv2 = makeConversation({ id: 'was-active-deleted', title: 'Was Active' });
+      const auditConv = makeConversation({ id: 'audit-conv', title: 'Audit Conversation', messages: [makeMessage()] });
 
       useChatStore.setState({
-        conversations: [conv1, conv2],
-        activeConversationId: 'was-active-deleted', // This one is active
+        conversations: [conv1, auditConv],
+        activeConversationId: 'audit-conv', // User is viewing this audit conversation
       });
 
-      // Server only returns conv1
+      // Server only returns conv1 (audit-conv belongs to another user)
       mockApiClient.getConversations.mockResolvedValue({
         items: [
           { _id: 'still-here', title: 'Still Here', created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
@@ -1200,20 +1203,26 @@ describe('chat-store', () => {
 
       await useChatStore.getState().loadConversationsFromServer();
 
-      // Active conversation should switch to the remaining one
-      expect(useChatStore.getState().activeConversationId).toBe('still-here');
-      expect(useChatStore.getState().conversations).toHaveLength(1);
+      // Active conversation should be preserved as local-only entry
+      const convIds = useChatStore.getState().conversations.map(c => c.id);
+      expect(convIds).toContain('audit-conv');
+      expect(convIds).toContain('still-here');
+      expect(useChatStore.getState().activeConversationId).toBe('audit-conv');
     });
 
-    it('sets active to null when all conversations are deleted', async () => {
-      const conv = makeConversation({ id: 'only-one', title: 'Only One' });
+    it('preserves active conversation with zero messages (race condition)', async () => {
+      // When a user navigates to an audit conversation via URL,
+      // loadMessagesFromServer runs async. If loadConversationsFromServer
+      // fires before messages arrive, the conversation has 0 messages.
+      // It must still be preserved to prevent the infinite spinner.
+      const loadingConv = makeConversation({ id: 'loading-conv', title: 'Loading...', messages: [] });
 
       useChatStore.setState({
-        conversations: [conv],
-        activeConversationId: 'only-one',
+        conversations: [loadingConv],
+        activeConversationId: 'loading-conv',
       });
 
-      // Server returns empty
+      // Server returns empty (audit conversation belongs to another user)
       mockApiClient.getConversations.mockResolvedValue({
         items: [],
         total: 0,
@@ -1224,8 +1233,37 @@ describe('chat-store', () => {
 
       await useChatStore.getState().loadConversationsFromServer();
 
-      expect(useChatStore.getState().activeConversationId).toBeNull();
-      expect(useChatStore.getState().conversations).toHaveLength(0);
+      // Conversation must be preserved even with 0 messages
+      const convIds = useChatStore.getState().conversations.map(c => c.id);
+      expect(convIds).toContain('loading-conv');
+      expect(useChatStore.getState().activeConversationId).toBe('loading-conv');
+    });
+
+    it('no duplicate when active conversation is also in server response', async () => {
+      // If the active conversation IS in the server response (user's own conversation),
+      // the local-only preservation should NOT create a duplicate.
+      const conv = makeConversation({ id: 'both-conv', title: 'My Conversation', messages: [makeMessage()] });
+
+      useChatStore.setState({
+        conversations: [conv],
+        activeConversationId: 'both-conv',
+      });
+
+      mockApiClient.getConversations.mockResolvedValue({
+        items: [
+          { _id: 'both-conv', title: 'My Conversation', created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
+        ],
+        total: 1,
+        page: 1,
+        page_size: 100,
+        has_more: false,
+      });
+
+      await useChatStore.getState().loadConversationsFromServer();
+
+      // Should have exactly 1 entry, not duplicated
+      const matching = useChatStore.getState().conversations.filter(c => c.id === 'both-conv');
+      expect(matching).toHaveLength(1);
     });
 
     it('preserves in-memory messages for conversations that already have them loaded', async () => {
@@ -1274,6 +1312,30 @@ describe('chat-store', () => {
 
       const newConv = useChatStore.getState().conversations.find(c => c.id === 'new-conv');
       expect(newConv!.messages).toHaveLength(0);
+    });
+
+    it('does not preserve non-active non-streaming local-only conversations', async () => {
+      // Conversations that are neither active nor streaming should be removed
+      // when not present in the server response (FR-004).
+      const staleConv = makeConversation({ id: 'stale-conv', title: 'Stale' });
+
+      useChatStore.setState({
+        conversations: [staleConv],
+        activeConversationId: 'some-other-id', // Different from stale-conv
+      });
+
+      mockApiClient.getConversations.mockResolvedValue({
+        items: [],
+        total: 0,
+        page: 1,
+        page_size: 100,
+        has_more: false,
+      });
+
+      await useChatStore.getState().loadConversationsFromServer();
+
+      const convIds = useChatStore.getState().conversations.map(c => c.id);
+      expect(convIds).not.toContain('stale-conv');
     });
 
     it('skips loading in localStorage mode', async () => {

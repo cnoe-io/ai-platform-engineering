@@ -15,13 +15,14 @@ APP_NAME ?= ai-platform-engineering
 	build install build-docker run run-ai-platform-engineer langgraph-dev \
 	run-a2a run-a2a-client run-a2a-client-local \
 	generate-docker-compose generate-docker-compose-dev generate-docker-compose-all clean-docker-compose \
+	generate-agent-commands \
 	lint lint-fix test test-compose-generator test-compose-generator-coverage \
 	test-rag-unit test-rag-coverage test-rag-memory test-rag-scale validate lock-all help \
 	beads-gh-issues-sync beads-gh-issues-sync-run beads-list beads-ready beads-sync \
 	caipe-ui caipe-ui-install caipe-ui-build caipe-ui-dev caipe-ui-tests \
 	build-caipe-ui run-caipe-ui-docker caipe-ui-docker-compose \
 	docs docs-install docs-build docs-dev docs-start docs-serve \
-	check-helm-docs helm-docs
+	check-helm-docs helm-docs check-yq docs-helm-charts docs-helm-validate
 
 .DEFAULT_GOAL := run
 
@@ -221,6 +222,22 @@ docs-start: docs-dev ## Alias for docs-dev (start documentation development serv
 docs-serve: docs-build ## Serve documentation static site
 	@echo "Serving documentation static site..."
 	@cd docs && npm run serve
+
+## ========== Spec-Kit Agent Commands ==========
+
+SPECKIT_SRC := .specify/templates/commands
+CURSOR_DST  := .cursor/commands
+CLAUDE_DST  := .claude/commands
+
+generate-agent-commands: ## Generate .cursor and .claude command files from .specify/templates/commands
+	@echo "Generating agent command files from $(SPECKIT_SRC)..."
+	@mkdir -p $(CURSOR_DST) $(CLAUDE_DST)
+	@for src in $(SPECKIT_SRC)/*.md; do \
+		name=$$(basename "$$src" .md); \
+		cp "$$src" "$(CURSOR_DST)/speckit.$$name.md"; \
+		cp "$$src" "$(CLAUDE_DST)/speckit.$$name.md"; \
+	done
+	@echo "✓ Generated commands in $(CURSOR_DST)/ and $(CLAUDE_DST)/"
 
 ## ========== Lint ==========
 
@@ -429,6 +446,38 @@ helm-docs: check-helm-docs ## Regenerate Helm chart README.md files from values.
 	@echo "Generating Helm chart documentation..."
 	@helm-docs --chart-search-root charts/
 	@echo "✓ Helm chart documentation updated"
+
+## ========== Helm Chart Docs Generator ==========
+
+check-yq: ## Check that yq is installed (prints install instructions if missing)
+	@if ! which yq > /dev/null 2>&1; then \
+		echo ""; \
+		echo "yq is not installed. Install it with one of:"; \
+		echo ""; \
+		echo "  macOS / Linux (Homebrew):"; \
+		echo "    brew install yq"; \
+		echo ""; \
+		echo "  Any platform (Go):"; \
+		echo "    go install github.com/mikefarah/yq/v4@latest"; \
+		echo ""; \
+		echo "  Binary download:"; \
+		echo "    https://github.com/mikefarah/yq/releases"; \
+		echo ""; \
+		exit 1; \
+	fi
+
+docs-helm-charts: check-yq check-helm-docs ## Generate Helm chart documentation (READMEs + Docusaurus pages)
+	@echo "Generating Helm chart documentation..."
+	@CHART_VERSION=$(CHART_VERSION) ./scripts/generate-helm-chart-docs.sh
+	@echo "✓ Helm chart documentation generated"
+
+docs-helm-validate: docs-helm-charts docs-build ## End-to-end validation: generate docs + Docusaurus build + RC check
+	@echo "Checking for RC version patterns in generated docs..."
+	@if grep -rE '-(rc|alpha|beta|pre)\.' docs/docs/installation/helm-charts/ 2>/dev/null; then \
+		echo "FAIL: RC version patterns found in generated docs"; \
+		exit 1; \
+	fi
+	@echo "✓ Helm chart docs validation passed"
 
 ## ========== Help ==========
 

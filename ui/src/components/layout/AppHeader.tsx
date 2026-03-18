@@ -16,6 +16,7 @@ import {
   Workflow,
   Home,
   Bot,
+  AlertTriangle,
 } from "lucide-react";
 import { UserMenu } from "@/components/user-menu";
 import { SettingsPanel } from "@/components/settings-panel";
@@ -28,6 +29,7 @@ import { UnsavedChangesDialog } from "@/components/task-builder/UnsavedChangesDi
 import { useCAIPEHealth } from "@/hooks/use-caipe-health";
 import { useRAGHealth } from "@/hooks/use-rag-health";
 import { useVersion } from "@/hooks/use-version";
+import { ReportProblemDialog } from "@/components/ticket/ReportProblemDialog";
 import {
   Popover,
   PopoverContent,
@@ -98,6 +100,8 @@ export function AppHeader() {
   const handleCancel = React.useCallback(() => {
     cancelNavigation();
   }, [cancelNavigation]);
+
+  const [reportDialogOpen, setReportDialogOpen] = React.useState(false);
 
   // Debug logging for admin tab
   React.useEffect(() => {
@@ -273,6 +277,22 @@ export function AppHeader() {
               Knowledge Bases
             </GuardedLink>
           )}
+          {/* Dynamic Agents tab - admin only */}
+          {isAdmin && storageMode === 'mongodb' && config.dynamicAgentsEnabled && (
+            <GuardedLink
+              href="/dynamic-agents"
+              prefetch={true}
+              className={cn(
+                "flex items-center gap-1.5 px-4 py-1.5 rounded-full text-sm font-medium transition-all",
+                activeTab === "dynamic-agents"
+                  ? "bg-purple-500 text-white shadow-sm"
+                  : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              <Bot className="h-3.5 w-3.5" />
+              Custom Agents
+            </GuardedLink>
+          )}
           {/* Admin tab - visible to all authenticated users (readonly), admins get full access */}
           {canViewAdmin && (
             <TooltipProvider delayDuration={300}>
@@ -315,22 +335,6 @@ export function AppHeader() {
                 )}
               </Tooltip>
             </TooltipProvider>
-          )}
-          {/* Dynamic Agents tab - admin only */}
-          {isAdmin && storageMode === 'mongodb' && (
-            <GuardedLink
-              href="/dynamic-agents"
-              prefetch={true}
-              className={cn(
-                "flex items-center gap-1.5 px-4 py-1.5 rounded-full text-sm font-medium transition-all",
-                activeTab === "dynamic-agents"
-                  ? "bg-purple-500 text-white shadow-sm"
-                  : "text-muted-foreground hover:text-foreground"
-              )}
-            >
-              <Bot className="h-3.5 w-3.5" />
-              Custom Agents
-            </GuardedLink>
           )}
         </div>
       </div>
@@ -599,6 +603,23 @@ export function AppHeader() {
 
         {/* Personalization, Links & User */}
         <div className="flex items-center gap-1 border-l border-border pl-3">
+          {config.reportProblemEnabled && (
+            <>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-8 gap-1.5 text-xs text-muted-foreground hover:text-foreground"
+                onClick={() => setReportDialogOpen(true)}
+              >
+                <AlertTriangle className="h-3.5 w-3.5" />
+                Report a Problem
+              </Button>
+              <ReportProblemDialog
+                open={reportDialogOpen}
+                onOpenChange={setReportDialogOpen}
+              />
+            </>
+          )}
           <SettingsPanel />
           {config.docsUrl && (
             <Button variant="ghost" size="icon" className="h-8 w-8" asChild>

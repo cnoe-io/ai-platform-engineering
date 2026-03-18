@@ -1,7 +1,6 @@
 """Configuration settings for Dynamic Agents service."""
 
 from functools import lru_cache
-from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -53,12 +52,6 @@ class Settings(BaseSettings):
     oidc_group_claim: str | None = None  # Claim name(s) for groups (comma-separated)
     oidc_required_admin_group: str | None = None  # Group name for admin access
 
-    # LLM
-    default_model_id: str | None = None
-
-    # Extension prompt
-    default_extension_prompt_path: str | None = None
-
     # CORS
     cors_origins: list[str] = ["*"]
 
@@ -67,15 +60,6 @@ class Settings(BaseSettings):
 
     # Seed configuration path (for MCP servers and agents loaded at startup)
     seed_config_path: str | None = None
-
-    @property
-    def default_extension_prompt(self) -> str | None:
-        """Load default extension prompt from file if configured."""
-        if self.default_extension_prompt_path:
-            path = Path(self.default_extension_prompt_path)
-            if path.exists():
-                return path.read_text()
-        return None
 
 
 @lru_cache

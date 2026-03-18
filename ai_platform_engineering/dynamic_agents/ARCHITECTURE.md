@@ -98,11 +98,8 @@ src/dynamic_agents/
 │   ├── stream_trackers.py  # ToolTracker, TodoTracker, SubagentTracker
 │   └── seed_config.py      # Config-driven agent/server seeding
 │
-├── middleware/
-│   └── auth.py             # JWT authentication, UserContext
-│
-└── prompts/
-    └── extension.py        # Default extension prompt
+└── middleware/
+    └── auth.py             # JWT authentication, UserContext
 ```
 
 ### Key Files
@@ -1087,6 +1084,178 @@ Write operations (POST/PUT/DELETE) go through the Dynamic Agents backend to ensu
 • Consistent datetime handling (timezone-aware)
 • Proper validation and business logic
 • Config-driven entity protection (403 on edit/delete)
+```
+
+---
+
+## Persistent Chat History
+
+Dynamic Agents support persistent chat history that survives pod restarts. This is implemented using LangGraph's `MongoDBSaver` checkpointer along with the UI's existing `conversations` collection.
+
+### Storage Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    Persistent Chat History Storage                           │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+                              MongoDB (caipe database)
+    ┌─────────────────────────────────────────────────────────────────────────┐
+    │                                                                          │
+    │  ┌───────────────────────────────────────────────────────────────────┐  │
+    │  │  conversations                   (UI-managed)                      │  │
+    │  │  ─────────────                                                     │  │
+    │  │  • _id: conversation UUID                                          │  │
+    │  │  • title: "Chat with Code Reviewer"                                │  │
+    │  │  • owner_id: user email                                            │  │
+    │  │  • agent_id: dynamic agent ID (for Dynamic Agent conversations)    │  │
+    │  │  • sharing: {is_public, shared_with, shared_with_teams}            │  │
+    │  │  • created_at, updated_at                                          │  │
+    │  │                                                                     │  │
+    │  │  Purpose: Sidebar listing, ownership/sharing, conversation metadata │  │
+    │  └───────────────────────────────────────────────────────────────────┘  │
+    │                                                                          │
+    │  ┌───────────────────────────────────────────────────────────────────┐  │
+    │  │  conversation_checkpoints       (LangGraph MongoDBSaver)           │  │
+    │  │  ──────────────────────────                                        │  │
+    │  │  • thread_id: conversation UUID (same as conversations._id)        │  │
+    │  │  • checkpoint: serialized LangGraph state                          │  │
+    │  │  • channel_values: {messages: [HumanMessage, AIMessage, ...]}      │  │
+    │  │                                                                     │  │
+    │  │  Purpose: Full message history for conversation continuity          │  │
+    │  └───────────────────────────────────────────────────────────────────┘  │
+    │                                                                          │
+    │  ┌───────────────────────────────────────────────────────────────────┐  │
+    │  │  conversation_checkpoint_writes (LangGraph MongoDBSaver)           │  │
+    │  │  ────────────────────────────────                                  │  │
+    │  │  • thread_id: conversation UUID                                    │  │
+    │  │  • task_id, idx: write ordering                                    │  │
+    │  │  • channel, type, value: pending writes                            │  │
+    │  │                                                                     │  │
+    │  │  Purpose: Atomic checkpoint writes, interrupt recovery              │  │
+    │  └───────────────────────────────────────────────────────────────────┘  │
+    │                                                                          │
+    └─────────────────────────────────────────────────────────────────────────┘
+```
+
+### Data Flow
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                      Chat History Data Flow                                  │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+     SEND MESSAGE                          LOAD CONVERSATION
+     ────────────                          ─────────────────
+         │                                        │
+         ▼                                        ▼
+┌─────────────────┐                    ┌─────────────────┐
+│  UI ChatPanel   │                    │  UI ChatPanel   │
+│  submitMessage()│                    │  useEffect()    │
+└────────┬────────┘                    └────────┬────────┘
+         │                                      │
+         ▼                                      ▼
+┌─────────────────┐                    ┌─────────────────┐
+│ POST /api/      │                    │ GET /api/       │
+│ dynamic-agents/ │                    │ dynamic-agents/ │
+│ chat/stream     │                    │ conversations/  │
+└────────┬────────┘                    │ {id}/messages   │
+         │                             └────────┬────────┘
+         ▼                                      │
+┌─────────────────┐                             │
+│ AgentRuntime    │                             ▼
+│ .stream()       │                    ┌─────────────────┐
+│                 │                    │ conversations   │
+│ Writes to:      │                    │ .py endpoint    │
+│ • checkpoint    │                    │                 │
+│   collections   │                    │ Reads from:     │
+│ (MongoDBSaver)  │                    │ • conversations │
+└─────────────────┘                    │   (ownership)   │
+                                       │ • checkpointer  │
+                                       │   (messages)    │
+                                       └─────────────────┘
+```
+
+### Key Points
+
+| Aspect | Behavior |
+|--------|----------|
+| **Messages Source** | LangGraph checkpointer (not `messages` collection) |
+| **Metadata Source** | UI's `conversations` collection |
+| **thread_id** | Equals `conversation_id` - no mapping needed |
+| **Ownership Check** | Backend reads `conversations.owner_id` for RBAC |
+| **Message Types** | Only `HumanMessage` and `AIMessage` returned (tool messages filtered) |
+| **Interrupt State** | Pending HITL interrupts restored when loading history |
+
+### Loading Conversation History
+
+When a user opens an existing Dynamic Agent conversation:
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                   Loading Conversation History Flow                          │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+1. UI mounts DynamicAgentChatPanel with conversationId + agentId
+         │
+         ▼
+2. useEffect triggers loadHistory() if:
+   • conversationId is provided (not new conversation)
+   • Not already loaded (tracked in historyLoadedRef)
+   • No messages in store yet (avoid overwriting live session)
+         │
+         ▼
+3. Fetch: GET /api/dynamic-agents/conversations/{id}/messages?agent_id=X
+         │
+         ▼
+4. Backend (conversations.py):
+   a. Verify agent exists
+   b. Check ownership via conversations collection
+   c. Get AgentRuntime (creates if needed)
+   d. Load state: runtime._graph.aget_state({"thread_id": conv_id})
+   e. Extract messages from state.values.get("messages", [])
+   f. Filter to HumanMessage/AIMessage only
+   g. Check for pending interrupt
+         │
+         ▼
+5. Response: { conversation_id, agent_id, messages, has_pending_interrupt, interrupt_data }
+         │
+         ▼
+6. UI populates messages into zustand store:
+   • addMessage() for each message (preserving IDs)
+   • setPendingUserInput() if interrupt data present
+```
+
+### API Endpoint
+
+**GET `/api/v1/conversations/{conversation_id}/messages`**
+
+Query Parameters:
+- `agent_id` (required): Dynamic agent ID
+
+Response:
+```json
+{
+  "conversation_id": "abc-123",
+  "agent_id": "code-reviewer",
+  "messages": [
+    {"id": "msg-1", "role": "user", "content": "Hello", "timestamp": "..."},
+    {"id": "msg-2", "role": "assistant", "content": "Hi!", "timestamp": "..."}
+  ],
+  "has_pending_interrupt": false,
+  "interrupt_data": null
+}
+```
+
+If `has_pending_interrupt` is `true`, `interrupt_data` contains:
+```json
+{
+  "interrupt_id": "...",
+  "prompt": "Please select an option:",
+  "fields": [
+    {"field_name": "choice", "field_type": "select", "field_values": ["A", "B", "C"]}
+  ]
+}
 ```
 
 ---

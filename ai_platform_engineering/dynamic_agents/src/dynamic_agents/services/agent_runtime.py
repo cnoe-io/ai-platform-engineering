@@ -15,12 +15,12 @@ from cnoe_agent_utils import LLMFactory
 from cnoe_agent_utils.tracing import TracingManager
 from deepagents import create_deep_agent
 from langchain_mcp_adapters.client import MultiServerMCPClient
-from langgraph.checkpoint.memory import InMemorySaver
+from langgraph.checkpoint.mongodb.saver import MongoDBSaver
 from langgraph.types import Command
+from pymongo import MongoClient
 
 from dynamic_agents.config import Settings, get_settings
-from dynamic_agents.models import AgentContext, DynamicAgentConfig, MCPServerConfig, SubAgentRef
-from dynamic_agents.prompts.extension import get_default_extension_prompt
+from dynamic_agents.models import AgentContext, DynamicAgentConfig, MCPServerConfig, SubAgentRef, UserContext
 from dynamic_agents.services.builtin_tools import (
     create_current_datetime_tool,
     create_fetch_url_tool,
@@ -39,9 +39,12 @@ from dynamic_agents.services.stream_events import (
     make_input_required_event,
 )
 from dynamic_agents.services.stream_trackers import (
-    SubagentTracker,
-    TodoTracker,
-    ToolTracker,
+    emit_subagent_end,
+    emit_subagent_start,
+    emit_todo_update,
+    emit_tool_end,
+    emit_tool_start,
+    is_task_tool,
 )
 
 if TYPE_CHECKING:
@@ -72,19 +75,22 @@ class AgentRuntime:
         mcp_servers: list[MCPServerConfig],
         settings: Settings | None = None,
         mongo_service: "MongoDBService | None" = None,
-        user_email: str | None = None,
-        user_name: str | None = None,
-        user_groups: list[str] | None = None,
+        user: UserContext | None = None,
     ):
         self.config = config
         self.mcp_servers = mcp_servers
         self.settings = settings or get_settings()
         self._mongo_service = mongo_service
-        self._user_email = user_email
-        self._user_name = user_name
-        self._user_groups = user_groups or []
+        self._user = user
         self._graph = None
-        self._checkpointer = InMemorySaver()  # Store for state access
+        self._mongo_client = MongoClient(self.settings.mongodb_uri)
+        # Use MongoDBSaver from langgraph-checkpoint-mongodb for persistent chat history
+        self._checkpointer = MongoDBSaver(
+            self._mongo_client,
+            db_name=self.settings.mongodb_database,
+            checkpoint_collection_name="conversation_checkpoints",
+            writes_collection_name="conversation_checkpoint_writes",
+        )
         self._mcp_client: MultiServerMCPClient | None = None
         self._initialized = False
         self._created_at = time.time()
@@ -95,7 +101,9 @@ class AgentRuntime:
         self._failed_servers_error: str = ""  # Error message for display
         # Track config timestamps for cache invalidation
         self._config_updated_at: datetime = config.updated_at
-        self._mcp_servers_updated_at: datetime = max((s.updated_at for s in mcp_servers), default=datetime.min.replace(tzinfo=timezone.utc))
+        self._mcp_servers_updated_at: datetime = max(
+            (s.updated_at for s in mcp_servers), default=datetime.min.replace(tzinfo=timezone.utc)
+        )
 
     async def initialize(self) -> None:
         """Build the DeepAgent graph with tools and instructions."""
@@ -125,7 +133,7 @@ class AgentRuntime:
                     error_parts = [f"{s}: {failed_errors.get(s, 'Unknown error')}" for s in failed_servers]
                     self._failed_servers_error = "; ".join(error_parts)
 
-                # 3. Filter tools based on allowed_tools config
+                # 3. Filter tools based on allowed_tools in the agent config
                 tools, missing = filter_tools_by_allowed(all_tools, self.config.allowed_tools)
 
                 # Only report missing tools for servers that connected successfully
@@ -144,21 +152,13 @@ class AgentRuntime:
                     f"Agent '{self.config.name}': loaded {len(tools)} tools from {connected_count}/{len(connections)} MCP servers"
                 )
 
-        # 4.5 Add built-in tools based on config
-        builtin_tools_to_add = self._build_builtin_tools(
-            user_email=self._user_email,
-            user_name=self._user_name,
-            user_groups=self._user_groups,
-        )
-        if builtin_tools_to_add:
-            tools = tools + builtin_tools_to_add
-            logger.info(
-                f"Agent '{self.config.name}': added {len(builtin_tools_to_add)} built-in tools: "
-                f"{[t.name for t in builtin_tools_to_add]}"
-            )
+        # 4 Add built-in tools based on agent config
+        builtin_tools = self._build_builtin_tools(self._user)
+        if builtin_tools:
+            tools = tools + builtin_tools
 
-        # 5. Assemble system prompt
-        system_prompt = self._build_system_prompt()
+        # 5. System prompt from agent config
+        system_prompt = self.config.system_prompt
 
         # 6. Create the LLM
         # model_id and model_provider are required fields - no fallback to env vars
@@ -198,36 +198,17 @@ class AgentRuntime:
             f"tools={len(tools)}, subagents={len(subagents) if subagents else 0}"
         )
 
-    def _build_system_prompt(self) -> str:
-        """Assemble the full system prompt from config."""
-        parts = []
-
-        # User instructions (required)
-        parts.append(self.config.system_prompt)
-
-        # Extension prompt (platform guidelines)
-        extension = self.settings.default_extension_prompt or get_default_extension_prompt()
-        parts.append("\n\n" + extension)
-
-        return "\n".join(parts)
-
-    def _build_builtin_tools(
-        self,
-        user_email: str | None = None,
-        user_name: str | None = None,
-        user_groups: list[str] | None = None,
-    ) -> list:
+    def _build_builtin_tools(self, user: UserContext | None = None) -> list:
         """Build list of built-in tools based on agent config.
 
         Args:
-            user_email: User's email address (for user_info tool)
-            user_name: User's display name (for user_info tool)
-            user_groups: User's groups (for user_info tool)
+            user: User context for tools that need user info
 
         Returns:
             List of LangChain tools to add to the agent.
         """
         tools = []
+        config_summary: dict[str, Any] = {}
 
         if not self.config.builtin_tools:
             return tools
@@ -236,34 +217,21 @@ class AgentRuntime:
         fetch_url_config = self.config.builtin_tools.fetch_url
         if fetch_url_config and fetch_url_config.enabled:
             allowed_domains = fetch_url_config.allowed_domains or "*"
-            fetch_url_tool = create_fetch_url_tool(allowed_domains=allowed_domains)
-            tools.append(fetch_url_tool)
-
-            # Log domain restrictions
-            if allowed_domains == "*":
-                logger.debug(f"Agent '{self.config.name}': fetch_url enabled (all domains allowed)")
-            else:
-                domain_count = len([d.strip() for d in allowed_domains.split(",") if d.strip()])
-                logger.debug(f"Agent '{self.config.name}': fetch_url enabled with {domain_count} domain pattern(s)")
+            tools.append(create_fetch_url_tool(allowed_domains=allowed_domains))
+            config_summary["fetch_url"] = {"allowed_domains": allowed_domains}
 
         # current_datetime tool (enabled by default)
         current_datetime_config = self.config.builtin_tools.current_datetime
         if current_datetime_config and current_datetime_config.enabled:
-            current_datetime_tool = create_current_datetime_tool()
-            tools.append(current_datetime_tool)
-            logger.debug(f"Agent '{self.config.name}': current_datetime enabled")
+            tools.append(create_current_datetime_tool())
+            config_summary["current_datetime"] = {}
 
         # user_info tool (enabled by default)
         user_info_config = self.config.builtin_tools.user_info
         if user_info_config and user_info_config.enabled:
-            if user_email:
-                user_info_tool = create_user_info_tool(
-                    user_email=user_email,
-                    user_name=user_name,
-                    user_groups=user_groups or [],
-                )
-                tools.append(user_info_tool)
-                logger.debug(f"Agent '{self.config.name}': user_info enabled for user {user_email}")
+            if user:
+                tools.append(create_user_info_tool(user))
+                config_summary["user_info"] = {"user": user.email}
             else:
                 logger.warning(f"Agent '{self.config.name}': user_info enabled but no user context available")
 
@@ -271,16 +239,19 @@ class AgentRuntime:
         sleep_config = self.config.builtin_tools.sleep
         if sleep_config and sleep_config.enabled:
             max_seconds = sleep_config.max_seconds or 300
-            sleep_tool = create_sleep_tool(max_seconds=max_seconds)
-            tools.append(sleep_tool)
-            logger.debug(f"Agent '{self.config.name}': sleep enabled (max_seconds={max_seconds})")
+            tools.append(create_sleep_tool(max_seconds=max_seconds))
+            config_summary["sleep"] = {"max_seconds": max_seconds}
 
         # request_user_input tool (enabled by default)
         request_user_input_config = self.config.builtin_tools.request_user_input
         if request_user_input_config and request_user_input_config.enabled:
-            request_user_input_tool = create_request_user_input_tool()
-            tools.append(request_user_input_tool)
-            logger.debug(f"Agent '{self.config.name}': request_user_input enabled")
+            tools.append(create_request_user_input_tool())
+            config_summary["request_user_input"] = {}
+
+        if tools:
+            logger.info(f"Agent '{self.config.name}': added built-in tools: {config_summary}")
+        else:
+            logger.warning(f"Agent '{self.config.name}': no built-in tools configured")
 
         return tools
 
@@ -337,8 +308,8 @@ class AgentRuntime:
             # Build MCP tools for subagent
             subagent_tools = await self._build_subagent_tools(subagent_config)
 
-            # Build system prompt for subagent
-            subagent_prompt = self._build_subagent_prompt(subagent_config)
+            # System prompt from subagent config
+            subagent_prompt = subagent_config.system_prompt
 
             # Create SubAgent dict in deepagents format
             subagent_dict: dict[str, Any] = {
@@ -382,22 +353,51 @@ class AgentRuntime:
         tools, _ = filter_tools_by_allowed(all_tools, subagent_config.allowed_tools)
         return tools
 
-    def _build_subagent_prompt(self, subagent_config: DynamicAgentConfig) -> str:
-        """Build system prompt for a subagent.
+    def _build_stream_config(self, session_id: str, user_id: str, trace_id: str | None) -> dict[str, Any]:
+        """Build config dict for stream/resume operations.
+
+        Creates the LangGraph config with:
+        - thread_id for conversation persistence (checkpointer)
+        - AgentContext for tools that need user/session info
+        - metadata for Langfuse tracing
 
         Args:
-            subagent_config: The subagent's configuration
+            session_id: Conversation/session ID
+            user_id: User's email/identifier
+            trace_id: Optional trace ID for distributed tracing
 
         Returns:
-            System prompt string
+            Config dict for astream()
         """
-        parts = [subagent_config.system_prompt]
+        config = self.tracing.create_config(session_id)
 
-        # Use default extension prompt
-        extension = self.settings.default_extension_prompt or get_default_extension_prompt()
-        parts.append("\n\n" + extension)
+        if "configurable" not in config:
+            config["configurable"] = {}
+        config["configurable"]["thread_id"] = session_id
 
-        return "\n".join(parts)
+        config["context"] = AgentContext(
+            user_id=user_id,
+            agent_config_id=self.config.id,
+            session_id=session_id,
+        )
+
+        if "metadata" not in config:
+            config["metadata"] = {}
+        config["metadata"]["user_id"] = user_id
+        config["metadata"]["agent_config_id"] = self.config.id
+        config["metadata"]["agent_name"] = self.config.name
+
+        if trace_id:
+            config["metadata"]["trace_id"] = trace_id
+        else:
+            # Fallback to TracingManager context
+            current_trace_id = self.tracing.get_trace_id()
+            if current_trace_id:
+                config["metadata"]["trace_id"] = current_trace_id
+
+        self._current_trace_id = config.get("metadata", {}).get("trace_id")
+
+        return config
 
     async def stream(
         self,
@@ -429,48 +429,11 @@ class AgentRuntime:
         if not self._initialized:
             await self.initialize()
 
-        # Create tracing config using TracingManager for Langfuse integration
-        config = self.tracing.create_config(session_id)
+        config = self._build_stream_config(session_id, user_id, trace_id)
 
-        # Ensure configurable exists and set thread_id
-        if "configurable" not in config:
-            config["configurable"] = {}
-        config["configurable"]["thread_id"] = session_id
-
-        # Add agent context
-        config["context"] = AgentContext(
-            user_id=user_id,
-            agent_config_id=self.config.id,
-            session_id=session_id,
-        )
-
-        # Ensure metadata exists
-        if "metadata" not in config:
-            config["metadata"] = {}
-
-        # Add user_id and agent info to metadata for tracing
-        config["metadata"]["user_id"] = user_id
-        config["metadata"]["agent_config_id"] = self.config.id
-        config["metadata"]["agent_name"] = self.config.name
-
-        # Add trace_id to metadata for distributed tracing
-        if trace_id:
-            config["metadata"]["trace_id"] = trace_id
-            logger.info(f"Using provided trace_id: {trace_id}")
-        else:
-            # Try to get trace_id from TracingManager context
-            current_trace_id = self.tracing.get_trace_id()
-            if current_trace_id:
-                config["metadata"]["trace_id"] = current_trace_id
-                logger.debug(f"Using trace_id from TracingManager context: {current_trace_id}")
-
-        # Store trace_id for final_result event
-        self._current_trace_id = config.get("metadata", {}).get("trace_id")
-
-        # Initialize trackers
-        tool_tracker = ToolTracker(agent_name=self.config.name)
-        todo_tracker = TodoTracker(agent_name=self.config.name)
-        subagent_tracker = SubagentTracker(parent_agent_name=self.config.name)
+        # Track active task tool calls (subagents) so we can emit correct end events
+        # This is the minimal state needed - just tool_call_ids of task tools
+        active_task_calls: set[str] = set()
         accumulated_content: list[str] = []
 
         logger.info(f"[stream] Starting stream for agent '{self.config.name}': user={user_id}, conv={session_id}")
@@ -488,9 +451,7 @@ class AgentRuntime:
             stream_mode=["messages", "updates"],
             subgraphs=True,
         ):
-            for event in self._transform_stream_chunk(
-                chunk, tool_tracker, todo_tracker, subagent_tracker, accumulated_content
-            ):
+            for event in self._transform_stream_chunk(chunk, active_task_calls, accumulated_content):
                 yield event
 
         # Check for pending interrupt (agent called request_user_input)
@@ -525,9 +486,7 @@ class AgentRuntime:
     def _transform_stream_chunk(
         self,
         chunk: tuple,
-        tool_tracker: ToolTracker,
-        todo_tracker: TodoTracker,
-        subagent_tracker: SubagentTracker,
+        active_task_calls: set[str],
         accumulated_content: list[str],
     ) -> list[dict[str, Any]]:
         """Transform astream() chunks into structured SSE events.
@@ -537,15 +496,14 @@ class AgentRuntime:
 
         Args:
             chunk: Raw chunk from astream()
-            tool_tracker: Tracks tool calls
-            todo_tracker: Parses write_todos output
-            subagent_tracker: Tracks task tool calls
+            active_task_calls: Set of tool_call_ids for active task (subagent) calls
             accumulated_content: List to accumulate final content
 
         Returns:
             List of SSE event dicts
         """
         results: list[dict[str, Any]] = []
+        agent_name = self.config.name
 
         # Parse chunk format: (namespace, mode, data) or (mode, data)
         if len(chunk) == 3:
@@ -619,38 +577,32 @@ class AgentRuntime:
                                 args = tc.get("args", {}) if isinstance(tc, dict) else getattr(tc, "args", {})
 
                                 # Check if this is a subagent invocation (task tool)
-                                if subagent_tracker.is_task_tool(tool_name):
+                                if is_task_tool(tool_name):
+                                    active_task_calls.add(tool_call_id)
                                     subagent_type = args.get("subagent_type", "unknown")
-                                    # The task tool uses "description" arg, not "prompt"
                                     purpose = args.get("description", "")
                                     results.append(
-                                        subagent_tracker.start_subagent(tool_call_id, subagent_type, purpose)
+                                        emit_subagent_start(tool_call_id, subagent_type, purpose, agent_name)
                                     )
                                 else:
                                     # Regular tool call
-                                    results.append(tool_tracker.start_tool(tool_name, tool_call_id, args))
+                                    results.append(emit_tool_start(tool_name, tool_call_id, args, agent_name))
 
-                                    # Check for todo updates from write_todos args (primary method)
-                                    # This is more reliable than parsing markdown from ToolMessage
-                                    todo_event = todo_tracker.process_tool_call(tool_name, args)
+                                    # Check for todo updates from write_todos args
+                                    todo_event = emit_todo_update(tool_name, args, agent_name)
                                     if todo_event:
                                         results.append(todo_event)
 
                         # Handle ToolMessage (tool results)
                         tool_call_id = getattr(msg, "tool_call_id", None)
                         if tool_call_id:
-                            content = getattr(msg, "content", "")
-
                             # Check if this is a subagent result
-                            if subagent_tracker.get_active_subagent(tool_call_id):
-                                event = subagent_tracker.end_subagent(tool_call_id)
-                                if event:
-                                    results.append(event)
+                            if tool_call_id in active_task_calls:
+                                active_task_calls.discard(tool_call_id)
+                                results.append(emit_subagent_end(tool_call_id, agent_name))
                             else:
-                                # Regular tool result - emit tool_end
-                                event = tool_tracker.end_tool(tool_call_id)
-                                if event:
-                                    results.append(event)
+                                # Regular tool result
+                                results.append(emit_tool_end(tool_call_id, agent_name))
 
         return results
 
@@ -742,33 +694,10 @@ class AgentRuntime:
         if not self._initialized:
             await self.initialize()
 
-        # Create config for this session
-        config = self.tracing.create_config(session_id)
-        if "configurable" not in config:
-            config["configurable"] = {}
-        config["configurable"]["thread_id"] = session_id
+        config = self._build_stream_config(session_id, user_id, trace_id)
 
-        # Add agent context
-        config["context"] = AgentContext(
-            user_id=user_id,
-            agent_config_id=self.config.id,
-            session_id=session_id,
-        )
-
-        if "metadata" not in config:
-            config["metadata"] = {}
-        config["metadata"]["user_id"] = user_id
-        config["metadata"]["agent_config_id"] = self.config.id
-        config["metadata"]["agent_name"] = self.config.name
-        if trace_id:
-            config["metadata"]["trace_id"] = trace_id
-
-        self._current_trace_id = config.get("metadata", {}).get("trace_id")
-
-        # Initialize trackers
-        tool_tracker = ToolTracker(agent_name=self.config.name)
-        todo_tracker = TodoTracker(agent_name=self.config.name)
-        subagent_tracker = SubagentTracker(parent_agent_name=self.config.name)
+        # Track active task tool calls (subagents) so we can emit correct end events
+        active_task_calls: set[str] = set()
         accumulated_content: list[str] = []
 
         logger.info(f"[resume] Resuming stream for agent '{self.config.name}': user={user_id}, conv={session_id}")
@@ -831,9 +760,7 @@ class AgentRuntime:
             stream_mode=["messages", "updates"],
             subgraphs=True,
         ):
-            for event in self._transform_stream_chunk(
-                chunk, tool_tracker, todo_tracker, subagent_tracker, accumulated_content
-            ):
+            for event in self._transform_stream_chunk(chunk, active_task_calls, accumulated_content):
                 yield event
 
         # Check for another pending interrupt (agent might request more input)
@@ -864,11 +791,16 @@ class AgentRuntime:
             )
 
     async def cleanup(self) -> None:
-        """Cleanup MCP client connections."""
+        """Cleanup MCP client connections and MongoDB checkpointer."""
         if self._mcp_client:
             # Note: As of langchain-mcp-adapters 0.1.0, MultiServerMCPClient
             # doesn't require explicit cleanup when not used as context manager
             self._mcp_client = None
+
+        if self._checkpointer:
+            self._checkpointer.close()
+            logger.info("Closed MongoDB checkpointer for agent runtime")
+
         self._initialized = False
 
     @property
@@ -919,9 +851,7 @@ class AgentRuntimeCache:
         agent_config: DynamicAgentConfig,
         mcp_servers: list[MCPServerConfig],
         session_id: str,
-        user_email: str | None = None,
-        user_name: str | None = None,
-        user_groups: list[str] | None = None,
+        user: UserContext | None = None,
     ) -> AgentRuntime:
         """Get an existing runtime or create a new one.
 
@@ -929,9 +859,7 @@ class AgentRuntimeCache:
             agent_config: Dynamic agent configuration
             mcp_servers: Available MCP server configurations
             session_id: Conversation/session ID
-            user_email: User's email address (for builtin tools)
-            user_name: User's display name (for builtin tools)
-            user_groups: User's groups (for builtin tools)
+            user: User context for builtin tools
 
         Returns:
             Initialized AgentRuntime instance
@@ -961,9 +889,7 @@ class AgentRuntimeCache:
             agent_config,
             mcp_servers,
             mongo_service=self._mongo_service,
-            user_email=user_email,
-            user_name=user_name,
-            user_groups=user_groups,
+            user=user,
         )
         await runtime.initialize()
         self._cache[key] = runtime

@@ -64,7 +64,7 @@ jobs:
             type=raw,value=${{ env.PREBUILD_TAG }}
 
       - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
+        uses: docker/setup-qemu-action@v4
 
       - name: Build and Push Slack Bot Docker image
         uses: docker/build-push-action@v7

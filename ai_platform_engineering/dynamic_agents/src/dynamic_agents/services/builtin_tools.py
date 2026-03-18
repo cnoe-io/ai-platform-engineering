@@ -14,7 +14,7 @@ import requests
 from bs4 import BeautifulSoup
 from langchain_core.tools import tool
 
-from dynamic_agents.models import BuiltinToolConfigField, BuiltinToolDefinition, InputField
+from dynamic_agents.models import BuiltinToolConfigField, BuiltinToolDefinition, InputField, UserContext
 
 logger = logging.getLogger(__name__)
 
@@ -286,13 +286,11 @@ def create_current_datetime_tool():
     return current_datetime
 
 
-def create_user_info_tool(user_email: str, user_name: str | None, user_groups: list[str]):
+def create_user_info_tool(user: UserContext):
     """Create a user_info tool with the current user's information.
 
     Args:
-        user_email: User's email address
-        user_name: User's display name (may be None)
-        user_groups: List of groups the user belongs to
+        user: User context containing email, name, and groups
 
     Returns:
         A LangChain tool that returns user information.
@@ -316,9 +314,9 @@ def create_user_info_tool(user_email: str, user_name: str | None, user_groups: l
             print(f"Hello, {info['name'] or info['email']}!")
         """
         return {
-            "email": user_email,
-            "name": user_name,
-            "groups": user_groups,
+            "email": user.email,
+            "name": user.name,
+            "groups": user.groups,
         }
 
     return user_info

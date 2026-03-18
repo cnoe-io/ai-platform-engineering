@@ -39,11 +39,21 @@ ai-platform-engineering/        # Parent chart
     └── slim/ slim-control-plane/  # AGNTCY SLIM dataplane (optional)
 ```
 
-Full parameter tables for each chart:
+Full parameter tables for each chart (auto-generated — regenerate with `make docs-helm-charts`):
 
-- [supervisor-agent](./helm-charts/supervisor-agent) — orchestrator values, persistence, LLM secrets
-- [langgraph-redis](./helm-charts/langgraph-redis) — Redis Stack subchart values
-- [`ai-platform-engineering` (parent)](https://github.com/cnoe-io/ai-platform-engineering/blob/main/charts/ai-platform-engineering/README.md) — agent tags, global values, subcharts table
+- [ai-platform-engineering](./helm-charts/ai-platform-engineering/) — parent chart (global values, agent selection)
+- [supervisor-agent](./helm-charts/ai-platform-engineering/supervisor-agent-chart) — orchestrator values, persistence, LLM secrets
+- [agent](./helm-charts/ai-platform-engineering/agent-chart) — individual agent subchart
+- [caipe-ui](./helm-charts/ai-platform-engineering/caipe-ui-chart) — UI subchart values
+- [caipe-ui-mongodb](./helm-charts/ai-platform-engineering/caipe-ui-mongodb-chart) — MongoDB for UI persistence
+- [dynamic-agents](./helm-charts/ai-platform-engineering/dynamic-agents-chart) — dynamic agent builder service
+- [langgraph-redis](./helm-charts/ai-platform-engineering/langgraph-redis-chart) — Redis Stack subchart values
+- [slack-bot](./helm-charts/ai-platform-engineering/slack-bot-chart) — Slack bot integration
+- [rag-stack](./helm-charts/rag-stack/) — RAG knowledge base (parent chart)
+- [rag-server](./helm-charts/rag-stack/rag-server-chart) — RAG server
+- [rag-redis](./helm-charts/rag-stack/rag-redis-chart) — Redis for RAG vector store
+- [rag-ingestors](./helm-charts/rag-stack/rag-ingestors-chart) — data ingestors
+- [agent-ontology](./helm-charts/rag-stack/agent-ontology-chart) — Graph RAG ontology agent
 
 ## Step 1 — Get example values files
 

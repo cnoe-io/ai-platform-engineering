@@ -11,7 +11,7 @@ import {
   ApiError,
   requireAdmin,
 } from "@/lib/api-middleware";
-import type { DynamicAgentConfig, SubAgentRef } from "@/types/dynamic-agent";
+import type { DynamicAgentConfig } from "@/types/dynamic-agent";
 
 const COLLECTION_NAME = "dynamic_agents";
 

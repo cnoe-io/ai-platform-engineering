@@ -243,7 +243,7 @@ USECASE_STORAGE_TYPE=mongodb
 MONGODB_URI=mongodb://localhost:27017/caipe
 ```
 
-See [Use Case Storage Configuration ADR](../changes/2026-01-27-ui-usecase-storage-configuration.md) for details.
+See [Use Case Storage Configuration](../specs/ui-usecase-storage-configuration/spec) for details.
 
 ## Development
 
@@ -357,7 +357,7 @@ npm install @caipe/plugin-agent-forge
 import { AgentForgePage } from '@caipe/plugin-agent-forge';
 ```
 
-See [Agent Forge Plugin Documentation](../getting-started/user-interfaces.md#agent-forge-backstage-plugin) for details.
+See [Agent Forge Plugin Documentation](../tools-utils/agent-forge-backstage-plugin) for details.
 
 ### API Integration
 

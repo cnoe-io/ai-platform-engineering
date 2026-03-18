@@ -6,7 +6,68 @@ Formats A2A responses and plans into rich Slack messages
 """
 
 from typing import List, Dict, Any, Optional
-from dataclasses import dataclass, field
+
+
+# Maps A2A plan step statuses to Slack task_update statuses
+STATUS_MAP_A2A_TO_SLACK = {
+    "pending": "pending",
+    "in_progress": "in_progress",
+    "completed": "complete",
+    "failed": "error",
+}
+
+
+def _format_step_title(step: Dict[str, Any]) -> str:
+    """Format step title with agent name prefix like the UI does."""
+    title = step.get("title", "")
+    agent = step.get("agent", "")
+    if agent and agent != "Supervisor":
+        return f"[{agent}] {title}"
+    return title
+
+
+def build_task_update_chunks(
+    steps: List[Dict[str, Any]],
+    step_details: Optional[Dict[str, str]] = None,
+) -> List[Dict[str, Any]]:
+    """Convert A2A plan steps to Slack task_update chunk format.
+
+    Args:
+        steps: List of plan step dicts with step_id, title, status, order.
+        step_details: Optional map of step_id -> details text to include.
+    """
+    chunks = []
+    for step in sorted(steps, key=lambda s: s.get("order", 0)):
+        chunk = {
+            "type": "task_update",
+            "id": step["step_id"],
+            "title": _format_step_title(step),
+            "status": STATUS_MAP_A2A_TO_SLACK.get(step.get("status", "pending"), "pending"),
+        }
+        if step_details:
+            details = step_details.get(step["step_id"])
+            if details:
+                chunk["details"] = details
+        chunks.append(chunk)
+    return chunks
+
+
+def build_single_task_update(
+    step_id: str,
+    title: str,
+    status: str,
+    details: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Build a single task_update chunk for appendStream."""
+    chunk = {
+        "type": "task_update",
+        "id": step_id,
+        "title": title,
+        "status": STATUS_MAP_A2A_TO_SLACK.get(status, "pending"),
+    }
+    if details:
+        chunk["details"] = details
+    return chunk
 
 
 def split_text_into_blocks(text: str, max_length: int = 3000) -> List[str]:
@@ -51,21 +112,12 @@ def split_text_into_blocks(text: str, max_length: int = 3000) -> List[str]:
     return chunks
 
 
-def convert_markdown_to_slack(text: str) -> str:
-    """Convert markdown formatting to Slack mrkdwn format."""
-    from markdown_to_mrkdwn import SlackMarkdownConverter
-
-    converter = SlackMarkdownConverter()
-    return converter.convert(text)
-
-
 def format_message_part(part: Dict[str, Any]) -> str:
     """Format a single message part (text, file, or data)."""
     kind = part.get("kind", "text")
 
     if kind == "text":
-        text = part.get("text", "")
-        return convert_markdown_to_slack(text)
+        return part.get("text", "")
     elif kind == "file":
         file_info = part.get("file", {})
         name = file_info.get("name", "file")
@@ -108,98 +160,3 @@ def format_error_message(error_message: str) -> List[Dict[str, Any]]:
     return blocks
 
 
-def extract_todos_from_metadata(metadata: Optional[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """Extract todo list from A2A metadata."""
-    if not metadata:
-        return []
-
-    todos = metadata.get("todos", [])
-    if not todos:
-        todos = metadata.get("plan", [])
-    if not todos:
-        todos = metadata.get("steps", [])
-
-    return todos if isinstance(todos, list) else []
-
-
-@dataclass
-class ExecutionStep:
-    """Represents a step in the execution plan"""
-
-    name: str
-    status: str = "pending"
-    description: Optional[str] = None
-
-
-@dataclass
-class ExecutionPlan:
-    """Tracks execution plan state for streaming updates"""
-
-    steps: List[ExecutionStep] = field(default_factory=list)
-
-    def add_step(self, name: str, status: str = "pending", description: str = None) -> None:
-        for step in self.steps:
-            if step.name == name:
-                step.status = status
-                if description:
-                    step.description = description
-                return
-        self.steps.append(ExecutionStep(name=name, status=status, description=description))
-
-    def update_step(self, name: str, status: str) -> None:
-        for step in self.steps:
-            if step.name == name:
-                step.status = status
-                return
-        self.add_step(name, status)
-
-    def start_step(self, name: str) -> None:
-        self.update_step(name, "running")
-
-    def complete_step(self, name: str) -> None:
-        self.update_step(name, "completed")
-
-    def fail_step(self, name: str) -> None:
-        self.update_step(name, "failed")
-
-    def get_step(self, name: str) -> Optional[ExecutionStep]:
-        for step in self.steps:
-            if step.name == name:
-                return step
-        return None
-
-
-def get_status_icon(status: str) -> str:
-    """Get the status icon for an execution step"""
-    icons = {
-        "pending": "⬜",
-        "running": "⏳",
-        "completed": "✅",
-        "failed": "❌",
-    }
-    return icons.get(status, "⬜")
-
-
-def format_execution_plan(plan: ExecutionPlan) -> str:
-    """Format an execution plan as text for display."""
-    if not plan.steps:
-        return ""
-
-    lines = ["━━━━━━━━━━━━━━━━━━━━", "📋 *Execution Plan*"]
-    for step in plan.steps:
-        icon = get_status_icon(step.status)
-        lines.append(f"{icon} {step.name}")
-
-    return "\n".join(lines)
-
-
-def format_execution_plan_from_steps(steps: List[Dict[str, Any]]) -> str:
-    """Format execution plan from a list of step dictionaries."""
-    plan = ExecutionPlan()
-    for step in steps:
-        plan.add_step(
-            name=step.get("name", step.get("content", "Unknown")),
-            status=step.get("status", "pending"),
-            description=step.get("description"),
-        )
-    return format_execution_plan(plan)

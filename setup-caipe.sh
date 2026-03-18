@@ -61,6 +61,22 @@ CREATE_CLUSTER=false
 FORCE_UPGRADE=false
 INGEST_URLS=()
 
+# When run via "curl | bash", stdin is the script content — bash reads it
+# line-by-line. We CANNOT redirect stdin (exec < /dev/tty) because that
+# would stop bash from reading the rest of the script.  Instead, open
+# /dev/tty on fd 3 and redirect all interactive `read` calls to <&3.
+_tty_fd_opened=false
+{ exec 3</dev/tty; _tty_fd_opened=true; } 2>/dev/null || true
+if ! $_tty_fd_opened; then
+  if [[ -t 0 ]]; then
+    exec 3<&0
+  else
+    echo "ERROR: no terminal available for interactive prompts." >&2
+    echo "  Run with --non-interactive or use: bash -c \"\$(curl -fsSL URL)\"" >&2
+    exit 1
+  fi
+fi
+
 cleanup_on_exit() {
   # Kill tracked PIDs
   for pid in "${PF_PIDS[@]}"; do
@@ -71,6 +87,7 @@ cleanup_on_exit() {
   pkill -f "kubectl port-forward.*caipe-caipe-ui.*${UI_PORT:-3000}:3000" 2>/dev/null || true
   pkill -f "kubectl port-forward.*langfuse-web.*${LANGFUSE_PORT:-3100}:3000" 2>/dev/null || true
   rm -f /tmp/langfuse-cookies /tmp/caipe-validation-*.log
+  exec 3<&- 2>/dev/null || true
 }
 trap cleanup_on_exit EXIT
 trap 'cleanup_on_exit; exit 130' INT
@@ -84,13 +101,18 @@ step()    { echo -e "\n${CYAN}${BOLD}━━━ $* ━━━${NC}"; }
 header()  { echo -e "\n${BLUE}${BOLD}$*${NC}"; }
 prompt()  { echo -en "${BOLD}  ▸ $*${NC}"; }
 
+# Interactive read wrapper — reads from /dev/tty (fd 3) so that
+# "curl | bash" keeps reading the script from stdin while prompts
+# go to the terminal.  Passes all arguments through to `read`.
+tty_read() { read "$@" <&3; }
+
 ask_yn() {
   local question="$1" default="${2:-y}"
   if $AUTO_YES; then return 0; fi
   local yn_hint
   if [[ "$default" == "y" ]]; then yn_hint="${CYAN}[Y/n]${NC}${BOLD}"; else yn_hint="${CYAN}[y/N]${NC}${BOLD}"; fi
   prompt "$question $yn_hint "
-  read -r answer
+  tty_read -r answer
   answer="${answer:-$default}"
   [[ "$answer" =~ ^[Yy]$ ]]
 }
@@ -320,7 +342,7 @@ choose_cluster() {
 
   local default_choice=1
   prompt "Select an option ${CYAN}[${default_choice}]${NC}${BOLD}: "
-  read -r choice
+  tty_read -r choice
   choice="${choice:-$default_choice}"
 
   if [[ "$choice" -lt 1 || "$choice" -gt "${#options[@]}" ]]; then
@@ -337,7 +359,7 @@ choose_cluster() {
       ;;
     kind:new)
       prompt "Enter a name for the new cluster ${CYAN}[caipe]${NC}${BOLD}: "
-      read -r CLUSTER_NAME
+      tty_read -r CLUSTER_NAME
       CLUSTER_NAME="${CLUSTER_NAME:-caipe}"
       log "Creating Kind cluster '${CLUSTER_NAME}'..."
       kind create cluster --name "$CLUSTER_NAME"
@@ -368,7 +390,7 @@ choose_cluster() {
       done
       echo ""
       prompt "Select a context ${CYAN}[1]${NC}${BOLD}: "
-      read -r ctx_choice
+      tty_read -r ctx_choice
       ctx_choice="${ctx_choice:-1}"
       if [[ "$ctx_choice" -ge 1 && "$ctx_choice" -le "${#ctx_arr[@]}" ]]; then
         local target_ctx="${ctx_arr[$((ctx_choice - 1))]}"
@@ -430,7 +452,7 @@ choose_chart_version() {
   if [[ ${#versions[@]} -eq 1 ]]; then
     echo -e "  ${DIM}Latest version: ${versions[0]}${NC}"
     prompt "Chart version ${CYAN}[${versions[0]}]${NC}${BOLD}: "
-    read -r input
+    tty_read -r input
     CAIPE_CHART_VERSION="${input:-${versions[0]}}"
   else
     echo -e "  ${DIM}Available versions (most recent first):${NC}"
@@ -446,12 +468,12 @@ choose_chart_version() {
     echo -e "    ${BOLD}${i})${NC} Enter a custom version"
 
     prompt "Select a version ${CYAN}[1]${NC}${BOLD}: "
-    read -r choice
+    tty_read -r choice
     choice="${choice:-1}"
 
     if [[ "$choice" -eq "$i" ]]; then
       prompt "Enter chart version: "
-      read -r CAIPE_CHART_VERSION
+      tty_read -r CAIPE_CHART_VERSION
       if [[ -z "$CAIPE_CHART_VERSION" ]]; then
         err "Version is required"
         exit 1
@@ -483,7 +505,7 @@ collect_credentials() {
     echo -e "    ${BOLD}4)${NC} LiteLLM Proxy     ${DIM}(gpt-oss-20B or any OpenAI-compatible endpoint)${NC}"
     echo ""
     prompt "Select provider ${CYAN}[1]${NC}${BOLD}: "
-    read -r provider_choice
+    tty_read -r provider_choice
     provider_choice="${provider_choice:-1}"
     case "$provider_choice" in
       1) LLM_PROVIDER="anthropic-claude" ;;
@@ -527,7 +549,7 @@ _collect_anthropic_credentials() {
       exit 1
     fi
     prompt "Enter your Anthropic API key: "
-    read -rs ANTHROPIC_API_KEY
+    tty_read -rs ANTHROPIC_API_KEY
     echo ""
     if [[ -z "$ANTHROPIC_API_KEY" ]]; then
       err "API key is required"
@@ -545,7 +567,7 @@ _collect_anthropic_credentials() {
     echo -e "    ${BOLD}4)${NC} Custom"
     echo ""
     prompt "Select model ${CYAN}[1]${NC}${BOLD}: "
-    read -r model_choice
+    tty_read -r model_choice
     model_choice="${model_choice:-1}"
     case "$model_choice" in
       1) ANTHROPIC_MODEL_NAME="claude-haiku-4-5" ;;
@@ -553,7 +575,7 @@ _collect_anthropic_credentials() {
       3) ANTHROPIC_MODEL_NAME="claude-opus-4-20250514" ;;
       4)
         prompt "Enter Anthropic model name: "
-        read -r ANTHROPIC_MODEL_NAME
+        tty_read -r ANTHROPIC_MODEL_NAME
         if [[ -z "$ANTHROPIC_MODEL_NAME" ]]; then
           err "Model name is required"
           exit 1
@@ -713,14 +735,14 @@ _collect_bedrock_credentials() {
     echo -e "    ${BOLD}2)${NC} Read from an AWS profile ${DIM}(~/.aws/credentials)${NC}"
     echo ""
     prompt "Select auth method ${CYAN}[1]${NC}${BOLD}: "
-    read -r auth_choice
+    tty_read -r auth_choice
     auth_choice="${auth_choice:-1}"
     case "$auth_choice" in
       1)
         prompt "AWS Access Key ID: "
-        read -r AWS_ACCESS_KEY_ID
+        tty_read -r AWS_ACCESS_KEY_ID
         prompt "AWS Secret Access Key: "
-        read -rs AWS_SECRET_ACCESS_KEY
+        tty_read -rs AWS_SECRET_ACCESS_KEY
         echo ""
         if [[ -z "$AWS_ACCESS_KEY_ID" || -z "$AWS_SECRET_ACCESS_KEY" ]]; then
           err "Both access key and secret key are required"
@@ -730,7 +752,7 @@ _collect_bedrock_credentials() {
         ;;
       2)
         prompt "AWS profile name ${CYAN}[default]${NC}${BOLD}: "
-        read -r input
+        tty_read -r input
         local prof="${input:-default}"
         if _resolve_aws_keys_from_profile "$prof"; then
           log "Resolved access keys from profile '${prof}'"
@@ -745,7 +767,7 @@ _collect_bedrock_credentials() {
 
   if ! $NON_INTERACTIVE; then
     prompt "AWS region ${CYAN}[${AWS_REGION}]${NC}${BOLD}: "
-    read -r input
+    tty_read -r input
     AWS_REGION="${input:-$AWS_REGION}"
 
     echo ""
@@ -756,7 +778,7 @@ _collect_bedrock_credentials() {
     echo -e "    ${BOLD}4)${NC} Custom"
     echo ""
     prompt "Select model ${CYAN}[1]${NC}${BOLD}: "
-    read -r model_choice
+    tty_read -r model_choice
     model_choice="${model_choice:-1}"
     case "$model_choice" in
       1) AWS_BEDROCK_MODEL_ID="us.anthropic.claude-3-7-sonnet-20250219-v1:0" ;;
@@ -764,7 +786,7 @@ _collect_bedrock_credentials() {
       3) AWS_BEDROCK_MODEL_ID="us.anthropic.claude-haiku-4-20250414-v1:0" ;;
       4)
         prompt "Enter Bedrock model ID: "
-        read -r AWS_BEDROCK_MODEL_ID
+        tty_read -r AWS_BEDROCK_MODEL_ID
         if [[ -z "$AWS_BEDROCK_MODEL_ID" ]]; then
           err "Model ID is required"
           exit 1
@@ -774,7 +796,7 @@ _collect_bedrock_credentials() {
     esac
 
     prompt "Bedrock provider ${CYAN}[${AWS_BEDROCK_PROVIDER}]${NC}${BOLD}: "
-    read -r input
+    tty_read -r input
     AWS_BEDROCK_PROVIDER="${input:-$AWS_BEDROCK_PROVIDER}"
   fi
   log "Provider: ${LLM_PROVIDER}  Region: ${AWS_REGION}  Model: ${AWS_BEDROCK_MODEL_ID}"
@@ -792,7 +814,7 @@ _collect_openai_credentials() {
       exit 1
     fi
     prompt "Enter your OpenAI API key: "
-    read -rs OPENAI_API_KEY
+    tty_read -rs OPENAI_API_KEY
     echo ""
     if [[ -z "$OPENAI_API_KEY" ]]; then
       err "API key is required"
@@ -803,11 +825,11 @@ _collect_openai_credentials() {
 
   if ! $NON_INTERACTIVE; then
     prompt "OpenAI endpoint ${CYAN}[${OPENAI_ENDPOINT}]${NC}${BOLD}: "
-    read -r input
+    tty_read -r input
     OPENAI_ENDPOINT="${input:-$OPENAI_ENDPOINT}"
 
     prompt "Model name ${CYAN}[${OPENAI_MODEL_NAME}]${NC}${BOLD}: "
-    read -r input
+    tty_read -r input
     OPENAI_MODEL_NAME="${input:-$OPENAI_MODEL_NAME}"
   fi
   log "Provider: ${LLM_PROVIDER}  Endpoint: ${OPENAI_ENDPOINT}  Model: ${OPENAI_MODEL_NAME}"
@@ -835,18 +857,18 @@ _collect_vllm_credentials() {
       echo -e "  ${DIM}vLLM needs a HuggingFace token to download model weights.${NC}"
       echo -e "  ${DIM}Get one at https://huggingface.co/settings/tokens${NC}"
       prompt "HuggingFace token ${DIM}(leave blank for public models)${NC}${BOLD}: "
-      read -rs HF_TOKEN
+      tty_read -rs HF_TOKEN
       echo ""
     fi
   fi
 
   if ! $NON_INTERACTIVE; then
     prompt "vLLM model ${CYAN}[${VLLM_MODEL}]${NC}${BOLD}: "
-    read -r input
+    tty_read -r input
     VLLM_MODEL="${input:-$VLLM_MODEL}"
 
     prompt "LiteLLM model name ${CYAN}[${LITELLM_MODEL_NAME}]${NC}${BOLD}: "
-    read -r input
+    tty_read -r input
     LITELLM_MODEL_NAME="${input:-$LITELLM_MODEL_NAME}"
   fi
 
@@ -886,7 +908,7 @@ _collect_openai_embeddings_key() {
   echo -e "  ${DIM}RAG embeddings use OpenAI, but your LLM provider is ${BOLD}${LLM_PROVIDER}${NC}${DIM}.${NC}"
   echo -e "  ${DIM}An OpenAI API key is needed for the embeddings model.${NC}"
   prompt "Enter your OpenAI API key (for embeddings): "
-  read -rs OPENAI_API_KEY
+  tty_read -rs OPENAI_API_KEY
   echo ""
   if [[ -z "$OPENAI_API_KEY" ]]; then
     err "OpenAI API key is required for embeddings"
@@ -923,7 +945,7 @@ choose_features() {
     log "RAG enabled"
 
     prompt "Embeddings provider ${CYAN}[${EMBEDDINGS_PROVIDER}]${NC}${BOLD}: "
-    read -r input
+    tty_read -r input
     EMBEDDINGS_PROVIDER="${input:-$EMBEDDINGS_PROVIDER}"
 
     echo ""
@@ -933,14 +955,14 @@ choose_features() {
     echo -e "    ${BOLD}3)${NC} Custom"
     echo ""
     prompt "Select embeddings model ${CYAN}[1]${NC}${BOLD}: "
-    read -r emb_choice
+    tty_read -r emb_choice
     emb_choice="${emb_choice:-1}"
     case "$emb_choice" in
       1) EMBEDDINGS_MODEL="text-embedding-3-large" ;;
       2) EMBEDDINGS_MODEL="text-embedding-3-small" ;;
       3)
         prompt "Enter custom embeddings model name: "
-        read -r EMBEDDINGS_MODEL
+        tty_read -r EMBEDDINGS_MODEL
         if [[ -z "$EMBEDDINGS_MODEL" ]]; then
           err "Model name is required"
           exit 1
@@ -1489,7 +1511,13 @@ _apply_agent_patches_volume() {
 # Root cause: OpenAI streams PlatformEngineerResponse as plain text, not tool
 # calls. The fix sets from_response_format_tool=True when handle_structured_response
 # successfully parses the response in PRIORITY 2/3 paths.
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# When piped (curl | bash), $0 is "bash" so dirname is meaningless.
+# Fall back to $PWD; the agent_fix function already handles missing files.
+if [[ -f "$0" ]]; then
+  SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+else
+  SCRIPT_DIR="$PWD"
+fi
 
 _create_agent_fix_configmap() {
   local fix_file="${SCRIPT_DIR}/agent_fix.py"
@@ -2131,6 +2159,7 @@ deploy_caipe() {
   if $ENABLE_RAG; then
     helm_args+=(
       --set tags.rag-stack=true
+      --set 'rag-stack.rag-webui.enabled=false'
       --set caipe-ui.env.RAG_URL=/api/rag
       --set caipe-ui.env.RAG_SERVER_URL=http://rag-server:${RAG_SERVER_PORT}
       --set caipe-ui.env.RAG_ENABLED=true
@@ -3174,7 +3203,7 @@ cmd_cleanup() {
     echo -e "  ${RED}including Helm releases, secrets, PVCs, and namespaces.${NC}"
     echo ""
     prompt "Type 'yes' to confirm: "
-    read -r confirm
+    tty_read -r confirm
     if [[ "$confirm" != "yes" ]]; then
       log "Aborted"
       exit 0
@@ -3305,7 +3334,7 @@ cmd_cleanup() {
         echo ""
         if ask_yn "Delete a Kind cluster?" "n"; then
           prompt "Enter the cluster name to delete: "
-          read -r del_cluster
+          tty_read -r del_cluster
           if [[ -n "$del_cluster" ]] && echo "$clusters" | grep -q "^${del_cluster}$"; then
             kind delete cluster --name "$del_cluster"
             log "Cluster '${del_cluster}' deleted"
@@ -3453,10 +3482,22 @@ ensure_healthy() {
 # ─── Main ────────────────────────────────────────────────────────────────────
 cmd_setup() {
   echo ""
-  echo -e "${BLUE}${BOLD}╔══════════════════════════════════════════════╗${NC}"
-  echo -e "${BLUE}${BOLD}║       CAIPE Lab Environment Setup            ║${NC}"
-  echo -e "${BLUE}${BOLD}║    Multi-Agent System on Kubernetes          ║${NC}"
-  echo -e "${BLUE}${BOLD}╚══════════════════════════════════════════════╝${NC}"
+  echo -e "${CYAN}${BOLD}"
+  cat <<'BANNER'
+   ██████╗ █████╗ ██╗██████╗ ███████╗
+  ██╔════╝██╔══██╗██║██╔══██╗██╔════╝
+  ██║     ███████║██║██████╔╝█████╗
+  ██║     ██╔══██║██║██╔═══╝ ██╔══╝
+  ╚██████╗██║  ██║██║██║     ███████╗
+   ╚═════╝╚═╝  ╚═╝╚═╝╚═╝     ╚══════╝
+BANNER
+  echo -e "${NC}"
+  echo -e "${BLUE}${BOLD}╔═══════════════════════════════════════════════╗${NC}"
+  echo -e "${BLUE}${BOLD}║${NC}  ${BOLD}Welcome to CAIPE Setup${NC}                       ${BLUE}${BOLD}║${NC}"
+  echo -e "${BLUE}${BOLD}║${NC}  Your 🤖 Agentic AI automation super hero 🦸  ${BLUE}${BOLD}║${NC}"
+  echo -e "${BLUE}${BOLD}║${NC}                                               ${BLUE}${BOLD}║${NC}"
+  echo -e "${BLUE}${BOLD}║${NC}  ${DIM}Multi-Agent System on Kubernetes${NC}             ${BLUE}${BOLD}║${NC}"
+  echo -e "${BLUE}${BOLD}╚═══════════════════════════════════════════════╝${NC}"
   echo ""
 
   check_prerequisites
@@ -3494,7 +3535,7 @@ cmd_setup() {
       echo -e "    ${BOLD}3)${NC} Full re-install — run full setup from scratch"
       echo ""
       prompt "Select an option ${CYAN}[1]${NC}${BOLD}: "
-      read -r rerun_choice
+      tty_read -r rerun_choice
       rerun_choice="${rerun_choice:-1}"
     fi
 
