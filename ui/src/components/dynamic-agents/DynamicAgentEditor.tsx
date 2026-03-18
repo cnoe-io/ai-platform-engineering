@@ -381,7 +381,7 @@ export function DynamicAgentEditor({ agent, cloneFrom, onSave, onCancel }: Dynam
     }
   };
 
-  const isValid = name.trim() && systemPrompt.trim() && modelId;
+  const isValid = name.trim() && systemPrompt.trim() && modelId && availableModels.length > 0;
 
   return (
     <Card>
@@ -521,13 +521,13 @@ export function DynamicAgentEditor({ agent, cloneFrom, onSave, onCancel }: Dynam
                         }
                       }
                     }}
-                    disabled={loading || modelsLoading}
+                    disabled={loading || modelsLoading || availableModels.length === 0}
                     className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm font-medium shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     {modelsLoading ? (
                       <option value="">Loading models...</option>
                     ) : availableModels.length === 0 ? (
-                      <option value="">Platform Default</option>
+                      <option value="" disabled>No models available</option>
                     ) : (
                       availableModels.map((model) => (
                         <option key={`${model.model_id}::${model.provider}`} value={`${model.model_id}::${model.provider}`}>
@@ -536,9 +536,15 @@ export function DynamicAgentEditor({ agent, cloneFrom, onSave, onCancel }: Dynam
                       ))
                     )}
                   </select>
-                  <p className="text-xs text-muted-foreground mt-2">
-                    The language model that powers this agent&apos;s reasoning.
-                  </p>
+                  {!modelsLoading && availableModels.length === 0 ? (
+                    <p className="text-xs text-destructive mt-2">
+                      No LLM models available. Please check your deployment configuration.
+                    </p>
+                  ) : (
+                    <p className="text-xs text-muted-foreground mt-2">
+                      The language model that powers this agent&apos;s reasoning.
+                    </p>
+                  )}
                 </div>
               </div>
 
