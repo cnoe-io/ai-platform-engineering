@@ -20,18 +20,6 @@ SUBAGENT_END = "subagent_end"
 FINAL_RESULT = "final_result"
 INPUT_REQUIRED = "input_required"
 
-# Deepagents built-in tools (render compactly in UI)
-BUILTIN_TOOLS = frozenset(
-    {
-        "write_todos",
-        "read_file",
-        "write_file",
-        "edit_file",
-        "ls",
-        "fetch_url",  # Dynamic agents built-in with domain ACL
-    }
-)
-
 
 # ═══════════════════════════════════════════════════════════════
 # Helper Functions
@@ -85,7 +73,6 @@ def make_tool_start_event(
             "tool_call_id": tool_call_id,
             "args": _truncate_args(args),
             "agent": agent,
-            "is_builtin": tool_name in BUILTIN_TOOLS,
         },
     }
 

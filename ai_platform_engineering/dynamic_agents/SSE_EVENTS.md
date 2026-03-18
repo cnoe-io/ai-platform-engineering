@@ -106,8 +106,7 @@ Emitted when the agent calls a tool.
     "tool_name": "search_jira",
     "tool_call_id": "call_abc123",
     "args": {"query": "user tickets..."},
-    "agent": "DynamicAgent",
-    "is_builtin": false
+    "agent": "DynamicAgent"
   }
 }
 ```
@@ -119,7 +118,6 @@ Emitted when the agent calls a tool.
 | `tool_call_id` | Unique ID for this tool invocation (used to match with `tool_end`) |
 | `args` | Tool arguments (string values truncated to 100 chars) |
 | `agent` | Name of the agent making the call |
-| `is_builtin` | Whether this is a deepagents builtin tool (affects UI rendering) |
 
 **Backend source:** `stream_events.make_tool_start_event()`
 
@@ -303,20 +301,6 @@ data: {}
 
 ---
 
-## Builtin Tools
-
-The following tools are considered "builtin" and render as compact inline chips in the UI (no borders):
-
-- `write_todos`
-- `read_file`
-- `write_file`
-- `edit_file`
-- `ls`
-
-This list is defined in:
-- **Backend:** `stream_events.BUILTIN_TOOLS`
-- **Frontend:** `sse-types.BUILTIN_TOOLS`
-
 ## File Reference
 
 ### Backend Files
@@ -352,8 +336,6 @@ This list is defined in:
 │ ├─────────────────────────────────┤ │
 │ │ [ ] Generate report             │ │
 │ └─────────────────────────────────┘ │
-│                                     │
-│ [v] read_file  [v] edit_file  [v] ls│  <- Builtin tools (compact chips)
 │                                     │
 │ Running (1)                         │
 │ ┌─────────────────────────────────┐ │
