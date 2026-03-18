@@ -112,22 +112,14 @@ Get llmSecrets.externalSecrets.secretStoreRef with global fallback
 {{- end }}
 
 {{/*
-Iterate all keys in enabledSubAgents and get the agent names IF enabled is true.
+Returns the enabledSubAgents dict as YAML.
 In single-node mode reads from supervisor-agent.singleNode.enabledSubAgents.
-In multi-node mode reads from global.enabledSubAgents (populated by Chart.yaml import-values).
+In multi-node mode reads from global.enabledSubAgents (populated by Chart.yaml import-values e.g. global.enabledSubAgents.backstage.enabled: true).
 */}}
-{{- define "ai-platform-engineering.enabledSubAgents.names" -}}
-    {{- $names := list -}}
-    {{- $agents := dict -}}
-    {{- if eq .Values.global.deploymentMode "single-node" -}}
-        {{- $agents = (index .Values "supervisor-agent").singleNode.enabledSubAgents | default dict -}}
-    {{- else -}}
-        {{- $agents = (.Values.global).enabledSubAgents | default dict -}}
-    {{- end -}}
-    {{- range $name, $enabled := $agents }}
-        {{- if $enabled }}
-            {{- $names = append $names $name }}
-        {{- end }}
-    {{- end }}
-    {{- $names -}}
-{{- end }}
+{{- define "ai-platform-engineering.enabledSubAgents" -}}
+{{- if eq .Values.global.deploymentMode "single-node" -}}
+{{- (index .Values "supervisor-agent").singleNode.enabledSubAgents | default dict | toYaml -}}
+{{- else -}}
+{{- .Values.global.enabledSubAgents | default dict | toYaml -}}
+{{- end -}}
+{{- end -}}

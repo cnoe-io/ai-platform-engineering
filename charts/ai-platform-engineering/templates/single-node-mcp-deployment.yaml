@@ -5,8 +5,7 @@ level for every enabled subagent whose mcp.mode is "http" (and that isn't using 
 remote MCP server).
 */ -}}
 {{- if eq .Values.global.deploymentMode "single-node" }}
-{{- $singleNode := (index .Values "supervisor-agent").singleNode | default dict }}
-{{- range $name, $enabled := (default dict $singleNode.enabledSubAgents) }}
+{{- range $name, $enabled := (include "ai-platform-engineering.enabledSubAgents" . | fromYaml) }}
 {{- if $enabled }}
 {{- $agentKey := printf "agent-%s" $name }}
 {{- $agentValues := index $.Values $agentKey | default dict }}

@@ -141,10 +141,6 @@ supervisor-agent:
       splunk: true
       weather: false
       webex: true
-    # Supervisor (parent agent) LLM model override.
-    # Uses langchain's provider:model-name format (e.g. "openai:gpt-4o").
-    # When empty, falls back to the LLM_PROVIDER / model-name env vars from llm-secret.
-    supervisorModel: ""
   nameOverride: "supervisor-agent"
   image:
     repository: "ghcr.io/cnoe-io/ai-platform-engineering"
