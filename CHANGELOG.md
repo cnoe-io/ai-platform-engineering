@@ -1,4 +1,77 @@
-## 0.2.39 (2026-03-17)
+## 0.2.40 (2026-03-18)
+
+### Feat
+
+- **ui**: make built-in skills configurable and non-deletable (#1014)
+
+## 0.2.39-rc.6 (2026-03-18)
+
+### Feat
+
+- **confluence**: add configurable title-based page filtering for ingestion (#996)
+
+## 0.2.39-rc.5 (2026-03-18)
+
+### Fix
+
+- **dynamic-agents**: use os._exit(1) to forcefully terminate process
+- **dynamic-agents**: use sys.exit(1) to ensure process terminates
+- **dynamic-agents**: require MongoDB at startup with retry logic
+
+### Refactor
+
+- **dynamic-agents**: extract fatal_exit() function for reusability
+
+## 0.2.39-rc.4 (2026-03-18)
+
+### Feat
+
+- **dynamic-agents**: add per-agent gradient theme support
+- **dynamic-agents**: add export YAML and clone agent actions
+
+### Fix
+
+- **dynamic-agents**: use arrow symbol in gradient theme labels
+- **ui**: default thinking panel to collapsed for completed messages (#1011)
+
+## 0.2.39-rc.3 (2026-03-18)
+
+### Fix
+
+- **dynamic-agents**: update conversations.py to use UserContext parameter
+- **ui**: audit chat preservation, loading UX, admin navigation, and report-a-problem (#1010)
+
+### Refactor
+
+- **dynamic-agents**: simplify agent_runtime.py
+- **dynamic-agents**: consolidate user context into single UserContext object
+- **dynamic-agents**: simplify SSE error handling
+- **dynamic-agents**: consolidate access control into auth/access.py
+- **dynamic-agents**: consolidate logging into logging.py
+- **dynamic-agents**: rename middleware/ to auth/
+- **dynamic-agents**: remove BUILTIN_TOOLS distinction
+- **dynamic-agents**: make stream trackers stateless
+- **dynamic-agents**: remove dead code
+- **dynamic-agents**: remove prompts/ folder and extension prompt feature
+
+## 0.2.39-rc.2 (2026-03-17)
+
+### Feat
+
+- **ui**: allow addMessage to preserve message IDs from checkpointer
+- **ui**: load Dynamic Agent chat history on conversation open
+- **dynamic-agents**: add conversations router with messages and clear endpoints
+- **dynamic-agents**: switch to MongoDB checkpointer for persistent chat history
+- **dynamic-agents**: add langgraph-checkpoint-mongodb dependency
+- **dynamic-agents**: add admin Conversations tab for managing chat history
+- **ui**: implement DynamicAgentChatPanel for phase 1 of persistent chat history
+
+### Fix
+
+- **ui**: add yaml dependency and fix streaming route types
+- **ui**: use getAuthenticatedUser for Dynamic Agent streaming routes
+
+## 0.2.39-rc.1 (2026-03-17)
 
 ## 0.2.38-rc.15 (2026-03-17)
 
