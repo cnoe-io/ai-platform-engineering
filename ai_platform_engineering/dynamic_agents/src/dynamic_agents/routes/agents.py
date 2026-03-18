@@ -4,7 +4,7 @@ import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from dynamic_agents.middleware.auth import UserContext, get_current_user, require_admin
+from dynamic_agents.auth.auth import UserContext, get_current_user, require_admin
 from dynamic_agents.models import (
     ApiResponse,
     DynamicAgentConfig,

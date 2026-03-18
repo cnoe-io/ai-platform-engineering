@@ -12,7 +12,7 @@ from typing import Literal
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 
-from dynamic_agents.middleware.auth import UserContext, get_current_user, require_admin
+from dynamic_agents.auth.auth import UserContext, get_current_user, require_admin
 from dynamic_agents.models import ApiResponse
 from dynamic_agents.services.agent_runtime import get_runtime_cache
 from dynamic_agents.services.mongo import MongoDBService, get_mongo_service
