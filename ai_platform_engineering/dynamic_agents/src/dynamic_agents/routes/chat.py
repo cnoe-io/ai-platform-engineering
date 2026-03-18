@@ -9,7 +9,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from dynamic_agents.auth.auth import UserContext, get_current_user
-from dynamic_agents.context import conversation_id_var
+from dynamic_agents.logging import conversation_id_var
 from dynamic_agents.models import ChatRequest, DynamicAgentConfig, VisibilityType
 from dynamic_agents.services.agent_runtime import get_runtime_cache
 from dynamic_agents.services.mongo import MongoDBService, get_mongo_service

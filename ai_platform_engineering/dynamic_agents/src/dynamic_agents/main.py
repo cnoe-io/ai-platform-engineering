@@ -1,54 +1,11 @@
 """Dynamic Agents FastAPI Application."""
 
-import logging
-import sys
 from contextlib import asynccontextmanager
 
-from dynamic_agents.context import conversation_id_var
-
-
-class ConversationContextFilter(logging.Filter):
-    """Logging filter that adds conversation_id to log records."""
-
-    def filter(self, record: logging.LogRecord) -> bool:
-        record.conversation_id = conversation_id_var.get()
-        return True
-
-
-# Configure logging for dynamic_agents BEFORE importing cnoe-agent-utils
-# This prevents cnoe-agent-utils from capturing our logs with their format
-def _setup_logging() -> logging.Logger:
-    """Configure logging for the dynamic_agents package.
-
-    Sets up a dedicated handler for the 'dynamic_agents' logger that:
-    - Uses our own format with [dynamic_agents] prefix
-    - Includes conversation_id for request tracing
-    - Does not propagate to root logger (avoids cnoe-agent-utils format)
-    """
-    # Create logger for our package
-    pkg_logger = logging.getLogger("dynamic_agents")
-    pkg_logger.setLevel(logging.INFO)
-
-    # Only add handler if not already configured (avoid duplicates on reload)
-    if not pkg_logger.handlers:
-        handler = logging.StreamHandler(sys.stderr)
-        handler.setLevel(logging.INFO)
-        formatter = logging.Formatter(
-            "%(asctime)s %(levelname)s [dynamic_agents] conv=%(conversation_id)s %(message)s",
-            datefmt="%Y-%m-%d %H:%M:%S",
-        )
-        handler.setFormatter(formatter)
-        handler.addFilter(ConversationContextFilter())
-        pkg_logger.addHandler(handler)
-
-    # Don't propagate to root logger (cnoe-agent-utils configures root with [llm_factory])
-    pkg_logger.propagate = False
-
-    return pkg_logger
-
+from dynamic_agents.logging import setup_logging
 
 # Setup logging before other imports that trigger cnoe-agent-utils
-logger = _setup_logging()
+logger = setup_logging()
 
 # ruff: noqa: E402
 # Imports must be after logging setup to ensure our format is used
