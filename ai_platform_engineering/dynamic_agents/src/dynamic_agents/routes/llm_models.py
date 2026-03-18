@@ -6,7 +6,7 @@ or editing dynamic agents.
 
 from fastapi import APIRouter, Depends
 
-from dynamic_agents.middleware.auth import UserContext, get_current_user
+from dynamic_agents.auth.auth import UserContext, get_current_user
 from dynamic_agents.models import ApiResponse
 from dynamic_agents.services.models_config import get_available_models
 

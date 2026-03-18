@@ -42,7 +42,6 @@ export interface ToolEventData {
   tool_call_id: string;
   args?: Record<string, unknown>; // Only in tool_start, truncated to 100 chars
   agent: string;
-  is_builtin: boolean;
 }
 
 /** Todo item from todo_update events */
@@ -212,22 +211,6 @@ export interface SSEAgentEvent {
   /** HITL metadata */
   metadata?: HITLMetadata;
 }
-
-// ═══════════════════════════════════════════════════════════════
-// Builtin Tools (render as compact chips)
-// ═══════════════════════════════════════════════════════════════
-
-/**
- * Builtin tools render as compact inline chips without borders.
- * Must match BUILTIN_TOOLS in backend stream_events.py.
- */
-export const BUILTIN_TOOLS = new Set([
-  "write_todos",
-  "read_file",
-  "write_file",
-  "edit_file",
-  "ls",
-]);
 
 // ═══════════════════════════════════════════════════════════════
 // Factory Functions

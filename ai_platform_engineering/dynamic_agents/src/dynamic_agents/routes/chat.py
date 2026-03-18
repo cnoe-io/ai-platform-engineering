@@ -8,9 +8,10 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from dynamic_agents.context import conversation_id_var
-from dynamic_agents.middleware.auth import UserContext, get_current_user
-from dynamic_agents.models import ChatRequest, DynamicAgentConfig, VisibilityType
+from dynamic_agents.auth.access import can_use_agent
+from dynamic_agents.auth.auth import get_current_user
+from dynamic_agents.logging import conversation_id_var
+from dynamic_agents.models import ChatRequest, DynamicAgentConfig, UserContext
 from dynamic_agents.services.agent_runtime import get_runtime_cache
 from dynamic_agents.services.mongo import MongoDBService, get_mongo_service
 
@@ -35,40 +36,12 @@ class ResumeStreamRequest(BaseModel):
     trace_id: str | None = None
 
 
-def _can_use_agent(agent: DynamicAgentConfig, user: UserContext) -> bool:
-    """Check if user can use the agent."""
-    # Admin can use all agents
-    if user.is_admin:
-        return True
-
-    # Disabled agents cannot be used
-    if not agent.enabled:
-        return False
-
-    # Owner can use their own
-    if agent.owner_id == user.email:
-        return True
-
-    # Global is available to all
-    if agent.visibility == VisibilityType.GLOBAL:
-        return True
-
-    # Team visibility requires group membership
-    if agent.visibility == VisibilityType.TEAM:
-        if agent.shared_with_teams:
-            return any(team in user.groups for team in agent.shared_with_teams)
-
-    return False
-
-
 async def _generate_sse_events(
     agent_config: DynamicAgentConfig,
     mcp_servers: list,
     message: str,
     session_id: str,
-    user_id: str,
-    user_name: str | None = None,
-    user_groups: list[str] | None = None,
+    user: UserContext,
     trace_id: str | None = None,
     mongo: MongoDBService | None = None,
 ) -> AsyncGenerator[str, None]:
@@ -88,13 +61,11 @@ async def _generate_sse_events(
             agent_config,
             mcp_servers,
             session_id,
-            user_email=user_id,
-            user_name=user_name,
-            user_groups=user_groups,
+            user=user,
         )
 
         # Stream response with trace_id for Langfuse tracing
-        async for event in runtime.stream(message, session_id, user_id, trace_id):
+        async for event in runtime.stream(message, session_id, user.email, trace_id):
             event_type = event.get("type", "event")
             event_data = event.get("data", "")
 
@@ -111,42 +82,7 @@ async def _generate_sse_events(
 
     except Exception as e:
         logger.exception(f"Error streaming from agent '{agent_config.name}'")
-        error_str = str(e).lower()
-
-        # Detect LLM-related errors based on error message content
-        llm_keywords = [
-            "deployment",
-            "model",
-            "not found",
-            "does not exist",
-            "invalid_request",
-            "authentication",
-            "unauthorized",
-            "api key",
-            "rate limit",
-            "quota",
-            "openai",
-            "azure",
-            "bedrock",
-            "anthropic",
-            "gemini",
-            "vertex",
-        ]
-        is_llm_error = any(keyword in error_str for keyword in llm_keywords)
-
-        if is_llm_error:
-            # Build context info: provider and model
-            context_parts = []
-            if agent_config.model_provider:
-                context_parts.append(f"provider: {agent_config.model_provider}")
-            if agent_config.model_id:
-                context_parts.append(f"model: {agent_config.model_id}")
-            context_info = f" ({', '.join(context_parts)})" if context_parts else ""
-            error_msg = f"LLM Connection Error{context_info}: {e}"
-        else:
-            error_msg = str(e)
-
-        error_data = json.dumps({"error": error_msg})
+        error_data = json.dumps({"error": str(e)})
         yield f"event: error\ndata: {error_data}\n\n"
 
 
@@ -180,7 +116,7 @@ async def chat_start_stream(
         raise HTTPException(status_code=404, detail="Agent not found")
 
     # Check access
-    if not _can_use_agent(agent, user):
+    if not can_use_agent(agent, user):
         raise HTTPException(status_code=403, detail="Access denied")
 
     # Get MCP servers for this agent
@@ -201,9 +137,7 @@ async def chat_start_stream(
             mcp_servers=mcp_servers,
             message=request.message,
             session_id=request.conversation_id,
-            user_id=user.email,
-            user_name=user.name,
-            user_groups=user.groups,
+            user=user,
             trace_id=request.trace_id,
             mongo=mongo,
         ),
@@ -220,10 +154,8 @@ async def _generate_resume_sse_events(
     agent_config: DynamicAgentConfig,
     mcp_servers: list,
     session_id: str,
-    user_id: str,
+    user: UserContext,
     form_data: str,
-    user_name: str | None = None,
-    user_groups: list[str] | None = None,
     trace_id: str | None = None,
     mongo: MongoDBService | None = None,
 ) -> AsyncGenerator[str, None]:
@@ -243,13 +175,11 @@ async def _generate_resume_sse_events(
             agent_config,
             mcp_servers,
             session_id,
-            user_email=user_id,
-            user_name=user_name,
-            user_groups=user_groups,
+            user=user,
         )
 
         # Resume streaming with form data
-        async for event in runtime.resume(session_id, user_id, form_data, trace_id):
+        async for event in runtime.resume(session_id, user.email, form_data, trace_id):
             event_type = event.get("type", "event")
             event_data = event.get("data", "")
 
@@ -299,7 +229,7 @@ async def chat_resume_stream(
         raise HTTPException(status_code=404, detail="Agent not found")
 
     # Check access
-    if not _can_use_agent(agent, user):
+    if not can_use_agent(agent, user):
         raise HTTPException(status_code=403, detail="Access denied")
 
     # Get MCP servers for this agent
@@ -315,10 +245,8 @@ async def chat_resume_stream(
             agent_config=agent,
             mcp_servers=mcp_servers,
             session_id=request.conversation_id,
-            user_id=user.email,
+            user=user,
             form_data=request.form_data,
-            user_name=user.name,
-            user_groups=user.groups,
             trace_id=request.trace_id,
             mongo=mongo,
         ),
@@ -350,7 +278,7 @@ async def chat_invoke(
         raise HTTPException(status_code=404, detail="Agent not found")
 
     # Check access
-    if not _can_use_agent(agent, user):
+    if not can_use_agent(agent, user):
         raise HTTPException(status_code=403, detail="Access denied")
 
     # Get MCP servers for this agent
@@ -369,9 +297,7 @@ async def chat_invoke(
         agent,
         mcp_servers,
         request.conversation_id,
-        user_email=user.email,
-        user_name=user.name,
-        user_groups=user.groups,
+        user=user,
     )
 
     content_parts = []
@@ -422,7 +348,7 @@ async def restart_runtime(
         raise HTTPException(status_code=404, detail="Agent not found")
 
     # Check access - only users who can use the agent can restart it
-    if not _can_use_agent(agent, user):
+    if not can_use_agent(agent, user):
         raise HTTPException(status_code=403, detail="Access denied")
 
     # Invalidate the runtime cache

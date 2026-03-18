@@ -157,7 +157,6 @@ The API documentation is available at:
 | `OIDC_GROUP_CLAIM` | JWT claim name(s) for groups | - |
 | `OIDC_REQUIRED_ADMIN_GROUP` | Group name for admin access | - |
 | `AGENT_RUNTIME_TTL_SECONDS` | Cache TTL for agent runtimes | `3600` |
-| `DEFAULT_EXTENSION_PROMPT_PATH` | Path to custom extension prompt file | - |
 | `CORS_ORIGINS` | Allowed CORS origins | `["*"]` |
 
 ### Models Configuration
@@ -342,23 +341,23 @@ dynamic_agents/
 │   ├── main.py              # FastAPI application entry point
 │   ├── config.py            # Settings and configuration
 │   ├── models.py            # Pydantic models
+│   ├── logging.py           # Logging setup and request context
+│   ├── auth/
+│   │   ├── auth.py          # JWT authentication (authn)
+│   │   └── access.py        # Access control checks (authz)
 │   ├── routes/
 │   │   ├── agents.py        # Agent CRUD endpoints
 │   │   ├── mcp_servers.py   # MCP server endpoints
 │   │   ├── chat.py          # Chat streaming endpoints
 │   │   └── health.py        # Health check endpoints
-│   ├── services/
-│   │   ├── agent_runtime.py # Agent execution and caching
-│   │   ├── mongo.py         # MongoDB operations
-│   │   ├── mcp_client.py    # MCP server connections
-│   │   ├── builtin_tools.py # Built-in tool implementations
-│   │   ├── stream_events.py # SSE event builders
-│   │   ├── stream_trackers.py # Streaming state trackers
-│   │   └── models_config.py # LLM models configuration
-│   ├── middleware/
-│   │   └── auth.py          # JWT authentication
-│   └── prompts/
-│       └── extension.py     # Default extension prompt
+│   └── services/
+│       ├── agent_runtime.py # Agent execution and caching
+│       ├── mongo.py         # MongoDB operations
+│       ├── mcp_client.py    # MCP server connections
+│       ├── builtin_tools.py # Built-in tool implementations
+│       ├── stream_events.py # SSE event builders
+│       ├── stream_trackers.py # SSE event emitters
+│       └── models_config.py # LLM models configuration
 ├── tests/                   # Test files
 ├── pyproject.toml           # Project dependencies
 └── README.md                # This file

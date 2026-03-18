@@ -1,17 +1,14 @@
 """
-Stateful trackers for SSE event stream transformation.
+Stateless event emitters for SSE stream transformation.
 
-These trackers maintain state during a streaming session and emit
-structured events for the UI. They replace the verbose, emoji-based
-text events with clean JSON events.
+These functions create structured SSE events for the UI.
+No state is maintained - the UI matches start/end events by tool_call_id.
 """
 
 import logging
-import re
 from typing import Any
 
 from dynamic_agents.services.stream_events import (
-    BUILTIN_TOOLS,
     make_subagent_end_event,
     make_subagent_start_event,
     make_todo_update_event,
@@ -23,277 +20,106 @@ logger = logging.getLogger(__name__)
 
 
 # ═══════════════════════════════════════════════════════════════
-# ToolTracker - Tracks tool calls, emits tool_start/tool_end
+# Tool Events
 # ═══════════════════════════════════════════════════════════════
 
 
-class ToolTracker:
-    """Tracks tool calls and emits structured tool events.
+def emit_tool_start(
+    tool_name: str,
+    tool_call_id: str,
+    args: dict[str, Any],
+    agent: str,
+) -> dict[str, Any]:
+    """Emit a tool_start event."""
+    return make_tool_start_event(
+        tool_name=tool_name,
+        tool_call_id=tool_call_id,
+        args=args,
+        agent=agent,
+    )
 
-    Replaces the old _ToolTracker that emitted emoji-formatted text.
-    Now emits tool_start/tool_end events with structured data.
+
+def emit_tool_end(
+    tool_call_id: str,
+    agent: str,
+) -> dict[str, Any]:
+    """Emit a tool_end event."""
+    return make_tool_end_event(
+        tool_call_id=tool_call_id,
+        agent=agent,
+    )
+
+
+# ═══════════════════════════════════════════════════════════════
+# Todo Events
+# ═══════════════════════════════════════════════════════════════
+
+
+def emit_todo_update(
+    tool_name: str,
+    args: dict[str, Any],
+    agent: str,
+) -> dict[str, Any] | None:
+    """Emit a todo_update event if this is a write_todos call.
+
+    Returns None if this is not a write_todos call or has no todos.
     """
-
-    def __init__(self, agent_name: str):
-        self.agent_name = agent_name
-        # Map tool_call_id -> {name, args, started}
-        self._active_tools: dict[str, dict[str, Any]] = {}
-
-    def start_tool(
-        self,
-        tool_name: str,
-        tool_call_id: str,
-        args: dict[str, Any],
-    ) -> dict[str, Any]:
-        """Register a tool call starting.
-
-        Returns the tool_start event to emit.
-        """
-        self._active_tools[tool_call_id] = {
-            "name": tool_name,
-            "args": args,
-            "started": True,
-        }
-
-        return make_tool_start_event(
-            tool_name=tool_name,
-            tool_call_id=tool_call_id,
-            args=args,
-            agent=self.agent_name,
-        )
-
-    def end_tool(self, tool_call_id: str) -> dict[str, Any] | None:
-        """Mark a tool call as completed.
-
-        Returns the tool_end event to emit, or None if tool wasn't tracked.
-        """
-        tool_info = self._active_tools.pop(tool_call_id, None)
-        if not tool_info:
-            return None
-
-        return make_tool_end_event(
-            tool_name=tool_info["name"],
-            tool_call_id=tool_call_id,
-            agent=self.agent_name,
-        )
-
-    def get_tool_name(self, tool_call_id: str) -> str | None:
-        """Get the tool name for a given tool_call_id."""
-        tool_info = self._active_tools.get(tool_call_id)
-        return tool_info["name"] if tool_info else None
-
-    def is_builtin(self, tool_name: str) -> bool:
-        """Check if a tool is a builtin (renders compactly in UI)."""
-        return tool_name in BUILTIN_TOOLS
-
-
-# ═══════════════════════════════════════════════════════════════
-# TodoTracker - Parses write_todos output, emits todo_update
-# ═══════════════════════════════════════════════════════════════
-
-
-# Status icons used by write_todos tool (from deepagents/tools.py)
-STATUS_ICONS = {
-    "⏳": "pending",
-    "🔄": "in_progress",
-    "✅": "completed",
-    "❌": "cancelled",  # Also used for error/failed
-}
-
-
-def _parse_todo_markdown(content: str) -> list[dict[str, str]] | None:
-    """Parse the markdown output from write_todos tool.
-
-    The write_todos tool outputs:
-        📋 **Task Progress:**
-
-        - ⏳ Task description 1
-        - 🔄 Task description 2
-        - ✅ Task description 3
-
-    Returns list of {content, status} dicts, or None if not parseable.
-    """
-    if "📋" not in content and "Task Progress" not in content:
+    if tool_name != "write_todos":
         return None
 
+    todos_arg = args.get("todos", [])
+    if not todos_arg or not isinstance(todos_arg, list):
+        return None
+
+    # Convert to our format (ensure content and status keys)
     todos = []
-    # Match lines like "- ⏳ Task description" or "- 🔄 Task description"
-    # The regex captures the emoji and the task content
-    pattern = re.compile(r"^-\s*([⏳🔄✅❌])\s*(.+)$", re.MULTILINE)
+    for item in todos_arg:
+        if isinstance(item, dict) and "content" in item:
+            todos.append(
+                {
+                    "content": item.get("content", ""),
+                    "status": item.get("status", "pending"),
+                }
+            )
 
-    for match in pattern.finditer(content):
-        icon, task_content = match.groups()
-        status = STATUS_ICONS.get(icon, "pending")
-        todos.append(
-            {
-                "content": task_content.strip(),
-                "status": status,
-            }
-        )
+    if not todos:
+        return None
 
-    return todos if todos else None
-
-
-class TodoTracker:
-    """Tracks write_todos tool calls and emits structured todo events.
-
-    Can extract todos from:
-    1. Tool call args (write_todos receives {todos: [...]} as args)
-    2. ToolMessage content (fallback: parse markdown output)
-    """
-
-    def __init__(self, agent_name: str):
-        self.agent_name = agent_name
-        self._last_todos: list[dict[str, str]] = []
-
-    def process_tool_call(
-        self,
-        tool_name: str,
-        args: dict[str, Any],
-    ) -> dict[str, Any] | None:
-        """Process a write_todos tool call and emit todo_update from args.
-
-        The write_todos tool receives todos as structured args:
-            {"todos": [{"content": "...", "status": "pending"}, ...]}
-
-        This is more reliable than parsing the markdown output.
-
-        Args:
-            tool_name: Name of the tool being called
-            args: The tool call arguments
-
-        Returns:
-            todo_update event if this is write_todos, None otherwise
-        """
-        if tool_name != "write_todos":
-            return None
-
-        todos_arg = args.get("todos", [])
-        if not todos_arg or not isinstance(todos_arg, list):
-            return None
-
-        # Convert to our format (ensure content and status keys)
-        todos = []
-        for item in todos_arg:
-            if isinstance(item, dict) and "content" in item:
-                todos.append(
-                    {
-                        "content": item.get("content", ""),
-                        "status": item.get("status", "pending"),
-                    }
-                )
-
-        if not todos:
-            return None
-
-        self._last_todos = todos
-        logger.info(f"[TodoTracker] Emitting todo_update from args with {len(todos)} todos")
-        return make_todo_update_event(todos=todos, agent=self.agent_name)
-
-    def process_tool_result(
-        self,
-        tool_name: str,
-        tool_call_id: str,
-        content: str,
-    ) -> dict[str, Any] | None:
-        """Process a ToolMessage result, emitting todo_update if it's write_todos.
-
-        Fallback method - parses markdown output from write_todos.
-        Prefer process_tool_call() when args are available.
-
-        Args:
-            tool_name: Name of the tool that produced this result
-            tool_call_id: The tool call ID
-            content: The ToolMessage content (markdown from write_todos)
-
-        Returns:
-            todo_update event if this was a write_todos result, None otherwise
-        """
-        if tool_name != "write_todos":
-            return None
-
-        todos = _parse_todo_markdown(content)
-        if not todos:
-            logger.debug(f"Could not parse write_todos output: {content[:100]}...")
-            return None
-
-        self._last_todos = todos
-        return make_todo_update_event(todos=todos, agent=self.agent_name)
-
-    def get_current_todos(self) -> list[dict[str, str]]:
-        """Get the current todo list."""
-        return self._last_todos.copy()
+    logger.info(f"Emitting todo_update with {len(todos)} todos")
+    return make_todo_update_event(todos=todos, agent=agent)
 
 
 # ═══════════════════════════════════════════════════════════════
-# SubagentTracker - Tracks task tool calls → subagent events
+# Subagent Events
 # ═══════════════════════════════════════════════════════════════
 
 
-class SubagentTracker:
-    """Tracks subagent invocations via the 'task' tool.
+def is_task_tool(tool_name: str) -> bool:
+    """Check if this is the task tool (subagent invocation)."""
+    return tool_name == "task"
 
-    Since deepagents uses ainvoke() for subagents (not subgraphs),
-    we can't see streaming events from subagents. Instead, we:
-    1. Detect 'task' tool calls → emit subagent_start
-    2. Detect 'task' tool results → emit subagent_end
 
-    This is simpler than the old _SubagentTracker which tried to
-    track namespace-based subgraphs (which don't work with ainvoke).
-    """
+def emit_subagent_start(
+    tool_call_id: str,
+    subagent_type: str,
+    purpose: str,
+    parent_agent: str,
+) -> dict[str, Any]:
+    """Emit a subagent_start event."""
+    return make_subagent_start_event(
+        tool_call_id=tool_call_id,
+        subagent_name=subagent_type,
+        purpose=purpose,
+        parent_agent=parent_agent,
+    )
 
-    def __init__(self, parent_agent_name: str):
-        self.parent_agent_name = parent_agent_name
-        # Map tool_call_id -> {subagent_type, purpose, started}
-        self._active_subagents: dict[str, dict[str, Any]] = {}
 
-    def start_subagent(
-        self,
-        tool_call_id: str,
-        subagent_type: str,
-        purpose: str,
-    ) -> dict[str, Any]:
-        """Register a subagent invocation starting (task tool called).
-
-        Args:
-            tool_call_id: The task tool call ID
-            subagent_type: The subagent type being invoked
-            purpose: The prompt/description for the subagent
-
-        Returns:
-            subagent_start event to emit
-        """
-        self._active_subagents[tool_call_id] = {
-            "subagent_type": subagent_type,
-            "purpose": purpose,
-            "started": True,
-        }
-
-        return make_subagent_start_event(
-            subagent_name=subagent_type,
-            purpose=purpose,
-            parent_agent=self.parent_agent_name,
-        )
-
-    def end_subagent(self, tool_call_id: str) -> dict[str, Any] | None:
-        """Mark a subagent invocation as completed (task tool result received).
-
-        Returns:
-            subagent_end event to emit, or None if subagent wasn't tracked
-        """
-        subagent_info = self._active_subagents.pop(tool_call_id, None)
-        if not subagent_info:
-            return None
-
-        return make_subagent_end_event(
-            subagent_name=subagent_info["subagent_type"],
-            parent_agent=self.parent_agent_name,
-        )
-
-    def is_task_tool(self, tool_name: str) -> bool:
-        """Check if this is the task tool (subagent invocation)."""
-        return tool_name == "task"
-
-    def get_active_subagent(self, tool_call_id: str) -> dict[str, Any] | None:
-        """Get info about an active subagent."""
-        return self._active_subagents.get(tool_call_id)
+def emit_subagent_end(
+    tool_call_id: str,
+    parent_agent: str,
+) -> dict[str, Any]:
+    """Emit a subagent_end event."""
+    return make_subagent_end_event(
+        tool_call_id=tool_call_id,
+        parent_agent=parent_agent,
+    )

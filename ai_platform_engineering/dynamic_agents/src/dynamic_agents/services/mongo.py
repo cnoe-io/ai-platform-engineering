@@ -228,14 +228,6 @@ class MongoDBService:
         collection.replace_one({"_id": agent_id}, doc, upsert=True)
         return DynamicAgentConfig(**doc)
 
-    def can_user_modify_agent(self, agent: DynamicAgentConfig, user_id: str, is_admin: bool) -> bool:
-        """Check if user can modify an agent."""
-        if is_admin:
-            return True
-        if agent.is_system:
-            return False
-        return agent.owner_id == user_id
-
     # =========================================================================
     # MCP Servers CRUD
     # =========================================================================
