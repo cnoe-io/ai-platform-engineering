@@ -254,6 +254,20 @@ class InputField(BaseModel):
 
 
 # =============================================================================
+# Agent UI Config
+# =============================================================================
+
+
+class AgentUIConfig(BaseModel):
+    """UI configuration for dynamic agents."""
+
+    gradient_theme: str | None = Field(
+        None,
+        description="Gradient theme ID for agent avatar (e.g., 'ocean', 'sunset'). None uses global theme.",
+    )
+
+
+# =============================================================================
 # Dynamic Agent Config
 # =============================================================================
 
@@ -282,6 +296,10 @@ class DynamicAgentConfigBase(BaseModel):
         None,
         description="Configuration for built-in tools (fetch_url, etc.)",
     )
+    ui: AgentUIConfig | None = Field(
+        None,
+        description="UI configuration (gradient theme, etc.)",
+    )
     enabled: bool = Field(True, description="Whether the agent is active")
 
 
@@ -304,6 +322,7 @@ class DynamicAgentConfigUpdate(BaseModel):
     shared_with_teams: list[str] | None = None
     subagents: list[SubAgentRef] | None = None
     builtin_tools: BuiltinToolsConfig | None = None
+    ui: AgentUIConfig | None = None
     enabled: bool | None = None
 
 

@@ -23,6 +23,8 @@ interface DynamicAgentChatViewProps {
   agentModel?: string;
   /** Agent visibility (private, team, global) */
   agentVisibility?: string;
+  /** Agent gradient theme (e.g., "ocean", "sunset") */
+  agentGradient?: string | null;
   /** Map of server_id -> tool names */
   allowedTools?: Record<string, string[]>;
   /** Configured subagents */
@@ -52,6 +54,7 @@ export function DynamicAgentChatView({
   agentDescription,
   agentModel,
   agentVisibility,
+  agentGradient,
   allowedTools,
   subagents,
   agentNotFound,
@@ -79,6 +82,8 @@ export function DynamicAgentChatView({
           readOnly={readOnly || agentNotFound || agentDisabled}
           readOnlyReason={agentNotFound ? 'agent_deleted' : agentDisabled ? 'agent_disabled' : readOnlyReason}
           agentId={selectedAgentId}
+          agentGradient={agentGradient}
+          agentName={agentName}
         />
       </motion.div>
 
@@ -89,6 +94,7 @@ export function DynamicAgentChatView({
         agentDescription={agentDescription}
         agentModel={agentModel}
         agentVisibility={agentVisibility}
+        agentGradient={agentGradient}
         allowedTools={allowedTools}
         subagents={subagents}
         agentNotFound={agentNotFound}

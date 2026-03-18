@@ -17,9 +17,12 @@ import {
   ToggleRight,
   RefreshCw,
   Ban,
+  Download,
+  CopyPlus,
 } from "lucide-react";
 import type { DynamicAgentConfig } from "@/types/dynamic-agent";
 import { DynamicAgentEditor } from "./DynamicAgentEditor";
+import { getGradientStyle } from "@/lib/gradient-themes";
 
 export function DynamicAgentsTab() {
   const [agents, setAgents] = React.useState<DynamicAgentConfig[]>([]);
@@ -27,6 +30,7 @@ export function DynamicAgentsTab() {
   const [error, setError] = React.useState<string | null>(null);
   const [editingAgent, setEditingAgent] = React.useState<DynamicAgentConfig | null>(null);
   const [isCreating, setIsCreating] = React.useState(false);
+  const [cloningAgent, setCloningAgent] = React.useState<DynamicAgentConfig | null>(null);
 
   const fetchAgents = React.useCallback(async () => {
     setLoading(true);
@@ -86,6 +90,90 @@ export function DynamicAgentsTab() {
     }
   };
 
+  /**
+   * Export agent configuration as YAML file
+   */
+  const handleExportYaml = (agent: DynamicAgentConfig) => {
+    // Build a clean config object for export (excluding internal fields)
+    const exportConfig = {
+      id: agent._id,
+      name: agent.name,
+      description: agent.description || undefined,
+      system_prompt: agent.system_prompt,
+      model_id: agent.model_id,
+      model_provider: agent.model_provider,
+      visibility: agent.visibility,
+      shared_with_teams: agent.shared_with_teams?.length ? agent.shared_with_teams : undefined,
+      allowed_tools: Object.keys(agent.allowed_tools || {}).length ? agent.allowed_tools : undefined,
+      builtin_tools: agent.builtin_tools,
+      subagents: agent.subagents?.length ? agent.subagents : undefined,
+      ui: agent.ui?.gradient_theme ? agent.ui : undefined,
+      enabled: agent.enabled,
+    };
+
+    // Simple YAML serializer for clean output
+    const toYaml = (obj: Record<string, unknown>, indent = 0): string => {
+      const spaces = "  ".repeat(indent);
+      let yaml = "";
+
+      for (const [key, value] of Object.entries(obj)) {
+        if (value === undefined || value === null) continue;
+
+        if (typeof value === "string") {
+          // Multi-line strings use literal block scalar
+          if (value.includes("\n")) {
+            yaml += `${spaces}${key}: |\n`;
+            value.split("\n").forEach((line) => {
+              yaml += `${spaces}  ${line}\n`;
+            });
+          } else {
+            // Quote strings that need it
+            const needsQuotes = /[:#\[\]{}|>!&*?'"]/.test(value) || value === "";
+            yaml += `${spaces}${key}: ${needsQuotes ? `"${value.replace(/"/g, '\\"')}"` : value}\n`;
+          }
+        } else if (typeof value === "number" || typeof value === "boolean") {
+          yaml += `${spaces}${key}: ${value}\n`;
+        } else if (Array.isArray(value)) {
+          if (value.length === 0) continue;
+          yaml += `${spaces}${key}:\n`;
+          value.forEach((item) => {
+            if (typeof item === "object" && item !== null) {
+              yaml += `${spaces}  -\n`;
+              yaml += toYaml(item as Record<string, unknown>, indent + 2);
+            } else {
+              yaml += `${spaces}  - ${item}\n`;
+            }
+          });
+        } else if (typeof value === "object") {
+          yaml += `${spaces}${key}:\n`;
+          yaml += toYaml(value as Record<string, unknown>, indent + 1);
+        }
+      }
+
+      return yaml;
+    };
+
+    const yamlContent = toYaml(exportConfig);
+
+    // Download the file
+    const blob = new Blob([yamlContent], { type: "text/yaml" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${agent._id}.yaml`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  /**
+   * Clone an agent - opens the editor with pre-filled values
+   */
+  const handleClone = (agent: DynamicAgentConfig) => {
+    setCloningAgent(agent);
+  };
+
   const getVisibilityIcon = (visibility: string) => {
     switch (visibility) {
       case "global":
@@ -108,18 +196,21 @@ export function DynamicAgentsTab() {
     }
   };
 
-  if (isCreating || editingAgent) {
+  if (isCreating || editingAgent || cloningAgent) {
     return (
       <DynamicAgentEditor
         agent={editingAgent}
+        cloneFrom={cloningAgent}
         onSave={() => {
           setEditingAgent(null);
           setIsCreating(false);
+          setCloningAgent(null);
           fetchAgents();
         }}
         onCancel={() => {
           setEditingAgent(null);
           setIsCreating(false);
+          setCloningAgent(null);
         }}
       />
     );
@@ -190,8 +281,11 @@ export function DynamicAgentsTab() {
               >
                 <div className="col-span-4">
                     <div className="flex items-center gap-3">
-                      <div className="h-9 w-9 rounded-lg bg-purple-500/10 flex items-center justify-center shrink-0">
-                        <Bot className="h-5 w-5 text-purple-500" />
+                      <div 
+                        className="h-9 w-9 rounded-lg flex items-center justify-center shrink-0"
+                        style={getGradientStyle(agent.ui?.gradient_theme)}
+                      >
+                        <Bot className="h-5 w-5 text-white" />
                       </div>
                       <div className="min-w-0 flex-1">
                         <div className="font-medium text-sm truncate">{agent.name}</div>
@@ -252,6 +346,24 @@ export function DynamicAgentsTab() {
                       Config
                     </Badge>
                   )}
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8"
+                    onClick={() => handleExportYaml(agent)}
+                    title="Export as YAML"
+                  >
+                    <Download className="h-4 w-4" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8"
+                    onClick={() => handleClone(agent)}
+                    title="Clone agent"
+                  >
+                    <CopyPlus className="h-4 w-4" />
+                  </Button>
                   {!agent.config_driven && (
                     <Button
                       variant="ghost"
