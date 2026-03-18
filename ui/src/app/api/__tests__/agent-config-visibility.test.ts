@@ -78,7 +78,7 @@ function adminSession() {
 const VALID_TASK = {
   display_text: "Test task",
   llm_prompt: "Do something",
-  subagent: "caipe",
+  subagent: "user_input",
 };
 
 beforeEach(() => {

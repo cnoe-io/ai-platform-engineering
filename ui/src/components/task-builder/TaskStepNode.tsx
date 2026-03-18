@@ -24,7 +24,7 @@ interface NodeStyle {
 }
 
 const DARK_STYLES: Record<string, NodeStyle> = {
-  caipe:      { bg: "bg-yellow-950",  border: "border-yellow-700",  badge: "bg-yellow-800 text-yellow-200",     label: "Input" },
+  user_input: { bg: "bg-yellow-950",  border: "border-yellow-700",  badge: "bg-yellow-800 text-yellow-200",     label: "Input" },
   github:     { bg: "bg-purple-950",  border: "border-purple-700",  badge: "bg-purple-800 text-purple-200",     label: "GitHub" },
   backstage:  { bg: "bg-purple-950",  border: "border-purple-700",  badge: "bg-purple-800 text-purple-200",     label: "Backstage" },
   aws:        { bg: "bg-orange-950",  border: "border-orange-700",  badge: "bg-orange-800 text-orange-200",     label: "AWS" },
@@ -40,7 +40,7 @@ const DARK_STYLES: Record<string, NodeStyle> = {
 };
 
 const LIGHT_STYLES: Record<string, NodeStyle> = {
-  caipe:      { bg: "bg-yellow-50",   border: "border-yellow-300",  badge: "bg-yellow-200 text-yellow-800",     label: "Input" },
+  user_input: { bg: "bg-yellow-50",   border: "border-yellow-300",  badge: "bg-yellow-200 text-yellow-800",     label: "Input" },
   github:     { bg: "bg-purple-50",   border: "border-purple-300",  badge: "bg-purple-200 text-purple-800",     label: "GitHub" },
   backstage:  { bg: "bg-purple-50",   border: "border-purple-300",  badge: "bg-purple-200 text-purple-800",     label: "Backstage" },
   aws:        { bg: "bg-orange-50",   border: "border-orange-300",  badge: "bg-orange-200 text-orange-800",     label: "AWS" },

@@ -35,6 +35,9 @@ import tiktoken
 from langgraph.prebuilt import create_react_agent
 
 from ai_platform_engineering.utils.checkpointer import get_checkpointer
+from ai_platform_engineering.utils.mcp_config import (
+    resolve_mcp_mode, resolve_mcp_url, is_http_mode,
+)
 
 from .context_config import get_context_limit_for_provider, get_min_messages_to_keep, is_auto_compression_enabled
 from ai_platform_engineering.utils.metrics import MetricsCallbackHandler
@@ -304,12 +307,7 @@ Use this as the reference point for all date calculations. When users say "today
             List of tools loaded from MCP
         """
         agent_name = self.get_agent_name()
-        # Per-agent override (e.g. PAGERDUTY_MCP_MODE=http) takes precedence over
-        # the global MCP_MODE so individual sub-agents can mix transports.
-        mcp_mode = (
-            os.getenv(f"{agent_name.upper()}_MCP_MODE")
-            or os.getenv("MCP_MODE", "stdio")
-        )
+        mcp_mode = resolve_mcp_mode(agent_name)
 
         def _fallback() -> list:
             if include_fallback:
@@ -366,26 +364,14 @@ Use this as the reference point for all date calculations. When users say "today
                     **custom_http_config
                 }
             })
-        elif mcp_mode in ("http", "streamable_http"):
-            # HTTP mode requested via environment but no custom config - use localhost.
-            # Per-agent overrides (e.g. PAGERDUTY_MCP_HOST) take precedence over the
-            # generic MCP_HOST / MCP_PORT so that a single-node container can route
-            # each sub-agent to its own dedicated MCP container.
+        elif is_http_mode(mcp_mode):
             logger.info(f"{agent_name}: Using HTTP transport for MCP client (default localhost)")
-            mcp_host = (
-                os.getenv(f"{agent_name.upper()}_MCP_HOST")
-                or os.getenv("MCP_HOST", "localhost")
-            )
-            mcp_port = (
-                os.getenv(f"{agent_name.upper()}_MCP_PORT")
-                or os.getenv("MCP_PORT", "3000")
-            )
-            logger.info(f"Connecting to MCP server at {mcp_host}:{mcp_port}")
+            mcp_url = resolve_mcp_url(agent_name)
             user_jwt = "TBD_USER_JWT"
             client = MultiServerMCPClient({
                 agent_name: {
                     "transport": "streamable_http",
-                    "url": f"http://{mcp_host}:{mcp_port}/mcp/",
+                    "url": mcp_url,
                     "headers": {
                         "Authorization": f"Bearer {user_jwt}",
                     },
@@ -988,25 +974,17 @@ Use this as the reference point for all date calculations. When users say "today
         logger.info("=" * 50)
         logger.info(f"📡 Launching MCP server at: {server_path}")
 
-        # Get MCP mode from environment.
-        # Per-agent override (e.g. PAGERDUTY_MCP_MODE=http) takes precedence over
-        # the global MCP_MODE so individual sub-agents can mix transports.
-        mcp_mode = (
-            os.getenv(f"{agent_name.upper()}_MCP_MODE")
-            or os.getenv("MCP_MODE", "stdio")
-        ).lower()
+        mcp_mode = resolve_mcp_mode(agent_name)
         client = None
 
-        if mcp_mode == "http" or mcp_mode == "streamable_http":
+        if is_http_mode(mcp_mode):
             logging.info(f"{agent_name}: Using HTTP transport for MCP client")
 
             httpx_factory = self._build_httpx_client_factory()
 
-            # Check if agent provides custom HTTP configuration
             custom_http_config = self.get_mcp_http_config()
 
             if custom_http_config:
-                # Use custom HTTP configuration (e.g., GitHub Copilot API)
                 logging.info(f"Using custom HTTP MCP configuration for {agent_name}")
                 connection_config: Dict[str, Any] = {
                     "transport": "streamable_http",
@@ -1016,26 +994,14 @@ Use this as the reference point for all date calculations. When users say "today
                     connection_config["httpx_client_factory"] = httpx_factory
                 client = MultiServerMCPClient({agent_name: connection_config})
             else:
-                # Use default HTTP configuration (localhost).
-                # Per-agent overrides (e.g. PAGERDUTY_MCP_HOST) take precedence over the
-                # generic MCP_HOST / MCP_PORT so that a single-node container can route
-                # each sub-agent to its own dedicated MCP container.
-                mcp_host = (
-                    os.getenv(f"{agent_name.upper()}_MCP_HOST")
-                    or os.getenv("MCP_HOST", "localhost")
-                )
-                mcp_port = (
-                    os.getenv(f"{agent_name.upper()}_MCP_PORT")
-                    or os.getenv("MCP_PORT", "3000")
-                )
-                logging.info(f"Connecting to MCP server at {mcp_host}:{mcp_port}")
+                mcp_url = resolve_mcp_url(agent_name)
 
                 # TBD: Handle user authentication
                 user_jwt = "TBD_USER_JWT"
 
                 connection_config = {
                     "transport": "streamable_http",
-                    "url": f"http://{mcp_host}:{mcp_port}/mcp/",
+                    "url": mcp_url,
                     "headers": {
                         "Authorization": f"Bearer {user_jwt}",
                     },

@@ -57,7 +57,7 @@ export function TaskBuilderSidebar({
   }
 
   const fileIO = extractFileIO(step.llm_prompt || "");
-  const isCaipe = step.subagent === "caipe";
+  const isUserInput = step.subagent === "user_input";
 
   return (
     <div className="w-80 border-l border-border bg-card/50 flex flex-col overflow-hidden">
@@ -94,7 +94,7 @@ export function TaskBuilderSidebar({
               />
             </div>
 
-            {isCaipe ? (
+            {isUserInput ? (
               <CaipeFormBuilder
                 prompt={step.llm_prompt}
                 onChange={(prompt) => onChange({ llm_prompt: prompt })}

@@ -72,7 +72,7 @@ describe("extractEnvVars", () => {
       {
         display_text: "Step 1",
         llm_prompt: "Use ${API_KEY} and ${SECRET_TOKEN}",
-        subagent: "caipe",
+        subagent: "user_input",
       },
     ];
     const result = extractEnvVars(tasks);
@@ -103,7 +103,7 @@ describe("extractEnvVars", () => {
       {
         display_text: "Step 1",
         llm_prompt: "No variables here",
-        subagent: "caipe",
+        subagent: "user_input",
       },
     ];
     const result = extractEnvVars(tasks);
@@ -161,7 +161,7 @@ describe("toTaskConfigYamlFormat", () => {
         name: "Workflow A",
         category: "Custom",
         tasks: [
-          { display_text: "A1", llm_prompt: "Do A", subagent: "caipe" },
+          { display_text: "A1", llm_prompt: "Do A", subagent: "user_input" },
         ],
         owner_id: "user",
         is_system: false,

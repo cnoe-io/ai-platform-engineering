@@ -6,7 +6,7 @@ import { getConfig } from "@/lib/config";
 /**
  * Canonical display labels for known subagent identifiers.
  * Unknown agents get a capitalised version of their key.
- * "caipe" is handled dynamically in {@link labelFor} via APP_NAME.
+ * "user_input" is handled dynamically in {@link labelFor} via APP_NAME.
  */
 const KNOWN_LABELS: Record<string, string> = {
   github: "GitHub",
@@ -55,7 +55,7 @@ let _cache: FetchResult | null = null;
 let _fetchPromise: Promise<FetchResult> | null = null;
 
 export function labelFor(key: string): string {
-  if (key === "caipe") return `User Input (${getConfig("appName")})`;
+  if (key === "user_input") return `User Input (${getConfig("appName")})`;
   return KNOWN_LABELS[key] ?? key.charAt(0).toUpperCase() + key.slice(1);
 }
 
@@ -100,7 +100,7 @@ async function fetchTools(): Promise<FetchResult> {
  * from the running supervisor.  Results are cached for the session once
  * a successful response is received.
  *
- * "caipe" is always included (it has no MCP tools but is always valid).
+ * "user_input" is always included (it has no MCP tools but is always valid).
  */
 export function useAgentTools(): AgentToolsData {
   const [result, setResult] = useState<FetchResult>(
@@ -140,14 +140,14 @@ export function useAgentTools(): AgentToolsData {
 function buildAgentList(toolsMap: Record<string, string[]>): AgentOption[] {
   const keys = Object.keys(toolsMap);
 
-  const hasCAIPE = keys.includes("caipe");
-  const result: AgentOption[] = hasCAIPE
+  const hasUserInput = keys.includes("user_input");
+  const result: AgentOption[] = hasUserInput
     ? []
-    : [{ value: "caipe", label: labelFor("caipe") }];
+    : [{ value: "user_input", label: labelFor("user_input") }];
 
   const sorted = [...keys].sort((a, b) => {
-    if (a === "caipe") return -1;
-    if (b === "caipe") return 1;
+    if (a === "user_input") return -1;
+    if (b === "user_input") return 1;
     return labelFor(a).localeCompare(labelFor(b));
   });
 

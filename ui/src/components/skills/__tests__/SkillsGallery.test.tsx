@@ -115,7 +115,7 @@ function makeQuickStart(id = "qs-1"): AgentConfig {
       {
         display_text: "Correlate incidents",
         llm_prompt: "You are an SRE agent. Correlate the incident.",
-        subagent: "caipe",
+        subagent: "user_input",
       },
     ],
     created_at: new Date(),
@@ -134,8 +134,8 @@ function makeWorkflow(id = "wf-1"): AgentConfig {
     is_system: true,
     owner_id: "system",
     tasks: [
-      { display_text: "Deploy", llm_prompt: "Deploy the app.", subagent: "caipe" },
-      { display_text: "Verify", llm_prompt: "Verify health.", subagent: "caipe" },
+      { display_text: "Deploy", llm_prompt: "Deploy the app.", subagent: "user_input" },
+      { display_text: "Verify", llm_prompt: "Verify health.", subagent: "user_input" },
     ],
     created_at: new Date(),
     updated_at: new Date(),
@@ -406,7 +406,7 @@ describe("SkillsGallery — variable substitution in run modal", () => {
       tasks: [{
         display_text: "Deploy",
         llm_prompt: "Deploy {{app_name}} to {{cluster}}",
-        subagent: "caipe",
+        subagent: "user_input",
       }],
       input_form: {
         title: "Deploy Helper",
@@ -558,7 +558,7 @@ describe("SkillsGallery — Run in Chat", () => {
       name: "Chat Skill",
       is_system: false,
       owner_id: "test@example.com",
-      tasks: [{ display_text: "Do it", llm_prompt: "Perform the task", subagent: "caipe" }],
+      tasks: [{ display_text: "Do it", llm_prompt: "Perform the task", subagent: "user_input" }],
     }] as AgentConfig[];
   });
 
@@ -592,7 +592,7 @@ describe("SkillsGallery — Run in Chat", () => {
       name: "Form Skill",
       is_system: false,
       owner_id: "test@example.com",
-      tasks: [{ display_text: "Deploy", llm_prompt: "Deploy {{app}}", subagent: "caipe" }],
+      tasks: [{ display_text: "Deploy", llm_prompt: "Deploy {{app}}", subagent: "user_input" }],
       input_form: {
         title: "Deploy",
         fields: [{ name: "app", label: "App", type: "text" as const, required: true, placeholder: "Enter app" }],
@@ -826,7 +826,7 @@ describe("SkillsGallery — editable prompt", () => {
       name: "Prompt Skill",
       is_system: false,
       owner_id: "test@example.com",
-      tasks: [{ display_text: "Run", llm_prompt: "Original prompt text", subagent: "caipe" }],
+      tasks: [{ display_text: "Run", llm_prompt: "Original prompt text", subagent: "user_input" }],
     }] as AgentConfig[];
   });
 
@@ -961,7 +961,7 @@ describe("SkillsGallery — variable defaults ({{name:default}} syntax)", () => 
       tasks: [{
         display_text: "Run defaults",
         llm_prompt: "Deploy {{app_name:my-service}} to {{cluster:prod-us}} with {{replicas:3}}",
-        subagent: "caipe",
+        subagent: "user_input",
       }],
       input_form: {
         title: "Default Vars Skill",
@@ -1018,7 +1018,7 @@ describe("SkillsGallery — variable defaults ({{name:default}} syntax)", () => 
       tasks: [{
         display_text: "Run",
         llm_prompt: "Deploy {required_app} to {{cluster:prod}}",
-        subagent: "caipe",
+        subagent: "user_input",
       }],
       input_form: {
         title: "Optional Vars",
@@ -1059,7 +1059,7 @@ describe("SkillsGallery — auto-generated form from prompt variables", () => {
       tasks: [{
         display_text: "Auto",
         llm_prompt: "Check the status of {{service_url}} on {{port_number:8080}}",
-        subagent: "caipe",
+        subagent: "user_input",
       }],
       // No input_form — should be auto-generated from prompt variables
     }] as AgentConfig[];

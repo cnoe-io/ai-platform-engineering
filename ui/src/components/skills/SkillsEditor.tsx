@@ -130,7 +130,7 @@ const ICON_LABELS: Record<string, string> = {
 };
 
 const SUBAGENTS = [
-  { id: "caipe", label: "CAIPE (User Input)", description: "Collect user input via forms" },
+  { id: "user_input", label: "User Input", description: "Collect user input via forms" },
   { id: "github", label: "GitHub", description: "GitHub operations via gh CLI" },
   { id: "aws", label: "AWS", description: "AWS resource provisioning" },
   { id: "argocd", label: "ArgoCD", description: "ArgoCD deployments" },
@@ -142,7 +142,7 @@ const SUBAGENTS = [
 const emptyTask: AgentConfigTask = {
   display_text: "",
   llm_prompt: "",
-  subagent: "caipe",
+  subagent: "user_input",
 };
 
 export function SkillsEditor({

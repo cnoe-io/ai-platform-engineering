@@ -16,7 +16,7 @@ export type TaskConfigVisibility = "private" | "team" | "global";
  * Available subagent types that can execute task steps
  */
 export type TaskConfigSubagent =
-  | "caipe"
+  | "user_input"
   | "github"
   | "backstage"
   | "aws"

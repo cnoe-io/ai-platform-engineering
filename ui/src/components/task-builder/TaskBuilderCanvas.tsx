@@ -364,7 +364,7 @@ function TaskBuilderCanvasInner({
   );
 
   const handleAddStep = useCallback(() => {
-    addNodeFromStep({ display_text: "", llm_prompt: "", subagent: "caipe" });
+    addNodeFromStep({ display_text: "", llm_prompt: "", subagent: "user_input" });
   }, [addNodeFromStep]);
 
   const handleAddTemplate = useCallback(

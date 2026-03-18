@@ -256,7 +256,7 @@ describe("parseTaskConfigObject", () => {
     const configs = parseTaskConfigObject({
       "Random Workflow": {
         tasks: [
-          { display_text: "Do stuff", llm_prompt: "Do stuff", subagent: "caipe" },
+          { display_text: "Do stuff", llm_prompt: "Do stuff", subagent: "user_input" },
         ],
       },
     });
@@ -270,7 +270,7 @@ describe("parseTaskConfigObject", () => {
           {
             display_text: "Test",
             llm_prompt: "Use ${API_KEY} and ${SECRET_TOKEN}",
-            subagent: "caipe",
+            subagent: "user_input",
           },
         ],
       },
@@ -284,7 +284,7 @@ describe("parseTaskConfigObject", () => {
     const configs = parseTaskConfigObject(
       {
         "Test": {
-          tasks: [{ display_text: "T", llm_prompt: "T", subagent: "caipe" }],
+          tasks: [{ display_text: "T", llm_prompt: "T", subagent: "user_input" }],
         },
       },
       "user@example.com"
@@ -296,7 +296,7 @@ describe("parseTaskConfigObject", () => {
   it("creates multiple configs from multiple entries", () => {
     const configs = parseTaskConfigObject({
       "Workflow A": {
-        tasks: [{ display_text: "A", llm_prompt: "A", subagent: "caipe" }],
+        tasks: [{ display_text: "A", llm_prompt: "A", subagent: "user_input" }],
       },
       "Workflow B": {
         tasks: [{ display_text: "B", llm_prompt: "B", subagent: "github" }],

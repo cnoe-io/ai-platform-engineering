@@ -62,7 +62,7 @@ export function PolicyPanel({ isSystemWorkflow, subagent, allowedTools, onChange
       <div className="space-y-3">
         <Header />
         <p className="text-[10px] text-muted-foreground leading-relaxed">
-          {subagent === "caipe"
+          {subagent === "user_input"
             ? "User Input steps collect data via forms — no external tool calls to restrict."
             : `No tools discovered for the "${subagent}" subagent. Ensure the supervisor is running.`}
         </p>
