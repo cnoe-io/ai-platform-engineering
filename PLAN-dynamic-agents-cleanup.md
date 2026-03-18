@@ -22,31 +22,18 @@ The extension prompt feature was removed entirely because:
 
 ## 2. Dead Code Removal
 
-**Status:** Pending
+**Status:** DONE
 
-### Backend - Unused Classes/Methods
-
-| File | Lines | Item | Reason |
-|------|-------|------|--------|
-| `models.py` | 318-322 | `ChatEvent` class | Defined but never used anywhere |
-| `mongo.py` | 231-237 | `can_user_modify_agent()` | Never called, access control done inline |
-| `stream_trackers.py` | 80-83 | `ToolTracker.get_tool_name()` | Never called |
-| `stream_trackers.py` | 85-87 | `ToolTracker.is_builtin()` | Never called, check done inline in `stream_events.py` |
-| `stream_trackers.py` | 193-221 | `TodoTracker.process_tool_result()` | Never called |
-| `stream_trackers.py` | 223-225 | `TodoTracker.get_current_todos()` | Never called |
-| `config.py` | 57 | `default_model_id` setting | Never used |
-
-### Backend - Local Artifacts to Delete
-
-| File | Reason |
-|------|--------|
-| `src/dynamic_agents/models_config.yaml` | Untracked local dev artifact, models come from `config.yaml` |
-
-### UI - Unused Imports
-
-| File | Line | Item |
-|------|------|------|
-| `available-subagents/route.ts` | 14 | `SubAgentRef` imported but never used |
+Changes made:
+- Removed `ChatEvent` class from `models.py` (defined but never used)
+- Removed `can_user_modify_agent()` from `mongo.py` (never called, access control done inline)
+- Removed `ToolTracker.get_tool_name()` from `stream_trackers.py` (never called)
+- Removed `ToolTracker.is_builtin()` from `stream_trackers.py` (never called, check done inline in stream_events.py)
+- Removed `TodoTracker.process_tool_result()` from `stream_trackers.py` (never called, todos extracted from args instead)
+- Removed `TodoTracker.get_current_todos()` from `stream_trackers.py` (never called)
+- Removed `default_model_id` setting from `config.py` (never used)
+- Deleted `models_config.yaml` untracked local dev artifact
+- Removed unused `SubAgentRef` import from UI `available-subagents/route.ts`
 
 ---
 

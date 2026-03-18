@@ -315,13 +315,6 @@ class ChatRequest(BaseModel):
     trace_id: str | None = Field(None, description="Optional trace ID for Langfuse tracing")
 
 
-class ChatEvent(BaseModel):
-    """SSE event from chat streaming."""
-
-    type: Literal["content", "tool_start", "tool_end", "error", "done", "event"]
-    data: str | dict | None = None
-
-
 # =============================================================================
 # Agent Context (passed to deepagents)
 # =============================================================================

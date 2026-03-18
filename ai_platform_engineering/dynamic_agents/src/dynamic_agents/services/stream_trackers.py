@@ -11,7 +11,6 @@ import re
 from typing import Any
 
 from dynamic_agents.services.stream_events import (
-    BUILTIN_TOOLS,
     make_subagent_end_event,
     make_subagent_start_event,
     make_todo_update_event,
@@ -76,15 +75,6 @@ class ToolTracker:
             tool_call_id=tool_call_id,
             agent=self.agent_name,
         )
-
-    def get_tool_name(self, tool_call_id: str) -> str | None:
-        """Get the tool name for a given tool_call_id."""
-        tool_info = self._active_tools.get(tool_call_id)
-        return tool_info["name"] if tool_info else None
-
-    def is_builtin(self, tool_name: str) -> bool:
-        """Check if a tool is a builtin (renders compactly in UI)."""
-        return tool_name in BUILTIN_TOOLS
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -189,40 +179,6 @@ class TodoTracker:
         self._last_todos = todos
         logger.info(f"[TodoTracker] Emitting todo_update from args with {len(todos)} todos")
         return make_todo_update_event(todos=todos, agent=self.agent_name)
-
-    def process_tool_result(
-        self,
-        tool_name: str,
-        tool_call_id: str,
-        content: str,
-    ) -> dict[str, Any] | None:
-        """Process a ToolMessage result, emitting todo_update if it's write_todos.
-
-        Fallback method - parses markdown output from write_todos.
-        Prefer process_tool_call() when args are available.
-
-        Args:
-            tool_name: Name of the tool that produced this result
-            tool_call_id: The tool call ID
-            content: The ToolMessage content (markdown from write_todos)
-
-        Returns:
-            todo_update event if this was a write_todos result, None otherwise
-        """
-        if tool_name != "write_todos":
-            return None
-
-        todos = _parse_todo_markdown(content)
-        if not todos:
-            logger.debug(f"Could not parse write_todos output: {content[:100]}...")
-            return None
-
-        self._last_todos = todos
-        return make_todo_update_event(todos=todos, agent=self.agent_name)
-
-    def get_current_todos(self) -> list[dict[str, str]]:
-        """Get the current todo list."""
-        return self._last_todos.copy()
 
 
 # ═══════════════════════════════════════════════════════════════

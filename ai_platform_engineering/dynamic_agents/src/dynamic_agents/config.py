@@ -52,9 +52,6 @@ class Settings(BaseSettings):
     oidc_group_claim: str | None = None  # Claim name(s) for groups (comma-separated)
     oidc_required_admin_group: str | None = None  # Group name for admin access
 
-    # LLM
-    default_model_id: str | None = None
-
     # CORS
     cors_origins: list[str] = ["*"]
 
