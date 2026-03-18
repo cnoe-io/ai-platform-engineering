@@ -338,7 +338,7 @@ function ChatUUIDPage() {
 
   if (showSpinner) {
     return (
-      <div className="flex-1 flex items-center justify-center">
+      <div className="flex-1 flex w-full items-center justify-center">
         <CAIPESpinner size="lg" message="Loading conversation..." />
       </div>
     );
