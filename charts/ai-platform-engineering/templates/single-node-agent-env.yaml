@@ -21,7 +21,9 @@ data:
   {{- if $enabled }}
   {{- $agentValues := index $.Values (printf "agent-%s" $name) | default dict }}
   {{- $mcp := $agentValues.mcp | default dict }}
-  {{- if $mcp.mode }}
+  {{- if $mcp.useRemoteMcpServer }}
+  {{ $ENV }}_MCP_MODE: "stdio"
+  {{- else if $mcp.mode }}
   {{ $ENV }}_MCP_MODE: {{ $mcp.mode | quote }}
   {{- if eq $mcp.mode "http" }}
   {{ $ENV }}_MCP_HOST: {{ printf "%s-agent-%s-mcp" $.Release.Name $name | quote }}

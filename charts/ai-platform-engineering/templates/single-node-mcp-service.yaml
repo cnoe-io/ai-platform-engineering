@@ -1,0 +1,42 @@
+{{- /*
+Companion Service for single-node MCP Deployments.
+Creates a ClusterIP Service for every enabled subagent whose mcp.mode is "http"
+so the supervisor pod can reach the MCP server at <release>-agent-<name>-mcp:<port>.
+*/ -}}
+{{- if eq .Values.global.deploymentMode "single-node" }}
+{{- $singleNode := (index .Values "supervisor-agent").singleNode | default dict }}
+{{- range $name, $enabled := (default dict $singleNode.enabledSubAgents) }}
+{{- if $enabled }}
+{{- $agentKey := printf "agent-%s" $name }}
+{{- $agentValues := index $.Values $agentKey | default dict }}
+{{- $mcp := $agentValues.mcp | default dict }}
+{{- $useRemote := $mcp.useRemoteMcpServer | default false }}
+{{- if and (eq ($mcp.mode | default "stdio") "http") (not $useRemote) }}
+{{- $mcpImage := $mcp.image | default dict }}
+{{- $mcpImageRepo := $mcpImage.repository | default "" }}
+{{- if $mcpImageRepo }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ printf "%s-%s-mcp" $.Release.Name $agentKey }}
+  labels:
+    {{- include "ai-platform-engineering.labels" $ | nindent 4 }}
+    app.kubernetes.io/name: {{ printf "%s-%s-mcp" $.Release.Name $agentKey }}
+    app.kubernetes.io/component: mcp
+spec:
+  type: ClusterIP
+  ports:
+    - port: {{ $mcp.port | default 8000 }}
+      targetPort: 8000
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: {{ printf "%s-%s-mcp" $.Release.Name $agentKey }}
+    app.kubernetes.io/component: mcp
+    app.kubernetes.io/instance: {{ $.Release.Name }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- end }}
