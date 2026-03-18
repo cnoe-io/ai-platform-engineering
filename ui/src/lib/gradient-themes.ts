@@ -19,7 +19,7 @@ export interface GradientTheme {
 export const gradientThemes: readonly GradientTheme[] = [
   {
     id: "default",
-    label: "Default (Teal - Purple)",
+    label: "Default (Teal → Purple)",
     description: "Original vibrant gradient",
     from: "hsl(173,80%,40%)",
     to: "hsl(270,75%,60%)",
@@ -27,7 +27,7 @@ export const gradientThemes: readonly GradientTheme[] = [
   },
   {
     id: "minimal",
-    label: "Minimal (Gray - Dark Gray)",
+    label: "Minimal (Gray → Dark Gray)",
     description: "Subtle, professional",
     from: "hsl(220,10%,40%)",
     to: "hsl(220,10%,25%)",
@@ -35,7 +35,7 @@ export const gradientThemes: readonly GradientTheme[] = [
   },
   {
     id: "professional",
-    label: "Professional (Blue - Navy)",
+    label: "Professional (Blue → Navy)",
     description: "Corporate, trustworthy",
     from: "hsl(210,60%,50%)",
     to: "hsl(210,80%,30%)",
@@ -43,7 +43,7 @@ export const gradientThemes: readonly GradientTheme[] = [
   },
   {
     id: "ocean",
-    label: "Ocean (Cyan - Blue)",
+    label: "Ocean (Cyan → Blue)",
     description: "Cool, calming",
     from: "hsl(195,80%,45%)",
     to: "hsl(220,80%,45%)",
@@ -51,7 +51,7 @@ export const gradientThemes: readonly GradientTheme[] = [
   },
   {
     id: "sunset",
-    label: "Sunset (Orange - Pink)",
+    label: "Sunset (Orange → Pink)",
     description: "Warm, energetic",
     from: "hsl(30,80%,55%)",
     to: "hsl(340,70%,55%)",
@@ -59,7 +59,7 @@ export const gradientThemes: readonly GradientTheme[] = [
   },
   {
     id: "cyberpunk",
-    label: "Cyberpunk (Pink - Cyan)",
+    label: "Cyberpunk (Pink → Cyan)",
     description: "Neon-soaked, high-contrast",
     from: "hsl(330,100%,50%)",
     to: "hsl(180,100%,50%)",
@@ -67,7 +67,7 @@ export const gradientThemes: readonly GradientTheme[] = [
   },
   {
     id: "tron",
-    label: "Tron (Cyan - Blue)",
+    label: "Tron (Cyan → Blue)",
     description: "Electric glow, digital frontier",
     from: "hsl(190,100%,50%)",
     to: "hsl(210,80%,40%)",
@@ -75,7 +75,7 @@ export const gradientThemes: readonly GradientTheme[] = [
   },
   {
     id: "matrix",
-    label: "Matrix (Green - Dark Green)",
+    label: "Matrix (Green → Dark Green)",
     description: "Phosphor glow, digital rain",
     from: "hsl(120,100%,45%)",
     to: "hsl(140,60%,25%)",
@@ -84,7 +84,7 @@ export const gradientThemes: readonly GradientTheme[] = [
   // New themes
   {
     id: "forest",
-    label: "Forest (Green - Teal)",
+    label: "Forest (Green → Teal)",
     description: "Natural, earthy",
     from: "hsl(140,50%,40%)",
     to: "hsl(170,50%,35%)",
@@ -92,7 +92,7 @@ export const gradientThemes: readonly GradientTheme[] = [
   },
   {
     id: "lavender",
-    label: "Lavender (Purple - Indigo)",
+    label: "Lavender (Purple → Indigo)",
     description: "Calm, creative",
     from: "hsl(270,60%,65%)",
     to: "hsl(240,50%,50%)",
@@ -100,7 +100,7 @@ export const gradientThemes: readonly GradientTheme[] = [
   },
   {
     id: "ember",
-    label: "Ember (Red - Orange)",
+    label: "Ember (Red → Orange)",
     description: "Bold, attention-grabbing",
     from: "hsl(0,70%,50%)",
     to: "hsl(30,80%,50%)",
@@ -108,7 +108,7 @@ export const gradientThemes: readonly GradientTheme[] = [
   },
   {
     id: "midnight",
-    label: "Midnight (Indigo - Dark Blue)",
+    label: "Midnight (Indigo → Dark Blue)",
     description: "Deep, focused",
     from: "hsl(230,60%,45%)",
     to: "hsl(220,70%,25%)",
