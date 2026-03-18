@@ -179,7 +179,7 @@ dependencies:
         parent: global.enabledSubAgents.rag
   # CAIPE UI
   - name: caipe-ui
-    version: 0.2.39 # Do NOT bump this. It will be updated automatically using the PR or release workflow
+    version: 0.2.39-rc.helm.1 # Do NOT bump this. It will be updated automatically using the PR or release workflow
     tags:
       - caipe-ui
   # Dynamic Agents - Standalone agent builder with MCP tool support
