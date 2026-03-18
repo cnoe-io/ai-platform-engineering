@@ -816,13 +816,10 @@ class AIPlatformEngineerA2ABinding:
                           logging.warning(f"Failed to parse request_user_input content: {e}")
                           # Fall through to normal handling if parsing fails
                   elif tool_name in rag_tool_names:
-                    # For RAG tools, we don't want to stream the content, as its a LOT of text
-                      yield {
-                            "is_task_complete": False,
-                            "require_user_input": False,
-                            "source_agent": tool_name,
-                            "content": f"🔍 {tool_name}...",
-                      }
+                      # RAG tool content is suppressed (it's huge). The AIMessage
+                      # tool_call already emitted a tool_notification_start, and
+                      # the completion notification below emits the end.
+                      logging.debug(f"Suppressing RAG tool content for {tool_name} (tool_call notification already sent)")
                   # Stream other tool content normally (actual results for user)
                   elif tool_content and tool_content.strip():
                       yield {

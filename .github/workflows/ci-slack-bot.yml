@@ -98,6 +98,31 @@ jobs:
           echo "should_retag=$SHOULD_RETAG" >> $GITHUB_OUTPUT
           echo "Outputs: build=$SHOULD_BUILD, retag=$SHOULD_RETAG, is_rc=$IS_RC, is_tag_push=$IS_TAG_PUSH"
 
+  unit-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 🔒 Harden runner
+        uses: step-security/harden-runner@58077d3c7e43986b6b15fba718e8ea69e387dfcc  # v2.15.1
+        with:
+          egress-policy: audit
+
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      - name: Install dependencies and run tests
+        run: |
+          cd ai_platform_engineering/integrations/slack_bot
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest pytest-mock
+          cd ../../..
+          python -m pytest ai_platform_engineering/integrations/slack_bot/tests/ -v -m "not integration"
+
   build-and-push:
     runs-on: ubuntu-latest
     needs: determine-changes

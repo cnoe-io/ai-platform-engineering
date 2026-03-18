@@ -7,9 +7,10 @@ import { AuthGuard } from "@/components/auth-guard";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Bot, Server, Loader2, ShieldAlert } from "lucide-react";
+import { Bot, Server, Loader2, ShieldAlert, MessageSquare } from "lucide-react";
 import { DynamicAgentsTab } from "@/components/dynamic-agents/DynamicAgentsTab";
 import { MCPServersTab } from "@/components/dynamic-agents/MCPServersTab";
+import { ConversationsTab } from "@/components/dynamic-agents/ConversationsTab";
 
 function DynamicAgentsPageContent() {
   const router = useRouter();
@@ -61,7 +62,7 @@ function DynamicAgentsPageContent() {
 
           {/* Tabs */}
           <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
-            <TabsList className="grid w-full max-w-md grid-cols-2">
+            <TabsList className="grid w-full max-w-lg grid-cols-3">
               <TabsTrigger value="agents" className="gap-2">
                 <Bot className="h-4 w-4" />
                 Agents
@@ -69,6 +70,10 @@ function DynamicAgentsPageContent() {
               <TabsTrigger value="mcp-servers" className="gap-2">
                 <Server className="h-4 w-4" />
                 MCP Servers
+              </TabsTrigger>
+              <TabsTrigger value="conversations" className="gap-2">
+                <MessageSquare className="h-4 w-4" />
+                Conversations
               </TabsTrigger>
             </TabsList>
 
@@ -78,6 +83,10 @@ function DynamicAgentsPageContent() {
 
             <TabsContent value="mcp-servers" className="space-y-4">
               <MCPServersTab />
+            </TabsContent>
+
+            <TabsContent value="conversations" className="space-y-4">
+              <ConversationsTab />
             </TabsContent>
           </Tabs>
         </div>

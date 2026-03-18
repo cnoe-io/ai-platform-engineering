@@ -110,6 +110,7 @@ export const POST = withErrorHandler(async (
             latency_ms: body.metadata?.latency_ms,
             agent_name: body.metadata?.agent_name,
             is_final: body.metadata?.is_final,
+            ...(body.metadata?.timeline_segments && { timeline_segments: body.metadata.timeline_segments }),
           },
           ...(body.a2a_events !== undefined && { a2a_events: body.a2a_events }),
           ...(body.artifacts !== undefined && { artifacts: body.artifacts }),

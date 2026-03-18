@@ -209,6 +209,36 @@ export interface MessageFeedback {
   showFeedbackOptions?: boolean;
 }
 
+// Timeline types for structured agent execution display
+export type TimelineSegmentType = "thinking" | "execution_plan" | "tool_call" | "final_answer";
+
+export interface ToolCallInfo {
+  id: string;
+  agent: string;
+  tool: string;
+  status: "running" | "completed" | "failed";
+  planStepId?: string;
+}
+
+export interface PlanStep {
+  id: string;
+  agent: string;
+  description: string;
+  status: "pending" | "in_progress" | "completed" | "failed" | "input_required";
+}
+
+export interface TimelineSegment {
+  id: string;
+  type: TimelineSegmentType;
+  timestamp: Date;
+  content?: string;
+  toolCall?: ToolCallInfo;
+  planSteps?: PlanStep[];
+  isStreaming?: boolean;
+  /** Links thinking segments to a plan step for nested display */
+  planStepId?: string;
+}
+
 export interface ChatMessage {
   id: string;
   role: "user" | "assistant";
@@ -234,6 +264,8 @@ export interface ChatMessage {
   senderEmail?: string;
   senderName?: string;
   senderImage?: string;
+  /** Structured timeline segments built during streaming */
+  timelineSegments?: TimelineSegment[];
 }
 
 // Input field configuration for use case forms

@@ -1,7 +1,9 @@
 # Copyright 2025 CNOE
 # SPDX-License-Identifier: Apache-2.0
 
+import hashlib
 import logging
+import re
 import uuid
 from dataclasses import dataclass, field
 from typing import Optional, List, Dict
@@ -83,7 +85,28 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
         # Execution plan state (TODO-based tracking)
         self._execution_plan_emitted = False
         self._execution_plan_artifact_id = None
-        self._latest_execution_plan: list[dict[str, str]] = []
+        self._latest_execution_plan: list[dict] = []
+        # The step_id the LLM is currently working on (set when write_todos
+        # marks a step as in_progress). All tool notifications inherit this.
+        self._current_plan_step_id: str | None = None
+
+    def _is_last_plan_step_active(self) -> bool:
+        """Check if the last plan step is currently in_progress.
+
+        TODO: This is a heuristic — it assumes the supervisor's streaming tokens
+        are the final answer when the last plan step is active. This can be wrong
+        if the LLM dynamically adds more steps after the "last" one. A more
+        reliable signal would be the LangGraph framework explicitly tagging the
+        supervisor's synthesis phase, but that isn't available today. Bring this
+        up with the deepagents/langgraph maintainers for a deterministic signal.
+        """
+        if not self._execution_plan_emitted or not self._latest_execution_plan:
+            return False
+        last_step = self._latest_execution_plan[-1]
+        return (
+            last_step.get('status') == 'in_progress'
+            and last_step.get('step_id') == self._current_plan_step_id
+        )
 
     # ─────────────────────────────────────────────────────────────────────────
     # Helper Methods
@@ -108,16 +131,23 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                 logger.error(f"Failed to enqueue event {type(event).__name__}: {e}")
                 raise
 
-    def _parse_execution_plan_text(self, text: str) -> list[dict[str, str]]:
+    @staticmethod
+    def _make_step_id(description: str, agent: str = "Supervisor") -> str:
+        """Generate a stable step_id by hashing description + agent."""
+        key = f"{agent.lower().strip()}::{description.strip()}"
+        return "step-" + hashlib.sha256(key.encode()).hexdigest()[:12]
+
+    def _parse_execution_plan_text(self, text: str) -> list[dict]:
         """Parse TODO-based execution plan text into structured list.
+
+        Returns list of dicts with keys: step_id, title, agent, status, order.
 
         Supports multiple formats for backwards compatibility:
           1. Emoji + [Agent] format: "⏳ [Jira] Search for tickets"
           2. Bullet + emoji format (write_todos): "- ⏳ Search for tickets"
           3. Markdown checkbox format: "- [x] step" / "- [ ] step"
         """
-        import re
-        items = []
+        items: list[dict] = []
 
         emoji_status_map = {"⏳": "pending", "🔄": "in_progress", "✅": "completed", "❌": "failed"}
 
@@ -125,25 +155,47 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
         bullet_emoji_pattern = re.compile(r'-\s*([⏳✅🔄❌])\s+(.+)')
         checkbox_pattern = re.compile(r'-\s*\[([xX ])\]\s*(.+)')
 
+        order = 0
         for line in text.strip().split('\n'):
             stripped = line.strip()
 
             match = agent_pattern.search(stripped)
             if match:
                 status = emoji_status_map.get(match.group(1), 'pending')
-                items.append({'step': match.group(3).strip(), 'status': status})
+                agent = match.group(2).strip()
+                title = match.group(3).strip()
+                step_id = self._make_step_id(title, agent)
+                items.append({
+                    'step_id': step_id, 'title': title, 'agent': agent,
+                    'status': status, 'order': order,
+                })
+                order += 1
                 continue
 
             match = bullet_emoji_pattern.match(stripped)
             if match:
                 status = emoji_status_map.get(match.group(1), 'pending')
-                items.append({'step': match.group(2).strip(), 'status': status})
+                title = match.group(2).strip()
+                agent = "Supervisor"
+                step_id = self._make_step_id(title, agent)
+                items.append({
+                    'step_id': step_id, 'title': title, 'agent': agent,
+                    'status': status, 'order': order,
+                })
+                order += 1
                 continue
 
             match = checkbox_pattern.match(stripped)
             if match:
                 status = 'completed' if match.group(1).lower() == 'x' else 'pending'
-                items.append({'step': match.group(2).strip(), 'status': status})
+                title = match.group(2).strip()
+                agent = "Supervisor"
+                step_id = self._make_step_id(title, agent)
+                items.append({
+                    'step_id': step_id, 'title': title, 'agent': agent,
+                    'status': status, 'order': order,
+                })
+                order += 1
 
         return items
 
@@ -152,22 +204,28 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
         if not self._execution_plan_emitted or not self._latest_execution_plan:
             return
 
-        # Check if any steps are still pending
-        has_pending = any(item.get('status') == 'pending' for item in self._latest_execution_plan)
-        if not has_pending:
+        # Check if any steps are still pending or in_progress
+        has_unfinished = any(
+            item.get('status') in ('pending', 'in_progress')
+            for item in self._latest_execution_plan
+        )
+        if not has_unfinished:
             return
 
-        # Mark all steps as completed
-        completed_plan = [{'step': item['step'], 'status': 'completed'} for item in self._latest_execution_plan]
-        plan_text = self._format_execution_plan_text(completed_plan, 'final')
+        # Mark all unfinished steps as completed
+        for item in self._latest_execution_plan:
+            if item.get('status') in ('pending', 'in_progress'):
+                item['status'] = 'completed'
 
-        artifact = new_text_artifact(
+        # Send full plan update with all steps completed (structured DataPart)
+        plan_data = self._build_plan_data(self._latest_execution_plan)
+
+        artifact = Artifact(
+            artifact_id=self._execution_plan_artifact_id or str(uuid.uuid4()),
             name='execution_plan_status_update',
             description='All execution steps completed',
-            text=plan_text,
+            parts=[Part(root=DataPart(data=plan_data))],
         )
-        if self._execution_plan_artifact_id:
-            artifact.artifact_id = self._execution_plan_artifact_id
 
         await self._safe_enqueue_event(
             event_queue,
@@ -181,17 +239,21 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
         )
         logger.info("Sent execution plan completion update")
 
-    def _format_execution_plan_text(self, todos: list[dict[str, str]], label: str = 'final') -> str:
-        """Format execution plan using emoji status indicators.
-
-        Uses the bullet + emoji format that the UI's parseExecutionTasks can parse.
-        """
-        status_icons = {"pending": "⏳", "in_progress": "🔄", "completed": "✅", "failed": "❌"}
-        lines = []
-        for item in todos:
-            icon = status_icons.get(item.get('status', 'pending'), '⏳')
-            lines.append(f"- {icon} {item.get('step', '')}")
-        return '\n'.join(lines)
+    @staticmethod
+    def _build_plan_data(steps: list[dict]) -> dict:
+        """Build structured plan data dict from internal step list."""
+        return {
+            'steps': [
+                {
+                    'step_id': s.get('step_id', ''),
+                    'title': s.get('title') or s.get('step', ''),
+                    'agent': s.get('agent', 'Supervisor'),
+                    'status': s.get('status', 'pending'),
+                    'order': s.get('order', idx),
+                }
+                for idx, s in enumerate(steps)
+            ]
+        }
 
     def _extract_final_answer(self, content: str) -> str:
         """
@@ -255,7 +317,7 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
 
         # Content-based detection
         tool_indicators = [
-            '🔍 Querying ', '🔍 Checking ',
+            '🔍 Querying ', '🔍 Checking ', '🔍 Searching ',
             '🔧 Calling ', '🔧 Supervisor:', '🔧 Workflow:',
         ]
         if any(ind in content for ind in tool_indicators):
@@ -277,8 +339,19 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
             tool_name = event['tool_result'].get('name', 'unknown')
             return 'tool_notification_end', f'Tool call completed: {tool_name}'
 
+        # Extract tool name from content patterns
         if '✅' in content and 'completed' in content.lower():
-            return 'tool_notification_end', 'Tool operation completed'
+            # e.g. "✅ Supervisor: Agent task Search completed\n"
+            # or   "✅ Workflow: some_step completed\n"
+            tool_name = re.sub(r'[✅\s]*(Supervisor:\s*Agent task\s*|Workflow:\s*)?', '', content.strip(), count=1)
+            tool_name = re.sub(r'\s*completed.*', '', tool_name).strip()
+            return 'tool_notification_end', f'Tool call completed: {tool_name or "unknown"}'
+
+        # e.g. "🔍 Searching the knowledge base..."
+        # or   "🔧 Calling search..."
+        source = event.get('source_agent', '')
+        if source:
+            return 'tool_notification_start', f'Tool call started: {source}'
 
         return 'tool_notification_start', 'Tool operation started'
 
@@ -375,11 +448,28 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                 elif part.get('data'):
                     artifact_parts.append(Part(root=DataPart(data=part['data'])))
 
+        existing_metadata = artifact_data.get('metadata', {})
+        source_agent = (
+            existing_metadata.get('sourceAgent') or
+            event.get('source_agent') or
+            state.current_agent or
+            'sub-agent'
+        )
+        meta = {
+            'sourceAgent': source_agent,
+            'agentType': 'sub-agent',
+            **existing_metadata,
+        }
+        # Propagate plan_step_id so the UI nests sub-agent tools under the plan step
+        if 'plan_step_id' not in meta and self._current_plan_step_id:
+            meta['plan_step_id'] = self._current_plan_step_id
+
         artifact = Artifact(
             artifactId=artifact_data.get('artifactId'),
             name=artifact_name,
             description=artifact_data.get('description', 'From sub-agent'),
-            parts=artifact_parts
+            parts=artifact_parts,
+            metadata=meta,
         )
 
         # Track artifact ID for append logic
@@ -470,6 +560,17 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
         if is_tool_notification:
             artifact_name, description = self._get_artifact_name_for_notification(content, event)
             artifact = new_text_artifact(name=artifact_name, description=description, text=content)
+
+            # Tag tool notification with the active plan step.
+            plan_step_id = self._current_plan_step_id
+
+            artifact.metadata = {
+                'sourceAgent': event.get('source_agent') or 'supervisor',
+                'agentType': 'notification',
+            }
+            if plan_step_id:
+                artifact.metadata['plan_step_id'] = plan_step_id
+
             use_append = False
             state.seen_artifact_ids.add(artifact.artifact_id)
         elif state.streaming_artifact_id is None:
@@ -492,6 +593,14 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
             )
             artifact.artifact_id = state.streaming_artifact_id
             use_append = True
+
+        # Tag streaming chunks as final answer when the last plan step is active.
+        # This lets the UI stream the answer live below the plan instead of
+        # waiting for the final_result artifact.
+        if not is_tool_notification and self._is_last_plan_step_active():
+            if artifact.metadata is None:
+                artifact.metadata = {}
+            artifact.metadata['is_final_answer'] = True
 
         await self._send_artifact(event_queue, task, artifact, append=use_append)
 
@@ -546,6 +655,7 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
         self._execution_plan_emitted = False
         self._execution_plan_artifact_id = None
         self._latest_execution_plan = []
+        self._current_plan_step_id = None
 
         query = context.get_user_input()
         task = context.current_task
@@ -749,12 +859,28 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                         use_append = state.first_artifact_sent
                         if not state.first_artifact_sent:
                             state.first_artifact_sent = True
+
+                        # Propagate plan_step_id to sub-agent artifacts so
+                        # the UI can nest them under the correct plan step.
+                        artifact = event.artifact
+                        if artifact and self._current_plan_step_id:
+                            meta = dict(artifact.metadata or {})
+                            if 'plan_step_id' not in meta:
+                                meta['plan_step_id'] = self._current_plan_step_id
+                                artifact = Artifact(
+                                    artifactId=artifact.artifactId,
+                                    name=artifact.name,
+                                    description=artifact.description,
+                                    parts=artifact.parts,
+                                    metadata=meta,
+                                )
+
                         transformed = TaskArtifactUpdateEvent(
                             append=use_append,
                             context_id=event.context_id,
                             task_id=task.id,
                             lastChunk=event.lastChunk,
-                            artifact=event.artifact
+                            artifact=artifact,
                         )
                         await self._safe_enqueue_event(event_queue, transformed)
                     else:
@@ -890,20 +1016,51 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                     artifact_name = artifact_payload.get('name', 'agent_artifact')
                     artifact_text = artifact_payload.get('text', '')
 
-                    artifact = new_text_artifact(
-                        name=artifact_name,
-                        description=artifact_payload.get('description', 'Artifact from Platform Engineer'),
-                        text=artifact_text,
-                    )
-
-                    # Track execution plan
+                    # Track execution plan and emit structured DataPart
                     if artifact_name in ('execution_plan_update', 'execution_plan_status_update'):
                         self._execution_plan_emitted = True
-                        if artifact_name == 'execution_plan_update':
-                            self._execution_plan_artifact_id = artifact.artifact_id
                         parsed = self._parse_execution_plan_text(artifact_text)
                         if parsed:
+                            # Merge statuses: preserve completed/failed from existing plan
+                            if self._latest_execution_plan:
+                                old_statuses = {
+                                    s.get('step_id'): s.get('status')
+                                    for s in self._latest_execution_plan
+                                }
+                                for step in parsed:
+                                    old_status = old_statuses.get(step['step_id'])
+                                    if old_status in ('completed', 'failed'):
+                                        step['status'] = old_status
                             self._latest_execution_plan = parsed
+
+                        # Track which step the LLM is currently working on.
+                        for step in self._latest_execution_plan:
+                            if step.get('status') == 'in_progress':
+                                self._current_plan_step_id = step['step_id']
+                                break
+
+                        # Mark first step as in_progress on initial plan if none set
+                        if parsed and artifact_name == 'execution_plan_update':
+                            if not any(s.get('status') == 'in_progress' for s in parsed):
+                                parsed[0]['status'] = 'in_progress'
+                                self._current_plan_step_id = parsed[0]['step_id']
+
+                        plan_data = self._build_plan_data(self._latest_execution_plan)
+
+                        artifact = Artifact(
+                            artifact_id=self._execution_plan_artifact_id or str(uuid.uuid4()),
+                            name=artifact_name,
+                            description=artifact_payload.get('description', 'Structured execution plan'),
+                            parts=[Part(root=DataPart(data=plan_data))],
+                        )
+                        if artifact_name == 'execution_plan_update':
+                            self._execution_plan_artifact_id = artifact.artifact_id
+                    else:
+                        artifact = new_text_artifact(
+                            name=artifact_name,
+                            description=artifact_payload.get('description', 'Artifact from Platform Engineer'),
+                            text=artifact_text,
+                        )
 
                     await self._send_artifact(event_queue, task, artifact, append=False)
                     state.first_artifact_sent = True

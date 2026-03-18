@@ -25,6 +25,9 @@ class TestErrorRecovery:
         mock_slack.chat_postMessage.return_value = {"ts": "progress-123"}
         mock_slack.chat_delete.return_value = {}
 
+        # Use bot user_id (B prefix) so fallback progress message is posted and cleaned up.
+        # Streaming users (U prefix) use lazy stream start which is never initiated
+        # on error-only flows, so there's nothing to clean up.
         result = stream_a2a_response(
             a2a_client=mock_a2a,
             slack_client=mock_slack,
@@ -32,14 +35,14 @@ class TestErrorRecovery:
             thread_ts="123.456",
             message_text="test",
             team_id="T123",
-            user_id="U123",
+            user_id="B123",
         )
 
         # Should return retry marker
         assert isinstance(result, dict)
         assert result.get("retry_needed") is True
         assert "error" in result
-        # Progress message should be deleted
+        # Progress message should be deleted (bot user posts a progress message)
         mock_slack.chat_delete.assert_called_once()
 
     def test_no_retry_when_content_exists(self, mocker):

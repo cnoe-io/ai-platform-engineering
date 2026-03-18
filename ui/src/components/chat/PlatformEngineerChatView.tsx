@@ -32,7 +32,6 @@ export function PlatformEngineerChatView({
   readOnlyReason,
   contextPanelVisible = true,
 }: PlatformEngineerChatViewProps) {
-  const [debugMode, setDebugMode] = useState(false);
   const [contextPanelCollapsed, setContextPanelCollapsed] = useState(false);
 
   return (
@@ -51,15 +50,12 @@ export function PlatformEngineerChatView({
           conversationTitle={conversationTitle}
           readOnly={readOnly}
           readOnlyReason={readOnlyReason}
-          // No selectedAgentId = Platform Engineer (default)
         />
       </motion.div>
 
-      {/* Context Panel - Full A2A variant */}
+      {/* Context Panel - A2A debug */}
       {contextPanelVisible && (
         <ContextPanel
-          debugMode={debugMode}
-          onDebugModeChange={setDebugMode}
           collapsed={contextPanelCollapsed}
           onCollapse={setContextPanelCollapsed}
         />
