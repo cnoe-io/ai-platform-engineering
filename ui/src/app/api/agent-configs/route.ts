@@ -135,9 +135,9 @@ async function deleteAgentConfigFromMongoDB(
     throw new ApiError("Agent config not found", 404);
   }
   
-  // System configs can only be deleted by admins
-  if (existing.is_system && !isUserAdmin(user)) {
-    throw new ApiError("Only admins can delete system configurations", 403);
+  // System configs cannot be deleted — they are managed via configuration
+  if (existing.is_system) {
+    throw new ApiError("Built-in skills cannot be deleted. Use the BUILTIN_SKILL_IDS configuration to control which built-in skills are enabled.", 403);
   }
   
   // Non-system configs can only be deleted by owner
