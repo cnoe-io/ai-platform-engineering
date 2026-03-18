@@ -114,9 +114,7 @@ async def get_conversation_messages(
         agent,
         mcp_servers,
         conversation_id,
-        user_email=user.email,
-        user_name=user.name,
-        user_groups=user.groups,
+        user=user,
     )
 
     # 6. Get state from checkpointer
