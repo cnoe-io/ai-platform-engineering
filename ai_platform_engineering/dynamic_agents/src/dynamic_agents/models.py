@@ -2,7 +2,7 @@
 
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -21,6 +21,25 @@ class VisibilityType(str, Enum):
     PRIVATE = "private"
     TEAM = "team"
     GLOBAL = "global"
+
+
+# =============================================================================
+# User Context
+# =============================================================================
+
+
+class UserContext(BaseModel):
+    """Authenticated user context.
+
+    Created from JWT claims during authentication and passed through
+    to services that need user information.
+    """
+
+    email: str
+    name: str | None = None
+    groups: list[str] = []
+    is_admin: bool = False
+    raw_claims: dict[str, Any] = {}
 
 
 # =============================================================================

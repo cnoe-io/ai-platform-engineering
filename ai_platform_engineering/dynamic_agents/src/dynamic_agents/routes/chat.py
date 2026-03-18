@@ -9,9 +9,9 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from dynamic_agents.auth.access import can_use_agent
-from dynamic_agents.auth.auth import UserContext, get_current_user
+from dynamic_agents.auth.auth import get_current_user
 from dynamic_agents.logging import conversation_id_var
-from dynamic_agents.models import ChatRequest, DynamicAgentConfig
+from dynamic_agents.models import ChatRequest, DynamicAgentConfig, UserContext
 from dynamic_agents.services.agent_runtime import get_runtime_cache
 from dynamic_agents.services.mongo import MongoDBService, get_mongo_service
 
@@ -41,9 +41,7 @@ async def _generate_sse_events(
     mcp_servers: list,
     message: str,
     session_id: str,
-    user_id: str,
-    user_name: str | None = None,
-    user_groups: list[str] | None = None,
+    user: UserContext,
     trace_id: str | None = None,
     mongo: MongoDBService | None = None,
 ) -> AsyncGenerator[str, None]:
@@ -63,13 +61,11 @@ async def _generate_sse_events(
             agent_config,
             mcp_servers,
             session_id,
-            user_email=user_id,
-            user_name=user_name,
-            user_groups=user_groups,
+            user=user,
         )
 
         # Stream response with trace_id for Langfuse tracing
-        async for event in runtime.stream(message, session_id, user_id, trace_id):
+        async for event in runtime.stream(message, session_id, user.email, trace_id):
             event_type = event.get("type", "event")
             event_data = event.get("data", "")
 
@@ -141,9 +137,7 @@ async def chat_start_stream(
             mcp_servers=mcp_servers,
             message=request.message,
             session_id=request.conversation_id,
-            user_id=user.email,
-            user_name=user.name,
-            user_groups=user.groups,
+            user=user,
             trace_id=request.trace_id,
             mongo=mongo,
         ),
@@ -160,10 +154,8 @@ async def _generate_resume_sse_events(
     agent_config: DynamicAgentConfig,
     mcp_servers: list,
     session_id: str,
-    user_id: str,
+    user: UserContext,
     form_data: str,
-    user_name: str | None = None,
-    user_groups: list[str] | None = None,
     trace_id: str | None = None,
     mongo: MongoDBService | None = None,
 ) -> AsyncGenerator[str, None]:
@@ -183,13 +175,11 @@ async def _generate_resume_sse_events(
             agent_config,
             mcp_servers,
             session_id,
-            user_email=user_id,
-            user_name=user_name,
-            user_groups=user_groups,
+            user=user,
         )
 
         # Resume streaming with form data
-        async for event in runtime.resume(session_id, user_id, form_data, trace_id):
+        async for event in runtime.resume(session_id, user.email, form_data, trace_id):
             event_type = event.get("type", "event")
             event_data = event.get("data", "")
 
@@ -255,10 +245,8 @@ async def chat_resume_stream(
             agent_config=agent,
             mcp_servers=mcp_servers,
             session_id=request.conversation_id,
-            user_id=user.email,
+            user=user,
             form_data=request.form_data,
-            user_name=user.name,
-            user_groups=user.groups,
             trace_id=request.trace_id,
             mongo=mongo,
         ),
@@ -309,9 +297,7 @@ async def chat_invoke(
         agent,
         mcp_servers,
         request.conversation_id,
-        user_email=user.email,
-        user_name=user.name,
-        user_groups=user.groups,
+        user=user,
     )
 
     content_parts = []

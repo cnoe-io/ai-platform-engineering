@@ -20,7 +20,7 @@ from langgraph.types import Command
 from pymongo import MongoClient
 
 from dynamic_agents.config import Settings, get_settings
-from dynamic_agents.models import AgentContext, DynamicAgentConfig, MCPServerConfig, SubAgentRef
+from dynamic_agents.models import AgentContext, DynamicAgentConfig, MCPServerConfig, SubAgentRef, UserContext
 from dynamic_agents.services.builtin_tools import (
     create_current_datetime_tool,
     create_fetch_url_tool,
@@ -75,17 +75,13 @@ class AgentRuntime:
         mcp_servers: list[MCPServerConfig],
         settings: Settings | None = None,
         mongo_service: "MongoDBService | None" = None,
-        user_email: str | None = None,
-        user_name: str | None = None,
-        user_groups: list[str] | None = None,
+        user: UserContext | None = None,
     ):
         self.config = config
         self.mcp_servers = mcp_servers
         self.settings = settings or get_settings()
         self._mongo_service = mongo_service
-        self._user_email = user_email
-        self._user_name = user_name
-        self._user_groups = user_groups or []
+        self._user = user
         self._graph = None
         self._mongo_client = MongoClient(self.settings.mongodb_uri)
         # Use MongoDBSaver from langgraph-checkpoint-mongodb for persistent chat history
@@ -157,11 +153,7 @@ class AgentRuntime:
                 )
 
         # 4.5 Add built-in tools based on config
-        builtin_tools_to_add = self._build_builtin_tools(
-            user_email=self._user_email,
-            user_name=self._user_name,
-            user_groups=self._user_groups,
-        )
+        builtin_tools_to_add = self._build_builtin_tools(self._user)
         if builtin_tools_to_add:
             tools = tools + builtin_tools_to_add
             logger.info(
@@ -215,18 +207,11 @@ class AgentRuntime:
         # System prompt from agent config is the single source of truth
         return self.config.system_prompt
 
-    def _build_builtin_tools(
-        self,
-        user_email: str | None = None,
-        user_name: str | None = None,
-        user_groups: list[str] | None = None,
-    ) -> list:
+    def _build_builtin_tools(self, user: UserContext | None = None) -> list:
         """Build list of built-in tools based on agent config.
 
         Args:
-            user_email: User's email address (for user_info tool)
-            user_name: User's display name (for user_info tool)
-            user_groups: User's groups (for user_info tool)
+            user: User context for tools that need user info
 
         Returns:
             List of LangChain tools to add to the agent.
@@ -260,14 +245,10 @@ class AgentRuntime:
         # user_info tool (enabled by default)
         user_info_config = self.config.builtin_tools.user_info
         if user_info_config and user_info_config.enabled:
-            if user_email:
-                user_info_tool = create_user_info_tool(
-                    user_email=user_email,
-                    user_name=user_name,
-                    user_groups=user_groups or [],
-                )
+            if user:
+                user_info_tool = create_user_info_tool(user)
                 tools.append(user_info_tool)
-                logger.debug(f"Agent '{self.config.name}': user_info enabled for user {user_email}")
+                logger.debug(f"Agent '{self.config.name}': user_info enabled for user {user.email}")
             else:
                 logger.warning(f"Agent '{self.config.name}': user_info enabled but no user context available")
 
@@ -907,9 +888,7 @@ class AgentRuntimeCache:
         agent_config: DynamicAgentConfig,
         mcp_servers: list[MCPServerConfig],
         session_id: str,
-        user_email: str | None = None,
-        user_name: str | None = None,
-        user_groups: list[str] | None = None,
+        user: UserContext | None = None,
     ) -> AgentRuntime:
         """Get an existing runtime or create a new one.
 
@@ -917,9 +896,7 @@ class AgentRuntimeCache:
             agent_config: Dynamic agent configuration
             mcp_servers: Available MCP server configurations
             session_id: Conversation/session ID
-            user_email: User's email address (for builtin tools)
-            user_name: User's display name (for builtin tools)
-            user_groups: User's groups (for builtin tools)
+            user: User context for builtin tools
 
         Returns:
             Initialized AgentRuntime instance
@@ -949,9 +926,7 @@ class AgentRuntimeCache:
             agent_config,
             mcp_servers,
             mongo_service=self._mongo_service,
-            user_email=user_email,
-            user_name=user_name,
-            user_groups=user_groups,
+            user=user,
         )
         await runtime.initialize()
         self._cache[key] = runtime
