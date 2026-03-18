@@ -2,7 +2,7 @@
 
 **Purpose**: Validate specification completeness and quality before proceeding to planning
 **Created**: 2026-03-18
-**Feature**: [095-skills-middleware-integration/spec.md](../spec.md)
+**Feature**: [097-skills-middleware-integration/spec.md](../spec.md)
 
 ## Content Quality
 
@@ -31,4 +31,4 @@
 
 ## Notes
 
-- All checklist items pass. Spec is ready for `/speckit.clarify` or `/speckit.plan`.
+- All checklist items pass. Spec is ready for `/speckit.clarify` or `/speckit.plan`. Feature renumbered to 097.

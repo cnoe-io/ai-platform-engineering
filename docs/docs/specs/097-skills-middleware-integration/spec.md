@@ -1,6 +1,6 @@
 # Feature Specification: Integrated Skills with Single Source, Chat Commands, and Skill Hubs
 
-**Feature Branch**: `095-skills-middleware-integration`
+**Feature Branch**: `097-skills-middleware-integration`
 **Created**: 2026-03-18
 **Status**: Draft
 **Input**: User description: "Create a new integrated feature with the current skills in UI and CAIPE supervisor reading the skill from MongoDB and using LangGraph skills middleware, also no more run skills in the chat, add support for /skills in chat window to show skills, also add the ability to add other skill hub via GitHub or public GitHub that supervisor is able to incorporate into skills middleware."
