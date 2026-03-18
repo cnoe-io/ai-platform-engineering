@@ -1,6 +1,7 @@
 """Dynamic Agents FastAPI Application."""
 
 import asyncio
+import sys
 from contextlib import asynccontextmanager
 
 from dynamic_agents.logging import setup_logging
@@ -45,9 +46,10 @@ async def lifespan(app: FastAPI):
             reset_mongo_service()
     else:
         # All retries exhausted - crash the service
-        raise RuntimeError(
+        logger.critical(
             f"Failed to connect to MongoDB after {max_retries} attempts. Service cannot start without MongoDB."
         )
+        sys.exit(1)
 
     # Apply seed configuration (agents and MCP servers from config.yaml)
     apply_seed_config(mongo, settings.seed_config_path)
