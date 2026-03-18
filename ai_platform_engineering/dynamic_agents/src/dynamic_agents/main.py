@@ -9,6 +9,17 @@ from dynamic_agents.logging import setup_logging
 # Setup logging before other imports that trigger cnoe-agent-utils
 logger = setup_logging()
 
+
+def fatal_exit(message: str) -> None:
+    """Log a critical error and forcefully terminate the process.
+
+    Uses os._exit(1) to bypass exception handlers and ensure immediate termination,
+    which is necessary when running under uvicorn with reload mode.
+    """
+    logger.critical(message)
+    os._exit(1)
+
+
 # ruff: noqa: E402
 # Imports must be after logging setup to ensure our format is used
 from fastapi import FastAPI
@@ -46,10 +57,7 @@ async def lifespan(app: FastAPI):
             reset_mongo_service()
     else:
         # All retries exhausted - crash the service
-        logger.critical(
-            f"Failed to connect to MongoDB after {max_retries} attempts. Service cannot start without MongoDB."
-        )
-        os._exit(1)
+        fatal_exit(f"Failed to connect to MongoDB after {max_retries} attempts. Service cannot start without MongoDB.")
 
     # Apply seed configuration (agents and MCP servers from config.yaml)
     apply_seed_config(mongo, settings.seed_config_path)
