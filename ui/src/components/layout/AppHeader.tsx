@@ -16,6 +16,7 @@ import {
   Workflow,
   Home,
   Bot,
+  AlertTriangle,
 } from "lucide-react";
 import { UserMenu } from "@/components/user-menu";
 import { SettingsPanel } from "@/components/settings-panel";
@@ -28,6 +29,7 @@ import { UnsavedChangesDialog } from "@/components/task-builder/UnsavedChangesDi
 import { useCAIPEHealth } from "@/hooks/use-caipe-health";
 import { useRAGHealth } from "@/hooks/use-rag-health";
 import { useVersion } from "@/hooks/use-version";
+import { ReportProblemDialog } from "@/components/ticket/ReportProblemDialog";
 import {
   Popover,
   PopoverContent,
@@ -98,6 +100,8 @@ export function AppHeader() {
   const handleCancel = React.useCallback(() => {
     cancelNavigation();
   }, [cancelNavigation]);
+
+  const [reportDialogOpen, setReportDialogOpen] = React.useState(false);
 
   // Debug logging for admin tab
   React.useEffect(() => {
@@ -599,6 +603,23 @@ export function AppHeader() {
 
         {/* Personalization, Links & User */}
         <div className="flex items-center gap-1 border-l border-border pl-3">
+          {config.reportProblemEnabled && (
+            <>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-8 gap-1.5 text-xs text-muted-foreground hover:text-foreground"
+                onClick={() => setReportDialogOpen(true)}
+              >
+                <AlertTriangle className="h-3.5 w-3.5" />
+                Report a Problem
+              </Button>
+              <ReportProblemDialog
+                open={reportDialogOpen}
+                onOpenChange={setReportDialogOpen}
+              />
+            </>
+          )}
           <SettingsPanel />
           {config.docsUrl && (
             <Button variant="ghost" size="icon" className="h-8 w-8" asChild>

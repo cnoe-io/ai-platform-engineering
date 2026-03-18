@@ -2096,7 +2096,10 @@ const ChatMessage = React.memo(function ChatMessage({
 }: ChatMessageProps) {
   const isUser = message.role === "user";
   const showThinkingDefault = useFeatureFlagStore((s) => s.flags.showThinking ?? true);
-  const [showRawStream, setShowRawStream] = useState(showThinkingDefault);
+  const [showRawStream, setShowRawStream] = useState(() => {
+    if (message.isFinal) return false;
+    return showThinkingDefault;
+  });
   const [isHovered, setIsHovered] = useState(false);
   // Collapse final answer for assistant messages - auto-collapse older answers, keep latest expanded
   const [isCollapsed, setIsCollapsed] = useState(() => {

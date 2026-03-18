@@ -35,7 +35,7 @@ export function PlatformEngineerChatView({
   adminOrigin,
   contextPanelVisible = true,
 }: PlatformEngineerChatViewProps) {
-  const [contextPanelCollapsed, setContextPanelCollapsed] = useState(false);
+  const [contextPanelCollapsed, setContextPanelCollapsed] = useState(true);
 
   return (
     <div className="flex-1 min-w-0 flex h-full">

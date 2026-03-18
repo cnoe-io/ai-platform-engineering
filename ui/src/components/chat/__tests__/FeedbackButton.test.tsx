@@ -44,6 +44,31 @@ jest.mock("lucide-react", () => ({
   ThumbsUp: (props: { className?: string }) => <span data-testid="icon-thumbs-up" {...props} />,
   ThumbsDown: (props: { className?: string }) => <span data-testid="icon-thumbs-down" {...props} />,
   Loader2: () => <span data-testid="icon-loader" />,
+  AlertTriangle: () => <span data-testid="icon-alert-triangle" />,
+}));
+
+let mockReportProblemEnabled = false;
+let mockTicketEnabled = false;
+let mockTicketProvider: string | null = null;
+
+jest.mock("@/lib/config", () => ({
+  getConfig: (key: string) => {
+    switch (key) {
+      case "reportProblemEnabled":
+        return mockReportProblemEnabled;
+      case "ticketEnabled":
+        return mockTicketEnabled;
+      case "ticketProvider":
+        return mockTicketProvider;
+      default:
+        return null;
+    }
+  },
+}));
+
+jest.mock("@/components/ticket/ReportProblemDialog", () => ({
+  ReportProblemDialog: ({ open }: { open: boolean }) =>
+    open ? <div data-testid="report-problem-dialog">ReportProblemDialog</div> : null,
 }));
 
 jest.mock("@/components/ui/button", () => ({
@@ -447,5 +472,117 @@ describe("FeedbackButton", () => {
     );
     expect(screen.getByText("Inaccurate")).toBeInTheDocument();
     expect(screen.queryByText("Very Helpful")).not.toBeInTheDocument();
+  });
+
+  // ==========================================================================
+  // Ticket integration tests
+  // ==========================================================================
+
+  describe("ticket integration (dislike + ticketEnabled)", () => {
+    beforeEach(() => {
+      mockReportProblemEnabled = true;
+      mockTicketEnabled = true;
+      mockTicketProvider = "jira";
+    });
+
+    afterEach(() => {
+      mockReportProblemEnabled = false;
+      mockTicketEnabled = false;
+      mockTicketProvider = null;
+    });
+
+    it("shows 'Submit & Report Jira Issue' button on dislike", () => {
+      render(
+        <FeedbackButton
+          messageId="msg-1"
+          feedback={{ type: "dislike", reason: "Inaccurate", showFeedbackOptions: true }}
+        />
+      );
+      expect(screen.getByText(/Submit & Report Jira Issue/)).toBeInTheDocument();
+    });
+
+    it("does NOT show combo button on positive feedback", () => {
+      render(
+        <FeedbackButton
+          messageId="msg-1"
+          feedback={{ type: "like", reason: "Very Helpful", showFeedbackOptions: true }}
+        />
+      );
+      expect(screen.queryByText(/Submit & Report/)).not.toBeInTheDocument();
+    });
+
+    it("shows 'Report a Problem' link on dislike", () => {
+      render(
+        <FeedbackButton
+          messageId="msg-1"
+          feedback={{ type: "dislike", reason: "Inaccurate", showFeedbackOptions: true }}
+        />
+      );
+      expect(screen.getByText("Report a Problem")).toBeInTheDocument();
+    });
+
+    it("does NOT show 'Report a Problem' link on positive feedback", () => {
+      render(
+        <FeedbackButton
+          messageId="msg-1"
+          feedback={{ type: "like", reason: "Very Helpful", showFeedbackOptions: true }}
+        />
+      );
+      expect(screen.queryByText("Report a Problem")).not.toBeInTheDocument();
+    });
+
+    it("combo button submits feedback then opens report dialog", async () => {
+      const onFeedbackChange = jest.fn();
+      render(
+        <FeedbackButton
+          messageId="msg-1"
+          feedback={{ type: "dislike", reason: "Inaccurate", showFeedbackOptions: true }}
+          onFeedbackChange={onFeedbackChange}
+        />
+      );
+
+      fireEvent.click(screen.getByText(/Submit & Report Jira Issue/));
+
+      await waitFor(() => {
+        expect(mockSubmitFeedback).toHaveBeenCalledWith(
+          expect.objectContaining({
+            feedbackType: "dislike",
+            reason: "Inaccurate",
+          })
+        );
+      });
+
+      await waitFor(() => {
+        expect(screen.getByTestId("report-problem-dialog")).toBeInTheDocument();
+      });
+    });
+  });
+
+  describe("when reportProblemEnabled is false", () => {
+    beforeEach(() => {
+      mockReportProblemEnabled = false;
+      mockTicketEnabled = false;
+      mockTicketProvider = null;
+    });
+
+    it("does not show combo button", () => {
+      render(
+        <FeedbackButton
+          messageId="msg-1"
+          feedback={{ type: "dislike", reason: "Inaccurate", showFeedbackOptions: true }}
+        />
+      );
+      expect(screen.queryByText(/Submit & Report/)).not.toBeInTheDocument();
+    });
+
+    it("does not show 'Report a Problem' link", () => {
+      render(
+        <FeedbackButton
+          messageId="msg-1"
+          feedback={{ type: "dislike", reason: "Inaccurate", showFeedbackOptions: true }}
+        />
+      );
+      expect(screen.queryByText("Report a Problem")).not.toBeInTheDocument();
+    });
   });
 });

@@ -2,11 +2,13 @@
 
 import React, { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { ThumbsUp, ThumbsDown, Loader2 } from "lucide-react";
+import { ThumbsUp, ThumbsDown, Loader2, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogTrigger, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 import { submitFeedback } from "@/lib/langfuse";
+import { getConfig } from "@/lib/config";
+import { ReportProblemDialog } from "@/components/ticket/ReportProblemDialog";
 
 export type FeedbackType = "like" | "dislike" | null;
 
@@ -46,6 +48,12 @@ export function FeedbackButton({
   const [additionalFeedback, setAdditionalFeedback] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [reportDialogOpen, setReportDialogOpen] = useState(false);
+  const [isSubmittingCombo, setIsSubmittingCombo] = useState(false);
+
+  const reportProblemEnabled = getConfig("reportProblemEnabled");
+  const ticketEnabled = getConfig("ticketEnabled");
+  const ticketProvider = getConfig("ticketProvider");
 
   const handleThumbClick = (type: FeedbackType, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -116,6 +124,37 @@ export function FeedbackButton({
     setIsSubmitting(false);
     setAdditionalFeedback("");
     setDialogOpen(false);
+  };
+
+  const handleSubmitAndReport = async () => {
+    if (!feedback?.reason || !feedback?.type) return;
+
+    setIsSubmittingCombo(true);
+
+    const finalFeedback: Feedback = {
+      ...feedback,
+      additionalFeedback: feedback.reason === "Other" ? additionalFeedback : undefined,
+      submitted: true,
+      showFeedbackOptions: false,
+    };
+
+    await submitFeedback({
+      traceId: traceId || messageId,
+      messageId,
+      feedbackType: feedback.type,
+      reason: feedback.reason,
+      additionalFeedback: feedback.reason === "Other" ? additionalFeedback : undefined,
+      conversationId,
+    });
+
+    onFeedbackChange?.(finalFeedback);
+    await onFeedbackSubmit?.(finalFeedback);
+
+    setIsSubmittingCombo(false);
+    setAdditionalFeedback("");
+    setDialogOpen(false);
+
+    setReportDialogOpen(true);
   };
 
   const isLiked = feedback?.type === "like";
@@ -213,17 +252,62 @@ export function FeedbackButton({
           Feedback is shared with your platform engineering team to help improve the experience.
         </p>
 
-        {/* Submit Button */}
-        <Button
-          size="sm"
-          onClick={handleSubmitFeedback}
-          disabled={!feedback?.reason || isSubmitting}
-          className="w-full gap-2"
-        >
-          {isSubmitting && <Loader2 className="h-3 w-3 animate-spin" />}
-          Submit Feedback
-        </Button>
+        {/* Submit Buttons */}
+        <div className="space-y-2">
+          <Button
+            size="sm"
+            onClick={handleSubmitFeedback}
+            disabled={!feedback?.reason || isSubmitting || isSubmittingCombo}
+            className="w-full gap-2"
+          >
+            {isSubmitting && <Loader2 className="h-3 w-3 animate-spin" />}
+            Submit Feedback
+          </Button>
+
+          {ticketEnabled && isDisliked && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={handleSubmitAndReport}
+              disabled={!feedback?.reason || isSubmitting || isSubmittingCombo}
+              className="w-full gap-2"
+            >
+              {isSubmittingCombo && <Loader2 className="h-3 w-3 animate-spin" />}
+              Submit &amp; Report {ticketProvider === "jira" ? "Jira" : "GitHub"} Issue
+            </Button>
+          )}
+        </div>
+
+        {reportProblemEnabled && isDisliked && (
+          <button
+            type="button"
+            onClick={() => {
+              setDialogOpen(false);
+              setReportDialogOpen(true);
+            }}
+            className="w-full mt-1 flex items-center justify-center gap-1 text-[10px] text-muted-foreground hover:text-foreground transition-colors"
+          >
+            <AlertTriangle className="h-3 w-3" />
+            Report a Problem
+          </button>
+        )}
       </DialogContent>
+
+      {reportProblemEnabled && (
+        <ReportProblemDialog
+          open={reportDialogOpen}
+          onOpenChange={setReportDialogOpen}
+          feedbackContext={
+            feedback?.type && feedback?.reason
+              ? {
+                  reason: feedback.reason,
+                  additionalFeedback: feedback.reason === "Other" ? additionalFeedback : undefined,
+                  feedbackType: feedback.type,
+                }
+              : undefined
+          }
+        />
+      )}
     </Dialog>
   );
 }
