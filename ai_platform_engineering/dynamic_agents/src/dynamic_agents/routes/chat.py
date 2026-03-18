@@ -86,42 +86,7 @@ async def _generate_sse_events(
 
     except Exception as e:
         logger.exception(f"Error streaming from agent '{agent_config.name}'")
-        error_str = str(e).lower()
-
-        # Detect LLM-related errors based on error message content
-        llm_keywords = [
-            "deployment",
-            "model",
-            "not found",
-            "does not exist",
-            "invalid_request",
-            "authentication",
-            "unauthorized",
-            "api key",
-            "rate limit",
-            "quota",
-            "openai",
-            "azure",
-            "bedrock",
-            "anthropic",
-            "gemini",
-            "vertex",
-        ]
-        is_llm_error = any(keyword in error_str for keyword in llm_keywords)
-
-        if is_llm_error:
-            # Build context info: provider and model
-            context_parts = []
-            if agent_config.model_provider:
-                context_parts.append(f"provider: {agent_config.model_provider}")
-            if agent_config.model_id:
-                context_parts.append(f"model: {agent_config.model_id}")
-            context_info = f" ({', '.join(context_parts)})" if context_parts else ""
-            error_msg = f"LLM Connection Error{context_info}: {e}"
-        else:
-            error_msg = str(e)
-
-        error_data = json.dumps({"error": error_msg})
+        error_data = json.dumps({"error": str(e)})
         yield f"event: error\ndata: {error_data}\n\n"
 
 
