@@ -22,6 +22,7 @@ import { SubagentPicker } from "./SubagentPicker";
 
 interface DynamicAgentEditorProps {
   agent: DynamicAgentConfig | null; // null = creating new
+  cloneFrom?: DynamicAgentConfig | null; // Agent to clone from (for pre-filling)
   onSave: () => void;
   onCancel: () => void;
 }
@@ -133,28 +134,34 @@ function StepIndicator({
   );
 }
 
-export function DynamicAgentEditor({ agent, onSave, onCancel }: DynamicAgentEditorProps) {
+export function DynamicAgentEditor({ agent, cloneFrom, onSave, onCancel }: DynamicAgentEditorProps) {
   const isEditing = !!agent;
+  const isCloning = !!cloneFrom;
+  
+  // Source for initial values: editing agent > cloning source > empty defaults
+  const source = agent || cloneFrom;
 
-  // Form state
-  const [name, setName] = React.useState(agent?.name || "");
-  const [description, setDescription] = React.useState(agent?.description || "");
-  const [systemPrompt, setSystemPrompt] = React.useState(agent?.system_prompt || "");
-  const [visibility, setVisibility] = React.useState<VisibilityType>(agent?.visibility || "private");
+  // Form state - when cloning, append " (New)" to name
+  const [name, setName] = React.useState(
+    isCloning && source ? `${source.name} (New)` : (source?.name || "")
+  );
+  const [description, setDescription] = React.useState(source?.description || "");
+  const [systemPrompt, setSystemPrompt] = React.useState(source?.system_prompt || "");
+  const [visibility, setVisibility] = React.useState<VisibilityType>(source?.visibility || "private");
   const [sharedWithTeams, setSharedWithTeams] = React.useState<string[]>(
-    agent?.shared_with_teams || []
+    source?.shared_with_teams || []
   );
   const [allowedTools, setAllowedTools] = React.useState<Record<string, string[]>>(
-    agent?.allowed_tools || {}
+    source?.allowed_tools || {}
   );
   const [builtinTools, setBuiltinTools] = React.useState<BuiltinToolsConfig | undefined>(
-    agent?.builtin_tools
+    source?.builtin_tools
   );
   const [subagents, setSubagents] = React.useState<SubAgentRef[]>(
-    agent?.subagents || []
+    source?.subagents || []
   );
-  const [modelId, setModelId] = React.useState(agent?.model_id || "");
-  const [modelProvider, setModelProvider] = React.useState(agent?.model_provider || "");
+  const [modelId, setModelId] = React.useState(source?.model_id || "");
+  const [modelProvider, setModelProvider] = React.useState(source?.model_provider || "");
 
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
@@ -207,19 +214,19 @@ export function DynamicAgentEditor({ agent, onSave, onCancel }: DynamicAgentEdit
         if (data.success && Array.isArray(data.data)) {
           setAvailableModels(data.data);
           
-          if (agent?.model_id) {
-            // Editing existing agent - verify model exists using both model AND provider
+          if (source?.model_id) {
+            // Editing or cloning existing agent - verify model exists using both model AND provider
             // (same model can exist for different providers, e.g., gpt-4o for openai and azure-openai)
             const existingModel = data.data.find(
               (m: { model_id: string; provider: string }) => 
-                m.model_id === agent.model_id && m.provider === agent.model_provider
+                m.model_id === source.model_id && m.provider === source.model_provider
             );
             if (existingModel) {
               // Model exists - ensure provider is in sync with config
               setModelProvider(existingModel.provider);
             } else {
               // Model no longer available - reset to first available
-              console.warn(`Agent model "${agent.model_id}" no longer available, resetting to default`);
+              console.warn(`Agent model "${source.model_id}" no longer available, resetting to default`);
               if (data.data.length > 0) {
                 setModelId(data.data[0].model_id);
                 setModelProvider(data.data[0].provider);
@@ -372,10 +379,14 @@ export function DynamicAgentEditor({ agent, onSave, onCancel }: DynamicAgentEdit
             <ArrowLeft className="h-4 w-4" />
           </Button>
           <div>
-            <CardTitle>{isEditing ? "Edit Custom Agent" : "Create Custom Agent"}</CardTitle>
+            <CardTitle>
+              {isEditing ? "Edit Custom Agent" : isCloning ? "Clone Custom Agent" : "Create Custom Agent"}
+            </CardTitle>
             <CardDescription>
               {isEditing
                 ? "Update the agent configuration"
+                : isCloning
+                ? `Creating a copy of "${cloneFrom?.name}"`
                 : "Configure a new custom AI agent"}
             </CardDescription>
           </div>
