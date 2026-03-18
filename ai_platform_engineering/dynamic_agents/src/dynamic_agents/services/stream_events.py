@@ -91,7 +91,6 @@ def make_tool_start_event(
 
 
 def make_tool_end_event(
-    tool_name: str,
     tool_call_id: str,
     agent: str,
 ) -> dict[str, Any]:
@@ -99,10 +98,8 @@ def make_tool_end_event(
     return {
         "type": TOOL_END,
         "data": {
-            "tool_name": tool_name,
             "tool_call_id": tool_call_id,
             "agent": agent,
-            "is_builtin": tool_name in BUILTIN_TOOLS,
         },
     }
 
@@ -122,6 +119,7 @@ def make_todo_update_event(
 
 
 def make_subagent_start_event(
+    tool_call_id: str,
     subagent_name: str,
     purpose: str,
     parent_agent: str,
@@ -130,6 +128,7 @@ def make_subagent_start_event(
     return {
         "type": SUBAGENT_START,
         "data": {
+            "tool_call_id": tool_call_id,
             "subagent_name": subagent_name,
             "purpose": _truncate(purpose),
             "parent_agent": parent_agent,
@@ -138,14 +137,14 @@ def make_subagent_start_event(
 
 
 def make_subagent_end_event(
-    subagent_name: str,
+    tool_call_id: str,
     parent_agent: str,
 ) -> dict[str, Any]:
     """Subagent invocation completed (task tool result received)."""
     return {
         "type": SUBAGENT_END,
         "data": {
-            "subagent_name": subagent_name,
+            "tool_call_id": tool_call_id,
             "parent_agent": parent_agent,
         },
     }

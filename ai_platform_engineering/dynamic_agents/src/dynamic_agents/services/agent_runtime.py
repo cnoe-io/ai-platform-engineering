@@ -39,9 +39,12 @@ from dynamic_agents.services.stream_events import (
     make_input_required_event,
 )
 from dynamic_agents.services.stream_trackers import (
-    SubagentTracker,
-    TodoTracker,
-    ToolTracker,
+    emit_subagent_end,
+    emit_subagent_start,
+    emit_todo_update,
+    emit_tool_end,
+    emit_tool_start,
+    is_task_tool,
 )
 
 if TYPE_CHECKING:
@@ -463,10 +466,9 @@ class AgentRuntime:
         # Store trace_id for final_result event
         self._current_trace_id = config.get("metadata", {}).get("trace_id")
 
-        # Initialize trackers
-        tool_tracker = ToolTracker(agent_name=self.config.name)
-        todo_tracker = TodoTracker(agent_name=self.config.name)
-        subagent_tracker = SubagentTracker(parent_agent_name=self.config.name)
+        # Track active task tool calls (subagents) so we can emit correct end events
+        # This is the minimal state needed - just tool_call_ids of task tools
+        active_task_calls: set[str] = set()
         accumulated_content: list[str] = []
 
         logger.info(f"[stream] Starting stream for agent '{self.config.name}': user={user_id}, conv={session_id}")
@@ -484,9 +486,7 @@ class AgentRuntime:
             stream_mode=["messages", "updates"],
             subgraphs=True,
         ):
-            for event in self._transform_stream_chunk(
-                chunk, tool_tracker, todo_tracker, subagent_tracker, accumulated_content
-            ):
+            for event in self._transform_stream_chunk(chunk, active_task_calls, accumulated_content):
                 yield event
 
         # Check for pending interrupt (agent called request_user_input)
@@ -521,9 +521,7 @@ class AgentRuntime:
     def _transform_stream_chunk(
         self,
         chunk: tuple,
-        tool_tracker: ToolTracker,
-        todo_tracker: TodoTracker,
-        subagent_tracker: SubagentTracker,
+        active_task_calls: set[str],
         accumulated_content: list[str],
     ) -> list[dict[str, Any]]:
         """Transform astream() chunks into structured SSE events.
@@ -533,15 +531,14 @@ class AgentRuntime:
 
         Args:
             chunk: Raw chunk from astream()
-            tool_tracker: Tracks tool calls
-            todo_tracker: Parses write_todos output
-            subagent_tracker: Tracks task tool calls
+            active_task_calls: Set of tool_call_ids for active task (subagent) calls
             accumulated_content: List to accumulate final content
 
         Returns:
             List of SSE event dicts
         """
         results: list[dict[str, Any]] = []
+        agent_name = self.config.name
 
         # Parse chunk format: (namespace, mode, data) or (mode, data)
         if len(chunk) == 3:
@@ -615,38 +612,32 @@ class AgentRuntime:
                                 args = tc.get("args", {}) if isinstance(tc, dict) else getattr(tc, "args", {})
 
                                 # Check if this is a subagent invocation (task tool)
-                                if subagent_tracker.is_task_tool(tool_name):
+                                if is_task_tool(tool_name):
+                                    active_task_calls.add(tool_call_id)
                                     subagent_type = args.get("subagent_type", "unknown")
-                                    # The task tool uses "description" arg, not "prompt"
                                     purpose = args.get("description", "")
                                     results.append(
-                                        subagent_tracker.start_subagent(tool_call_id, subagent_type, purpose)
+                                        emit_subagent_start(tool_call_id, subagent_type, purpose, agent_name)
                                     )
                                 else:
                                     # Regular tool call
-                                    results.append(tool_tracker.start_tool(tool_name, tool_call_id, args))
+                                    results.append(emit_tool_start(tool_name, tool_call_id, args, agent_name))
 
-                                    # Check for todo updates from write_todos args (primary method)
-                                    # This is more reliable than parsing markdown from ToolMessage
-                                    todo_event = todo_tracker.process_tool_call(tool_name, args)
+                                    # Check for todo updates from write_todos args
+                                    todo_event = emit_todo_update(tool_name, args, agent_name)
                                     if todo_event:
                                         results.append(todo_event)
 
                         # Handle ToolMessage (tool results)
                         tool_call_id = getattr(msg, "tool_call_id", None)
                         if tool_call_id:
-                            content = getattr(msg, "content", "")
-
                             # Check if this is a subagent result
-                            if subagent_tracker.get_active_subagent(tool_call_id):
-                                event = subagent_tracker.end_subagent(tool_call_id)
-                                if event:
-                                    results.append(event)
+                            if tool_call_id in active_task_calls:
+                                active_task_calls.discard(tool_call_id)
+                                results.append(emit_subagent_end(tool_call_id, agent_name))
                             else:
-                                # Regular tool result - emit tool_end
-                                event = tool_tracker.end_tool(tool_call_id)
-                                if event:
-                                    results.append(event)
+                                # Regular tool result
+                                results.append(emit_tool_end(tool_call_id, agent_name))
 
         return results
 
@@ -761,10 +752,8 @@ class AgentRuntime:
 
         self._current_trace_id = config.get("metadata", {}).get("trace_id")
 
-        # Initialize trackers
-        tool_tracker = ToolTracker(agent_name=self.config.name)
-        todo_tracker = TodoTracker(agent_name=self.config.name)
-        subagent_tracker = SubagentTracker(parent_agent_name=self.config.name)
+        # Track active task tool calls (subagents) so we can emit correct end events
+        active_task_calls: set[str] = set()
         accumulated_content: list[str] = []
 
         logger.info(f"[resume] Resuming stream for agent '{self.config.name}': user={user_id}, conv={session_id}")
@@ -827,9 +816,7 @@ class AgentRuntime:
             stream_mode=["messages", "updates"],
             subgraphs=True,
         ):
-            for event in self._transform_stream_chunk(
-                chunk, tool_tracker, todo_tracker, subagent_tracker, accumulated_content
-            ):
+            for event in self._transform_stream_chunk(chunk, active_task_calls, accumulated_content):
                 yield event
 
         # Check for another pending interrupt (agent might request more input)
