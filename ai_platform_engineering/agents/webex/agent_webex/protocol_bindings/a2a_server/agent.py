@@ -11,6 +11,9 @@ from typing import Dict, Any, Literal
 from pydantic import BaseModel
 
 from ai_platform_engineering.utils.a2a_common.base_langgraph_agent import BaseLangGraphAgent
+from ai_platform_engineering.utils.mcp_config import (
+    build_http_mcp_config, is_http_mode, resolve_mcp_mode,
+)
 from ai_platform_engineering.utils.subagent_prompts import load_subagent_prompt_config
 
 logger = logging.getLogger(__name__)
@@ -35,36 +38,29 @@ class WebexAgent(BaseLangGraphAgent):
 
     def __init__(self):
         """Initialize Webex agent."""
-        self.mcp_mode = os.getenv("MCP_MODE", "stdio").lower()
-        self.mcp_host = os.getenv("MCP_HOST")
-        self.mcp_port = os.getenv("MCP_PORT")
-
+        self.mcp_mode = resolve_mcp_mode(_prompt_config.agent_name.lower())
         # Call parent constructor
         super().__init__()
 
     def get_agent_name(self) -> str:
         """Return the agent name."""
-        return "webex"
+        return _prompt_config.agent_name.lower()
 
     def get_mcp_http_config(self) -> Dict[str, Any] | None:
         """
         Return custom HTTP MCP configuration for Webex API if in HTTP mode.
         """
-        if self.mcp_mode in ("http", "streamable_http") and self.mcp_host and self.mcp_port:
-            mcp_url = f"http://{self.mcp_host}:{self.mcp_port}/mcp"
-            logger.info(f"Using HTTP transport for Webex MCP: {mcp_url}")
-            return {
-                "url": mcp_url,
-                "headers": {},
-            }
-        return None
+        if not is_http_mode(self.mcp_mode):
+            return None
+
+        return build_http_mcp_config(self.get_agent_name(), path="/mcp")
 
     def get_mcp_config(self, server_path: str | None = None) -> Dict[str, Any]:
         """
         Return MCP configuration for stdio mode.
 
         This is used when MCP_MODE is 'stdio' (default).
-        
+
         Args:
             server_path: Path to the MCP server entry point (e.g., __main__.py)
         """

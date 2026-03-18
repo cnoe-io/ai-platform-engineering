@@ -8,6 +8,7 @@ from typing import Literal
 from pydantic import BaseModel
 
 from ai_platform_engineering.utils.a2a_common.base_langgraph_agent import BaseLangGraphAgent
+from ai_platform_engineering.utils.mcp_config import resolve_mcp_mode
 from ai_platform_engineering.utils.subagent_prompts import load_subagent_prompt_config
 from cnoe_agent_utils.tracing import trace_agent_stream
 
@@ -34,10 +35,8 @@ class PetStoreAgent(BaseLangGraphAgent):
         # Call parent __init__ first to set up model, tracing, etc.
         super().__init__()
 
-        # Preserve existing MCP configuration logic for HTTP mode support
-        self.mcp_mode = os.getenv("MCP_MODE", "stdio").lower()
+        self.mcp_mode = resolve_mcp_mode(_prompt_config.agent_name.lower())
 
-        # Support both PETSTORE_MCP_API_KEY and PETSTORE_API_KEY for backward compatibility
         self.mcp_api_key = (
             os.getenv("PETSTORE_MCP_API_KEY")
             or os.getenv("PETSTORE_API_KEY")
@@ -57,7 +56,7 @@ class PetStoreAgent(BaseLangGraphAgent):
 
     def get_agent_name(self) -> str:
         """Return the agent's name."""
-        return "petstore"
+        return _prompt_config.agent_name.lower()
 
     def get_system_instruction(self) -> str:
         """Return the system instruction for the agent."""

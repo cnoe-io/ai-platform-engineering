@@ -22,6 +22,9 @@ from dotenv import load_dotenv
 from pydantic import BaseModel
 
 from ai_platform_engineering.utils.a2a_common.base_langgraph_agent import BaseLangGraphAgent
+from ai_platform_engineering.utils.mcp_config import (
+    build_http_mcp_config, is_http_mode, resolve_mcp_mode,
+)
 from ai_platform_engineering.utils.subagent_prompts import load_subagent_prompt_config
 from ai_platform_engineering.utils.agent_tools import (
     git, grep, glob_find, read_file, write_file, edit_file, append_file, list_files
@@ -61,7 +64,7 @@ class GitLabAgent(BaseLangGraphAgent):
 
     def get_agent_name(self) -> str:
         """Return the agent name."""
-        return "gitlab"
+        return _prompt_config.agent_name.lower()
 
     def get_mcp_http_config(self) -> Dict[str, Any] | None:
         """
@@ -74,12 +77,12 @@ class GitLabAgent(BaseLangGraphAgent):
         Returns:
             Dictionary with MCP server URL configuration
         """
-        mcp_host = os.getenv("MCP_HOST", "localhost")
-        mcp_port = os.getenv("MCP_PORT", "8000")
+        if not is_http_mode(resolve_mcp_mode(self.get_agent_name())):
+            return None
 
-        return {
-            "url": f"http://{mcp_host}:{mcp_port}/mcp",
-        }
+        return build_http_mcp_config(
+            self.get_agent_name(), path="/mcp",
+        )
 
     def _get_denied_tools_regex(self) -> str:
         """

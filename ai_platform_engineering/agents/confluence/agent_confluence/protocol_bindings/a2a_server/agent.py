@@ -8,6 +8,9 @@ from typing import Literal
 from pydantic import BaseModel
 
 from ai_platform_engineering.utils.a2a_common.base_langgraph_agent import BaseLangGraphAgent
+from ai_platform_engineering.utils.mcp_config import (
+    build_http_mcp_config, is_http_mode, resolve_mcp_mode,
+)
 from ai_platform_engineering.utils.subagent_prompts import load_subagent_prompt_config
 from cnoe_agent_utils.tracing import trace_agent_stream
 
@@ -32,7 +35,7 @@ class ConfluenceAgent(BaseLangGraphAgent):
 
     def get_agent_name(self) -> str:
         """Return the agent's name."""
-        return "confluence"
+        return _prompt_config.agent_name.lower()
 
     def get_system_instruction(self) -> str:
         """Return the system instruction for the agent."""
@@ -78,14 +81,10 @@ class ConfluenceAgent(BaseLangGraphAgent):
         This overrides the default HTTP config to NOT send Authorization headers,
         since sooperset/mcp-atlassian handles auth via environment variables.
         """
-        mcp_host = os.getenv("MCP_HOST", "localhost")
-        mcp_port = os.getenv("MCP_PORT", "8000")
+        if not is_http_mode(resolve_mcp_mode(self.get_agent_name())):
+            return None
 
-        return {
-            "url": f"http://{mcp_host}:{mcp_port}/mcp/",
-            # No Authorization header - server uses env vars for auth
-            "headers": {},
-        }
+        return build_http_mcp_config(self.get_agent_name())
 
     def get_tool_working_message(self) -> str:
         """Return message shown when calling tools."""
