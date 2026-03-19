@@ -27,9 +27,10 @@ def submit_feedback_score(
     """
     Submit a feedback score to Langfuse with full context.
 
-    Submits TWO scores:
-      1. Channel-specific score (name: channel name)
-      2. Aggregated score (name: "all slack channels")
+    Submits THREE scores:
+      1. Channel-specific score (name: channel name, or "DM" for direct messages)
+      2. Aggregated Slack score (name: "all slack channels")
+      3. Aggregated cross-client score (name: "all") — shared with the web UI
     """
     if feedback_client is None:
         logger.debug("Langfuse feedback scoring disabled, skipping")
@@ -57,8 +58,9 @@ def submit_feedback_score(
     except Exception as e:
         logger.warning(f"Could not get user email: {e}")
 
-    # Get channel name from config
+    # Get channel name from config; DMs won't be in config.channels
     channel_name = None
+    is_dm = channel_id.startswith("D") if channel_id else False
     if channel_id in config.channels:
         channel_name = config.channels[channel_id].name
 
@@ -72,7 +74,9 @@ def submit_feedback_score(
         slack_permalink = None
 
     # Score 1: Channel-specific score
-    channel_score_name = f"{channel_name}" if channel_name else "feedback"
+    # For DMs, use "DM" as the score name; for unknown channels, fall back to "all slack channels"
+    channel_score_name = channel_name if channel_name else ("DM" if is_dm else "all slack channels")
+    display_channel_name = channel_name or ("DM" if is_dm else None)
     success_channel = feedback_client.submit_feedback(
         trace_id=trace_id,
         score_name=channel_score_name,
@@ -82,12 +86,12 @@ def submit_feedback_score(
         comment=comment,
         session_id=context_id,
         channel_id=channel_id,
-        channel_name=channel_name,
+        channel_name=display_channel_name,
         slack_permalink=slack_permalink,
     )
 
     # Score 2: Aggregated score for all Slack channels
-    success_all = feedback_client.submit_feedback(
+    success_all_slack = feedback_client.submit_feedback(
         trace_id=trace_id,
         score_name="all slack channels",
         value=feedback_value,
@@ -96,8 +100,22 @@ def submit_feedback_score(
         comment=comment,
         session_id=context_id,
         channel_id=channel_id,
-        channel_name=channel_name,
+        channel_name=display_channel_name,
         slack_permalink=slack_permalink,
     )
 
-    return success_channel and success_all
+    # Score 3: Aggregated score across all clients (Slack + Web UI)
+    success_all = feedback_client.submit_feedback(
+        trace_id=trace_id,
+        score_name="all",
+        value=feedback_value,
+        user_id=user_id,
+        user_email=user_email,
+        comment=comment,
+        session_id=context_id,
+        channel_id=channel_id,
+        channel_name=display_channel_name,
+        slack_permalink=slack_permalink,
+    )
+
+    return success_channel and success_all_slack and success_all

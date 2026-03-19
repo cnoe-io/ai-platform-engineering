@@ -107,8 +107,8 @@ export async function POST(request: NextRequest): Promise<NextResponse<FeedbackR
 
     if (langfuse) {
       // Map feedback to categorical values matching the Slack bot's scoring format.
-      // This ensures consistent Langfuse dashboards across both clients.
-      const scoreValue = body.feedbackType === "like" ? "thumbs_up" : (body.reason || "thumbs_down");
+      // Always use thumbs_up/thumbs_down as the value; reason goes in comment.
+      const scoreValue = body.feedbackType === "like" ? "thumbs_up" : "thumbs_down";
 
       // Build structured metadata (same shape as Slack bot's langfuse_client.py)
       const metadata: Record<string, string> = {
@@ -118,22 +118,26 @@ export async function POST(request: NextRequest): Promise<NextResponse<FeedbackR
       if (body.messageId) metadata.message_id = body.messageId;
       if (body.conversationId) metadata.session_id = body.conversationId;
 
-      const comment = body.additionalFeedback || body.reason || undefined;
+      // Combine reason + additional feedback into the comment field
+      const commentParts: string[] = [];
+      if (body.reason) commentParts.push(body.reason);
+      if (body.additionalFeedback) commentParts.push(body.additionalFeedback);
+      const comment = commentParts.length > 0 ? commentParts.join(": ") : undefined;
 
-      // Score 1: UI-specific score
+      // Score 1: Web UI-specific score (parallel to Slack bot's per-channel scores)
       langfuse.score({
         traceId: langfuseTraceId,
-        name: "caipe-ui",
+        name: "all web",
         value: scoreValue,
         dataType: "CATEGORICAL",
         comment,
         metadata,
       });
 
-      // Score 2: Aggregated score across all clients (matches Slack bot's "all slack channels")
+      // Score 2: Aggregated score across all clients (Slack + Web)
       langfuse.score({
         traceId: langfuseTraceId,
-        name: "all channels",
+        name: "all",
         value: scoreValue,
         dataType: "CATEGORICAL",
         comment,

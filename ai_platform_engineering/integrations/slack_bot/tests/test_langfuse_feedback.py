@@ -100,8 +100,8 @@ class TestFeedbackClient:
 class TestScoringUtility:
     """Tests for submit_feedback_score utility function."""
 
-    def test_submit_dual_scores(self):
-        """Test that submit_feedback_score creates two scores."""
+    def test_submit_triple_scores(self):
+        """Test that submit_feedback_score creates three scores."""
         # Setup mocks
         mock_client = MagicMock()
         mock_client.submit_feedback.return_value = True
@@ -132,9 +132,9 @@ class TestScoringUtility:
             feedback_client=mock_client,
         )
 
-        # Verify two scores were submitted
+        # Verify three scores were submitted
         assert result is True
-        assert mock_client.submit_feedback.call_count == 2
+        assert mock_client.submit_feedback.call_count == 3
 
         # Check first score (channel-specific)
         first_call = mock_client.submit_feedback.call_args_list[0][1]
@@ -142,11 +142,62 @@ class TestScoringUtility:
         assert first_call["value"] == "thumbs_up"
         assert first_call["trace_id"] == "trace_456"
 
-        # Check second score (aggregate)
+        # Check second score (all slack channels)
         second_call = mock_client.submit_feedback.call_args_list[1][1]
         assert second_call["score_name"] == "all slack channels"
         assert second_call["value"] == "thumbs_up"
         assert second_call["trace_id"] == "trace_456"
+
+        # Check third score (all clients)
+        third_call = mock_client.submit_feedback.call_args_list[2][1]
+        assert third_call["score_name"] == "all"
+        assert third_call["value"] == "thumbs_up"
+        assert third_call["trace_id"] == "trace_456"
+
+    def test_submit_dm_feedback_uses_dm_score_name(self):
+        """Test that DM feedback uses 'DM' as channel-specific score name."""
+        mock_client = MagicMock()
+        mock_client.submit_feedback.return_value = True
+
+        mock_slack_client = MagicMock()
+        mock_slack_client.users_info.return_value = {
+            "user": {"profile": {"email": "test@example.com"}}
+        }
+
+        session_manager = SessionManager(InMemorySessionStore())
+        session_manager.set_trace_id("thread_123", "trace_456")
+        session_manager.set_context_id("thread_123", "context_789")
+
+        # DM channel IDs start with "D"
+        mock_config = MagicMock()
+        mock_config.channels = {}  # DM channels are not in config
+
+        result = submit_feedback_score(
+            thread_ts="thread_123",
+            user_id="U123",
+            channel_id="D123456",
+            feedback_value="thumbs_up",
+            slack_client=mock_slack_client,
+            session_manager=session_manager,
+            config=mock_config,
+            feedback_client=mock_client,
+        )
+
+        assert result is True
+        assert mock_client.submit_feedback.call_count == 3
+
+        # Channel-specific score should be "DM", not "feedback"
+        first_call = mock_client.submit_feedback.call_args_list[0][1]
+        assert first_call["score_name"] == "DM"
+        assert first_call["channel_name"] == "DM"
+
+        # All slack channels score
+        second_call = mock_client.submit_feedback.call_args_list[1][1]
+        assert second_call["score_name"] == "all slack channels"
+
+        # All clients score
+        third_call = mock_client.submit_feedback.call_args_list[2][1]
+        assert third_call["score_name"] == "all"
 
     def test_submit_feedback_no_trace_id(self):
         """Test submit_feedback_score returns False when trace_id is missing."""
