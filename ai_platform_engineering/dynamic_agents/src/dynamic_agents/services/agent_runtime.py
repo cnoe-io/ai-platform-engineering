@@ -7,7 +7,7 @@ import json
 import logging
 import re
 import time
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Callable
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
@@ -34,17 +34,9 @@ from dynamic_agents.services.mcp_client import (
     get_tools_with_resilience,
 )
 from dynamic_agents.services.stream_events import (
-    make_content_event,
     make_final_result_event,
     make_input_required_event,
-)
-from dynamic_agents.services.stream_trackers import (
-    emit_subagent_end,
-    emit_subagent_start,
-    emit_todo_update,
-    emit_tool_end,
-    emit_tool_start,
-    is_task_tool,
+    transform_stream_chunk,
 )
 
 if TYPE_CHECKING:
@@ -76,12 +68,14 @@ class AgentRuntime:
         settings: Settings | None = None,
         mongo_service: "MongoDBService | None" = None,
         user: UserContext | None = None,
+        event_adapter: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
     ):
         self.config = config
         self.mcp_servers = mcp_servers
         self.settings = settings or get_settings()
         self._mongo_service = mongo_service
         self._user = user
+        self._event_adapter = event_adapter
         self._graph = None
         self._mongo_client = MongoClient(self.settings.mongodb_uri)
         # Use MongoDBSaver from langgraph-checkpoint-mongodb for persistent chat history
@@ -451,7 +445,9 @@ class AgentRuntime:
             stream_mode=["messages", "updates"],
             subgraphs=True,
         ):
-            for event in self._transform_stream_chunk(chunk, active_task_calls, accumulated_content):
+            for event in transform_stream_chunk(chunk, self.config.name, active_task_calls, accumulated_content):
+                if self._event_adapter:
+                    event = self._event_adapter(event)
                 yield event
 
         # Check for pending interrupt (agent called request_user_input)
@@ -482,129 +478,6 @@ class AgentRuntime:
                 failed_servers=self._failed_servers,
                 missing_tools=self._missing_tools,
             )
-
-    def _transform_stream_chunk(
-        self,
-        chunk: tuple,
-        active_task_calls: set[str],
-        accumulated_content: list[str],
-    ) -> list[dict[str, Any]]:
-        """Transform astream() chunks into structured SSE events.
-
-        Handles the multi-mode streaming format from astream() with subgraphs=True.
-        Chunks come as tuples: (namespace, mode, data)
-
-        Args:
-            chunk: Raw chunk from astream()
-            active_task_calls: Set of tool_call_ids for active task (subagent) calls
-            accumulated_content: List to accumulate final content
-
-        Returns:
-            List of SSE event dicts
-        """
-        results: list[dict[str, Any]] = []
-        agent_name = self.config.name
-
-        # Parse chunk format: (namespace, mode, data) or (mode, data)
-        if len(chunk) == 3:
-            namespace, mode, data = chunk
-        elif len(chunk) == 2:
-            mode, data = chunk
-            namespace = ()
-        else:
-            logger.warning(f"Unexpected chunk format: {chunk}")
-            return results
-
-        # Only process parent agent events (namespace = empty tuple)
-        # Subagent events from task tool are handled differently (see below)
-        if len(namespace) > 0:
-            # Ignore subgraph events - we track subagents via task tool calls
-            return results
-
-        if mode == "messages":
-            # Token streaming from LLM
-            if isinstance(data, tuple) and len(data) == 2:
-                msg_chunk, _metadata = data
-
-                # Skip ToolMessage/ToolMessageChunk content - these are tool results
-                # (e.g., RAG search JSON) that should NOT be shown in chat.
-                # We only want AIMessage/AIMessageChunk content for the final answer.
-                msg_type = type(msg_chunk).__name__
-                if "ToolMessage" in msg_type:
-                    return results
-
-                # Also skip if the chunk has tool_calls - this is an AIMessageChunk
-                # that's invoking tools, not generating content for the user
-                if getattr(msg_chunk, "tool_calls", None):
-                    return results
-
-                raw_content = getattr(msg_chunk, "content", "")
-
-                # Normalize content to string
-                if isinstance(raw_content, list):
-                    content = "".join(
-                        block.get("text", "") if isinstance(block, dict) else str(block) for block in raw_content
-                    )
-                else:
-                    content = raw_content if isinstance(raw_content, str) else ""
-
-                if content:
-                    accumulated_content.append(content)
-                    results.append(make_content_event(content))
-
-        elif mode == "updates":
-            # State updates - detect tool calls and results
-            if isinstance(data, dict):
-                for _node_name, node_data in data.items():
-                    if not isinstance(node_data, dict):
-                        continue
-
-                    messages = node_data.get("messages", [])
-                    if not isinstance(messages, list):
-                        continue
-
-                    for msg in messages:
-                        # Handle AIMessage with tool_calls
-                        tool_calls = getattr(msg, "tool_calls", None)
-                        if tool_calls:
-                            for tc in tool_calls:
-                                tool_name = (
-                                    tc.get("name", "unknown")
-                                    if isinstance(tc, dict)
-                                    else getattr(tc, "name", "unknown")
-                                )
-                                tool_call_id = tc.get("id", "") if isinstance(tc, dict) else getattr(tc, "id", "")
-                                args = tc.get("args", {}) if isinstance(tc, dict) else getattr(tc, "args", {})
-
-                                # Check if this is a subagent invocation (task tool)
-                                if is_task_tool(tool_name):
-                                    active_task_calls.add(tool_call_id)
-                                    subagent_type = args.get("subagent_type", "unknown")
-                                    purpose = args.get("description", "")
-                                    results.append(
-                                        emit_subagent_start(tool_call_id, subagent_type, purpose, agent_name)
-                                    )
-                                else:
-                                    # Regular tool call
-                                    results.append(emit_tool_start(tool_name, tool_call_id, args, agent_name))
-
-                                    # Check for todo updates from write_todos args
-                                    todo_event = emit_todo_update(tool_name, args, agent_name)
-                                    if todo_event:
-                                        results.append(todo_event)
-
-                        # Handle ToolMessage (tool results)
-                        tool_call_id = getattr(msg, "tool_call_id", None)
-                        if tool_call_id:
-                            # Check if this is a subagent result
-                            if tool_call_id in active_task_calls:
-                                active_task_calls.discard(tool_call_id)
-                                results.append(emit_subagent_end(tool_call_id, agent_name))
-                            else:
-                                # Regular tool result
-                                results.append(emit_tool_end(tool_call_id, agent_name))
-
-        return results
 
     async def has_pending_interrupt(self, session_id: str) -> dict[str, Any] | None:
         """Check if there's a pending interrupt for the given session.
@@ -760,7 +633,9 @@ class AgentRuntime:
             stream_mode=["messages", "updates"],
             subgraphs=True,
         ):
-            for event in self._transform_stream_chunk(chunk, active_task_calls, accumulated_content):
+            for event in transform_stream_chunk(chunk, self.config.name, active_task_calls, accumulated_content):
+                if self._event_adapter:
+                    event = self._event_adapter(event)
                 yield event
 
         # Check for another pending interrupt (agent might request more input)
