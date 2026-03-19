@@ -18,7 +18,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { cn } from "@/lib/utils";
 import type { TimelineSegment, PlanStep, ToolCallInfo } from "@/types/a2a";
-import { getAgentLogo } from "@/components/shared/AgentLogos";
+import { AgentLogo, getAgentLogo } from "@/components/shared/AgentLogos";
 import { assistantMarkdownComponents, assistantProseClassName } from "./MarkdownComponents";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -525,9 +525,9 @@ function StepStatusIcon({ status }: { status: PlanStep["status"] }) {
 function AgentBadge({ agent, muted }: { agent: string; muted?: boolean }) {
   const agentLogo = getAgentLogo(agent);
   return (
-    <span
+    <div
       className={cn(
-        "text-[10px] font-semibold px-1.5 py-0.5 rounded shrink-0",
+        "inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded shrink-0",
         muted && "opacity-50",
       )}
       style={{
@@ -535,8 +535,9 @@ function AgentBadge({ agent, muted }: { agent: string; muted?: boolean }) {
         color: agentLogo?.color || "var(--foreground)",
       }}
     >
+      <AgentLogo agent={agent} size="sm" showFallback={false} />
       {agentLogo?.displayName || agent}
-    </span>
+    </div>
   );
 }
 
@@ -563,6 +564,7 @@ function ToolCallSegment({ tool, compact }: { tool: ToolCallInfo; compact?: bool
       ) : (
         <CheckCircle className="h-3 w-3 text-emerald-500 shrink-0" />
       )}
+      <AgentLogo agent={tool.agent || ""} size="sm" showFallback={false} />
       <span className="truncate text-foreground/80">
         <span
           className={cn(

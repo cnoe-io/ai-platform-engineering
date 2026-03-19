@@ -36,6 +36,8 @@ jest.mock('@/components/shared/AgentLogos', () => ({
     emoji: '',
     color: '#6366f1',
   }),
+  AgentLogo: ({ agent, size, showFallback }: any) =>
+    showFallback === false ? null : <span data-testid={`agent-logo-${agent}`} />,
 }))
 
 // Mock react-markdown to render text directly (avoids ESM issues in Jest)
