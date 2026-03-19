@@ -81,8 +81,8 @@ MIXED_MONGODB_URI = os.getenv(
     "mongodb://admin:changeme@localhost:27017/caipe?authSource=admin",
 )
 MIXED_MONGODB_DB = os.getenv("BENCHMARK_MIXED_MONGODB_DB", "caipe")
-MIXED_MONGODB_CP_COLL = os.getenv("BENCHMARK_MIXED_MONGODB_CP_COLL", "conversation_checkpoints")
-MIXED_MONGODB_CW_COLL = os.getenv("BENCHMARK_MIXED_MONGODB_CW_COLL", "conversation_checkpoint_writes")
+MIXED_MONGODB_CP_COLL = os.getenv("BENCHMARK_MIXED_MONGODB_CP_COLL", "checkpoints_conversation")
+MIXED_MONGODB_CW_COLL = os.getenv("BENCHMARK_MIXED_MONGODB_CW_COLL", "checkpoint_writes_conversation")
 MIXED_REDIS_URL = os.getenv("BENCHMARK_MIXED_REDIS_URL", "redis://localhost:6381")
 
 DATASET_SIZES = [10, 100, 1000]

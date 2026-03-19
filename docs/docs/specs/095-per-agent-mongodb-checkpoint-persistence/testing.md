@@ -17,27 +17,27 @@ sidebar_label: Testing
 
 | Agent | Prefix | Collections | Status |
 |-------|--------|-------------|--------|
-| argocd | `argocd` | `argocd_checkpoints`, `argocd_checkpoint_writes` | ✅ |
-| aws | `aws` | `aws_checkpoints`, `aws_checkpoint_writes` | ✅ |
-| backstage | `backstage` | `backstage_checkpoints`, `backstage_checkpoint_writes` | ✅ |
-| confluence | `confluence` | `confluence_checkpoints`, `confluence_checkpoint_writes` | ✅ |
-| github | `github` | `github_checkpoints`, `github_checkpoint_writes` | ✅ |
-| gitlab | `gitlab` | `gitlab_checkpoints`, `gitlab_checkpoint_writes` | ✅ |
-| jira | `jira` | `jira_checkpoints`, `jira_checkpoint_writes` | ✅ |
-| komodor | `komodor` | `komodor_checkpoints`, `komodor_checkpoint_writes` | ✅ |
-| netutils | `netutils` | `netutils_checkpoints`, `netutils_checkpoint_writes` | ✅ |
-| pagerduty | `pagerduty` | `pagerduty_checkpoints`, `pagerduty_checkpoint_writes` | ✅ |
-| slack | `slack` | `slack_checkpoints`, `slack_checkpoint_writes` | ✅ |
-| splunk | `splunk` | `splunk_checkpoints`, `splunk_checkpoint_writes` | ✅ |
-| victorops | `victorops` | `victorops_checkpoints`, `victorops_checkpoint_writes` | ✅ |
-| weather | `weather` | `weather_checkpoints`, `weather_checkpoint_writes` | ✅ |
-| webex | `webex` | `webex_checkpoints`, `webex_checkpoint_writes` | ✅ |
+| argocd | `argocd` | `checkpoints_argocd`, `checkpoint_writes_argocd` | ✅ |
+| aws | `aws` | `checkpoints_aws`, `checkpoint_writes_aws` | ✅ |
+| backstage | `backstage` | `checkpoints_backstage`, `checkpoint_writes_backstage` | ✅ |
+| confluence | `confluence` | `checkpoints_confluence`, `checkpoint_writes_confluence` | ✅ |
+| github | `github` | `checkpoints_github`, `checkpoint_writes_github` | ✅ |
+| gitlab | `gitlab` | `checkpoints_gitlab`, `checkpoint_writes_gitlab` | ✅ |
+| jira | `jira` | `checkpoints_jira`, `checkpoint_writes_jira` | ✅ |
+| komodor | `komodor` | `checkpoints_komodor`, `checkpoint_writes_komodor` | ✅ |
+| netutils | `netutils` | `checkpoints_netutils`, `checkpoint_writes_netutils` | ✅ |
+| pagerduty | `pagerduty` | `checkpoints_pagerduty`, `checkpoint_writes_pagerduty` | ✅ |
+| slack | `slack` | `checkpoints_slack`, `checkpoint_writes_slack` | ✅ |
+| splunk | `splunk` | `checkpoints_splunk`, `checkpoint_writes_splunk` | ✅ |
+| victorops | `victorops` | `checkpoints_victorops`, `checkpoint_writes_victorops` | ✅ |
+| weather | `weather` | `checkpoints_weather`, `checkpoint_writes_weather` | ✅ |
+| webex | `webex` | `checkpoints_webex`, `checkpoint_writes_webex` | ✅ |
 
-**Supervisor**: `caipe_supervisor_checkpoints`, `caipe_supervisor_checkpoint_writes` ✅
+**Supervisor**: `checkpoints_caipe_supervisor`, `checkpoint_writes_caipe_supervisor` ✅
 
 Log pattern observed for each agent:
 ```
-LangGraph Checkpointer: auto-prefixed collections with '{agent}' → {agent}_checkpoints, {agent}_checkpoint_writes
+LangGraph Checkpointer: auto-prefixed collections with '{agent}' → checkpoints_{agent}, checkpoint_writes_{agent}
 LangGraph Checkpointer: MongoDBSaver configured (uri=mongodb://admin:chan..., db=caipe, ...)
 ```
 

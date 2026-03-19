@@ -159,14 +159,14 @@ class TestGetCheckpointerConfig:
       "LANGGRAPH_CHECKPOINT_TYPE": "mongodb",
       "LANGGRAPH_CHECKPOINT_MONGODB_URI": "mongodb://host:27017",
       "LANGGRAPH_CHECKPOINT_MONGODB_DB_NAME": "caipe",
-      "LANGGRAPH_CHECKPOINT_MONGODB_COLLECTION": "conversation_checkpoints",
-      "LANGGRAPH_CHECKPOINT_MONGODB_WRITES_COLLECTION": "conversation_checkpoint_writes",
+      "LANGGRAPH_CHECKPOINT_MONGODB_COLLECTION": "checkpoints_conversation",
+      "LANGGRAPH_CHECKPOINT_MONGODB_WRITES_COLLECTION": "checkpoint_writes_conversation",
     }
     with patch.dict("os.environ", env, clear=True):
       config = get_checkpointer_config()
       assert config["mongodb_db_name"] == "caipe"
-      assert config["mongodb_collection"] == "conversation_checkpoints"
-      assert config["mongodb_writes_collection"] == "conversation_checkpoint_writes"
+      assert config["mongodb_collection"] == "checkpoints_conversation"
+      assert config["mongodb_writes_collection"] == "checkpoint_writes_conversation"
 
   def test_mongodb_config_fallback_env(self):
     env = {
@@ -335,8 +335,8 @@ class TestCreateCheckpointer:
         with patch("importlib.util.find_spec", return_value=MagicMock()):
           cp = create_checkpointer()
           assert type(cp).__name__ == "_LazyAsyncMongoDBSaver"
-          assert cp._checkpoint_collection_name == "jira_checkpoints"
-          assert cp._writes_collection_name == "jira_checkpoint_writes"
+          assert cp._checkpoint_collection_name == "checkpoints_jira"
+          assert cp._writes_collection_name == "checkpoint_writes_jira"
 
   def test_mongodb_explicit_collections_override_auto_prefix(self):
     """Explicit env vars override auto-prefix detection."""

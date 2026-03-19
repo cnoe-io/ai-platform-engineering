@@ -56,8 +56,8 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
         .map(c => c._id);
 
       if (dynamicAgentIds.length > 0) {
-        const checkpoints = await getCollection('conversation_checkpoints');
-        const checkpointWrites = await getCollection('conversation_checkpoint_writes');
+        const checkpoints = await getCollection('checkpoints_conversation');
+        const checkpointWrites = await getCollection('checkpoint_writes_conversation');
 
         await checkpoints.deleteMany({ thread_id: { $in: dynamicAgentIds } });
         await checkpointWrites.deleteMany({ thread_id: { $in: dynamicAgentIds } });

@@ -71,14 +71,14 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     const allCollections = await db.listCollections({}, { nameOnly: true }).toArray();
     const cpCollNames = allCollections
       .map((c) => c.name)
-      .filter((n: string) => n.endsWith('_checkpoints') && !n.endsWith('_checkpoint_writes'))
+      .filter((n: string) => n.startsWith('checkpoints_'))
       .sort();
 
     // ── Per-agent stats (lightweight: countDocuments + 1 findOne) ─────────
     const agents = await Promise.all(
       cpCollNames.map(async (cpColl: string) => {
-        const prefix = cpColl.replace(/_checkpoints$/, '');
-        const wrColl = `${prefix}_checkpoint_writes`;
+        const prefix = cpColl.replace(/^checkpoints_/, '');
+        const wrColl = `checkpoint_writes_${prefix}`;
 
         const [checkpoints, writes, latestDoc] = await Promise.all([
           db.collection(cpColl).estimatedDocumentCount().catch(() => 0),
@@ -150,7 +150,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
 
       peekData = (await Promise.all(
         activeCollections.map(async (cpColl: string) => {
-          const prefix = cpColl.replace(/_checkpoints$/, '');
+          const prefix = cpColl.replace(/^checkpoints_/, '');
           try {
             const docs = await db.collection(cpColl)
               .find({}, { sort: { _id: -1 }, limit: MAX_PEEK_DOCS })
@@ -185,7 +185,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
       dailyMap.set(d.toISOString().split('T')[0], 0);
     }
 
-    const wrCollNames = cpCollNames.map((c: string) => c.replace(/_checkpoints$/, '_checkpoint_writes'));
+    const wrCollNames = cpCollNames.map((c: string) => c.replace(/^checkpoints_/, 'checkpoint_writes_'));
     for (const wrColl of wrCollNames) {
       try {
         const count = await db.collection(wrColl).estimatedDocumentCount();
@@ -204,7 +204,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
       agents: agents.map((a) => ({
         ...a,
         threads: [...allThreadSets.entries()]
-          .filter(([, colls]) => colls.includes(`${a.name}_checkpoints`))
+          .filter(([, colls]) => colls.includes(`checkpoints_${a.name}`))
           .length,
       })),
       totals: {

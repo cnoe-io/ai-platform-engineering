@@ -49,8 +49,8 @@ const MOCK_STATS = {
     cross_contamination: {
       shared_threads: 2,
       details: [
-        { thread_id: "f8221179...", collections: ["caipe_supervisor_checkpoints", "aws_checkpoints"] },
-        { thread_id: "abc12345...", collections: ["caipe_supervisor_checkpoints", "jira_checkpoints"] },
+        { thread_id: "f8221179...", collections: ["checkpoints_caipe_supervisor", "checkpoints_aws"] },
+        { thread_id: "abc12345...", collections: ["checkpoints_caipe_supervisor", "checkpoints_jira"] },
       ],
     },
     range: "7d",
@@ -250,7 +250,7 @@ describe("CheckpointStatsSection", () => {
         peek_data: [
           {
             agent: "aws",
-            collection: "aws_checkpoints",
+            collection: "checkpoints_aws",
             documents: [
               { _id: "abc123", thread_id: "thread-001", channel_values: "..." },
             ],
@@ -272,7 +272,7 @@ describe("CheckpointStatsSection", () => {
     });
 
     // The peek section shows collection name in mono text
-    expect(screen.getByText("aws_checkpoints")).toBeInTheDocument();
+    expect(screen.getByText("checkpoints_aws")).toBeInTheDocument();
     expect(screen.getByText("1 doc")).toBeInTheDocument();
   });
 });

@@ -87,11 +87,11 @@ Open the CAIPE UI at `http://localhost:3000` and test multi-agent routing:
 
 | Test | Query | Expected Agents | Verification |
 |------|-------|-----------------|--------------|
-| AWS | "list EKS clusters" | supervisor → aws | `aws_checkpoints` has docs |
-| ArgoCD | "show argocd version" | supervisor → argocd | `argocd_checkpoints` has docs |
-| Jira | "show recent Jira issues" | supervisor → jira | `jira_checkpoints` has docs |
-| Splunk | "check latest splunk logs" | supervisor → splunk | `splunk_checkpoints` has docs |
-| Weather | "what's the weather in San Jose?" | supervisor → weather | `weather_checkpoints` has docs |
+| AWS | "list EKS clusters" | supervisor → aws | `checkpoints_aws` has docs |
+| ArgoCD | "show argocd version" | supervisor → argocd | `checkpoints_argocd` has docs |
+| Jira | "show recent Jira issues" | supervisor → jira | `checkpoints_jira` has docs |
+| Splunk | "check latest splunk logs" | supervisor → splunk | `checkpoints_splunk` has docs |
+| Weather | "what's the weather in San Jose?" | supervisor → weather | `checkpoints_weather` has docs |
 | Multi-agent | "list EKS clusters and show ArgoCD version" | supervisor → aws + argocd | Both checkpoint collections grow |
 
 After each query, verify checkpoint writes:
@@ -118,7 +118,7 @@ docker exec caipe-mongodb-dev mongosh "mongodb://admin:changeme@localhost:27017/
 
 ```bash
 docker exec caipe-mongodb-dev mongosh "mongodb://admin:changeme@localhost:27017/caipe?authSource=admin" --quiet --eval '
-  var colls = db.getCollectionNames().filter(c => c.endsWith("_checkpoints"));
+  var colls = db.getCollectionNames().filter(c => c.startsWith("checkpoints_"));
   var threadMap = {};
   colls.forEach(function(coll) {
     db.getCollection(coll).distinct("thread_id").forEach(function(tid) {

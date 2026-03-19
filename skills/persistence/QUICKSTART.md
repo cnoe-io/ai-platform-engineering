@@ -168,8 +168,8 @@ COMPOSE_PROFILES="caipe-supervisor,...,caipe-mongodb,langgraph-redis" \
 LANGGRAPH_CHECKPOINT_TYPE=mongodb
 LANGGRAPH_CHECKPOINT_MONGODB_URI=mongodb://admin:changeme@caipe-mongodb:27017/caipe?authSource=admin
 LANGGRAPH_CHECKPOINT_MONGODB_DB_NAME=caipe
-LANGGRAPH_CHECKPOINT_MONGODB_COLLECTION=conversation_checkpoints
-LANGGRAPH_CHECKPOINT_MONGODB_WRITES_COLLECTION=conversation_checkpoint_writes
+LANGGRAPH_CHECKPOINT_MONGODB_COLLECTION=checkpoints_conversation
+LANGGRAPH_CHECKPOINT_MONGODB_WRITES_COLLECTION=checkpoint_writes_conversation
 
 # Store: Redis (dedicated, supports semantic search)
 LANGGRAPH_STORE_TYPE=redis

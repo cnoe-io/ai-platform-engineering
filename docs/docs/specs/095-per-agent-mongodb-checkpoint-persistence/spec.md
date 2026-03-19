@@ -27,11 +27,11 @@ Added `_detect_collection_prefix()` to `checkpointer.py` that derives a short ag
 
 | Module name | Detected prefix | Collections |
 |------------|----------------|-------------|
-| `ai_platform_engineering.multi_agents` | `caipe_supervisor` | `caipe_supervisor_checkpoints`, `caipe_supervisor_checkpoint_writes` |
-| `agent_jira` | `jira` | `jira_checkpoints`, `jira_checkpoint_writes` |
-| `agent_github` | `github` | `github_checkpoints`, `github_checkpoint_writes` |
-| `agent_aws` | `aws` | `aws_checkpoints`, `aws_checkpoint_writes` |
-| *(any `agent_X`)* | `X` | `X_checkpoints`, `X_checkpoint_writes` |
+| `ai_platform_engineering.multi_agents` | `caipe_supervisor` | `checkpoints_caipe_supervisor`, `checkpoint_writes_caipe_supervisor` |
+| `agent_jira` | `jira` | `checkpoints_jira`, `checkpoint_writes_jira` |
+| `agent_github` | `github` | `checkpoints_github`, `checkpoint_writes_github` |
+| `agent_aws` | `aws` | `checkpoints_aws`, `checkpoint_writes_aws` |
+| *(any `agent_X`)* | `X` | `checkpoints_X`, `checkpoint_writes_X` |
 
 When `LANGGRAPH_CHECKPOINT_MONGODB_COLLECTION` and `LANGGRAPH_CHECKPOINT_MONGODB_WRITES_COLLECTION` are not set, the auto-prefix kicks in. Explicit env vars still override for backward compatibility.
 

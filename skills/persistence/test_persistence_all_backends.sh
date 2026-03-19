@@ -135,8 +135,8 @@ test_mixed() {
     MONGO_CONTAINER=${MONGO_CONTAINER:-caipe-mongodb-dev}
     MONGO_URI=${MONGO_URI:-"mongodb://admin:changeme@localhost:27017/caipe?authSource=admin"}
     MONGO_DB=${MONGO_DB:-caipe}
-    MONGO_CP_COLL=${MONGO_CP_COLL:-conversation_checkpoints}
-    MONGO_CW_COLL=${MONGO_CW_COLL:-conversation_checkpoint_writes}
+    MONGO_CP_COLL=${MONGO_CP_COLL:-checkpoints_conversation}
+    MONGO_CW_COLL=${MONGO_CW_COLL:-checkpoint_writes_conversation}
 
     echo "1. Checking MongoDB container..."
     docker ps --filter "name=${MONGO_CONTAINER}" --format "{{.Names}}\t{{.Status}}"

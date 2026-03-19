@@ -2,7 +2,7 @@
 
 Provides access to conversation history stored in the LangGraph checkpointer.
 Metadata (ownership, sharing) is stored in the `conversations` collection,
-while messages are stored in the `conversation_checkpoints` collection.
+while messages are stored in the `checkpoints_conversation` collection.
 """
 
 import logging
@@ -707,8 +707,8 @@ async def clear_conversation_checkpoints(
         raise HTTPException(status_code=503, detail="Database not connected")
 
     conversations_coll = db["conversations"]
-    checkpoints_coll = db["conversation_checkpoints"]
-    writes_coll = db["conversation_checkpoint_writes"]
+    checkpoints_coll = db["checkpoints_conversation"]
+    writes_coll = db["checkpoint_writes_conversation"]
 
     # Verify conversation exists
     conversation = conversations_coll.find_one({"_id": conversation_id})

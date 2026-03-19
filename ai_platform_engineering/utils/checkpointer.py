@@ -148,8 +148,8 @@ def create_checkpointer():
             if not cp_coll and not wr_coll:
                 prefix = _detect_collection_prefix()
                 if prefix:
-                    cp_coll = f"{prefix}_{_DEFAULT_CHECKPOINT_COLLECTION}"
-                    wr_coll = f"{prefix}_{_DEFAULT_WRITES_COLLECTION}"
+                    cp_coll = f"{_DEFAULT_CHECKPOINT_COLLECTION}_{prefix}"
+                    wr_coll = f"{_DEFAULT_WRITES_COLLECTION}_{prefix}"
                     logger.info(
                         f"LangGraph Checkpointer: auto-prefixed collections "
                         f"with '{prefix}' → {cp_coll}, {wr_coll}"

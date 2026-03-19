@@ -45,8 +45,8 @@ check_agent() {
   local container=$2
   local prefix=$3
 
-  local cp_coll="${prefix}_checkpoints"
-  local wr_coll="${prefix}_checkpoint_writes"
+  local cp_coll="checkpoints_${prefix}"
+  local wr_coll="checkpoint_writes_${prefix}"
 
   # Check container is running
   local status
@@ -120,7 +120,7 @@ echo ""
 echo -e "${BLUE}Cross-Contamination Check${NC}"
 echo "  Checking for shared thread_ids across agent collections..."
 docker exec "$MONGO_CONTAINER" mongosh "$MONGO_URI" --quiet --eval '
-  var checkpoint_colls = db.getCollectionNames().filter(c => c.endsWith("_checkpoints"));
+  var checkpoint_colls = db.getCollectionNames().filter(c => c.startsWith("checkpoints_"));
   var thread_map = {};
   checkpoint_colls.forEach(function(coll) {
     var threads = db.getCollection(coll).distinct("thread_id");
