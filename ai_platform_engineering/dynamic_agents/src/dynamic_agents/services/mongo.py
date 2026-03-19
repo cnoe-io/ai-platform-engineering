@@ -330,3 +330,11 @@ def get_mongo_service() -> MongoDBService:
         _mongo_service = MongoDBService()
         _mongo_service.connect()
     return _mongo_service
+
+
+def reset_mongo_service() -> None:
+    """Reset the MongoDB service singleton (for retry logic during startup)."""
+    global _mongo_service
+    if _mongo_service is not None:
+        _mongo_service.disconnect()
+    _mongo_service = None

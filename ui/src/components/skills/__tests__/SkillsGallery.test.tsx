@@ -8,7 +8,7 @@
  *  - Delete confirm/cancel flow
  *  - Run in Chat flow (createConversation, setPendingMessage, navigation)
  *  - View mode switching (all, my-skills, global, workflows)
- *  - canModifyConfig logic (admin vs non-admin, system vs user configs)
+ *  - Edit/delete visibility (admin vs non-admin, system vs user configs)
  *  - Favorites section and toggle
  *  - Loading/error states
  *  - Empty states
@@ -509,11 +509,11 @@ describe("SkillsGallery — Skills Builder button", () => {
 });
 
 // ---------------------------------------------------------------------------
-// canModifyConfig logic (via UI – edit/delete visibility)
+// Edit/delete visibility (admin vs non-admin, system vs user configs)
 // ---------------------------------------------------------------------------
 
-describe("SkillsGallery — canModifyConfig", () => {
-  it("shows edit/delete buttons for non-system configs", () => {
+describe("SkillsGallery — edit/delete visibility", () => {
+  it("shows edit and delete buttons for non-system configs", () => {
     _configs = [{
       ...makeQuickStart("user-skill"),
       is_system: false,
@@ -526,24 +526,28 @@ describe("SkillsGallery — canModifyConfig", () => {
     expect(screen.getAllByTitle("Delete template").length).toBeGreaterThan(0);
   });
 
-  it("admin sees edit/delete buttons on system configs", () => {
+  it("admin sees edit button on system configs but delete is disabled", () => {
     mockIsAdmin = true;
     _configs = [makeQuickStart("sys-1")];
 
     renderGallery();
 
     expect(screen.getAllByTitle("Edit template").length).toBeGreaterThan(0);
-    expect(screen.getAllByTitle("Delete template").length).toBeGreaterThan(0);
+    // Delete button shows as disabled with informational title
+    expect(screen.queryByTitle("Delete template")).not.toBeInTheDocument();
+    expect(screen.getAllByTitle("Built-in skills cannot be deleted").length).toBeGreaterThan(0);
   });
 
-  it("non-admin does NOT see edit/delete on system configs", () => {
+  it("non-admin does NOT see edit on system configs, delete is disabled", () => {
     mockIsAdmin = false;
     _configs = [makeQuickStart("sys-2")];
 
     renderGallery();
 
     expect(screen.queryByTitle("Edit template")).not.toBeInTheDocument();
+    // Delete button is present but disabled
     expect(screen.queryByTitle("Delete template")).not.toBeInTheDocument();
+    expect(screen.getAllByTitle("Built-in skills cannot be deleted").length).toBeGreaterThan(0);
   });
 });
 

@@ -4,6 +4,7 @@ This module provides helper functions for creating authenticated Confluence sess
 generating datasource and document IDs, and enhancing metadata with Confluence-specific fields.
 """
 
+import re
 import time
 import hashlib
 import traceback
@@ -55,6 +56,8 @@ class ConfluenceLoader:
         token: str,
         verify_ssl: bool,
         max_concurrency: int,
+        allowed_title_patterns: Optional[List[str]] = None,
+        denied_title_patterns: Optional[List[str]] = None,
     ):
         self.rag_client = rag_client
         self.job_manager = job_manager
@@ -64,6 +67,10 @@ class ConfluenceLoader:
         self.logger = get_logger(
             f"confluence_loader:{datasource_info.datasource_id[16:]}"
         )
+
+        # Title filtering (regex patterns, mirroring webloader's URL pattern filtering)
+        self.allowed_title_patterns = allowed_title_patterns or []
+        self.denied_title_patterns = denied_title_patterns or []
 
         # Chunking configuration
         self.chunk_size = datasource_info.default_chunk_size
@@ -106,6 +113,31 @@ class ConfluenceLoader:
         """Close session."""
         if self.session:
             await self.session.close()
+
+    def should_skip_page(self, title: str) -> bool:
+        """Check whether a page should be skipped based on title filter patterns.
+
+        Mirrors webloader's URL pattern filtering (allowed_url_patterns / denied_url_patterns).
+        - If allowed_title_patterns is set, title must match at least one pattern.
+        - If denied_title_patterns is set, title must not match any pattern.
+
+        Args:
+            title: Confluence page title
+
+        Returns:
+            True if the page should be skipped (filtered out).
+        """
+        if self.allowed_title_patterns:
+            if not any(re.search(p, title, re.IGNORECASE) for p in self.allowed_title_patterns):
+                self.logger.info(f"Skipping page (title not in allowed patterns): {title!r}")
+                return True
+
+        if self.denied_title_patterns:
+            if any(re.search(p, title, re.IGNORECASE) for p in self.denied_title_patterns):
+                self.logger.info(f"Skipping page (title matches denied pattern): {title!r}")
+                return True
+
+        return False
 
     async def fetch_child_pages(
         self, parent_page_id: str
@@ -297,6 +329,17 @@ class ConfluenceLoader:
                         (space_key, f"Error enumerating {space_key}: {e}")
                     )
                     break
+
+        # Apply title filtering
+        if pages and (self.allowed_title_patterns or self.denied_title_patterns):
+            pre_filter_count = len(pages)
+            pages = [p for p in pages if not self.should_skip_page(p.get("title", ""))]
+            filtered_count = pre_filter_count - len(pages)
+            if filtered_count:
+                self.logger.info(
+                    f"Title filter: kept {len(pages)}/{pre_filter_count} pages "
+                    f"({filtered_count} filtered out)"
+                )
 
         self.logger.info(
             f"Fetched {len(pages)} pages from space {space_key}, {len(failed_pages)} failures"

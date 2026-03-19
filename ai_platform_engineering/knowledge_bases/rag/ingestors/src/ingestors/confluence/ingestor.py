@@ -61,24 +61,56 @@ MAX_CONCURRENCY = int(os.environ.get("CONFLUENCE_MAX_CONCURRENCY", "5"))
 MAX_INGESTION_TASKS = int(os.environ.get("CONFLUENCE_MAX_INGESTION_TASKS", "5"))
 
 
+def _get_title_patterns(metadata: Optional[Dict[str, Any]]) -> Dict[str, List[str]]:
+    """Extract title filter patterns from datasource metadata.
+
+    Checks both the top-level metadata and the nested confluence_ingest_request.
+
+    Returns:
+        Dict with 'allowed_title_patterns' and 'denied_title_patterns' lists.
+    """
+    if not metadata:
+        return {"allowed_title_patterns": [], "denied_title_patterns": []}
+
+    # Patterns can live at top level or inside the stored ingest request
+    allowed = metadata.get("allowed_title_patterns") or []
+    denied = metadata.get("denied_title_patterns") or []
+
+    # Also check the stored ingest request (server stores the full request model)
+    ingest_req = metadata.get("confluence_ingest_request", {})
+    if ingest_req:
+        allowed = allowed or ingest_req.get("allowed_title_patterns") or []
+        denied = denied or ingest_req.get("denied_title_patterns") or []
+
+    return {"allowed_title_patterns": allowed, "denied_title_patterns": denied}
+
+
 def _create_datasource_info(
     datasource_id: str,
     ingestor_id: str,
     space_key: str,
     description: str,
     page_configs: Optional[List[Dict[str, Any]]] = None,
+    allowed_title_patterns: Optional[List[str]] = None,
+    denied_title_patterns: Optional[List[str]] = None,
 ) -> DataSourceInfo:
     """Create DataSourceInfo with page_configs metadata structure."""
+    metadata: Dict[str, Any] = {
+        "space_key": space_key,
+        "page_configs": page_configs or [],
+        "confluence_url": CONFLUENCE_URL,
+    }
+    if allowed_title_patterns:
+        metadata["allowed_title_patterns"] = allowed_title_patterns
+    if denied_title_patterns:
+        metadata["denied_title_patterns"] = denied_title_patterns
+
     return DataSourceInfo(
         datasource_id=datasource_id,
         ingestor_id=ingestor_id,
         description=description,
         source_type="confluence",
-        metadata={
-            "space_key": space_key,
-            "page_configs": page_configs or [],
-            "confluence_url": CONFLUENCE_URL,
-        },
+        metadata=metadata,
         last_updated=int(time.time()),
         default_chunk_size=1000,
         default_chunk_overlap=200,
@@ -224,6 +256,12 @@ async def process_page_ingestion(
         )
         logger.info(f"Processing job: {job_id} for datasource: {datasource_id}")
 
+        # Extract title patterns from datasource metadata and ingest request
+        title_patterns = _get_title_patterns(datasource_info.metadata)
+        # Ingest request patterns take precedence (they're the latest user intent)
+        allowed = ingest_request.allowed_title_patterns or title_patterns["allowed_title_patterns"]
+        denied = ingest_request.denied_title_patterns or title_patterns["denied_title_patterns"]
+
         # Use loader to fetch and ingest pages
         async with ConfluenceLoader(
             rag_client=client,
@@ -234,6 +272,8 @@ async def process_page_ingestion(
             token=CONFLUENCE_TOKEN,
             verify_ssl=CONFLUENCE_SSL_VERIFY,
             max_concurrency=MAX_CONCURRENCY,
+            allowed_title_patterns=allowed,
+            denied_title_patterns=denied,
         ) as loader:
             # Build page config for this ingestion
             page_configs = [
@@ -310,6 +350,7 @@ async def reload_datasource(
             return
 
         page_configs = datasource_info.metadata.get("page_configs", [])
+        title_patterns = _get_title_patterns(datasource_info.metadata)
         logger.info(
             f"Reloading datasource: {datasource_info.datasource_id} with page_configs: {page_configs}"
         )
@@ -325,6 +366,8 @@ async def reload_datasource(
                 token=CONFLUENCE_TOKEN,
                 verify_ssl=CONFLUENCE_SSL_VERIFY,
                 max_concurrency=MAX_CONCURRENCY,
+                allowed_title_patterns=title_patterns["allowed_title_patterns"],
+                denied_title_patterns=title_patterns["denied_title_patterns"],
             ) as loader:
                 # Load pages
                 pages, failed_pages = await loader.load_pages(space_key, page_configs)
@@ -411,6 +454,8 @@ async def periodic_reload(client: Client):
                         )
                         await client.upsert_datasource(datasource_info)
 
+                    title_patterns = _get_title_patterns(datasource_info.metadata)
+
                     # Use loader to fetch and ingest pages
                     async with ConfluenceLoader(
                         rag_client=client,
@@ -421,6 +466,8 @@ async def periodic_reload(client: Client):
                         token=CONFLUENCE_TOKEN,
                         verify_ssl=CONFLUENCE_SSL_VERIFY,
                         max_concurrency=MAX_CONCURRENCY,
+                        allowed_title_patterns=title_patterns["allowed_title_patterns"],
+                        denied_title_patterns=title_patterns["denied_title_patterns"],
                     ) as loader:
                         # Load pages
                         pages, failed_pages = await loader.load_pages(

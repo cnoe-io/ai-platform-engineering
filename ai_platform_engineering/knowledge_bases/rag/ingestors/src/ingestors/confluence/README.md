@@ -16,6 +16,7 @@ Each Confluence space is treated as a datasource, with pages being ingested as d
 - On-demand page ingestion via REST API
 - Automatic periodic syncing of configured spaces
 - Space-level datasource organization (one datasource per space)
+- **Title-based page filtering** with configurable regex include/exclude patterns (mirrors webloader's URL pattern filtering)
 - HTML to plain text conversion with BeautifulSoup
 - Chunking with LangChain RecursiveCharacterTextSplitter
 - Retry logic with exponential backoff
@@ -91,6 +92,37 @@ curl -X POST "http://localhost:8080/v1/ingest/confluence/reload" \
 curl -X POST "http://localhost:8080/v1/ingest/confluence/reload-all"
 ```
 
+### Title Filtering
+
+You can filter which Confluence pages are ingested based on their title using regex patterns. This works the same way as the webloader's `allowed_url_patterns` / `denied_url_patterns`.
+
+- **`denied_title_patterns`** — Pages whose title matches any pattern are skipped (blacklist). Patterns are regex, matched case-insensitively.
+- **`allowed_title_patterns`** — If set, only pages whose title matches at least one pattern are ingested (whitelist). Checked before denied patterns.
+
+```bash
+# Skip pages with "Deprecated" or "Do Not Use" in the title
+curl -X POST "http://localhost:8080/v1/ingest/confluence/page" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "url": "https://yourcompany.atlassian.net/wiki/spaces/DEV/pages/123456/Page-Title",
+    "get_child_pages": true,
+    "denied_title_patterns": ["Deprecated", "Do Not Use"]
+  }'
+
+# Only ingest pages with "Runbook" or "SRE" in the title
+curl -X POST "http://localhost:8080/v1/ingest/confluence/page" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "url": "https://yourcompany.atlassian.net/wiki/spaces/SRE/pages/789/SRE-Home",
+    "get_child_pages": true,
+    "allowed_title_patterns": ["Runbook", "^SRE"]
+  }'
+```
+
+Title patterns are persisted in the datasource metadata and applied on every reload. To update patterns, re-submit the ingestion request with new patterns — the existing datasource will be updated.
+
+> **Note:** Title filtering prevents new ingestion of matching pages. It does not delete previously ingested documents from the vector database. To remove already-ingested data, delete the datasource and re-ingest.
+
 ## How It Works
 
 ### On-Demand Ingestion Flow
@@ -123,14 +155,18 @@ DataSourceInfo(
     metadata={
         "confluence_ingest_request": {  # Original request for audit trail
             "url": "https://...",
-            "description": "..."
+            "description": "...",
+            "allowed_title_patterns": None,          # Optional regex whitelist
+            "denied_title_patterns": ["Deprecated"]  # Optional regex blacklist
         },
         "space_key": "SPACE",
         "page_configs": [  # List of page configurations
             {"page_id": "123", "get_child_pages": false, "source": "https://..."},
             {"page_id": "456", "get_child_pages": true}
         ],  # Empty list fetches entire space
-        "confluence_url": "https://company.atlassian.net/wiki"
+        "confluence_url": "https://company.atlassian.net/wiki",
+        "allowed_title_patterns": None,              # Also stored at top level
+        "denied_title_patterns": ["Deprecated"]      # for fast access by ingestor
     }
 )
 ```
