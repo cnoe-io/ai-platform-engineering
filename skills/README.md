@@ -8,6 +8,7 @@ Reusable tools and utilities organized by category.
 skills/
 ├── persistence/          # LangGraph persistence testing (Redis, Postgres, MongoDB)
 ├── integration-testing/  # End-to-end multi-agent integration testing
+├── quality-gates/        # Pre-commit validation (lint, test, UI tests)
 ├── debugging/            # (future) Debugging and troubleshooting tools
 ├── monitoring/           # (future) Observability and metrics tools
 └── deployment/           # (future) Deployment and infrastructure helpers
@@ -45,6 +46,18 @@ docker restart caipe-supervisor  # after agents are warm
 ```
 
 See [integration-testing/SKILL.md](./integration-testing/SKILL.md) for full testing procedure.
+
+### 🚦 [quality-gates](./quality-gates/)
+Run all pre-commit quality gates (lint, Python tests, UI tests) in one command.
+
+**Quick Start:**
+```bash
+# Run all gates
+./skills/quality-gates/run_all.sh
+
+# Auto-fix lint issues first, then validate
+./skills/quality-gates/run_all.sh --fix
+```
 
 ## Adding New Skills
 
