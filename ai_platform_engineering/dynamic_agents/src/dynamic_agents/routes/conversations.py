@@ -524,6 +524,92 @@ async def get_conversation_file_content(
     )
 
 
+@router.delete("/{conversation_id}/files/content", response_model=ApiResponse)
+async def delete_conversation_file(
+    conversation_id: str,
+    agent_id: str = Query(..., description="Dynamic agent ID"),
+    path: str = Query(..., description="File path to delete"),
+    user: UserContext = Depends(get_current_user),
+    mongo: MongoDBService = Depends(get_mongo_service),
+) -> ApiResponse:
+    """Delete a file from the agent's in-memory filesystem.
+
+    Uses LangGraph's aupdate_state with a None value to trigger deletion
+    via the files reducer. The file is removed from the checkpoint state.
+
+    Access control is handled by `can_access_conversation()` in auth/access.py.
+    """
+    # 1. Verify agent exists
+    agent = mongo.get_agent(agent_id)
+    if not agent:
+        raise HTTPException(status_code=404, detail="Agent not found")
+
+    # 2. Check conversation ownership
+    if mongo._client is None:
+        raise HTTPException(status_code=503, detail="Database not connected")
+    db = mongo._db
+    if db is None:
+        raise HTTPException(status_code=503, detail="Database not connected")
+
+    conversations_coll = db["conversations"]
+    conversation = conversations_coll.find_one({"_id": conversation_id})
+
+    if not conversation:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+    # 3. Check access
+    if not can_access_conversation(conversation, user):
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    # 4. Get or create runtime to access checkpointer
+    server_ids = list(agent.allowed_tools.keys())
+    mcp_servers = mongo.get_servers_by_ids(server_ids) if server_ids else []
+
+    cache = get_runtime_cache()
+    cache.set_mongo_service(mongo)
+
+    runtime = await cache.get_or_create(
+        agent,
+        mcp_servers,
+        conversation_id,
+        user=user,
+    )
+
+    # 5. Get state and verify file exists
+    if not runtime._graph:
+        raise HTTPException(status_code=404, detail="File not found")
+
+    config = {"configurable": {"thread_id": conversation_id}}
+
+    try:
+        state = await runtime._graph.aget_state(config)
+    except Exception as e:
+        logger.error(f"Failed to get state for conversation {conversation_id}: {e}")
+        raise HTTPException(status_code=500, detail="Failed to access conversation state")
+
+    if not state or not state.values:
+        raise HTTPException(status_code=404, detail="File not found")
+
+    files_dict = state.values.get("files", {})
+    if not isinstance(files_dict, dict) or path not in files_dict:
+        raise HTTPException(status_code=404, detail="File not found")
+
+    # 6. Delete file using aupdate_state with None value
+    # The files reducer treats None as a deletion marker
+    try:
+        await runtime._graph.aupdate_state(
+            config,
+            {"files": {path: None}},
+        )
+    except Exception as e:
+        logger.error(f"Failed to delete file {path} from conversation {conversation_id}: {e}")
+        raise HTTPException(status_code=500, detail="Failed to delete file")
+
+    logger.info(f"Deleted file {path} from conversation {conversation_id}")
+
+    return ApiResponse(success=True, data={"deleted": path})
+
+
 @router.post("/{conversation_id}/metadata")
 async def ensure_conversation_metadata(
     conversation_id: str,

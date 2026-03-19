@@ -328,6 +328,42 @@ export function DynamicAgentContext({
     [activeConversationId, agentId, session?.accessToken, isDownloadingFile]
   );
 
+  // Handle file delete
+  const [isDeletingFile, setIsDeletingFile] = useState(false);
+  const [deletingFilePath, setDeletingFilePath] = useState<string | undefined>();
+
+  const handleFileDelete = useCallback(
+    async (path: string) => {
+      if (!activeConversationId || !agentId || isDeletingFile) return;
+
+      setIsDeletingFile(true);
+      setDeletingFilePath(path);
+
+      try {
+        const response = await fetch(
+          `/api/dynamic-agents/conversations/${activeConversationId}/files/content?agent_id=${encodeURIComponent(agentId)}&path=${encodeURIComponent(path)}`,
+          {
+            method: "DELETE",
+            headers: {
+              ...(session?.accessToken ? { Authorization: `Bearer ${session.accessToken}` } : {}),
+            },
+          }
+        );
+
+        if (response.ok) {
+          // Refresh files list after deletion
+          setFilesFetchKey((k) => k + 1);
+        }
+      } catch {
+        // Silently ignore delete errors
+      } finally {
+        setIsDeletingFile(false);
+        setDeletingFilePath(undefined);
+      }
+    },
+    [activeConversationId, agentId, session?.accessToken, isDeletingFile]
+  );
+
   // Extract error messages from error events
   const errorMessages = useMemo(() => {
     return conversationEvents
@@ -513,8 +549,11 @@ export function DynamicAgentContext({
                 todos={todos}
                 files={files}
                 onFileClick={handleFileDownload}
+                onFileDelete={handleFileDelete}
                 isDownloadingFile={isDownloadingFile}
                 downloadingFilePath={downloadingFilePath}
+                isDeletingFile={isDeletingFile}
+                deletingFilePath={deletingFilePath}
                 activeToolCalls={activeToolCalls}
                 completedToolCalls={completedToolCalls}
                 activeSubagentCalls={activeSubagentCalls}
@@ -578,8 +617,11 @@ interface EventsContentProps {
   todos: TodoItem[];
   files: string[];
   onFileClick?: (path: string) => void;
+  onFileDelete?: (path: string) => void;
   isDownloadingFile?: boolean;
   downloadingFilePath?: string;
+  isDeletingFile?: boolean;
+  deletingFilePath?: string;
   activeToolCalls: ToolCall[];
   completedToolCalls: ToolCall[];
   activeSubagentCalls: SubagentCall[];
@@ -603,8 +645,11 @@ function EventsContent({
   todos,
   files,
   onFileClick,
+  onFileDelete,
   isDownloadingFile,
   downloadingFilePath,
+  isDeletingFile,
+  deletingFilePath,
   activeToolCalls,
   completedToolCalls,
   activeSubagentCalls,
@@ -848,8 +893,11 @@ function EventsContent({
       <FileTree
         files={files}
         onFileClick={onFileClick}
+        onFileDelete={onFileDelete}
         isDownloading={isDownloadingFile}
         downloadingPath={downloadingFilePath}
+        isDeleting={isDeletingFile}
+        deletingPath={deletingFilePath}
       />
 
       {/* Active subagent calls */}

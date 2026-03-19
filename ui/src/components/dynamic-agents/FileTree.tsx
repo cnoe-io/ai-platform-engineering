@@ -2,7 +2,7 @@
 
 import React, { useMemo, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { FileText, Folder, Download, Loader2 } from "lucide-react";
+import { FileText, Folder, Download, Loader2, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface FileTreeProps {
@@ -10,10 +10,16 @@ interface FileTreeProps {
   files: string[];
   /** Callback when a file is clicked (for download) */
   onFileClick?: (path: string) => void;
+  /** Callback when delete is clicked */
+  onFileDelete?: (path: string) => void;
   /** Whether a download is in progress */
   isDownloading?: boolean;
   /** Currently downloading file path */
   downloadingPath?: string;
+  /** Whether a delete is in progress */
+  isDeleting?: boolean;
+  /** Currently deleting file path */
+  deletingPath?: string;
 }
 
 interface TreeNode {
@@ -31,8 +37,11 @@ interface TreeNode {
 export function FileTree({
   files,
   onFileClick,
+  onFileDelete,
   isDownloading = false,
   downloadingPath,
+  isDeleting = false,
+  deletingPath,
 }: FileTreeProps) {
   // Build tree structure from flat file paths
   const tree = useMemo(() => buildTree(files), [files]);
@@ -58,8 +67,11 @@ export function FileTree({
               depth={0}
               index={idx}
               onFileClick={onFileClick}
+              onFileDelete={onFileDelete}
               isDownloading={isDownloading}
               downloadingPath={downloadingPath}
+              isDeleting={isDeleting}
+              deletingPath={deletingPath}
             />
           ))}
         </AnimatePresence>
@@ -73,8 +85,11 @@ interface TreeNodeItemProps {
   depth: number;
   index: number;
   onFileClick?: (path: string) => void;
+  onFileDelete?: (path: string) => void;
   isDownloading?: boolean;
   downloadingPath?: string;
+  isDeleting?: boolean;
+  deletingPath?: string;
 }
 
 function TreeNodeItem({
@@ -82,16 +97,30 @@ function TreeNodeItem({
   depth,
   index,
   onFileClick,
+  onFileDelete,
   isDownloading,
   downloadingPath,
+  isDeleting,
+  deletingPath,
 }: TreeNodeItemProps) {
   const isCurrentlyDownloading = isDownloading && downloadingPath === node.path;
+  const isCurrentlyDeleting = isDeleting && deletingPath === node.path;
 
   const handleClick = useCallback(() => {
     if (!node.isDirectory && onFileClick) {
       onFileClick(node.path);
     }
   }, [node.isDirectory, node.path, onFileClick]);
+
+  const handleDelete = useCallback(
+    (e: React.MouseEvent) => {
+      e.stopPropagation(); // Don't trigger download
+      if (!node.isDirectory && onFileDelete) {
+        onFileDelete(node.path);
+      }
+    },
+    [node.isDirectory, node.path, onFileDelete]
+  );
 
   return (
     <motion.div
@@ -103,7 +132,8 @@ function TreeNodeItem({
         className={cn(
           "flex items-center gap-1.5 py-1 px-1 rounded text-xs",
           !node.isDirectory && "hover:bg-muted cursor-pointer group",
-          !node.isDirectory && isCurrentlyDownloading && "bg-blue-500/10"
+          !node.isDirectory && isCurrentlyDownloading && "bg-blue-500/10",
+          !node.isDirectory && isCurrentlyDeleting && "bg-red-500/10"
         )}
         style={{ paddingLeft: `${depth * 12 + 4}px` }}
         onClick={handleClick}
@@ -118,7 +148,7 @@ function TreeNodeItem({
       >
         {node.isDirectory ? (
           <Folder className="h-3.5 w-3.5 text-amber-500 shrink-0" />
-        ) : isCurrentlyDownloading ? (
+        ) : isCurrentlyDownloading || isCurrentlyDeleting ? (
           <Loader2 className="h-3.5 w-3.5 text-blue-400 shrink-0 animate-spin" />
         ) : (
           <FileText className="h-3.5 w-3.5 text-blue-400 shrink-0" />
@@ -134,8 +164,19 @@ function TreeNodeItem({
         >
           {node.name}
         </span>
-        {!node.isDirectory && !isCurrentlyDownloading && (
-          <Download className="h-3 w-3 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />
+        {!node.isDirectory && !isCurrentlyDownloading && !isCurrentlyDeleting && (
+          <>
+            <Download className="h-3 w-3 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />
+            {onFileDelete && (
+              <button
+                onClick={handleDelete}
+                className="h-3 w-3 text-muted-foreground opacity-0 group-hover:opacity-100 hover:text-red-400 transition-all shrink-0"
+                title="Delete file"
+              >
+                <Trash2 className="h-3 w-3" />
+              </button>
+            )}
+          </>
         )}
       </div>
 
@@ -149,8 +190,11 @@ function TreeNodeItem({
               depth={depth + 1}
               index={idx}
               onFileClick={onFileClick}
+              onFileDelete={onFileDelete}
               isDownloading={isDownloading}
               downloadingPath={downloadingPath}
+              isDeleting={isDeleting}
+              deletingPath={deletingPath}
             />
           ))}
         </div>
