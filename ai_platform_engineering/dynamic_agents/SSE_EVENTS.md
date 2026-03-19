@@ -21,7 +21,6 @@ Real-time streaming from Dynamic Agents backend to UI.
 │                       │    │                    │ make_content()    │   │  │
 │                       │    │                    │ make_tool_start() │   │  │
 │                       │    │                    │ make_tool_end()   │   │  │
-│                       │    │                    │ make_todo_update()│   │  │
 │                       │    │                    │ make_subagent_*() │   │  │
 │                       │    │                    │ make_final_result │   │  │
 │                       │    │<───────────────────│ make_input_req()  │   │  │
@@ -53,15 +52,26 @@ Real-time streaming from Dynamic Agents backend to UI.
 | Event | Trigger | Purpose |
 |-------|---------|---------|
 | `content` | AIMessage chunk | LLM token streaming |
-| `tool_start` | AIMessage.tool_calls | Tool invocation started |
+| `tool_start` | AIMessage.tool_calls | Tool invocation started (includes `write_todos`) |
 | `tool_end` | ToolMessage received | Tool completed |
-| `todo_update` | write_todos tool called | Task list update (from args) |
 | `subagent_start` | task tool called | Subagent delegation started |
 | `subagent_end` | task ToolMessage received | Subagent completed |
 | `final_result` | Stream ends | Full response + metadata |
 | `input_required` | request_user_input called | HITL form needed |
 | `error` | Exception | Error message |
 | `done` | Stream ends | Terminal event |
+
+## Todos
+
+Todos are handled via `tool_start`/`tool_end` for `write_todos` like any other tool.
+The UI extracts todos from `tool_start.args.todos` when `tool_name === "write_todos"`.
+
+For session resume, the UI fetches todos via:
+```
+GET /api/dynamic-agents/conversations/{id}/todos?agent_id=X
+```
+
+This returns the persisted todo state from the LangGraph checkpointer.
 
 ## Files
 
@@ -93,13 +103,11 @@ Real-time streaming from Dynamic Agents backend to UI.
 
 1. **deepagents is read-only** — Cannot modify the `write_todos` or `task` tool implementations. Must work with existing behavior.
 
-2. **Todos from args, not output** — The `write_todos` tool outputs markdown, but we extract todos from the tool's `args` (structured data) not its output. This happens in `make_todo_update_from_tool_call()`.
+2. **Subagents don't stream** — The `task` tool uses `ainvoke()` internally, so subagent work is opaque. We only see start/end events.
 
-3. **Subagents don't stream** — The `task` tool uses `ainvoke()` internally, so subagent work is opaque. We only see start/end events.
+3. **Namespace filtering** — `transform_stream_chunk()` ignores chunks with non-empty namespace (subgraph internals). Only parent agent events become SSE events.
 
-4. **Namespace filtering** — `transform_stream_chunk()` ignores chunks with non-empty namespace (subgraph internals). Only parent agent events become SSE events.
-
-5. **ToolMessage content hidden** — Tool results (e.g., RAG JSON) are NOT sent as `content` events. Only AIMessage content reaches the chat.
+4. **ToolMessage content hidden** — Tool results (e.g., RAG JSON) are NOT sent as `content` events. Only AIMessage content reaches the chat.
 
 ## Debugging
 

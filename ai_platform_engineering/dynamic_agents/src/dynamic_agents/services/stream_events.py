@@ -28,7 +28,6 @@ logger = logging.getLogger(__name__)
 CONTENT = "content"
 TOOL_START = "tool_start"
 TOOL_END = "tool_end"
-TODO_UPDATE = "todo_update"
 SUBAGENT_START = "subagent_start"
 SUBAGENT_END = "subagent_end"
 FINAL_RESULT = "final_result"
@@ -149,54 +148,6 @@ def make_tool_end_event(
             "agent": agent,
         },
     }
-
-
-def make_todo_update_event(
-    todos: list[dict[str, str]],
-    agent: str,
-) -> dict[str, Any]:
-    """Todo list updated (from write_todos tool)."""
-    logger.debug(f"[sse:{TODO_UPDATE}] {len(todos)} todos")
-    return {
-        "type": TODO_UPDATE,
-        "data": {
-            "todos": todos,  # [{content, status}, ...]
-            "agent": agent,
-        },
-    }
-
-
-def make_todo_update_from_tool_call(
-    tool_name: str,
-    args: dict[str, Any],
-    agent: str,
-) -> dict[str, Any] | None:
-    """Create todo_update event if this is a write_todos call.
-
-    Returns None if not a write_todos call or has no todos.
-    """
-    if tool_name != "write_todos":
-        return None
-
-    todos_arg = args.get("todos", [])
-    if not todos_arg or not isinstance(todos_arg, list):
-        return None
-
-    # Convert to our format (ensure content and status keys)
-    todos = []
-    for item in todos_arg:
-        if isinstance(item, dict) and "content" in item:
-            todos.append(
-                {
-                    "content": item.get("content", ""),
-                    "status": item.get("status", "pending"),
-                }
-            )
-
-    if not todos:
-        return None
-
-    return make_todo_update_event(todos=todos, agent=agent)
 
 
 def make_subagent_start_event(
@@ -387,7 +338,7 @@ def _handle_updates_chunk(
     agent_name: str,
     active_task_calls: set[str],
 ) -> list[dict[str, Any]]:
-    """Handle 'updates' mode chunks → tool/subagent/todo events.
+    """Handle 'updates' mode chunks → tool/subagent events.
 
     Args:
         data: The data portion of the chunk (dict of node updates)
@@ -427,13 +378,8 @@ def _handle_updates_chunk(
                         purpose = args.get("description", "")
                         results.append(make_subagent_start_event(tool_call_id, subagent_type, purpose, agent_name))
                     else:
-                        # Regular tool call
+                        # Regular tool call (including write_todos)
                         results.append(make_tool_start_event(tool_name, tool_call_id, args, agent_name))
-
-                        # Check for todo updates from write_todos args
-                        todo_event = make_todo_update_from_tool_call(tool_name, args, agent_name)
-                        if todo_event:
-                            results.append(todo_event)
 
             # Handle ToolMessage (tool results)
             tool_call_id = getattr(msg, "tool_call_id", None)

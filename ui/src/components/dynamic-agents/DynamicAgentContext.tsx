@@ -118,6 +118,10 @@ export function DynamicAgentContext({
   const [activeTab, setActiveTab] = useState<"events" | "info">("events");
   const [toolsCollapsed, setToolsCollapsed] = useState(false);
 
+  // Todos fetched from API (single source of truth)
+  const [todos, setTodos] = useState<TodoItem[]>([]);
+  const [todosFetchKey, setTodosFetchKey] = useState(0);
+
   // Check if streaming is active
   const conversation = useMemo(() => {
     if (!activeConversationId) return null;
@@ -171,22 +175,51 @@ export function DynamicAgentContext({
     }
   }, [conversationEvents, isActuallyStreaming]);
 
-  // Parse todos from structured events (replaces execution plan)
-  const hasFinalResult = useMemo(() => {
-    return conversationEvents.some((e) => e.type === "final_result");
+  // Detect write_todos tool events and trigger a fetch
+  useEffect(() => {
+    const hasWriteTodosEvent = conversationEvents.some(
+      (e) => e.type === "tool_start" && e.toolData?.tool_name === "write_todos"
+    );
+    if (hasWriteTodosEvent) {
+      setTodosFetchKey((k) => k + 1);
+    }
   }, [conversationEvents]);
 
-  const todos = useMemo(() => {
-    const parsedTodos = parseTodos(conversationEvents);
-    // Only force-mark as completed when the agent finished (final_result received)
-    if (!isActuallyStreaming && hasFinalResult && parsedTodos.length > 0) {
-      return parsedTodos.map((todo) => ({
-        ...todo,
-        status: "completed" as const,
-      }));
+  // Fetch todos from API when conversation changes or write_todos event occurs
+  useEffect(() => {
+    if (!activeConversationId || !agentId) {
+      setTodos([]);
+      return;
     }
-    return parsedTodos;
-  }, [conversationEvents, isActuallyStreaming, hasFinalResult]);
+
+    const fetchTodos = async () => {
+      try {
+        const response = await fetch(
+          `/api/dynamic-agents/conversations/${activeConversationId}/todos?agent_id=${encodeURIComponent(agentId)}`,
+          {
+            headers: {
+              ...(session?.accessToken ? { Authorization: `Bearer ${session.accessToken}` } : {}),
+            },
+          }
+        );
+        if (response.ok) {
+          const data = await response.json();
+          const fetchedTodos: TodoItem[] = (data.todos || []).map(
+            (todo: { content?: string; status?: string }, idx: number) => ({
+              id: `todo-${idx}`,
+              content: todo.content || "",
+              status: (todo.status as "pending" | "in_progress" | "completed") || "pending",
+            })
+          );
+          setTodos(fetchedTodos);
+        }
+      } catch {
+        // Silently ignore fetch errors - todos are optional
+      }
+    };
+
+    fetchTodos();
+  }, [activeConversationId, agentId, todosFetchKey, session?.accessToken]);
 
   // Extract error messages from error events
   const errorMessages = useMemo(() => {
@@ -1094,25 +1127,6 @@ function AgentInfoContent({
       )}
     </div>
   );
-}
-
-// ═══════════════════════════════════════════════════════════════
-// Helper: Parse todos from SSE events (uses structured todoData)
-// ═══════════════════════════════════════════════════════════════
-
-function parseTodos(events: SSEAgentEvent[]): TodoItem[] {
-  // Get the latest todo_update event (it contains the full todo list)
-  const todoEvents = events.filter((e) => e.type === "todo_update" && e.todoData);
-  if (todoEvents.length === 0) return [];
-
-  const latestTodoEvent = todoEvents[todoEvents.length - 1];
-  const todos = latestTodoEvent.todoData?.todos || [];
-
-  return todos.map((todo, idx) => ({
-    id: `todo-${idx}`,
-    content: todo.content,
-    status: todo.status,
-  }));
 }
 
 // ═══════════════════════════════════════════════════════════════
