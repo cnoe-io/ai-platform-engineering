@@ -83,6 +83,9 @@ services:
       - LANGGRAPH_CHECKPOINT_REDIS_URL=${LANGGRAPH_CHECKPOINT_REDIS_URL:-}
       - LANGGRAPH_CHECKPOINT_POSTGRES_DSN=${LANGGRAPH_CHECKPOINT_POSTGRES_DSN:-}
       - LANGGRAPH_CHECKPOINT_MONGODB_URI=${LANGGRAPH_CHECKPOINT_MONGODB_URI:-}
+      - LANGGRAPH_CHECKPOINT_MONGODB_DB_NAME=${LANGGRAPH_CHECKPOINT_MONGODB_DB_NAME:-}
+      - LANGGRAPH_CHECKPOINT_MONGODB_COLLECTION=${LANGGRAPH_CHECKPOINT_MONGODB_COLLECTION:-}
+      - LANGGRAPH_CHECKPOINT_MONGODB_WRITES_COLLECTION=${LANGGRAPH_CHECKPOINT_MONGODB_WRITES_COLLECTION:-}
       - LANGGRAPH_CHECKPOINT_TTL_MINUTES=${LANGGRAPH_CHECKPOINT_TTL_MINUTES:-0}
       # REDIS_URL is required by redisvl (used internally by langgraph-checkpoint-redis)
       - REDIS_URL=${LANGGRAPH_CHECKPOINT_REDIS_URL:-}
@@ -1852,6 +1855,16 @@ services:
   #     LANGGRAPH_STORE_TYPE=mongodb \
   #     LANGGRAPH_STORE_MONGODB_URI=mongodb://langgraph-mongodb:27017 \
   #     docker compose -f docker-compose.dev.yaml --profile langgraph-mongodb up
+  #
+  #   Mixed (MongoDB checkpointer + Redis store, sharing UI MongoDB):
+  #     LANGGRAPH_CHECKPOINT_TYPE=mongodb \
+  #     LANGGRAPH_CHECKPOINT_MONGODB_URI="mongodb://admin:changeme@caipe-mongodb:27017/caipe?authSource=admin" \
+  #     LANGGRAPH_CHECKPOINT_MONGODB_DB_NAME=caipe \
+  #     LANGGRAPH_CHECKPOINT_MONGODB_COLLECTION=conversation_checkpoints \
+  #     LANGGRAPH_CHECKPOINT_MONGODB_WRITES_COLLECTION=conversation_checkpoint_writes \
+  #     LANGGRAPH_STORE_TYPE=redis \
+  #     LANGGRAPH_STORE_REDIS_URL=redis://langgraph-redis:6379 \
+  #     docker compose -f docker-compose.dev.yaml --profile deps --profile langgraph-redis up
 
   langgraph-redis:
     image: redis:8.0-alpine
