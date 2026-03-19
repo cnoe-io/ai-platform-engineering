@@ -77,10 +77,7 @@ async def get_conversation_messages(
     This endpoint retrieves the full message history for a conversation,
     including any pending HITL interrupt state.
 
-    Access control:
-    - User must own the conversation, or
-    - User must be admin, or
-    - Conversation must be shared with user (TODO)
+    Access control is handled by `can_access_conversation()` in auth/access.py.
 
     Messages are extracted from the LangGraph checkpoint state.
     Only HumanMessage and AIMessage are returned (tool messages filtered out).
@@ -237,10 +234,7 @@ async def get_conversation_todos(
     Returns the current todo list state for the conversation.
     This is used by the UI to restore todos when resuming a session.
 
-    Access control:
-    - User must own the conversation, or
-    - User must be admin, or
-    - Conversation must be shared with user
+    Access control is handled by `can_access_conversation()` in auth/access.py.
     """
     # 1. Verify agent exists
     agent = mongo.get_agent(agent_id)
