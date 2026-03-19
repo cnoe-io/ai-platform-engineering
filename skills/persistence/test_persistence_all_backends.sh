@@ -123,6 +123,96 @@ test_mongodb() {
     docker exec langgraph-mongodb mongosh --quiet langgraph --eval "db.store.find({'namespace.0': 'memories'}).limit(3).pretty()" 2>/dev/null || echo "No facts yet"
 }
 
+# Function to test Mixed backend (MongoDB checkpointer + Redis store)
+test_mixed() {
+    echo -e "${GREEN}Testing Mixed Backend: MongoDB (checkpointer) + Redis (store)${NC}"
+    echo ""
+
+    # --- MongoDB Checkpointer ---
+    echo -e "${YELLOW}── MongoDB Checkpointer ──${NC}"
+    echo ""
+
+    MONGO_CONTAINER=${MONGO_CONTAINER:-caipe-mongodb-dev}
+    MONGO_URI=${MONGO_URI:-"mongodb://admin:changeme@localhost:27017/caipe?authSource=admin"}
+    MONGO_DB=${MONGO_DB:-caipe}
+    MONGO_CP_COLL=${MONGO_CP_COLL:-conversation_checkpoints}
+    MONGO_CW_COLL=${MONGO_CW_COLL:-conversation_checkpoint_writes}
+
+    echo "1. Checking MongoDB container..."
+    docker ps --filter "name=${MONGO_CONTAINER}" --format "{{.Names}}\t{{.Status}}"
+    echo ""
+
+    echo "2. Testing MongoDB connection..."
+    docker exec "${MONGO_CONTAINER}" mongosh "${MONGO_URI}" --quiet --eval "db.adminCommand('ping')"
+    echo ""
+
+    echo "3. Collections in ${MONGO_DB}:"
+    docker exec "${MONGO_CONTAINER}" mongosh "${MONGO_URI}" --quiet --eval "db.getCollectionNames()"
+    echo ""
+
+    echo "4. Checkpoint counts:"
+    CP_COUNT=$(docker exec "${MONGO_CONTAINER}" mongosh "${MONGO_URI}" --quiet --eval "db.${MONGO_CP_COLL}.countDocuments()")
+    CW_COUNT=$(docker exec "${MONGO_CONTAINER}" mongosh "${MONGO_URI}" --quiet --eval "db.${MONGO_CW_COLL}.countDocuments()")
+    echo "   ${MONGO_CP_COLL}: ${CP_COUNT}"
+    echo "   ${MONGO_CW_COLL}: ${CW_COUNT}"
+    echo ""
+
+    echo "5. Unique threads:"
+    docker exec "${MONGO_CONTAINER}" mongosh "${MONGO_URI}" --quiet --eval "
+        const threads = db.${MONGO_CP_COLL}.distinct('thread_id');
+        print('   Count: ' + threads.length);
+        threads.slice(0, 5).forEach(t => print('   - ' + t));
+        if (threads.length > 5) print('   ... and ' + (threads.length - 5) + ' more');
+    "
+    echo ""
+
+    echo "6. Latest checkpoint:"
+    docker exec "${MONGO_CONTAINER}" mongosh "${MONGO_URI}" --quiet --eval "
+        const cp = db.${MONGO_CP_COLL}.findOne({}, {thread_id:1, checkpoint_id:1, _id:0, type:1});
+        if (cp) printjson(cp); else print('   No checkpoints yet');
+    "
+    echo ""
+
+    # --- Redis Store ---
+    echo -e "${YELLOW}── Redis Store (fact extraction) ──${NC}"
+    echo ""
+
+    REDIS_CONTAINER=${REDIS_CONTAINER:-langgraph-redis}
+
+    echo "7. Checking Redis container..."
+    docker ps --filter "name=${REDIS_CONTAINER}" --format "{{.Names}}\t{{.Status}}"
+    echo ""
+
+    echo "8. Testing Redis connection..."
+    docker exec "${REDIS_CONTAINER}" redis-cli ping
+    echo ""
+
+    echo "9. Redis key count:"
+    docker exec "${REDIS_CONTAINER}" redis-cli DBSIZE
+    echo ""
+
+    echo "10. Store/fact keys:"
+    STORE_COUNT=$(docker exec "${REDIS_CONTAINER}" redis-cli --scan --pattern "store:*" 2>/dev/null | wc -l | tr -d ' ')
+    echo "   store:* keys: ${STORE_COUNT}"
+    echo ""
+
+    echo "11. Sample extracted facts:"
+    for FACT_KEY in $(docker exec "${REDIS_CONTAINER}" redis-cli --scan --pattern "store:*" 2>/dev/null | head -3); do
+        echo "   --- ${FACT_KEY} ---"
+        docker exec "${REDIS_CONTAINER}" redis-cli JSON.GET "${FACT_KEY}" 2>/dev/null | python3 -c "
+import sys, json
+try:
+    d = json.load(sys.stdin)
+    prefix = d.get('prefix','').replace('\\\\\\\\.','.').replace('\\\\.','.').replace('_',' ')
+    content = d.get('value',{}).get('content',{}).get('content','N/A')
+    print(f'   User: {prefix}')
+    print(f'   Fact: {content[:120]}')
+except: pass
+" 2>/dev/null
+        echo ""
+    done
+}
+
 # Check supervisor logs
 check_supervisor_logs() {
     echo ""
@@ -150,9 +240,12 @@ case $BACKEND in
     mongodb)
         test_mongodb
         ;;
+    mixed)
+        test_mixed
+        ;;
     *)
         echo -e "${RED}Invalid backend: $BACKEND${NC}"
-        echo "Usage: $0 [redis|postgres|mongodb]"
+        echo "Usage: $0 [redis|postgres|mongodb|mixed]"
         exit 1
         ;;
 esac
