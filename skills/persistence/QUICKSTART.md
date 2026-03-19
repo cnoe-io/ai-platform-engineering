@@ -178,6 +178,18 @@ LANGGRAPH_STORE_REDIS_URL=redis://langgraph-redis:6379
 
 **Benchmark results (2026-03-19):**
 
+Storage latency (N=10, 100, 1000 synthetic facts/checkpoints):
+
+| N | Store Write (Redis, ms/fact) | Store Read (Redis, ms) | Ckpt Write (MongoDB, ms) | Ckpt Read (MongoDB, ms) |
+|---|---|---|---|---|
+| 10 | 47.6* | 0.6 | 111.4* | 0.9 |
+| 100 | 0.7 | 1.9 | 0.6 | 0.8 |
+| 1000 | 0.7 | 1.8 | 0.5 | 0.7 |
+
+_*N=10 includes cold-start connection initialization overhead._
+
+Live data from docker-compose test session:
+
 | Metric | Value |
 |--------|-------|
 | Checkpoints (MongoDB) | 117 |
@@ -186,6 +198,11 @@ LANGGRAPH_STORE_REDIS_URL=redis://langgraph-redis:6379
 | Extracted facts (Redis) | 27 |
 | Users with facts | 1 |
 | Fact extraction latency | ~3s per turn |
+
+Run the benchmark yourself:
+```bash
+PYTHONPATH=. uv run python integration/benchmark_persistence_backends.py --storage-only
+```
 
 ## 🎯 Common Workflows
 

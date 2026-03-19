@@ -71,9 +71,19 @@ import httpx
 # ---------------------------------------------------------------------------
 
 SUPERVISOR_URL = "http://localhost:8000"
-REDIS_URL = "redis://localhost:6380"
-POSTGRES_DSN = "postgresql://langgraph:langgraph@localhost:5433/langgraph"
-MONGODB_URI = "mongodb://localhost:27018"
+REDIS_URL = os.getenv("BENCHMARK_REDIS_URL", "redis://localhost:6380")
+POSTGRES_DSN = os.getenv("BENCHMARK_POSTGRES_DSN", "postgresql://langgraph:langgraph@localhost:5433/langgraph")
+MONGODB_URI = os.getenv("BENCHMARK_MONGODB_URI", "mongodb://localhost:27018")
+
+# Mixed backend: MongoDB checkpointer (shared with UI) + Redis store
+MIXED_MONGODB_URI = os.getenv(
+    "BENCHMARK_MIXED_MONGODB_URI",
+    "mongodb://admin:changeme@localhost:27017/caipe?authSource=admin",
+)
+MIXED_MONGODB_DB = os.getenv("BENCHMARK_MIXED_MONGODB_DB", "caipe")
+MIXED_MONGODB_CP_COLL = os.getenv("BENCHMARK_MIXED_MONGODB_CP_COLL", "conversation_checkpoints")
+MIXED_MONGODB_CW_COLL = os.getenv("BENCHMARK_MIXED_MONGODB_CW_COLL", "conversation_checkpoint_writes")
+MIXED_REDIS_URL = os.getenv("BENCHMARK_MIXED_REDIS_URL", "redis://localhost:6381")
 
 DATASET_SIZES = [10, 100, 1000]
 STORAGE_READ_TRIALS = 5   # repeated asearch() calls to average read latency
@@ -111,6 +121,11 @@ def postgres_up() -> bool:
 
 def mongodb_up() -> bool:
     return _tcp_ok("localhost", 27018)
+
+
+def mixed_up() -> bool:
+    """Mixed backend needs MongoDB on 27017 and Redis on 6381."""
+    return _tcp_ok("localhost", 27017) and _tcp_ok("localhost", 6381)
 
 
 # ---------------------------------------------------------------------------
@@ -496,10 +511,26 @@ def _make_mongodb_factories():
     )
 
 
+def _make_mixed_factories():
+    """Mixed: MongoDB checkpointer (custom collections) + Redis store."""
+    from ai_platform_engineering.utils.store import _LazyAsyncRedisStore
+    from ai_platform_engineering.utils.checkpointer import _LazyAsyncMongoDBSaver
+    return (
+        lambda: _LazyAsyncRedisStore(MIXED_REDIS_URL),
+        lambda: _LazyAsyncMongoDBSaver(
+            MIXED_MONGODB_URI,
+            db_name=MIXED_MONGODB_DB,
+            checkpoint_collection_name=MIXED_MONGODB_CP_COLL,
+            writes_collection_name=MIXED_MONGODB_CW_COLL,
+        ),
+    )
+
+
 _BACKEND_MAP = {
     "redis":    (redis_up,    _make_redis_factories),
     "postgres": (postgres_up, _make_postgres_factories),
     "mongodb":  (mongodb_up,  _make_mongodb_factories),
+    "mixed":    (mixed_up,    _make_mixed_factories),
 }
 
 
@@ -786,7 +817,7 @@ async def main(args: argparse.Namespace) -> int:
     results_by_backend: dict[str, BackendResults] = {}
 
     # ---- storage benchmarks (all reachable backends, no supervisor needed) --
-    for backend in ["redis", "postgres", "mongodb"]:
+    for backend in ["redis", "postgres", "mongodb", "mixed"]:
         r = await run_backend(backend)
         all_results.append(r)
         results_by_backend[backend] = r
