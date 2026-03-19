@@ -29,27 +29,10 @@ from typing import Any, Awaitable, Callable, Literal, NotRequired
 from langchain_core.messages import AIMessage, ToolMessage
 from typing_extensions import TypedDict
 
-try:
-    from langchain.agents.middleware.types import AgentMiddleware, AgentState, hook_config
-    from langgraph.prebuilt.tool_node import ToolCallRequest
-    from langgraph.types import Command
-except ImportError:
-    try:
-        from langchain.agents.middleware import AgentMiddleware, AgentState, hook_config
-        from langgraph.prebuilt.tool_node import ToolCallRequest
-        from langgraph.types import Command
-    except ImportError:
-        from deepagents.middleware import AgentMiddleware, AgentState
-        from langgraph.types import Command
-        ToolCallRequest = Any
-        
-        def hook_config(**kwargs):
-            """Decorator stub for hook configuration."""
-            def decorator(func):
-                func._hook_config = kwargs
-                func.__can_jump_to__ = kwargs.get("can_jump_to", [])
-                return func
-            return decorator
+from langchain.agents.middleware.types import AgentMiddleware, AgentState, hook_config
+from langgraph.errors import GraphInterrupt
+from langgraph.prebuilt.tool_node import ToolCallRequest
+from langgraph.types import Command
 
 logger = logging.getLogger(__name__)
 
@@ -98,6 +81,8 @@ class TaskOrchestrationState(AgentState):
     pending_task_tool_call_id: NotRequired[str]  # Track the task tool call we're waiting for
     task_execution_pending: NotRequired[bool]  # Signal for before_model to start execution
     user_email: NotRequired[str]  # Authenticated user's email from OIDC token
+    user_name: NotRequired[str]
+    user_groups: NotRequired[list[str]]
 
 
 def _generate_tool_call_id() -> str:
@@ -424,6 +409,8 @@ class DeterministicTaskMiddleware(AgentMiddleware):
             try:
                 result = handler(request)
             except Exception as exc:
+                if isinstance(exc, GraphInterrupt):
+                    raise
                 logger.error(f"[DeterministicTaskMiddleware] Task {current_task_id} raised exception: {exc}")
                 task_failed = True
                 tool_msg_content = f"Task failed with error: {exc}"
@@ -502,6 +489,8 @@ class DeterministicTaskMiddleware(AgentMiddleware):
             try:
                 result = await handler(request)
             except Exception as exc:
+                if isinstance(exc, GraphInterrupt):
+                    raise
                 logger.error(f"[DeterministicTaskMiddleware] Task {current_task_id} raised exception: {exc}")
                 task_failed = True
                 tool_msg_content = f"Task failed with error: {exc}"
