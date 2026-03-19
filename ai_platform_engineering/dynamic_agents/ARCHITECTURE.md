@@ -6,6 +6,20 @@ This document provides detailed architecture documentation for the Dynamic Agent
 
 This codebase follows the ["Worse is Better"](https://en.wikipedia.org/wiki/Worse_is_better) (New Jersey) philosophy: favor simple implementations over complex abstractions. Prefer straightforward code that's easy to understand and debug over elegant but opaque solutions.
 
+### Guidelines
+
+- **Duplicate code over wrong abstraction** - It's okay to have similar code in two places if a shared abstraction would be forced or confusing
+  - *Example: Visibility filtering logic exists in both UI API routes and Python backend rather than a shared library*
+
+- **Direct queries over ORMs** - Use simple MongoDB/PyMongo queries with Pydantic models rather than heavy abstraction layers
+  - *Example: `collection.find_one({"_id": id})` + `DynamicAgentConfig(**doc)` instead of an ORM*
+
+- **Flat file structure over deep nesting** - Keep directory structure shallow and predictable
+  - *Example: Max 3 levels (`src/dynamic_agents/services/`), no `services/agents/runtime/cache/` hierarchies*
+
+- **SSE as triggers, API as source of truth** - For agent state (checkpoints, history, todos), use SSE to signal changes, then fetch from API
+  - *Exception: Chat token streaming uses inline SSE payloads for latency*
+
 ## Table of Contents
 
 - [System Overview](#system-overview)
