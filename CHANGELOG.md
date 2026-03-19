@@ -1,48 +1,91 @@
-## 0.2.40 (2026-03-18)
+## 0.2.41 (2026-03-19)
+
+## 0.2.40-rc.6 (2026-03-19)
+
+### Feat
+
+- **checkpointer**: per-agent MongoDB checkpoint isolation with auto-prefix (#1017)
+
+### Fix
+
+- **ui**: detect stale system templates in seed status check (#1020)
+
+## 0.2.40-rc.5 (2026-03-19)
+
+### Feat
+
+- **dynamic-agents**: add file deletion from context panel
+- **dynamic-agents**: add loading state and simplify file tree
+- **dynamic-agents**: add files tree to context panel
+
+### Fix
+
+- **dynamic-agents**: rename logging.py to avoid stdlib collision
+
+### Refactor
+
+- **dynamic-agents**: use API endpoint for todos instead of SSE events
+- **dynamic-agents**: consolidate SSE event system into stream_events.py
+
+## 0.2.40-rc.3 (2026-03-19)
+
+### Fix
+
+- **feedback**: fix DM scoring name, align Langfuse scores across Slack and UI (#1018)
+
+## 0.2.40-rc.4 (2026-03-19)
+
+### Feat
+
+- **helm**: change default imagePullPolicy from Always to IfNotPresent since we do not do stable/latest tags anymore
+- **subagents**: centralise MCP mode variabled into utils
+- **helm**: add mcp deployments in parent chart for single-node HTTP case
+- **helm**: subagent level llm secrets will be moved to use agentSecrets instead
+- **ci**: branch with *-single-node-* will not prebuild subagent images
+- **helm**: add support for subagent level mcp variables and add user_input subagent prompt file mount
+- rename "caipe" subagent to "user_input" subagent
+- allow sub-agent level MCP mode + addr
+
+### Fix
+
+- **task-config**: handle GraphInterrupt correctly as expected and not an exception error
+- **helm**: remove mongodb runtime dependency
+- further renaming of caipe to user_input that were missing
+- **helm**: ensure single-node creates each subagent prompt configs and some cleanups
+
+## 0.2.40-rc.2 (2026-03-19)
+
+## 0.2.40-rc.1 (2026-03-18)
 
 ### Feat
 
 - **ui**: make built-in skills configurable and non-deletable (#1014)
-
-## 0.2.39-rc.6 (2026-03-18)
-
-### Feat
-
 - **confluence**: add configurable title-based page filtering for ingestion (#996)
-
-## 0.2.39-rc.5 (2026-03-18)
+- **dynamic-agents**: add per-agent gradient theme support
+- **dynamic-agents**: add export YAML and clone agent actions
+- **ui**: allow addMessage to preserve message IDs from checkpointer
+- **ui**: load Dynamic Agent chat history on conversation open
+- **dynamic-agents**: add conversations router with messages and clear endpoints
+- **dynamic-agents**: switch to MongoDB checkpointer for persistent chat history
+- **dynamic-agents**: add langgraph-checkpoint-mongodb dependency
+- **dynamic-agents**: add admin Conversations tab for managing chat history
+- **ui**: implement DynamicAgentChatPanel for phase 1 of persistent chat history
 
 ### Fix
 
 - **dynamic-agents**: use os._exit(1) to forcefully terminate process
 - **dynamic-agents**: use sys.exit(1) to ensure process terminates
 - **dynamic-agents**: require MongoDB at startup with retry logic
+- **dynamic-agents**: use arrow symbol in gradient theme labels
+- **ui**: default thinking panel to collapsed for completed messages (#1011)
+- **dynamic-agents**: update conversations.py to use UserContext parameter
+- **ui**: audit chat preservation, loading UX, admin navigation, and report-a-problem (#1010)
+- **ui**: add yaml dependency and fix streaming route types
+- **ui**: use getAuthenticatedUser for Dynamic Agent streaming routes
 
 ### Refactor
 
 - **dynamic-agents**: extract fatal_exit() function for reusability
-
-## 0.2.39-rc.4 (2026-03-18)
-
-### Feat
-
-- **dynamic-agents**: add per-agent gradient theme support
-- **dynamic-agents**: add export YAML and clone agent actions
-
-### Fix
-
-- **dynamic-agents**: use arrow symbol in gradient theme labels
-- **ui**: default thinking panel to collapsed for completed messages (#1011)
-
-## 0.2.39-rc.3 (2026-03-18)
-
-### Fix
-
-- **dynamic-agents**: update conversations.py to use UserContext parameter
-- **ui**: audit chat preservation, loading UX, admin navigation, and report-a-problem (#1010)
-
-### Refactor
-
 - **dynamic-agents**: simplify agent_runtime.py
 - **dynamic-agents**: consolidate user context into single UserContext object
 - **dynamic-agents**: simplify SSE error handling
@@ -54,137 +97,7 @@
 - **dynamic-agents**: remove dead code
 - **dynamic-agents**: remove prompts/ folder and extension prompt feature
 
-## 0.2.39-rc.2 (2026-03-17)
-
-### Feat
-
-- **ui**: allow addMessage to preserve message IDs from checkpointer
-- **ui**: load Dynamic Agent chat history on conversation open
-- **dynamic-agents**: add conversations router with messages and clear endpoints
-- **dynamic-agents**: switch to MongoDB checkpointer for persistent chat history
-- **dynamic-agents**: add langgraph-checkpoint-mongodb dependency
-- **dynamic-agents**: add admin Conversations tab for managing chat history
-- **ui**: implement DynamicAgentChatPanel for phase 1 of persistent chat history
-
-### Fix
-
-- **ui**: add yaml dependency and fix streaming route types
-- **ui**: use getAuthenticatedUser for Dynamic Agent streaming routes
-
-## 0.2.39-rc.1 (2026-03-17)
-
-## 0.2.38-rc.15 (2026-03-17)
-
-### Feat
-
-- **ui,slack-bot**: add structured timeline and plan-mode streaming (#985)
-
-## 0.2.38-rc.14 (2026-03-17)
-
-### Feat
-
-- **docs**: implement helm chart documentation generator (#1003)
-
-### Fix
-
-- **slack-bot**: improve kb search prompt for better retrieval and confidence assessment (#1009)
-- **setup**: support curl-pipe execution and add welcome banner (#1004)
-- **docs**: resolve broken links, fix Helm chart symlinks, and fix setup script (#1002)
-- **ui**: respect DYNAMIC_AGENTS_ENABLED flag and reorder Custom Agents tab
-
-## 0.2.38-rc.13 (2026-03-15)
-
-### Feat
-
-- **aws-agent**: block kubectl get/describe secrets and sanitize output (#977)
-
-### Fix
-
-- **docs**: add Docusaurus id to helm-docs templates for symlinked chart pages (#990)
-
-## 0.2.38-rc.12 (2026-03-15)
-
-### Feat
-
-- **persistence**: add Redis, Postgres, and MongoDB checkpoint and store persistence (#909)
-
-## 0.2.38-rc.11 (2026-03-13)
-
-## 0.2.38-rc.10 (2026-03-13)
-
-### Feat
-
-- **docker**: add build context and volume mounts for RAG dev services (#986)
-
-## 0.2.38-rc.9 (2026-03-13)
-
-### Refactor
-
-- **ui**: proxy write operations to dynamic-agents backend
-
-## 0.2.38-rc.8 (2026-03-13)
-
-### Fix
-
-- **caipe**: allow file writes after form collection
-- **caipe**: allow CAIPE subagent to write files after form collection
-- **task-config**: simplify Jira step display text
-- **task-config**: move Jira step to end and only create ticket on error
-- **task-config**: auto-merge on auto_approve and consistent Jira failure-only logic
-- **middleware**: prevent write_todos infinite loop via after_model hook
-
-### Refactor
-
-- **charts**: replace task_config and policy with stubs
-
-## 0.2.38-rc.7 (2026-03-13)
-
-### Fix
-
-- **dynamic-agents**: load all seed config (models, servers, agents) at startup
-- **dynamic-agents**: read SEED_CONFIG_PATH env var for models config
-- **dynamic-agents**: use timezone-aware datetime and add auth guard
-
-### Refactor
-
-- **dynamic-agents**: use timezone-aware datetimes throughout
-
-## 0.2.38-rc.6 (2026-03-12)
-
-### Feat
-
-- **dynamic-agents**: add HITL forms using HumanInTheLoopMiddleware pattern
-- **ui**: add VictorOps icon to integration orbit (#972)
-
-## 0.2.38-rc.5 (2026-03-12)
-
-### Feat
-
-- **dynamic-agents**: add conversation ID display and improve logging
-- **dynamic-agents**: add builtin tools and API restructuring
-
-### Fix
-
-- **dynamic-agents**: remove unused asyncio import
-- **dynamic-agents**: initialize default-enabled builtin tools in config
-
-## 0.2.38-rc.4 (2026-03-11)
-
-### Feat
-
-- **dynamic-agents**: add llmSecret support for LLM credentials
-- **dynamic-agents**: add seedConfig support for MCP servers and agents
-
-### Fix
-
-- **dynamic-agents**: use /healthz for health probes
-- **dynamic-agents**: correct transport type in example comments
-
-### Refactor
-
-- **dynamic-agents**: rename model to model_id in models config
-
-## 0.2.38-rc.3 (2026-03-11)
+## 0.2.39 (2026-03-17)
 
 ### BREAKING CHANGE
 
@@ -192,6 +105,17 @@
 
 ### Feat
 
+- **ui,slack-bot**: add structured timeline and plan-mode streaming (#985)
+- **docs**: implement helm chart documentation generator (#1003)
+- **aws-agent**: block kubectl get/describe secrets and sanitize output (#977)
+- **persistence**: add Redis, Postgres, and MongoDB checkpoint and store persistence (#909)
+- **docker**: add build context and volume mounts for RAG dev services (#986)
+- **dynamic-agents**: add HITL forms using HumanInTheLoopMiddleware pattern
+- **ui**: add VictorOps icon to integration orbit (#972)
+- **dynamic-agents**: add conversation ID display and improve logging
+- **dynamic-agents**: add builtin tools and API restructuring
+- **dynamic-agents**: add llmSecret support for LLM credentials
+- **dynamic-agents**: add seedConfig support for MCP servers and agents
 - properly support all llm providers
 - **single-node**: allow sub-agent level llm key
 - **helm**: add dynamic-agents feature flags to caipe-ui config
@@ -217,6 +141,24 @@
 
 ### Fix
 
+- **slack-bot**: improve kb search prompt for better retrieval and confidence assessment (#1009)
+- **setup**: support curl-pipe execution and add welcome banner (#1004)
+- **docs**: resolve broken links, fix Helm chart symlinks, and fix setup script (#1002)
+- **ui**: respect DYNAMIC_AGENTS_ENABLED flag and reorder Custom Agents tab
+- **docs**: add Docusaurus id to helm-docs templates for symlinked chart pages (#990)
+- **caipe**: allow file writes after form collection
+- **caipe**: allow CAIPE subagent to write files after form collection
+- **task-config**: simplify Jira step display text
+- **task-config**: move Jira step to end and only create ticket on error
+- **task-config**: auto-merge on auto_approve and consistent Jira failure-only logic
+- **middleware**: prevent write_todos infinite loop via after_model hook
+- **dynamic-agents**: load all seed config (models, servers, agents) at startup
+- **dynamic-agents**: read SEED_CONFIG_PATH env var for models config
+- **dynamic-agents**: use timezone-aware datetime and add auth guard
+- **dynamic-agents**: remove unused asyncio import
+- **dynamic-agents**: initialize default-enabled builtin tools in config
+- **dynamic-agents**: use /healthz for health probes
+- **dynamic-agents**: correct transport type in example comments
 - **dynamic-agents**: resolve circular import for session_id_var
 - **dynamic-agents**: use JSON array format for CORS_ORIGINS config
 - **charts**: update dynamic-agents dependency version to 0.2.38
@@ -246,12 +188,16 @@
 
 ### Refactor
 
+- **ui**: proxy write operations to dynamic-agents backend
+- **charts**: replace task_config and policy with stubs
+- **dynamic-agents**: use timezone-aware datetimes throughout
+- **dynamic-agents**: rename model to model_id in models config
 - **dynamic-agents**: move imports to top of files
 - **dynamic-agents**: rename model config 'id' to 'model'
 - **dynamic-agents**: replace verbose SSE events with structured JSON
 - **ui**: remove AgentSelector from chat panel header
 
-## 0.2.38-rc.2 (2026-03-11)
+## 0.2.38 (2026-03-11)
 
 ### Feat
 
