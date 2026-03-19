@@ -158,7 +158,7 @@ CAIPE is cloud native by design:
 - **Microservices architecture**: Sub-agents communicate via the A2A protocol over HTTP, enabling independent scaling, deployment, and lifecycle management.
 - **Stateless compute with external state**: Agent state is managed via Redis (persistence) and Milvus (vector store), following cloud native patterns for state externalization.
 - **Observable**: Integrated with OpenTelemetry-compatible tracing (Langfuse), structured logging, and health endpoints.
-- **Declarative configuration**: Agent behavior, personas, prompts, and tool configurations are defined declaratively in YAML files.
+- **Declarative configuration**: Agent behavior, personas, prompts, and tool configurations are defined declaratively via common cloud native, GitOps-friendly practices.
 - **Infrastructure-agnostic**: Runs on any Kubernetes cluster (EKS, GKE, AKS, on-prem) or locally via Docker Compose.
 
 ### Cloud native 'integration'
