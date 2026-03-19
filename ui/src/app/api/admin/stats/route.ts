@@ -9,6 +9,17 @@ import {
   requireAdminView,
 } from '@/lib/api-middleware';
 
+/** Parse ?range= query param into number of days. */
+function rangeDays(range: string | null): number {
+  switch (range) {
+    case '1d': return 1;
+    case '7d': return 7;
+    case '30d': return 30;
+    case '90d': return 90;
+    default: return 30;
+  }
+}
+
 // GET /api/admin/stats
 export const GET = withErrorHandler(async (request: NextRequest) => {
   if (!isMongoDBConfigured) {
@@ -25,6 +36,9 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
   return withAuth(request, async (req, user, session) => {
     requireAdminView(session);
 
+    const { searchParams } = new URL(request.url);
+    const days = rangeDays(searchParams.get('range'));
+
     const users = await getCollection('users');
     const conversations = await getCollection('conversations');
     const messages = await getCollection('messages');
@@ -32,7 +46,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     const now = new Date();
     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const thisMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-    const last30Days = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+    const rangeStart = new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
 
     // ═══════════════════════════════════════════════════════════════
     // OVERVIEW STATS (parallel queries for speed)
@@ -68,7 +82,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     // 30 sequential countDocuments queries (90 round-trips → 3)
     // ═══════════════════════════════════════════════════════════════
     const dailyUserActivity = await users.aggregate([
-      { $match: { last_login: { $gte: last30Days } } },
+      { $match: { last_login: { $gte: rangeStart } } },
       {
         $group: {
           _id: { $dateToString: { format: '%Y-%m-%d', date: '$last_login' } },
@@ -78,7 +92,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     ]).toArray();
 
     const dailyConvActivity = await conversations.aggregate([
-      { $match: { created_at: { $gte: last30Days } } },
+      { $match: { created_at: { $gte: rangeStart } } },
       {
         $group: {
           _id: { $dateToString: { format: '%Y-%m-%d', date: '$created_at' } },
@@ -88,7 +102,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     ]).toArray();
 
     const dailyMsgActivity = await messages.aggregate([
-      { $match: { created_at: { $gte: last30Days } } },
+      { $match: { created_at: { $gte: rangeStart } } },
       {
         $group: {
           _id: { $dateToString: { format: '%Y-%m-%d', date: '$created_at' } },
@@ -102,9 +116,9 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     const convMap = new Map(dailyConvActivity.map((d) => [d._id, d.conversations]));
     const msgMap = new Map(dailyMsgActivity.map((d) => [d._id, d.messages]));
 
-    // Assemble 30-day array
+    // Assemble N-day array
     const dailyActivity = [];
-    for (let i = 29; i >= 0; i--) {
+    for (let i = days - 1; i >= 0; i--) {
       const dayStart = new Date(now.getTime() - i * 24 * 60 * 60 * 1000);
       dayStart.setHours(0, 0, 0, 0);
       const dateKey = dayStart.toISOString().split('T')[0];
@@ -274,9 +288,9 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
         ) / 10
       : 0;
 
-    // Hourly activity heatmap (hour-of-day distribution over last 30 days)
+    // Hourly activity heatmap (hour-of-day distribution over selected range)
     const hourlyActivity = await messages.aggregate([
-      { $match: { created_at: { $gte: last30Days } } },
+      { $match: { created_at: { $gte: rangeStart } } },
       {
         $group: {
           _id: { $hour: '$created_at' },
@@ -293,6 +307,8 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     });
 
     return successResponse({
+      range: searchParams.get('range') || '30d',
+      days,
       overview: {
         total_users: totalUsers,
         total_conversations: totalConversations,

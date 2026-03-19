@@ -25,6 +25,7 @@ import { CreateTeamDialog } from "@/components/admin/CreateTeamDialog";
 import { TeamDetailsDialog } from "@/components/admin/TeamDetailsDialog";
 import { AuditLogsTab } from "@/components/admin/AuditLogsTab";
 import { PolicyTab } from "@/components/admin/PolicyTab";
+import { CheckpointStatsSection } from "@/components/admin/CheckpointStatsSection";
 import { useAdminRole } from "@/hooks/use-admin-role";
 import { getConfig } from "@/lib/config";
 import { apiClient } from "@/lib/api-client";
@@ -196,6 +197,8 @@ function AdminPage() {
   const [npsLoading, setNpsLoading] = useState(false);
   const [stoppingCampaign, setStoppingCampaign] = useState<string | null>(null);
   const [confirmStopCampaign, setConfirmStopCampaign] = useState<string | null>(null);
+  const [statsRange, setStatsRange] = useState<"1d" | "7d" | "30d" | "90d">("30d");
+  const rangeLabel = statsRange === "1d" ? "24 Hours" : statsRange === "7d" ? "7 Days" : statsRange === "90d" ? "90 Days" : "30 Days";
 
   useEffect(() => {
     // Only fetch admin data once the user is authenticated
@@ -203,6 +206,25 @@ function AdminPage() {
       loadAdminData();
     }
   }, [status]);
+
+  // Re-fetch stats when range changes (lightweight — only refetch stats endpoint)
+  const statsRangeRef = React.useRef(statsRange);
+  useEffect(() => {
+    if (statsRangeRef.current === statsRange) return; // skip initial
+    statsRangeRef.current = statsRange;
+    if (status !== "authenticated") return;
+    (async () => {
+      try {
+        const res = await fetch(`/api/admin/stats?range=${statsRange}`);
+        if (res.ok) {
+          const json = await res.json();
+          if (json.success) setStats(json.data);
+        }
+      } catch {
+        // keep existing stats on failure
+      }
+    })();
+  }, [statsRange, status]);
 
   const loadAdminData = async () => {
     setLoading(true);
@@ -213,7 +235,7 @@ function AdminPage() {
       const npsOn = getConfig('npsEnabled');
       // Fetch stats, users, teams, skill metrics, feedback, and NPS in parallel
       const [statsRes, usersRes, teamsRes, skillStatsRes, feedbackRes, npsRes] = await Promise.all([
-        fetch('/api/admin/stats'),
+        fetch(`/api/admin/stats?range=${statsRange}`),
         fetch('/api/admin/users'),
         fetch('/api/admin/teams').catch(() => null),
         fetch('/api/admin/stats/skills').catch(() => null),
@@ -1459,6 +1481,25 @@ function AdminPage() {
 
               {/* Usage Statistics Tab */}
               <TabsContent value="stats" className="space-y-4">
+                {/* Range Selector */}
+                <div className="flex items-center justify-end">
+                  <div className="flex rounded-md border overflow-hidden">
+                    {([["1d", "24h"], ["7d", "7 days"], ["30d", "30 days"], ["90d", "90 days"]] as const).map(([value, label]) => (
+                      <button
+                        key={value}
+                        onClick={() => setStatsRange(value)}
+                        className={`px-3 py-1.5 text-xs font-medium transition-colors ${
+                          statsRange === value
+                            ? "bg-primary text-primary-foreground"
+                            : "bg-background text-muted-foreground hover:bg-muted"
+                        }`}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
                 {stats && (
                   <>
                     {/* DAU and MAU Trend Charts */}
@@ -1466,7 +1507,7 @@ function AdminPage() {
                       <Card>
                         <CardHeader>
                           <CardTitle>Daily Active Users (DAU)</CardTitle>
-                          <CardDescription>Active users per day over the last 30 days</CardDescription>
+                          <CardDescription>Active users per day ({rangeLabel})</CardDescription>
                         </CardHeader>
                         <CardContent>
                           <SimpleLineChart
@@ -1533,7 +1574,7 @@ function AdminPage() {
                     {/* Messages Activity Chart */}
                     <Card>
                       <CardHeader>
-                        <CardTitle>Message Activity (Last 30 Days)</CardTitle>
+                        <CardTitle>Message Activity ({rangeLabel})</CardTitle>
                         <CardDescription>Messages sent per day</CardDescription>
                       </CardHeader>
                       <CardContent>
@@ -1797,9 +1838,9 @@ function AdminPage() {
                         <CardHeader>
                           <CardTitle className="flex items-center gap-2">
                             <Clock className="h-5 w-5" />
-                            Activity by Hour (Last 30 Days)
+                            Activity by Hour ({rangeLabel})
                           </CardTitle>
-                          <CardDescription>Message volume distribution across hours of the day (UTC)</CardDescription>
+                          <CardDescription>Message volume distribution across hours of the day (UTC, {rangeLabel})</CardDescription>
                         </CardHeader>
                         <CardContent>
                           <div className="flex items-end gap-1 h-32">
@@ -1834,6 +1875,8 @@ function AdminPage() {
                         </CardContent>
                       </Card>
                     )}
+                    {/* Checkpoint Persistence */}
+                    <CheckpointStatsSection range={statsRange} onRangeChange={setStatsRange} />
                   </>
                 )}
               </TabsContent>

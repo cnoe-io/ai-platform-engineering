@@ -141,6 +141,18 @@ spec:
             - name: LANGGRAPH_CHECKPOINT_MONGODB_URI
               value: {{ .mongodb.uri | default "" | quote }}
             {{- end }}
+            {{- if .mongodb.dbName }}
+            - name: LANGGRAPH_CHECKPOINT_MONGODB_DB_NAME
+              value: {{ .mongodb.dbName | quote }}
+            {{- end }}
+            {{- if .mongodb.checkpointCollection }}
+            - name: LANGGRAPH_CHECKPOINT_MONGODB_COLLECTION
+              value: {{ .mongodb.checkpointCollection | quote }}
+            {{- end }}
+            {{- if .mongodb.writesCollection }}
+            - name: LANGGRAPH_CHECKPOINT_MONGODB_WRITES_COLLECTION
+              value: {{ .mongodb.writesCollection | quote }}
+            {{- end }}
             {{- end }}
             - name: LANGGRAPH_CHECKPOINT_TTL_MINUTES
               value: {{ .ttlMinutes | default 0 | quote }}

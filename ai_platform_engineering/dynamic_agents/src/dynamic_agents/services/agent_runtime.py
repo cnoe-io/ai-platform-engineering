@@ -82,8 +82,8 @@ class AgentRuntime:
         self._checkpointer = MongoDBSaver(
             self._mongo_client,
             db_name=self.settings.mongodb_database,
-            checkpoint_collection_name="conversation_checkpoints",
-            writes_collection_name="conversation_checkpoint_writes",
+            checkpoint_collection_name="checkpoints_conversation",
+            writes_collection_name="checkpoint_writes_conversation",
         )
         self._mcp_client: MultiServerMCPClient | None = None
         self._initialized = False

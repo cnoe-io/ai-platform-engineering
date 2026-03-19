@@ -4,7 +4,28 @@ This directory contains scripts for testing LangGraph persistence backends (Redi
 
 ## Scripts
 
-### 1. `test_persistence_all_backends.sh`
+### 1. `validate_agent_checkpoints.sh`
+
+Validates per-agent MongoDB checkpoint isolation for all 15 agents + supervisor.
+
+**Usage:**
+```bash
+# Validate all agents
+./skills/persistence/validate_agent_checkpoints.sh
+
+# Validate specific agents
+./skills/persistence/validate_agent_checkpoints.sh aws jira argocd
+```
+
+**What it checks:**
+- Each agent container is running
+- Auto-prefix log present (per-agent collection names)
+- MongoDB collections exist with checkpoint documents
+- InMemorySaver fallback detection
+- Cross-contamination: shared `thread_id` values across agent collections
+- Pass/fail/warn summary with exit code
+
+### 2. `test_persistence_all_backends.sh`
 
 Shell script to test persistence backends and verify data storage.
 
@@ -27,7 +48,7 @@ Shell script to test persistence backends and verify data storage.
 - Sample extracted facts with content
 - Supervisor configuration
 
-### 2. `switch_backend.sh`
+### 3. `switch_backend.sh`
 
 Automates switching between persistence backends by updating `.env` and restarting containers.
 
@@ -49,7 +70,7 @@ Automates switching between persistence backends by updating `.env` and restarti
 3. Starts containers with the appropriate profile
 4. Runs tests to verify the new backend
 
-### 3. `test_langgraph_persistence.py`
+### 4. `test_langgraph_persistence.py`
 
 Python script for programmatic testing of persistence backends.
 

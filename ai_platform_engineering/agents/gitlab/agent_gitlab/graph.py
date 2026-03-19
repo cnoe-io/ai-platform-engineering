@@ -3,7 +3,7 @@
 
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
-from langgraph.checkpoint.memory import InMemorySaver
+from ai_platform_engineering.utils.checkpointer import get_checkpointer
 
 from .protocol_bindings.a2a_server.state import AgentState
 
@@ -118,7 +118,7 @@ def build_agent_graph() -> CompiledStateGraph:
     graph.add_edge("execute_tool", "should_execute_tool")
 
     # Set memory checkpointer
-    checkpointer = InMemorySaver()
+    checkpointer = get_checkpointer()
 
     # Compile the graph with checkpointer
     return graph.compile(checkpointer=checkpointer)

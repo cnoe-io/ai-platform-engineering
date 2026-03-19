@@ -20,11 +20,77 @@ from unittest.mock import MagicMock, patch
 from ai_platform_engineering.utils.checkpointer import (
   CHECKPOINT_TYPE_MEMORY,
   _create_memory_checkpointer,
+  _detect_collection_prefix,
   create_checkpointer,
   get_checkpointer,
   get_checkpointer_config,
   reset_checkpointer,
 )
+
+
+# ============================================================================
+# Auto-Prefix Detection Tests
+# ============================================================================
+
+
+class TestDetectCollectionPrefix:
+  """Tests for _detect_collection_prefix()."""
+
+  def test_agent_jira_module(self):
+    spec = MagicMock()
+    spec.name = "agent_jira"
+    main_mod = MagicMock(__spec__=spec)
+    with patch.dict("sys.modules", {"__main__": main_mod}):
+      assert _detect_collection_prefix() == "jira"
+
+  def test_agent_github_module(self):
+    spec = MagicMock()
+    spec.name = "agent_github"
+    main_mod = MagicMock(__spec__=spec)
+    with patch.dict("sys.modules", {"__main__": main_mod}):
+      assert _detect_collection_prefix() == "github"
+
+  def test_agent_aws_module(self):
+    spec = MagicMock()
+    spec.name = "agent_aws"
+    main_mod = MagicMock(__spec__=spec)
+    with patch.dict("sys.modules", {"__main__": main_mod}):
+      assert _detect_collection_prefix() == "aws"
+
+  def test_dotted_agent_module(self):
+    """agent_jira.__main__ → jira"""
+    spec = MagicMock()
+    spec.name = "agent_jira.__main__"
+    main_mod = MagicMock(__spec__=spec)
+    with patch.dict("sys.modules", {"__main__": main_mod}):
+      assert _detect_collection_prefix() == "jira"
+
+  def test_supervisor_multi_agents(self):
+    spec = MagicMock()
+    spec.name = "ai_platform_engineering.multi_agents"
+    main_mod = MagicMock(__spec__=spec)
+    with patch.dict("sys.modules", {"__main__": main_mod}):
+      assert _detect_collection_prefix() == "caipe_supervisor"
+
+  def test_supervisor_platform_engineer(self):
+    spec = MagicMock()
+    spec.name = "ai_platform_engineering.multi_agents.platform_engineer"
+    main_mod = MagicMock(__spec__=spec)
+    with patch.dict("sys.modules", {"__main__": main_mod}):
+      assert _detect_collection_prefix() == "caipe_supervisor"
+
+  def test_no_spec_returns_empty(self):
+    main_mod = MagicMock(spec=[])
+    del main_mod.__spec__
+    with patch.dict("sys.modules", {"__main__": main_mod}):
+      assert _detect_collection_prefix() == ""
+
+  def test_unknown_module_returns_empty(self):
+    spec = MagicMock()
+    spec.name = "some_other_module"
+    main_mod = MagicMock(__spec__=spec)
+    with patch.dict("sys.modules", {"__main__": main_mod}):
+      assert _detect_collection_prefix() == ""
 
 
 # ============================================================================
@@ -84,6 +150,23 @@ class TestGetCheckpointerConfig:
       config = get_checkpointer_config()
       assert config["type"] == "mongodb"
       assert config["mongodb_uri"] == "mongodb://host:27017"
+      assert config["mongodb_db_name"] == ""
+      assert config["mongodb_collection"] == ""
+      assert config["mongodb_writes_collection"] == ""
+
+  def test_mongodb_config_custom_collections(self):
+    env = {
+      "LANGGRAPH_CHECKPOINT_TYPE": "mongodb",
+      "LANGGRAPH_CHECKPOINT_MONGODB_URI": "mongodb://host:27017",
+      "LANGGRAPH_CHECKPOINT_MONGODB_DB_NAME": "caipe",
+      "LANGGRAPH_CHECKPOINT_MONGODB_COLLECTION": "checkpoints_conversation",
+      "LANGGRAPH_CHECKPOINT_MONGODB_WRITES_COLLECTION": "checkpoint_writes_conversation",
+    }
+    with patch.dict("os.environ", env, clear=True):
+      config = get_checkpointer_config()
+      assert config["mongodb_db_name"] == "caipe"
+      assert config["mongodb_collection"] == "checkpoints_conversation"
+      assert config["mongodb_writes_collection"] == "checkpoint_writes_conversation"
 
   def test_mongodb_config_fallback_env(self):
     env = {
@@ -237,6 +320,42 @@ class TestCreateCheckpointer:
         cp = create_checkpointer()
         assert type(cp).__name__ == "_LazyAsyncMongoDBSaver"
         assert cp._mongodb_uri == "mongodb://host:27017"
+
+  def test_mongodb_auto_prefix_from_agent_module(self):
+    """When no explicit collections set, auto-prefix from module name."""
+    env = {
+      "LANGGRAPH_CHECKPOINT_TYPE": "mongodb",
+      "LANGGRAPH_CHECKPOINT_MONGODB_URI": "mongodb://host:27017",
+    }
+    spec = MagicMock()
+    spec.name = "agent_jira"
+    main_mod = MagicMock(__spec__=spec)
+    with patch.dict("os.environ", env, clear=True):
+      with patch.dict("sys.modules", {"__main__": main_mod}):
+        with patch("importlib.util.find_spec", return_value=MagicMock()):
+          cp = create_checkpointer()
+          assert type(cp).__name__ == "_LazyAsyncMongoDBSaver"
+          assert cp._checkpoint_collection_name == "checkpoints_jira"
+          assert cp._writes_collection_name == "checkpoint_writes_jira"
+
+  def test_mongodb_explicit_collections_override_auto_prefix(self):
+    """Explicit env vars override auto-prefix detection."""
+    env = {
+      "LANGGRAPH_CHECKPOINT_TYPE": "mongodb",
+      "LANGGRAPH_CHECKPOINT_MONGODB_URI": "mongodb://host:27017",
+      "LANGGRAPH_CHECKPOINT_MONGODB_COLLECTION": "custom_cp",
+      "LANGGRAPH_CHECKPOINT_MONGODB_WRITES_COLLECTION": "custom_wr",
+    }
+    spec = MagicMock()
+    spec.name = "agent_jira"
+    main_mod = MagicMock(__spec__=spec)
+    with patch.dict("os.environ", env, clear=True):
+      with patch.dict("sys.modules", {"__main__": main_mod}):
+        with patch("importlib.util.find_spec", return_value=MagicMock()):
+          cp = create_checkpointer()
+          assert type(cp).__name__ == "_LazyAsyncMongoDBSaver"
+          assert cp._checkpoint_collection_name == "custom_cp"
+          assert cp._writes_collection_name == "custom_wr"
 
   def test_mongodb_import_error_falls_back(self):
     env = {

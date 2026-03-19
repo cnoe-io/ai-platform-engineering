@@ -15,6 +15,7 @@ dependencies = [
     "a2a-sdk==0.3.0",
     "agentevals==0.0.7",
     "agntcy-app-sdk==0.4.5",
+    "ai-platform-engineering-utils",
     "slim-bindings==0.6.3",
     "click==8.3.1",
     "langchain-anthropic==1.0.0",
@@ -80,4 +81,5 @@ markers = [
 ]
 
 [tool.uv.sources]
+ai-platform-engineering-utils = { path = "../../utils" }
 mcp-pagerduty = { path = "mcp" }

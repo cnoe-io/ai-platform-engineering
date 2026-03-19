@@ -65,10 +65,10 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
 
     const pipeline: object[] = [
       { $match: matchStage },
-      // Lookup checkpoint count from conversation_checkpoints collection
+      // Lookup checkpoint count from checkpoints_conversation collection
       {
         $lookup: {
-          from: "conversation_checkpoints",
+          from: "checkpoints_conversation",
           localField: "_id",
           foreignField: "thread_id",
           as: "_checkpoints",

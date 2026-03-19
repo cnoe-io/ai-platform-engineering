@@ -1308,7 +1308,7 @@ Always structure your final answer with:
     async def _setup_aws_cli_agent(self, config: Any) -> None:
         """Setup agent with AWS CLI tool using deepagents for context management."""
         from deepagents import create_deep_agent
-        from langgraph.checkpoint.memory import MemorySaver
+        from ai_platform_engineering.utils.checkpointer import get_checkpointer
 
         agent_name = self.get_agent_name()
         logger.info(f"🔧 Initializing {agent_name.upper()} agent with deepagents + AWS CLI tool...")
@@ -1359,7 +1359,7 @@ Always structure your final answer with:
             }
 
         # Create memory for conversation persistence
-        memory = MemorySaver()
+        memory = get_checkpointer()
 
         # Define reflection sub-agent for validating task completion
         # This sub-agent ensures "all" queries actually process ALL items

@@ -255,5 +255,11 @@ checkpointPersistence:
       name: ""
       # -- Key inside the secret
       key: ""
+    # -- MongoDB database name (default: "checkpointing_db")
+    dbName: ""
+    # -- Checkpoint collection name (default: "checkpoints")
+    checkpointCollection: ""
+    # -- Checkpoint writes collection name (default: "checkpoint_writes")
+    writesCollection: ""
   # -- TTL for checkpoints in minutes. `0` disables expiry
   ttlMinutes: 0

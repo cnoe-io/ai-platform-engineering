@@ -1134,7 +1134,7 @@ Dynamic Agents support persistent chat history that survives pod restarts. This 
     │  └───────────────────────────────────────────────────────────────────┘  │
     │                                                                          │
     │  ┌───────────────────────────────────────────────────────────────────┐  │
-    │  │  conversation_checkpoints       (LangGraph MongoDBSaver)           │  │
+    │  │  checkpoints_conversation       (LangGraph MongoDBSaver)           │  │
     │  │  ──────────────────────────                                        │  │
     │  │  • thread_id: conversation UUID (same as conversations._id)        │  │
     │  │  • checkpoint: serialized LangGraph state                          │  │
@@ -1144,7 +1144,7 @@ Dynamic Agents support persistent chat history that survives pod restarts. This 
     │  └───────────────────────────────────────────────────────────────────┘  │
     │                                                                          │
     │  ┌───────────────────────────────────────────────────────────────────┐  │
-    │  │  conversation_checkpoint_writes (LangGraph MongoDBSaver)           │  │
+    │  │  checkpoint_writes_conversation (LangGraph MongoDBSaver)           │  │
     │  │  ────────────────────────────────                                  │  │
     │  │  • thread_id: conversation UUID                                    │  │
     │  │  • task_id, idx: write ordering                                    │  │

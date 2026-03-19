@@ -147,6 +147,76 @@ docker exec caipe-supervisor ping langgraph-mongodb -c 2
 | Redis      | ⚡⚡⚡ | ⚠️          | ✅          | Dev/Testing, Fast iterations |
 | PostgreSQL | ⚡⚡   | ✅✅✅       | ⚡⚡         | Production, ACID requirements |
 | MongoDB    | ⚡⚡   | ✅✅         | ⚡          | Flexible schemas, Document queries |
+| **Mixed**  | ⚡⚡   | ✅✅         | ⚡          | **Recommended**: share UI MongoDB for checkpoints, dedicated Redis for semantic search |
+
+### Mixed Backend: MongoDB Checkpointer + Redis Store
+
+The recommended production configuration uses MongoDB for the checkpointer (conversation state) and Redis for the store (fact extraction with semantic search). This avoids deploying a separate database for checkpoints when the UI already uses MongoDB.
+
+```bash
+# Test mixed backend
+./skills/persistence/test_persistence_all_backends.sh mixed
+
+# Start with mixed backend
+COMPOSE_PROFILES="caipe-supervisor,...,caipe-mongodb,langgraph-redis" \
+  docker compose -f docker-compose.dev.yaml up -d
+```
+
+**.env configuration:**
+```bash
+# Checkpointer: MongoDB (shared with UI)
+LANGGRAPH_CHECKPOINT_TYPE=mongodb
+LANGGRAPH_CHECKPOINT_MONGODB_URI=mongodb://admin:changeme@caipe-mongodb:27017/caipe?authSource=admin
+LANGGRAPH_CHECKPOINT_MONGODB_DB_NAME=caipe
+LANGGRAPH_CHECKPOINT_MONGODB_COLLECTION=checkpoints_conversation
+LANGGRAPH_CHECKPOINT_MONGODB_WRITES_COLLECTION=checkpoint_writes_conversation
+
+# Store: Redis (dedicated, supports semantic search)
+LANGGRAPH_STORE_TYPE=redis
+LANGGRAPH_STORE_REDIS_URL=redis://langgraph-redis:6379
+```
+
+**Benchmark results (2026-03-19):**
+
+Storage latency (N=10, 100, 1000 synthetic facts/checkpoints):
+
+| N | Store Write (Redis, ms/fact) | Store Read (Redis, ms) | Ckpt Write (MongoDB, ms) | Ckpt Read (MongoDB, ms) |
+|---|---|---|---|---|
+| 10 | 47.6* | 0.6 | 111.4* | 0.9 |
+| 100 | 0.7 | 1.9 | 0.6 | 0.8 |
+| 1000 | 0.7 | 1.8 | 0.5 | 0.7 |
+
+_*N=10 includes cold-start connection initialization overhead._
+
+Live data from docker-compose test session:
+
+| Metric | Value |
+|--------|-------|
+| Checkpoints (MongoDB) | 117 |
+| Checkpoint writes (MongoDB) | 235 |
+| Conversation threads | 4 |
+| Extracted facts (Redis) | 27 |
+| Users with facts | 1 |
+| Fact extraction latency | ~3s per turn |
+
+End-to-end A2A recall through supervisor (2026-03-19):
+
+| N | Recall | Precision | F1 | Injected≈ | A2A Latency |
+|---|--------|-----------|-----|-----------|-------------|
+| 10 | 100% | 100% | 1.000 | 10 | ~13s |
+| 100 | 50% | 100% | 0.667 | 100 | ~21s |
+| 1000 | 5% | 100% | 0.095 | 100 | ~25s |
+
+_Recall at N=1000 is limited by `asearch(limit=100)` without semantic embeddings._
+
+Run the benchmark yourself:
+```bash
+# Storage-only (no supervisor needed)
+PYTHONPATH=. uv run python integration/benchmark_persistence_backends.py --storage-only
+
+# Full end-to-end through supervisor (requires running supervisor)
+PYTHONPATH=. uv run python integration/benchmark_persistence_backends.py --publish
+```
 
 ## 🎯 Common Workflows
 
@@ -162,25 +232,19 @@ docker exec caipe-supervisor ping langgraph-mongodb -c 2
 ./skills/persistence/test_persistence_all_backends.sh redis
 ```
 
-### Pre-Production Testing
+### Pre-Production Testing (Mixed Backend)
 ```bash
-# Switch to PostgreSQL
-./skills/persistence/switch_backend.sh postgres
-
-# Run load tests
-# ...
-
-# Verify data integrity
-./skills/persistence/test_persistence_all_backends.sh postgres
+# Use MongoDB checkpointer + Redis store
+./skills/persistence/test_persistence_all_backends.sh mixed
 ```
 
 ### Production Deployment
 ```bash
 # Update .env with production credentials
-# Use external managed services (RDS, ElastiCache, Atlas)
+# Use external managed services (Atlas MongoDB, ElastiCache Redis)
 
 # Test connection
-./skills/persistence/test_persistence_all_backends.sh postgres
+./skills/persistence/test_persistence_all_backends.sh mixed
 ```
 
 ## 📚 More Information
