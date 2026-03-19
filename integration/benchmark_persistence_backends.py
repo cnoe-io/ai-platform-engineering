@@ -622,60 +622,57 @@ def generate_report(
         "",
     ]
 
+    # --- Build lookup maps for each backend ---
+    redis_s = {m.n: m for r in all_results if r.backend == "redis" for m in r.storage}
+    pg_s    = {m.n: m for r in all_results if r.backend == "postgres" for m in r.storage}
+    mg_s    = {m.n: m for r in all_results if r.backend == "mongodb" for m in r.storage}
+    mx_s    = {m.n: m for r in all_results if r.backend == "mixed" for m in r.storage}
+
+    header = "| N | Redis | Postgres | MongoDB | Mixed (MongoDB+Redis) |"
+    sep    = "|---|-------|----------|---------|------------------------|"
+
+    def _row(n: int, attr: str) -> str:
+        r_v = _ms(getattr(redis_s[n], attr)) if n in redis_s else "—"
+        p_v = _ms(getattr(pg_s[n], attr)) if n in pg_s else "—"
+        m_v = _ms(getattr(mg_s[n], attr)) if n in mg_s else "—"
+        x_v = _ms(getattr(mx_s[n], attr)) if n in mx_s else "—"
+        return f"| {n} | {r_v} | {p_v} | {m_v} | {x_v} |"
+
     # --- Store write latency table ---
     lines += [
         "### Store — Write Latency (`store.aput`, avg ms per fact)",
         "",
-        "| N | Redis | Postgres | MongoDB |",
-        "|---|-------|----------|---------|",
+        header, sep,
     ]
-    redis_s = {m.n: m for r in all_results if r.backend == "redis" for m in r.storage}
-    pg_s    = {m.n: m for r in all_results if r.backend == "postgres" for m in r.storage}
-    mg_s    = {m.n: m for r in all_results if r.backend == "mongodb" for m in r.storage}
     for n in DATASET_SIZES:
-        r_v = _ms(redis_s[n].write_latency_ms) if n in redis_s else "—"
-        p_v = _ms(pg_s[n].write_latency_ms) if n in pg_s else "—"
-        m_v = _ms(mg_s[n].write_latency_ms) if n in mg_s else "—"
-        lines.append(f"| {n} | {r_v} | {p_v} | {m_v} |")
+        lines.append(_row(n, "write_latency_ms"))
 
     lines += [
         "",
         "### Store — Read Latency (`store.asearch`, avg ms per search, limit=100)",
         "",
-        "| N | Redis | Postgres | MongoDB |",
-        "|---|-------|----------|---------|",
+        header, sep,
     ]
     for n in DATASET_SIZES:
-        r_v = _ms(redis_s[n].read_latency_ms) if n in redis_s else "—"
-        p_v = _ms(pg_s[n].read_latency_ms) if n in pg_s else "—"
-        m_v = _ms(mg_s[n].read_latency_ms) if n in mg_s else "—"
-        lines.append(f"| {n} | {r_v} | {p_v} | {m_v} |")
+        lines.append(_row(n, "read_latency_ms"))
 
     lines += [
         "",
         "### Checkpointer — Write Latency (`checkpointer.aput`, avg ms per checkpoint)",
         "",
-        "| N | Redis | Postgres | MongoDB |",
-        "|---|-------|----------|---------|",
+        header, sep,
     ]
     for n in DATASET_SIZES:
-        r_v = _ms(redis_s[n].ckpt_write_latency_ms) if n in redis_s else "—"
-        p_v = _ms(pg_s[n].ckpt_write_latency_ms) if n in pg_s else "—"
-        m_v = _ms(mg_s[n].ckpt_write_latency_ms) if n in mg_s else "—"
-        lines.append(f"| {n} | {r_v} | {p_v} | {m_v} |")
+        lines.append(_row(n, "ckpt_write_latency_ms"))
 
     lines += [
         "",
         "### Checkpointer — Read Latency (`checkpointer.aget_tuple`, avg ms)",
         "",
-        "| N | Redis | Postgres | MongoDB |",
-        "|---|-------|----------|---------|",
+        header, sep,
     ]
     for n in DATASET_SIZES:
-        r_v = _ms(redis_s[n].ckpt_read_latency_ms) if n in redis_s else "—"
-        p_v = _ms(pg_s[n].ckpt_read_latency_ms) if n in pg_s else "—"
-        m_v = _ms(mg_s[n].ckpt_read_latency_ms) if n in mg_s else "—"
-        lines.append(f"| {n} | {r_v} | {p_v} | {m_v} |")
+        lines.append(_row(n, "ckpt_read_latency_ms"))
 
     # --- Recall / Precision / F1 ---
     lines += [
@@ -730,6 +727,10 @@ def generate_report(
         "  B-tree index on `prefix`; consistent under load.",
         "- **MongoDB** — balanced read/write; document model maps naturally to",
         "  namespace arrays.",
+        "- **Mixed (MongoDB+Redis)** — recommended production config: MongoDB",
+        "  checkpointer (shared with UI) for conversation state + Redis store",
+        "  for fact extraction with semantic search. Store latency matches Redis;",
+        "  checkpoint latency matches MongoDB.",
         "",
         "### MongoDB recall is 0% — missing URI env var",
         "",
@@ -770,17 +771,28 @@ def generate_report(
 # ---------------------------------------------------------------------------
 
 async def _detect_active_backend() -> Optional[str]:
-    """Ask the supervisor's environment which backend is active."""
+    """Ask the supervisor's environment which backend is active.
+
+    Returns ``"mixed"`` when the checkpoint type and store type differ
+    (e.g. mongodb checkpointer + redis store).
+    """
     try:
         out = subprocess.check_output(
             ["docker", "exec", "caipe-supervisor", "env"],
             text=True, stderr=subprocess.DEVNULL,
         )
+        ckpt_type = None
+        store_type = None
         for line in out.splitlines():
             if line.startswith("LANGGRAPH_CHECKPOINT_TYPE="):
-                val = line.split("=", 1)[1].strip().lower()
-                if val in ("redis", "postgres", "mongodb"):
-                    return val
+                ckpt_type = line.split("=", 1)[1].strip().lower()
+            elif line.startswith("LANGGRAPH_STORE_TYPE="):
+                store_type = line.split("=", 1)[1].strip().lower()
+        # Mixed = different checkpoint and store backends (e.g. mongodb + redis)
+        if ckpt_type and store_type and ckpt_type != store_type:
+            return "mixed"
+        if ckpt_type in ("redis", "postgres", "mongodb"):
+            return ckpt_type
     except Exception:
         pass
     return None
@@ -846,8 +858,8 @@ async def main(args: argparse.Namespace) -> int:
                 print(f"\n  Recall {backend.upper()}: SKIP (supervisor not running)")
                 continue
 
-            # Switch supervisor if needed
-            if args.recall_backends and current_active != backend:
+            # Switch supervisor if needed (skip for mixed — no switch script, uses current config)
+            if args.recall_backends and current_active != backend and backend != "mixed":
                 try:
                     await _switch_supervisor_backend(
                         backend,
@@ -904,7 +916,7 @@ async def main(args: argparse.Namespace) -> int:
     report_backend = active_backend
     if args.recall_backends:
         # Show all backends that ran
-        ran = [b for b in ["redis", "postgres", "mongodb"] if results_by_backend[b].recall]
+        ran = [b for b in ["redis", "postgres", "mongodb", "mixed"] if results_by_backend.get(b, BackendResults(backend=b)).recall]
         report_backend = ",".join(ran) if ran else active_backend
 
     report = generate_report(all_results, report_backend, run_at)

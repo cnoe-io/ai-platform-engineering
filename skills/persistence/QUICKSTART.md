@@ -199,9 +199,23 @@ Live data from docker-compose test session:
 | Users with facts | 1 |
 | Fact extraction latency | ~3s per turn |
 
+End-to-end A2A recall through supervisor (2026-03-19):
+
+| N | Recall | Precision | F1 | Injected≈ | A2A Latency |
+|---|--------|-----------|-----|-----------|-------------|
+| 10 | 100% | 100% | 1.000 | 10 | ~13s |
+| 100 | 50% | 100% | 0.667 | 100 | ~21s |
+| 1000 | 5% | 100% | 0.095 | 100 | ~25s |
+
+_Recall at N=1000 is limited by `asearch(limit=100)` without semantic embeddings._
+
 Run the benchmark yourself:
 ```bash
+# Storage-only (no supervisor needed)
 PYTHONPATH=. uv run python integration/benchmark_persistence_backends.py --storage-only
+
+# Full end-to-end through supervisor (requires running supervisor)
+PYTHONPATH=. uv run python integration/benchmark_persistence_backends.py --publish
 ```
 
 ## 🎯 Common Workflows

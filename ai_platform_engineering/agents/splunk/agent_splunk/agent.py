@@ -11,7 +11,7 @@ import os
 from pathlib import Path
 
 from langgraph.prebuilt import create_react_agent
-from langgraph.checkpoint.memory import MemorySaver
+from ai_platform_engineering.utils.checkpointer import get_checkpointer
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from cnoe_agent_utils import LLMFactory
 
@@ -29,7 +29,7 @@ async def create_agent(prompt: str | None = None, response_format=None):
     Spin-up the MCP server as a subprocess via MultiServerMCPClient and build
     a LangGraph React agent that has access to its tools.
     """
-    memory = MemorySaver()
+    memory = get_checkpointer()
 
     api_url = os.getenv("SPLUNK_API_URL")
     api_token = os.getenv("SPLUNK_TOKEN")

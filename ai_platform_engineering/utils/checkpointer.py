@@ -47,6 +47,40 @@ CHECKPOINT_TYPE_REDIS = "redis"
 CHECKPOINT_TYPE_POSTGRES = "postgres"
 CHECKPOINT_TYPE_MONGODB = "mongodb"
 
+# Default collection suffixes (prefixed with auto-detected agent name)
+_DEFAULT_CHECKPOINT_COLLECTION = "checkpoints"
+_DEFAULT_WRITES_COLLECTION = "checkpoint_writes"
+
+
+def _detect_collection_prefix() -> str:
+    """Auto-detect a collection name prefix from the running module.
+
+    Returns a short agent identifier used to namespace MongoDB checkpoint
+    collections so that each agent writes to its own collection.
+
+    Detection heuristic (checked in order):
+      1. ``__main__.__spec__.name`` — the ``-m`` module name
+         * ``agent_jira``                       → ``"jira"``
+         * ``ai_platform_engineering.multi_agents`` → ``"supervisor"``
+      2. Falls back to ``""`` (no prefix).
+    """
+    import sys
+
+    spec = getattr(sys.modules.get("__main__"), "__spec__", None)
+    if spec and spec.name:
+        module_name = spec.name
+        # Supervisor module
+        if "multi_agents" in module_name or "platform_engineer" in module_name:
+            return "caipe_supervisor"
+        # Agent module: agent_jira -> jira, agent_github -> github
+        if "agent_" in module_name:
+            # Handle dotted names: agent_jira.__main__ -> agent_jira
+            base = module_name.split(".")[0] if "." in module_name else module_name
+            parts = base.split("agent_", 1)
+            if len(parts) > 1 and parts[1]:
+                return parts[1]
+    return ""
+
 
 def get_checkpointer_config() -> dict[str, Any]:
     """Read checkpointer configuration from environment variables."""
@@ -107,11 +141,25 @@ def create_checkpointer():
                     "Falling back to InMemorySaver."
                 )
                 return _create_memory_checkpointer()
+
+            # Auto-prefix collection names with agent name when not explicitly set
+            cp_coll = config["mongodb_collection"]
+            wr_coll = config["mongodb_writes_collection"]
+            if not cp_coll and not wr_coll:
+                prefix = _detect_collection_prefix()
+                if prefix:
+                    cp_coll = f"{prefix}_{_DEFAULT_CHECKPOINT_COLLECTION}"
+                    wr_coll = f"{prefix}_{_DEFAULT_WRITES_COLLECTION}"
+                    logger.info(
+                        f"LangGraph Checkpointer: auto-prefixed collections "
+                        f"with '{prefix}' → {cp_coll}, {wr_coll}"
+                    )
+
             return _create_mongodb_checkpointer(
                 mongodb_uri,
                 db_name=config["mongodb_db_name"],
-                checkpoint_collection_name=config["mongodb_collection"],
-                writes_collection_name=config["mongodb_writes_collection"],
+                checkpoint_collection_name=cp_coll,
+                writes_collection_name=wr_coll,
             )
 
         else:
