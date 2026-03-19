@@ -2,6 +2,10 @@
 
 This document provides detailed architecture documentation for the Dynamic Agents service, including agent runtime mechanics, data flow, MongoDB storage, and UI integration.
 
+## Design Philosophy
+
+This codebase follows the ["Worse is Better"](https://en.wikipedia.org/wiki/Worse_is_better) (New Jersey) philosophy: favor simple implementations over complex abstractions. Prefer straightforward code that's easy to understand and debug over elegant but opaque solutions.
+
 ## Table of Contents
 
 - [System Overview](#system-overview)
