@@ -96,7 +96,7 @@ requires-dist = [
     { name = "a2a-sdk", specifier = "==0.3.0" },
     { name = "agntcy-app-sdk", specifier = "==0.4.0" },
     { name = "clorm", specifier = ">=1.4.0" },
-    { name = "cnoe-agent-utils", specifier = "==0.3.12" },
+    { name = "cnoe-agent-utils", specifier = "==0.3.14" },
     { name = "config", specifier = "==0.5.1" },
     { name = "cryptography", specifier = "==46.0.3" },
     { name = "deepagents", specifier = ">=0.3.8" },
@@ -590,7 +590,7 @@ wheels = [
 
 [[package]]
 name = "cnoe-agent-utils"
-version = "0.3.12"
+version = "0.3.14"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "boto3" },
@@ -612,9 +612,9 @@ dependencies = [
     { name = "tiktoken" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/1a/40/62148e52629cf7cb106b261207f0ce4b01926b12f9dbf93f0e1d49595924/cnoe_agent_utils-0.3.12.tar.gz", hash = "sha256:98fe127193e2e835a270356736f20ec88767cb03e05a5bfcf36aff8ba6e0b707", size = 198584, upload-time = "2026-02-26T17:47:57.631Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/61/87/b521be7df4a1b01ec50bfcf9d8af0c29fed6671917c3e8a616b2cdcdc7b3/cnoe_agent_utils-0.3.14.tar.gz", hash = "sha256:51e0e5e1dbe44085b9bf0a1144dc6a818ed8bc30c39295ee960219a3b9132a52", size = 198962, upload-time = "2026-03-18T21:42:20.783Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/49/5c/bf0520c7770449d386c56da851148654585f1bff95464acfec57853eb946/cnoe_agent_utils-0.3.12-py3-none-any.whl", hash = "sha256:f24cd97d91c7c9bbca3be94350046fc4dfe2743c7137331ece0d3bb1b658e2b9", size = 60643, upload-time = "2026-02-26T17:47:56.032Z" },
+    { url = "https://files.pythonhosted.org/packages/2d/ca/081b645bff316ba8b25b02e37476649933adb5efa18e581139bae0c2a400/cnoe_agent_utils-0.3.14-py3-none-any.whl", hash = "sha256:d75bb11a049928bb7cd171050570786b710b52cf7db53971b02e8718ea77b9c4", size = 60931, upload-time = "2026-03-18T21:42:19.496Z" },
 ]
 
 [[package]]
