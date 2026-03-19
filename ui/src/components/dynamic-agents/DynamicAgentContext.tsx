@@ -122,6 +122,7 @@ export function DynamicAgentContext({
   // Todos fetched from API (single source of truth)
   const [todos, setTodos] = useState<TodoItem[]>([]);
   const [todosFetchKey, setTodosFetchKey] = useState(0);
+  const [todosLoading, setTodosLoading] = useState(true);
 
   // Check if streaming is active
   const conversation = useMemo(() => {
@@ -190,6 +191,7 @@ export function DynamicAgentContext({
   useEffect(() => {
     if (!activeConversationId || !agentId) {
       setTodos([]);
+      setTodosLoading(false);
       return;
     }
 
@@ -216,6 +218,8 @@ export function DynamicAgentContext({
         }
       } catch {
         // Silently ignore fetch errors - todos are optional
+      } finally {
+        setTodosLoading(false);
       }
     };
 
@@ -225,8 +229,15 @@ export function DynamicAgentContext({
   // Files fetched from API (single source of truth)
   const [files, setFiles] = useState<string[]>([]);
   const [filesFetchKey, setFilesFetchKey] = useState(0);
+  const [filesLoading, setFilesLoading] = useState(true);
   const [isDownloadingFile, setIsDownloadingFile] = useState(false);
   const [downloadingFilePath, setDownloadingFilePath] = useState<string | undefined>();
+
+  // Reset loading states when conversation changes
+  useEffect(() => {
+    setTodosLoading(true);
+    setFilesLoading(true);
+  }, [activeConversationId]);
 
   // Detect write_file or edit_file tool events and trigger a fetch
   useEffect(() => {
@@ -244,6 +255,7 @@ export function DynamicAgentContext({
   useEffect(() => {
     if (!activeConversationId || !agentId) {
       setFiles([]);
+      setFilesLoading(false);
       return;
     }
 
@@ -263,6 +275,8 @@ export function DynamicAgentContext({
         }
       } catch {
         // Silently ignore fetch errors - files are optional
+      } finally {
+        setFilesLoading(false);
       }
     };
 
@@ -429,7 +443,7 @@ export function DynamicAgentContext({
                     )}
                   >
                     <Activity className="h-3.5 w-3.5" />
-                    Events
+                    Context
                     {totalActivityCount > 0 && (
                       <Badge
                         variant="secondary"
@@ -513,6 +527,7 @@ export function DynamicAgentContext({
                 runtimeRestarted={runtimeRestarted}
                 failedServers={failedServers}
                 missingTools={missingTools}
+                isLoading={todosLoading || filesLoading}
               />
             )}
 
@@ -580,6 +595,8 @@ interface EventsContentProps {
   failedServers?: string[];
   /** Missing tools from runtimeStatus (persists across messages) */
   missingTools?: string[];
+  /** Whether initial data (todos/files) is loading */
+  isLoading?: boolean;
 }
 
 function EventsContent({
@@ -600,11 +617,22 @@ function EventsContent({
   runtimeRestarted,
   failedServers = [],
   missingTools = [],
+  isLoading = false,
 }: EventsContentProps) {
   const [subagentsCollapsed, setSubagentsCollapsed] = useState(false);
 
   // Derive persistent warning from runtimeStatus
   const hasPersistentWarning = failedServers.length > 0 || missingTools.length > 0;
+
+  // Show loading state while fetching initial data
+  if (isLoading) {
+    return (
+      <div className="text-center py-8 text-muted-foreground">
+        <Loader2 className="h-8 w-8 mx-auto mb-3 opacity-40 animate-spin" />
+        <p className="text-sm">Loading context...</p>
+      </div>
+    );
+  }
 
   const hasNoActivity =
     todos.length === 0 &&

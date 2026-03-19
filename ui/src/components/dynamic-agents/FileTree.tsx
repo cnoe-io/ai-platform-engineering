@@ -160,71 +160,62 @@ function TreeNodeItem({
 }
 
 /**
- * Internal node type with childMap for efficient tree construction
+ * Internal node type with childMap for efficient tree construction.
+ * For leaf nodes, `fullPath` stores the original path for API calls.
  */
-interface TreeNodeWithMap extends TreeNode {
-  childMap: Map<string, TreeNodeWithMap>;
+interface TreeNodeWithMap {
+  name: string;
+  fullPath: string | null; // Original path for leaves, null for directories
+  children: Map<string, TreeNodeWithMap>;
 }
 
 /**
  * Build a tree structure from flat file paths.
- * 
+ *
  * Input: ["/src/index.ts", "/src/utils/helper.ts", "/README.md"]
  * Output: Tree with src/ folder containing index.ts and utils/helper.ts
- * 
- * Note: The `path` field preserves the original path (with leading /) for API calls.
+ *
+ * Leaf nodes store the original path directly - no reconstruction needed.
  */
 function buildTree(paths: string[]): TreeNode[] {
-  const rootMap = new Map<string, TreeNodeWithMap>();
+  const root: TreeNodeWithMap = { name: "", fullPath: null, children: new Map() };
 
   for (const originalPath of paths) {
     const parts = originalPath.split("/").filter(Boolean);
-    let currentMap = rootMap;
-    // Track whether original path had leading slash
-    const hasLeadingSlash = originalPath.startsWith("/");
+    let current = root;
 
     for (let i = 0; i < parts.length; i++) {
       const part = parts[i];
-      // Build path preserving leading slash if original had it
-      const builtPath = hasLeadingSlash
-        ? "/" + parts.slice(0, i + 1).join("/")
-        : parts.slice(0, i + 1).join("/");
-      const isLastPart = i === parts.length - 1;
+      const isLeaf = i === parts.length - 1;
 
-      if (!currentMap.has(part)) {
-        const node: TreeNodeWithMap = {
+      if (!current.children.has(part)) {
+        current.children.set(part, {
           name: part,
-          path: builtPath,
-          isDirectory: !isLastPart,
-          children: [],
-          childMap: new Map(),
-        };
-        currentMap.set(part, node);
+          fullPath: isLeaf ? originalPath : null,
+          children: new Map(),
+        });
+      } else if (isLeaf) {
+        // Update existing node to be a leaf with the full path
+        current.children.get(part)!.fullPath = originalPath;
       }
 
-      const node = currentMap.get(part)!;
-
-      // Ensure intermediate nodes are directories
-      if (!isLastPart) {
-        node.isDirectory = true;
-        currentMap = node.childMap;
-      }
+      current = current.children.get(part)!;
     }
   }
 
-  // Convert maps to children arrays recursively
-  function mapToChildren(map: Map<string, TreeNodeWithMap>): TreeNode[] {
+  // Convert to TreeNode[], recursively
+  function toTreeNodes(node: TreeNodeWithMap): TreeNode[] {
     return sortNodes(
-      Array.from(map.values()).map((node) => ({
-        name: node.name,
-        path: node.path,
-        isDirectory: node.isDirectory,
-        children: mapToChildren(node.childMap),
+      Array.from(node.children.values()).map((child) => ({
+        name: child.name,
+        path: child.fullPath ?? child.name, // fullPath for leaves, name for dirs (path unused for dirs)
+        isDirectory: child.fullPath === null,
+        children: toTreeNodes(child),
       }))
     );
   }
 
-  return mapToChildren(rootMap);
+  return toTreeNodes(root);
 }
 
 /**
