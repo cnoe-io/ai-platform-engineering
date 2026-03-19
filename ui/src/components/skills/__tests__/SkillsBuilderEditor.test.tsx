@@ -227,7 +227,7 @@ function makeExistingConfig(overrides: Partial<AgentConfig> = {}): AgentConfig {
     is_quick_start: true,
     is_system: false,
     owner_id: "user@example.com",
-    tasks: [{ display_text: "Run", llm_prompt: "Do it", subagent: "caipe" }],
+    tasks: [{ display_text: "Run", llm_prompt: "Do it", subagent: "user_input" }],
     created_at: new Date(),
     updated_at: new Date(),
     thumbnail: "Rocket",
@@ -324,7 +324,7 @@ describe("SkillsBuilderEditor — submission", () => {
     expect(configArg.name).toBe("My New Skill");
     expect(configArg.is_quick_start).toBe(true);
     expect(configArg.tasks).toHaveLength(1);
-    expect(configArg.tasks[0].subagent).toBe("caipe");
+    expect(configArg.tasks[0].subagent).toBe("user_input");
   });
 
   it("calls updateConfig in edit mode", async () => {
@@ -1807,7 +1807,7 @@ describe("SkillsBuilderEditor — Allowed Tools (Experimental)", () => {
       id: "cfg-tools",
       name: "Tools Skill",
       category: "DevOps",
-      tasks: [{ display_text: "Test", llm_prompt: "Do something", subagent: "caipe" }],
+      tasks: [{ display_text: "Test", llm_prompt: "Do something", subagent: "user_input" }],
       owner_id: "user@test.com",
       is_system: false,
       created_at: new Date(),

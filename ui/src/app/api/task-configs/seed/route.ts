@@ -7,6 +7,7 @@ import {
   withErrorHandler,
   successResponse,
   ApiError,
+  requireAdmin,
 } from "@/lib/api-middleware";
 import type { TaskConfig } from "@/types/task-config";
 import { parseTaskConfigYaml } from "@/types/task-config";
@@ -18,8 +19,12 @@ import yaml from "js-yaml";
  * GET: Auto-seed from TASK_CONFIG_SEED_PATH env var (or default paths).
  *      Idempotent — skips if system configs already exist.
  *
- * POST: Seed from YAML content provided in request body.
+ * POST (no action): Seed from YAML content provided in request body.
  *       Useful for manual seeding or when the file isn't mounted.
+ *
+ * POST (action=reset): Admin-only. Re-reads task_config.yaml from the
+ *       ConfigMap mount and upserts all system task configs, overwriting
+ *       any stale data in MongoDB. User-created configs are untouched.
  */
 
 function findTaskConfigFile(): string | null {
@@ -92,6 +97,62 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
 export const POST = withErrorHandler(async (request: NextRequest) => {
   if (!isMongoDBConfigured) {
     throw new ApiError("Task Builder requires MongoDB to be configured", 503);
+  }
+
+  const { searchParams } = new URL(request.url);
+  const action = searchParams.get("action");
+
+  if (action === "reset") {
+    return await withAuth(request, async (_req, _user, session) => {
+      requireAdmin(session);
+
+      const yamlData = loadYamlFromFile();
+      if (!yamlData) {
+        throw new ApiError(
+          "Cannot reset: no task_config.yaml found on disk. " +
+            "Set TASK_CONFIG_SEED_PATH or mount at /app/task_config.yaml",
+          404
+        );
+      }
+
+      const configs = parseTaskConfigYaml(yamlData);
+      const collection = await getCollection<TaskConfig>("task_configs");
+
+      let updated = 0;
+      let inserted = 0;
+      for (const config of configs) {
+        const result = await collection.updateOne(
+          { name: config.name, is_system: true },
+          {
+            $set: {
+              tasks: config.tasks,
+              category: config.category,
+              description: config.description,
+              metadata: config.metadata,
+              updated_at: new Date(),
+            },
+            $setOnInsert: {
+              id: config.id,
+              name: config.name,
+              owner_id: "system",
+              is_system: true,
+              visibility: "global",
+              created_at: new Date(),
+            },
+          },
+          { upsert: true }
+        );
+        if (result.upsertedCount > 0) inserted++;
+        else if (result.modifiedCount > 0) updated++;
+      }
+
+      return successResponse({
+        message: `Reset system task configs from file: ${updated} updated, ${inserted} new`,
+        updated,
+        inserted,
+        total: configs.length,
+      });
+    });
   }
 
   return await withAuth(request, async () => {

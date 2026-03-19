@@ -42,7 +42,7 @@ export function StepPalette({ onAddTemplate }: StepPaletteProps) {
 
   const availableAgents = useMemo(() => {
     const keys = new Set(Object.keys(toolsMap));
-    keys.add("caipe"); // always available
+    keys.add("user_input"); // always available
     return keys;
   }, [toolsMap]);
 

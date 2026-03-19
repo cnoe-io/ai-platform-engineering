@@ -77,7 +77,7 @@ function userSession(email = "user@example.com") {
 const VALID_TASK = {
   display_text: "Health of AWS All Accounts",
   llm_prompt: "Monitor and report on the health status across all AWS accounts",
-  subagent: "caipe",
+  subagent: "user_input",
 };
 
 const SAMPLE_SKILL_CONTENT = `---

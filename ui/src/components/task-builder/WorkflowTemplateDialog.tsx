@@ -37,7 +37,7 @@ const WORKFLOW_TEMPLATES: WorkflowTemplate[] = [
           "Collect the following information from the user and write to /request.txt:\n" +
           "- name (required): Resource name\n\n" +
           "Format as key=value on each line. Write to /request.txt.",
-        subagent: "caipe",
+        subagent: "user_input",
       },
       {
         display_text: "Execute the action",
@@ -62,7 +62,7 @@ const WORKFLOW_TEMPLATES: WorkflowTemplate[] = [
           "- org_name (required): Organization (default: ${DEFAULT_GITHUB_ORG})\n" +
           "- description (optional): Repository description\n\n" +
           "Format as key=value on each line. Write to /request.txt.",
-        subagent: "caipe",
+        subagent: "user_input",
       },
       {
         display_text: "Check if repository already exists",
@@ -137,7 +137,7 @@ const WORKFLOW_TEMPLATES: WorkflowTemplate[] = [
           "- instance_type (required): Instance type (default: t3.medium)\n" +
           "- region (required): AWS region (default: us-east-1, field_values: ${DEFAULT_AWS_REGIONS})\n\n" +
           "Format as key=value on each line. Write to /request.txt.",
-        subagent: "caipe",
+        subagent: "user_input",
       },
       {
         display_text: "Fetch Terraform template",

@@ -125,6 +125,7 @@ supervisor-agent:
   # Chart.yaml import-values into global.enabledSubAgents — do NOT put
   # enabledSubAgents under global: or it will conflict with that mechanism.
   singleNode:
+    userInputPromptConfig: ""  # Custom user input subagent prompt config (overrides default if set)
     enabledSubAgents:
       aigateway: true
       argocd: true
@@ -140,25 +141,12 @@ supervisor-agent:
       splunk: true
       weather: false
       webex: true
-    # Supervisor (parent agent) LLM model override.
-    # Uses langchain's provider:model-name format (e.g. "openai:gpt-4o").
-    # When empty, falls back to the LLM_PROVIDER / model-name env vars from llm-secret.
-    supervisorModel: ""
-    # Per-subagent LLM model overrides.
-    # All subagents share the supervisor's LLM by default.
-    # Set a value here to override the model for a specific subagent.
-    # Values use the provider:model-name format supported by langchain's init_chat_model.
-    # Examples: "openai:gpt-4o-mini", "anthropic:claude-sonnet-4-5-20250929"
-    subagentModels: {}
-      # github: "openai:gpt-4o-mini"
-      # jira: "openai:gpt-4o"
-      # argocd: "azure_openai:gpt-5.2"
   nameOverride: "supervisor-agent"
   image:
     repository: "ghcr.io/cnoe-io/ai-platform-engineering"
     # tag defaults to .Chart.AppVersion when not specified
     tag: ""
-    pullPolicy: "Always"
+    pullPolicy: "IfNotPresent"
     args: ["platform-engineer"]
   env:
     EXTERNAL_URL: "http://localhost:8000"  # Agent url for the client. NOTE: this will be user applicaiton specific
@@ -234,6 +222,8 @@ supervisor-agent:
 # In single-node mode, single-node-agent-secrets.yaml creates an ExternalSecret
 # from this configuration.  A proper aigateway subchart is a follow-up.
 agent-aigateway:
+  mcp:
+    mode: "stdio" # this is a special tool and doesn't have MCP
   agentSecrets:
     secretName: "agent-aigateway-secret"
     # externalSecrets:
@@ -257,13 +247,13 @@ agent-argocd:
   nameOverride: "agent-argocd"
   image:
     repository: "ghcr.io/cnoe-io/agent-argocd"
-    pullPolicy: "Always"
+    pullPolicy: "IfNotPresent"
   mcp:
     image:
       repository: "ghcr.io/cnoe-io/mcp-argocd"
       # tag defaults to .Chart.AppVersion when not specified
       tag: ""
-      pullPolicy: "Always"
+      pullPolicy: "IfNotPresent"
     mode: "http" # Options: stdio, http
     port: 8000
 
@@ -271,13 +261,13 @@ agent-backstage:
   nameOverride: "agent-backstage"
   image:
     repository: "ghcr.io/cnoe-io/agent-backstage"
-    pullPolicy: "Always"
+    pullPolicy: "IfNotPresent"
   mcp:
     image:
       repository: "ghcr.io/cnoe-io/mcp-backstage"
       # tag defaults to .Chart.AppVersion when not specified
       tag: ""
-      pullPolicy: "Always"
+      pullPolicy: "IfNotPresent"
     mode: "http" # Options: stdio, http
     port: 8000
 
@@ -285,12 +275,12 @@ agent-confluence:
   nameOverride: "agent-confluence"
   image:
     repository: "ghcr.io/cnoe-io/agent-confluence"
-    pullPolicy: "Always"
+    pullPolicy: "IfNotPresent"
   mcp:
     image:
       repository: "ghcr.io/sooperset/mcp-atlassian"
       tag: "latest"
-      pullPolicy: "Always"
+      pullPolicy: "IfNotPresent"
     mode: "http" # Options: stdio, http
     port: 8000
     env:
@@ -300,7 +290,7 @@ agent-github:
   nameOverride: "agent-github"
   image:
     repository: "ghcr.io/cnoe-io/agent-github"
-    pullPolicy: "Always"
+    pullPolicy: "IfNotPresent"
   mcp:
     useRemoteMcpServer: true
 
@@ -308,7 +298,7 @@ agent-gitlab:
   nameOverride: "agent-gitlab"
   image:
     repository: "ghcr.io/cnoe-io/agent-gitlab"
-    pullPolicy: "Always"
+    pullPolicy: "IfNotPresent"
   env:
     GIT_AUTHOR_NAME: "AI Agent"
     GIT_AUTHOR_EMAIL: "ai-agent@cnoe.io"
@@ -318,7 +308,7 @@ agent-gitlab:
     image:
       repository: "zereight050/gitlab-mcp"
       tag: "latest"
-      pullPolicy: "Always"
+      pullPolicy: "IfNotPresent"
     mode: "http" # Options: stdio, http
     port: 8000
     env:
@@ -358,13 +348,13 @@ agent-jira:
   nameOverride: "agent-jira"
   image:
     repository: "ghcr.io/cnoe-io/agent-jira"
-    pullPolicy: "Always"
+    pullPolicy: "IfNotPresent"
   mcp:
     image:
       repository: "ghcr.io/cnoe-io/mcp-jira"
       # tag defaults to .Chart.AppVersion when not specified
       tag: ""
-      pullPolicy: "Always"
+      pullPolicy: "IfNotPresent"
     mode: "http" # Options: stdio, http
     port: 8000
 
@@ -372,13 +362,13 @@ agent-pagerduty:
   nameOverride: "agent-pagerduty"
   image:
     repository: "ghcr.io/cnoe-io/agent-pagerduty"
-    pullPolicy: "Always"
+    pullPolicy: "IfNotPresent"
   mcp:
     image:
       repository: "ghcr.io/cnoe-io/mcp-pagerduty"
       # tag defaults to .Chart.AppVersion when not specified
       tag: ""
-      pullPolicy: "Always"
+      pullPolicy: "IfNotPresent"
     mode: "http" # Options: stdio, http
     port: 8000
 
@@ -386,13 +376,13 @@ agent-slack:
   nameOverride: "agent-slack"
   image:
     repository: "ghcr.io/cnoe-io/agent-slack"
-    pullPolicy: "Always"
+    pullPolicy: "IfNotPresent"
   mcp:
     image:
       repository: "ghcr.io/cnoe-io/mcp-slack"
       # tag defaults to .Chart.AppVersion when not specified
       tag: ""
-      pullPolicy: "Always"
+      pullPolicy: "IfNotPresent"
     mode: "http" # Options: stdio, http
     port: 8000
 
@@ -400,13 +390,13 @@ agent-aws:
   nameOverride: "agent-aws"
   image:
     repository: "ghcr.io/cnoe-io/agent-aws"
-    pullPolicy: "Always"
+    pullPolicy: "IfNotPresent"
   mcp:
     image:
       repository: "ghcr.io/cnoe-io/mcp-aws"
       # tag defaults to .Chart.AppVersion when not specified
       tag: ""
-      pullPolicy: "Always"
+      pullPolicy: "IfNotPresent"
     mode: "http" # Options: stdio, http
     port: 8000
   env:
@@ -427,13 +417,13 @@ agent-splunk:
   nameOverride: "agent-splunk"
   image:
     repository: "ghcr.io/cnoe-io/agent-splunk"
-    pullPolicy: "Always"
+    pullPolicy: "IfNotPresent"
   mcp:
     image:
       repository: "ghcr.io/cnoe-io/mcp-splunk"
       # tag defaults to .Chart.AppVersion when not specified
       tag: ""
-      pullPolicy: "Always"
+      pullPolicy: "IfNotPresent"
     mode: "http" # Options: stdio, http
     port: 8000
 
@@ -441,12 +431,12 @@ agent-victorops:
   nameOverride: "agent-victorops"
   image:
     repository: "ghcr.io/cnoe-io/agent-victorops"
-    pullPolicy: "Always"
+    pullPolicy: "IfNotPresent"
   mcp:
     image:
       repository: "ghcr.io/cnoe-io/mcp-victorops"
       tag: ""
-      pullPolicy: "Always"
+      pullPolicy: "IfNotPresent"
     mode: "http" # Options: stdio, http
     port: 8000
 
@@ -454,13 +444,13 @@ agent-webex:
   nameOverride: "agent-webex"
   image:
     repository: "ghcr.io/cnoe-io/agent-webex"
-    pullPolicy: "Always"
+    pullPolicy: "IfNotPresent"
   mcp:
     image:
       repository: "ghcr.io/cnoe-io/mcp-webex"
       # tag defaults to .Chart.AppVersion when not specified
       tag: ""
-      pullPolicy: "Always"
+      pullPolicy: "IfNotPresent"
     mode: "http" # Options: stdio, http
     port: 8000
 
@@ -469,12 +459,12 @@ agent-weather:
   remoteAgent: true
   image:
     repository: "ghcr.io/cnoe-io/agent-weather"
-    pullPolicy: "Always"
+    pullPolicy: "IfNotPresent"
   mcp:
     image:
       repository: "ghcr.io/cnoe-io/mcp-weather"
       tag: ""
-      pullPolicy: "Always"
+      pullPolicy: "IfNotPresent"
     mode: "http"
     port: 8000
 
@@ -482,13 +472,13 @@ agent-komodor:
   nameOverride: "agent-komodor"
   image:
     repository: "ghcr.io/cnoe-io/agent-komodor"
-    pullPolicy: "Always"
+    pullPolicy: "IfNotPresent"
   mcp:
     image:
       repository: "ghcr.io/cnoe-io/mcp-komodor"
       # tag defaults to .Chart.AppVersion when not specified
       tag: ""
-      pullPolicy: "Always"
+      pullPolicy: "IfNotPresent"
     mode: "http" # Options: stdio, http
     port: 8000
 
@@ -498,13 +488,13 @@ agent-netutils:
     requiresSecret: false
   image:
     repository: "ghcr.io/cnoe-io/agent-netutils"
-    pullPolicy: "Always"
+    pullPolicy: "IfNotPresent"
   mcp:
     image:
       repository: "ghcr.io/cnoe-io/mcp-netutils"
       # tag defaults to .Chart.AppVersion when not specified
       tag: ""
-      pullPolicy: "Always"
+      pullPolicy: "IfNotPresent"
     mode: "http" # Options: stdio, http
     port: 8000
 
@@ -514,7 +504,7 @@ agent-weather:
     requiresSecret: false
   image:
     repository: "ghcr.io/cnoe-io/agent-weather"
-    pullPolicy: "Always"
+    pullPolicy: "IfNotPresent"
   mcp:
     useRemoteMcpServer: true
 
@@ -524,7 +514,7 @@ agent-petstore:
     requiresSecret: false
   image:
     repository: "ghcr.io/cnoe-io/agent-petstore"
-    pullPolicy: "Always"
+    pullPolicy: "IfNotPresent"
   mcp:
     useRemoteMcpServer: true
 
@@ -537,7 +527,7 @@ caipe-ui:
     repository: "ghcr.io/cnoe-io/caipe-ui"
     # tag defaults to .Chart.AppVersion when not specified
     tag: ""
-    pullPolicy: "Always"
+    pullPolicy: "IfNotPresent"
   service:
     port: 3000
   ingress:
@@ -658,7 +648,7 @@ dynamic-agents:
     repository: "ghcr.io/cnoe-io/caipe-dynamic-agents"
     # tag defaults to .Chart.AppVersion when not specified
     tag: ""
-    pullPolicy: "Always"
+    pullPolicy: "IfNotPresent"
   service:
     port: 8001
   # ConfigMap for non-sensitive configuration
@@ -694,7 +684,7 @@ slack-bot:
     repository: "ghcr.io/cnoe-io/caipe-slack-bot"
     # tag defaults to .Chart.AppVersion when not specified
     tag: ""
-    pullPolicy: "Always"
+    pullPolicy: "IfNotPresent"
 
   # Display name used in Slack messages
   appName: "CAIPE"
@@ -792,7 +782,7 @@ rag-stack:
       repository: "ghcr.io/cnoe-io/caipe-rag-server"
       # tag defaults to .Chart.AppVersion when not specified
       tag: ""
-      pullPolicy: "Always"
+      pullPolicy: "IfNotPresent"
 
   agent-rag:
     enabled: true
@@ -800,7 +790,7 @@ rag-stack:
       repository: "ghcr.io/cnoe-io/caipe-rag-agent-rag"
       # tag defaults to .Chart.AppVersion when not specified
       tag: ""
-      pullPolicy: "Always"
+      pullPolicy: "IfNotPresent"
 
   agent-ontology:
     enabled: true

@@ -167,11 +167,10 @@ export const AGENT_LOGOS: Record<string, AgentLogoConfig> = {
       </svg>
     )
   },
-  caipe: {
-    name: "caipe",
-    displayName: "CAIPE",
+  user_input: {
+    name: "user_input",
+    displayName: "User Input",
     color: "#8B5CF6",
-    // CAIPE robot/AI icon
     icon: (
       <svg viewBox="0 0 128 128" className="w-full h-full">
         <circle fill="#8B5CF6" cx="64" cy="64" r="58"/>
@@ -236,7 +235,7 @@ export function normalizeAgentName(name: string): string {
   if (normalized === "pagerduty" || normalized === "pd") return "pagerduty";
   if (normalized === "confluence") return "confluence";
   if (normalized === "kubernetes" || normalized === "k8s") return "kubernetes";
-  if (normalized === "caipe" || normalized.includes("platform")) return "caipe";
+  if (normalized === "user_input" || normalized.includes("platform")) return "user_input";
   if (normalized === "supervisor") return "supervisor";
   if (normalized === "rag" || normalized === "knowledge" || normalized.includes("knowledge")) return "rag";
 

@@ -11,6 +11,7 @@ from typing import Dict, Any, Literal
 from pydantic import BaseModel
 
 from ai_platform_engineering.utils.a2a_common.base_langgraph_agent import BaseLangGraphAgent
+from ai_platform_engineering.utils.mcp_config import is_http_mode, resolve_mcp_mode
 from ai_platform_engineering.utils.subagent_prompts import load_subagent_prompt_config
 
 logger = logging.getLogger(__name__)
@@ -35,7 +36,7 @@ class WeatherAgent(BaseLangGraphAgent):
 
     def __init__(self):
         """Initialize Weather agent."""
-        self.mcp_mode = os.getenv("MCP_MODE", "stdio").lower()
+        self.mcp_mode = resolve_mcp_mode(_prompt_config.agent_name.lower())
         self.mcp_api_url = os.getenv("WEATHER_MCP_API_URL")
 
         # Defaults for HTTP transport mode
@@ -47,19 +48,23 @@ class WeatherAgent(BaseLangGraphAgent):
 
     def get_agent_name(self) -> str:
         """Return the agent name."""
-        return "weather"
+        return _prompt_config.agent_name.lower()
 
     def get_mcp_http_config(self) -> Dict[str, Any] | None:
         """
         Return custom HTTP MCP configuration for Weather API if in HTTP mode.
         """
-        if self.mcp_mode in ("http", "streamable_http") and self.mcp_api_url:
-            logger.info(f"Using HTTP transport for Weather MCP: {self.mcp_api_url}")
-            return {
-                "url": self.mcp_api_url,
-                "headers": {},
-            }
-        return None
+        if not is_http_mode(self.mcp_mode):
+            return None
+
+        if not self.mcp_api_url:
+            return None
+
+        logger.info(f"Using HTTP transport for Weather MCP: {self.mcp_api_url}")
+        return {
+            "url": self.mcp_api_url,
+            "headers": {},
+        }
 
     def get_mcp_config(self, server_path: str | None = None) -> Dict[str, Any]:
         """

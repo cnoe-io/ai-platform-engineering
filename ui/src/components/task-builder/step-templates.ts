@@ -20,7 +20,7 @@ export function getStepTemplates(): StepTemplate[] {
   const name = appName();
   return [
   // ── User Input ──────────────────────────────────────────────────────
-  t("caipe-collect-input", "Collect User Input", "caipe", name,
+  t("user-input-collect", "Collect User Input", "user_input", name,
     "Collect user input",
     "Collect the following information from the user and write to /request.txt:\n- field_name (required): Description\n\nFormat as key=value. Write to /request.txt."),
 

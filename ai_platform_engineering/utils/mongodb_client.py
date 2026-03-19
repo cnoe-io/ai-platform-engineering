@@ -117,7 +117,7 @@ def get_task_configs_from_mongodb() -> Optional[dict]:
                         {
                             "display_text": t.get("display_text", ""),
                             "llm_prompt": t.get("llm_prompt", ""),
-                            "subagent": t.get("subagent", "caipe"),
+                            "subagent": t.get("subagent", "user_input"),
                         }
                         for t in tasks
                     ],

@@ -22,7 +22,7 @@ describe('AGENT_LOGOS', () => {
     'pagerduty',
     'confluence',
     'kubernetes',
-    'caipe',
+    'user_input',
     'supervisor',
     'rag',
     'knowledge',
@@ -89,8 +89,8 @@ describe('normalizeAgentName', () => {
     expect(normalizeAgentName('pd')).toBe('pagerduty');
   });
 
-  it('platform → caipe', () => {
-    expect(normalizeAgentName('platform')).toBe('caipe');
+  it('platform → user_input', () => {
+    expect(normalizeAgentName('platform')).toBe('user_input');
   });
 
   it('knowledge base → rag', () => {

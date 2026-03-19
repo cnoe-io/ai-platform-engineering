@@ -1767,7 +1767,7 @@ ${skillContent}`;
         tasks: [{
           display_text: formData.name.trim(),
           llm_prompt: parsed.body || skillContent,
-          subagent: "caipe",
+          subagent: "user_input",
         }],
         is_quick_start: true,
         difficulty: formData.difficulty,

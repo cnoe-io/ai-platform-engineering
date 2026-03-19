@@ -99,8 +99,8 @@ describe("TaskStepNode", () => {
     expect(screen.getByText("GitHub")).toBeInTheDocument();
   });
 
-  it("renders with Input subagent badge for caipe", () => {
-    render(<TaskStepNode {...makeNodeProps({ subagent: "caipe" })} />);
+  it("renders with Input subagent badge for user_input", () => {
+    render(<TaskStepNode {...makeNodeProps({ subagent: "user_input" })} />);
     expect(screen.getByText("Input")).toBeInTheDocument();
   });
 

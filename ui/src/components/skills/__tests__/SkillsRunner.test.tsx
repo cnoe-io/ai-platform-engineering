@@ -114,7 +114,7 @@ function makeConfig(overrides: Partial<AgentConfig> = {}): AgentConfig {
       {
         display_text: "Run test",
         llm_prompt: "Execute the test workflow",
-        subagent: "caipe",
+        subagent: "user_input",
       },
     ],
     created_at: new Date(),

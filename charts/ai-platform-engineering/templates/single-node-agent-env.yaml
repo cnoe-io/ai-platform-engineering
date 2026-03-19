@@ -1,7 +1,8 @@
 {{- /*
 This ConfigMap is only needed in single-node mode where all agents run in-process.
 It provides ENABLE_<AGENT> env vars so the deep agent knows which subagents to load,
-and SUBAGENT_<AGENT>_MODEL env vars for per-subagent LLM model overrides.
+and <AGENT>_MCP_HOST / <AGENT>_MCP_PORT / <AGENT>_MCP_MODE env vars for MCP transport.
+Per-subagent LLM config (keys, endpoints, models) is handled via secrets (agentSecrets).
 In multi-node mode, the supervisor-agent-env ConfigMap handles this instead.
 */ -}}
 {{- if eq .Values.global.deploymentMode "single-node" }}
@@ -10,17 +11,21 @@ kind: ConfigMap
 metadata:
   name: {{ printf "%s-single-node-agent-env" .Release.Name }}
 data:
-  {{- $singleNode := (index .Values "supervisor-agent").singleNode | default dict }}
-  {{- if $singleNode.supervisorModel }}
-  SUPERVISOR_MODEL: {{ $singleNode.supervisorModel | quote }}
-  {{- end }}
-  {{- range $name, $enabled := (default dict $singleNode.enabledSubAgents) }}
+  {{- range $name, $enabled := (include "ai-platform-engineering.enabledSubAgents" . | fromYaml) }}
   {{- $ENV := upper $name }}
   ENABLE_{{ $ENV }}: {{ ternary "true" "false" $enabled | quote }}
+  {{- if $enabled }}
+  {{- $agentValues := index $.Values (printf "agent-%s" $name) | default dict }}
+  {{- $mcp := $agentValues.mcp | default dict }}
+  {{- if $mcp.useRemoteMcpServer }}
+  {{ $ENV }}_MCP_MODE: "stdio"
+  {{- else if $mcp.mode }}
+  {{ $ENV }}_MCP_MODE: {{ $mcp.mode | quote }}
+  {{- if eq $mcp.mode "http" }}
+  {{ $ENV }}_MCP_HOST: {{ printf "%s-agent-%s-mcp" $.Release.Name $name | quote }}
+  {{ $ENV }}_MCP_PORT: {{ $mcp.port | default 8000 | quote }}
   {{- end }}
-  {{- range $name, $model := (default dict $singleNode.subagentModels) }}
-  {{- if $model }}
-  SUBAGENT_{{ upper $name }}_MODEL: {{ $model | quote }}
+  {{- end }}
   {{- end }}
   {{- end }}
 {{- end }}

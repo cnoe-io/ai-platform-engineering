@@ -1,0 +1,101 @@
+{{- /*
+In single-node mode, agent subcharts are disabled so their mcp-deployment templates
+don't run.  This template creates MCP HTTP server Deployments at the parent chart
+level for every enabled subagent whose mcp.mode is "http" (and that isn't using a
+remote MCP server).
+*/ -}}
+{{- if eq .Values.global.deploymentMode "single-node" }}
+{{- range $name, $enabled := (include "ai-platform-engineering.enabledSubAgents" . | fromYaml) }}
+{{- if $enabled }}
+{{- $agentKey := printf "agent-%s" $name }}
+{{- $agentValues := index $.Values $agentKey | default dict }}
+{{- $mcp := $agentValues.mcp | default dict }}
+{{- $useRemote := $mcp.useRemoteMcpServer | default false }}
+{{- if and (eq ($mcp.mode | default "stdio") "http") (not $useRemote) }}
+{{- $mcpImage := $mcp.image | default dict }}
+{{- $mcpImageRepo := $mcpImage.repository | default "" }}
+{{- if $mcpImageRepo }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ printf "%s-%s-mcp" $.Release.Name $agentKey }}
+  labels:
+    {{- include "ai-platform-engineering.labels" $ | nindent 4 }}
+    app.kubernetes.io/name: {{ printf "%s-%s-mcp" $.Release.Name $agentKey }}
+    app.kubernetes.io/component: mcp
+spec:
+  replicas: 1
+  revisionHistoryLimit: 3
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ printf "%s-%s-mcp" $.Release.Name $agentKey }}
+      app.kubernetes.io/component: mcp
+      app.kubernetes.io/instance: {{ $.Release.Name }}
+  template:
+    metadata:
+      labels:
+        {{- include "ai-platform-engineering.labels" $ | nindent 8 }}
+        app.kubernetes.io/name: {{ printf "%s-%s-mcp" $.Release.Name $agentKey }}
+        app.kubernetes.io/component: mcp
+    spec:
+      containers:
+        - name: mcp
+          image: "{{ $mcpImageRepo }}:{{ $mcpImage.tag | default $.Chart.AppVersion }}"
+          imagePullPolicy: {{ $mcpImage.pullPolicy | default "Always" }}
+          ports:
+            - name: http
+              containerPort: 8000
+              protocol: TCP
+          envFrom:
+            {{- $llmSecretName := include "ai-platform-engineering.llmSecrets.secretName" $ | trim }}
+            {{- if $llmSecretName }}
+            - secretRef:
+                name: {{ $llmSecretName }}
+                optional: true
+            {{- end }}
+            {{- $agentSecrets := $agentValues.agentSecrets | default dict }}
+            {{- $agentSecretName := $agentSecrets.secretName | default "" }}
+            {{- if $agentSecretName }}
+            - secretRef:
+                name: {{ $agentSecretName }}
+                optional: true
+            {{- end }}
+          env:
+            - name: MCP_MODE
+              value: {{ $mcp.mode | quote }}
+            - name: MCP_HOST
+              value: "0.0.0.0"
+            - name: MCP_PORT
+              value: {{ $mcp.port | default 8000 | quote }}
+            {{- if $mcp.env }}
+            {{- range $key, $value := $mcp.env }}
+            - name: {{ $key }}
+              value: {{ $value | quote }}
+            {{- end }}
+            {{- end }}
+          {{- with $mcp.livenessProbe }}
+          livenessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with $mcp.readinessProbe }}
+          readinessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with $mcp.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with $mcp.volumeMounts }}
+          volumeMounts:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      {{- with $mcp.volumes }}
+      volumes:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- end }}

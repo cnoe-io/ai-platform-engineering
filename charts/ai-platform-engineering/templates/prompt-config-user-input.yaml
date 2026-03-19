@@ -1,0 +1,20 @@
+{{- if eq .Values.global.deploymentMode "single-node" }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prompt-config-user-input
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: {{ include "ai-platform-engineering.name" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+data:
+  prompt_config.user_input_agent.yaml: |
+{{- $singleNode := (index .Values "supervisor-agent").singleNode | default dict }}
+{{- if $singleNode.userInputPromptConfig }}
+{{ $singleNode.userInputPromptConfig | nindent 4 }}
+{{- else }}
+{{ .Files.Get "data/prompt_config.user_input_agent.yaml" | nindent 4 }}
+{{- end }}
+{{- end }}

@@ -55,7 +55,7 @@ function makeConfig(overrides: Partial<AgentConfig> = {}): AgentConfig {
     description: "Test description",
     category: "Custom",
     tasks: [
-      { display_text: "Step 1", llm_prompt: "Do something", subagent: "caipe" },
+      { display_text: "Step 1", llm_prompt: "Do something", subagent: "user_input" },
     ],
     owner_id: "system",
     is_system: false,
@@ -274,7 +274,7 @@ describe("agent-config-store", () => {
           id: "api-1",
           name: "From API",
           category: "DevOps",
-          tasks: [{ display_text: "Step", llm_prompt: "Do it", subagent: "caipe" }],
+          tasks: [{ display_text: "Step", llm_prompt: "Do it", subagent: "user_input" }],
           owner_id: "user",
           is_system: false,
           created_at: "2024-06-01T00:00:00Z",
@@ -448,7 +448,7 @@ describe("agent-config-store", () => {
       name: "New Workflow",
       description: "A new workflow",
       category: "Custom",
-      tasks: [{ display_text: "Step", llm_prompt: "Do it", subagent: "caipe" }],
+      tasks: [{ display_text: "Step", llm_prompt: "Do it", subagent: "user_input" }],
     };
 
     it("sends POST request", async () => {

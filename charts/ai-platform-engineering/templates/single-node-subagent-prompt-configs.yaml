@@ -1,0 +1,36 @@
+{{- /*
+Creates prompt-config ConfigMaps for each enabled sub-agent.
+Priority: customPromptConfig (values override) > data/ file (bundled default).
+In multi-node mode, customPromptConfig is handled by the subchart prompt-config.yaml,
+so we only create from customPromptConfig here in single-node mode.
+*/ -}}
+
+{{- $isSingleNode := eq .Values.global.deploymentMode "single-node" }}
+{{- $agents := include "ai-platform-engineering.enabledSubAgents" . | fromYaml }}
+{{- range $name, $enabled := $agents }}
+{{- if $enabled }}
+{{- $agentValues := index $.Values (printf "agent-%s" $name) | default dict }}
+{{- $customConfig := $agentValues.customPromptConfig | default "" }}
+{{- $dataConfig := $.Files.Get (printf "data/prompt_config.%s_agent.yaml" $name) }}
+{{- $content := "" }}
+{{- if and $customConfig $isSingleNode }}
+{{- $content = $customConfig }}
+{{- else if not $customConfig }}
+{{- $content = $dataConfig }}
+{{- end }}
+{{- if $content }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prompt-config-{{ $name | replace "_" "-" }}
+  namespace: {{ $.Release.Namespace }}
+  labels:
+    {{- include "ai-platform-engineering.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: agent-{{ $name }}
+data:
+  prompt_config.{{ $name }}_agent.yaml: |
+{{ $content | indent 4 }}
+{{- end }}
+{{- end }}
+{{- end }}

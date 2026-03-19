@@ -3,11 +3,12 @@
 import React, { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
-import { Plus, Pencil, Trash2, Workflow, Copy } from "lucide-react";
+import { Plus, Pencil, Trash2, Workflow, Copy, RotateCcw, Loader2 } from "lucide-react";
 import { AuthGuard } from "@/components/auth-guard";
 import { TaskBuilderCanvas } from "@/components/task-builder";
 import { WorkflowTemplateDialog, type WorkflowTemplate } from "@/components/task-builder/WorkflowTemplateDialog";
 import { labelFor } from "@/hooks/use-agent-tools";
+import { useAdminRole } from "@/hooks/use-admin-role";
 import { useTaskConfigStore } from "@/store/task-config-store";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -18,16 +19,41 @@ type ViewMode = "list" | "editor";
 export default function TaskBuilderPage() {
   const router = useRouter();
   const { configs, isLoading, loadConfigs, deleteConfig } = useTaskConfigStore();
+  const { isAdmin } = useAdminRole();
   const [viewMode, setViewMode] = useState<ViewMode>("list");
   const [editingConfig, setEditingConfig] = useState<TaskConfig | undefined>(undefined);
   const [templateDialogOpen, setTemplateDialogOpen] = useState(false);
   const [seedSteps, setSeedSteps] = useState<TaskStep[] | undefined>(undefined);
   const [seedName, setSeedName] = useState<string | undefined>(undefined);
   const [seedCategory, setSeedCategory] = useState<string | undefined>(undefined);
+  const [resetting, setResetting] = useState(false);
+  const [resetMessage, setResetMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
   useEffect(() => {
     loadConfigs();
   }, [loadConfigs]);
+
+  const handleResetSystemTasks = async () => {
+    if (!confirm("Reset all system task configs to defaults from the ConfigMap file? This will overwrite any edits made to system workflows in the Task Builder.")) {
+      return;
+    }
+    setResetting(true);
+    setResetMessage(null);
+    try {
+      const res = await fetch("/api/task-configs/seed?action=reset", { method: "POST" });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || "Failed to reset system task configs");
+      }
+      await loadConfigs();
+      setResetMessage({ type: "success", text: data.data?.message || "System tasks reset to defaults" });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Failed to reset";
+      setResetMessage({ type: "error", text: msg });
+    } finally {
+      setResetting(false);
+    }
+  };
 
   const handleCreateNew = () => {
     setTemplateDialogOpen(true);
@@ -108,11 +134,37 @@ export default function TaskBuilderPage() {
                       Create and manage self-service workflows for the supervisor agent
                     </p>
                   </div>
-                  <Button onClick={handleCreateNew} className="gap-1.5 gradient-primary text-white">
-                    <Plus className="h-4 w-4" />
-                    New Workflow
-                  </Button>
+                  <div className="flex gap-2">
+                    {isAdmin && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={handleResetSystemTasks}
+                        disabled={resetting}
+                        className="gap-1.5"
+                      >
+                        {resetting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RotateCcw className="h-3.5 w-3.5" />}
+                        Reset System Tasks
+                      </Button>
+                    )}
+                    <Button onClick={handleCreateNew} className="gap-1.5 gradient-primary text-white">
+                      <Plus className="h-4 w-4" />
+                      New Workflow
+                    </Button>
+                  </div>
                 </div>
+
+                {resetMessage && (
+                  <div
+                    className={`flex items-center gap-2 px-3 py-2 rounded-md text-sm ${
+                      resetMessage.type === "success"
+                        ? "bg-green-500/10 text-green-600 dark:text-green-400"
+                        : "bg-red-500/10 text-red-600 dark:text-red-400"
+                    }`}
+                  >
+                    {resetMessage.text}
+                  </div>
+                )}
 
                 {isLoading ? (
                   <div className="flex items-center justify-center py-20">

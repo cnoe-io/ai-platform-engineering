@@ -34,6 +34,8 @@ from langchain_mcp_adapters.client import MultiServerMCPClient
 from pydantic import BaseModel, Field
 from langchain.tools.tool_node import InjectedState
 
+from ai_platform_engineering.utils.subagent_prompts import load_subagent_prompt_config
+
 # Official deepagents package (pip-installed, not vendored)
 # The vendored deepagents/ in repo root is for multi-node mode
 # Single-node uses the pip package which has different API (system_prompt, middleware)
@@ -49,7 +51,7 @@ def _setup_pip_deepagents_path():
     # Repo root is 4 levels up
     current_file = os.path.abspath(__file__)
     repo_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(current_file))))
-    
+
     # Paths that might contain the vendored deepagents
     vendored_paths = [
         '/app',  # Docker container path
@@ -58,7 +60,7 @@ def _setup_pip_deepagents_path():
         '.',  # Current directory (explicit)
         os.getcwd(),  # Current working directory
     ]
-    
+
     # Remove any path that could shadow the pip-installed deepagents
     paths_to_remove = []
     for p in sys.path:
@@ -78,7 +80,7 @@ def _setup_pip_deepagents_path():
                             paths_to_remove.append(p)
                 except Exception:
                     pass
-    
+
     # Also remove common vendored paths even if we couldn't verify
     for p in sys.path:
         abs_p = os.path.abspath(p) if p else os.getcwd()
@@ -88,11 +90,11 @@ def _setup_pip_deepagents_path():
                 # Check if this path has a deepagents folder
                 if os.path.isdir(os.path.join(abs_p, 'deepagents')):
                     paths_to_remove.append(p)
-    
+
     for p in paths_to_remove:
         if p in sys.path:
             sys.path.remove(p)
-    
+
     # Clear any cached vendored module
     for key in list(sys.modules.keys()):
         if key == 'deepagents' or key.startswith('deepagents.'):
@@ -287,14 +289,14 @@ class CAIPEAgentResponse(BaseModel):
 
 def create_caipe_agent_response_tool():
     """Create a tool from CAIPEAgentResponse schema for structured user input collection."""
-    
+
     def caipe_agent_response(metadata: Metadata, response: str = "") -> str:
         """Request user input when needed. Returns status based on input fields.
-        
+
         This tool triggers a Human-in-the-Loop interrupt to collect user input via a form.
         """
         input_fields = metadata.input_fields or []
-        
+
         # Constraint: Must provide input_fields
         if not input_fields:
             return "ERROR: No input_fields provided. You must specify input_fields with field_name, field_description, and required properties."
@@ -302,29 +304,29 @@ def create_caipe_agent_response_tool():
         # Separate fields by required status
         required_fields = [f for f in input_fields if f.required]
         optional_fields = [f for f in input_fields if not f.required]
-        
+
         # Check which required fields have values
         required_with_values = [f for f in required_fields if f.value is not None]
         required_missing = [f for f in required_fields if f.value is None]
         optional_with_values = [f for f in optional_fields if f.value is not None]
-        
+
         # Constraint: If no values at all, waiting for user input
         all_with_values = required_with_values + optional_with_values
         if not all_with_values:
             return "Waiting for user input"
-        
+
         # Constraint: If required fields are missing, return error explaining what's needed
         if required_missing:
             missing_names = [f.field_name for f in required_missing]
             return f"ERROR: Missing required fields: {', '.join(missing_names)}. Keep calling this tool until all required fields are provided."
-        
+
         # All required fields provided — user has submitted the form
         result = "USER_FORM_SUBMITTED\n"
         for f in required_with_values + optional_with_values:
             result += f"  {f.field_name}={f.value}\n"
-        
+
         return result.strip()
-    
+
     return StructuredTool.from_function(
         func=caipe_agent_response,
         name="CAIPEAgentResponse",
@@ -334,47 +336,12 @@ def create_caipe_agent_response_tool():
 
 
 # =============================================================================
-# Subagent Prompts
-# =============================================================================
-# Note: Main system prompt is generated dynamically from prompt_config.yaml
-# via generate_platform_system_prompt() in _build_graph_async()
-
-CAIPE_SUBAGENT_PROMPT = """You are the CAIPE (Cisco AI Platform Engineer) user input collection subagent. Your role is to gather required information from the user for self-service workflows.
-
-CRITICAL RULES:
-1. Use CAIPEAgentResponse tool to collect structured user input via forms
-2. Include ALL required fields in a single CAIPEAgentResponse call
-3. Always provide a friendly `response` message that explains what you need from the user
-4. After the user submits the form, write the collected data to the filesystem using write_file if the task prompt instructs you to (e.g., write to /request.txt)
-5. Do NOT call CAIPEAgentResponse more than once
-6. Do NOT generate text asking for more input after the form returns
-
-When collecting input:
-1. Determine what information is needed based on the workflow step
-2. Write a friendly `response` message summarizing what the user needs to provide (e.g., "To create your GitHub repository, I need a few details from you. Please fill in the form below.")
-3. Create input_fields with clear field_name, field_description, and required=True for mandatory fields
-4. Provide default_value when appropriate (e.g., common choices)
-5. Use field_values to provide dropdown options when there are limited valid choices
-
-Tools:
-CAIPEAgentResponse
-* Use this to request user input via a structured form
-* Always include a `response` field with a friendly message shown in the chat alongside the form
-* Populate metadata.input_fields with the fields you need
-* The tool will trigger a Human-in-the-Loop interrupt for user input
-
-read_file / write_file
-* Use these to read/write form data to the filesystem for downstream agents
-"""
-
-
-# =============================================================================
 # Task Config Loading
 # =============================================================================
 
 def get_task_config_filename() -> str:
     """Get the task config filename path.
-    
+
     Uses TASK_CONFIG_PATH env var if set (for Helm/K8s ConfigMap mounts),
     otherwise falls back to task_config.yaml in the repo root.
     """
@@ -388,22 +355,22 @@ def get_task_config_filename() -> str:
 
 def _substitute_env_vars(content: str) -> str:
     """Substitute ${VAR_NAME} patterns with environment variable values.
-    
+
     Args:
         content: String content with ${VAR_NAME} patterns
-        
+
     Returns:
         Content with environment variables substituted
     """
     import re
-    
+
     def replace_env_var(match):
         var_name = match.group(1)
         value = os.getenv(var_name, "")
         if not value:
             logger.warning(f"Environment variable {var_name} not set, using empty string")
         return value
-    
+
     # Match ${VAR_NAME} pattern
     pattern = r'\$\{([A-Za-z_][A-Za-z0-9_]*)\}'
     return re.sub(pattern, replace_env_var, content)
@@ -515,19 +482,19 @@ def list_self_service_workflows(
 
 def create_invoke_self_service_task_tool():
     """Create the invoke_self_service_task tool for deterministic workflow execution.
-    
+
     This tool sets up state for task_config.yaml workflows:
     1. Populates state.tasks and state.todos
     2. Sets task_execution_pending=True flag
     3. Returns a simple ToolMessage
-    
+
     The DeterministicTaskMiddleware.before_model hook then:
     1. Detects the pending flag
     2. Injects AIMessage(task) and jumps to tools
     3. SHORT-CIRCUITS the model call so it never sees incomplete tool pairs
     """
-    
-    @tool  
+
+    @tool
     def invoke_self_service_task(
         task_name: str,
         state: Annotated[dict, InjectedState],
@@ -535,45 +502,45 @@ def create_invoke_self_service_task_tool():
     ) -> Command:
         """
         Invoke a self-service workflow task defined in task_config.yaml.
-        
+
         This tool starts a multi-step workflow where each step is delegated to
         a specialized subagent. The workflow executes DETERMINISTICALLY via
         the DeterministicTaskMiddleware - no LLM involvement in task sequencing.
-        
+
         Flow:
         1. CAIPE subagent collects user input via HITL form
         2. Subsequent subagents execute operations (GitHub, AWS, etc.)
         3. Notification is sent upon completion
-        
+
         Args:
             task_name: Name of the task (e.g., "Create GitHub Repo")
-        
+
         Returns:
             Command that sets up state for deterministic execution.
         """
         user_email = state.get("user_email") if isinstance(state, dict) else None
         config = load_task_config(user_email=user_email)
-        
+
         if task_name not in config:
             available = ", ".join(config.keys())
             return ToolMessage(
                 content=f"Task '{task_name}' not found. Available tasks: {available}",
                 tool_call_id=tool_call_id,
             )
-        
+
         task_def = config[task_name]
         tasks = task_def.get("tasks", [])
-        
+
         if not tasks:
             return ToolMessage(
                 content=f"Task '{task_name}' has no steps defined.",
                 tool_call_id=tool_call_id,
             )
-        
+
         # Add task IDs for tracking
         for i, task in enumerate(tasks):
             task["id"] = i
-        
+
         # Create todos from tasks (all pending initially)
         # Include [SubagentName] prefix so the UI can render agent stickers
         todos = []
@@ -585,16 +552,16 @@ def create_invoke_self_service_task_tool():
                 "content": f"[{subagent_name}] {display}",
                 "status": "pending",
             })
-        
+
         logger.info(f"Invoking self-service task: {task_name} with {len(tasks)} steps")
-        
+
         # Build step list for display
         step_list = "\n".join([f"{i+1}. {t.get('display_text', 'Step')}" for i, t in enumerate(tasks)])
-        
+
         # Determine if this is a system workflow or custom with tool restrictions
         is_system = task_def.get("is_system", True)
         allowed_tools = task_def.get("allowed_tools") if not is_system else None
-        
+
         update_dict: dict = {
             "tasks": tasks,
             "todos": todos,
@@ -606,12 +573,12 @@ def create_invoke_self_service_task_tool():
                 ),
             ],
         }
-        
+
         if allowed_tools:
             update_dict["task_allowed_tools"] = allowed_tools
-        
+
         return Command(update=update_dict)
-    
+
     return invoke_self_service_task
 
 
@@ -627,36 +594,38 @@ def create_invoke_self_service_task_tool():
 # 3. Return SubAgent dict with {name, description, system_prompt, tools}
 # 4. SubAgentMiddleware adds FilesystemMiddleware with shared StateBackend
 
-def create_caipe_subagent_def() -> dict:
-    """Create the CAIPE (user input collection) subagent definition.
-    
-    CAIPE collects user input via forms and writes results to filesystem
+def create_user_input_subagent_def() -> dict:
+    """Create the user input collection subagent definition.
+
+    The subagent collects user input via forms and writes results to filesystem
     for downstream agents to consume.
-    
-    Using SubAgent dict format allows SubAgentMiddleware to build it with 
+
+    Using SubAgent dict format allows SubAgentMiddleware to build it with
     shared StateBackend for filesystem state sharing between all subagents.
     """
-    caipe_response_tool = create_caipe_agent_response_tool()
-    
+    config = load_subagent_prompt_config("user_input")
+    system_prompt = config.raw_config.get("system_prompt") or config.get_system_instruction()
+    response_tool = create_caipe_agent_response_tool()
+
     # Include utility tools for filesystem operations
     tools = [
-        caipe_response_tool,
+        response_tool,
         tool_result_to_file,  # Save tool output to filesystem
         wait,  # Async sleep for waiting scenarios
     ]
-    
+
     subagent_def = {
-        "name": "caipe",
+        "name": "user_input",
         "description": "Collects user input via forms, writes to filesystem for downstream agents",
-        "system_prompt": CAIPE_SUBAGENT_PROMPT,
+        "system_prompt": system_prompt,
         "tools": tools,
         "interrupt_on": {"CAIPEAgentResponse": True},
         "middleware": [
-            PolicyMiddleware(agent_name="caipe", agent_type="subagent"),
+            PolicyMiddleware(agent_name="user_input", agent_type="subagent"),
         ],
     }
 
-    model_override = _get_subagent_model("caipe")
+    model_override = _get_subagent_model("user_input")
     if model_override:
         subagent_def["model"] = model_override
 
@@ -665,24 +634,24 @@ def create_caipe_subagent_def() -> dict:
 
 async def create_subagent_def(agent_instance, name: str, description: str, prompt_config: dict = None) -> dict:
     """Create a SubAgent dict for use with create_deep_agent.
-    
+
     Using SubAgent dict format (instead of CompiledSubAgent) allows SubAgentMiddleware
     to build the subagent with shared StateBackend for filesystem state sharing.
-    
+
     System prompts are loaded from prompt_config.yaml when available (via agent_prompts section),
     otherwise falls back to the agent's built-in SYSTEM_INSTRUCTION.
-    
+
     Per-subagent model overrides are resolved from SUBAGENT_<NAME>_MODEL env vars.
     The value should be a provider:model-name string (e.g. "openai:gpt-4o-mini")
     supported by langchain's init_chat_model. When not set, the subagent inherits
     the parent agent's model.
-    
+
     Args:
         agent_instance: The agent instance with get_mcp_tools() and SYSTEM_INSTRUCTION
         name: Subagent name for routing
         description: Description for LLM routing decisions
         prompt_config: Optional prompt configuration dict with agent_prompts section
-        
+
     Returns:
         SubAgent dict with name, description, system_prompt, tools, middleware,
         and optionally model
@@ -691,18 +660,18 @@ async def create_subagent_def(agent_instance, name: str, description: str, promp
     # an empty list on failure instead of silently substituting gh_cli_execute.
     # In single-node mode, subagents MUST use MCP tools only — no CLI fallbacks.
     tools = await agent_instance._load_mcp_tools({}, include_fallback=False)
-    
+
     if tools:
         logger.info(f"{name}: {len(tools)} MCP tools loaded")
     else:
         logger.warning(f"{name}: MCP tools unavailable — subagent will have no domain tools (MCP-only mode)")
-    
+
     # Add utility tools available to all subagents
     # - tool_result_to_file: Save tool output to filesystem for downstream agents
     # - wait: Async sleep for polling/waiting scenarios
     # Note: FilesystemMiddleware provides read_file, write_file, etc. separately
     tools.extend([tool_result_to_file, wait])
-    
+
     # Get system prompt - prefer prompt_config, fall back to agent's built-in
     system_prompt = None
     if prompt_config:
@@ -711,11 +680,11 @@ async def create_subagent_def(agent_instance, name: str, description: str, promp
         system_prompt = agent_config.get("system_prompt")
         if system_prompt:
             logger.info(f"📝 Using prompt_config system_prompt for {name} subagent")
-    
+
     if not system_prompt:
         system_prompt = agent_instance._get_system_instruction_with_date()
         logger.info(f"📝 Using built-in system_prompt for {name} subagent")
-    
+
     subagent_def = {
         "name": name,
         "description": description,
@@ -734,7 +703,7 @@ async def create_subagent_def(agent_instance, name: str, description: str, promp
         f"📦 Created SubAgent def for {name} with {len(tools)} tools"
         f"{f', model={model_override}' if model_override else ''}"
     )
-    
+
     return subagent_def
 
 
@@ -952,26 +921,26 @@ async def create_weather_remote_subagent_def(prompt_config: dict = None) -> dict
 class PlatformEngineerDeepAgent:
     """
     Platform Engineer Multi-Agent System using deepagents.
-    
+
     Orchestrates self-service workflows using specialized subagents.
-    
+
     Note: Use `await ensure_initialized()` before first use to load MCP tools.
     """
-    
+
     def __init__(self):
         self._graph_lock = threading.RLock()
         self._graph = None
         self._graph_generation = 0
         self._initialized = False
         self._subagent_tools: Dict[str, List[str]] = {}
-        
+
         # RAG-related instance variables
         self.rag_enabled = ENABLE_RAG
         self.rag_config: Optional[Dict[str, Any]] = None
         self.rag_config_timestamp: Optional[float] = None
         self.rag_mcp_client: Optional[MultiServerMCPClient] = None
         self.rag_tools: List[Any] = []
-        
+
         # Don't build graph in __init__ - use ensure_initialized() instead
         # This allows async MCP tool loading
         logger.info("PlatformEngineerDeepAgent created (not yet initialized)")
@@ -979,27 +948,27 @@ class PlatformEngineerDeepAgent:
             logger.info(f"✅📚 RAG is ENABLED - will attempt to connect to {RAG_SERVER_URL}")
         else:
             logger.info("❌📚 RAG is DISABLED")
-    
+
     async def ensure_initialized(self) -> None:
         """
         Ensure the agent is initialized with MCP tools loaded.
-        
+
         This should be called before first use. It's safe to call multiple times.
         """
         if self._initialized:
             return
-        
+
         await self._build_graph_async()
         self._initialized = True
         logger.info(f"PlatformEngineerDeepAgent initialized (generation {self._graph_generation})")
-    
+
     def get_graph(self) -> CompiledStateGraph:
         """Returns the current compiled LangGraph instance."""
         if not self._initialized:
             raise RuntimeError("Agent not initialized. Call 'await ensure_initialized()' first.")
         with self._graph_lock:
             return self._graph
-    
+
     async def _rebuild_graph_async(self) -> bool:
         """Rebuild the graph asynchronously."""
         try:
@@ -1011,7 +980,7 @@ class PlatformEngineerDeepAgent:
         except Exception as e:
             logger.error(f"Failed to rebuild graph: {e}")
             return False
-    
+
     def get_status(self) -> dict:
         """Get current status for monitoring/debugging."""
         with self._graph_lock:
@@ -1023,7 +992,7 @@ class PlatformEngineerDeepAgent:
             if self.rag_config_timestamp:
                 status["rag_config_age_seconds"] = time.time() - self.rag_config_timestamp
             return status
-    
+
 
     def get_rag_tool_names(self) -> set[str]:
         """Get the set of RAG tool names loaded from the MCP server."""
@@ -1040,7 +1009,7 @@ class PlatformEngineerDeepAgent:
         """Load RAG MCP tools from the server."""
         if not self.rag_enabled or self.rag_config is None:
             return []
-        
+
         try:
             if self.rag_mcp_client is None:
                 logger.info(f"Initializing RAG MCP client for {RAG_SERVER_URL}/mcp")
@@ -1050,19 +1019,19 @@ class PlatformEngineerDeepAgent:
                         "transport": "streamable_http",
                     }
                 })
-            
+
             tools = await self.rag_mcp_client.get_tools()
             logger.info(f"✅ Loaded {len(tools)} RAG tools: {[t.name for t in tools]}")
             return tools
         except Exception as e:
             logger.error(f"Error loading RAG tools: {e}")
             return []
-    
-    
+
+
     async def _build_graph_async(self) -> None:
         """Build the deep agent graph with subagents (async to load MCP tools)."""
         logger.info(f"Building deep agent (generation {self._graph_generation + 1})...")
-        
+
         # Resolve the supervisor model.
         # 1. SUPERVISOR_LLM_PROVIDER + SUPERVISOR_* env vars → full
         #    LLMFactory override (same .env format as multi-node).
@@ -1078,19 +1047,19 @@ class PlatformEngineerDeepAgent:
             logger.info(f"Supervisor model override: SUPERVISOR_MODEL={base_model}")
         else:
             base_model = LLMFactory().get_llm()
-        
+
         # Load task configuration
         task_config = load_task_config()
-        
+
         # Load prompt configuration from prompt_config.yaml
         prompt_config = load_platform_config()
-        
+
         # Build system prompt dynamically from subagent definitions
         # We'll populate agent descriptions after creating subagents (below)
         # For now, store a reference to update later
         self._prompt_config = prompt_config
         self._task_config = task_config
-        
+
         # Utility tools
         utility_tools = [
             reflect_on_output,
@@ -1104,33 +1073,33 @@ class PlatformEngineerDeepAgent:
             # Wait tool for polling and async operations
             wait,
         ]
-        
+
         # Self-service task tools
         invoke_task_tool = create_invoke_self_service_task_tool()
-        
+
         # All supervisor tools
         all_tools = utility_tools + [invoke_task_tool]
-        
+
         # RAG connectivity check and tool loading
         if self.rag_enabled and self.rag_config is None:
             logger.info("Performing RAG connectivity check...")
             try:
                 logger.info(f"Checking RAG server connectivity at {RAG_SERVER_URL}...")
-                
+
                 for attempt in range(1, RAG_CONNECTIVITY_RETRIES + 1):
                     try:
                         async with httpx.AsyncClient() as client:
                             response = await client.get(f"{RAG_SERVER_URL}/healthz", timeout=5.0)
                             if response.status_code == 200:
                                 logger.info(f"✅ RAG server connected successfully on attempt {attempt}")
-                                
+
                                 # Fetch initial config
                                 data = response.json()
                                 self.rag_config = data.get("config", {})
                                 self.rag_config_timestamp = time.time()
-                                
+
                                 logger.info(f"RAG Server returned config: {self.rag_config}")
-                                
+
                                 # Load RAG MCP tools
                                 self.rag_tools = await self._load_rag_tools()
                                 if self.rag_tools:
@@ -1143,62 +1112,62 @@ class PlatformEngineerDeepAgent:
                                 logger.warning(f"⚠️  RAG server returned status {response.status_code} on attempt {attempt}")
                     except Exception as e:
                         logger.warning(f"❌ RAG server connection attempt {attempt} failed: {e}")
-                    
+
                     # Wait before retry if not last attempt
                     if attempt < RAG_CONNECTIVITY_RETRIES:
                         logger.info(f"Retrying in {RAG_CONNECTIVITY_WAIT_SECONDS} seconds... ({attempt}/{RAG_CONNECTIVITY_RETRIES})")
                         await asyncio.sleep(RAG_CONNECTIVITY_WAIT_SECONDS)
-                
+
                 # If still not connected, disable RAG
                 if self.rag_config is None:
                     logger.error(f"❌ Failed to connect to RAG server after {RAG_CONNECTIVITY_RETRIES} attempts. RAG disabled.")
                     self.rag_enabled = False
-                    
+
             except Exception as e:
                 logger.error(f"Error during RAG setup: {e}")
                 self.rag_enabled = False
-        
+
         # Add RAG tools if loaded
         if self.rag_tools:
             all_tools.extend(self.rag_tools)
             logger.info(f"✅📚 Added {len(self.rag_tools)} RAG tools to supervisor: {[t.name for t in self.rag_tools]}")
-        
+
         # Build subagent definitions (async to load MCP tools)
         # Using SubAgent dict format for state sharing:
         # SubAgentMiddleware builds these with shared StateBackend, ensuring
         # filesystem state is accessible across all subagents.
         # System prompts are loaded from prompt_config.yaml when available.
         logger.info("Loading subagent definitions with MCP tools...")
-        
+
         # Pass prompt_config to use system prompts from prompt_config.yaml
         prompt_config = self._prompt_config
-        
+
         # Filter agents by ENABLE_<NAME> env vars
         enabled_agents = [(name, fn) for name, fn in SINGLE_NODE_AGENTS if _is_agent_enabled(name)]
         disabled_agents = [name for name, fn in SINGLE_NODE_AGENTS if not _is_agent_enabled(name)]
         if disabled_agents:
             logger.info(f"⏭️ Disabled agents (via ENABLE_* env vars): {disabled_agents}")
         logger.info(f"✅ Enabled agents: {[name for name, _ in enabled_agents]}")
-        
+
         # Load enabled subagent definitions in parallel
         # Note: MyID operations are handled through task_config GitHub workflows
         mcp_subagent_results = await asyncio.gather(
             *[fn(prompt_config) for _, fn in enabled_agents],
             return_exceptions=True,
         )
-        
-        # Add CAIPE subagent (uses local tools, no MCP)
-        caipe_subagent = create_caipe_subagent_def()
-        
+
+        # Add user input subagent (uses local tools, no MCP)
+        user_input_subagent = create_user_input_subagent_def()
+
         # Filter out any failures and build final list
-        subagent_defs = [caipe_subagent]  # CAIPE always succeeds (no MCP)
+        subagent_defs = [user_input_subagent]  # user_input always succeeds (no MCP)
         for i, result in enumerate(mcp_subagent_results):
             if isinstance(result, Exception):
                 agent_name = enabled_agents[i][0]
                 logger.warning(f"Failed to create subagent '{agent_name}': {result}")
             else:
                 subagent_defs.append(result)
-        
+
         # Add remote A2A subagents (run as separate containers)
         if ENABLE_WEATHER:
             try:
@@ -1207,7 +1176,7 @@ class PlatformEngineerDeepAgent:
                 logger.info("🌤️ Weather remote A2A subagent enabled")
             except Exception as e:
                 logger.warning(f"Failed to create weather remote subagent: {e}")
-        
+
         # Capture tool names per subagent for the /tools API
         subagent_tools_snapshot: Dict[str, List[str]] = {}
         for sd in subagent_defs:
@@ -1216,7 +1185,7 @@ class PlatformEngineerDeepAgent:
             if sa_name and sa_tools:
                 subagent_tools_snapshot[sa_name] = [t.name for t in sa_tools]
         self._subagent_tools = subagent_tools_snapshot
-        
+
         # Build agents_for_prompt dict for generating system prompt
         agents_for_prompt = {}
         for subagent_def in subagent_defs:
@@ -1225,7 +1194,7 @@ class PlatformEngineerDeepAgent:
                 agents_for_prompt[name] = {
                     "description": subagent_def.get("description", f"{name} agent")
                 }
-        
+
         # Add RAG to agents_for_prompt when RAG tools are loaded
         # This ensures the system prompt generator includes the RAG agent section
         # from prompt_config.yaml (routing instructions, source citation rules, etc.)
@@ -1234,11 +1203,11 @@ class PlatformEngineerDeepAgent:
                 "description": "RAG: knowledge base search, documentation, runbooks, architecture"
             }
             logger.info("📚 Added RAG to agents_for_prompt for system prompt generation")
-        
+
         logger.info(f'🔧 Building with {len(all_tools)} tools and {len(subagent_defs)} subagents')
         logger.info(f'📦 Tools: {[t.name for t in all_tools]}')
         logger.info(f'🤖 Subagents: {list(agents_for_prompt.keys())}')
-        
+
         # Build RAG instructions if RAG is enabled
         rag_instructions = ""
         if self.rag_enabled and self.rag_tools:
@@ -1248,18 +1217,18 @@ When users ask questions about platform policies, procedures, or documentation:
 2. Synthesize information from multiple sources when available
 3. Cite sources when providing answers from the knowledge base
 """
-        
+
         # Generate system prompt dynamically using prompt_config.yaml
         # This ensures all subagents are included with proper routing instructions
         system_prompt = generate_platform_system_prompt(
-            self._prompt_config, 
+            self._prompt_config,
             agents_for_prompt
         )
-        
+
         # Append RAG instructions if RAG is enabled and tools are loaded
         if rag_instructions:
             system_prompt += f"\n\n## RAG Knowledge Base\n{rag_instructions}"
-        
+
         system_prompt += """
 
 ## Self-Service Workflows (CRITICAL)
@@ -1288,13 +1257,13 @@ Each todo item's `content` MUST include the subagent name in square brackets, e.
 
 This format is required so the UI can display agent stickers next to each task.
 """
-        
+
         logger.info(f"📝 Generated system prompt with {len(agents_for_prompt)} agent routing instructions")
-        
+
         # Create the deep agent with middleware for deterministic task execution
-        # 
+        #
         # Middleware:
-        # 1. DeterministicTaskMiddleware: 
+        # 1. DeterministicTaskMiddleware:
         #    - before_model: Injects write_todos + task tool calls for next step
         #    - after_model: Updates todos, pops completed task, loops if more tasks
         #
@@ -1328,27 +1297,27 @@ This format is required so the UI can display agent stickers next to each task.
             logger.info("❌ Structured response mode disabled - using [FINAL ANSWER] marker")
 
         deep_agent = create_deep_agent(**deep_agent_kwargs)
-        
+
         # Attach checkpointer if not in dev mode
         if not os.getenv("LANGGRAPH_DEV"):
             deep_agent.checkpointer = InMemorySaver()
-        
+
         # Update graph atomically
         self._graph = deep_agent
         self._graph_generation += 1
-        
+
         logger.info(f"✅ Deep agent created (generation {self._graph_generation})")
-    
+
     async def serve(self, prompt: str, user_email: str = "") -> str:
         """Process prompt and return response."""
         try:
             logger.debug(f"Received prompt: {prompt}")
             if not isinstance(prompt, str) or not prompt.strip():
                 raise ValueError("Prompt must be a non-empty string.")
-            
+
             # Ensure agent is initialized with MCP tools
             await self.ensure_initialized()
-            
+
             # Auto-inject current date and user context
             from datetime import datetime
             current_date = datetime.now().strftime("%Y-%m-%d")
@@ -1358,7 +1327,7 @@ This format is required so the UI can display agent stickers next to each task.
                 context_parts.append(f"Authenticated user email: {user_email}")
             context_parts.append(f"Current date: {current_date}, Current date/time: {current_datetime}")
             enhanced_prompt = f"{prompt}\n\n[{', '.join(context_parts)}]"
-            
+
             graph = self.get_graph()
             state_dict = {"messages": [{"role": "user", "content": enhanced_prompt}]}
             if user_email:
@@ -1367,37 +1336,37 @@ This format is required so the UI can display agent stickers next to each task.
                 state_dict,
                 {"configurable": {"thread_id": uuid.uuid4()}}
             )
-            
+
             messages = result.get("messages", [])
             if not messages:
                 raise RuntimeError("No messages found in response.")
-            
+
             for message in reversed(messages):
                 if isinstance(message, AIMessage) and message.content.strip():
                     return message.content.strip()
-            
+
             raise RuntimeError("No valid AIMessage found in response.")
         except Exception as e:
             logger.error(f"Error in serve: {e}")
             raise
-    
+
     async def serve_stream(self, prompt: str, user_email: str = ""):
         """Process prompt and stream responses."""
         try:
             logger.info(f"Received streaming prompt: {prompt}")
             if not isinstance(prompt, str) or not prompt.strip():
                 raise ValueError("Prompt must be a non-empty string.")
-            
+
             # Ensure agent is initialized with MCP tools
             await self.ensure_initialized()
-            
+
             graph = self.get_graph()
             thread_id = str(uuid.uuid4())
-            
+
             state_dict = {"messages": [{"role": "user", "content": prompt}]}
             if user_email:
                 state_dict["user_email"] = user_email
-            
+
             async for event in graph.astream_events(
                 state_dict,
                 {"configurable": {"thread_id": thread_id}},
@@ -1407,15 +1376,15 @@ This format is required so the UI can display agent stickers next to each task.
                     chunk = event.get("data", {}).get("chunk")
                     if chunk and hasattr(chunk, "content") and chunk.content:
                         yield {"type": "content", "data": chunk.content}
-                
+
                 elif event["event"] == "on_tool_start":
                     tool_name = event.get("name", "unknown")
                     yield {"type": "tool_start", "tool": tool_name, "data": f"\n\n🔧 Calling {tool_name}...\n"}
-                
+
                 elif event["event"] == "on_tool_end":
                     tool_name = event.get("name", "unknown")
                     yield {"type": "tool_end", "tool": tool_name, "data": f"✅ {tool_name} completed\n"}
-        
+
         except Exception as e:
             logger.error(f"Error in serve_stream: {e}")
             yield {"type": "error", "data": str(e)}

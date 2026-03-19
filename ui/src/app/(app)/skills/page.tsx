@@ -38,7 +38,7 @@ export default function SkillsPage() {
         {
           display_text: "Execute prompt",
           llm_prompt: prompt,
-          subagent: "caipe",
+          subagent: "user_input",
         },
       ],
       is_quick_start: true,

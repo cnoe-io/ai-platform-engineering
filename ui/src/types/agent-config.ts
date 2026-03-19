@@ -59,7 +59,7 @@ export interface AgentConfigTask {
  * Available subagent types that can execute tasks
  */
 export type AgentConfigSubagent = 
-  | "caipe"      // User input collection via forms
+  | "user_input"  // User input collection via forms
   | "github"    // GitHub operations via gh CLI
   | "aws"       // AWS resource provisioning
   | "argocd"    // ArgoCD deployments
@@ -504,7 +504,7 @@ export const BUILTIN_QUICK_START_TEMPLATES: AgentConfig[] = [
     tasks: [{
       display_text: "Investigate incidents",
       llm_prompt: "Show me active PagerDuty incidents and find related Jira tickets. Also check if there were any recent deployments that might be related.",
-      subagent: "caipe",
+      subagent: "user_input",
     }],
     owner_id: "system",
     is_system: true,
@@ -570,7 +570,7 @@ export const BUILTIN_QUICK_START_TEMPLATES: AgentConfig[] = [
     tasks: [{
       display_text: "Generate on-call handoff",
       llm_prompt: "Generate an on-call handoff document. Include open incidents, ongoing issues, recent deployments, and any systems to watch.",
-      subagent: "caipe",
+      subagent: "user_input",
     }],
     owner_id: "system",
     is_system: true,
@@ -636,7 +636,7 @@ export const BUILTIN_QUICK_START_TEMPLATES: AgentConfig[] = [
     tasks: [{
       display_text: "Check release readiness",
       llm_prompt: "Check if we're ready for a release. Verify all PRs are merged, tests are passing, staging environment is healthy, and no blocking issues exist.",
-      subagent: "caipe",
+      subagent: "user_input",
     }],
     owner_id: "system",
     is_system: true,
@@ -658,7 +658,7 @@ export const BUILTIN_QUICK_START_TEMPLATES: AgentConfig[] = [
     tasks: [{
       display_text: "Search knowledge base",
       llm_prompt: "Search our knowledge base for information about our deployment process and best practices.",
-      subagent: "caipe",
+      subagent: "user_input",
     }],
     owner_id: "system",
     is_system: true,
