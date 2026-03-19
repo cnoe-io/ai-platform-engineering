@@ -7,8 +7,7 @@
  *
  * Event types match backend stream_events.py:
  * - content: LLM token streaming
- * - tool_start/tool_end: Tool invocations
- * - todo_update: Task list updates (replaces execution_plan)
+ * - tool_start/tool_end: Tool invocations (including write_todos for task tracking)
  * - subagent_start/subagent_end: Subagent invocations
  * - final_result: Final agent response
  */
@@ -44,16 +43,10 @@ export interface ToolEventData {
   agent: string;
 }
 
-/** Todo item from todo_update events */
+/** Todo item from write_todos tool (via tool_start events) */
 export interface TodoItem {
   content: string;
   status: "pending" | "in_progress" | "completed";
-}
-
-/** Todo update data from todo_update events */
-export interface TodoUpdateData {
-  todos: TodoItem[];
-  agent: string;
 }
 
 /** Subagent data from subagent_start/subagent_end events */
@@ -142,9 +135,8 @@ export interface HITLMetadata {
  */
 export type SSEEventType =
   | "content" // LLM token streaming
-  | "tool_start" // Tool invocation started
+  | "tool_start" // Tool invocation started (includes write_todos for task tracking)
   | "tool_end" // Tool invocation completed
-  | "todo_update" // Task list update (replaces execution_plan)
   | "subagent_start" // Subagent invocation started
   | "subagent_end" // Subagent invocation completed
   | "final_result" // Final agent response
@@ -178,9 +170,6 @@ export interface SSEAgentEvent {
   // ─── Structured event data (new) ─────────────────────────────
   /** Tool event data for tool_start/tool_end */
   toolData?: ToolEventData;
-
-  /** Todo list for todo_update */
-  todoData?: TodoUpdateData;
 
   /** Subagent data for subagent_start/subagent_end */
   subagentData?: SubagentEventData;
@@ -256,13 +245,6 @@ export function createSSEAgentEvent(
         ...base,
         toolData: data as ToolEventData,
         sourceAgent: (data as ToolEventData).agent,
-      };
-
-    case "todo_update":
-      return {
-        ...base,
-        todoData: data as TodoUpdateData,
-        sourceAgent: (data as TodoUpdateData).agent,
       };
 
     case "subagent_start":

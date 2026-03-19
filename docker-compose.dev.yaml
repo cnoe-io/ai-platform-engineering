@@ -1128,7 +1128,9 @@ services:
       - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
       # Runtime configuration
       - AGENT_RUNTIME_TTL_SECONDS=${AGENT_RUNTIME_TTL_SECONDS:-3600}
-      - CORS_ORIGINS=${DYNAMIC_AGENTS_CORS_ORIGINS:-*}
+      # CORS_ORIGINS: Set DYNAMIC_AGENTS_CORS_ORIGINS in .env as JSON array
+      # e.g., DYNAMIC_AGENTS_CORS_ORIGINS='["http://localhost:3000"]'
+      # Omitted here to use Pydantic default ["*"]
       # Checkpoint configuration
       - LANGGRAPH_CHECKPOINT_TYPE=mongodb
       - LANGGRAPH_CHECKPOINT_MONGODB_URI=${MONGODB_URI:-mongodb://${MONGODB_ROOT_USERNAME:-admin}:${MONGODB_ROOT_PASSWORD:-changeme}@caipe-mongodb:27017/${MONGODB_DATABASE:-caipe}?authSource=admin}

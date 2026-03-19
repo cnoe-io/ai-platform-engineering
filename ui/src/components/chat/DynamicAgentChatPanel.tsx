@@ -221,21 +221,22 @@ export function DynamicAgentChatPanel({ endpoint, conversationId, conversationTi
       setHistoryLoadError(null);
       
       try {
-        const response = await fetch(
+        // Fetch messages from checkpointer
+        const messagesResponse = await fetch(
           `/api/dynamic-agents/conversations/${conversationId}/messages?agent_id=${encodeURIComponent(agentId)}`
         );
         
-        if (!response.ok) {
-          if (response.status === 404) {
+        if (!messagesResponse.ok) {
+          if (messagesResponse.status === 404) {
             // Conversation doesn't exist yet - this is fine for new conversations
             console.log(`[DynamicAgentChatPanel] Conversation ${conversationId} not found, starting fresh`);
             historyLoadedRef.current.add(conversationId);
             return;
           }
-          throw new Error(`Failed to load history: ${response.status}`);
+          throw new Error(`Failed to load history: ${messagesResponse.status}`);
         }
         
-        const data = await response.json();
+        const data = await messagesResponse.json();
         
         // Mark as loaded before populating to avoid race conditions
         historyLoadedRef.current.add(conversationId);
@@ -252,6 +253,8 @@ export function DynamicAgentChatPanel({ endpoint, conversationId, conversationTi
             }, undefined, msg.id);
           }
         }
+        
+        // Note: Todos are fetched by DynamicAgentContext via the /todos endpoint
         
         // Handle pending interrupt - restore the HITL form if present
         if (data.has_pending_interrupt && data.interrupt_data) {
@@ -463,7 +466,6 @@ export function DynamicAgentChatPanel({ endpoint, conversationId, conversationTi
         const isImportantArtifact = 
              sseEvent.type === "tool_start" ||
              sseEvent.type === "tool_end" ||
-             sseEvent.type === "todo_update" ||
              sseEvent.type === "subagent_start" ||
              sseEvent.type === "subagent_end" ||
              sseEvent.type === "final_result" ||

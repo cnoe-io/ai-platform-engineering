@@ -504,7 +504,6 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
         const isImportantArtifact = isSSEEvent
           ? (sseEvent.type === "tool_start" ||
              sseEvent.type === "tool_end" ||
-             sseEvent.type === "todo_update" ||
              sseEvent.type === "subagent_start" ||
              sseEvent.type === "subagent_end" ||
              sseEvent.type === "final_result" ||

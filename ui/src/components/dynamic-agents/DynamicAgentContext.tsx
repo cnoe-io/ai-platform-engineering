@@ -33,6 +33,7 @@ import {
 import type { SubAgentRef } from "@/types/dynamic-agent";
 import { useShallow } from "zustand/react/shallow";
 import { useSession } from "next-auth/react";
+import { FileTree } from "./FileTree";
 
 // Tool call from events
 interface ToolCall {
@@ -118,6 +119,11 @@ export function DynamicAgentContext({
   const [activeTab, setActiveTab] = useState<"events" | "info">("events");
   const [toolsCollapsed, setToolsCollapsed] = useState(false);
 
+  // Todos fetched from API (single source of truth)
+  const [todos, setTodos] = useState<TodoItem[]>([]);
+  const [todosFetchKey, setTodosFetchKey] = useState(0);
+  const [todosLoading, setTodosLoading] = useState(true);
+
   // Check if streaming is active
   const conversation = useMemo(() => {
     if (!activeConversationId) return null;
@@ -171,22 +177,192 @@ export function DynamicAgentContext({
     }
   }, [conversationEvents, isActuallyStreaming]);
 
-  // Parse todos from structured events (replaces execution plan)
-  const hasFinalResult = useMemo(() => {
-    return conversationEvents.some((e) => e.type === "final_result");
+  // Detect write_todos tool events and trigger a fetch
+  useEffect(() => {
+    const hasWriteTodosEvent = conversationEvents.some(
+      (e) => e.type === "tool_start" && e.toolData?.tool_name === "write_todos"
+    );
+    if (hasWriteTodosEvent) {
+      setTodosFetchKey((k) => k + 1);
+    }
   }, [conversationEvents]);
 
-  const todos = useMemo(() => {
-    const parsedTodos = parseTodos(conversationEvents);
-    // Only force-mark as completed when the agent finished (final_result received)
-    if (!isActuallyStreaming && hasFinalResult && parsedTodos.length > 0) {
-      return parsedTodos.map((todo) => ({
-        ...todo,
-        status: "completed" as const,
-      }));
+  // Fetch todos from API when conversation changes or write_todos event occurs
+  useEffect(() => {
+    if (!activeConversationId || !agentId) {
+      setTodos([]);
+      setTodosLoading(false);
+      return;
     }
-    return parsedTodos;
-  }, [conversationEvents, isActuallyStreaming, hasFinalResult]);
+
+    const fetchTodos = async () => {
+      try {
+        const response = await fetch(
+          `/api/dynamic-agents/conversations/${activeConversationId}/todos?agent_id=${encodeURIComponent(agentId)}`,
+          {
+            headers: {
+              ...(session?.accessToken ? { Authorization: `Bearer ${session.accessToken}` } : {}),
+            },
+          }
+        );
+        if (response.ok) {
+          const data = await response.json();
+          const fetchedTodos: TodoItem[] = (data.todos || []).map(
+            (todo: { content?: string; status?: string }, idx: number) => ({
+              id: `todo-${idx}`,
+              content: todo.content || "",
+              status: (todo.status as "pending" | "in_progress" | "completed") || "pending",
+            })
+          );
+          setTodos(fetchedTodos);
+        }
+      } catch {
+        // Silently ignore fetch errors - todos are optional
+      } finally {
+        setTodosLoading(false);
+      }
+    };
+
+    fetchTodos();
+  }, [activeConversationId, agentId, todosFetchKey, session?.accessToken]);
+
+  // Files fetched from API (single source of truth)
+  const [files, setFiles] = useState<string[]>([]);
+  const [filesFetchKey, setFilesFetchKey] = useState(0);
+  const [filesLoading, setFilesLoading] = useState(true);
+  const [isDownloadingFile, setIsDownloadingFile] = useState(false);
+  const [downloadingFilePath, setDownloadingFilePath] = useState<string | undefined>();
+
+  // Reset loading states when conversation changes
+  useEffect(() => {
+    setTodosLoading(true);
+    setFilesLoading(true);
+  }, [activeConversationId]);
+
+  // Detect write_file or edit_file tool events and trigger a fetch
+  useEffect(() => {
+    const hasFileWriteEvent = conversationEvents.some(
+      (e) =>
+        e.type === "tool_start" &&
+        (e.toolData?.tool_name === "write_file" || e.toolData?.tool_name === "edit_file")
+    );
+    if (hasFileWriteEvent) {
+      setFilesFetchKey((k) => k + 1);
+    }
+  }, [conversationEvents]);
+
+  // Fetch files from API when conversation changes or file write event occurs
+  useEffect(() => {
+    if (!activeConversationId || !agentId) {
+      setFiles([]);
+      setFilesLoading(false);
+      return;
+    }
+
+    const fetchFiles = async () => {
+      try {
+        const response = await fetch(
+          `/api/dynamic-agents/conversations/${activeConversationId}/files/list?agent_id=${encodeURIComponent(agentId)}`,
+          {
+            headers: {
+              ...(session?.accessToken ? { Authorization: `Bearer ${session.accessToken}` } : {}),
+            },
+          }
+        );
+        if (response.ok) {
+          const data = await response.json();
+          setFiles(data.files || []);
+        }
+      } catch {
+        // Silently ignore fetch errors - files are optional
+      } finally {
+        setFilesLoading(false);
+      }
+    };
+
+    fetchFiles();
+  }, [activeConversationId, agentId, filesFetchKey, session?.accessToken]);
+
+  // Handle file download
+  const handleFileDownload = useCallback(
+    async (path: string) => {
+      if (!activeConversationId || !agentId || isDownloadingFile) return;
+
+      setIsDownloadingFile(true);
+      setDownloadingFilePath(path);
+
+      try {
+        const response = await fetch(
+          `/api/dynamic-agents/conversations/${activeConversationId}/files/content?agent_id=${encodeURIComponent(agentId)}&path=${encodeURIComponent(path)}`,
+          {
+            headers: {
+              ...(session?.accessToken ? { Authorization: `Bearer ${session.accessToken}` } : {}),
+            },
+          }
+        );
+
+        if (response.ok) {
+          const data = await response.json();
+          const content = data.content || "";
+
+          // Create blob and download
+          const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement("a");
+          a.href = url;
+          // Use just the filename for download
+          const filename = path.split("/").pop() || "file.txt";
+          a.download = filename;
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          URL.revokeObjectURL(url);
+        }
+      } catch {
+        // Silently ignore download errors
+      } finally {
+        setIsDownloadingFile(false);
+        setDownloadingFilePath(undefined);
+      }
+    },
+    [activeConversationId, agentId, session?.accessToken, isDownloadingFile]
+  );
+
+  // Handle file delete
+  const [isDeletingFile, setIsDeletingFile] = useState(false);
+  const [deletingFilePath, setDeletingFilePath] = useState<string | undefined>();
+
+  const handleFileDelete = useCallback(
+    async (path: string) => {
+      if (!activeConversationId || !agentId || isDeletingFile) return;
+
+      setIsDeletingFile(true);
+      setDeletingFilePath(path);
+
+      try {
+        const response = await fetch(
+          `/api/dynamic-agents/conversations/${activeConversationId}/files/content?agent_id=${encodeURIComponent(agentId)}&path=${encodeURIComponent(path)}`,
+          {
+            method: "DELETE",
+            headers: {
+              ...(session?.accessToken ? { Authorization: `Bearer ${session.accessToken}` } : {}),
+            },
+          }
+        );
+
+        if (response.ok) {
+          // Refresh files list after deletion
+          setFilesFetchKey((k) => k + 1);
+        }
+      } catch {
+        // Silently ignore delete errors
+      } finally {
+        setIsDeletingFile(false);
+        setDeletingFilePath(undefined);
+      }
+    },
+    [activeConversationId, agentId, session?.accessToken, isDeletingFile]
+  );
 
   // Extract error messages from error events
   const errorMessages = useMemo(() => {
@@ -260,7 +436,7 @@ export function DynamicAgentContext({
 
   const totalToolCalls = activeToolCalls.length + completedToolCalls.length;
   const totalSubagentCalls = activeSubagentCalls.length + completedSubagentCalls.length;
-  const totalActivityCount = totalToolCalls + totalSubagentCalls + todos.length;
+  const totalActivityCount = totalToolCalls + totalSubagentCalls + todos.length + files.length;
 
   return (
     <motion.div
@@ -303,7 +479,7 @@ export function DynamicAgentContext({
                     )}
                   >
                     <Activity className="h-3.5 w-3.5" />
-                    Events
+                    Context
                     {totalActivityCount > 0 && (
                       <Badge
                         variant="secondary"
@@ -371,6 +547,13 @@ export function DynamicAgentContext({
             {activeTab === "events" && (
               <EventsContent
                 todos={todos}
+                files={files}
+                onFileClick={handleFileDownload}
+                onFileDelete={handleFileDelete}
+                isDownloadingFile={isDownloadingFile}
+                downloadingFilePath={downloadingFilePath}
+                isDeletingFile={isDeletingFile}
+                deletingFilePath={deletingFilePath}
                 activeToolCalls={activeToolCalls}
                 completedToolCalls={completedToolCalls}
                 activeSubagentCalls={activeSubagentCalls}
@@ -383,6 +566,7 @@ export function DynamicAgentContext({
                 runtimeRestarted={runtimeRestarted}
                 failedServers={failedServers}
                 missingTools={missingTools}
+                isLoading={todosLoading || filesLoading}
               />
             )}
 
@@ -431,6 +615,13 @@ export function DynamicAgentContext({
 
 interface EventsContentProps {
   todos: TodoItem[];
+  files: string[];
+  onFileClick?: (path: string) => void;
+  onFileDelete?: (path: string) => void;
+  isDownloadingFile?: boolean;
+  downloadingFilePath?: string;
+  isDeletingFile?: boolean;
+  deletingFilePath?: string;
   activeToolCalls: ToolCall[];
   completedToolCalls: ToolCall[];
   activeSubagentCalls: SubagentCall[];
@@ -446,10 +637,19 @@ interface EventsContentProps {
   failedServers?: string[];
   /** Missing tools from runtimeStatus (persists across messages) */
   missingTools?: string[];
+  /** Whether initial data (todos/files) is loading */
+  isLoading?: boolean;
 }
 
 function EventsContent({
   todos,
+  files,
+  onFileClick,
+  onFileDelete,
+  isDownloadingFile,
+  downloadingFilePath,
+  isDeletingFile,
+  deletingFilePath,
   activeToolCalls,
   completedToolCalls,
   activeSubagentCalls,
@@ -462,14 +662,26 @@ function EventsContent({
   runtimeRestarted,
   failedServers = [],
   missingTools = [],
+  isLoading = false,
 }: EventsContentProps) {
   const [subagentsCollapsed, setSubagentsCollapsed] = useState(false);
 
   // Derive persistent warning from runtimeStatus
   const hasPersistentWarning = failedServers.length > 0 || missingTools.length > 0;
 
+  // Show loading state while fetching initial data
+  if (isLoading) {
+    return (
+      <div className="text-center py-8 text-muted-foreground">
+        <Loader2 className="h-8 w-8 mx-auto mb-3 opacity-40 animate-spin" />
+        <p className="text-sm">Loading context...</p>
+      </div>
+    );
+  }
+
   const hasNoActivity =
     todos.length === 0 &&
+    files.length === 0 &&
     activeToolCalls.length === 0 &&
     completedToolCalls.length === 0 &&
     activeSubagentCalls.length === 0 &&
@@ -676,6 +888,17 @@ function EventsContent({
           </div>
         </div>
       )}
+
+      {/* Files Tree */}
+      <FileTree
+        files={files}
+        onFileClick={onFileClick}
+        onFileDelete={onFileDelete}
+        isDownloading={isDownloadingFile}
+        downloadingPath={downloadingFilePath}
+        isDeleting={isDeletingFile}
+        deletingPath={deletingFilePath}
+      />
 
       {/* Active subagent calls */}
       {activeSubagentCalls.length > 0 && (
@@ -1094,25 +1317,6 @@ function AgentInfoContent({
       )}
     </div>
   );
-}
-
-// ═══════════════════════════════════════════════════════════════
-// Helper: Parse todos from SSE events (uses structured todoData)
-// ═══════════════════════════════════════════════════════════════
-
-function parseTodos(events: SSEAgentEvent[]): TodoItem[] {
-  // Get the latest todo_update event (it contains the full todo list)
-  const todoEvents = events.filter((e) => e.type === "todo_update" && e.todoData);
-  if (todoEvents.length === 0) return [];
-
-  const latestTodoEvent = todoEvents[todoEvents.length - 1];
-  const todos = latestTodoEvent.todoData?.todos || [];
-
-  return todos.map((todo, idx) => ({
-    id: `todo-${idx}`,
-    content: todo.content,
-    status: todo.status,
-  }));
 }
 
 // ═══════════════════════════════════════════════════════════════
