@@ -173,7 +173,7 @@ dependencies = [
 requires-dist = [
     { name = "a2a-sdk", specifier = "==0.3.0" },
     { name = "agntcy-app-sdk", specifier = "==0.4.5" },
-    { name = "cnoe-agent-utils", specifier = "==0.3.11" },
+    { name = "cnoe-agent-utils", specifier = "==0.3.14" },
     { name = "httpx", specifier = "==0.28.1" },
     { name = "langchain-core", specifier = "==1.1.2" },
     { name = "langchain-mcp-adapters", specifier = "==0.2.1" },
