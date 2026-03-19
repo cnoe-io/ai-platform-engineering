@@ -11,7 +11,7 @@
  */
 
 import React from 'react';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { render, screen, waitFor, within, fireEvent } from '@testing-library/react';
 
 // ============================================================================
 // Mocks
@@ -61,6 +61,10 @@ jest.mock('@/components/admin/SkillMetricsCards', () => ({
   RunStatsTable: () => <div />,
   OverallRunStatsCard: () => <div />,
   TopCreatorsCard: () => <div />,
+}));
+
+jest.mock('@/components/admin/CheckpointStatsSection', () => ({
+  CheckpointStatsSection: () => <div data-testid="checkpoint-stats">CheckpointStatsSection</div>,
 }));
 
 jest.mock('@/components/admin/CreateTeamDialog', () => ({
@@ -179,8 +183,8 @@ const mockConfigResponse = {
   data: { npsEnabled: false },
 };
 
-function setupFetchMock(overrides: Record<string, any> = {}) {
-  (global.fetch as jest.Mock) = jest.fn((url: string) => {
+function setupFetchMock(overrides: Record<string, any> = {}): jest.Mock {
+  const mock = jest.fn((url: string) => {
     if (url.includes('/api/admin/stats') && !url.includes('skills')) {
       return Promise.resolve({
         ok: true,
@@ -234,6 +238,8 @@ function setupFetchMock(overrides: Record<string, any> = {}) {
       json: () => Promise.resolve({ success: true, data: {} }),
     });
   });
+  global.fetch = mock as any;
+  return mock;
 }
 
 jest.spyOn(console, 'error').mockImplementation(() => {});
@@ -418,6 +424,21 @@ describe('Admin Dashboard Page', () => {
 
       expect(screen.getByText('Admin User')).toBeInTheDocument();
       expect(screen.getByText('Regular User')).toBeInTheDocument();
+    });
+
+    it('fetches stats with range param', async () => {
+      const fetchMock = setupFetchMock();
+
+      render(<AdminPage />);
+
+      await waitFor(() => {
+        expect(screen.getByText('42')).toBeInTheDocument();
+      });
+
+      // Initial fetch uses default 30d
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining('/api/admin/stats?range=30d')
+      );
     });
   });
 });
