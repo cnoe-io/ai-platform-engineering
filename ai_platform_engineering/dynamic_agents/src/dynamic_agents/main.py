@@ -4,7 +4,7 @@ import asyncio
 import os
 from contextlib import asynccontextmanager
 
-from dynamic_agents.logging import setup_logging
+from dynamic_agents.log_config import setup_logging
 
 # Setup logging before other imports that trigger cnoe-agent-utils
 logger = setup_logging()
