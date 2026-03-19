@@ -49,6 +49,8 @@ async function checkSeedingStatus(): Promise<{ needsSeeding: boolean; existingCo
 
   const collection = await getCollection<AgentConfig>("agent_configs");
   const enabledIds = enabledTemplates.map((t) => t.id);
+  const allSystemIds = BUILTIN_QUICK_START_TEMPLATES.map((t) => t.id);
+  const disabledIds = allSystemIds.filter((id) => !new Set(enabledIds).has(id));
 
   // Count how many of the enabled templates already exist
   const existingCount = await collection.countDocuments({
@@ -56,8 +58,13 @@ async function checkSeedingStatus(): Promise<{ needsSeeding: boolean; existingCo
     id: { $in: enabledIds },
   });
 
+  // Count system templates that should be removed
+  const staleCount = disabledIds.length > 0
+    ? await collection.countDocuments({ is_system: true, id: { $in: disabledIds } })
+    : 0;
+
   return {
-    needsSeeding: existingCount < enabledTemplates.length,
+    needsSeeding: existingCount < enabledTemplates.length || staleCount > 0,
     existingCount,
     templateCount: enabledTemplates.length,
   };
