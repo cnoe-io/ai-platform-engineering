@@ -19,19 +19,11 @@ draft: true
 
 ### Project tagline
 
-CAIPE is an integrated, open source multi-agent system and reference implementation for automating platform engineering and cloud native operations, with standardized protocols, built-in knowledge bases, curated platform skills, enterprise security, a rich UX, and multiple client integrations.
-
-### Project summary
-
-Community AI Platform Engineering (CAIPE, pronounced “cape”) is an open source distributed Multi-Agent System (MAS) for platform engineering and cloud native operations. CAIPE orchestrates specialized AI agents across Kubernetes platforms, cloud native infrastructure, DevOps tooling, and project management systems using standardized interoperability protocols such as Agent-to-Agent (A2A) and the Model Context Protocol (MCP).
-
-CAIPE integrates extensible knowledge bases that support retrieval-augmented generation (RAG), GraphRAG, and persistent agent memory. These capabilities allow agents to extract, store, and recall operational facts from documentation, system state, and previous workflows, enabling more reliable reasoning across complex Kubernetes and cloud native environments.
-
-By combining agent orchestration, curated platform engineering skills, persistent memory, and structured workflows, CAIPE enables teams to build predictable, auditable automation across modern platform engineering stacks.
+CAIPE is an integrated, open source distributed multi-agent system and reference implementation for automating platform engineering and cloud native operations, with standardized protocols, built-in knowledge bases, curated platform skills, enterprise security, a rich UX, and multiple client integrations.
 
 ### Project description
 
-Community AI Platform Engineering (CAIPE, pronounced “cape”) is an open source Multi-Agent System (MAS) developed under the CNOE (Cloud Native Operational Excellence) Agentic AI SIG. As platform engineering, SRE, and DevOps environments grow in complexity, traditional approaches often lead to operational delays, fragmented tooling, and developer friction. CAIPE addresses this by providing a secure and scalable persona-driven reference implementation that orchestrates specialized AI agents. Each agent integrates securely with platform tools such as ArgoCD, Backstage, GitHub, PagerDuty, Jira, Slack, and Kubernetes using standardized interoperability protocols.
+Community AI Platform Engineering (CAIPE, pronounced "cape") is an open source distributed Multi-Agent System (MAS) developed under the CNOE (Cloud Native Operational Excellence) Agentic AI SIG. As platform engineering, SRE, and DevOps environments grow in complexity, traditional approaches often lead to operational delays, fragmented tooling, and developer friction. CAIPE addresses this by providing a secure and scalable persona-driven reference implementation that orchestrates specialized AI agents. Each agent integrates securely with platform tools such as ArgoCD, Backstage, GitHub, PagerDuty, Jira, Slack, and Kubernetes using standardized interoperability protocols.
 
 Built on open source agentic SDKs and the latest open standards in inter-agent and tool communication such as A2A, MCP, and A2UI, CAIPE's architecture enables agents to be developed, deployed, and scaled independently while securely interacting with Kubernetes platforms, cloud native infrastructure, and operational tooling.
 
@@ -70,7 +62,7 @@ https://cnoe-io.github.io/ai-platform-engineering/
 
 ## Roadmap
 
-CAIPE’s roadmap is developed openly through GitHub issues and community working groups and is tracked in the project roadmap board.
+CAIPE's roadmap is developed openly through GitHub issues and community working groups and is tracked in the project roadmap board.
 
 Project roadmap:
 [https://github.com/orgs/cnoe-io/projects/9](https://github.com/orgs/cnoe-io/projects/9)
@@ -194,7 +186,7 @@ No existing CNCF project provides an integrated multi-agent system that combines
 
 ### Landscape
 
-CAIPE is not yet listed on the [Cloud Native Landscape](https://landscape.cncf.io/). We would anticipate placement alongside kagent in the emerging **AI/ML for Platform Operations** category or under **Automation & Configuration** within the landscape.
+CAIPE is not yet listed on the [Cloud Native Landscape](https://landscape.cncf.io/). We would anticipate placement alongside kagent under the same primary categories (**Provisioning** and **Automation & Configuration**) and the additional category **CNAI / Agentic AI**, as shown on kagent's landscape entry.
 
 ---
 
@@ -226,16 +218,47 @@ cnoe-steering@googlegroups.com
 
 ### Contributing or sponsoring entity signatory information
 
-If an individual or individual(s):
+**If an organization:**
+
+| Name | Address | Type (e.g., Delaware corporation) | Signatory name and title | Email address |
+|------|---------|-----------------------------------|----------------------------|---------------|
+| Cisco Systems, Inc. | 170 W Tasman Dr, San Jose, CA 95134 | Delaware corporation | Cisco OSPO Legal | oss-legal@cisco.com |
+
+**Or, if an individual or individual(s):**
 
 | Name | Country | Email address |
-|---|---|---|
-| *[To be filled by maintainers]* | | |
+|------|---------|---------------|
 | | | |
+| | | |
+| | | |
+
+**Signatories for this application (individuals):** Hasith Kalpage approves on the business side (Director). Natali Vlatko and Tim Swanson provide additional sign-off from Cisco OSPO. **Legal approval: TBD.**
+
+| Name | Country | Email address | Title / role |
+|------|---------|---------------|--------------|
+| Sri Aradhyula | United States | sraradhy@cisco.com | Project maintainer |
+| Hasith Kalpage | United States | haskalpa@cisco.com | Project maintainer; Director (business approval) |
+| Natali Vlatko | United States | nvlatko@cisco.com | Cisco OSPO Lead (additional signatory) |
+| Tim Swanson | United States | tiswanso@cisco.com | Cisco OSPO Lead (additional signatory) |
 
 ---
 
 ## Additional information
+
+### Maintainers (reference)
+
+| Name | GitHub | Company |
+|------|--------|---------|
+| — | [@adickinson72](https://github.com/adickinson72) | Demandbase |
+| Arthur Drozdov | [@artdroz](https://github.com/artdroz) | Cisco Outshift |
+| Sri Aradhyula | [@sriaradhyula](https://github.com/sriaradhyula) | Cisco Outshift |
+| Erik Lutz | [@cisco-erilutz](https://github.com/cisco-erilutz) | Splunk |
+| Carlos Santana | [@csantanapr](https://github.com/csantanapr) | AWS |
+| Niall Thomson | [@niallthomson](https://github.com/niallthomson) | AWS |
+| Hasith Kalpage | [@haskalpa](https://github.com/haskalpa) | Cisco Outshift |
+| Kevin | [@kevkantes](https://github.com/kevkantes) | — |
+| Shubham Bakshi | [@subbaksh](https://github.com/subbaksh) | Cisco Outshift |
+| Sunny Whang | [@suwhang-cisco](https://github.com/suwhang-cisco) | Cisco Outshift |
 
 ### CNCF contacts
 
