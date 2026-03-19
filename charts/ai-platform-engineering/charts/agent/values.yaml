@@ -259,4 +259,10 @@ checkpointPersistence:
     existingSecret:
       name: ""
       key: ""
+    # -- MongoDB database name (default: "checkpointing_db")
+    dbName: ""
+    # -- Checkpoint collection name (default: "checkpoints")
+    checkpointCollection: ""
+    # -- Checkpoint writes collection name (default: "checkpoint_writes")
+    writesCollection: ""
   ttlMinutes: 0

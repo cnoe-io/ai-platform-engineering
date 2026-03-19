@@ -84,6 +84,23 @@ class TestGetCheckpointerConfig:
       config = get_checkpointer_config()
       assert config["type"] == "mongodb"
       assert config["mongodb_uri"] == "mongodb://host:27017"
+      assert config["mongodb_db_name"] == ""
+      assert config["mongodb_collection"] == ""
+      assert config["mongodb_writes_collection"] == ""
+
+  def test_mongodb_config_custom_collections(self):
+    env = {
+      "LANGGRAPH_CHECKPOINT_TYPE": "mongodb",
+      "LANGGRAPH_CHECKPOINT_MONGODB_URI": "mongodb://host:27017",
+      "LANGGRAPH_CHECKPOINT_MONGODB_DB_NAME": "caipe",
+      "LANGGRAPH_CHECKPOINT_MONGODB_COLLECTION": "conversation_checkpoints",
+      "LANGGRAPH_CHECKPOINT_MONGODB_WRITES_COLLECTION": "conversation_checkpoint_writes",
+    }
+    with patch.dict("os.environ", env, clear=True):
+      config = get_checkpointer_config()
+      assert config["mongodb_db_name"] == "caipe"
+      assert config["mongodb_collection"] == "conversation_checkpoints"
+      assert config["mongodb_writes_collection"] == "conversation_checkpoint_writes"
 
   def test_mongodb_config_fallback_env(self):
     env = {

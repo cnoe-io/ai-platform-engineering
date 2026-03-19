@@ -17,6 +17,9 @@ Configuration via environment variables:
     LANGGRAPH_CHECKPOINT_REDIS_URL: Redis Stack connection string
     LANGGRAPH_CHECKPOINT_POSTGRES_DSN: Postgres DSN
     LANGGRAPH_CHECKPOINT_MONGODB_URI: MongoDB connection URI
+    LANGGRAPH_CHECKPOINT_MONGODB_DB_NAME: MongoDB database name (default: checkpointing_db)
+    LANGGRAPH_CHECKPOINT_MONGODB_COLLECTION: Checkpoint collection name (default: checkpoints)
+    LANGGRAPH_CHECKPOINT_MONGODB_WRITES_COLLECTION: Writes collection name (default: checkpoint_writes)
     LANGGRAPH_CHECKPOINT_TTL_MINUTES: TTL for checkpoints (0 = no expiry)
 
 Usage:
@@ -56,6 +59,9 @@ def get_checkpointer_config() -> dict[str, Any]:
         "mongodb_uri": (
             os.getenv("LANGGRAPH_CHECKPOINT_MONGODB_URI") or os.getenv("MONGODB_URI", "")
         ),
+        "mongodb_db_name": os.getenv("LANGGRAPH_CHECKPOINT_MONGODB_DB_NAME", ""),
+        "mongodb_collection": os.getenv("LANGGRAPH_CHECKPOINT_MONGODB_COLLECTION", ""),
+        "mongodb_writes_collection": os.getenv("LANGGRAPH_CHECKPOINT_MONGODB_WRITES_COLLECTION", ""),
         "ttl_minutes": int(os.getenv("LANGGRAPH_CHECKPOINT_TTL_MINUTES", "0")),
     }
 
@@ -101,7 +107,12 @@ def create_checkpointer():
                     "Falling back to InMemorySaver."
                 )
                 return _create_memory_checkpointer()
-            return _create_mongodb_checkpointer(mongodb_uri)
+            return _create_mongodb_checkpointer(
+                mongodb_uri,
+                db_name=config["mongodb_db_name"],
+                checkpoint_collection_name=config["mongodb_collection"],
+                writes_collection_name=config["mongodb_writes_collection"],
+            )
 
         else:
             if checkpoint_type != CHECKPOINT_TYPE_MEMORY:
@@ -367,10 +378,21 @@ class _LazyAsyncPostgresSaver(BaseCheckpointSaver):
 # ---------------------------------------------------------------------------
 
 
-def _create_mongodb_checkpointer(mongodb_uri: str):
+def _create_mongodb_checkpointer(
+    mongodb_uri: str,
+    db_name: str = "",
+    checkpoint_collection_name: str = "",
+    writes_collection_name: str = "",
+):
     """Create a MongoDB-backed checkpointer (lazy async initialization).
 
-    Uses AsyncMongoDBSaver from langgraph-checkpoint-mongodb.
+    Uses MongoDBSaver from langgraph-checkpoint-mongodb.
+
+    Args:
+        mongodb_uri: MongoDB connection URI.
+        db_name: Database name (default: MongoDBSaver default "checkpointing_db").
+        checkpoint_collection_name: Collection for checkpoints (default: "checkpoints").
+        writes_collection_name: Collection for writes (default: "checkpoint_writes").
     """
     try:
         import importlib.util
@@ -379,8 +401,18 @@ def _create_mongodb_checkpointer(mongodb_uri: str):
             raise ImportError("langgraph-checkpoint-mongodb not installed")
 
         masked_uri = mongodb_uri[:20] + "..." if len(mongodb_uri) > 20 else mongodb_uri
-        logger.info(f"LangGraph Checkpointer: AsyncMongoDBSaver configured (uri={masked_uri})")
-        return _LazyAsyncMongoDBSaver(mongodb_uri)
+        logger.info(
+            f"LangGraph Checkpointer: MongoDBSaver configured "
+            f"(uri={masked_uri}, db={db_name or 'default'}, "
+            f"checkpoints={checkpoint_collection_name or 'default'}, "
+            f"writes={writes_collection_name or 'default'})"
+        )
+        return _LazyAsyncMongoDBSaver(
+            mongodb_uri,
+            db_name=db_name,
+            checkpoint_collection_name=checkpoint_collection_name,
+            writes_collection_name=writes_collection_name,
+        )
 
     except ImportError:
         logger.warning(
@@ -393,9 +425,18 @@ def _create_mongodb_checkpointer(mongodb_uri: str):
 class _LazyAsyncMongoDBSaver(BaseCheckpointSaver):
     """Lazy wrapper for MongoDBSaver that initializes on first async use."""
 
-    def __init__(self, mongodb_uri: str):
+    def __init__(
+        self,
+        mongodb_uri: str,
+        db_name: str = "",
+        checkpoint_collection_name: str = "",
+        writes_collection_name: str = "",
+    ):
         super().__init__()
         self._mongodb_uri = mongodb_uri
+        self._db_name = db_name
+        self._checkpoint_collection_name = checkpoint_collection_name
+        self._writes_collection_name = writes_collection_name
         self._saver: Optional[Any] = None
         self._initialized = False
 
@@ -405,9 +446,21 @@ class _LazyAsyncMongoDBSaver(BaseCheckpointSaver):
             from langgraph.checkpoint.mongodb.saver import MongoDBSaver
 
             client = MongoClient(self._mongodb_uri)
-            self._saver = MongoDBSaver(client)
+            kwargs: dict[str, Any] = {}
+            if self._db_name:
+                kwargs["db_name"] = self._db_name
+            if self._checkpoint_collection_name:
+                kwargs["checkpoint_collection_name"] = self._checkpoint_collection_name
+            if self._writes_collection_name:
+                kwargs["writes_collection_name"] = self._writes_collection_name
+            self._saver = MongoDBSaver(client, **kwargs)
             self._initialized = True
-            logger.info("LangGraph MongoDBSaver initialized and connected")
+            logger.info(
+                f"LangGraph MongoDBSaver initialized "
+                f"(db={self._saver.db.name}, "
+                f"checkpoints={self._saver.checkpoint_collection.name}, "
+                f"writes={self._saver.writes_collection.name})"
+            )
 
     async def aget_tuple(self, config: dict) -> Optional[CheckpointTuple]:
         await self._ensure_initialized()
