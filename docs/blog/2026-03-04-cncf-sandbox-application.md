@@ -19,9 +19,9 @@ draft: true
 
 ### Project summary
 
-Community AI Platform Engineering (CAIPE, pronounced “cape”) is an open-source distributed Multi-Agent System (MAS) for platform engineering and cloud-native operations. CAIPE orchestrates specialized AI agents across Kubernetes platforms, cloud-native infrastructure, DevOps tooling, and project management systems using standardized interoperability protocols such as Agent-to-Agent (A2A) and the Model Context Protocol (MCP).
+Community AI Platform Engineering (CAIPE, pronounced “cape”) is an open source distributed Multi-Agent System (MAS) for platform engineering and cloud native operations. CAIPE orchestrates specialized AI agents across Kubernetes platforms, cloud native infrastructure, DevOps tooling, and project management systems using standardized interoperability protocols such as Agent-to-Agent (A2A) and the Model Context Protocol (MCP).
 
-CAIPE integrates extensible knowledge bases that support retrieval-augmented generation (RAG), GraphRAG, and persistent agent memory. These capabilities allow agents to extract, store, and recall operational facts from documentation, system state, and previous workflows, enabling more reliable reasoning across complex Kubernetes and cloud-native environments.
+CAIPE integrates extensible knowledge bases that support retrieval-augmented generation (RAG), GraphRAG, and persistent agent memory. These capabilities allow agents to extract, store, and recall operational facts from documentation, system state, and previous workflows, enabling more reliable reasoning across complex Kubernetes and cloud native environments.
 
 By combining agent orchestration, curated platform engineering skills, persistent memory, and structured workflows, CAIPE enables teams to build predictable, auditable automation across modern platform engineering stacks.
 
@@ -64,13 +64,7 @@ https://github.com/cnoe-io/ai-platform-engineering
 
 https://cnoe-io.github.io/ai-platform-engineering/
 
-### Roadmap
-
-Here is a **more concise CNCF-appropriate version** while keeping the important signals (open roadmap, ecosystem alignment, knowledge systems, and community growth):
-
----
-
-### Roadmap context
+## Roadmap
 
 CAIPE’s roadmap is developed openly through GitHub issues and community working groups and is tracked in the project roadmap board.
 
@@ -129,7 +123,7 @@ N/A. CAIPE is not a standard or specification. It is a reference implementation 
 
 ### Business product or service to project separation
 
-CAIPE originated as an open-source initiative within the CNOE (Cloud Native Operational Excellence) community, a CNCF-affiliated forum. While contributors from Cisco (Outshift), Splunk, and other organizations participate, CAIPE is not the upstream version of any commercial product. It operates under its own open governance within the CNOE Agentic AI SIG, with community-elected maintainers from multiple organizations. All development happens in the open on GitHub, and the project's roadmap is driven by community consensus. Contributing organizations may use CAIPE internally or build internal tooling on top of it, but the project itself is community-owned and vendor-neutral.
+CAIPE originated as an open source initiative within the CNOE (Cloud Native Operational Excellence) community, a CNCF-affiliated forum. While contributors from Cisco (Outshift), Splunk, and other organizations participate, CAIPE is not the upstream version of any commercial product. It operates under its own open governance within the CNOE Agentic AI SIG, with community-elected maintainers from multiple organizations. All development happens in the open on GitHub, and the project's roadmap is driven by community consensus. Contributing organizations may use CAIPE internally or build internal tooling on top of it, but the project itself is community-owned and vendor-neutral.
 
 ---
 
@@ -141,8 +135,8 @@ CAIPE is built for and by the cloud native community. Joining the CNCF would:
 
 1. **Accelerate adoption**: CNCF's neutral governance and brand recognition would attract a broader contributor and adopter base across the platform engineering ecosystem.
 2. **Strengthen interoperability**: Being part of the CNCF landscape alongside projects like Argo, Backstage, Kubernetes, and Prometheus would formalize integration patterns and encourage co-development with these projects' communities.
-3. **Ensure long-term sustainability**: CNCF governance provides a stable, vendor-neutral home that ensures the project's continuity beyond any single organization's involvement.
-4. **Advance the ecosystem**: Agentic AI applied to platform operations is an emerging area. CNCF hosting would signal to the industry that this is a serious, production-quality approach, and provide a focal point for best practices around AI-assisted cloud native operations.
+3. **Solidify community-driven development**: CNCF governance provides a stable, vendor-neutral home that formalizes multi-organization maintainership and encourages broader community ownership of the project's direction.
+4. **Advance the ecosystem**: Agentic AI applied to platform operations is an emerging area, and the current landscape lacks dedicated, production-quality projects focused on full platform operations—most existing efforts are scoped to individual tools with specific operational functions. CNCF hosting would signal to the industry that unified, AI-assisted platform operations is a serious discipline, and provide a focal point for best practices that span the entire cloud native stack.
 
 The CNOE forum, which champions CAIPE, already operates within the CNCF ecosystem and many CAIPE contributors are active participants in other CNCF projects and TAGs.
 
@@ -151,9 +145,9 @@ The CNOE forum, which champions CAIPE, already operates within the CNCF ecosyste
 CAIPE benefits the Cloud Native Landscape by:
 
 1. **Bridging AI and cloud native operations**: There is currently no CNCF project that provides a reference architecture for applying multi-agent AI systems to platform engineering workflows. CAIPE fills this gap.
-2. **Unifying tool interaction**: Platform teams use many CNCF and adjacent tools (Argo, Kubernetes, Prometheus, Backstage). CAIPE provides a unified conversational and agentic interface across all of them, reducing context-switching and operational friction.
+2. **Unifying tool interaction**: Platform teams use many CNCF and adjacent tools (Argo, Kubernetes, Prometheus, Backstage). CAIPE provides a unified conversational and agentic interface across all of its integrated CNCF and adjacent tools, reducing context-switching and operational friction.
 3. **Pioneering protocol-based agent interoperability**: By building on A2A and MCP protocols, CAIPE demonstrates how AI agents can be composed in a loosely coupled, cloud native manner—similar to how microservices communicate via gRPC/REST.
-4. **Lowering the barrier for AI adoption**: CAIPE gives platform teams a production-ready starting point for incorporating AI into their workflows, with enterprise security, observability, and deployment patterns built in.
+4. **Advance credibility of AI in production**: CAIPE serves as a proof point for applying AI to real platform operations, with enterprise security, observability, and deployment patterns built in—demonstrating that agentic AI can be trusted in production cloud native environments.
 
 ### Cloud native 'fit'
 
@@ -173,7 +167,7 @@ CAIPE complements and integrates with the following CNCF projects:
 
 | CNCF Project | Integration |
 |---|---|
-| **Kubernetes** | Primary deployment target; dedicated Kubernetes agent for cluster operations |
+| **Kubernetes** | Reference deployment target; dedicated Kubernetes agent for cluster operations |
 | **Argo** (ArgoCD) | Dedicated ArgoCD agent for GitOps deployment management |
 | **Backstage** | [Agent Forge plugin](https://github.com/backstage/community-plugins/blob/main/workspaces/agent-forge/plugins/agent-forge/README.md) contributed upstream to backstage/community-plugins for Internal Developer Portal integration |
 | **Helm** | Helm charts for Kubernetes deployment; Helm-based release lifecycle |
@@ -182,22 +176,21 @@ CAIPE complements and integrates with the following CNCF projects:
 
 ### Cloud native overlap
 
-There is no direct overlap with existing CNCF projects. While projects like **Backstage** provide a developer portal UI and **Argo** provides GitOps capabilities, CAIPE operates at a different layer—it is an AI orchestration system that *uses* these tools through agents rather than replacing them. CAIPE is complementary: it provides an intelligent, conversational interface on top of existing CNCF tools.
+CAIPE is an AI agent orchestration system that defines contextual intent and abstracted workflows, and orchestrates agents and resources to perform operations in service of those workflows. It operates at a layer above individual platform tools—using them through agents rather than replacing them. For example, while **Backstage** provides a developer portal UI and **Argo** provides GitOps capabilities, CAIPE complements both by providing an intelligent, conversational interface on top of them. CAIPE can also be integrated directly with Backstage via the Agent Forge plugin.
 
-The closest conceptual overlap is with **Backstage** in terms of being a "unified interface for platform operations," but the approaches are fundamentally different—Backstage is a plugin-based UI framework while CAIPE is an AI agent orchestration system. In practice, CAIPE can be embedded as a Backstage plugin.
+The closest CNCF project in the agentic AI space is [**kagent**](https://kagent.dev/), a sandbox project focused on running AI agents in Kubernetes and providing MCP server tooling (kmcp). CAIPE and kagent are complementary rather than overlapping. kagent provides a Kubernetes-native framework for deploying and running individual agents, while CAIPE operates at a higher layer - defining platform engineering workflows, orchestrating multiple agents across tools, and maintaining contextual knowledge and memory across operations. CAIPE could leverage kagent's Kubernetes runtime and MCP infrastructure as part of its deployment and tool integration layer.
 
 ### Similar projects
 
+- **[kagent](https://kagent.dev/)** (CNCF Sandbox): A Kubernetes-native framework for running AI agents and MCP servers. kagent focuses on the runtime and deployment layer for individual agents, while CAIPE is a turnkey system that provides multi-agent orchestration, abstracted platform engineering workflows, knowledge systems, and a full application layer (UI, CLI, Backstage plugin)—ready to deploy and use in platform engineering environments.
 - **LangGraph** (LangChain ecosystem): A framework for building agent workflows. CAIPE *uses* LangGraph as its agent runtime but provides the full platform engineering application layer (agents, tools, deployment, UI) on top of it.
-- **CrewAI / AutoGen**: Multi-agent frameworks. These are general-purpose agent orchestration libraries; CAIPE is a purpose-built platform engineering solution with production deployment patterns, security, and cloud native tool integrations.
-- **Kubiya**: A commercial AI platform for DevOps automation. CAIPE is open source, community-driven, and vendor-neutral.
-- **Cline / Aider**: AI coding assistants. These focus on code generation; CAIPE focuses on platform operations.
+- **Coding agents** (Claude Code, Cursor etc.): Many coding agents can be configured to perform tasks similar to CAIPE, but they are personal, individual solutions rather than turnkey systems designed for team-wide platform engineering operations.
 
-No existing CNCF project directly addresses multi-agent AI orchestration for platform engineering.
+No existing CNCF project provides a turnkey multi-agent system that combines workflow orchestration, contextual knowledge, persistent memory, and a full application layer purpose-built for platform engineering operations.
 
 ### Landscape
 
-CAIPE is not yet listed on the [Cloud Native Landscape](https://landscape.cncf.io/). We would anticipate placement in a new or emerging category related to **AI/ML for Platform Operations** or under **Automation & Configuration** within the landscape.
+CAIPE is not yet listed on the [Cloud Native Landscape](https://landscape.cncf.io/). We would anticipate placement alongside kagent in the emerging **AI/ML for Platform Operations** category or under **Automation & Configuration** within the landscape.
 
 ---
 
@@ -244,7 +237,11 @@ If an individual or individual(s):
 
 - The CAIPE project is championed by the CNOE (Cloud Native Operational Excellence) community, which has established relationships within the CNCF ecosystem.
 - Several CAIPE contributors are active in CNCF TAGs and working groups.
-- *[List specific TOC/TAG members familiar with the project if applicable]*
+- [Natali Vlatko](https://github.com/natalisucks) (Director of Open Source Software Engineering, Cisco OSPO)
+- [Tim Swanson](https://github.com/tiswanso) (Cloud Native & Open Source Advocate, Cisco OSPO)
+- Josh Halley (CNAI TOC)
+- Ricardo Aravena (CNAI TOC)
+- Lin Sun (CNCF TOC)
 
 ### Additional information
 
