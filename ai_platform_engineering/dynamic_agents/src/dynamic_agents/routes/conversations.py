@@ -65,6 +65,22 @@ class ConversationTodosResponse(BaseModel):
     todos: list[TodoItem]
 
 
+class ConversationFilesListResponse(BaseModel):
+    """Response containing list of file paths from checkpointer."""
+
+    conversation_id: str
+    agent_id: str
+    files: list[str]
+
+
+class FileContentResponse(BaseModel):
+    """Response containing content of a single file."""
+
+    conversation_id: str
+    path: str
+    content: str
+
+
 @router.get("/{conversation_id}/messages", response_model=ConversationMessagesResponse)
 async def get_conversation_messages(
     conversation_id: str,
@@ -323,6 +339,188 @@ async def get_conversation_todos(
         conversation_id=conversation_id,
         agent_id=agent_id,
         todos=todos,
+    )
+
+
+@router.get("/{conversation_id}/files/list", response_model=ConversationFilesListResponse)
+async def get_conversation_files_list(
+    conversation_id: str,
+    agent_id: str = Query(..., description="Dynamic agent ID"),
+    user: UserContext = Depends(get_current_user),
+    mongo: MongoDBService = Depends(get_mongo_service),
+) -> ConversationFilesListResponse:
+    """Get list of file paths for a conversation from the LangGraph checkpointer.
+
+    Returns the list of files in the agent's in-memory filesystem.
+    Access control is handled by `can_access_conversation()` in auth/access.py.
+    """
+    # 1. Verify agent exists
+    agent = mongo.get_agent(agent_id)
+    if not agent:
+        raise HTTPException(status_code=404, detail="Agent not found")
+
+    # 2. Check conversation ownership
+    if mongo._client is None:
+        raise HTTPException(status_code=503, detail="Database not connected")
+    db = mongo._db
+    if db is None:
+        raise HTTPException(status_code=503, detail="Database not connected")
+
+    conversations_coll = db["conversations"]
+    conversation = conversations_coll.find_one({"_id": conversation_id})
+
+    if not conversation:
+        return ConversationFilesListResponse(
+            conversation_id=conversation_id,
+            agent_id=agent_id,
+            files=[],
+        )
+
+    # 3. Check access
+    if not can_access_conversation(conversation, user):
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    # 4. Get or create runtime to access checkpointer
+    server_ids = list(agent.allowed_tools.keys())
+    mcp_servers = mongo.get_servers_by_ids(server_ids) if server_ids else []
+
+    cache = get_runtime_cache()
+    cache.set_mongo_service(mongo)
+
+    runtime = await cache.get_or_create(
+        agent,
+        mcp_servers,
+        conversation_id,
+        user=user,
+    )
+
+    # 5. Get state from checkpointer
+    if not runtime._graph:
+        return ConversationFilesListResponse(
+            conversation_id=conversation_id,
+            agent_id=agent_id,
+            files=[],
+        )
+
+    config = {"configurable": {"thread_id": conversation_id}}
+
+    try:
+        state = await runtime._graph.aget_state(config)
+    except Exception as e:
+        logger.error(f"Failed to get state for conversation {conversation_id}: {e}")
+        return ConversationFilesListResponse(
+            conversation_id=conversation_id,
+            agent_id=agent_id,
+            files=[],
+        )
+
+    if not state or not state.values:
+        return ConversationFilesListResponse(
+            conversation_id=conversation_id,
+            agent_id=agent_id,
+            files=[],
+        )
+
+    # 6. Extract file paths from state
+    files_dict = state.values.get("files", {})
+    file_paths = sorted(files_dict.keys()) if isinstance(files_dict, dict) else []
+
+    logger.info(f"Retrieved {len(file_paths)} files for conversation {conversation_id}")
+
+    return ConversationFilesListResponse(
+        conversation_id=conversation_id,
+        agent_id=agent_id,
+        files=file_paths,
+    )
+
+
+@router.get("/{conversation_id}/files/content", response_model=FileContentResponse)
+async def get_conversation_file_content(
+    conversation_id: str,
+    agent_id: str = Query(..., description="Dynamic agent ID"),
+    path: str = Query(..., description="File path to retrieve"),
+    user: UserContext = Depends(get_current_user),
+    mongo: MongoDBService = Depends(get_mongo_service),
+) -> FileContentResponse:
+    """Get content of a single file from the LangGraph checkpointer.
+
+    Returns the content of a specific file from the agent's in-memory filesystem.
+    Access control is handled by `can_access_conversation()` in auth/access.py.
+    """
+    # 1. Verify agent exists
+    agent = mongo.get_agent(agent_id)
+    if not agent:
+        raise HTTPException(status_code=404, detail="Agent not found")
+
+    # 2. Check conversation ownership
+    if mongo._client is None:
+        raise HTTPException(status_code=503, detail="Database not connected")
+    db = mongo._db
+    if db is None:
+        raise HTTPException(status_code=503, detail="Database not connected")
+
+    conversations_coll = db["conversations"]
+    conversation = conversations_coll.find_one({"_id": conversation_id})
+
+    if not conversation:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+    # 3. Check access
+    if not can_access_conversation(conversation, user):
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    # 4. Get or create runtime to access checkpointer
+    server_ids = list(agent.allowed_tools.keys())
+    mcp_servers = mongo.get_servers_by_ids(server_ids) if server_ids else []
+
+    cache = get_runtime_cache()
+    cache.set_mongo_service(mongo)
+
+    runtime = await cache.get_or_create(
+        agent,
+        mcp_servers,
+        conversation_id,
+        user=user,
+    )
+
+    # 5. Get state from checkpointer
+    if not runtime._graph:
+        raise HTTPException(status_code=404, detail="File not found")
+
+    config = {"configurable": {"thread_id": conversation_id}}
+
+    try:
+        state = await runtime._graph.aget_state(config)
+    except Exception as e:
+        logger.error(f"Failed to get state for conversation {conversation_id}: {e}")
+        raise HTTPException(status_code=500, detail="Failed to retrieve file")
+
+    if not state or not state.values:
+        raise HTTPException(status_code=404, detail="File not found")
+
+    # 6. Get file content from state
+    # files is dict[str, FileData] where FileData is a TypedDict with content: list[str]
+    files_dict = state.values.get("files", {})
+    if not isinstance(files_dict, dict) or path not in files_dict:
+        raise HTTPException(status_code=404, detail="File not found")
+
+    file_data = files_dict[path]
+
+    # FileData is a TypedDict: {"content": list[str], "created_at": str, "modified_at": str}
+    # content is list of lines - join them with newlines
+    if isinstance(file_data, dict) and "content" in file_data:
+        lines = file_data["content"]
+        content = "\n".join(lines) if isinstance(lines, list) else str(lines)
+    else:
+        # Fallback: assume it's already a string
+        content = str(file_data)
+
+    logger.info(f"Retrieved file {path} for conversation {conversation_id}")
+
+    return FileContentResponse(
+        conversation_id=conversation_id,
+        path=path,
+        content=content,
     )
 
 

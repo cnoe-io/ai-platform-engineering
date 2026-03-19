@@ -33,6 +33,7 @@ import {
 import type { SubAgentRef } from "@/types/dynamic-agent";
 import { useShallow } from "zustand/react/shallow";
 import { useSession } from "next-auth/react";
+import { FileTree } from "./FileTree";
 
 // Tool call from events
 interface ToolCall {
@@ -221,6 +222,98 @@ export function DynamicAgentContext({
     fetchTodos();
   }, [activeConversationId, agentId, todosFetchKey, session?.accessToken]);
 
+  // Files fetched from API (single source of truth)
+  const [files, setFiles] = useState<string[]>([]);
+  const [filesFetchKey, setFilesFetchKey] = useState(0);
+  const [isDownloadingFile, setIsDownloadingFile] = useState(false);
+  const [downloadingFilePath, setDownloadingFilePath] = useState<string | undefined>();
+
+  // Detect write_file or edit_file tool events and trigger a fetch
+  useEffect(() => {
+    const hasFileWriteEvent = conversationEvents.some(
+      (e) =>
+        e.type === "tool_start" &&
+        (e.toolData?.tool_name === "write_file" || e.toolData?.tool_name === "edit_file")
+    );
+    if (hasFileWriteEvent) {
+      setFilesFetchKey((k) => k + 1);
+    }
+  }, [conversationEvents]);
+
+  // Fetch files from API when conversation changes or file write event occurs
+  useEffect(() => {
+    if (!activeConversationId || !agentId) {
+      setFiles([]);
+      return;
+    }
+
+    const fetchFiles = async () => {
+      try {
+        const response = await fetch(
+          `/api/dynamic-agents/conversations/${activeConversationId}/files/list?agent_id=${encodeURIComponent(agentId)}`,
+          {
+            headers: {
+              ...(session?.accessToken ? { Authorization: `Bearer ${session.accessToken}` } : {}),
+            },
+          }
+        );
+        if (response.ok) {
+          const data = await response.json();
+          setFiles(data.files || []);
+        }
+      } catch {
+        // Silently ignore fetch errors - files are optional
+      }
+    };
+
+    fetchFiles();
+  }, [activeConversationId, agentId, filesFetchKey, session?.accessToken]);
+
+  // Handle file download
+  const handleFileDownload = useCallback(
+    async (path: string) => {
+      if (!activeConversationId || !agentId || isDownloadingFile) return;
+
+      setIsDownloadingFile(true);
+      setDownloadingFilePath(path);
+
+      try {
+        const response = await fetch(
+          `/api/dynamic-agents/conversations/${activeConversationId}/files/content?agent_id=${encodeURIComponent(agentId)}&path=${encodeURIComponent(path)}`,
+          {
+            headers: {
+              ...(session?.accessToken ? { Authorization: `Bearer ${session.accessToken}` } : {}),
+            },
+          }
+        );
+
+        if (response.ok) {
+          const data = await response.json();
+          const content = data.content || "";
+
+          // Create blob and download
+          const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement("a");
+          a.href = url;
+          // Use just the filename for download
+          const filename = path.split("/").pop() || "file.txt";
+          a.download = filename;
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          URL.revokeObjectURL(url);
+        }
+      } catch {
+        // Silently ignore download errors
+      } finally {
+        setIsDownloadingFile(false);
+        setDownloadingFilePath(undefined);
+      }
+    },
+    [activeConversationId, agentId, session?.accessToken, isDownloadingFile]
+  );
+
   // Extract error messages from error events
   const errorMessages = useMemo(() => {
     return conversationEvents
@@ -293,7 +386,7 @@ export function DynamicAgentContext({
 
   const totalToolCalls = activeToolCalls.length + completedToolCalls.length;
   const totalSubagentCalls = activeSubagentCalls.length + completedSubagentCalls.length;
-  const totalActivityCount = totalToolCalls + totalSubagentCalls + todos.length;
+  const totalActivityCount = totalToolCalls + totalSubagentCalls + todos.length + files.length;
 
   return (
     <motion.div
@@ -404,6 +497,10 @@ export function DynamicAgentContext({
             {activeTab === "events" && (
               <EventsContent
                 todos={todos}
+                files={files}
+                onFileClick={handleFileDownload}
+                isDownloadingFile={isDownloadingFile}
+                downloadingFilePath={downloadingFilePath}
                 activeToolCalls={activeToolCalls}
                 completedToolCalls={completedToolCalls}
                 activeSubagentCalls={activeSubagentCalls}
@@ -464,6 +561,10 @@ export function DynamicAgentContext({
 
 interface EventsContentProps {
   todos: TodoItem[];
+  files: string[];
+  onFileClick?: (path: string) => void;
+  isDownloadingFile?: boolean;
+  downloadingFilePath?: string;
   activeToolCalls: ToolCall[];
   completedToolCalls: ToolCall[];
   activeSubagentCalls: SubagentCall[];
@@ -483,6 +584,10 @@ interface EventsContentProps {
 
 function EventsContent({
   todos,
+  files,
+  onFileClick,
+  isDownloadingFile,
+  downloadingFilePath,
   activeToolCalls,
   completedToolCalls,
   activeSubagentCalls,
@@ -503,6 +608,7 @@ function EventsContent({
 
   const hasNoActivity =
     todos.length === 0 &&
+    files.length === 0 &&
     activeToolCalls.length === 0 &&
     completedToolCalls.length === 0 &&
     activeSubagentCalls.length === 0 &&
@@ -709,6 +815,14 @@ function EventsContent({
           </div>
         </div>
       )}
+
+      {/* Files Tree */}
+      <FileTree
+        files={files}
+        onFileClick={onFileClick}
+        isDownloading={isDownloadingFile}
+        downloadingPath={downloadingFilePath}
+      />
 
       {/* Active subagent calls */}
       {activeSubagentCalls.length > 0 && (
