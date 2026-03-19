@@ -1,0 +1,364 @@
+import { NextRequest, NextResponse } from "next/server";
+import {
+  getAuthFromBearerOrSession,
+  withErrorHandler,
+} from "@/lib/api-middleware";
+
+/**
+ * Skills Catalog API — Single source of truth for UI and assistant (FR-001).
+ *
+ * GET /api/skills
+ *   Returns the merged skill catalog from default (filesystem) + agent_configs + hubs.
+ *   If BACKEND_SKILLS_URL is configured, proxies to the Python backend GET /skills.
+ *   Otherwise, aggregates locally from /api/skill-templates and /api/agent-configs.
+ *
+ * Supports dual-auth: Bearer JWT (for CLI/remote) or NextAuth session (browser).
+ *
+ * Query params:
+ *   q               — case-insensitive text search in skill name and description
+ *   source          — filter by source: "default", "agent_config", "hub"
+ *   tags            — comma-separated tag filter (metadata.tags includes any)
+ *   include_content — include full SKILL.md body for each skill (default false)
+ *   page            — page number, 1-indexed (default: omit for all results)
+ *   page_size       — items per page, 1-100 (default: 50)
+ *
+ * Response shape per contracts/catalog-api.md:
+ *   { skills: [...], meta: { total, page, page_size, has_more, sources_loaded, unavailable_sources } }
+ *
+ * Error responses:
+ *   401 — unauthorized
+ *   503 — { error: "skills_unavailable", message: "..." }
+ */
+
+interface CatalogSkill {
+  id: string;
+  name: string;
+  description: string;
+  source: "default" | "agent_config" | "hub";
+  source_id: string | null;
+  content: string | null;
+  metadata: Record<string, unknown>;
+}
+
+interface CatalogResponse {
+  skills: CatalogSkill[];
+  meta: {
+    total: number;
+    page?: number;
+    page_size?: number;
+    has_more?: boolean;
+    sources_loaded: string[];
+    unavailable_sources: string[];
+  };
+}
+
+interface QueryParams {
+  q: string;
+  source: string;
+  tags: string[];
+  includeContent: boolean;
+  page: number | null; // null = no pagination
+  pageSize: number;
+}
+
+function parseQueryParams(req: NextRequest): QueryParams {
+  const sp = new URL(req.url).searchParams;
+  const rawPage = sp.get("page");
+  const rawPageSize = sp.get("page_size");
+
+  let page: number | null = null;
+  if (rawPage !== null) {
+    page = Math.max(1, parseInt(rawPage, 10) || 1);
+  }
+
+  let pageSize = 50;
+  if (rawPageSize !== null) {
+    pageSize = Math.min(100, Math.max(1, parseInt(rawPageSize, 10) || 50));
+  }
+
+  const rawTags = sp.get("tags") || "";
+  const tags = rawTags
+    .split(",")
+    .map((t) => t.trim().toLowerCase())
+    .filter(Boolean);
+
+  return {
+    q: (sp.get("q") || "").trim().toLowerCase(),
+    source: (sp.get("source") || "").trim().toLowerCase(),
+    tags,
+    includeContent: sp.get("include_content") === "true",
+    page,
+    pageSize,
+  };
+}
+
+/**
+ * Apply in-memory filters to a skill list.
+ */
+function filterSkills(
+  skills: CatalogSkill[],
+  params: QueryParams,
+): CatalogSkill[] {
+  let result = skills;
+
+  if (params.q) {
+    result = result.filter(
+      (s) =>
+        s.name.toLowerCase().includes(params.q) ||
+        s.description.toLowerCase().includes(params.q),
+    );
+  }
+
+  if (params.source) {
+    result = result.filter(
+      (s) => s.source.toLowerCase() === params.source,
+    );
+  }
+
+  if (params.tags.length > 0) {
+    result = result.filter((s) => {
+      const skillTags: string[] = Array.isArray(s.metadata?.tags)
+        ? (s.metadata.tags as string[]).map((t) => t.toLowerCase())
+        : [];
+      return params.tags.some((t) => skillTags.includes(t));
+    });
+  }
+
+  return result;
+}
+
+/**
+ * Apply pagination to a filtered skill list and build the response meta.
+ */
+function paginate(
+  skills: CatalogSkill[],
+  params: QueryParams,
+  baseMeta: { sources_loaded: string[]; unavailable_sources: string[] },
+): CatalogResponse {
+  const total = skills.length;
+
+  // No pagination requested — backward compatible (return all)
+  if (params.page === null) {
+    return {
+      skills,
+      meta: { total, ...baseMeta },
+    };
+  }
+
+  const start = (params.page - 1) * params.pageSize;
+  const paged = skills.slice(start, start + params.pageSize);
+
+  return {
+    skills: paged,
+    meta: {
+      total,
+      page: params.page,
+      page_size: params.pageSize,
+      has_more: start + params.pageSize < total,
+      ...baseMeta,
+    },
+  };
+}
+
+/**
+ * Try to proxy to the Python backend at BACKEND_SKILLS_URL.
+ * Returns null if not configured or unreachable.
+ * Forwards query params so the backend can also filter server-side.
+ */
+async function fetchFromBackend(
+  params: QueryParams,
+  authHeader?: string | null,
+): Promise<CatalogResponse | null> {
+  const backendUrl = process.env.BACKEND_SKILLS_URL;
+  if (!backendUrl) return null;
+
+  try {
+    const url = new URL("/skills", backendUrl);
+    if (params.includeContent) url.searchParams.set("include_content", "true");
+    if (params.q) url.searchParams.set("q", params.q);
+    if (params.source) url.searchParams.set("source", params.source);
+    if (params.tags.length > 0)
+      url.searchParams.set("tags", params.tags.join(","));
+    if (params.page !== null) {
+      url.searchParams.set("page", String(params.page));
+      url.searchParams.set("page_size", String(params.pageSize));
+    }
+
+    const headers: Record<string, string> = {};
+    if (authHeader) headers["Authorization"] = authHeader;
+
+    const res = await fetch(url.toString(), {
+      headers,
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!res.ok) return null;
+    return (await res.json()) as CatalogResponse;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Local aggregation fallback: merge skill-templates (filesystem) and
+ * agent-configs (MongoDB) into a single catalog.
+ */
+async function aggregateLocally(
+  includeContent: boolean,
+): Promise<CatalogResponse> {
+  const skills: CatalogSkill[] = [];
+  const sourcesLoaded: string[] = [];
+  const unavailableSources: string[] = [];
+
+  // 1. Skill templates (filesystem / SKILLS_DIR)
+  try {
+    const { loadSkillTemplatesInternal } = await import(
+      "./skill-templates-loader"
+    );
+    const templates = loadSkillTemplatesInternal();
+    for (const t of templates) {
+      skills.push({
+        id: t.id,
+        name: t.name,
+        description: t.description,
+        source: "default",
+        source_id: null,
+        content: includeContent ? t.content : null,
+        metadata: {
+          category: t.category,
+          icon: t.icon,
+          tags: t.tags,
+        },
+      });
+    }
+    sourcesLoaded.push("default");
+  } catch (err) {
+    console.error("[Skills] Failed to load skill templates:", err);
+    unavailableSources.push("default");
+  }
+
+  // 2. Agent configs with skill_template (MongoDB)
+  try {
+    const { getCollection, isMongoDBConfigured } = await import(
+      "@/lib/mongodb"
+    );
+    if (isMongoDBConfigured) {
+      const collection = await getCollection("agent_configs");
+      const docs = await collection
+        .find(
+          { skill_template: { $exists: true, $ne: "" } },
+          {
+            projection: {
+              _id: 0,
+              name: 1,
+              description: 1,
+              skill_template: 1,
+              owner_id: 1,
+              metadata: 1,
+            },
+          },
+        )
+        .toArray();
+
+      for (const doc of docs) {
+        if (!doc.name || !doc.description) continue;
+        skills.push({
+          id: String(doc.name),
+          name: String(doc.name),
+          description: String(doc.description).slice(0, 1024),
+          source: "agent_config",
+          source_id: doc.owner_id ?? null,
+          content: includeContent ? (doc.skill_template ?? null) : null,
+          metadata: doc.metadata ?? {},
+        });
+      }
+      sourcesLoaded.push("agent_config");
+    }
+  } catch (err) {
+    console.error("[Skills] Failed to load agent_configs:", err);
+    unavailableSources.push("agent_config");
+  }
+
+  // 3. Check for enabled hubs — hub skill fetching is handled by the Python
+  //    backend; in local aggregation mode, report them as unavailable.
+  try {
+    const { getCollection: getCol, isMongoDBConfigured: mongoOk } = await import(
+      "@/lib/mongodb"
+    );
+    if (mongoOk) {
+      const hubsCol = await getCol("skill_hubs");
+      const enabledHubs = await hubsCol
+        .find({ enabled: true }, { projection: { _id: 0, id: 1 } })
+        .toArray();
+      for (const h of enabledHubs) {
+        if (h.id) unavailableSources.push(`hub:${h.id}`);
+      }
+    }
+  } catch {
+    // Hub check is best-effort
+  }
+
+  // Apply precedence: default wins over agent_config (by name)
+  const merged = new Map<string, CatalogSkill>();
+  const priority: Record<string, number> = {
+    default: 0,
+    agent_config: 1,
+    hub: 2,
+  };
+  for (const skill of skills) {
+    const existing = merged.get(skill.name);
+    if (!existing || priority[skill.source] < priority[existing.source]) {
+      merged.set(skill.name, skill);
+    }
+  }
+
+  const sortedSkills = Array.from(merged.values()).sort((a, b) => {
+    const pa = priority[a.source] ?? 99;
+    const pb = priority[b.source] ?? 99;
+    if (pa !== pb) return pa - pb;
+    return a.name.localeCompare(b.name);
+  });
+
+  return {
+    skills: sortedSkills,
+    meta: {
+      total: sortedSkills.length,
+      sources_loaded: sourcesLoaded,
+      unavailable_sources: unavailableSources,
+    },
+  };
+}
+
+export const GET = withErrorHandler(async (req: NextRequest) => {
+  // Dual-auth: Bearer JWT or session cookie
+  await getAuthFromBearerOrSession(req);
+
+  const params = parseQueryParams(req);
+  const authHeader = req.headers.get("Authorization");
+
+  // Try backend proxy first (forwards all query params)
+  const backendResult = await fetchFromBackend(params, authHeader);
+  if (backendResult) {
+    return NextResponse.json(backendResult);
+  }
+
+  // Local aggregation fallback
+  try {
+    const catalog = await aggregateLocally(params.includeContent);
+    const filtered = filterSkills(catalog.skills, params);
+    const response = paginate(filtered, params, {
+      sources_loaded: catalog.meta.sources_loaded,
+      unavailable_sources: catalog.meta.unavailable_sources,
+    });
+    return NextResponse.json(response);
+  } catch (err) {
+    console.error("[Skills] Catalog unavailable:", err);
+    return NextResponse.json(
+      {
+        error: "skills_unavailable",
+        message:
+          "Skills are temporarily unavailable. Please try again later.",
+      },
+      { status: 503 },
+    );
+  }
+});

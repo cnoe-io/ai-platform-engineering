@@ -41,6 +41,7 @@
     "graphology-layout": "^0.6.1",
     "graphology-layout-forceatlas2": "^0.10.1",
     "graphology-types": "^0.24.8",
+    "jose": "^6.2.2",
     "js-yaml": "^4.1.1",
     "langfuse": "^3.38.6",
     "lodash": "^4.17.21",

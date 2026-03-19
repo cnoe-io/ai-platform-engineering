@@ -7,6 +7,7 @@ import { authOptions } from '@/lib/auth-config';
 import { getConfig } from '@/lib/config';
 import { getCollection } from '@/lib/mongodb';
 import type { User } from '@/types/mongodb';
+import { validateBearerJWT } from '@/lib/jwt-validation';
 
 // ============================================================================
 // Authentication Middleware
@@ -97,6 +98,35 @@ export async function withAuth<T>(
 ): Promise<T> {
   const { user, session } = await getAuthenticatedUser(request, { allowAnonymous: false });
   return handler(request, user, session);
+}
+
+/**
+ * Authenticate via Bearer JWT token or NextAuth session (dual-auth).
+ *
+ * 1. If `Authorization: Bearer <token>` header is present, validate the JWT.
+ * 2. Otherwise fall back to `getServerSession(authOptions)` (cookie auth).
+ * 3. If neither succeeds, throws 401.
+ *
+ * Returns a minimal user object compatible with the existing withAuth handler
+ * signature, plus the raw session when available.
+ */
+export async function getAuthFromBearerOrSession(
+  request: NextRequest,
+): Promise<{ user: { email: string; name: string; role: string }; session: any }> {
+  const authHeader = request.headers.get('Authorization');
+
+  // Path 1: Bearer JWT
+  if (authHeader?.startsWith('Bearer ')) {
+    const token = authHeader.slice(7);
+    const identity = await validateBearerJWT(token);
+    // Bearer users get 'user' role by default; admin escalation is session-only
+    const user = { email: identity.email, name: identity.name, role: 'user' };
+    return { user, session: { role: 'user', canViewAdmin: false } };
+  }
+
+  // Path 2: Session cookie (existing NextAuth flow)
+  const { user, session } = await getAuthenticatedUser(request, { allowAnonymous: false });
+  return { user, session };
 }
 
 /**
