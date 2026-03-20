@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useMemo, useCallback, useEffect } from "react";
+import React, { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Loader2,
@@ -105,6 +105,9 @@ export function DynamicAgentContext({
   const [todos, setTodos] = useState<TodoItem[]>([]);
   const [todosFetchKey, setTodosFetchKey] = useState(0);
   const [todosLoading, setTodosLoading] = useState(true);
+  
+  // Track which conversation's todos we've initiated fetching to prevent Strict Mode duplicates
+  const todosFetchedForRef = useRef<{ conversationId: string; fetchKey: number } | null>(null);
 
   // Detect write_todos tool events and trigger a fetch
   useEffect(() => {
@@ -121,8 +124,22 @@ export function DynamicAgentContext({
     if (!activeConversationId || !agentId) {
       setTodos([]);
       setTodosLoading(false);
+      todosFetchedForRef.current = null;
       return;
     }
+
+    // Skip if we've already started fetching for this exact combination
+    // (prevents duplicate requests from Strict Mode double-invocation)
+    const currentFetchState = { conversationId: activeConversationId, fetchKey: todosFetchKey };
+    if (
+      todosFetchedForRef.current?.conversationId === currentFetchState.conversationId &&
+      todosFetchedForRef.current?.fetchKey === currentFetchState.fetchKey
+    ) {
+      return;
+    }
+    
+    // Mark as fetching BEFORE async to prevent duplicates
+    todosFetchedForRef.current = currentFetchState;
 
     const fetchTodos = async () => {
       try {
@@ -161,6 +178,9 @@ export function DynamicAgentContext({
   const [filesLoading, setFilesLoading] = useState(true);
   const [isDownloadingFile, setIsDownloadingFile] = useState(false);
   const [downloadingFilePath, setDownloadingFilePath] = useState<string | undefined>();
+  
+  // Track which conversation's files we've initiated fetching to prevent Strict Mode duplicates
+  const filesFetchedForRef = useRef<{ conversationId: string; fetchKey: number } | null>(null);
 
   // Reset loading states when conversation changes
   useEffect(() => {
@@ -185,8 +205,22 @@ export function DynamicAgentContext({
     if (!activeConversationId || !agentId) {
       setFiles([]);
       setFilesLoading(false);
+      filesFetchedForRef.current = null;
       return;
     }
+
+    // Skip if we've already started fetching for this exact combination
+    // (prevents duplicate requests from Strict Mode double-invocation)
+    const currentFetchState = { conversationId: activeConversationId, fetchKey: filesFetchKey };
+    if (
+      filesFetchedForRef.current?.conversationId === currentFetchState.conversationId &&
+      filesFetchedForRef.current?.fetchKey === currentFetchState.fetchKey
+    ) {
+      return;
+    }
+    
+    // Mark as fetching BEFORE async to prevent duplicates
+    filesFetchedForRef.current = currentFetchState;
 
     const fetchFiles = async () => {
       try {

@@ -218,6 +218,9 @@ export function DynamicAgentChatPanel({ endpoint, conversationId, conversationTi
       return;
     }
 
+    // Mark as loading BEFORE async to prevent duplicate fetches in Strict Mode
+    historyLoadedRef.current.add(conversationId);
+
     const loadHistory = async () => {
       setIsLoadingHistory(true);
       setHistoryLoadError(null);
@@ -232,16 +235,12 @@ export function DynamicAgentChatPanel({ endpoint, conversationId, conversationTi
           if (messagesResponse.status === 404) {
             // Conversation doesn't exist yet - this is fine for new conversations
             console.log(`[DynamicAgentChatPanel] Conversation ${conversationId} not found, starting fresh`);
-            historyLoadedRef.current.add(conversationId);
             return;
           }
           throw new Error(`Failed to load history: ${messagesResponse.status}`);
         }
         
         const data = await messagesResponse.json();
-        
-        // Mark as loaded before populating to avoid race conditions
-        historyLoadedRef.current.add(conversationId);
         
         // Populate messages into the store
         if (data.messages && data.messages.length > 0) {
@@ -298,7 +297,11 @@ export function DynamicAgentChatPanel({ endpoint, conversationId, conversationTi
     };
 
     loadHistory();
-  }, [conversationId, agentId, conversation?.messages?.length, addMessage]); 
+    // Note: We intentionally exclude conversation?.messages?.length from deps
+    // to avoid re-fetching when messages change. The historyLoadedRef guard
+    // ensures we only fetch once per conversation.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [conversationId, agentId, addMessage]);
 
   // ═══════════════════════════════════════════════════════════════
   // RESTORE PENDING USER INPUT FORM after page refresh / navigation.

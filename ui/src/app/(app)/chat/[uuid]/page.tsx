@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { PlatformEngineerChatView } from "@/components/chat/PlatformEngineerChatView";
@@ -87,6 +87,10 @@ function ChatUUIDPage() {
   // If we already have messages, consider the fetch "done" to avoid spinner flash.
   const [fetchDone, setFetchDone] = useState(existingHasMessages);
   const [error, setError] = useState<string | null>(null);
+
+  // Track which agent ID we've already fetched to prevent duplicate requests
+  // This prevents re-fetching when selectedAgentId transitions from undefined to value
+  const fetchedAgentIdRef = useRef<string | null>(null);
 
   // Load conversation from MongoDB or localStorage
   useEffect(() => {
@@ -295,8 +299,18 @@ function ChatUUIDPage() {
     if (!selectedAgentId || !dynamicAgentsEnabled) {
       setAgentInfo(null);
       setAgentNotFound(false);
+      fetchedAgentIdRef.current = null;
       return;
     }
+
+    // Skip if we've already fetched this agent (prevents duplicate requests
+    // when selectedAgentId transitions from undefined to value in Strict Mode)
+    if (fetchedAgentIdRef.current === selectedAgentId) {
+      return;
+    }
+
+    // Mark as fetching BEFORE async to prevent duplicates
+    fetchedAgentIdRef.current = selectedAgentId;
 
     async function fetchAgentInfo() {
       try {
