@@ -1413,111 +1413,246 @@ function InlineEventsSection({ events, isStreaming = false }: InlineEventsSectio
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// StreamingView Component - Shows inline events and raw streaming output
+// Typing Indicator - Bouncing dots animation
+// ─────────────────────────────────────────────────────────────────────────────
+
+function TypingIndicator() {
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      className="inline-flex items-center gap-1.5 px-4 py-3 rounded-xl bg-card border border-border/50"
+    >
+      <motion.span
+        className="w-2 h-2 bg-muted-foreground/60 rounded-full"
+        animate={{ y: [0, -4, 0] }}
+        transition={{ duration: 0.6, repeat: Infinity, delay: 0 }}
+      />
+      <motion.span
+        className="w-2 h-2 bg-muted-foreground/60 rounded-full"
+        animate={{ y: [0, -4, 0] }}
+        transition={{ duration: 0.6, repeat: Infinity, delay: 0.15 }}
+      />
+      <motion.span
+        className="w-2 h-2 bg-muted-foreground/60 rounded-full"
+        animate={{ y: [0, -4, 0] }}
+        transition={{ duration: 0.6, repeat: Infinity, delay: 0.3 }}
+      />
+    </motion.div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Shared Markdown Components - Used in both StreamingView and final message
+// ─────────────────────────────────────────────────────────────────────────────
+
+const markdownComponents = {
+  h1: ({ children }: { children?: React.ReactNode }) => (
+    <h1 className="text-xl font-bold text-foreground mb-3 mt-4 first:mt-0 pb-2 border-b border-border/50">
+      {children}
+    </h1>
+  ),
+  h2: ({ children }: { children?: React.ReactNode }) => (
+    <h2 className="text-lg font-semibold text-foreground mb-2 mt-4 first:mt-0">
+      {children}
+    </h2>
+  ),
+  h3: ({ children }: { children?: React.ReactNode }) => (
+    <h3 className="text-base font-semibold text-foreground mb-2 mt-3 first:mt-0">
+      {children}
+    </h3>
+  ),
+  p: ({ children }: { children?: React.ReactNode }) => (
+    <p className="text-sm leading-relaxed text-foreground/90 mb-2 last:mb-0">
+      {children}
+    </p>
+  ),
+  ul: ({ children }: { children?: React.ReactNode }) => (
+    <ul className="list-disc list-outside ml-5 mb-2 space-y-1 text-sm text-foreground/90">
+      {children}
+    </ul>
+  ),
+  ol: ({ children }: { children?: React.ReactNode }) => (
+    <ol className="list-decimal list-outside ml-5 mb-2 space-y-1 text-sm text-foreground/90">
+      {children}
+    </ol>
+  ),
+  li: ({ children }: { children?: React.ReactNode }) => (
+    <li className="leading-relaxed">{children}</li>
+  ),
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  code({ className, children, ...props }: any) {
+    const match = /language-(\w+)/.exec(className || "");
+    const codeContent = String(children).replace(/\n$/, "");
+    const hasNewlines = codeContent.includes("\n");
+    const isCodeBlock = match || hasNewlines || className;
+
+    if (!isCodeBlock) {
+      return (
+        <code
+          className="bg-muted/80 text-primary px-1.5 py-0.5 rounded text-[13px] font-mono break-all"
+          {...props}
+        >
+          {children}
+        </code>
+      );
+    }
+
+    const language = match ? match[1] : "";
+    const shellLanguages = ["bash", "sh", "shell", "zsh", "fish", "console", "terminal"];
+    const isShell = shellLanguages.includes(language.toLowerCase());
+    const shouldHighlight = match && language !== "text" && !isShell;
+
+    return (
+      <div className="my-4 rounded-lg overflow-hidden border border-border/30 bg-[#1e1e2e] max-w-full">
+        <div className="flex items-center justify-between px-4 py-2 border-b border-border/20 bg-[#181825]">
+          <span className="text-xs text-zinc-500 font-mono uppercase tracking-wide">
+            {language || "plain text"}
+          </span>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-6 w-6 text-zinc-500 hover:text-zinc-300 hover:bg-transparent"
+            onClick={() => {
+              navigator.clipboard.writeText(codeContent);
+            }}
+            title="Copy code"
+          >
+            <Copy className="h-3.5 w-3.5" />
+          </Button>
+        </div>
+        {shouldHighlight ? (
+          <SyntaxHighlighter
+            style={oneDark}
+            language={language}
+            PreTag="div"
+            wrapLongLines
+            customStyle={{
+              margin: 0,
+              borderRadius: 0,
+              padding: "1rem 1.25rem",
+              fontSize: "13px",
+              lineHeight: "1.6",
+              background: "transparent",
+              wordBreak: "break-word",
+              whiteSpace: "pre-wrap",
+            }}
+          >
+            {codeContent}
+          </SyntaxHighlighter>
+        ) : (
+          <pre className="p-4 overflow-x-auto max-w-full">
+            <code className="text-[13px] leading-relaxed font-mono whitespace-pre-wrap break-words">
+              {codeContent.split("\n").map((line, i) => {
+                const trimmed = line.trimStart();
+                const isComment = trimmed.startsWith("#") || trimmed.startsWith("//");
+                return (
+                  <span key={i}>
+                    {isComment ? (
+                      <span className="text-zinc-500 italic">{line}</span>
+                    ) : (
+                      <span className="text-zinc-300">{line}</span>
+                    )}
+                    {i < codeContent.split("\n").length - 1 ? "\n" : ""}
+                  </span>
+                );
+              })}
+            </code>
+          </pre>
+        )}
+      </div>
+    );
+  },
+  blockquote: ({ children }: { children?: React.ReactNode }) => (
+    <blockquote className="border-l-4 border-primary/50 pl-4 my-3 italic text-muted-foreground">
+      {children}
+    </blockquote>
+  ),
+  table: ({ children }: { children?: React.ReactNode }) => (
+    <div className="overflow-x-auto my-3 rounded-lg border border-border/50 w-full">
+      <table className="w-full text-sm">
+        {children}
+      </table>
+    </div>
+  ),
+  thead: ({ children }: { children?: React.ReactNode }) => (
+    <thead className="bg-muted/50">{children}</thead>
+  ),
+  th: ({ children }: { children?: React.ReactNode }) => (
+    <th className="px-3 py-2 text-left font-semibold text-foreground border-b border-border/50 break-words">
+      {children}
+    </th>
+  ),
+  td: ({ children }: { children?: React.ReactNode }) => (
+    <td className="px-3 py-2 border-b border-border/30 text-foreground/90 break-words align-top">
+      {children}
+    </td>
+  ),
+  tr: ({ children }: { children?: React.ReactNode }) => (
+    <tr className="hover:bg-muted/30 transition-colors">{children}</tr>
+  ),
+  a: ({ href, children }: { href?: string; children?: React.ReactNode }) => (
+    <a
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="text-primary hover:text-primary/80 underline underline-offset-2 decoration-primary/50 hover:decoration-primary transition-colors"
+    >
+      {children}
+    </a>
+  ),
+  hr: () => (
+    <hr className="my-6 border-border/50" />
+  ),
+  strong: ({ children }: { children?: React.ReactNode }) => (
+    <strong className="font-semibold text-foreground">{children}</strong>
+  ),
+  em: ({ children }: { children?: React.ReactNode }) => (
+    <em className="italic text-foreground/90">{children}</em>
+  ),
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// StreamingView Component - Shows inline events and streaming content
 // ─────────────────────────────────────────────────────────────────────────────
 
 interface StreamingViewProps {
   message: ChatMessageType;
-  showRawStream: boolean;
-  setShowRawStream: (show: boolean) => void;
   isStreaming?: boolean;
   turnEvents?: SSEAgentEvent[];
 }
 
-function StreamingView({ message, showRawStream, setShowRawStream, isStreaming = false, turnEvents = [] }: StreamingViewProps) {
-  const thinkingRef = useRef<HTMLDivElement>(null);
-  
+function StreamingView({ message, isStreaming = false, turnEvents = [] }: StreamingViewProps) {
   // Parse events to check if we have any tool/subagent activity
   const toolCalls = useMemo(() => parseToolCalls(turnEvents), [turnEvents]);
   const subagentCalls = useMemo(() => parseSubagentCalls(turnEvents), [turnEvents]);
   const hasEvents = toolCalls.length > 0 || subagentCalls.length > 0;
 
-  useEffect(() => {
-    if (isStreaming && thinkingRef.current) {
-      thinkingRef.current.scrollTop = thinkingRef.current.scrollHeight;
-    }
-  }, [message.rawStreamContent, isStreaming]);
-
   return (
-    <div className="space-y-4">
-      {/* Show thinking indicator when no content and no events yet */}
+    <div className="space-y-3">
+      {/* Show typing indicator when no content and no events yet */}
       {!message.content && !hasEvents && (
-        <motion.div
-          key="thinking"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          className="inline-flex items-center gap-2 px-4 py-3 rounded-xl bg-card border border-border/50"
-        >
-          <div className="relative">
-            <div className="w-2 h-2 bg-primary rounded-full animate-ping absolute" />
-            <div className="w-2 h-2 bg-primary rounded-full" />
-          </div>
-          <span className="text-sm text-muted-foreground">Thinking...</span>
-        </motion.div>
+        <TypingIndicator />
       )}
 
-      {/* Show inline tool/subagent events while streaming */}
+      {/* Show inline tool/subagent events above content */}
       {hasEvents && (
         <InlineEventsSection events={turnEvents} isStreaming={isStreaming} />
       )}
 
-      {(message.rawStreamContent || message.content) && (
-        <motion.div
-          initial={{ opacity: 0, height: 0 }}
-          animate={{ opacity: 1, height: "auto" }}
-          className="mt-3"
-        >
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-medium text-muted-foreground">
-              Thinking
-              {message.rawStreamContent && (
-                <span className="ml-2 text-[10px] text-muted-foreground/60">
-                  ({message.rawStreamContent.length.toLocaleString()} chars)
-                </span>
-              )}
-            </span>
-            <button
-              onClick={() => setShowRawStream(!showRawStream)}
-              className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+      {/* Render content as markdown (unified with final view) */}
+      {message.content && (
+        <div className="rounded-xl bg-card/50 border border-border/50 px-4 py-3">
+          <div className="prose-container overflow-hidden break-words" style={{ overflowWrap: 'anywhere' }}>
+            <ReactMarkdown
+              remarkPlugins={[remarkGfm]}
+              components={markdownComponents}
             >
-              {showRawStream ? (
-                <>
-                  <ChevronUp className="h-3 w-3" />
-                  <span>Collapse</span>
-                </>
-              ) : (
-                <>
-                  <ChevronDown className="h-3 w-3" />
-                  <span>Expand</span>
-                </>
-              )}
-            </button>
+              {message.content}
+            </ReactMarkdown>
           </div>
-
-          <AnimatePresence>
-            {showRawStream && (
-              <motion.div
-                ref={thinkingRef}
-                initial={{ opacity: 0, height: 0 }}
-                animate={{ opacity: 1, height: "auto" }}
-                exit={{ opacity: 0, height: 0 }}
-                className="p-4 rounded-lg bg-card/80 border border-border/50 max-h-64 overflow-y-auto"
-              >
-                <pre className="text-sm text-foreground/80 font-mono whitespace-pre-wrap break-words leading-relaxed">
-                  {(() => {
-                    const raw = message.rawStreamContent || message.content || "";
-                    if (isStreaming && raw.length > 2000) {
-                      return "…" + raw.slice(-2000);
-                    }
-                    return raw;
-                  })()}
-                </pre>
-              </motion.div>
-            )}
-          </AnimatePresence>
-        </motion.div>
+        </div>
       )}
-
     </div>
   );
 }
@@ -1666,8 +1801,6 @@ const ChatMessage = React.memo(function ChatMessage({
   turnEvents = [],
 }: ChatMessageProps) {
   const isUser = message.role === "user";
-  const showThinkingDefault = useFeatureFlagStore((s) => s.flags.showThinking ?? true);
-  const [showRawStream, setShowRawStream] = useState(showThinkingDefault);
   const [isHovered, setIsHovered] = useState(false);
   const [isCollapsed, setIsCollapsed] = useState(() => {
     if (isUser) return false;
@@ -1786,8 +1919,6 @@ const ChatMessage = React.memo(function ChatMessage({
         {isStreaming && message.role === "assistant" ? (
           <StreamingView
             message={message}
-            showRawStream={showRawStream}
-            setShowRawStream={setShowRawStream}
             isStreaming={isStreaming}
             turnEvents={turnEvents}
           />
