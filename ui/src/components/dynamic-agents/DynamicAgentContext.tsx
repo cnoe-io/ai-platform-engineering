@@ -10,7 +10,6 @@ import {
   ChevronLeft,
   Bot,
   Info,
-  Users,
   ListTodo,
   Activity,
   AlertTriangle,
@@ -34,24 +33,6 @@ import type { SubAgentRef } from "@/types/dynamic-agent";
 import { useShallow } from "zustand/react/shallow";
 import { useSession } from "next-auth/react";
 import { FileTree } from "./FileTree";
-
-// Tool call from events
-interface ToolCall {
-  id: string;
-  tool: string;
-  args?: Record<string, unknown>;
-  agent?: string;
-  status: "running" | "completed";
-}
-
-// Subagent call from events
-interface SubagentCall {
-  id: string;
-  name: string;
-  purpose?: string;
-  parentAgent?: string;
-  status: "running" | "completed";
-}
 
 // Todo item from todo_update events
 interface TodoItem {
@@ -116,66 +97,18 @@ export function DynamicAgentContext({
     return conv?.sseEvents || EMPTY_SSE_EVENTS;
   }, [activeConversationId, conversations]);
 
-  const [activeTab, setActiveTab] = useState<"events" | "info">("events");
-  const [toolsCollapsed, setToolsCollapsed] = useState(false);
-
-  // Todos fetched from API (single source of truth)
-  const [todos, setTodos] = useState<TodoItem[]>([]);
-  const [todosFetchKey, setTodosFetchKey] = useState(0);
-  const [todosLoading, setTodosLoading] = useState(true);
-
-  // Check if streaming is active
+  // Get the active conversation for runtime status access
   const conversation = useMemo(() => {
     if (!activeConversationId) return null;
     return conversations.find((c) => c.id === activeConversationId) || null;
   }, [activeConversationId, conversations]);
 
-  const isActuallyStreaming = useMemo(() => {
-    if (!isStreaming) return false;
-    if (!conversation) return false;
-    return true;
-  }, [isStreaming, conversation]);
+  const [activeTab, setActiveTab] = useState<"events" | "info">("events");
 
-  // Parse tool calls from structured events
-  const { activeToolCalls, completedToolCalls } = useMemo(() => {
-    const allTools = parseToolCalls(conversationEvents);
-    
-    if (isActuallyStreaming) {
-      return {
-        activeToolCalls: allTools.filter((t) => t.status === "running"),
-        completedToolCalls: allTools.filter((t) => t.status === "completed"),
-      };
-    } else {
-      const completedTools = allTools.map((t) => ({
-        ...t,
-        status: "completed" as const,
-      }));
-      return {
-        activeToolCalls: [],
-        completedToolCalls: completedTools,
-      };
-    }
-  }, [conversationEvents, isActuallyStreaming]);
-
-  // Parse subagent calls from structured events
-  const { activeSubagentCalls, completedSubagentCalls } = useMemo(() => {
-    const allSubagents = parseSubagentCalls(conversationEvents);
-    if (isActuallyStreaming) {
-      return {
-        activeSubagentCalls: allSubagents.filter((s) => s.status === "running"),
-        completedSubagentCalls: allSubagents.filter((s) => s.status === "completed"),
-      };
-    } else {
-      const completedSubagents = allSubagents.map((s) => ({
-        ...s,
-        status: "completed" as const,
-      }));
-      return {
-        activeSubagentCalls: [],
-        completedSubagentCalls: completedSubagents,
-      };
-    }
-  }, [conversationEvents, isActuallyStreaming]);
+  // Todos fetched from API (single source of truth)
+  const [todos, setTodos] = useState<TodoItem[]>([]);
+  const [todosFetchKey, setTodosFetchKey] = useState(0);
+  const [todosLoading, setTodosLoading] = useState(true);
 
   // Detect write_todos tool events and trigger a fetch
   useEffect(() => {
@@ -434,9 +367,8 @@ export function DynamicAgentContext({
     }
   }, [agentId, activeConversationId, session?.accessToken, isRestarting, clearSSEEvents]);
 
-  const totalToolCalls = activeToolCalls.length + completedToolCalls.length;
-  const totalSubagentCalls = activeSubagentCalls.length + completedSubagentCalls.length;
-  const totalActivityCount = totalToolCalls + totalSubagentCalls + todos.length + files.length;
+  // Activity count now only includes todos and files (tools/subagents shown inline in chat)
+  const totalActivityCount = todos.length + files.length;
 
   return (
     <motion.div
@@ -554,13 +486,6 @@ export function DynamicAgentContext({
                 downloadingFilePath={downloadingFilePath}
                 isDeletingFile={isDeletingFile}
                 deletingFilePath={deletingFilePath}
-                activeToolCalls={activeToolCalls}
-                completedToolCalls={completedToolCalls}
-                activeSubagentCalls={activeSubagentCalls}
-                completedSubagentCalls={completedSubagentCalls}
-                toolsCollapsed={toolsCollapsed}
-                onToolsCollapse={setToolsCollapsed}
-                isStreaming={isActuallyStreaming}
                 errorMessages={errorMessages}
                 warningMessages={warningMessages}
                 runtimeRestarted={runtimeRestarted}
@@ -622,13 +547,6 @@ interface EventsContentProps {
   downloadingFilePath?: string;
   isDeletingFile?: boolean;
   deletingFilePath?: string;
-  activeToolCalls: ToolCall[];
-  completedToolCalls: ToolCall[];
-  activeSubagentCalls: SubagentCall[];
-  completedSubagentCalls: SubagentCall[];
-  toolsCollapsed: boolean;
-  onToolsCollapse: (collapsed: boolean) => void;
-  isStreaming: boolean;
   errorMessages: string[];
   warningMessages: string[];
   /** Whether the runtime was just restarted */
@@ -650,13 +568,6 @@ function EventsContent({
   downloadingFilePath,
   isDeletingFile,
   deletingFilePath,
-  activeToolCalls,
-  completedToolCalls,
-  activeSubagentCalls,
-  completedSubagentCalls,
-  toolsCollapsed,
-  onToolsCollapse,
-  isStreaming,
   errorMessages,
   warningMessages,
   runtimeRestarted,
@@ -664,8 +575,6 @@ function EventsContent({
   missingTools = [],
   isLoading = false,
 }: EventsContentProps) {
-  const [subagentsCollapsed, setSubagentsCollapsed] = useState(false);
-
   // Derive persistent warning from runtimeStatus
   const hasPersistentWarning = failedServers.length > 0 || missingTools.length > 0;
 
@@ -682,10 +591,6 @@ function EventsContent({
   const hasNoActivity =
     todos.length === 0 &&
     files.length === 0 &&
-    activeToolCalls.length === 0 &&
-    completedToolCalls.length === 0 &&
-    activeSubagentCalls.length === 0 &&
-    completedSubagentCalls.length === 0 &&
     errorMessages.length === 0 &&
     warningMessages.length === 0 &&
     !runtimeRestarted &&
@@ -899,147 +804,6 @@ function EventsContent({
         isDeleting={isDeletingFile}
         deletingPath={deletingFilePath}
       />
-
-      {/* Active subagent calls */}
-      {activeSubagentCalls.length > 0 && (
-        <div className="space-y-2">
-          <div className="flex items-center gap-2 text-xs text-muted-foreground">
-            <Loader2 className="h-3 w-3 animate-spin text-blue-400" />
-            <Users className="h-3 w-3 text-blue-400" />
-            <span>Running Subagents ({activeSubagentCalls.length})</span>
-          </div>
-          {activeSubagentCalls.map((subagent) => (
-            <SubagentCard key={subagent.id} subagent={subagent} />
-          ))}
-        </div>
-      )}
-
-      {/* Completed subagent calls */}
-      {completedSubagentCalls.length > 0 && (
-        <div className="space-y-2">
-          <button
-            onClick={() => setSubagentsCollapsed(!subagentsCollapsed)}
-            className="flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground transition-colors w-full"
-          >
-            <CheckCircle className="h-3 w-3 text-blue-400" />
-            <Users className="h-3 w-3 text-blue-400" />
-            <span>Completed Subagents ({completedSubagentCalls.length})</span>
-            {subagentsCollapsed ? (
-              <ChevronDown className="h-3 w-3 ml-auto" />
-            ) : (
-              <ChevronUp className="h-3 w-3 ml-auto" />
-            )}
-          </button>
-          {!subagentsCollapsed &&
-            completedSubagentCalls.map((subagent) => (
-              <SubagentCard key={subagent.id} subagent={subagent} />
-            ))}
-        </div>
-      )}
-
-      {/* Active tool calls */}
-      {activeToolCalls.length > 0 && (
-        <div className="space-y-2">
-          <div className="flex items-center gap-2 text-xs text-muted-foreground">
-            <Loader2 className="h-3 w-3 animate-spin text-purple-400" />
-            <span>Running ({activeToolCalls.length})</span>
-          </div>
-          {activeToolCalls.map((tool) => (
-            <ToolCard key={tool.id} tool={tool} />
-          ))}
-        </div>
-      )}
-
-      {/* Completed tool calls */}
-      {completedToolCalls.length > 0 && (
-        <div className="space-y-2">
-          <button
-            onClick={() => onToolsCollapse(!toolsCollapsed)}
-            className="flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground transition-colors w-full"
-          >
-            <CheckCircle className="h-3 w-3 text-green-400" />
-            <span>Completed ({completedToolCalls.length})</span>
-            {toolsCollapsed ? (
-              <ChevronDown className="h-3 w-3 ml-auto" />
-            ) : (
-              <ChevronUp className="h-3 w-3 ml-auto" />
-            )}
-          </button>
-          {!toolsCollapsed &&
-            completedToolCalls.map((tool) => (
-              <ToolCard key={tool.id} tool={tool} />
-            ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function ToolCard({ tool }: { tool: ToolCall }) {
-  const isRunning = tool.status === "running";
-
-  return (
-    <div
-      className={cn(
-        "rounded-lg border p-2.5 text-sm",
-        isRunning
-          ? "border-purple-500/30 bg-purple-500/5"
-          : "border-border/50 bg-muted/30"
-      )}
-    >
-      <div className="flex items-center gap-2">
-        {isRunning ? (
-          <Loader2 className="h-3.5 w-3.5 animate-spin text-purple-400 shrink-0" />
-        ) : (
-          <CheckCircle className="h-3.5 w-3.5 text-green-400 shrink-0" />
-        )}
-        <span className="font-medium truncate">{tool.tool}</span>
-      </div>
-      {tool.agent && (
-        <div className="text-xs text-muted-foreground mt-1 pl-5.5">
-          via {tool.agent}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function SubagentCard({ subagent }: { subagent: SubagentCall }) {
-  const isRunning = subagent.status === "running";
-
-  return (
-    <div
-      className={cn(
-        "rounded-lg border p-2.5 text-sm",
-        isRunning
-          ? "border-blue-500/30 bg-blue-500/5"
-          : "border-border/50 bg-muted/30",
-      )}
-    >
-      {/* Subagent header */}
-      <div className="flex items-center gap-2">
-        {isRunning ? (
-          <Loader2 className="h-3.5 w-3.5 animate-spin text-blue-400 shrink-0" />
-        ) : (
-          <CheckCircle className="h-3.5 w-3.5 text-blue-400 shrink-0" />
-        )}
-        <Bot className="h-3.5 w-3.5 text-blue-400 shrink-0" />
-        <span className="font-medium truncate">{subagent.name}</span>
-      </div>
-
-      {/* Purpose - why this subagent was called */}
-      {subagent.purpose && (
-        <div className="text-xs text-muted-foreground mt-1.5 pl-6 line-clamp-2">
-          {subagent.purpose}
-        </div>
-      )}
-
-      {/* Parent agent info */}
-      {subagent.parentAgent && (
-        <div className="text-[10px] text-muted-foreground mt-1 pl-6">
-          via {subagent.parentAgent}
-        </div>
-      )}
     </div>
   );
 }
@@ -1317,67 +1081,4 @@ function AgentInfoContent({
       )}
     </div>
   );
-}
-
-// ═══════════════════════════════════════════════════════════════
-// Helper: Parse tool calls from SSE events (uses structured toolData)
-// ═══════════════════════════════════════════════════════════════
-
-function parseToolCalls(events: SSEAgentEvent[]): ToolCall[] {
-  const toolsMap = new Map<string, ToolCall>();
-
-  events.forEach((event) => {
-    if (event.type === "tool_start" && event.toolData) {
-      const { tool_name, tool_call_id, args, agent } = event.toolData;
-      toolsMap.set(tool_call_id, {
-        id: tool_call_id,
-        tool: tool_name,
-        args,
-        agent,
-        status: "running",
-      });
-    }
-
-    if (event.type === "tool_end" && event.toolData) {
-      const { tool_call_id } = event.toolData;
-      const tool = toolsMap.get(tool_call_id);
-      if (tool) {
-        tool.status = "completed";
-      }
-    }
-  });
-
-  return Array.from(toolsMap.values());
-}
-
-// ═══════════════════════════════════════════════════════════════
-// Helper: Parse subagent calls from SSE events (uses structured subagentData)
-// ═══════════════════════════════════════════════════════════════
-
-function parseSubagentCalls(events: SSEAgentEvent[]): SubagentCall[] {
-  const subagentsMap = new Map<string, SubagentCall>();
-
-  events.forEach((event, idx) => {
-    if (event.type === "subagent_start" && event.subagentData) {
-      const { subagent_name, purpose, parent_agent } = event.subagentData;
-      const subagentId = `subagent-${event.id || idx}`;
-      subagentsMap.set(subagent_name, {
-        id: subagentId,
-        name: subagent_name,
-        purpose,
-        parentAgent: parent_agent,
-        status: "running",
-      });
-    }
-
-    if (event.type === "subagent_end" && event.subagentData) {
-      const { subagent_name } = event.subagentData;
-      const subagent = subagentsMap.get(subagent_name);
-      if (subagent) {
-        subagent.status = "completed";
-      }
-    }
-  });
-
-  return Array.from(subagentsMap.values());
 }

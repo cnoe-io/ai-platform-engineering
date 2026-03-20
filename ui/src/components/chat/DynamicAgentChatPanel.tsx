@@ -23,6 +23,7 @@ import { apiClient } from "@/lib/api-client";
 import { FeedbackButton, Feedback } from "./FeedbackButton";
 import { MetadataInputForm, type UserInputMetadata, type InputField } from "./MetadataInputForm";
 import { getGradientStyle } from "@/lib/gradient-themes";
+import { InlineEventCard } from "./InlineEventCard";
 
 type ReadOnlyReason = 'admin_audit' | 'shared_readonly' | 'agent_deleted' | 'agent_disabled';
 
@@ -996,6 +997,14 @@ export function DynamicAgentChatPanel({ endpoint, conversationId, conversationTi
                       const isLastAssistantMessage = msg.role === "assistant" &&
                         index === arr.length - 1;
 
+                      // Filter SSE events for this message turn
+                      const turnEvents = filterEventsForTurn(
+                        conversation?.sseEvents ?? [],
+                        msg,
+                        allMessages,
+                        allMessages.findIndex(m => m.id === msg.id)
+                      );
+
                       return (
                         <ChatMessage
                           key={msg.id}
@@ -1015,6 +1024,7 @@ export function DynamicAgentChatPanel({ endpoint, conversationId, conversationTi
                           showTimestamp={showTimestamps}
                           agentGradient={agentGradient}
                           agentName={agentName}
+                          turnEvents={turnEvents}
                         />
                       );
                     })}
@@ -1232,7 +1242,173 @@ export function DynamicAgentChatPanel({ endpoint, conversationId, conversationTi
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// StreamingView Component - Shows sub-agent cards and raw streaming output
+// Inline Event Types and Helpers
+// ─────────────────────────────────────────────────────────────────────────────
+
+interface ToolCall {
+  id: string;
+  tool: string;
+  args?: Record<string, unknown>;
+  agent?: string;
+  status: "running" | "completed";
+}
+
+interface SubagentCall {
+  id: string;
+  name: string;
+  purpose?: string;
+  parentAgent?: string;
+  status: "running" | "completed";
+}
+
+/**
+ * Parse tool calls from SSE events (uses structured toolData)
+ */
+function parseToolCalls(events: SSEAgentEvent[]): ToolCall[] {
+  const toolsMap = new Map<string, ToolCall>();
+
+  events.forEach((event) => {
+    if (event.type === "tool_start" && event.toolData) {
+      const { tool_name, tool_call_id, args, agent } = event.toolData;
+      toolsMap.set(tool_call_id, {
+        id: tool_call_id,
+        tool: tool_name,
+        args,
+        agent,
+        status: "running",
+      });
+    }
+
+    if (event.type === "tool_end" && event.toolData) {
+      const { tool_call_id } = event.toolData;
+      const tool = toolsMap.get(tool_call_id);
+      if (tool) {
+        tool.status = "completed";
+      }
+    }
+  });
+
+  return Array.from(toolsMap.values());
+}
+
+/**
+ * Parse subagent calls from SSE events (uses structured subagentData)
+ */
+function parseSubagentCalls(events: SSEAgentEvent[]): SubagentCall[] {
+  const subagentsMap = new Map<string, SubagentCall>();
+
+  events.forEach((event, idx) => {
+    if (event.type === "subagent_start" && event.subagentData) {
+      const { subagent_name, purpose, parent_agent } = event.subagentData;
+      const subagentId = `subagent-${event.id || idx}`;
+      subagentsMap.set(subagent_name, {
+        id: subagentId,
+        name: subagent_name,
+        purpose,
+        parentAgent: parent_agent,
+        status: "running",
+      });
+    }
+
+    if (event.type === "subagent_end" && event.subagentData) {
+      const { subagent_name } = event.subagentData;
+      const subagent = subagentsMap.get(subagent_name);
+      if (subagent) {
+        subagent.status = "completed";
+      }
+    }
+  });
+
+  return Array.from(subagentsMap.values());
+}
+
+/**
+ * Filter SSE events for a specific message turn based on timestamps.
+ * Returns events that occurred between this message and the next user message.
+ */
+function filterEventsForTurn(
+  sseEvents: SSEAgentEvent[],
+  message: ChatMessageType,
+  allMessages: ChatMessageType[],
+  messageIndex: number
+): SSEAgentEvent[] {
+  if (message.role !== "assistant") return [];
+  
+  const msgTime = new Date(message.timestamp).getTime();
+  
+  // Find next user message timestamp (or use Infinity for latest)
+  let endTime = Infinity;
+  for (let i = messageIndex + 1; i < allMessages.length; i++) {
+    if (allMessages[i].role === "user") {
+      endTime = new Date(allMessages[i].timestamp).getTime();
+      break;
+    }
+  }
+  
+  // Filter events within this turn's time window
+  // Events without timestamps are assumed to be from this turn if it's the latest
+  return sseEvents.filter(e => {
+    if (!e.timestamp) {
+      // For events without timestamps, include only if this is the latest assistant message
+      return messageIndex === allMessages.length - 1 || 
+             (messageIndex === allMessages.length - 2 && allMessages[allMessages.length - 1].role === "assistant");
+    }
+    const eventTime = new Date(e.timestamp).getTime();
+    return eventTime >= msgTime && eventTime < endTime;
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// InlineEventsSection - Renders tool/subagent cards inline
+// ─────────────────────────────────────────────────────────────────────────────
+
+interface InlineEventsSectionProps {
+  events: SSEAgentEvent[];
+  isStreaming?: boolean;
+}
+
+function InlineEventsSection({ events, isStreaming = false }: InlineEventsSectionProps) {
+  const toolCalls = useMemo(() => parseToolCalls(events), [events]);
+  const subagentCalls = useMemo(() => parseSubagentCalls(events), [events]);
+
+  // When not streaming, mark all as completed
+  const displayToolCalls = isStreaming 
+    ? toolCalls 
+    : toolCalls.map(t => ({ ...t, status: "completed" as const }));
+  const displaySubagentCalls = isStreaming 
+    ? subagentCalls 
+    : subagentCalls.map(s => ({ ...s, status: "completed" as const }));
+
+  if (displayToolCalls.length === 0 && displaySubagentCalls.length === 0) {
+    return null;
+  }
+
+  // Interleave tools and subagents by their order of appearance
+  // For simplicity, show subagents first, then tools (they usually run in sequence anyway)
+  return (
+    <div className="flex flex-wrap gap-2 mt-3">
+      {displaySubagentCalls.map((subagent) => (
+        <InlineEventCard
+          key={subagent.id}
+          type="subagent"
+          name={subagent.name}
+          status={subagent.status}
+        />
+      ))}
+      {displayToolCalls.map((tool) => (
+        <InlineEventCard
+          key={tool.id}
+          type="tool"
+          name={tool.tool}
+          status={tool.status}
+        />
+      ))}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// StreamingView Component - Shows inline events and raw streaming output
 // ─────────────────────────────────────────────────────────────────────────────
 
 interface StreamingViewProps {
@@ -1240,10 +1416,16 @@ interface StreamingViewProps {
   showRawStream: boolean;
   setShowRawStream: (show: boolean) => void;
   isStreaming?: boolean;
+  turnEvents?: SSEAgentEvent[];
 }
 
-function StreamingView({ message, showRawStream, setShowRawStream, isStreaming = false }: StreamingViewProps) {
+function StreamingView({ message, showRawStream, setShowRawStream, isStreaming = false, turnEvents = [] }: StreamingViewProps) {
   const thinkingRef = useRef<HTMLDivElement>(null);
+  
+  // Parse events to check if we have any tool/subagent activity
+  const toolCalls = useMemo(() => parseToolCalls(turnEvents), [turnEvents]);
+  const subagentCalls = useMemo(() => parseSubagentCalls(turnEvents), [turnEvents]);
+  const hasEvents = toolCalls.length > 0 || subagentCalls.length > 0;
 
   useEffect(() => {
     if (isStreaming && thinkingRef.current) {
@@ -1253,8 +1435,8 @@ function StreamingView({ message, showRawStream, setShowRawStream, isStreaming =
 
   return (
     <div className="space-y-4">
-      {/* Show thinking indicator when no content yet */}
-      {!message.content && message.events.length === 0 && (
+      {/* Show thinking indicator when no content and no events yet */}
+      {!message.content && !hasEvents && (
         <motion.div
           key="thinking"
           initial={{ opacity: 0 }}
@@ -1267,6 +1449,11 @@ function StreamingView({ message, showRawStream, setShowRawStream, isStreaming =
           </div>
           <span className="text-sm text-muted-foreground">Thinking...</span>
         </motion.div>
+      )}
+
+      {/* Show inline tool/subagent events while streaming */}
+      {hasEvents && (
+        <InlineEventsSection events={turnEvents} isStreaming={isStreaming} />
       )}
 
       {(message.rawStreamContent || message.content) && (
@@ -1451,6 +1638,7 @@ interface ChatMessageProps {
   showTimestamp?: boolean;
   agentGradient?: string | null;
   agentName?: string;
+  turnEvents?: SSEAgentEvent[];
 }
 
 const ChatMessage = React.memo(function ChatMessage({
@@ -1470,6 +1658,7 @@ const ChatMessage = React.memo(function ChatMessage({
   showTimestamp = false,
   agentGradient,
   agentName,
+  turnEvents = [],
 }: ChatMessageProps) {
   const isUser = message.role === "user";
   const showThinkingDefault = useFeatureFlagStore((s) => s.flags.showThinking ?? true);
@@ -1595,6 +1784,7 @@ const ChatMessage = React.memo(function ChatMessage({
             showRawStream={showRawStream}
             setShowRawStream={setShowRawStream}
             isStreaming={isStreaming}
+            turnEvents={turnEvents}
           />
         ) : (
           <>
@@ -1848,6 +2038,11 @@ const ChatMessage = React.memo(function ChatMessage({
                 </div>
               )}
             </div>
+
+            {/* Inline tool/subagent events for completed assistant messages */}
+            {!isUser && turnEvents.length > 0 && (
+              <InlineEventsSection events={turnEvents} isStreaming={false} />
+            )}
 
             {isUser && (
               <motion.div
