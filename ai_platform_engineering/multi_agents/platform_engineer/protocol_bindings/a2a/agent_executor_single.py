@@ -91,8 +91,7 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
         self._current_plan_step_id: str | None = None
 
     def _is_last_plan_step_active(self) -> bool:
-        """Check if the last plan step is currently in_progress AND all prior
-        steps are completed/failed.
+        """Check if the last plan step is currently in_progress.
 
         TODO: This is a heuristic — it assumes the supervisor's streaming tokens
         are the final answer when the last plan step is active. This can be wrong
@@ -104,18 +103,10 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
         if not self._execution_plan_emitted or not self._latest_execution_plan:
             return False
         last_step = self._latest_execution_plan[-1]
-        if not (
+        return (
             last_step.get('status') == 'in_progress'
             and last_step.get('step_id') == self._current_plan_step_id
-        ):
-            return False
-        # All prior steps must be done — otherwise the LLM is still working
-        # through intermediate steps and streaming text is narration, not the
-        # final answer.
-        for step in self._latest_execution_plan[:-1]:
-            if step.get('status') not in ('completed', 'failed'):
-                return False
-        return True
+        )
 
     def _find_plan_step_for_agent(self, agent_name: str) -> str | None:
         """Find the plan step_id for a given agent name."""
@@ -581,9 +572,6 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
 
         is_tool_notification = self._is_tool_notification(content, event)
 
-        # Detect source agent from event metadata
-        source_agent = event.get('source_agent') or 'supervisor'
-
         # Accumulate non-notification content (unless DataPart already received)
         if not is_tool_notification and not state.sub_agent_datapart:
             state.supervisor_content.append(content)
@@ -596,6 +584,7 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
             # Tag tool notification with the correct plan step.
             # Try to match the tool's sourceAgent to its dedicated plan step
             # first; fall back to _current_plan_step_id.
+            source_agent = event.get('source_agent') or 'supervisor'
             plan_step_id = self._current_plan_step_id
             if source_agent and source_agent != 'supervisor':
                 matched_step = self._find_plan_step_for_agent(source_agent)
@@ -618,10 +607,6 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                 description='Streaming result',
                 text=content,
             )
-            streaming_meta = {'sourceAgent': source_agent, 'agentType': 'streaming'}
-            if self._current_plan_step_id:
-                streaming_meta['plan_step_id'] = self._current_plan_step_id
-            artifact.metadata = streaming_meta
             state.streaming_artifact_id = artifact.artifact_id
             state.seen_artifact_ids.add(artifact.artifact_id)
             state.first_artifact_sent = True
@@ -634,10 +619,6 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                 text=content,
             )
             artifact.artifact_id = state.streaming_artifact_id
-            streaming_meta = {'sourceAgent': source_agent, 'agentType': 'streaming'}
-            if self._current_plan_step_id:
-                streaming_meta['plan_step_id'] = self._current_plan_step_id
-            artifact.metadata = streaming_meta
             use_append = True
 
         # Tag streaming chunks as final answer when the last plan step is active.

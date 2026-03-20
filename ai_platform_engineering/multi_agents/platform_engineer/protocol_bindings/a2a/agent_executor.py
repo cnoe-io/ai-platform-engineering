@@ -85,8 +85,7 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
         self._current_plan_step_id: str | None = None
 
     def _is_last_plan_step_active(self) -> bool:
-        """Check if the last plan step is currently in_progress AND all prior
-        steps are completed/failed.
+        """Check if the last plan step is currently in_progress.
 
         TODO: This is a heuristic — it assumes the supervisor's streaming tokens
         are the final answer when the last plan step is active. This can be wrong
@@ -98,18 +97,10 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
         if not self._execution_plan_emitted or not self._latest_execution_plan:
             return False
         last_step = self._latest_execution_plan[-1]
-        if not (
+        return (
             last_step.get('status') == 'in_progress'
             and last_step.get('step_id') == self._current_plan_step_id
-        ):
-            return False
-        # All prior steps must be done — otherwise the LLM is still working
-        # through intermediate steps and streaming text is narration, not the
-        # final answer.
-        for step in self._latest_execution_plan[:-1]:
-            if step.get('status') not in ('completed', 'failed'):
-                return False
-        return True
+        )
 
     def _find_plan_step_for_agent(self, agent_name: str) -> str | None:
         """Find the plan step_id for a given agent name."""
@@ -749,10 +740,7 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                 description='Streaming result',
                 text=content,
             )
-            streaming_meta = {'sourceAgent': source_agent, 'agentType': 'streaming'}
-            if self._current_plan_step_id:
-                streaming_meta['plan_step_id'] = self._current_plan_step_id
-            artifact.metadata = streaming_meta
+            artifact.metadata = {'sourceAgent': source_agent, 'agentType': 'streaming'}
             state.streaming_artifact_id = artifact.artifact_id
             state.seen_artifact_ids.add(artifact.artifact_id)
             state.first_artifact_sent = True
@@ -765,10 +753,7 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                 text=content,
             )
             artifact.artifact_id = state.streaming_artifact_id
-            streaming_meta = {'sourceAgent': source_agent, 'agentType': 'streaming'}
-            if self._current_plan_step_id:
-                streaming_meta['plan_step_id'] = self._current_plan_step_id
-            artifact.metadata = streaming_meta
+            artifact.metadata = {'sourceAgent': source_agent, 'agentType': 'streaming'}
             use_append = True
 
         # Tag streaming chunks as final answer when the last plan step is active.
