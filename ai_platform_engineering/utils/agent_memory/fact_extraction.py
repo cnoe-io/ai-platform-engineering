@@ -92,16 +92,24 @@ def create_fact_extractor(store: Any) -> Any:
 
         model = _get_extraction_model()
 
+        # Build namespace with optional key prefix to match retrieval in
+        # store.store_get_cross_thread_context / _store_namespace().
+        key_prefix = (os.getenv("LANGGRAPH_STORE_KEY_PREFIX") or "").strip()
+        if key_prefix:
+            namespace = (sanitize_namespace_label(key_prefix), "memories", "{langgraph_user_id}")
+        else:
+            namespace = ("memories", "{langgraph_user_id}")
+
         _FACT_EXTRACTOR = create_memory_store_manager(
             model,
             instructions=EXTRACTION_INSTRUCTIONS,
-            namespace=("memories", "{langgraph_user_id}"),
+            namespace=namespace,
             store=store,
             enable_inserts=True,
             enable_deletes=False,
         )
 
-        logger.info("Fact extractor (MemoryStoreManager) created successfully")
+        logger.info(f"Fact extractor (MemoryStoreManager) created successfully (namespace={namespace})")
         return _FACT_EXTRACTOR
 
     except ImportError:
