@@ -1,9 +1,9 @@
 ---
 title: "CNCF Sandbox Application Draft"
-description: Draft application for CAIPE to join the CNCF Sandbox
+description: Draft application for CAIPE to join the CNCF Sandbox (working copy for the GitHub issue form)
 authors: [sriaradhyula]
 tags: [articles]
-draft: true
+draft: false
 ---
 
 # [Sandbox] CAIPE (Community AI Platform Engineering)
