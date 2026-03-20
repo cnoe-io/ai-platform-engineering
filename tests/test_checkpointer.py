@@ -21,6 +21,7 @@ from ai_platform_engineering.utils.checkpointer import (
   CHECKPOINT_TYPE_MEMORY,
   _create_memory_checkpointer,
   _detect_collection_prefix,
+  _parse_db_from_uri,
   create_checkpointer,
   get_checkpointer,
   get_checkpointer_config,
@@ -91,6 +92,30 @@ class TestDetectCollectionPrefix:
     main_mod = MagicMock(__spec__=spec)
     with patch.dict("sys.modules", {"__main__": main_mod}):
       assert _detect_collection_prefix() == ""
+
+
+# ============================================================================
+# URI Database Parsing Tests
+# ============================================================================
+
+
+class TestParseDbFromUri:
+  """Tests for _parse_db_from_uri()."""
+
+  def test_uri_with_db_name(self):
+    assert _parse_db_from_uri("mongodb://host:27017/caipe") == "caipe"
+
+  def test_uri_with_db_and_query(self):
+    assert _parse_db_from_uri("mongodb://admin:pass@host:27017/caipe?authSource=admin") == "caipe"
+
+  def test_uri_without_db(self):
+    assert _parse_db_from_uri("mongodb://host:27017") == ""
+
+  def test_uri_with_trailing_slash(self):
+    assert _parse_db_from_uri("mongodb://host:27017/") == ""
+
+  def test_srv_uri_with_db(self):
+    assert _parse_db_from_uri("mongodb+srv://user:pass@cluster.example.com/mydb?retryWrites=true") == "mydb"
 
 
 # ============================================================================
@@ -356,6 +381,31 @@ class TestCreateCheckpointer:
           assert type(cp).__name__ == "_LazyAsyncMongoDBSaver"
           assert cp._checkpoint_collection_name == "custom_cp"
           assert cp._writes_collection_name == "custom_wr"
+
+  def test_mongodb_db_name_parsed_from_uri(self):
+    """When no explicit db_name, parse from URI path."""
+    env = {
+      "LANGGRAPH_CHECKPOINT_TYPE": "mongodb",
+      "LANGGRAPH_CHECKPOINT_MONGODB_URI": "mongodb://admin:pass@host:27017/caipe?authSource=admin",
+    }
+    with patch.dict("os.environ", env, clear=True):
+      with patch("importlib.util.find_spec", return_value=MagicMock()):
+        cp = create_checkpointer()
+        assert type(cp).__name__ == "_LazyAsyncMongoDBSaver"
+        assert cp._db_name == "caipe"
+
+  def test_mongodb_explicit_db_name_overrides_uri(self):
+    """Explicit LANGGRAPH_CHECKPOINT_MONGODB_DB_NAME takes precedence over URI path."""
+    env = {
+      "LANGGRAPH_CHECKPOINT_TYPE": "mongodb",
+      "LANGGRAPH_CHECKPOINT_MONGODB_URI": "mongodb://host:27017/caipe?authSource=admin",
+      "LANGGRAPH_CHECKPOINT_MONGODB_DB_NAME": "custom_db",
+    }
+    with patch.dict("os.environ", env, clear=True):
+      with patch("importlib.util.find_spec", return_value=MagicMock()):
+        cp = create_checkpointer()
+        assert type(cp).__name__ == "_LazyAsyncMongoDBSaver"
+        assert cp._db_name == "custom_db"
 
   def test_mongodb_import_error_falls_back(self):
     env = {

@@ -17,7 +17,7 @@ Configuration via environment variables:
     LANGGRAPH_CHECKPOINT_REDIS_URL: Redis Stack connection string
     LANGGRAPH_CHECKPOINT_POSTGRES_DSN: Postgres DSN
     LANGGRAPH_CHECKPOINT_MONGODB_URI: MongoDB connection URI
-    LANGGRAPH_CHECKPOINT_MONGODB_DB_NAME: MongoDB database name (default: checkpointing_db)
+    LANGGRAPH_CHECKPOINT_MONGODB_DB_NAME: MongoDB database name (default: parsed from URI path, or checkpointing_db)
     LANGGRAPH_CHECKPOINT_MONGODB_COLLECTION: Checkpoint collection name (default: checkpoints)
     LANGGRAPH_CHECKPOINT_MONGODB_WRITES_COLLECTION: Writes collection name (default: checkpoint_writes)
     LANGGRAPH_CHECKPOINT_TTL_MINUTES: TTL for checkpoints (0 = no expiry)
@@ -50,6 +50,24 @@ CHECKPOINT_TYPE_MONGODB = "mongodb"
 # Default collection suffixes (prefixed with auto-detected agent name)
 _DEFAULT_CHECKPOINT_COLLECTION = "checkpoints"
 _DEFAULT_WRITES_COLLECTION = "checkpoint_writes"
+
+
+def _parse_db_from_uri(uri: str) -> str:
+    """Extract the database name from a MongoDB URI path component.
+
+    ``mongodb://host:27017/caipe?authSource=admin`` → ``"caipe"``
+    ``mongodb://host:27017``                        → ``""``
+    """
+    from urllib.parse import urlparse
+
+    try:
+        parsed = urlparse(uri)
+        db = parsed.path.lstrip("/")
+        if db:
+            logger.info(f"LangGraph Checkpointer: parsed db name '{db}' from URI path")
+        return db
+    except Exception:
+        return ""
 
 
 def _detect_collection_prefix() -> str:
@@ -155,9 +173,13 @@ def create_checkpointer():
                         f"with '{prefix}' → {cp_coll}, {wr_coll}"
                     )
 
+            db_name = config["mongodb_db_name"]
+            if not db_name:
+                db_name = _parse_db_from_uri(mongodb_uri)
+
             return _create_mongodb_checkpointer(
                 mongodb_uri,
-                db_name=config["mongodb_db_name"],
+                db_name=db_name,
                 checkpoint_collection_name=cp_coll,
                 writes_collection_name=wr_coll,
             )
