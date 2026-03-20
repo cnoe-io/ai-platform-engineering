@@ -218,6 +218,11 @@ async function createIndexes(db: Db) {
     safeCreateIndex(db, 'agent_configs', { created_at: -1 }),
     safeCreateIndex(db, 'agent_configs', { 'metadata.tags': 1 }),
 
+    // Skill hubs collection
+    safeCreateIndex(db, 'skill_hubs', { id: 1 }, { unique: true }),
+    safeCreateIndex(db, 'skill_hubs', { enabled: 1 }),
+    safeCreateIndex(db, 'skill_hubs', { location: 1 }),
+
     // Workflow runs collection (Agent Skills History)
     safeCreateIndex(db, 'workflow_runs', { id: 1 }, { unique: true }),
     safeCreateIndex(db, 'workflow_runs', { workflow_id: 1 }),

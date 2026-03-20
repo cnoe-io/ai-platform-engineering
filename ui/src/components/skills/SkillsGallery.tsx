@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState, useMemo } from "react";
+import React, { useEffect, useState, useMemo, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { motion, AnimatePresence } from "framer-motion";
@@ -218,23 +218,60 @@ export function SkillsGallery({
     return !config.is_system;
   };
 
-  // Load configs on mount
+  // Catalog skills from GET /api/skills (unified source of truth)
+  const [catalogSkills, setCatalogSkills] = useState<AgentConfig[]>([]);
+
+  // Load configs and catalog skills on mount
   useEffect(() => {
     loadConfigs();
+
+    // Fetch unified catalog to include filesystem-only skills
+    fetch("/api/skills")
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (!data?.skills) return;
+        const mapped: AgentConfig[] = data.skills
+          .filter((s: { source: string }) => s.source === "default")
+          .map((s: { id: string; name: string; description?: string; metadata?: Record<string, unknown> }) => ({
+            id: `catalog-${s.id}`,
+            name: s.name,
+            description: s.description || "",
+            category: (s.metadata?.category as string) || "Custom",
+            tasks: [],
+            owner_id: "",
+            is_system: true,
+            is_quick_start: true,
+            created_at: new Date(),
+            updated_at: new Date(),
+            thumbnail: (s.metadata?.icon as string) || "Zap",
+            metadata: { tags: (s.metadata?.tags as string[]) || [] },
+          } satisfies AgentConfig));
+        setCatalogSkills(mapped);
+      })
+      .catch(() => {});
   }, [loadConfigs]);
 
-  // Use configs directly from store (MongoDB configs + fallback to built-in)
-  // Deduplicate by id to prevent duplicate key errors
+  // Merge agent configs (store) with catalog-only skills, deduplicating by name
   const allConfigs = useMemo(() => {
     const seen = new Set<string>();
-    return configs.filter(config => {
-      if (seen.has(config.id)) {
-        return false;
+    const merged: AgentConfig[] = [];
+    // Agent configs take priority (richer data, editable)
+    for (const config of configs) {
+      if (!seen.has(config.id)) {
+        seen.add(config.id);
+        seen.add(config.name); // track by name too for catalog dedup
+        merged.push(config);
       }
-      seen.add(config.id);
-      return true;
-    });
-  }, [configs]);
+    }
+    // Add catalog-only skills not already present by name
+    for (const skill of catalogSkills) {
+      if (!seen.has(skill.name)) {
+        seen.add(skill.name);
+        merged.push(skill);
+      }
+    }
+    return merged;
+  }, [configs, catalogSkills]);
 
   const currentUserEmail = session?.user?.email ?? "";
 
@@ -1043,15 +1080,6 @@ export function SkillsGallery({
               {/* Footer */}
               <div className="flex items-center justify-end gap-3 p-4 border-t bg-muted/30 shrink-0">
                 <Button variant="ghost" onClick={() => setActiveFormConfig(null)}>Cancel</Button>
-                <Button
-                  onClick={handleRunInChat}
-                  variant={workflowRunnerEnabled ? "outline" : "default"}
-                  className={cn("gap-2", !workflowRunnerEnabled && "gradient-primary text-white")}
-                  disabled={!editablePrompt.trim()}
-                >
-                  <MessageSquare className="h-4 w-4" />
-                  Run in Chat
-                </Button>
                 {workflowRunnerEnabled && (
                   <Button
                     onClick={handleFormSubmit}

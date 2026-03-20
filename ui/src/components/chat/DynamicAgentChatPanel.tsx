@@ -607,9 +607,52 @@ export function DynamicAgentChatPanel({ endpoint, conversationId, conversationTi
     submitMessage(content);
   }, [isThisConversationStreaming, submitMessage]);
 
+  // Handle /skills chat command: fetch catalog and render in-chat (FR-002)
+  const handleSkillsCommand = useCallback(async () => {
+    let convId = activeConversationId;
+    if (!convId) {
+      convId = createConversation();
+    }
+
+    const turnId = `turn-${Date.now()}`;
+    addMessage(convId, { role: "user", content: "/skills" }, turnId);
+    const msgId = addMessage(convId, { role: "assistant", content: "Loading skills..." }, turnId);
+
+    try {
+      const res = await fetch("/api/skills");
+      if (!res.ok) {
+        updateMessage(convId, msgId, "Skills are temporarily unavailable. Please try again later.");
+        return;
+      }
+      const data = await res.json();
+      const skills = data.skills || [];
+      if (skills.length === 0) {
+        updateMessage(convId, msgId, "No skills available at the moment.");
+        return;
+      }
+      const lines = [
+        `**Available Skills** (${skills.length})\n`,
+        ...skills.map((s: { name: string; description: string; source: string }) =>
+          `- **${s.name}**: ${s.description} *(${s.source})*`
+        ),
+        "\n*Type /skills any time to see this list.*",
+      ];
+      updateMessage(convId, msgId, lines.join("\n"));
+    } catch {
+      updateMessage(convId, msgId, "Skills are temporarily unavailable. Please try again later.");
+    }
+  }, [activeConversationId, createConversation, addMessage, updateMessage]);
+
   // Wrapper for form submission that uses input state
   const handleSubmit = useCallback(async (forceSend = false) => {
     if (!input.trim()) return;
+
+    // Detect /skills chat command (FR-002) — client-side, no A2A round-trip
+    if (input.trim().toLowerCase() === "/skills") {
+      setInput("");
+      await handleSkillsCommand();
+      return;
+    }
 
     // If streaming and not force sending, queue the message (up to 3)
     if (isThisConversationStreaming && !forceSend) {
@@ -646,7 +689,7 @@ export function DynamicAgentChatPanel({ endpoint, conversationId, conversationTi
     setInput("");
 
     await submitMessage(message);
-  }, [input, submitMessage, isThisConversationStreaming, queuedMessages, pendingUserInput]);
+  }, [input, submitMessage, isThisConversationStreaming, queuedMessages, pendingUserInput, handleSkillsCommand]);
 
   // Auto-submit pending message from use case selection
   useEffect(() => {
@@ -1188,7 +1231,7 @@ export function DynamicAgentChatPanel({ endpoint, conversationId, conversationTi
                     ? queuedMessages.length >= 3
                       ? "Queue full (3/3). Send or cancel messages to queue more, or Cmd+Enter to force send..."
                       : `Type to queue message (${queuedMessages.length}/3), or Cmd+Enter to force send...`
-                    : `Ask anything...`
+                    : `Ask anything, type /skills to see available skills, or @ to mention an agent...`
                 }
                 className="flex-1 bg-transparent resize-none outline-none px-3 py-2.5 text-sm"
                 minRows={1}

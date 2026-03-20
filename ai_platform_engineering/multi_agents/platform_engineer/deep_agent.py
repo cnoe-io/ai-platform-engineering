@@ -10,7 +10,7 @@ import time
 import httpx
 import traceback
 
-from langchain_core.messages import AIMessage, HumanMessage
+from langchain_core.messages import AIMessage
 from langgraph.graph.state import CompiledStateGraph
 from cnoe_agent_utils import LLMFactory
 from langchain_mcp_adapters.client import MultiServerMCPClient
@@ -44,7 +44,7 @@ from ai_platform_engineering.multi_agents.tools import (
     append_file, # append_file("/tmp/log.txt", "entry\n")
     list_files,  # list_files("/tmp/repo", pattern="*.yaml")
 )
-from deepagents import async_create_deep_agent
+from deepagents import create_deep_agent
 from ai_platform_engineering.utils.store import create_store
 from ai_platform_engineering.utils.checkpointer import create_checkpointer
 
@@ -318,54 +318,18 @@ class AIPlatformEngineerMAS:
 
     logger.info("🎨 Creating deep agent with system prompt")
 
-    # Response format instruction tells the LLM how to structure its final response.
-    # LangGraph's generate_structured_response node handles the actual structured output.
-    if USE_STRUCTURED_RESPONSE:
-      response_format_instruction = (
-        "When you are done with all tasks and ready to provide your final answer, "
-        "simply write your response as clean markdown — do NOT call any tool. "
-        "The system will automatically format it into the required structured output. "
-        "Place the final user-facing answer (clean markdown, no thinking/preamble) in the 'content' field. "
-        "Set 'is_task_complete' to true when done (including when the task failed and there is nothing more you can do). "
-        "When you need information from the user, set metadata.user_input to true and populate metadata.input_fields with the fields you need."
-      )
-    else:
-      response_format_instruction = None
-
     # Build deep agent kwargs
     deep_agent_kwargs = {
       "tools": all_tools,
-      "instructions": system_prompt,
+      "system_prompt": system_prompt,
       "subagents": subagents,
       "model": base_model,
     }
 
-    if USE_STRUCTURED_RESPONSE and response_format_instruction:
-      deep_agent_kwargs["response_format"] = (response_format_instruction, PlatformEngineerResponse)
-
-      # Bedrock ConverseStream on newer Sonnet models rejects conversations ending
-      # with an assistant message ("does not support assistant message prefill").
-      # LangGraph's generate_structured_response node receives all messages from
-      # state — which always end with an AIMessage after the agent loop finishes.
-      # This post_model_hook injects a HumanMessage when the agent is done (no
-      # pending tool calls), so the generate_structured_response node sees messages
-      # ending with a user message instead. The v2 post_model_hook_router in
-      # LangGraph finds the last AIMessage for routing decisions regardless of our
-      # appended HumanMessage, so tool-call routing is unaffected.
-      def _bedrock_prefill_fix_hook(state):
-        messages = state.get("messages", [])
-        if not messages:
-          return {}
-        last_msg = messages[-1]
-        if isinstance(last_msg, AIMessage) and not getattr(last_msg, "tool_calls", None):
-          return {
-            "messages": [
-              HumanMessage(content="Now provide your final response using the structured output format.")
-            ]
-          }
-        return {}
-
-      deep_agent_kwargs["post_model_hook"] = _bedrock_prefill_fix_hook
+    if USE_STRUCTURED_RESPONSE:
+      from langchain.agents.structured_output import ToolStrategy
+      deep_agent_kwargs["response_format"] = ToolStrategy(schema=PlatformEngineerResponse)
+      logger.info("Structured response mode enabled (ToolStrategy + PlatformEngineerResponse)")
 
     # Create cross-thread store for long-term memory
     try:
@@ -376,7 +340,7 @@ class AIPlatformEngineerMAS:
     except Exception as e:
       logger.warning(f"Failed to create cross-thread store: {e}")
 
-    deep_agent = async_create_deep_agent(**deep_agent_kwargs)
+    deep_agent = create_deep_agent(**deep_agent_kwargs)
 
     if not os.getenv("LANGGRAPH_DEV"):
       checkpointer = create_checkpointer()

@@ -49,9 +49,9 @@ Administrators (or authorized users) can register additional skill hubs—such a
 
 **Independent Test**: Register an external skill hub (e.g. a public GitHub repo), verify its skills appear in the central catalog and in the response to the chat command (e.g. `/skills`), and confirm the assistant can use those skills in conversation.
 
-**Acceptance Scenarios**:
+**Acceptance Scenarios** (include UI onboarding):
 
-1. **Given** an authorized user has access to add skill hubs, **When** they add a hub (e.g. by providing a public or private repository identifier), **Then** the system validates and registers that hub and makes its skills available through the shared skills layer.
+1. **Given** an authorized user has access to add skill hubs, **When** they use the UI onboarding feature to add a GitHub repository (e.g. by providing owner/repo or URL and optional credentials), **Then** the system validates and registers that hub and makes skills read from that repo available through the shared skills layer.
 2. **Given** a hub is registered, **When** the catalog is refreshed or the assistant loads skills, **Then** skills from that hub appear in the same catalog as default skills and are usable by the assistant.
 3. **Given** a hub is registered, **When** a user invokes the chat command to show skills (e.g. `/skills`), **Then** skills from that hub are included in the list when they are successfully loaded.
 4. **Given** a hub is removed or disabled, **When** the catalog is refreshed, **Then** skills from that hub are no longer listed or used.
@@ -66,13 +66,14 @@ Administrators (or authorized users) can register additional skill hubs—such a
 - What happens when two hubs (or the default catalog and a hub) define a skill with the same identifier? The system should apply a consistent, predictable rule (e.g. one source wins, or explicit override order) and document that behavior so admins can avoid conflicts.
 - What happens when a user without permission to add hubs tries to add one? The system should deny the action and return a clear permission error.
 - What happens when the chat command (e.g. `/skills`) is used while skills are still loading? The system should show a loading or “fetching skills” state and then show the list when ready, or a clear message if loading fails.
+- Where do users learn to see their loaded skills after "run in chat" is removed? The UI must direct users to type `/skills` in chat to see their loaded skills (e.g. chat input placeholder "Type /skills to see available skills" or similar).
 
 ## Requirements *(mandatory)*
 
 ### Functional Requirements
 
 - **FR-001**: The system MUST expose a single, shared skill catalog to both the chat UI (for display) and the platform assistant (for execution); both MUST consume skills from this same source.
-- **FR-002**: The system MUST remove any “run skills” or equivalent standalone skill-execution action from the chat experience; skill execution MUST be driven by the assistant using the shared catalog.
+- **FR-002**: The system MUST remove any “run skills” or "run in chat" action from the chat experience; skill execution MUST be driven by the assistant using the shared catalog. The UI MUST direct users to use the `/skills` command to see their loaded skills (e.g. via chat placeholder, tooltip, or help text).
 - **FR-003**: The system MUST support a designated chat command (e.g. `/skills`) that, when invoked, displays the list of skills available to the assistant in that conversation.
 - **FR-004**: The list of skills shown by the chat command MUST match the shared catalog (same as used by the assistant and by the rest of the UI).
 - **FR-005**: The system MUST allow authorized users to register external skill hubs (e.g. by repository or URL); once registered, skills from those hubs MUST be incorporated into the shared catalog and usable by the assistant.
@@ -81,11 +82,16 @@ Administrators (or authorized users) can register additional skill hubs—such a
 - **FR-008**: The system MUST handle catalog or hub load failures gracefully: partial catalog availability and clear, non-misleading feedback to the user or admin (e.g. “skills temporarily unavailable” or “hub X failed to load”).
 - **FR-009**: The system MUST enforce access control so that only authorized users can add, update, or remove skill hubs; unauthorized attempts MUST be rejected with a clear permission message.
 - **FR-010**: When multiple sources define a skill with the same identifier, the system MUST apply a deterministic, documented resolution rule (e.g. precedence by source or explicit override) so that behavior is predictable.
+- **FR-011**: The system MUST accept SKILL.md files in both **Anthropic/agentskills.io-style** and **OpenClaw-style** format (YAML frontmatter + markdown body) when loading skills from hubs (e.g. GitHub). ClawHub as a hub source is out of scope for v1.
+- **FR-012**: The CAIPE supervisor MUST read runtime-updated skills from MongoDB (and other catalog sources) and load them into the skills middleware so that catalog updates—e.g. new or changed skills, hub registration, agent_config changes—are reflected without restarting the supervisor. The supervisor MUST hot reload skills (e.g. on each catalog request or short TTL cache) or support a trigger from the UI (e.g. "Refresh skills" or action after onboarding a hub) to reload the catalog.
+- **FR-013**: The system MUST provide a UI feature that allows authorized users to onboard GitHub repositories as skill hubs (add repo identifier/location, optional credentials, list onboarded repos, remove or disable). Skills read from onboarded repos are incorporated into the shared catalog.
+- **FR-014**: The backend endpoint that serves the skill catalog to the UI (e.g. GET /skills or /internal/skills) MUST validate the request using the same authentication pattern as the RAG server: JWT validation via JWKS and/or user_info (e.g. Bearer token validated with JWKS, optionally userinfo for identity/groups). Unauthenticated or invalid tokens MUST be rejected (e.g. 401).
+- **FR-015**: The system MUST use the upstream `deepagents.middleware.skills.SkillsMiddleware` to inject skills into the supervisor's system prompt via progressive disclosure (metadata listing in prompt, full SKILL.md content read on demand). The custom `skills_middleware` catalog layer MUST feed aggregated skills into the `SkillsMiddleware`'s backend (e.g. `StateBackend`) so that the upstream middleware handles system prompt formatting, YAML frontmatter parsing, and the "Skills System" prompt section. The custom catalog layer retains responsibility for MongoDB/agent_config/hub aggregation, precedence rules, dual SKILL.md format normalization (FR-011), and hot reload (FR-012).
 
 ### Key Entities
 
-- **Skill**: A capability offered to the assistant (e.g. a named action or tool) with a stable identifier, description, and optional parameters; consumed from the shared catalog by the UI and the assistant.
-- **Skill catalog (central / shared)**: The single source of truth for available skills; used by the chat UI for display (e.g. `/skills`) and by the platform assistant for execution.
+- **Skill**: A capability offered to the assistant (e.g. a named action or tool) with a stable identifier, description, and optional parameters; consumed from the shared catalog by the UI and the assistant. Skill format: support both **Anthropic/agentskills.io-style** and **OpenClaw-style** SKILL.md (YAML frontmatter + markdown body) when loaded from GitHub or other supported hubs.
+- **Skill catalog (central / shared)**: The single source of truth for available skills; used by the chat UI for display (e.g. `/skills`) and by the platform assistant for execution. The catalog layer feeds skills into the upstream `SkillsMiddleware` via a backend (e.g. `StateBackend`) so the middleware handles system prompt injection.
 - **Skill hub**: An external source of skills (e.g. a repository) that can be registered so that its skills are merged into the shared catalog; has an identifier, location, optional credentials, and status (e.g. enabled/disabled, last load success/failure).
 - **Chat command**: A reserved input (e.g. `/skills`) that triggers a specific in-chat behavior (e.g. showing the list of skills) instead of being sent as a normal user message to the assistant.
 
@@ -103,8 +109,20 @@ Administrators (or authorized users) can register additional skill hubs—such a
 ## Assumptions
 
 - “Current skills” refers to the existing skill definitions or catalog used by the platform today; the feature integrates these into a single catalog consumed by both UI and assistant.
-- The shared skills layer (“skills middleware”) is the component that aggregates skills from the central store and any registered hubs and exposes them to the UI and the assistant; the exact storage (e.g. database) is an implementation detail.
+- The shared skills layer has two parts: (1) a custom **catalog layer** (`ai_platform_engineering/skills_middleware/`) that aggregates skills from MongoDB, agent_configs, filesystem, and registered hubs, applying precedence and normalization; and (2) the upstream **`deepagents.middleware.skills.SkillsMiddleware`** that handles system prompt injection via progressive disclosure (listing skills in the prompt, reading full SKILL.md on demand via the backend). The catalog layer writes normalized skills into the `SkillsMiddleware`'s backend storage (e.g. `StateBackend`), and the upstream middleware injects them into the supervisor's system prompt automatically (FR-015). The CAIPE supervisor reads runtime-updated skills from MongoDB and loads them into the skills middleware so updates are visible without restart (FR-012). The supervisor must hot reload skills (e.g. on each catalog read or short TTL) or support a UI-triggered refresh (e.g. "Refresh skills" or after onboarding a hub) so the catalog reloads without restart.
 - The chat command (e.g. `/skills`) is the primary in-chat way to list skills; the exact syntax (e.g. `/skills` vs another slash-command) can be decided during design, but the behavior (show list of skills) is fixed.
-- “Skill hub” includes at least one option that is repository-based (e.g. GitHub public or private); other hub types may be added later.
+- “Skill hub” includes at least one option that is repository-based (e.g. GitHub public or private); other hub types may be added later. **ClawHub** (OpenClaw marketplace) as a hub source is **out of scope for v1** (risk/complexity); document as a future option. Hub-loaded skills may be in Anthropic/agentskills.io or OpenClaw-style SKILL.md format; both are supported when discovered from GitHub (or other v1 hubs).
 - Only authorized roles (e.g. administrators or configured “skill hub managers”) can register, update, or remove external hubs; end users can only view and use skills.
 - The assistant uses the shared catalog for every conversation where skills are relevant; there is no per-conversation or per-user skill list that overrides the shared catalog for normal execution.
+
+## Clarifications
+
+### Session 2026-03-18
+
+- Q: Should this feature support OpenClaw/ClawHub skills (e.g. as a hub source or compatible format), or is the initial scope limited to GitHub repos and agentskills.io-aligned SKILL.md only? → A: Support both Anthropic/agentskills.io-style and OpenClaw-style SKILL.md format when loaded from GitHub (or other supported hubs). ClawHub as a hub source is out of scope for v1 (too risky); document as future option.
+- Q: When and how should the CAIPE supervisor see skill catalog updates from MongoDB? → A: The CAIPE supervisor MUST read runtime-updated skills from MongoDB and load them into the skills middleware so that catalog updates (new skills, hub registration, agent_config changes) are reflected without restarting the supervisor.
+- Q: How do authorized users add GitHub repos as skill hubs? → A: The system MUST provide a UI feature to onboard GitHub repositories to read skills from (e.g. admin or settings page where users can add repo location, optional credentials, and see list/status of onboarded repos).
+- Q: How should the UI handle removal of "run in chat" and discovery of skills? → A: In the UI, "run in chat" MUST be removed; users MUST be directed to use the `/skills` command to see their loaded skills (e.g. via placeholder, tooltip, or help text in chat).
+- Q: How should the CAIPE supervisor pick up catalog updates (new hubs, changed skills)? → A: The CAIPE supervisor MUST hot reload skills (e.g. on each catalog read or short TTL cache) or support a trigger from the UI (e.g. "Refresh skills" or post-onboard action) so the catalog is reloaded without restarting the supervisor.
+- Q: How should the backend catalog endpoint authenticate requests? → A: Validate the token using JWKS or user_info, same pattern as the RAG server (FR-014).
+- Q: Should we use the upstream `deepagents.middleware.skills.SkillsMiddleware` for system prompt injection? → A: Yes. Use the upstream `SkillsMiddleware` (from `deepagents>=0.3.8`) for injecting skills into the supervisor's system prompt via progressive disclosure. Our custom catalog layer (`skills_middleware/`) handles aggregation, precedence, hub fetch, and normalization, then writes the merged skills into the `SkillsMiddleware`'s backend (e.g. `StateBackend`) so the upstream middleware handles prompt formatting and "read on demand" (FR-015).

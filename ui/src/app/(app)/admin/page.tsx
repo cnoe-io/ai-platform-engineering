@@ -26,6 +26,7 @@ import { TeamDetailsDialog } from "@/components/admin/TeamDetailsDialog";
 import { AuditLogsTab } from "@/components/admin/AuditLogsTab";
 import { PolicyTab } from "@/components/admin/PolicyTab";
 import { CheckpointStatsSection } from "@/components/admin/CheckpointStatsSection";
+import { SkillHubsSection } from "@/components/admin/SkillHubsSection";
 import { useAdminRole } from "@/hooks/use-admin-role";
 import { getConfig } from "@/lib/config";
 import { apiClient } from "@/lib/api-client";
@@ -936,6 +937,9 @@ function AdminPage() {
                     </CardContent>
                   </Card>
                 )}
+
+                {/* Skill Hubs Management */}
+                <SkillHubsSection isAdmin={isAdmin} />
               </TabsContent>
 
               {/* Feedback Tab */}
