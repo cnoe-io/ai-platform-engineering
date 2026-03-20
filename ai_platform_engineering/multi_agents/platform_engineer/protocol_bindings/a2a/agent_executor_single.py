@@ -621,6 +621,14 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
             artifact.artifact_id = state.streaming_artifact_id
             use_append = True
 
+        # When a plan exists, tag streaming chunks with the active plan_step_id
+        # so the UI nests them under the current step as "thinking" instead of
+        # rendering them below the plan as orphaned content.
+        if not is_tool_notification and self._current_plan_step_id and self._execution_plan_emitted:
+            if artifact.metadata is None:
+                artifact.metadata = {}
+            artifact.metadata['plan_step_id'] = self._current_plan_step_id
+
         # Tag streaming chunks as final answer when the last plan step is active.
         # This lets the UI stream the answer live below the plan instead of
         # waiting for the final_result artifact.
@@ -1091,6 +1099,11 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                         )
                         if artifact_name == 'execution_plan_update':
                             self._execution_plan_artifact_id = artifact.artifact_id
+                            # Reset streaming artifact so post-plan chunks start
+                            # a fresh artifact with plan_step_id attached.  The
+                            # pre-plan streaming artifact was created before any
+                            # plan existed and the UI anchors it outside the plan.
+                            state.streaming_artifact_id = None
                     else:
                         artifact = new_text_artifact(
                             name=artifact_name,
