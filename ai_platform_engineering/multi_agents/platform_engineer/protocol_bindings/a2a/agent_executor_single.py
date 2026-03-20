@@ -119,12 +119,6 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                     return step['step_id']
         return None
 
-    @staticmethod
-    def _extract_agent_from_description(description: str) -> str | None:
-        """Extract agent name from artifact description like 'Complete result from argocd'."""
-        match = re.search(r'(?:from|for)\s+(\w+)', description, re.IGNORECASE)
-        return match.group(1) if match else None
-
     # ─────────────────────────────────────────────────────────────────────────
     # Helper Methods
     # ─────────────────────────────────────────────────────────────────────────
@@ -465,11 +459,13 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                 elif part.get('data'):
                     artifact_parts.append(Part(root=DataPart(data=part['data'])))
 
+        # source_agent is injected by a2a_remote_agent_connect at dispatch time,
+        # avoiding the race condition where state.current_agent is overwritten
+        # by parallel tool calls.
         existing_metadata = artifact_data.get('metadata', {})
         source_agent = (
             existing_metadata.get('sourceAgent') or
             event.get('source_agent') or
-            self._extract_agent_from_description(artifact_data.get('description', '')) or
             getattr(state, 'current_agent', None) or
             'sub-agent'
         )
