@@ -11,6 +11,7 @@ from collections.abc import AsyncGenerator, Callable
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
+from botocore.config import Config as BotocoreConfig
 from cnoe_agent_utils import LLMFactory
 from cnoe_agent_utils.tracing import TracingManager
 from deepagents import create_deep_agent
@@ -159,7 +160,13 @@ class AgentRuntime:
             f"[llm] Instantiating LLM for agent '{self.config.name}': "
             f"provider={self.config.model_provider}, model={self.config.model_id}"
         )
-        llm = LLMFactory(provider=self.config.model_provider).get_llm(model=self.config.model_id)
+        # Configure botocore with extended timeouts for Bedrock to prevent
+        # ReadTimeoutError during long-running agent operations (especially subagents)
+        boto_config = BotocoreConfig(read_timeout=300, connect_timeout=60)
+        llm = LLMFactory(provider=self.config.model_provider).get_llm(
+            model=self.config.model_id,
+            config=boto_config,
+        )
         logger.info(f"[llm] LLM instantiated for agent '{self.config.name}': type={type(llm).__name__}")
 
         # 7. Resolve subagents (other dynamic agents that this agent can delegate to)
