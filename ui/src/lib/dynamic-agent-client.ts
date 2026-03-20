@@ -355,7 +355,9 @@ export class DynamicAgentClient {
         // content events have data as plain string, others are JSON
         let parsedData: unknown;
         if (event === "content") {
-          parsedData = data;
+          // Empty data: in SSE represents a newline character
+          // The server sends "data:" (empty) when streaming a newline
+          parsedData = data === "" ? "\n" : data;
         } else {
           parsedData = JSON.parse(data);
         }
