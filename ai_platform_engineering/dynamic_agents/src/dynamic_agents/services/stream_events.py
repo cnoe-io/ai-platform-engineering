@@ -30,7 +30,6 @@ TOOL_START = "tool_start"
 TOOL_END = "tool_end"
 SUBAGENT_START = "subagent_start"
 SUBAGENT_END = "subagent_end"
-FINAL_RESULT = "final_result"
 INPUT_REQUIRED = "input_required"
 
 
@@ -180,42 +179,6 @@ def make_subagent_end_event(
         "data": {
             "tool_call_id": tool_call_id,
             "parent_agent": parent_agent,
-        },
-    }
-
-
-def make_final_result_event(
-    content: str,
-    agent: str,
-    trace_id: str | None = None,
-    failed_servers: list[str] | None = None,
-    missing_tools: list[str] | None = None,
-) -> dict[str, Any]:
-    """Final result from agent.
-
-    Args:
-        content: The final text content from the agent.
-        agent: The agent name.
-        trace_id: Optional trace ID for observability.
-        failed_servers: List of MCP server IDs that failed to connect.
-        missing_tools: List of tool names that were configured but unavailable.
-    """
-    logger.debug(f"[sse:{FINAL_RESULT}] agent={agent} len={len(content)}")
-    return {
-        "type": FINAL_RESULT,
-        "data": {
-            "artifact": {
-                "artifactId": _make_event_id(),
-                "name": "final_result",
-                "description": "Final result from dynamic agent",
-                "parts": [{"kind": "text", "text": content}],
-                "metadata": {
-                    "trace_id": trace_id,
-                    "agent_name": agent,
-                    "failed_servers": failed_servers or [],
-                    "missing_tools": missing_tools or [],
-                },
-            },
         },
     }
 

@@ -47,11 +47,8 @@ interface ChatState {
   getConversationEvents: (conversationId: string) => A2AEvent[];
   // SSE Agent events (for Dynamic Agents)
   addSSEEvent: (event: SSEAgentEvent, conversationId?: string) => void;
-  clearSSEEvents: (conversationId?: string, options?: { clearRuntimeStatus?: boolean }) => void;
+  clearSSEEvents: (conversationId?: string) => void;
   getConversationSSEEvents: (conversationId: string) => SSEAgentEvent[];
-  // Runtime status for Dynamic Agents (persists across event clearing)
-  updateRuntimeStatus: (conversationId: string, status: { failedServers?: string[]; missingTools?: string[]; initialized?: boolean }) => void;
-  clearRuntimeStatus: (conversationId: string) => void;
   deleteConversation: (id: string) => Promise<void>;
   clearAllConversations: () => void;
   getActiveConversation: () => Conversation | undefined;
@@ -518,28 +515,12 @@ const storeImplementation = (set: any, get: any) => ({
         if (!convId) return;
 
         set((prev: ChatState) => {
-          // Check if this is a final_result event with runtime status
-          let runtimeStatusUpdate: Conversation['runtimeStatus'] | undefined;
-          if (event.type === 'final_result' && event.finalResultData) {
-            runtimeStatusUpdate = {
-              failedServers: event.finalResultData.failed_servers ?? [],
-              missingTools: event.finalResultData.missing_tools ?? [],
-              initialized: true,
-            };
-            // Log only when there are issues to report
-            if (runtimeStatusUpdate.failedServers.length > 0 || runtimeStatusUpdate.missingTools.length > 0) {
-              console.log(`[SSE-DEBUG] runtimeStatus updated:`, runtimeStatusUpdate);
-            }
-          }
-
           return {
             conversations: prev.conversations.map((c: Conversation) =>
               c.id === convId
                 ? {
                     ...c,
                     sseEvents: [...(c.sseEvents || []), event],
-                    // Update runtime status if this is a final_result event
-                    ...(runtimeStatusUpdate ? { runtimeStatus: runtimeStatusUpdate } : {}),
                   }
                 : c
             ),
@@ -547,7 +528,7 @@ const storeImplementation = (set: any, get: any) => ({
         });
       },
 
-      clearSSEEvents: (conversationId?: string, options?: { clearRuntimeStatus?: boolean }) => {
+      clearSSEEvents: (conversationId?: string) => {
         if (conversationId) {
           set((prev: ChatState) => ({
             conversations: prev.conversations.map((conv: Conversation) =>
@@ -555,8 +536,6 @@ const storeImplementation = (set: any, get: any) => ({
                 ? {
                     ...conv,
                     sseEvents: [],
-                    // Only clear runtime status if explicitly requested (e.g., on restart)
-                    ...(options?.clearRuntimeStatus ? { runtimeStatus: undefined } : {}),
                   }
                 : conv
             ),
@@ -567,32 +546,6 @@ const storeImplementation = (set: any, get: any) => ({
       getConversationSSEEvents: (conversationId: string) => {
         const conv = get().conversations.find((c: Conversation) => c.id === conversationId);
         return conv?.sseEvents || [];
-      },
-
-      updateRuntimeStatus: (conversationId: string, status: { failedServers?: string[]; missingTools?: string[]; initialized?: boolean }) => {
-        set((prev: ChatState) => ({
-          conversations: prev.conversations.map((conv: Conversation) =>
-            conv.id === conversationId
-              ? {
-                  ...conv,
-                  runtimeStatus: {
-                    ...conv.runtimeStatus,
-                    ...status,
-                  },
-                }
-              : conv
-          ),
-        }));
-      },
-
-      clearRuntimeStatus: (conversationId: string) => {
-        set((prev: ChatState) => ({
-          conversations: prev.conversations.map((conv: Conversation) =>
-            conv.id === conversationId
-              ? { ...conv, runtimeStatus: undefined }
-              : conv
-          ),
-        }));
       },
 
       deleteConversation: async (id: string) => {

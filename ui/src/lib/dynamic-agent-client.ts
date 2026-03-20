@@ -15,8 +15,8 @@
  *   - todo_update: task list update (data is structured JSON)
  *   - subagent_start: subagent delegation started (data is structured JSON)
  *   - subagent_end: subagent completed (data is structured JSON)
- *   - final_result: completion with final content (data is JSON with artifact shape)
- *   - error: error message (data is JSON with error field)
+ *   - warning: non-fatal issue (data is structured JSON, rendered inline)
+ *   - error: error message (data is JSON with error field, rendered inline)
  *   - done: stream complete (data is empty JSON)
  */
 
@@ -62,12 +62,6 @@ export class DynamicAgentClient {
   private proxyUrl: string;
   private accessToken?: string;
   private abortController: AbortController | null = null;
-
-  /**
-   * The trace_id from the last completed stream (from final_result metadata).
-   * Can be used for feedback integration with Langfuse.
-   */
-  public lastTraceId: string | null = null;
 
   /**
    * Callback for when agent requests user input via form.
@@ -346,7 +340,7 @@ export class DynamicAgentClient {
   private mapToAgentEvent(raw: RawSSEEvent): SSEAgentEvent | null {
     const { event, data } = raw;
 
-    // ─── Structured events: content, tool_*, todo_update, subagent_*, final_result, input_required, warning ───
+    // ─── Structured events: content, tool_*, todo_update, subagent_*, input_required, warning ───
     if (
       event === "content" ||
       event === "tool_start" ||
@@ -354,7 +348,6 @@ export class DynamicAgentClient {
       event === "todo_update" ||
       event === "subagent_start" ||
       event === "subagent_end" ||
-      event === "final_result" ||
       event === "input_required" ||
       event === "warning"
     ) {
@@ -372,12 +365,6 @@ export class DynamicAgentClient {
           undefined, // taskId could be added later for crash recovery
         );
 
-        // Capture trace_id from final_result for feedback integration
-        if (event === "final_result" && agentEvent.artifact?.metadata?.trace_id) {
-          this.lastTraceId = agentEvent.artifact.metadata.trace_id as string;
-          console.log(`[DynamicAgent] Captured trace_id: ${this.lastTraceId}`);
-        }
-
         return agentEvent;
       } catch (e) {
         console.error(`[DynamicAgent] Failed to parse ${event} data:`, e, data);
@@ -386,10 +373,8 @@ export class DynamicAgentClient {
     }
 
     // ─── done: stream complete ───────────────────────────────────────
-    // NOTE: We return null here instead of creating an empty final_result,
-    // because the real final_result event has already been emitted by the backend
-    // with the correct metadata (failed_servers, missing_tools, etc.).
-    // Creating another final_result here would overwrite that data.
+    // The done event signals that the stream is complete.
+    // The chat panel marks isFinal=true when the loop exits after receiving done.
     if (event === "done") {
       console.log(`[DynamicAgent] Stream done event received`);
       return null;

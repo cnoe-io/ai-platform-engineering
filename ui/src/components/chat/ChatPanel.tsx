@@ -472,7 +472,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
 
         // Extract common properties
         const artifactName = isSSEEvent
-          ? (sseEvent.type === "final_result" ? "final_result" : sseEvent.artifact?.name || sseEvent.type)
+          ? sseEvent.type  // SSE events don't use artifact.name, just use the event type
           : (a2aEvent.artifactName || "");
         const newContent = isSSEEvent
           ? (sseEvent.displayContent || sseEvent.content || "")
@@ -506,7 +506,6 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
              sseEvent.type === "tool_end" ||
              sseEvent.type === "subagent_start" ||
              sseEvent.type === "subagent_end" ||
-             sseEvent.type === "final_result" ||
              sseEvent.type === "error")
           : (artifactName === "execution_plan_update" ||
              artifactName === "execution_plan_status_update" ||
@@ -1290,20 +1289,6 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
             updateMessage(activeConversationId, assistantMsgId, { content: accumulatedText, timelineSegments: timeline.getSegments() });
           }
           break; // Stream pauses for user input
-        }
-
-        // Handle final_result
-        if (sseEvent.type === "final_result" && sseEvent.content) {
-          accumulatedText = sseEvent.content;
-          rawStreamContent += `\n\n[final_result]\n${sseEvent.content}`;
-          hasReceivedCompleteResult = true;
-          timeline.pushFinalAnswer(sseEvent.content, eventNum);
-          updateMessage(activeConversationId, assistantMsgId, {
-            content: accumulatedText,
-            rawStreamContent,
-            isFinal: true,
-            timelineSegments: timeline.getSegments(),
-          });
         }
 
         // Handle content tokens — route through timeline as thinking

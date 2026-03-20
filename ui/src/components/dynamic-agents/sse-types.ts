@@ -9,7 +9,8 @@
  * - content: LLM token streaming
  * - tool_start/tool_end: Tool invocations (including write_todos for task tracking)
  * - subagent_start/subagent_end: Subagent invocations
- * - final_result: Final agent response
+ * - warning/error: Warnings and errors (rendered inline in chat)
+ * - done: Stream completion
  */
 
 // ═══════════════════════════════════════════════════════════════
@@ -59,19 +60,6 @@ export interface SubagentEventData {
 /** Warning data from warning events */
 export interface WarningEventData {
   message: string;
-  missing_tools?: string[];
-  failed_servers?: string[];
-}
-
-/** Final result data from final_result events */
-export interface FinalResultEventData {
-  content?: string;
-  agent_name?: string;
-  trace_id?: string;
-  /** MCP servers that failed to connect */
-  failed_servers?: string[];
-  /** Tools that were configured but unavailable */
-  missing_tools?: string[];
 }
 
 /** Input required data from input_required events (HITL forms) */
@@ -139,10 +127,9 @@ export type SSEEventType =
   | "tool_end" // Tool invocation completed
   | "subagent_start" // Subagent invocation started
   | "subagent_end" // Subagent invocation completed
-  | "final_result" // Final agent response
   | "input_required" // Agent requests user input via form (HITL)
-  | "warning" // Warning event (e.g., missing tools)
-  | "error"; // Error event
+  | "warning" // Warning event (e.g., missing tools) - rendered inline
+  | "error"; // Error event - rendered inline
 
 /**
  * SSE Agent event stored in the conversation.
@@ -161,9 +148,6 @@ export interface SSEAgentEvent {
   /** Task ID for crash recovery */
   taskId?: string;
 
-  /** Artifact data if present (for final_result) */
-  artifact?: SSEArtifact;
-
   /** Whether this is the final event */
   isFinal?: boolean;
 
@@ -177,14 +161,11 @@ export interface SSEAgentEvent {
   /** Warning data for warning events */
   warningData?: WarningEventData;
 
-  /** Final result data for final_result events */
-  finalResultData?: FinalResultEventData;
-
   /** Input required data for input_required events (HITL forms) */
   inputRequiredData?: InputRequiredEventData;
 
   // ─── Content ─────────────────────────────────────────────────
-  /** Content text for content/final_result events */
+  /** Content text for content events */
   content?: string;
 
   /** Display content (for error events and UI display) */
@@ -254,28 +235,6 @@ export function createSSEAgentEvent(
         subagentData: data as SubagentEventData,
         sourceAgent: (data as SubagentEventData).parent_agent,
       };
-
-    case "final_result": {
-      const resultData = data as { artifact?: SSEArtifact };
-      const artifact = resultData.artifact;
-      const textPart = artifact?.parts?.find((p) => p.kind === "text");
-      const metadata = artifact?.metadata as Record<string, unknown> | undefined;
-
-      return {
-        ...base,
-        isFinal: true,
-        artifact,
-        content: textPart?.text,
-        sourceAgent: metadata?.agent_name as string | undefined,
-        finalResultData: {
-          content: textPart?.text,
-          agent_name: metadata?.agent_name as string | undefined,
-          trace_id: metadata?.trace_id as string | undefined,
-          failed_servers: metadata?.failed_servers as string[] | undefined,
-          missing_tools: metadata?.missing_tools as string[] | undefined,
-        },
-      };
-    }
 
     case "input_required": {
       const inputData = data as InputRequiredEventData;

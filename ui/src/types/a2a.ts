@@ -186,18 +186,7 @@ export interface Conversation {
     shared_with_teams?: string[];
     share_link_enabled?: boolean;
   };
-  /** 
-   * Runtime status for Dynamic Agents - persists across SSE event clearing.
-   * Updated when final_result events arrive, cleared on runtime restart.
-   */
-  runtimeStatus?: {
-    /** MCP servers that failed to connect */
-    failedServers?: string[];
-    /** Tools that were configured but unavailable */
-    missingTools?: string[];
-    /** Whether we have received at least one final_result (runtime has been initialized) */
-    initialized?: boolean;
-  };
+
 }
 
 // Feedback types - matching agent-forge

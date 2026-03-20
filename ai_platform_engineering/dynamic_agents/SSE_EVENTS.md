@@ -22,7 +22,6 @@ Real-time streaming from Dynamic Agents backend to UI.
 │                       │    │                    │ make_tool_start() │   │  │
 │                       │    │                    │ make_tool_end()   │   │  │
 │                       │    │                    │ make_subagent_*() │   │  │
-│                       │    │                    │ make_final_result │   │  │
 │                       │    │<───────────────────│ make_input_req()  │   │  │
 │                       │    │                    └───────────────────┘   │  │
 │                       │    v                                            │  │
@@ -56,10 +55,10 @@ Real-time streaming from Dynamic Agents backend to UI.
 | `tool_end` | ToolMessage received | Tool completed |
 | `subagent_start` | task tool called | Subagent delegation started |
 | `subagent_end` | task ToolMessage received | Subagent completed |
-| `final_result` | Stream ends | Full response + metadata |
 | `input_required` | request_user_input called | HITL form needed |
-| `error` | Exception | Error message |
-| `done` | Stream ends | Terminal event |
+| `warning` | Non-fatal issue | Warning message (rendered inline) |
+| `error` | Exception | Error message (rendered inline) |
+| `done` | Stream ends | Terminal event (signals completion) |
 
 ## Todos
 

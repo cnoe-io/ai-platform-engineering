@@ -425,7 +425,6 @@ export function DynamicAgentChatPanel({ endpoint, conversationId, conversationTi
     let accumulatedText = ""; 
     let rawStreamContent = ""; 
     let eventCounter = 0;
-    let hasReceivedCompleteResult = false;
     let hitlFormRequested = false;
     let lastUIUpdate = 0;
     const UI_UPDATE_INTERVAL = 100; // Throttle UI updates to max 10/sec
@@ -455,9 +454,7 @@ export function DynamicAgentChatPanel({ endpoint, conversationId, conversationTi
         const sseEvent = event as SSEAgentEvent;
 
         // Normalize properties
-        const artifactName = sseEvent.type === "final_result" ? "final_result" : sseEvent.artifact?.name || sseEvent.type;
         const newContent = sseEvent.displayContent || sseEvent.content || "";
-        const eventIsFinal = sseEvent.isFinal;
         const eventType = sseEvent.type;
 
         // Buffer event
@@ -469,7 +466,6 @@ export function DynamicAgentChatPanel({ endpoint, conversationId, conversationTi
              sseEvent.type === "tool_end" ||
              sseEvent.type === "subagent_start" ||
              sseEvent.type === "subagent_end" ||
-             sseEvent.type === "final_result" ||
              sseEvent.type === "error";
 
         if (isImportantArtifact && eventBuffer.length > 0) {
@@ -515,37 +511,15 @@ export function DynamicAgentChatPanel({ endpoint, conversationId, conversationTi
           }
         }
 
-        // ═══════════════════════════════════════════════════════════════
-        // HANDLE FINAL RESULT
-        // ═══════════════════════════════════════════════════════════════
-        if (artifactName === "final_result") {
-          if (newContent) {
-            accumulatedText = newContent;
-            rawStreamContent += `\n\n[final_result]\n${newContent}`;
-            hasReceivedCompleteResult = true;
-            updateMessage(convId!, assistantMsgId, { content: accumulatedText, rawStreamContent, isFinal: true });
-          }
-        }
-
         // Skip events without content
         if (!newContent) continue;
 
         // ═══════════════════════════════════════════════════════════════
-        // ACCUMULATE RAW STREAM CONTENT
+        // ACCUMULATE CONTENT
         // ═══════════════════════════════════════════════════════════════
-        // Only accumulate actual streaming content
         if (eventType === "content") {
+          accumulatedText += newContent;
           rawStreamContent += newContent;
-        }
-
-        // GUARD: Don't accumulate to final content after receiving complete result
-        if (hasReceivedCompleteResult) continue;
-
-        // ═══════════════════════════════════════════════════════════════
-        // ACCUMULATE FINAL CONTENT
-        // ═══════════════════════════════════════════════════════════════
-        if (eventType === "content") {
-           accumulatedText += newContent;
 
           // Throttle UI updates
           const now = Date.now();
@@ -570,14 +544,13 @@ export function DynamicAgentChatPanel({ endpoint, conversationId, conversationTi
 
       if (hitlFormRequested) {
         updateMessage(convId!, assistantMsgId, { content: accumulatedText, rawStreamContent, isFinal: false });
-      } else if (!hasReceivedCompleteResult) {
-        if (accumulatedText.length > 0) {
-          updateMessage(convId!, assistantMsgId, { content: accumulatedText, rawStreamContent, isFinal: true });
-        } else {
-          updateMessage(convId!, assistantMsgId, { rawStreamContent, isFinal: true });
-        }
       } else {
-        updateMessage(convId!, assistantMsgId, { rawStreamContent });
+        // Stream ended - mark as final with accumulated content
+        updateMessage(convId!, assistantMsgId, { 
+          content: accumulatedText, 
+          rawStreamContent, 
+          isFinal: true 
+        });
       }
 
       setConversationStreaming(convId!, null);
@@ -719,7 +692,6 @@ export function DynamicAgentChatPanel({ endpoint, conversationId, conversationTi
 
     let accumulatedText = "";
     let rawStreamContent = "";
-    let hasReceivedCompleteResult = false;
     let hitlFormRequested = false;
 
     try {
@@ -766,18 +738,6 @@ export function DynamicAgentChatPanel({ endpoint, conversationId, conversationTi
           break; // Stream pauses for user input
         }
 
-        // Handle final_result
-        if (sseEvent.type === "final_result" && sseEvent.content) {
-          accumulatedText = sseEvent.content;
-          rawStreamContent += `\n\n[final_result]\n${sseEvent.content}`;
-          hasReceivedCompleteResult = true;
-          updateMessage(activeConversationId, assistantMsgId, {
-            content: accumulatedText,
-            rawStreamContent,
-            isFinal: true,
-          });
-        }
-
         // Handle content tokens
         if (sseEvent.type === "content" && sseEvent.content) {
           accumulatedText += sseEvent.content;
@@ -785,25 +745,19 @@ export function DynamicAgentChatPanel({ endpoint, conversationId, conversationTi
           updateMessage(activeConversationId, assistantMsgId, { content: accumulatedText, rawStreamContent });
         }
 
-        // Handle errors
+        // Handle errors - break stream, error will be rendered inline via InlineEventsSection
         if (sseEvent.type === "error") {
           console.error("[ChatPanel] SSE resume error event:", sseEvent.displayContent);
-          appendToMessage(activeConversationId, assistantMsgId,
-            `\n\n**Error:** ${sseEvent.displayContent || "Unknown error"}`);
           break;
         }
       }
 
-      if (!hitlFormRequested && !hasReceivedCompleteResult) {
-        if (accumulatedText.length > 0) {
-          updateMessage(activeConversationId, assistantMsgId, {
-            content: accumulatedText,
-            rawStreamContent,
-            isFinal: true,
-          });
-        } else {
-          updateMessage(activeConversationId, assistantMsgId, { rawStreamContent, isFinal: true });
-        }
+      if (!hitlFormRequested) {
+        updateMessage(activeConversationId, assistantMsgId, {
+          content: accumulatedText,
+          rawStreamContent,
+          isFinal: true,
+        });
       }
       setConversationStreaming(activeConversationId, null);
     } catch (error) {
@@ -1261,6 +1215,16 @@ interface SubagentCall {
   status: "running" | "completed";
 }
 
+interface ErrorEvent {
+  id: string;
+  message: string;
+}
+
+interface WarningEvent {
+  id: string;
+  message: string;
+}
+
 /**
  * Parse tool calls from SSE events (uses structured toolData)
  */
@@ -1323,6 +1287,30 @@ function parseSubagentCalls(events: SSEAgentEvent[]): SubagentCall[] {
 }
 
 /**
+ * Parse error events from SSE events
+ */
+function parseErrorEvents(events: SSEAgentEvent[]): ErrorEvent[] {
+  return events
+    .filter((event) => event.type === "error")
+    .map((event, idx) => ({
+      id: event.id || `error-${idx}`,
+      message: event.displayContent || event.content || "An error occurred",
+    }));
+}
+
+/**
+ * Parse warning events from SSE events (future-proofing)
+ */
+function parseWarningEvents(events: SSEAgentEvent[]): WarningEvent[] {
+  return events
+    .filter((event) => event.type === "warning")
+    .map((event, idx) => ({
+      id: event.id || `warning-${idx}`,
+      message: event.displayContent || event.warningData?.message || "A warning occurred",
+    }));
+}
+
+/**
  * Filter SSE events for a specific message turn based on timestamps.
  * Returns events that occurred between this message and the next user message.
  */
@@ -1370,6 +1358,8 @@ interface InlineEventsSectionProps {
 function InlineEventsSection({ events, isStreaming = false }: InlineEventsSectionProps) {
   const toolCalls = useMemo(() => parseToolCalls(events), [events]);
   const subagentCalls = useMemo(() => parseSubagentCalls(events), [events]);
+  const errorEvents = useMemo(() => parseErrorEvents(events), [events]);
+  const warningEvents = useMemo(() => parseWarningEvents(events), [events]);
 
   // When not streaming, mark all as completed
   const displayToolCalls = isStreaming 
@@ -1379,12 +1369,11 @@ function InlineEventsSection({ events, isStreaming = false }: InlineEventsSectio
     ? subagentCalls 
     : subagentCalls.map(s => ({ ...s, status: "completed" as const }));
 
-  if (displayToolCalls.length === 0 && displaySubagentCalls.length === 0) {
+  if (displayToolCalls.length === 0 && displaySubagentCalls.length === 0 && errorEvents.length === 0 && warningEvents.length === 0) {
     return null;
   }
 
-  // Interleave tools and subagents by their order of appearance
-  // For simplicity, show subagents first, then tools (they usually run in sequence anyway)
+  // Render order: subagents, tools, warnings, errors
   return (
     <div className="flex flex-wrap gap-2 mt-3">
       {displaySubagentCalls.map((subagent) => (
@@ -1401,6 +1390,22 @@ function InlineEventsSection({ events, isStreaming = false }: InlineEventsSectio
           type="tool"
           name={tool.tool}
           status={tool.status}
+        />
+      ))}
+      {warningEvents.map((warning) => (
+        <InlineEventCard
+          key={warning.id}
+          type="warning"
+          name="Warning"
+          message={warning.message}
+        />
+      ))}
+      {errorEvents.map((error) => (
+        <InlineEventCard
+          key={error.id}
+          type="error"
+          name="Error"
+          message={error.message}
         />
       ))}
     </div>

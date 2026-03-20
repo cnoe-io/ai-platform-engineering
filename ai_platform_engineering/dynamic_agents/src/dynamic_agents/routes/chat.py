@@ -302,7 +302,6 @@ async def chat_invoke(
 
     content_parts = []
     tool_calls = []
-    trace_id = None
 
     async for event in runtime.stream(request.message, request.conversation_id, user.email, request.trace_id):
         event_type = event.get("type", "")
@@ -312,11 +311,6 @@ async def chat_invoke(
             content_parts.append(str(event_data))
         elif event_type == "tool_start":
             tool_calls.append(event_data)
-        elif event_type == "final_result":
-            # Extract trace_id from final_result metadata
-            artifact = event_data.get("artifact", {}) if isinstance(event_data, dict) else {}
-            metadata = artifact.get("metadata", {})
-            trace_id = metadata.get("trace_id")
 
     return {
         "success": True,
@@ -324,7 +318,7 @@ async def chat_invoke(
         "tool_calls": tool_calls,
         "agent_id": agent.id,
         "conversation_id": request.conversation_id,
-        "trace_id": trace_id,
+        "trace_id": request.trace_id,
     }
 
 

@@ -34,7 +34,6 @@ from dynamic_agents.services.mcp_client import (
     get_tools_with_resilience,
 )
 from dynamic_agents.services.stream_events import (
-    make_final_result_event,
     make_input_required_event,
     transform_stream_chunk,
 )
@@ -406,10 +405,11 @@ class AgentRuntime:
         - content: Streaming text tokens
         - tool_start: Tool call started (with args)
         - tool_end: Tool call completed
-        - todo_update: Task list updated (from write_todos)
         - subagent_start: Subagent delegation started (task tool)
         - subagent_end: Subagent delegation completed
-        - final_result: Completion signal with final content
+        - input_required: Agent requests user input (HITL form)
+
+        The stream ends with a 'done' SSE event (handled by the HTTP layer).
 
         Args:
             message: User's input message
@@ -431,12 +431,6 @@ class AgentRuntime:
         accumulated_content: list[str] = []
 
         logger.info(f"[stream] Starting stream for agent '{self.config.name}': user={user_id}, conv={session_id}")
-        logger.info(f"[stream] _failed_servers={self._failed_servers}, _missing_tools={self._missing_tools}")
-
-        # NOTE: Warning events for failed MCP servers and missing tools have been removed.
-        # This information is now included in the final_result event metadata (failed_servers,
-        # missing_tools) and the UI derives a persistent warning banner from runtimeStatus.
-        # See: make_final_result_event() and ui/src/components/dynamic-agents/DynamicAgentContext.tsx
 
         # Stream with subgraphs=True and both messages and updates modes
         async for chunk in self._graph.astream(
@@ -462,22 +456,15 @@ class AgentRuntime:
                 fields=interrupt_data["fields"],
                 agent=self.config.name,
             )
-            return  # Don't emit final_result, stream paused for user input
+            return  # Don't continue, stream paused for user input
 
-        # Emit final_result with accumulated content
+        # Stream complete - the frontend relies on the SSE 'done' event to know
+        # streaming has finished. Content was already sent via 'content' events.
         final_text = "".join(accumulated_content)
-        if final_text:
-            logger.info(
-                f"[stream] Completed stream for agent '{self.config.name}': "
-                f"conv={session_id}, content_length={len(final_text)}"
-            )
-            yield make_final_result_event(
-                content=final_text,
-                agent=self.config.name,
-                trace_id=self._current_trace_id,
-                failed_servers=self._failed_servers,
-                missing_tools=self._missing_tools,
-            )
+        logger.info(
+            f"[stream] Completed stream for agent '{self.config.name}': "
+            f"conv={session_id}, content_length={len(final_text)}"
+        )
 
     async def has_pending_interrupt(self, session_id: str) -> dict[str, Any] | None:
         """Check if there's a pending interrupt for the given session.
@@ -648,22 +635,15 @@ class AgentRuntime:
                 fields=interrupt_data["fields"],
                 agent=self.config.name,
             )
-            return  # Don't emit final_result, stream paused
+            return  # Don't continue, stream paused
 
-        # Emit final_result with accumulated content
+        # Stream complete - the frontend relies on the SSE 'done' event to know
+        # streaming has finished. Content was already sent via 'content' events.
         final_text = "".join(accumulated_content)
-        if final_text:
-            logger.info(
-                f"[resume] Completed resume for agent '{self.config.name}': "
-                f"conv={session_id}, content_length={len(final_text)}"
-            )
-            yield make_final_result_event(
-                content=final_text,
-                agent=self.config.name,
-                trace_id=self._current_trace_id,
-                failed_servers=self._failed_servers,
-                missing_tools=self._missing_tools,
-            )
+        logger.info(
+            f"[resume] Completed resume for agent '{self.config.name}': "
+            f"conv={session_id}, content_length={len(final_text)}"
+        )
 
     async def cleanup(self) -> None:
         """Cleanup MCP client connections and MongoDB checkpointer."""
