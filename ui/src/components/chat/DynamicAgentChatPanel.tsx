@@ -746,7 +746,7 @@ export function DynamicAgentChatPanel({ endpoint, conversationId, conversationTi
           updateMessage(activeConversationId, assistantMsgId, { content: accumulatedText, rawStreamContent });
         }
 
-        // Handle errors - break stream, error will be rendered inline via InlineEventsSection
+        // Handle errors - break stream, error will be rendered inline via StreamingView
         if (sseEvent.type === "error") {
           console.error("[ChatPanel] SSE resume error event:", sseEvent.displayContent);
           break;
@@ -1226,89 +1226,148 @@ interface WarningEvent {
   message: string;
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Stream Segments - Interleaved content and tool/subagent events
+// ─────────────────────────────────────────────────────────────────────────────
+
+type StreamSegment =
+  | { type: "content"; id: string; text: string }
+  | { type: "tool"; id: string; data: ToolCall }
+  | { type: "subagent"; id: string; data: SubagentCall }
+  | { type: "warning"; id: string; data: WarningEvent }
+  | { type: "error"; id: string; data: ErrorEvent };
+
 /**
- * Parse tool calls from SSE events (uses structured toolData)
+ * Parse SSE events into ordered stream segments for interleaved rendering.
+ * Segments maintain stream order: content → tool → content → tool etc.
+ * 
+ * Content chunks between events are grouped into single content segments.
  */
-function parseToolCalls(events: SSEAgentEvent[]): ToolCall[] {
+function parseStreamSegments(events: SSEAgentEvent[], isStreaming: boolean): StreamSegment[] {
+  const segments: StreamSegment[] = [];
   const toolsMap = new Map<string, ToolCall>();
-
-  events.forEach((event) => {
-    if (event.type === "tool_start" && event.toolData) {
-      const { tool_name, tool_call_id, args, agent } = event.toolData;
-      toolsMap.set(tool_call_id, {
-        id: tool_call_id,
-        tool: tool_name,
-        args,
-        agent,
-        status: "running",
-      });
-    }
-
-    if (event.type === "tool_end" && event.toolData) {
-      const { tool_call_id } = event.toolData;
-      const tool = toolsMap.get(tool_call_id);
-      if (tool) {
-        tool.status = "completed";
-      }
-    }
-  });
-
-  return Array.from(toolsMap.values());
-}
-
-/**
- * Parse subagent calls from SSE events (uses structured subagentData)
- */
-function parseSubagentCalls(events: SSEAgentEvent[]): SubagentCall[] {
   const subagentsMap = new Map<string, SubagentCall>();
+  let contentBuffer = "";
+  let contentId = 0;
 
-  events.forEach((event, idx) => {
-    if (event.type === "subagent_start" && event.subagentData) {
-      const { subagent_name, purpose, parent_agent } = event.subagentData;
-      const subagentId = `subagent-${event.id || idx}`;
-      subagentsMap.set(subagent_name, {
-        id: subagentId,
-        name: subagent_name,
-        purpose,
-        parentAgent: parent_agent,
-        status: "running",
+  // Helper to flush accumulated content as a segment
+  const flushContent = () => {
+    if (contentBuffer.trim()) {
+      segments.push({
+        type: "content",
+        id: `content-${contentId++}`,
+        text: contentBuffer,
       });
+      contentBuffer = "";
     }
+  };
 
-    if (event.type === "subagent_end" && event.subagentData) {
-      const { subagent_name } = event.subagentData;
-      const subagent = subagentsMap.get(subagent_name);
-      if (subagent) {
-        subagent.status = "completed";
-      }
+  // Process events in order
+  events.forEach((event, idx) => {
+    switch (event.type) {
+      case "content":
+        // Accumulate content
+        if (event.content) {
+          contentBuffer += event.content;
+        }
+        break;
+
+      case "tool_start":
+        // Flush any pending content before the tool
+        flushContent();
+        if (event.toolData) {
+          const { tool_name, tool_call_id, args, agent } = event.toolData;
+          const tool: ToolCall = {
+            id: tool_call_id,
+            tool: tool_name,
+            args,
+            agent,
+            status: "running",
+          };
+          toolsMap.set(tool_call_id, tool);
+          segments.push({ type: "tool", id: tool_call_id, data: tool });
+        }
+        break;
+
+      case "tool_end":
+        // Update tool status (segment already in array)
+        if (event.toolData) {
+          const tool = toolsMap.get(event.toolData.tool_call_id);
+          if (tool) {
+            tool.status = "completed";
+          }
+        }
+        break;
+
+      case "subagent_start":
+        // Flush any pending content before the subagent
+        flushContent();
+        if (event.subagentData) {
+          const { subagent_name, purpose, parent_agent } = event.subagentData;
+          const subagentId = `subagent-${event.id || idx}`;
+          const subagent: SubagentCall = {
+            id: subagentId,
+            name: subagent_name,
+            purpose,
+            parentAgent: parent_agent,
+            status: "running",
+          };
+          subagentsMap.set(subagent_name, subagent);
+          segments.push({ type: "subagent", id: subagentId, data: subagent });
+        }
+        break;
+
+      case "subagent_end":
+        // Update subagent status (segment already in array)
+        if (event.subagentData) {
+          const subagent = subagentsMap.get(event.subagentData.subagent_name);
+          if (subagent) {
+            subagent.status = "completed";
+          }
+        }
+        break;
+
+      case "warning":
+        flushContent();
+        segments.push({
+          type: "warning",
+          id: event.id || `warning-${idx}`,
+          data: {
+            id: event.id || `warning-${idx}`,
+            message: event.displayContent || event.warningData?.message || "A warning occurred",
+          },
+        });
+        break;
+
+      case "error":
+        flushContent();
+        segments.push({
+          type: "error",
+          id: event.id || `error-${idx}`,
+          data: {
+            id: event.id || `error-${idx}`,
+            message: event.displayContent || event.content || "An error occurred",
+          },
+        });
+        break;
     }
   });
 
-  return Array.from(subagentsMap.values());
-}
+  // Flush any remaining content
+  flushContent();
 
-/**
- * Parse error events from SSE events
- */
-function parseErrorEvents(events: SSEAgentEvent[]): ErrorEvent[] {
-  return events
-    .filter((event) => event.type === "error")
-    .map((event, idx) => ({
-      id: event.id || `error-${idx}`,
-      message: event.displayContent || event.content || "An error occurred",
-    }));
-}
+  // When not streaming, mark all tools/subagents as completed
+  if (!isStreaming) {
+    segments.forEach((seg) => {
+      if (seg.type === "tool") {
+        seg.data.status = "completed";
+      } else if (seg.type === "subagent") {
+        seg.data.status = "completed";
+      }
+    });
+  }
 
-/**
- * Parse warning events from SSE events (future-proofing)
- */
-function parseWarningEvents(events: SSEAgentEvent[]): WarningEvent[] {
-  return events
-    .filter((event) => event.type === "warning")
-    .map((event, idx) => ({
-      id: event.id || `warning-${idx}`,
-      message: event.displayContent || event.warningData?.message || "A warning occurred",
-    }));
+  return segments;
 }
 
 /**
@@ -1345,72 +1404,6 @@ function filterEventsForTurn(
     const eventTime = new Date(e.timestamp).getTime();
     return eventTime >= msgTime && eventTime < endTime;
   });
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// InlineEventsSection - Renders tool/subagent cards inline
-// ─────────────────────────────────────────────────────────────────────────────
-
-interface InlineEventsSectionProps {
-  events: SSEAgentEvent[];
-  isStreaming?: boolean;
-}
-
-function InlineEventsSection({ events, isStreaming = false }: InlineEventsSectionProps) {
-  const toolCalls = useMemo(() => parseToolCalls(events), [events]);
-  const subagentCalls = useMemo(() => parseSubagentCalls(events), [events]);
-  const errorEvents = useMemo(() => parseErrorEvents(events), [events]);
-  const warningEvents = useMemo(() => parseWarningEvents(events), [events]);
-
-  // When not streaming, mark all as completed
-  const displayToolCalls = isStreaming 
-    ? toolCalls 
-    : toolCalls.map(t => ({ ...t, status: "completed" as const }));
-  const displaySubagentCalls = isStreaming 
-    ? subagentCalls 
-    : subagentCalls.map(s => ({ ...s, status: "completed" as const }));
-
-  if (displayToolCalls.length === 0 && displaySubagentCalls.length === 0 && errorEvents.length === 0 && warningEvents.length === 0) {
-    return null;
-  }
-
-  // Render order: subagents, tools, warnings, errors
-  return (
-    <div className="flex flex-wrap gap-2 mt-3">
-      {displaySubagentCalls.map((subagent) => (
-        <InlineEventCard
-          key={subagent.id}
-          type="subagent"
-          name={subagent.name}
-          status={subagent.status}
-        />
-      ))}
-      {displayToolCalls.map((tool) => (
-        <InlineEventCard
-          key={tool.id}
-          type="tool"
-          name={tool.tool}
-          status={tool.status}
-        />
-      ))}
-      {warningEvents.map((warning) => (
-        <InlineEventCard
-          key={warning.id}
-          type="warning"
-          name="Warning"
-          message={warning.message}
-        />
-      ))}
-      {errorEvents.map((error) => (
-        <InlineEventCard
-          key={error.id}
-          type="error"
-          name="Error"
-          message={error.message}
-        />
-      ))}
-    </div>
-  );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1610,36 +1603,94 @@ interface StreamingViewProps {
 }
 
 function StreamingView({ message, isStreaming = false, turnEvents = [] }: StreamingViewProps) {
-  // Parse events to check if we have any tool/subagent activity
-  const toolCalls = useMemo(() => parseToolCalls(turnEvents), [turnEvents]);
-  const subagentCalls = useMemo(() => parseSubagentCalls(turnEvents), [turnEvents]);
-  const hasEvents = toolCalls.length > 0 || subagentCalls.length > 0;
+  // Parse events into ordered segments for interleaved rendering
+  const segments = useMemo(
+    () => parseStreamSegments(turnEvents, isStreaming),
+    [turnEvents, isStreaming]
+  );
+
+  // Check if we have any content or events
+  const hasContent = segments.some((s) => s.type === "content");
+  const hasEvents = segments.some(
+    (s) => s.type === "tool" || s.type === "subagent" || s.type === "warning" || s.type === "error"
+  );
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-2">
       {/* Show typing indicator when no content and no events yet */}
-      {!message.content && !hasEvents && (
+      {!hasContent && !hasEvents && (
         <TypingIndicator />
       )}
 
-      {/* Show inline tool/subagent events above content */}
-      {hasEvents && (
-        <InlineEventsSection events={turnEvents} isStreaming={isStreaming} />
-      )}
+      {/* Render interleaved segments in stream order */}
+      {segments.map((segment) => {
+        switch (segment.type) {
+          case "content":
+            return (
+              <div
+                key={segment.id}
+                className="rounded-xl bg-card/50 border border-border/50 px-4 py-3"
+              >
+                <div
+                  className="prose-container overflow-hidden break-words"
+                  style={{ overflowWrap: "anywhere" }}
+                >
+                  <ReactMarkdown
+                    remarkPlugins={[remarkGfm, remarkBreaks]}
+                    components={markdownComponents}
+                  >
+                    {segment.text}
+                  </ReactMarkdown>
+                </div>
+              </div>
+            );
 
-      {/* Render content as markdown (unified with final view) */}
-      {message.content && (
-        <div className="rounded-xl bg-card/50 border border-border/50 px-4 py-3">
-          <div className="prose-container overflow-hidden break-words" style={{ overflowWrap: 'anywhere' }}>
-            <ReactMarkdown
-              remarkPlugins={[remarkGfm, remarkBreaks]}
-              components={markdownComponents}
-            >
-              {message.content}
-            </ReactMarkdown>
-          </div>
-        </div>
-      )}
+          case "tool":
+            return (
+              <InlineEventCard
+                key={segment.id}
+                type="tool"
+                name={segment.data.tool}
+                status={segment.data.status}
+                args={segment.data.args}
+              />
+            );
+
+          case "subagent":
+            return (
+              <InlineEventCard
+                key={segment.id}
+                type="subagent"
+                name={segment.data.name}
+                status={segment.data.status}
+                purpose={segment.data.purpose}
+              />
+            );
+
+          case "warning":
+            return (
+              <InlineEventCard
+                key={segment.id}
+                type="warning"
+                name="Warning"
+                message={segment.data.message}
+              />
+            );
+
+          case "error":
+            return (
+              <InlineEventCard
+                key={segment.id}
+                type="error"
+                name="Error"
+                message={segment.data.message}
+              />
+            );
+
+          default:
+            return null;
+        }
+      })}
     </div>
   );
 }
@@ -1909,8 +1960,57 @@ const ChatMessage = React.memo(function ChatMessage({
             isStreaming={isStreaming}
             turnEvents={turnEvents}
           />
+        ) : !isUser && turnEvents.length > 0 ? (
+          // Completed assistant message with events - use interleaved view
+          <>
+            {(isRecovering || message.isInterrupted) && (
+              <motion.div
+                initial={{ opacity: 0, y: -5 }}
+                animate={{ opacity: 1, y: 0 }}
+                className={cn(
+                  "flex items-center gap-3 px-4 py-3 rounded-lg border mb-3",
+                  isRecovering
+                    ? "bg-sky-500/10 border-sky-500/30 text-sky-400"
+                    : "bg-amber-500/10 border-amber-500/30 text-amber-400"
+                )}
+              >
+                {isRecovering ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium">Recovering interrupted task...</p>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <Activity className="h-4 w-4 shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium">Response was interrupted</p>
+                    </div>
+                    {onRetry && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={onRetry}
+                        className="shrink-0 gap-1.5 border-amber-500/30 text-amber-400 hover:bg-amber-500/20 hover:text-amber-300"
+                      >
+                        <RotateCcw className="h-3.5 w-3.5" />
+                        Retry
+                      </Button>
+                    )}
+                  </>
+                )}
+              </motion.div>
+            )}
+            <StreamingView
+              message={message}
+              isStreaming={false}
+              turnEvents={turnEvents}
+            />
+          </>
         ) : (
           <>
+            {/* Recovery/interrupted banner for assistant messages without events */}
             {!isUser && (isRecovering || message.isInterrupted) && (
               <motion.div
                 initial={{ opacity: 0, y: -5 }}
@@ -1998,11 +2098,6 @@ const ChatMessage = React.memo(function ChatMessage({
                 </div>
               )}
             </div>
-
-            {/* Inline tool/subagent events for completed assistant messages */}
-            {!isUser && turnEvents.length > 0 && (
-              <InlineEventsSection events={turnEvents} isStreaming={false} />
-            )}
 
             {isUser && (
               <motion.div
