@@ -180,14 +180,14 @@ export function InlineEventCard({ type, name, status, message, args, purpose }: 
             transition={{ duration: 0.15 }}
             className="overflow-hidden"
           >
-            <div className="px-2.5 pb-2 pt-0.5">
+            <div className="px-3 pb-2.5 pt-1">
               {isTool && args && (
-                <pre className="text-[10px] leading-relaxed text-muted-foreground bg-black/20 rounded px-2 py-1.5 overflow-x-auto max-h-40">
+                <pre className="text-[11px] leading-relaxed text-muted-foreground font-mono whitespace-pre-wrap break-words">
                   {formatArgsJson(args)}
                 </pre>
               )}
               {isSubagent && purpose && (
-                <p className="text-[11px] text-muted-foreground/80 italic pl-0.5">
+                <p className="text-[11px] text-muted-foreground italic">
                   {purpose}
                 </p>
               )}
