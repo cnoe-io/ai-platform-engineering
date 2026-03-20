@@ -20,6 +20,19 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/chat", tags=["chat"])
 
 
+def _encode_sse_data(data: str) -> str:
+    """Encode data for SSE format, handling newlines properly.
+
+    In SSE, newlines in data values must be sent as multiple 'data:' lines.
+    For example, "line1\\nline2" becomes "data: line1\\ndata: line2".
+    """
+    if "\n" not in data:
+        return f"data: {data}"
+    # Split on newlines and prefix each line with "data: "
+    lines = data.split("\n")
+    return "\n".join(f"data: {line}" for line in lines)
+
+
 class RestartRuntimeRequest(BaseModel):
     """Request body for restarting agent runtime."""
 
@@ -75,7 +88,9 @@ async def _generate_sse_events(
             else:
                 data = str(event_data)
 
-            yield f"event: {event_type}\ndata: {data}\n\n"
+            # Use proper SSE encoding (handles newlines in content)
+            sse_data = _encode_sse_data(data)
+            yield f"event: {event_type}\n{sse_data}\n\n"
 
         # Send done event
         yield "event: done\ndata: {}\n\n"
@@ -189,7 +204,9 @@ async def _generate_resume_sse_events(
             else:
                 data = str(event_data)
 
-            yield f"event: {event_type}\ndata: {data}\n\n"
+            # Use proper SSE encoding (handles newlines in content)
+            sse_data = _encode_sse_data(data)
+            yield f"event: {event_type}\n{sse_data}\n\n"
 
         # Send done event
         yield "event: done\ndata: {}\n\n"

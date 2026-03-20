@@ -312,19 +312,21 @@ export class DynamicAgentClient {
           if (!eventStr.trim()) continue;
 
           let eventType = "message";
-          let eventData = "";
+          const dataLines: string[] = [];
 
           for (const line of eventStr.split("\n")) {
             if (line.startsWith("event: ")) {
               eventType = line.slice(7).trim();
             } else if (line.startsWith("data: ")) {
-              eventData = line.slice(6);
+              dataLines.push(line.slice(6));
             } else if (line.startsWith("data:")) {
               // Handle "data:" without space
-              eventData = line.slice(5);
+              dataLines.push(line.slice(5));
             }
           }
 
+          // Join multiple data lines with newlines (SSE spec)
+          const eventData = dataLines.join("\n");
           yield { event: eventType, data: eventData };
         }
       }
@@ -355,9 +357,8 @@ export class DynamicAgentClient {
         // content events have data as plain string, others are JSON
         let parsedData: unknown;
         if (event === "content") {
-          // Empty data: in SSE represents a newline character
-          // The server sends "data:" (empty) when streaming a newline
-          parsedData = data === "" ? "\n" : data;
+          // Pass through content as-is (newlines are now properly encoded via multi-line data:)
+          parsedData = data;
         } else {
           parsedData = JSON.parse(data);
         }
