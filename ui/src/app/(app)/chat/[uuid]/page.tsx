@@ -92,6 +92,13 @@ function ChatUUIDPage() {
   // This prevents re-fetching when selectedAgentId transitions from undefined to value
   const fetchedAgentIdRef = useRef<string | null>(null);
 
+  // Reset agent info when conversation (uuid) changes to avoid showing stale theme
+  useEffect(() => {
+    setAgentInfo(null);
+    setAgentNotFound(false);
+    fetchedAgentIdRef.current = null;
+  }, [uuid]);
+
   // Load conversation from MongoDB or localStorage
   useEffect(() => {
     // Only run on client side
