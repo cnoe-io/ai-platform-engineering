@@ -38,6 +38,8 @@ interface TodoItem {
 }
 
 interface DynamicAgentContextProps {
+  /** Conversation ID from route params - used for API calls */
+  conversationId?: string;
   agentId?: string;
   agentName?: string;
   agentDescription?: string;
@@ -62,6 +64,7 @@ interface DynamicAgentContextProps {
  * Shows tool calls and agent info - no A2A debug panel.
  */
 export function DynamicAgentContext({
+  conversationId,
   agentId,
   agentName,
   agentDescription,
@@ -107,7 +110,8 @@ export function DynamicAgentContext({
   const [todosLoading, setTodosLoading] = useState(true);
   
   // Track which conversation's todos we've initiated fetching to prevent Strict Mode duplicates
-  const todosFetchedForRef = useRef<{ conversationId: string; fetchKey: number } | null>(null);
+  // Include agentId to avoid fetching with stale agent ID during conversation switches
+  const todosFetchedForRef = useRef<{ conversationId: string; agentId: string; fetchKey: number } | null>(null);
 
   // Detect write_todos tool events and trigger a fetch
   useEffect(() => {
@@ -121,7 +125,9 @@ export function DynamicAgentContext({
 
   // Fetch todos from API when conversation changes or write_todos event occurs
   useEffect(() => {
-    if (!activeConversationId || !agentId) {
+    // Use conversationId prop (from route) for API calls, not activeConversationId from store
+    // This prevents fetching with stale IDs during conversation switches
+    if (!conversationId || !agentId) {
       setTodos([]);
       setTodosLoading(false);
       todosFetchedForRef.current = null;
@@ -130,9 +136,10 @@ export function DynamicAgentContext({
 
     // Skip if we've already started fetching for this exact combination
     // (prevents duplicate requests from Strict Mode double-invocation)
-    const currentFetchState = { conversationId: activeConversationId, fetchKey: todosFetchKey };
+    const currentFetchState = { conversationId, agentId, fetchKey: todosFetchKey };
     if (
       todosFetchedForRef.current?.conversationId === currentFetchState.conversationId &&
+      todosFetchedForRef.current?.agentId === currentFetchState.agentId &&
       todosFetchedForRef.current?.fetchKey === currentFetchState.fetchKey
     ) {
       return;
@@ -144,7 +151,7 @@ export function DynamicAgentContext({
     const fetchTodos = async () => {
       try {
         const response = await fetch(
-          `/api/dynamic-agents/conversations/${activeConversationId}/todos?agent_id=${encodeURIComponent(agentId)}`,
+          `/api/dynamic-agents/conversations/${conversationId}/todos?agent_id=${encodeURIComponent(agentId)}`,
           {
             headers: {
               ...(session?.accessToken ? { Authorization: `Bearer ${session.accessToken}` } : {}),
@@ -170,7 +177,7 @@ export function DynamicAgentContext({
     };
 
     fetchTodos();
-  }, [activeConversationId, agentId, todosFetchKey, session?.accessToken]);
+  }, [conversationId, agentId, todosFetchKey, session?.accessToken]);
 
   // Files fetched from API (single source of truth)
   const [files, setFiles] = useState<string[]>([]);
@@ -180,13 +187,14 @@ export function DynamicAgentContext({
   const [downloadingFilePath, setDownloadingFilePath] = useState<string | undefined>();
   
   // Track which conversation's files we've initiated fetching to prevent Strict Mode duplicates
-  const filesFetchedForRef = useRef<{ conversationId: string; fetchKey: number } | null>(null);
+  // Include agentId to avoid fetching with stale agent ID during conversation switches
+  const filesFetchedForRef = useRef<{ conversationId: string; agentId: string; fetchKey: number } | null>(null);
 
   // Reset loading states when conversation changes
   useEffect(() => {
     setTodosLoading(true);
     setFilesLoading(true);
-  }, [activeConversationId]);
+  }, [conversationId]);
 
   // Detect write_file or edit_file tool events and trigger a fetch
   useEffect(() => {
@@ -202,7 +210,9 @@ export function DynamicAgentContext({
 
   // Fetch files from API when conversation changes or file write event occurs
   useEffect(() => {
-    if (!activeConversationId || !agentId) {
+    // Use conversationId prop (from route) for API calls, not activeConversationId from store
+    // This prevents fetching with stale IDs during conversation switches
+    if (!conversationId || !agentId) {
       setFiles([]);
       setFilesLoading(false);
       filesFetchedForRef.current = null;
@@ -211,9 +221,10 @@ export function DynamicAgentContext({
 
     // Skip if we've already started fetching for this exact combination
     // (prevents duplicate requests from Strict Mode double-invocation)
-    const currentFetchState = { conversationId: activeConversationId, fetchKey: filesFetchKey };
+    const currentFetchState = { conversationId, agentId, fetchKey: filesFetchKey };
     if (
       filesFetchedForRef.current?.conversationId === currentFetchState.conversationId &&
+      filesFetchedForRef.current?.agentId === currentFetchState.agentId &&
       filesFetchedForRef.current?.fetchKey === currentFetchState.fetchKey
     ) {
       return;
@@ -225,7 +236,7 @@ export function DynamicAgentContext({
     const fetchFiles = async () => {
       try {
         const response = await fetch(
-          `/api/dynamic-agents/conversations/${activeConversationId}/files/list?agent_id=${encodeURIComponent(agentId)}`,
+          `/api/dynamic-agents/conversations/${conversationId}/files/list?agent_id=${encodeURIComponent(agentId)}`,
           {
             headers: {
               ...(session?.accessToken ? { Authorization: `Bearer ${session.accessToken}` } : {}),
@@ -244,19 +255,19 @@ export function DynamicAgentContext({
     };
 
     fetchFiles();
-  }, [activeConversationId, agentId, filesFetchKey, session?.accessToken]);
+  }, [conversationId, agentId, filesFetchKey, session?.accessToken]);
 
   // Handle file download
   const handleFileDownload = useCallback(
     async (path: string) => {
-      if (!activeConversationId || !agentId || isDownloadingFile) return;
+      if (!conversationId || !agentId || isDownloadingFile) return;
 
       setIsDownloadingFile(true);
       setDownloadingFilePath(path);
 
       try {
         const response = await fetch(
-          `/api/dynamic-agents/conversations/${activeConversationId}/files/content?agent_id=${encodeURIComponent(agentId)}&path=${encodeURIComponent(path)}`,
+          `/api/dynamic-agents/conversations/${conversationId}/files/content?agent_id=${encodeURIComponent(agentId)}&path=${encodeURIComponent(path)}`,
           {
             headers: {
               ...(session?.accessToken ? { Authorization: `Bearer ${session.accessToken}` } : {}),
@@ -288,7 +299,7 @@ export function DynamicAgentContext({
         setDownloadingFilePath(undefined);
       }
     },
-    [activeConversationId, agentId, session?.accessToken, isDownloadingFile]
+    [conversationId, agentId, session?.accessToken, isDownloadingFile]
   );
 
   // Handle file delete
@@ -297,14 +308,14 @@ export function DynamicAgentContext({
 
   const handleFileDelete = useCallback(
     async (path: string) => {
-      if (!activeConversationId || !agentId || isDeletingFile) return;
+      if (!conversationId || !agentId || isDeletingFile) return;
 
       setIsDeletingFile(true);
       setDeletingFilePath(path);
 
       try {
         const response = await fetch(
-          `/api/dynamic-agents/conversations/${activeConversationId}/files/content?agent_id=${encodeURIComponent(agentId)}&path=${encodeURIComponent(path)}`,
+          `/api/dynamic-agents/conversations/${conversationId}/files/content?agent_id=${encodeURIComponent(agentId)}&path=${encodeURIComponent(path)}`,
           {
             method: "DELETE",
             headers: {
@@ -324,7 +335,7 @@ export function DynamicAgentContext({
         setDeletingFilePath(undefined);
       }
     },
-    [activeConversationId, agentId, session?.accessToken, isDeletingFile]
+    [conversationId, agentId, session?.accessToken, isDeletingFile]
   );
 
   // Extract error messages from error events
@@ -353,7 +364,7 @@ export function DynamicAgentContext({
   }, [runtimeRestarted, conversationEvents.length]);
 
   const handleRestartRuntime = useCallback(async () => {
-    if (!agentId || !activeConversationId || isRestarting) return;
+    if (!agentId || !conversationId || isRestarting) return;
     
     setIsRestarting(true);
     try {
@@ -365,13 +376,13 @@ export function DynamicAgentContext({
         },
         body: JSON.stringify({
           agent_id: agentId,
-          session_id: activeConversationId,
+          session_id: conversationId,
         }),
       });
       
       if (response.ok) {
         // Clear SSE events on restart
-        clearSSEEvents(activeConversationId);
+        if (conversationId) clearSSEEvents(conversationId);
         // Show restart notification
         setRuntimeRestarted(true);
       } else {
@@ -382,7 +393,7 @@ export function DynamicAgentContext({
     } finally {
       setIsRestarting(false);
     }
-  }, [agentId, activeConversationId, session?.accessToken, isRestarting, clearSSEEvents]);
+  }, [agentId, conversationId, session?.accessToken, isRestarting, clearSSEEvents]);
 
   // Activity count now only includes todos and files (tools/subagents shown inline in chat)
   const totalActivityCount = todos.length + files.length;
@@ -520,7 +531,7 @@ export function DynamicAgentContext({
                 allowedTools={allowedTools}
                 subagents={subagents}
                 agentId={agentId}
-                sessionId={activeConversationId}
+                sessionId={conversationId}
                 onRestartRuntime={handleRestartRuntime}
                 isRestarting={isRestarting}
                 agentNotFound={agentNotFound}

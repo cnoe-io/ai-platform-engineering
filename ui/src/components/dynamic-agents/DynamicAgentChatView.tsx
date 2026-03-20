@@ -1,7 +1,6 @@
 "use client";
 
 import React, { useState } from "react";
-import { motion } from "framer-motion";
 import { DynamicAgentChatPanel } from "@/components/chat/DynamicAgentChatPanel";
 import { DynamicAgentContext } from "./DynamicAgentContext";
 import type { SubAgentRef } from "@/types/dynamic-agent";
@@ -39,6 +38,8 @@ interface DynamicAgentChatViewProps {
   readOnlyReason?: "admin_audit" | "shared_readonly";
   /** Which admin tab the user navigated from */
   adminOrigin?: "audit-logs" | "feedback" | null;
+  /** Whether messages are still loading (show skeleton) */
+  isLoadingMessages?: boolean;
 }
 
 /**
@@ -62,19 +63,14 @@ export function DynamicAgentChatView({
   readOnly,
   readOnlyReason,
   adminOrigin,
+  isLoadingMessages,
 }: DynamicAgentChatViewProps) {
   const [contextPanelCollapsed, setContextPanelCollapsed] = useState(false);
 
   return (
     <div className="flex-1 min-w-0 flex h-full">
-      {/* Chat Panel */}
-      <motion.div
-        key="chat"
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        transition={{ duration: 0.2 }}
-        className="flex-1 min-w-0 flex flex-col overflow-hidden"
-      >
+      {/* Chat Panel - no fade animation to avoid flash on conversation switch */}
+      <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
         <DynamicAgentChatPanel
           endpoint={endpoint}
           conversationId={conversationId}
@@ -84,11 +80,13 @@ export function DynamicAgentChatView({
           agentId={selectedAgentId}
           agentGradient={agentGradient}
           agentName={agentName}
+          isLoadingMessages={isLoadingMessages}
         />
-      </motion.div>
+      </div>
 
       {/* Context Panel - Dynamic Agent variant */}
       <DynamicAgentContext
+        conversationId={conversationId}
         agentId={selectedAgentId}
         agentName={agentName}
         agentDescription={agentDescription}

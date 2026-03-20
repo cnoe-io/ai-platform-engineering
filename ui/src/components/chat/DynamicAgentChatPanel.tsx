@@ -37,9 +37,10 @@ interface DynamicAgentChatPanelProps {
   agentId: string; // Mandatory for Dynamic Agents
   agentGradient?: string | null; // Gradient theme for agent avatar
   agentName?: string; // Agent name for display
+  isLoadingMessages?: boolean; // Whether messages are still loading (show skeleton)
 }
 
-export function DynamicAgentChatPanel({ endpoint, conversationId, conversationTitle, readOnly, readOnlyReason, agentId, agentGradient, agentName }: DynamicAgentChatPanelProps) {
+export function DynamicAgentChatPanel({ endpoint, conversationId, conversationTitle, readOnly, readOnlyReason, agentId, agentGradient, agentName, isLoadingMessages }: DynamicAgentChatPanelProps) {
   const { data: session } = useSession();
   const autoScrollEnabled = useFeatureFlagStore((s) => s.flags.autoScroll ?? true);
   const showTimestamps = useFeatureFlagStore((s) => s.flags.showTimestamps ?? false);
@@ -800,7 +801,7 @@ export function DynamicAgentChatPanel({ endpoint, conversationId, conversationTi
           <div className="max-w-7xl mx-auto pl-1 pr-1 py-4 space-y-6">
             {!conversation?.messages.length && (
               <div className="text-center py-20">
-                {isLoadingHistory ? (
+                {(isLoadingHistory || isLoadingMessages) ? (
                   <>
                     <div className="w-16 h-16 mx-auto mb-6 rounded-2xl bg-gradient-to-br from-primary to-primary/60 flex items-center justify-center">
                       <Loader2 className="h-8 w-8 text-white animate-spin" />
