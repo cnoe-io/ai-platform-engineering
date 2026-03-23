@@ -204,7 +204,7 @@ export function DynamicAgentChatPanel({ endpoint, conversationId, conversationTi
   const recoveringMessageId = null; 
 
   // ═══════════════════════════════════════════════════════════════
-  // LOAD CHAT HISTORY from checkpointer on mount/conversation change
+  // LOAD CHAT HISTORY from MongoDB messages collection + HITL state from checkpointer
   // ═══════════════════════════════════════════════════════════════
   useEffect(() => {
     // Skip if no conversationId (new conversation) or agentId
@@ -227,67 +227,61 @@ export function DynamicAgentChatPanel({ endpoint, conversationId, conversationTi
       setHistoryLoadError(null);
       
       try {
-        // Fetch messages from checkpointer
-        const messagesResponse = await fetch(
-          `/api/dynamic-agents/conversations/${conversationId}/messages?agent_id=${encodeURIComponent(agentId)}`
-        );
-        
-        if (!messagesResponse.ok) {
-          if (messagesResponse.status === 404) {
-            // Conversation doesn't exist yet - this is fine for new conversations
-            console.log(`[DynamicAgentChatPanel] Conversation ${conversationId} not found, starting fresh`);
-            return;
-          }
-          throw new Error(`Failed to load history: ${messagesResponse.status}`);
-        }
-        
-        const data = await messagesResponse.json();
-        
-        // Populate messages into the store
-        if (data.messages && data.messages.length > 0) {
-          console.log(`[DynamicAgentChatPanel] Loaded ${data.messages.length} messages from checkpointer`);
-          
-          for (const msg of data.messages) {
-            addMessage(conversationId, {
-              role: msg.role as "user" | "assistant",
-              content: msg.content,
-              // Use the message ID from the checkpointer
-            }, undefined, msg.id);
-          }
-        }
+        // Load messages from MongoDB messages collection (same as standard chat)
+        // This is the unified storage that's written to during streaming
+        await loadMessagesFromServer(conversationId, { force: true });
+        console.log(`[DynamicAgentChatPanel] Loaded messages from MongoDB for ${conversationId}`);
         
         // Note: Todos are fetched by DynamicAgentContext via the /todos endpoint
         
-        // Handle pending interrupt - restore the HITL form if present
-        if (data.has_pending_interrupt && data.interrupt_data) {
-          const { prompt, fields } = data.interrupt_data;
-          const lastMsg = data.messages?.[data.messages.length - 1];
+        // Check for pending HITL interrupt state (lightweight call to checkpointer)
+        // This is the only thing we still need from the checkpointer
+        try {
+          const interruptResponse = await fetch(
+            `/api/dynamic-agents/conversations/${conversationId}/interrupt-state?agent_id=${encodeURIComponent(agentId)}`
+          );
           
-          if (lastMsg && lastMsg.role === "assistant") {
-            const inputFields: InputField[] = fields.map((f: { field_name: string; field_label?: string; field_description?: string; field_type?: string; field_values?: string[]; required?: boolean; default_value?: string; placeholder?: string }) => ({
-              field_name: f.field_name,
-              field_label: f.field_label,
-              field_description: f.field_description,
-              field_type: f.field_type,
-              field_values: f.field_values,
-              required: f.required,
-              default_value: f.default_value,
-              placeholder: f.placeholder,
-            }));
+          if (interruptResponse.ok) {
+            const interruptData = await interruptResponse.json();
+            
+            // Handle pending interrupt - restore the HITL form if present
+            if (interruptData.has_pending_interrupt && interruptData.interrupt_data) {
+              const { prompt, fields } = interruptData.interrupt_data;
+              
+              // Get the last message from the store (just loaded from MongoDB)
+              const currentConv = useChatStore.getState().conversations.find(c => c.id === conversationId);
+              const lastMsg = currentConv?.messages?.[currentConv.messages.length - 1];
+              
+              if (lastMsg && lastMsg.role === "assistant") {
+                const inputFields: InputField[] = fields.map((f: { field_name: string; field_label?: string; field_description?: string; field_type?: string; field_values?: string[]; required?: boolean; default_value?: string; placeholder?: string }) => ({
+                  field_name: f.field_name,
+                  field_label: f.field_label,
+                  field_description: f.field_description,
+                  field_type: f.field_type,
+                  field_values: f.field_values,
+                  required: f.required,
+                  default_value: f.default_value,
+                  placeholder: f.placeholder,
+                }));
 
-            setPendingUserInput({
-              messageId: lastMsg.id,
-              metadata: {
-                user_input: true,
-                input_title: `Input Required`,
-                input_description: prompt,
-                input_fields: inputFields,
-              },
-              contextId: conversationId,
-              isSSE: true,
-              agentId: agentId,
-            });
+                setPendingUserInput({
+                  messageId: lastMsg.id,
+                  metadata: {
+                    user_input: true,
+                    input_title: `Input Required`,
+                    input_description: prompt,
+                    input_fields: inputFields,
+                  },
+                  contextId: conversationId,
+                  isSSE: true,
+                  agentId: agentId,
+                });
+              }
+            }
           }
+        } catch (interruptError) {
+          // Non-fatal: HITL state check failed, but messages are loaded
+          console.warn("[DynamicAgentChatPanel] Failed to check interrupt state:", interruptError);
         }
       } catch (error) {
         console.error("[DynamicAgentChatPanel] Failed to load history:", error);
@@ -302,7 +296,7 @@ export function DynamicAgentChatPanel({ endpoint, conversationId, conversationTi
     // to avoid re-fetching when messages change. The historyLoadedRef guard
     // ensures we only fetch once per conversation.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [conversationId, agentId, addMessage]);
+  }, [conversationId, agentId, loadMessagesFromServer]);
 
   // ═══════════════════════════════════════════════════════════════
   // RESTORE PENDING USER INPUT FORM after page refresh / navigation.
