@@ -8,6 +8,7 @@ on:
       - 'build/Dockerfile'
       - 'ai_platform_engineering/multi_agents/**'
       - 'ai_platform_engineering/utils/**'
+      - 'ai_platform_engineering/agents/**'
       - 'pyproject.toml'
       - 'uv.lock'
       - 'ai_platform_engineering/__init__.py'
