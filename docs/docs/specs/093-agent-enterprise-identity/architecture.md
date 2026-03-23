@@ -2,7 +2,7 @@
 
 **Single source of truth** for the architecture that covers policy engine comparison, enterprise identity federation, OBO/token exchange, Slack and Webex bot entry points, AgentGateway (optional), external authorization, and CAIPE agents/MCP. All research and deliverables in this spec align to this diagram and narrative.
 
-**Spec**: 096 — Policy Engines and Enterprise Authorization Architecture for Agentic AI  
+**Spec**: 093 — Policy Engines and Enterprise Authorization Architecture for Agentic AI (`093-agent-enterprise-identity`)  
 **Date**: March 2026
 
 ---

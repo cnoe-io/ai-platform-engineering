@@ -1,4 +1,4 @@
-# Spec 096: Policy Engines and Enterprise Authorization Architecture for Agentic AI
+# Spec 093 (`093-agent-enterprise-identity`): Policy Engines and Enterprise Authorization Architecture for Agentic AI
 
 This folder contains the feature specification and all supporting research for policy engine comparison (Cedar, CEL, Casbin, OPA/Rego, AgentGateway, IBAC, OpenFGA), enterprise identity federation and OBO (Keycloak, token exchange, connector management), AgentGateway + Keycloak + 3LO + **Slack and Webex** bots + external authz, bot authorization and I/O guardrails, and CAIPE architecture evolution.
 
