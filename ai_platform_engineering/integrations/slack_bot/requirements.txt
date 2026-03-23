@@ -1,9 +1,0 @@
-setuptools
-slack_bolt
-slack_sdk
-requests
-loguru
-pydantic
-pymongo
-pyyaml
-langfuse

@@ -1,10 +1,15 @@
 FROM python:3.13-slim-trixie
 
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+
 WORKDIR /app
 
-COPY ai_platform_engineering/integrations/slack_bot/requirements.txt /app/requirements.txt
-RUN pip install --no-cache-dir -r requirements.txt
-
 COPY ai_platform_engineering/integrations/slack_bot/ /app/
+
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --locked --no-dev
+
+ENV PATH="/app/.venv/bin:${PATH}" \
+    UV_PROJECT_ENVIRONMENT="/app/.venv"
 
 CMD ["python", "-m", "app"]
