@@ -2,7 +2,7 @@
 
 **Focus**: How AgentGateway.dev, Keycloak, enterprise authentication, third-party OAuth (3LO), a Slack bot, and an external authorization server/service can work together for agentic AI workflows.  
 **Date**: March 2026  
-**Context**: Policy engine comparison spec 096; multi-agent platform with Slack/Webex bot delegation and enterprise identity federation.
+**Context**: Spec 093 (`093-agent-enterprise-identity`); multi-agent platform with Slack/Webex bot delegation and enterprise identity federation.
 
 ---
 

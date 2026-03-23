@@ -1,6 +1,6 @@
 # Feature Specification: Policy Engines and Enterprise Authorization Architecture for Agentic AI
 
-**Feature Branch**: `096-policy-engine-comparison`  
+**Feature Branch**: `093-agent-enterprise-identity`  
 **Created**: 2026-03-17  
 **Status**: Draft  
 **Input**: User description: "Policy Engine comparison for Agentic AI, OBO, Impersonation, Slack/Webex Bots to CAIPE Workflows"
