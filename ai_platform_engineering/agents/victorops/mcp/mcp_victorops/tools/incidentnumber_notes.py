@@ -13,7 +13,7 @@ logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger("mcp_tools")
 
 
-async def get_api_public_v1_incidents_incident_number_notes(path_incidentNumber: str) -> Dict[str, Any]:
+async def get_api_public_v1_incidents_incident_number_notes(path_incidentNumber: str, org_slug: Optional[str] = None) -> Dict[str, Any]:
     """
         Get the notes associated with an incident
 
@@ -43,7 +43,7 @@ async def get_api_public_v1_incidents_incident_number_notes(path_incidentNumber:
     data = assemble_nested_body(flat_body)
 
     success, response = await make_api_request(
-        f"/api-public/v1/incidents/{path_incidentNumber}/notes", method="GET", params=params, data=data
+        f"/api-public/v1/incidents/{path_incidentNumber}/notes", method="GET", org_slug=org_slug, params=params, data=data
     )
 
     if not success:
@@ -62,6 +62,7 @@ async def post_api_public_v1_incidents_incident_number_notes(
     body_name: Optional[str] = None,
     body_display_name: Optional[str]  = None,
     body_json_value: Optional[Dict[str, Any]] = None,
+    org_slug: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
         Create a new Note
@@ -104,7 +105,7 @@ async def post_api_public_v1_incidents_incident_number_notes(
     data = assemble_nested_body(flat_body)
 
     success, response = await make_api_request(
-        f"/api-public/v1/incidents/{path_incidentNumber}/notes", method="POST", params=params, data=data
+        f"/api-public/v1/incidents/{path_incidentNumber}/notes", method="POST", org_slug=org_slug, params=params, data=data
     )
 
     if not success:

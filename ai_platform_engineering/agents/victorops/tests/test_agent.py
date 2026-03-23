@@ -1,3 +1,5 @@
+import json
+
 import pytest
 from agent_victorops.protocol_bindings.a2a_server.agent import VictorOpsAgent, ResponseFormat
 
@@ -8,6 +10,8 @@ def set_env_vars(monkeypatch):
     monkeypatch.setenv("VICTOROPS_API_URL", "https://dummy-victorops/api")
     monkeypatch.setenv("X_VO_API_KEY", "dummy-key")
     monkeypatch.setenv("X_VO_API_ID", "dummy-id")
+    # Ensure multi-org var is not set by default
+    monkeypatch.delenv("VICTOROPS_ORGS", raising=False)
 
 
 def test_response_format_defaults():
@@ -62,7 +66,7 @@ def test_agent_tool_messages():
 
 
 def test_agent_mcp_config():
-    """Test MCP configuration generation."""
+    """Test MCP configuration generation with single-org env vars."""
     agent = VictorOpsAgent()
     config = agent.get_mcp_config("/fake/server/path")
 
@@ -73,3 +77,32 @@ def test_agent_mcp_config():
     assert "VICTOROPS_API_URL" in config["env"]
     assert "X_VO_API_KEY" in config["env"]
     assert "X_VO_API_ID" in config["env"]
+
+
+def test_agent_mcp_config_multi_org(monkeypatch):
+    """Test MCP configuration passes through VICTOROPS_ORGS when set."""
+    orgs_json = json.dumps({
+        "org-alpha": {
+            "api_url": "https://api.victorops.com",
+            "api_key": "key-alpha",
+            "api_id": "id-alpha",
+        },
+        "org-beta": {
+            "api_url": "https://api.victorops.com",
+            "api_key": "key-beta",
+            "api_id": "id-beta",
+        },
+    })
+    monkeypatch.setenv("VICTOROPS_ORGS", orgs_json)
+
+    agent = VictorOpsAgent()
+    config = agent.get_mcp_config("/fake/server/path")
+
+    assert config is not None
+    assert "env" in config
+    assert "VICTOROPS_ORGS" in config["env"]
+    assert config["env"]["VICTOROPS_ORGS"] == orgs_json
+    # Single-org vars should not be present when VICTOROPS_ORGS is set
+    assert "VICTOROPS_API_URL" not in config["env"]
+    assert "X_VO_API_KEY" not in config["env"]
+    assert "X_VO_API_ID" not in config["env"]

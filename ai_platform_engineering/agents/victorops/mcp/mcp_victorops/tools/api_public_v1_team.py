@@ -4,7 +4,7 @@
 """Tools for /api-public/v1/team operations"""
 
 import logging
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 from ..api.client import make_api_request
 
 # Configure logging
@@ -12,7 +12,7 @@ logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger("mcp_tools")
 
 
-async def get_api_public_v1_team() -> Dict[str, Any]:
+async def get_api_public_v1_team(org_slug: Optional[str] = None) -> Dict[str, Any]:
     """
         List all teams
 
@@ -23,6 +23,10 @@ async def get_api_public_v1_team() -> Dict[str, Any]:
 
     This API may be called a maximum of 2 times per second.
 
+
+        Args:
+
+            org_slug (str): VictorOps organization slug. Required when multiple orgs are configured.
 
         Returns:
             Dict[str, Any]: The JSON response from the API call.
@@ -35,7 +39,7 @@ async def get_api_public_v1_team() -> Dict[str, Any]:
     params = {}
     data = {}
 
-    success, response = await make_api_request("/api-public/v1/team", method="GET", params=params, data=data)
+    success, response = await make_api_request("/api-public/v1/team", method="GET", org_slug=org_slug, params=params, data=data)
 
     if not success:
         logger.error(f"Request failed: {response.get('error')}")

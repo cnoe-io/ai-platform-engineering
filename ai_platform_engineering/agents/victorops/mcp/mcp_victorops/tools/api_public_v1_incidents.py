@@ -5,7 +5,7 @@
 """Tools for /api-public/v1/incidents operations"""
 
 import logging
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 from ..api.client import make_api_request, assemble_nested_body
 from ..models.incident import IncidentCreate
 
@@ -14,7 +14,7 @@ logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger("mcp_tools")
 
 
-async def get_api_public_v1_incidents() -> Dict[str, Any]:
+async def get_api_public_v1_incidents(org_slug: Optional[str] = None) -> Dict[str, Any]:
     """
         Get current incident information
 
@@ -26,6 +26,7 @@ async def get_api_public_v1_incidents() -> Dict[str, Any]:
 
         Args:
 
+            org_slug (str): VictorOps organization slug. Required when multiple orgs are configured.
 
         Returns:
             Dict[str, Any]: The JSON response from the API call.
@@ -41,7 +42,7 @@ async def get_api_public_v1_incidents() -> Dict[str, Any]:
     flat_body = {}
     data = assemble_nested_body(flat_body)
 
-    success, response = await make_api_request("/api-public/v1/incidents", method="GET", params=params, data=data)
+    success, response = await make_api_request("/api-public/v1/incidents", method="GET", org_slug=org_slug, params=params, data=data)
 
     if not success:
         logger.error(f"Request failed: {response.get('error')}")
@@ -59,8 +60,9 @@ async def get_api_public_v1_incidents() -> Dict[str, Any]:
 # ) -> Dict[str, Any]:
     
 async def post_api_public_v1_incidents(
-incident: IncidentCreate
-) -> Dict[str, Any]:    
+incident: IncidentCreate,
+org_slug: Optional[str] = None,
+) -> Dict[str, Any]:
     """
         Create a new incident
 
@@ -110,7 +112,7 @@ incident: IncidentCreate
     # if incident.summary is not None:
     #     flat_body["summary"] = incident.summary
     # if incident.details is not None:
-    #     flat_body["details"] = incident.details 
+    #     flat_body["details"] = incident.details
     # if incident.userName is not None:
     #     flat_body["userName"] = incident.userName
     # if incident.targets is not None:
@@ -119,7 +121,7 @@ incident: IncidentCreate
     #     flat_body["isMultiResponder"] = incident.isMultiResponder
     data = assemble_nested_body(flat_body)
 
-    success, response = await make_api_request("/api-public/v1/incidents", method="POST", params=params, data=data)
+    success, response = await make_api_request("/api-public/v1/incidents", method="POST", org_slug=org_slug, params=params, data=data)
 
     if not success:
         logger.error(f"Request failed: {response.get('error')}")

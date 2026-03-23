@@ -23,7 +23,8 @@ from mcp_victorops.tools import (
     incidentnumber_notes,
     api_public_v1_chat,
     api_public_v1_team,
-    api_public_v2_team_oncall
+    api_public_v2_team_oncall,
+    orgs,
 )
 
 def main():
@@ -59,6 +60,7 @@ def main():
         mcp = FastMCP(f"{SERVER_NAME} MCP Server")
 
     # Register tools
+    mcp.tool()(orgs.list_victorops_orgs)
     mcp.tool()(api_public_v1_incidents.get_api_public_v1_incidents)
     mcp.tool()(api_public_v2_user.get_api_public_v2_user)
     mcp.tool()(api_reporting_v2_incidents.get_api_reporting_v2_incidents)

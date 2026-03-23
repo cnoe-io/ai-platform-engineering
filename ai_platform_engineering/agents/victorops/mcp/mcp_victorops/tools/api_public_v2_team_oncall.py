@@ -4,7 +4,7 @@
 """Tools for /api-public/v2/team/{team}/oncall/schedule operations"""
 
 import logging
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 from ..api.client import make_api_request
 
 # Configure logging
@@ -12,7 +12,7 @@ logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger("mcp_tools")
 
 
-async def get_api_public_v2_team_oncall_schedule(team: str) -> Dict[str, Any]:
+async def get_api_public_v2_team_oncall_schedule(team: str, org_slug: Optional[str] = None) -> Dict[str, Any]:
     """
         Get on-call schedule for a team
 
@@ -41,7 +41,7 @@ async def get_api_public_v2_team_oncall_schedule(team: str) -> Dict[str, Any]:
     params = {}
     data = {}
 
-    success, response = await make_api_request(f"/api-public/v2/team/{team}/oncall/schedule", method="GET", params=params, data=data)
+    success, response = await make_api_request(f"/api-public/v2/team/{team}/oncall/schedule", method="GET", org_slug=org_slug, params=params, data=data)
 
     if not success:
         logger.error(f"Request failed: {response.get('error')}")
