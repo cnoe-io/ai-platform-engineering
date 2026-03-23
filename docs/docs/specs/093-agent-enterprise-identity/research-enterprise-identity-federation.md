@@ -1,6 +1,6 @@
 # Enterprise Identity Federation and User Impersonation in CAIPE
 
-**Pulled from [PR #975](https://github.com/cnoe-io/ai-platform-engineering/pull/975) for spec 096 policy engine comparison.**
+**Pulled from [PR #975](https://github.com/cnoe-io/ai-platform-engineering/pull/975) for spec 093 (`093-agent-enterprise-identity`).**
 
 ## Overview
 
