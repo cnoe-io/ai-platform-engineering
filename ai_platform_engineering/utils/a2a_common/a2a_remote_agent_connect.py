@@ -420,7 +420,7 @@ class A2ARemoteAgentConnectTool(BaseTool):
                 # Stream artifact to supervisor (for both TextPart and DataPart)
                 # Artifacts are always streamed so supervisor can forward them to clients
                 if text or data:
-                  writer({"type": "artifact-update", "result": result})
+                  writer({"type": "artifact-update", "result": result, "source_agent": self.name})
                   content_type = "DataPart" if data else "TextPart"
                   artifact_name = artifact.get('name', '')
                   logger.debug(f"✅ Streamed artifact-update event: {artifact_name} ({content_type})")

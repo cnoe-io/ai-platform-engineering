@@ -108,6 +108,17 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
             and last_step.get('step_id') == self._current_plan_step_id
         )
 
+    def _find_plan_step_for_agent(self, agent_name: str) -> str | None:
+        """Find the plan step_id for a given agent name."""
+        if not self._latest_execution_plan or not agent_name:
+            return None
+        agent_lower = agent_name.lower()
+        for step in self._latest_execution_plan:
+            if step.get('agent', '').lower() == agent_lower:
+                if step.get('status') in ('in_progress', 'pending'):
+                    return step['step_id']
+        return None
+
     # ─────────────────────────────────────────────────────────────────────────
     # Helper Methods
     # ─────────────────────────────────────────────────────────────────────────
@@ -448,11 +459,14 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                 elif part.get('data'):
                     artifact_parts.append(Part(root=DataPart(data=part['data'])))
 
+        # source_agent is injected by a2a_remote_agent_connect at dispatch time,
+        # avoiding the race condition where state.current_agent is overwritten
+        # by parallel tool calls.
         existing_metadata = artifact_data.get('metadata', {})
         source_agent = (
             existing_metadata.get('sourceAgent') or
             event.get('source_agent') or
-            state.current_agent or
+            getattr(state, 'current_agent', None) or
             'sub-agent'
         )
         meta = {
@@ -460,9 +474,11 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
             'agentType': 'sub-agent',
             **existing_metadata,
         }
-        # Propagate plan_step_id so the UI nests sub-agent tools under the plan step
+        # Propagate plan_step_id so the UI nests sub-agent tools under the plan step.
+        # Try agent-specific step first, fall back to current.
         if 'plan_step_id' not in meta and self._current_plan_step_id:
-            meta['plan_step_id'] = self._current_plan_step_id
+            matched = self._find_plan_step_for_agent(source_agent) if source_agent else None
+            meta['plan_step_id'] = matched or self._current_plan_step_id
 
         artifact = Artifact(
             artifactId=artifact_data.get('artifactId'),
@@ -561,11 +577,18 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
             artifact_name, description = self._get_artifact_name_for_notification(content, event)
             artifact = new_text_artifact(name=artifact_name, description=description, text=content)
 
-            # Tag tool notification with the active plan step.
+            # Tag tool notification with the correct plan step.
+            # Try to match the tool's sourceAgent to its dedicated plan step
+            # first; fall back to _current_plan_step_id.
+            source_agent = event.get('source_agent') or 'supervisor'
             plan_step_id = self._current_plan_step_id
+            if source_agent and source_agent != 'supervisor':
+                matched_step = self._find_plan_step_for_agent(source_agent)
+                if matched_step:
+                    plan_step_id = matched_step
 
             artifact.metadata = {
-                'sourceAgent': event.get('source_agent') or 'supervisor',
+                'sourceAgent': source_agent,
                 'agentType': 'notification',
             }
             if plan_step_id:
@@ -593,6 +616,14 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
             )
             artifact.artifact_id = state.streaming_artifact_id
             use_append = True
+
+        # When a plan exists, tag streaming chunks with the active plan_step_id
+        # so the UI nests them under the current step as "thinking" instead of
+        # rendering them below the plan as orphaned content.
+        if not is_tool_notification and self._current_plan_step_id and self._execution_plan_emitted:
+            if artifact.metadata is None:
+                artifact.metadata = {}
+            artifact.metadata['plan_step_id'] = self._current_plan_step_id
 
         # Tag streaming chunks as final answer when the last plan step is active.
         # This lets the UI stream the answer live below the plan instead of
@@ -862,11 +893,14 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
 
                         # Propagate plan_step_id to sub-agent artifacts so
                         # the UI can nest them under the correct plan step.
+                        # Try agent-specific step first, fall back to current.
                         artifact = event.artifact
                         if artifact and self._current_plan_step_id:
                             meta = dict(artifact.metadata or {})
                             if 'plan_step_id' not in meta:
-                                meta['plan_step_id'] = self._current_plan_step_id
+                                agent_name = meta.get('sourceAgent', '')
+                                matched = self._find_plan_step_for_agent(agent_name) if agent_name else None
+                                meta['plan_step_id'] = matched or self._current_plan_step_id
                                 artifact = Artifact(
                                     artifactId=artifact.artifactId,
                                     name=artifact.name,
@@ -1021,17 +1055,23 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                         self._execution_plan_emitted = True
                         parsed = self._parse_execution_plan_text(artifact_text)
                         if parsed:
-                            # Merge statuses: preserve completed/failed from existing plan
-                            if self._latest_execution_plan:
-                                old_statuses = {
-                                    s.get('step_id'): s.get('status')
-                                    for s in self._latest_execution_plan
-                                }
-                                for step in parsed:
-                                    old_status = old_statuses.get(step['step_id'])
-                                    if old_status in ('completed', 'failed'):
-                                        step['status'] = old_status
-                            self._latest_execution_plan = parsed
+                            if self._latest_execution_plan and artifact_name == 'execution_plan_status_update':
+                                # Status updates only contain changed steps — merge
+                                # into the existing full plan instead of replacing it.
+                                # This prevents the plan from shrinking to just the
+                                # updated steps, which broke _is_last_plan_step_active().
+                                update_map = {s['step_id']: s for s in parsed}
+                                for i, existing_step in enumerate(self._latest_execution_plan):
+                                    if existing_step['step_id'] in update_map:
+                                        updated = update_map[existing_step['step_id']]
+                                        # Preserve completed/failed status from existing plan
+                                        if existing_step.get('status') in ('completed', 'failed'):
+                                            updated['status'] = existing_step['status']
+                                        self._latest_execution_plan[i] = updated
+                            else:
+                                # Initial plan (execution_plan_update) or no existing
+                                # plan — set the full plan array.
+                                self._latest_execution_plan = parsed
 
                         # Track which step the LLM is currently working on.
                         for step in self._latest_execution_plan:
@@ -1055,6 +1095,11 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                         )
                         if artifact_name == 'execution_plan_update':
                             self._execution_plan_artifact_id = artifact.artifact_id
+                            # Reset streaming artifact so post-plan chunks start
+                            # a fresh artifact with plan_step_id attached.  The
+                            # pre-plan streaming artifact was created before any
+                            # plan existed and the UI anchors it outside the plan.
+                            state.streaming_artifact_id = None
                     else:
                         artifact = new_text_artifact(
                             name=artifact_name,
