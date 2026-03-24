@@ -238,6 +238,10 @@ async function createIndexes(db: Db) {
     // Policies collection (global ASP policy for system workflows)
     safeCreateIndex(db, 'policies', { name: 1 }, { unique: true }),
     safeCreateIndex(db, 'policies', { is_system: 1 }),
+
+    // Authorized Webex spaces collection (Webex bot integration)
+    safeCreateIndex(db, 'authorized_webex_spaces', { roomId: 1 }, { unique: true }),
+    safeCreateIndex(db, 'authorized_webex_spaces', { status: 1 }),
   ]);
 
   console.log('✅ MongoDB indexes ensured');
