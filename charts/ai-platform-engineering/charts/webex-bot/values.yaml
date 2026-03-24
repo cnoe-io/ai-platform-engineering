@@ -1,0 +1,30 @@
+replicaCount: 1
+
+image:
+  repository: ghcr.io/cnoe-io/caipe-webex-bot
+  pullPolicy: IfNotPresent
+  tag: ""
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+resources:
+  limits:
+    cpu: 500m
+    memory: 256Mi
+  requests:
+    cpu: 100m
+    memory: 128Mi
+
+env:
+  CAIPE_URL: "http://caipe-supervisor:8000"
+  WEBEX_INTEGRATION_ENABLE_AUTH: "false"
+  LANGFUSE_SCORING_ENABLED: "false"
+
+secretRef: "webex-bot-secret"
+
+nodeSelector: {}
+tolerations: []
+affinity: {}

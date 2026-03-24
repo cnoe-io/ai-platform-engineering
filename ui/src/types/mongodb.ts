@@ -396,6 +396,21 @@ export interface UserActivity {
 }
 
 // ============================================================================
+// Authorized Webex Spaces (Webex Bot Integration)
+// ============================================================================
+
+export interface AuthorizedWebexSpace {
+  _id?: ObjectId;
+  roomId: string;
+  spaceName?: string;
+  authorizedBy: string;
+  authorizedAt: Date;
+  status: 'active' | 'revoked';
+  revokedAt?: Date;
+  revokedBy?: string;
+}
+
+// ============================================================================
 // Audit Log Types (Admin-only)
 // ============================================================================
 
