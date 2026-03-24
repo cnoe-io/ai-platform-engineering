@@ -14,6 +14,12 @@ This folder contains the feature specification and all supporting research for p
 
 - **[policy-engine-comparison.md](./policy-engine-comparison.md)** — Main comparison document (Cedar, CEL, Casbin, OPA/Rego) with Keycloak integration, recommendations, implementation checklists.
 
+## Documentation site and contributor workflow
+
+Former spec **`095-enterprise-identity-federation-docs`** is **merged into this folder**: see **[spec.md](./spec.md)** section *Documentation site and contributor workflow (merged from former `095-enterprise-identity-federation-docs`)* for scope, acceptance criteria, and phased implementation checklist.
+
+Quick links: published architecture includes [`enterprise-identity-federation.md`](../../architecture/enterprise-identity-federation.md). Contributor git conventions live in the repository root **`CLAUDE.md`** and **`.cursorrules`**.
+
 ## Research (this spec)
 
 | Document | Description |
