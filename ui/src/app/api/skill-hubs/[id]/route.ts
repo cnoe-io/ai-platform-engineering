@@ -39,7 +39,17 @@ export const PATCH = withErrorHandler(
         updated_at: new Date().toISOString(),
       };
       if (body.enabled !== undefined) update.enabled = !!body.enabled;
-      if (body.location !== undefined) update.location = String(body.location);
+      if (body.location !== undefined) {
+        let loc = String(body.location).trim();
+        try {
+          const url = new URL(loc);
+          if (url.hostname.includes("github.com") || url.hostname.includes("gitlab.com")) {
+            const segments = url.pathname.replace(/^\/+|\/+$/g, "").split("/");
+            if (segments.length >= 2) loc = `${segments[0]}/${segments[1]}`;
+          }
+        } catch { /* not a URL */ }
+        update.location = loc;
+      }
       if (body.credentials_ref !== undefined)
         update.credentials_ref = body.credentials_ref || null;
 

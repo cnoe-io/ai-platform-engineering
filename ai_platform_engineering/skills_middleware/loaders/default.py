@@ -85,6 +85,9 @@ def _build_skill_from_frontmatter(
         "source_id": None,
         "content": content,
         "metadata": metadata,
+        "visibility": "global",
+        "team_ids": [],
+        "owner_user_id": None,
     }
 
 

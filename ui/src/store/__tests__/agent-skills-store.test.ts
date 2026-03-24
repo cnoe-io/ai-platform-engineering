@@ -2,20 +2,20 @@
  * @jest-environment jsdom
  */
 /**
- * Unit tests for agent-config-store.ts
+ * Unit tests for agent-skills-store.ts
  *
  * Covers:
- * - Initial state, selectConfig, getConfigById, getConfigsByCategory
- * - loadConfigs: success, 503/401 fallback, seedTemplates, loadFavorites
- * - createConfig, updateConfig, deleteConfig with error handling
- * - Favorites: toggleFavorite, isFavorite, getFavoriteConfigs
+ * - Initial state, selectSkill, getSkillById, getSkillsByCategory
+ * - loadSkills: success, 503/401 fallback, seedTemplates, loadFavorites
+ * - createSkill, updateSkill, deleteSkill with error handling
+ * - Favorites: toggleFavorite, isFavorite, getFavoriteSkills
  * - seedTemplates
  */
 
 import { act } from "@testing-library/react";
-import { useAgentConfigStore } from "../agent-config-store";
-import { BUILTIN_QUICK_START_TEMPLATES } from "@/types/agent-config";
-import type { AgentConfig, CreateAgentConfigInput } from "@/types/agent-config";
+import { useAgentSkillsStore } from "../agent-skills-store";
+import { BUILTIN_QUICK_START_TEMPLATES } from "@/types/agent-skill";
+import type { AgentSkill, CreateAgentSkillInput } from "@/types/agent-skill";
 
 // ============================================================================
 // Mocks
@@ -37,18 +37,18 @@ afterAll(() => {
 // ============================================================================
 
 function resetStore() {
-  useAgentConfigStore.setState({
+  useAgentSkillsStore.setState({
     configs: [],
     isLoading: false,
     error: null,
-    selectedConfigId: null,
+    selectedSkillId: null,
     isSeeded: false,
     favorites: [],
     favoritesLoaded: false,
   });
 }
 
-function makeConfig(overrides: Partial<AgentConfig> = {}): AgentConfig {
+function makeConfig(overrides: Partial<AgentSkill> = {}): AgentSkill {
   return {
     id: `config-${Math.random().toString(36).slice(2, 9)}`,
     name: "Test Config",
@@ -65,7 +65,7 @@ function makeConfig(overrides: Partial<AgentConfig> = {}): AgentConfig {
   };
 }
 
-/** Setup mocks for loadConfigs to succeed (seed + favorites + agent-configs) */
+/** Setup mocks for loadSkills to succeed (seed + favorites + agent-configs) */
 function mockLoadConfigsSuccess(configs: Array<Record<string, unknown>> = []) {
   const configPayload = configs.map((c) => ({
     ...c,
@@ -81,7 +81,7 @@ function mockLoadConfigsSuccess(configs: Array<Record<string, unknown>> = []) {
 
   mockFetch.mockImplementation((url: string | URL, init?: RequestInit) => {
     const u = typeof url === "string" ? url : url.toString();
-    if (u.includes("/api/agent-configs/seed")) {
+    if (u.includes("/api/agent-skills/seed")) {
       if (init?.method === "POST") {
         return Promise.resolve({
           ok: true,
@@ -99,7 +99,7 @@ function mockLoadConfigsSuccess(configs: Array<Record<string, unknown>> = []) {
         json: () => Promise.resolve({ data: { favorites: [] } }),
       } as Response);
     }
-    if (u === "/api/agent-configs" && !init) {
+    if (u === "/api/agent-skills" && !init) {
       return Promise.resolve({
         ok: true,
         json: () => Promise.resolve(configPayload),
@@ -113,7 +113,7 @@ function mockLoadConfigsSuccess(configs: Array<Record<string, unknown>> = []) {
 // Tests
 // ============================================================================
 
-describe("agent-config-store", () => {
+describe("agent-skills-store", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     resetStore();
@@ -125,101 +125,101 @@ describe("agent-config-store", () => {
 
   describe("initial state", () => {
     it("configs is empty array", () => {
-      expect(useAgentConfigStore.getState().configs).toEqual([]);
+      expect(useAgentSkillsStore.getState().configs).toEqual([]);
     });
 
     it("isLoading is false", () => {
-      expect(useAgentConfigStore.getState().isLoading).toBe(false);
+      expect(useAgentSkillsStore.getState().isLoading).toBe(false);
     });
 
     it("error is null", () => {
-      expect(useAgentConfigStore.getState().error).toBeNull();
+      expect(useAgentSkillsStore.getState().error).toBeNull();
     });
 
-    it("selectedConfigId is null", () => {
-      expect(useAgentConfigStore.getState().selectedConfigId).toBeNull();
+    it("selectedSkillId is null", () => {
+      expect(useAgentSkillsStore.getState().selectedSkillId).toBeNull();
     });
 
     it("favorites is empty array", () => {
-      expect(useAgentConfigStore.getState().favorites).toEqual([]);
+      expect(useAgentSkillsStore.getState().favorites).toEqual([]);
     });
   });
 
   // --------------------------------------------------------------------------
-  // selectConfig
+  // selectSkill
   // --------------------------------------------------------------------------
 
-  describe("selectConfig", () => {
-    it("sets selectedConfigId", () => {
+  describe("selectSkill", () => {
+    it("sets selectedSkillId", () => {
       act(() => {
-        useAgentConfigStore.getState().selectConfig("config-123");
+        useAgentSkillsStore.getState().selectSkill("config-123");
       });
-      expect(useAgentConfigStore.getState().selectedConfigId).toBe("config-123");
+      expect(useAgentSkillsStore.getState().selectedSkillId).toBe("config-123");
     });
 
     it("can set to null", () => {
       act(() => {
-        useAgentConfigStore.getState().selectConfig("config-123");
+        useAgentSkillsStore.getState().selectSkill("config-123");
       });
       act(() => {
-        useAgentConfigStore.getState().selectConfig(null);
+        useAgentSkillsStore.getState().selectSkill(null);
       });
-      expect(useAgentConfigStore.getState().selectedConfigId).toBeNull();
+      expect(useAgentSkillsStore.getState().selectedSkillId).toBeNull();
     });
   });
 
   // --------------------------------------------------------------------------
-  // getConfigById
+  // getSkillById
   // --------------------------------------------------------------------------
 
-  describe("getConfigById", () => {
+  describe("getSkillById", () => {
     it("returns config when found", () => {
       const config = makeConfig({ id: "found-id", name: "Found Config" });
-      useAgentConfigStore.setState({ configs: [config] });
+      useAgentSkillsStore.setState({ configs: [config] });
 
-      const result = useAgentConfigStore.getState().getConfigById("found-id");
+      const result = useAgentSkillsStore.getState().getSkillById("found-id");
       expect(result).toBeDefined();
       expect(result?.name).toBe("Found Config");
     });
 
     it("returns undefined when not found", () => {
-      const result = useAgentConfigStore.getState().getConfigById("nonexistent");
+      const result = useAgentSkillsStore.getState().getSkillById("nonexistent");
       expect(result).toBeUndefined();
     });
   });
 
   // --------------------------------------------------------------------------
-  // getConfigsByCategory
+  // getSkillsByCategory
   // --------------------------------------------------------------------------
 
-  describe("getConfigsByCategory", () => {
+  describe("getSkillsByCategory", () => {
     it("returns matching configs", () => {
       const c1 = makeConfig({ id: "c1", category: "DevOps" });
       const c2 = makeConfig({ id: "c2", category: "DevOps" });
       const c3 = makeConfig({ id: "c3", category: "Custom" });
-      useAgentConfigStore.setState({ configs: [c1, c2, c3] });
+      useAgentSkillsStore.setState({ configs: [c1, c2, c3] });
 
-      const result = useAgentConfigStore.getState().getConfigsByCategory("DevOps");
+      const result = useAgentSkillsStore.getState().getSkillsByCategory("DevOps");
       expect(result).toHaveLength(2);
       expect(result.map((c) => c.id)).toContain("c1");
       expect(result.map((c) => c.id)).toContain("c2");
     });
 
     it("returns empty when no match", () => {
-      useAgentConfigStore.setState({
+      useAgentSkillsStore.setState({
         configs: [makeConfig({ category: "DevOps" })],
       });
 
-      const result = useAgentConfigStore.getState().getConfigsByCategory("Custom");
+      const result = useAgentSkillsStore.getState().getSkillsByCategory("Custom");
       expect(result).toEqual([]);
     });
   });
 
   // --------------------------------------------------------------------------
-  // loadConfigs
+  // loadSkills
   // --------------------------------------------------------------------------
 
-  describe("loadConfigs", () => {
+  describe("loadSkills", () => {
     it("sets isLoading during fetch", async () => {
       let resolveSeed!: (v: any) => void;
       const seedPromise = new Promise<Response>((r) => {
@@ -228,10 +228,10 @@ describe("agent-config-store", () => {
 
       mockFetch.mockImplementation((url: string | URL, init?: RequestInit) => {
         const u = typeof url === "string" ? url : url.toString();
-        if (u.includes("/api/agent-configs/seed") && init?.method !== "POST") {
+        if (u.includes("/api/agent-skills/seed") && init?.method !== "POST") {
           return seedPromise;
         }
-        if (u.includes("/api/agent-configs/seed") && init?.method === "POST") {
+        if (u.includes("/api/agent-skills/seed") && init?.method === "POST") {
           return Promise.resolve({
             ok: true,
             json: () => Promise.resolve({ seeded: 0 }),
@@ -243,7 +243,7 @@ describe("agent-config-store", () => {
             json: () => Promise.resolve({ data: { favorites: [] } }),
           } as Response);
         }
-        if (u === "/api/agent-configs") {
+        if (u === "/api/agent-skills") {
           return Promise.resolve({
             ok: true,
             json: () => Promise.resolve([]),
@@ -253,11 +253,11 @@ describe("agent-config-store", () => {
       });
 
       const loadPromise = act(async () => {
-        await useAgentConfigStore.getState().loadConfigs();
+        await useAgentSkillsStore.getState().loadSkills();
       });
 
       // While seed check is pending, isLoading should be true
-      expect(useAgentConfigStore.getState().isLoading).toBe(true);
+      expect(useAgentSkillsStore.getState().isLoading).toBe(true);
 
       resolveSeed({
         ok: true,
@@ -265,7 +265,7 @@ describe("agent-config-store", () => {
       } as any);
       await loadPromise;
 
-      expect(useAgentConfigStore.getState().isLoading).toBe(false);
+      expect(useAgentSkillsStore.getState().isLoading).toBe(false);
     });
 
     it("stores transformed configs on success", async () => {
@@ -285,10 +285,10 @@ describe("agent-config-store", () => {
       mockLoadConfigsSuccess(rawConfigs);
 
       await act(async () => {
-        await useAgentConfigStore.getState().loadConfigs();
+        await useAgentSkillsStore.getState().loadSkills();
       });
 
-      const configs = useAgentConfigStore.getState().configs;
+      const configs = useAgentSkillsStore.getState().configs;
       expect(configs).toHaveLength(1);
       expect(configs[0].id).toBe("api-1");
       expect(configs[0].created_at).toBeInstanceOf(Date);
@@ -298,7 +298,7 @@ describe("agent-config-store", () => {
     it("handles 503 - uses BUILTIN_QUICK_START_TEMPLATES", async () => {
       mockFetch.mockImplementation((url: string | URL, init?: RequestInit) => {
         const u = typeof url === "string" ? url : url.toString();
-        if (u.includes("/api/agent-configs/seed")) {
+        if (u.includes("/api/agent-skills/seed")) {
           return Promise.resolve({
             ok: true,
             json: () => Promise.resolve({ needsSeeding: false }),
@@ -310,7 +310,7 @@ describe("agent-config-store", () => {
             ok: false,
           } as Response);
         }
-        if (u === "/api/agent-configs") {
+        if (u === "/api/agent-skills") {
           return Promise.resolve({
             status: 503,
             ok: false,
@@ -320,10 +320,10 @@ describe("agent-config-store", () => {
       });
 
       await act(async () => {
-        await useAgentConfigStore.getState().loadConfigs();
+        await useAgentSkillsStore.getState().loadSkills();
       });
 
-      expect(useAgentConfigStore.getState().configs).toEqual(
+      expect(useAgentSkillsStore.getState().configs).toEqual(
         BUILTIN_QUICK_START_TEMPLATES
       );
     });
@@ -331,7 +331,7 @@ describe("agent-config-store", () => {
     it("handles 401 - uses BUILTIN_QUICK_START_TEMPLATES", async () => {
       mockFetch.mockImplementation((url: string | URL) => {
         const u = typeof url === "string" ? url : url.toString();
-        if (u.includes("/api/agent-configs/seed")) {
+        if (u.includes("/api/agent-skills/seed")) {
           return Promise.resolve({
             ok: true,
             json: () => Promise.resolve({ needsSeeding: false }),
@@ -340,17 +340,17 @@ describe("agent-config-store", () => {
         if (u.includes("/api/users/me/favorites")) {
           return Promise.resolve({ status: 401, ok: false } as Response);
         }
-        if (u === "/api/agent-configs") {
+        if (u === "/api/agent-skills") {
           return Promise.resolve({ status: 401, ok: false } as Response);
         }
         return Promise.reject(new Error(`Unmocked: ${u}`));
       });
 
       await act(async () => {
-        await useAgentConfigStore.getState().loadConfigs();
+        await useAgentSkillsStore.getState().loadSkills();
       });
 
-      expect(useAgentConfigStore.getState().configs).toEqual(
+      expect(useAgentSkillsStore.getState().configs).toEqual(
         BUILTIN_QUICK_START_TEMPLATES
       );
     });
@@ -358,7 +358,7 @@ describe("agent-config-store", () => {
     it("handles error - falls back to built-in templates", async () => {
       mockFetch.mockImplementation((url: string | URL) => {
         const u = typeof url === "string" ? url : url.toString();
-        if (u.includes("/api/agent-configs/seed")) {
+        if (u.includes("/api/agent-skills/seed")) {
           return Promise.resolve({
             ok: true,
             json: () => Promise.resolve({ needsSeeding: false }),
@@ -370,17 +370,17 @@ describe("agent-config-store", () => {
             json: () => Promise.resolve({ data: { favorites: [] } }),
           } as Response);
         }
-        if (u === "/api/agent-configs") {
+        if (u === "/api/agent-skills") {
           return Promise.reject(new Error("Network error"));
         }
         return Promise.reject(new Error(`Unmocked: ${u}`));
       });
 
       await act(async () => {
-        await useAgentConfigStore.getState().loadConfigs();
+        await useAgentSkillsStore.getState().loadSkills();
       });
 
-      expect(useAgentConfigStore.getState().configs).toEqual(
+      expect(useAgentSkillsStore.getState().configs).toEqual(
         BUILTIN_QUICK_START_TEMPLATES
       );
     });
@@ -388,7 +388,7 @@ describe("agent-config-store", () => {
     it("calls seedTemplates if not seeded", async () => {
       mockFetch.mockImplementation((url: string | URL, init?: RequestInit) => {
         const u = typeof url === "string" ? url : url.toString();
-        if (u.includes("/api/agent-configs/seed")) {
+        if (u.includes("/api/agent-skills/seed")) {
           if (init?.method === "POST") {
             return Promise.resolve({
               ok: true,
@@ -406,7 +406,7 @@ describe("agent-config-store", () => {
             json: () => Promise.resolve({ data: { favorites: [] } }),
           } as Response);
         }
-        if (u === "/api/agent-configs") {
+        if (u === "/api/agent-skills") {
           return Promise.resolve({
             ok: true,
             json: () => Promise.resolve([]),
@@ -416,11 +416,11 @@ describe("agent-config-store", () => {
       });
 
       await act(async () => {
-        await useAgentConfigStore.getState().loadConfigs();
+        await useAgentSkillsStore.getState().loadSkills();
       });
 
       const seedCalls = mockFetch.mock.calls.filter((call) =>
-        String(call[0]).includes("/api/agent-configs/seed")
+        String(call[0]).includes("/api/agent-skills/seed")
       );
       expect(seedCalls.length).toBeGreaterThanOrEqual(1);
     });
@@ -429,7 +429,7 @@ describe("agent-config-store", () => {
       mockLoadConfigsSuccess([]);
 
       await act(async () => {
-        await useAgentConfigStore.getState().loadConfigs();
+        await useAgentSkillsStore.getState().loadSkills();
       });
 
       const favoritesCalls = mockFetch.mock.calls.filter((call) =>
@@ -440,11 +440,11 @@ describe("agent-config-store", () => {
   });
 
   // --------------------------------------------------------------------------
-  // createConfig
+  // createSkill
   // --------------------------------------------------------------------------
 
-  describe("createConfig", () => {
-    const createInput: CreateAgentConfigInput = {
+  describe("createSkill", () => {
+    const createInput: CreateAgentSkillInput = {
       name: "New Workflow",
       description: "A new workflow",
       category: "Custom",
@@ -454,13 +454,13 @@ describe("agent-config-store", () => {
     it("sends POST request", async () => {
       mockFetch.mockImplementation((url: string | URL, init?: RequestInit) => {
         const u = typeof url === "string" ? url : url.toString();
-        if (u === "/api/agent-configs" && init?.method === "POST") {
+        if (u === "/api/agent-skills" && init?.method === "POST") {
           return Promise.resolve({
             ok: true,
             json: () => Promise.resolve({ id: "new-id-123" }),
           } as Response);
         }
-        if (u === "/api/agent-configs" && !init) {
+        if (u === "/api/agent-skills" && !init) {
           return Promise.resolve({
             ok: true,
             json: () => Promise.resolve([{ id: "new-id-123", ...createInput, created_at: new Date().toISOString(), updated_at: new Date().toISOString(), owner_id: "user", is_system: false }]),
@@ -471,11 +471,11 @@ describe("agent-config-store", () => {
 
       let createdId: string | undefined;
       await act(async () => {
-        createdId = await useAgentConfigStore.getState().createConfig(createInput);
+        createdId = await useAgentSkillsStore.getState().createSkill(createInput);
       });
 
       expect(mockFetch).toHaveBeenCalledWith(
-        "/api/agent-configs",
+        "/api/agent-skills",
         expect.objectContaining({
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -489,13 +489,13 @@ describe("agent-config-store", () => {
       let callCount = 0;
       mockFetch.mockImplementation((url: string | URL, init?: RequestInit) => {
         const u = typeof url === "string" ? url : url.toString();
-        if (u === "/api/agent-configs" && init?.method === "POST") {
+        if (u === "/api/agent-skills" && init?.method === "POST") {
           return Promise.resolve({
             ok: true,
             json: () => Promise.resolve({ id: "created-id" }),
           } as Response);
         }
-        if (u === "/api/agent-configs" && !init) {
+        if (u === "/api/agent-skills" && !init) {
           callCount++;
           return Promise.resolve({
             ok: true,
@@ -518,11 +518,11 @@ describe("agent-config-store", () => {
       });
 
       await act(async () => {
-        await useAgentConfigStore.getState().createConfig(createInput);
+        await useAgentSkillsStore.getState().createSkill(createInput);
       });
 
       expect(callCount).toBeGreaterThanOrEqual(1);
-      expect(useAgentConfigStore.getState().configs).toHaveLength(1);
+      expect(useAgentSkillsStore.getState().configs).toHaveLength(1);
     });
 
     it("handles 503 error", async () => {
@@ -530,7 +530,7 @@ describe("agent-config-store", () => {
 
       await expect(
         act(async () => {
-          await useAgentConfigStore.getState().createConfig(createInput);
+          await useAgentSkillsStore.getState().createSkill(createInput);
         })
       ).rejects.toThrow("MongoDB is required");
     });
@@ -540,7 +540,7 @@ describe("agent-config-store", () => {
 
       await expect(
         act(async () => {
-          await useAgentConfigStore.getState().createConfig(createInput);
+          await useAgentSkillsStore.getState().createSkill(createInput);
         })
       ).rejects.toThrow("Please sign in");
     });
@@ -554,24 +554,24 @@ describe("agent-config-store", () => {
 
       await expect(
         act(async () => {
-          await useAgentConfigStore.getState().createConfig(createInput);
+          await useAgentSkillsStore.getState().createSkill(createInput);
         })
       ).rejects.toThrow();
     });
   });
 
   // --------------------------------------------------------------------------
-  // updateConfig
+  // updateSkill
   // --------------------------------------------------------------------------
 
-  describe("updateConfig", () => {
+  describe("updateSkill", () => {
     it("sends PUT request with id in query", async () => {
       mockFetch.mockImplementation((url: string | URL, init?: RequestInit) => {
         const u = typeof url === "string" ? url : url.toString();
-        if (u.includes("/api/agent-configs?id=cfg-1") && init?.method === "PUT") {
+        if (u.includes("/api/agent-skills?id=cfg-1") && init?.method === "PUT") {
           return Promise.resolve({ ok: true } as Response);
         }
-        if (u === "/api/agent-configs") {
+        if (u === "/api/agent-skills") {
           return Promise.resolve({
             ok: true,
             json: () => Promise.resolve([]),
@@ -581,13 +581,13 @@ describe("agent-config-store", () => {
       });
 
       await act(async () => {
-        await useAgentConfigStore
+        await useAgentSkillsStore
           .getState()
-          .updateConfig("cfg-1", { name: "Updated Name" });
+          .updateSkill("cfg-1", { name: "Updated Name" });
       });
 
       expect(mockFetch).toHaveBeenCalledWith(
-        "/api/agent-configs?id=cfg-1",
+        "/api/agent-skills?id=cfg-1",
         expect.objectContaining({
           method: "PUT",
           body: JSON.stringify({ name: "Updated Name" }),
@@ -601,7 +601,7 @@ describe("agent-config-store", () => {
         if (u.includes("id=cfg-1") && init?.method === "PUT") {
           return Promise.resolve({ ok: true } as Response);
         }
-        if (u === "/api/agent-configs") {
+        if (u === "/api/agent-skills") {
           return Promise.resolve({
             ok: true,
             json: () =>
@@ -623,12 +623,12 @@ describe("agent-config-store", () => {
       });
 
       await act(async () => {
-        await useAgentConfigStore
+        await useAgentSkillsStore
           .getState()
-          .updateConfig("cfg-1", { name: "Updated" });
+          .updateSkill("cfg-1", { name: "Updated" });
       });
 
-      expect(useAgentConfigStore.getState().configs[0]?.name).toBe("Updated");
+      expect(useAgentSkillsStore.getState().configs[0]?.name).toBe("Updated");
     });
 
     it("handles 503, 401 errors", async () => {
@@ -636,9 +636,9 @@ describe("agent-config-store", () => {
 
       await expect(
         act(async () => {
-          await useAgentConfigStore
+          await useAgentSkillsStore
             .getState()
-            .updateConfig("cfg-1", { name: "X" });
+            .updateSkill("cfg-1", { name: "X" });
         })
       ).rejects.toThrow("MongoDB is required");
 
@@ -646,26 +646,26 @@ describe("agent-config-store", () => {
 
       await expect(
         act(async () => {
-          await useAgentConfigStore
+          await useAgentSkillsStore
             .getState()
-            .updateConfig("cfg-1", { name: "X" });
+            .updateSkill("cfg-1", { name: "X" });
         })
       ).rejects.toThrow("Please sign in");
     });
   });
 
   // --------------------------------------------------------------------------
-  // deleteConfig
+  // deleteSkill
   // --------------------------------------------------------------------------
 
-  describe("deleteConfig", () => {
+  describe("deleteSkill", () => {
     it("sends DELETE request", async () => {
       mockFetch.mockImplementation((url: string | URL) => {
         const u = typeof url === "string" ? url : url.toString();
-        if (u.includes("/api/agent-configs?id=del-1")) {
+        if (u.includes("/api/agent-skills?id=del-1")) {
           return Promise.resolve({ ok: true } as Response);
         }
-        if (u === "/api/agent-configs") {
+        if (u === "/api/agent-skills") {
           return Promise.resolve({
             ok: true,
             json: () => Promise.resolve([]),
@@ -675,11 +675,11 @@ describe("agent-config-store", () => {
       });
 
       await act(async () => {
-        await useAgentConfigStore.getState().deleteConfig("del-1");
+        await useAgentSkillsStore.getState().deleteSkill("del-1");
       });
 
       expect(mockFetch).toHaveBeenCalledWith(
-        "/api/agent-configs?id=del-1",
+        "/api/agent-skills?id=del-1",
         expect.objectContaining({ method: "DELETE" })
       );
     });
@@ -701,7 +701,7 @@ describe("agent-config-store", () => {
         if (u.includes("id=del-1")) {
           return Promise.resolve({ ok: true } as Response);
         }
-        if (u === "/api/agent-configs") {
+        if (u === "/api/agent-skills") {
           return Promise.resolve({
             ok: true,
             json: () => Promise.resolve([remainingConfig]),
@@ -711,23 +711,23 @@ describe("agent-config-store", () => {
       });
 
       await act(async () => {
-        await useAgentConfigStore.getState().deleteConfig("del-1");
+        await useAgentSkillsStore.getState().deleteSkill("del-1");
       });
 
       // Store reloads from API; when API returns configs, we get them (not built-in templates)
-      expect(useAgentConfigStore.getState().configs).toHaveLength(1);
-      expect(useAgentConfigStore.getState().configs[0].id).toBe("keep-1");
+      expect(useAgentSkillsStore.getState().configs).toHaveLength(1);
+      expect(useAgentSkillsStore.getState().configs[0].id).toBe("keep-1");
     });
 
-    it("clears selectedConfigId if deleted config was selected", async () => {
-      useAgentConfigStore.setState({ selectedConfigId: "selected-to-delete" });
+    it("clears selectedSkillId if deleted config was selected", async () => {
+      useAgentSkillsStore.setState({ selectedSkillId: "selected-to-delete" });
 
       mockFetch.mockImplementation((url: string | URL) => {
         const u = typeof url === "string" ? url : url.toString();
         if (u.includes("id=selected-to-delete")) {
           return Promise.resolve({ ok: true } as Response);
         }
-        if (u === "/api/agent-configs") {
+        if (u === "/api/agent-skills") {
           return Promise.resolve({
             ok: true,
             json: () => Promise.resolve([]),
@@ -737,10 +737,10 @@ describe("agent-config-store", () => {
       });
 
       await act(async () => {
-        await useAgentConfigStore.getState().deleteConfig("selected-to-delete");
+        await useAgentSkillsStore.getState().deleteSkill("selected-to-delete");
       });
 
-      expect(useAgentConfigStore.getState().selectedConfigId).toBeNull();
+      expect(useAgentSkillsStore.getState().selectedSkillId).toBeNull();
     });
 
     it("handles 503, 401 errors", async () => {
@@ -748,7 +748,7 @@ describe("agent-config-store", () => {
 
       await expect(
         act(async () => {
-          await useAgentConfigStore.getState().deleteConfig("x");
+          await useAgentSkillsStore.getState().deleteSkill("x");
         })
       ).rejects.toThrow("MongoDB is required");
 
@@ -756,7 +756,7 @@ describe("agent-config-store", () => {
 
       await expect(
         act(async () => {
-          await useAgentConfigStore.getState().deleteConfig("x");
+          await useAgentSkillsStore.getState().deleteSkill("x");
         })
       ).rejects.toThrow("Please sign in");
     });
@@ -774,59 +774,59 @@ describe("agent-config-store", () => {
       } as Response);
 
       await act(async () => {
-        await useAgentConfigStore.getState().toggleFavorite("fav-1");
+        await useAgentSkillsStore.getState().toggleFavorite("fav-1");
       });
 
-      expect(useAgentConfigStore.getState().favorites).toContain("fav-1");
+      expect(useAgentSkillsStore.getState().favorites).toContain("fav-1");
     });
 
     it("toggleFavorite removes existing favorite", async () => {
-      useAgentConfigStore.setState({ favorites: ["fav-1", "fav-2"] });
+      useAgentSkillsStore.setState({ favorites: ["fav-1", "fav-2"] });
       mockFetch.mockResolvedValue({
         ok: true,
         json: () => Promise.resolve({}),
       } as Response);
 
       await act(async () => {
-        await useAgentConfigStore.getState().toggleFavorite("fav-1");
+        await useAgentSkillsStore.getState().toggleFavorite("fav-1");
       });
 
-      expect(useAgentConfigStore.getState().favorites).not.toContain("fav-1");
-      expect(useAgentConfigStore.getState().favorites).toContain("fav-2");
+      expect(useAgentSkillsStore.getState().favorites).not.toContain("fav-1");
+      expect(useAgentSkillsStore.getState().favorites).toContain("fav-2");
     });
 
     it("isFavorite returns true for favorited config", () => {
-      useAgentConfigStore.setState({ favorites: ["fav-a"] });
+      useAgentSkillsStore.setState({ favorites: ["fav-a"] });
 
-      expect(useAgentConfigStore.getState().isFavorite("fav-a")).toBe(true);
+      expect(useAgentSkillsStore.getState().isFavorite("fav-a")).toBe(true);
     });
 
     it("isFavorite returns false for non-favorited", () => {
-      expect(useAgentConfigStore.getState().isFavorite("non-fav")).toBe(false);
+      expect(useAgentSkillsStore.getState().isFavorite("non-fav")).toBe(false);
     });
 
-    it("getFavoriteConfigs returns only favorited configs", () => {
+    it("getFavoriteSkills returns only favorited configs", () => {
       const c1 = makeConfig({ id: "fav-1", name: "Fav 1" });
       const c2 = makeConfig({ id: "fav-2", name: "Fav 2" });
       const c3 = makeConfig({ id: "not-fav", name: "Not Fav" });
-      useAgentConfigStore.setState({
+      useAgentSkillsStore.setState({
         configs: [c1, c2, c3],
         favorites: ["fav-1", "fav-2"],
       });
 
-      const result = useAgentConfigStore.getState().getFavoriteConfigs();
+      const result = useAgentSkillsStore.getState().getFavoriteSkills();
       expect(result).toHaveLength(2);
       expect(result.map((c) => c.id).sort()).toEqual(["fav-1", "fav-2"]);
     });
 
-    it("getFavoriteConfigs deduplicates", () => {
+    it("getFavoriteSkills deduplicates", () => {
       const c1 = makeConfig({ id: "dup-id", name: "Dup" });
-      useAgentConfigStore.setState({
+      useAgentSkillsStore.setState({
         configs: [c1],
         favorites: ["dup-id", "dup-id"],
       });
 
-      const result = useAgentConfigStore.getState().getFavoriteConfigs();
+      const result = useAgentSkillsStore.getState().getFavoriteSkills();
       expect(result).toHaveLength(1);
     });
   });
@@ -843,7 +843,7 @@ describe("agent-config-store", () => {
       } as Response);
 
       await act(async () => {
-        await useAgentConfigStore.getState().seedTemplates();
+        await useAgentSkillsStore.getState().seedTemplates();
       });
 
       // Only GET should be called, no POST
@@ -860,10 +860,10 @@ describe("agent-config-store", () => {
       } as Response);
 
       await act(async () => {
-        await useAgentConfigStore.getState().seedTemplates();
+        await useAgentSkillsStore.getState().seedTemplates();
       });
 
-      expect(mockFetch).toHaveBeenCalledWith("/api/agent-configs/seed");
+      expect(mockFetch).toHaveBeenCalledWith("/api/agent-skills/seed");
     });
 
     it("seeds via POST when needed", async () => {
@@ -878,14 +878,14 @@ describe("agent-config-store", () => {
         } as Response);
 
       await act(async () => {
-        await useAgentConfigStore.getState().seedTemplates();
+        await useAgentSkillsStore.getState().seedTemplates();
       });
 
       const postCalls = mockFetch.mock.calls.filter(
         (call) => (call[1] as RequestInit)?.method === "POST"
       );
       expect(postCalls.length).toBeGreaterThanOrEqual(1);
-      expect(useAgentConfigStore.getState().isSeeded).toBe(true);
+      expect(useAgentSkillsStore.getState().isSeeded).toBe(true);
     });
   });
 });

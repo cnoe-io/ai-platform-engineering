@@ -43,6 +43,7 @@ class TestDefaultLoader:
         assert skills[0]["name"] == "my-skill"
         assert skills[0]["description"] == "A test skill"
         assert skills[0]["source"] == "default"
+        assert skills[0]["visibility"] == "global"
         assert skills[0]["content"] is not None
 
     def test_load_without_content(self, tmp_path: Path):
@@ -130,14 +131,14 @@ class TestDefaultLoader:
 class TestPrecedence:
     """Tests for ai_platform_engineering.skills_middleware.precedence."""
 
-    def test_default_wins_over_agent_config(self):
+    def test_default_wins_over_agent_skills(self):
         from ai_platform_engineering.skills_middleware.precedence import merge_skills
 
         default_skills = [
             {"name": "foo", "source": "default", "description": "default version"}
         ]
         ac_skills = [
-            {"name": "foo", "source": "agent_config", "description": "ac version"}
+            {"name": "foo", "source": "agent_skills", "description": "ac version"}
         ]
 
         merged = merge_skills(default_skills, ac_skills)
@@ -159,11 +160,11 @@ class TestPrecedence:
         assert len(merged) == 1
         assert merged[0]["source"] == "default"
 
-    def test_agent_config_wins_over_hub(self):
+    def test_agent_skills_wins_over_hub(self):
         from ai_platform_engineering.skills_middleware.precedence import merge_skills
 
         ac_skills = [
-            {"name": "baz", "source": "agent_config", "description": "ac baz"}
+            {"name": "baz", "source": "agent_skills", "description": "ac baz"}
         ]
         hub_skills = [
             {"name": "baz", "source": "hub", "description": "hub baz"}
@@ -171,7 +172,7 @@ class TestPrecedence:
 
         merged = merge_skills(ac_skills, hub_skills)
         assert len(merged) == 1
-        assert merged[0]["source"] == "agent_config"
+        assert merged[0]["source"] == "agent_skills"
 
     def test_unique_skills_all_included(self):
         from ai_platform_engineering.skills_middleware.precedence import merge_skills
@@ -180,7 +181,7 @@ class TestPrecedence:
             {"name": "d1", "source": "default", "description": "d1"}
         ]
         ac_skills = [
-            {"name": "a1", "source": "agent_config", "description": "a1"}
+            {"name": "a1", "source": "agent_skills", "description": "a1"}
         ]
         hub_skills = [
             {"name": "h1", "source": "hub", "description": "h1"}
@@ -198,13 +199,13 @@ class TestPrecedence:
 
         skills = merge_skills(
             [{"name": "z-skill", "source": "default", "description": "z"}],
-            [{"name": "a-skill", "source": "agent_config", "description": "a"}],
+            [{"name": "a-skill", "source": "agent_skills", "description": "a"}],
             [{"name": "m-skill", "source": "hub", "description": "m"}],
         )
 
         # Should be sorted by source priority then name
         assert skills[0]["source"] == "default"
-        assert skills[1]["source"] == "agent_config"
+        assert skills[1]["source"] == "agent_skills"
         assert skills[2]["source"] == "hub"
 
     def test_empty_input(self):
@@ -273,7 +274,7 @@ class TestBackendSync:
             {
                 "name": "ac-skill",
                 "description": "A",
-                "source": "agent_config",
+                "source": "agent_skills",
                 "source_id": "user@example.com",
                 "content": "# AC",
                 "metadata": {},
@@ -386,7 +387,7 @@ class TestCatalog:
                 }
             ],
         ), patch(
-            "ai_platform_engineering.skills_middleware.catalog.load_agent_config_skills",
+            "ai_platform_engineering.skills_middleware.catalog.load_agent_skills",
             return_value=[],
         ), patch(
             "ai_platform_engineering.skills_middleware.catalog._load_hub_skills",
@@ -417,7 +418,7 @@ class TestCatalog:
                 }
             ],
         ), patch(
-            "ai_platform_engineering.skills_middleware.catalog.load_agent_config_skills",
+            "ai_platform_engineering.skills_middleware.catalog.load_agent_skills",
             return_value=[],
         ), patch(
             "ai_platform_engineering.skills_middleware.catalog._load_hub_skills",
@@ -454,7 +455,7 @@ class TestCatalog:
             "ai_platform_engineering.skills_middleware.catalog.load_default_skills",
             side_effect=counting_loader,
         ), patch(
-            "ai_platform_engineering.skills_middleware.catalog.load_agent_config_skills",
+            "ai_platform_engineering.skills_middleware.catalog.load_agent_skills",
             return_value=[],
         ), patch(
             "ai_platform_engineering.skills_middleware.catalog._load_hub_skills",
@@ -479,7 +480,7 @@ class TestCatalog:
             assert call_count == 2
 
     def test_precedence_in_catalog(self):
-        """Catalog applies precedence: default wins over agent_config."""
+        """Catalog applies precedence: default wins over agent_skills."""
         with patch(
             "ai_platform_engineering.skills_middleware.catalog.load_default_skills",
             return_value=[
@@ -493,12 +494,12 @@ class TestCatalog:
                 }
             ],
         ), patch(
-            "ai_platform_engineering.skills_middleware.catalog.load_agent_config_skills",
+            "ai_platform_engineering.skills_middleware.catalog.load_agent_skills",
             return_value=[
                 {
                     "name": "shared",
                     "description": "ac version",
-                    "source": "agent_config",
+                    "source": "agent_skills",
                     "source_id": None,
                     "content": "a",
                     "metadata": {},
@@ -578,3 +579,79 @@ class TestHubGitHub:
         hub = {"id": "test", "location": "", "type": "github"}
         result = fetch_github_hub_skills(hub)
         assert result == []
+
+
+# ---------------------------------------------------------------------------
+# Entitlement (FR-020)
+# ---------------------------------------------------------------------------
+
+
+class TestEntitlement:
+    """Tests for ai_platform_engineering.skills_middleware.entitlement."""
+
+    def test_global_visible_to_all(self):
+        from ai_platform_engineering.skills_middleware.entitlement import (
+            filter_skills_by_entitlement,
+        )
+
+        skills = [
+            {"name": "g", "visibility": "global", "team_ids": [], "owner_user_id": None},
+        ]
+        out = filter_skills_by_entitlement(
+            skills, sub="user-1", team_ids=["t1"], bypass_entitlement=False
+        )
+        assert len(out) == 1
+
+    def test_personal_only_owner(self):
+        from ai_platform_engineering.skills_middleware.entitlement import (
+            filter_skills_by_entitlement,
+        )
+
+        skills = [
+            {
+                "name": "p",
+                "visibility": "personal",
+                "team_ids": [],
+                "owner_user_id": "alice",
+            },
+        ]
+        assert len(filter_skills_by_entitlement(skills, sub="alice", team_ids=[], bypass_entitlement=False)) == 1
+        assert len(filter_skills_by_entitlement(skills, sub="bob", team_ids=[], bypass_entitlement=False)) == 0
+
+    def test_team_intersection(self):
+        from ai_platform_engineering.skills_middleware.entitlement import (
+            filter_skills_by_entitlement,
+        )
+
+        skills = [
+            {
+                "name": "t",
+                "visibility": "team",
+                "team_ids": ["eng", "data"],
+                "owner_user_id": None,
+            },
+        ]
+        assert len(filter_skills_by_entitlement(skills, sub="u", team_ids=["eng"], bypass_entitlement=False)) == 1
+        assert len(filter_skills_by_entitlement(skills, sub="u", team_ids=["sales"], bypass_entitlement=False)) == 0
+
+    def test_bypass_entitlement(self):
+        from ai_platform_engineering.skills_middleware.entitlement import (
+            filter_skills_by_entitlement,
+        )
+
+        skills = [
+            {
+                "name": "p",
+                "visibility": "personal",
+                "team_ids": [],
+                "owner_user_id": "alice",
+            },
+        ]
+        assert len(filter_skills_by_entitlement(skills, sub=None, team_ids=[], bypass_entitlement=True)) == 1
+
+    def test_team_ids_from_claims_groups(self):
+        from ai_platform_engineering.skills_middleware.entitlement import team_ids_from_claims
+
+        with patch.dict(os.environ, {"OIDC_TEAMS_CLAIM": "groups"}):
+            ids = team_ids_from_claims({"sub": "x", "groups": ["a", "b"]})
+        assert ids == ["a", "b"]

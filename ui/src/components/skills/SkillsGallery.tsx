@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState, useMemo, useCallback } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { useSession } from "next-auth/react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -57,6 +58,10 @@ import {
   Globe,
   UsersRound,
   User,
+  HelpCircle,
+  Copy,
+  Check,
+  ShieldAlert,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -64,16 +69,16 @@ import { Badge } from "@/components/ui/badge";
 import { CAIPESpinner } from "@/components/ui/caipe-spinner";
 import { cn } from "@/lib/utils";
 import { getConfig } from "@/lib/config";
-import { useAgentConfigStore } from "@/store/agent-config-store";
+import { useAgentSkillsStore } from "@/store/agent-skills-store";
 import { useChatStore } from "@/store/chat-store";
 import { useAdminRole } from "@/hooks/use-admin-role";
-import type { AgentConfig, AgentConfigCategory, WorkflowDifficulty } from "@/types/agent-config";
-import { generateInputFormFromPrompt } from "@/types/agent-config";
+import type { AgentSkill, AgentSkillCategory, WorkflowDifficulty } from "@/types/agent-skill";
+import { generateInputFormFromPrompt } from "@/types/agent-skill";
 
 interface SkillsGalleryProps {
-  onSelectConfig?: (config: AgentConfig, fromHistory?: boolean) => void;
+  onSelectConfig?: (config: AgentSkill, fromHistory?: boolean) => void;
   onRunQuickStart?: (prompt: string, configName?: string) => void;
-  onEditConfig?: (config: AgentConfig) => void;
+  onEditConfig?: (config: AgentSkill) => void;
   onCreateNew?: () => void;
 }
 
@@ -84,7 +89,7 @@ const VISIBILITY_BADGE_CONFIG: Record<string, { icon: React.ElementType; label: 
   private: { icon: Lock, label: "Private", className: "bg-muted text-muted-foreground border-border/50" },
 };
 
-function VisibilityBadge({ config }: { config: AgentConfig }) {
+function VisibilityBadge({ config }: { config: AgentSkill }) {
   const key = config.is_system ? "system" : (config.visibility || "private");
   const badge = VISIBILITY_BADGE_CONFIG[key];
   if (!badge) return null;
@@ -93,6 +98,30 @@ function VisibilityBadge({ config }: { config: AgentConfig }) {
     <Badge variant="outline" className={cn("text-xs px-1.5 py-0 gap-0.5", badge.className)}>
       <VIcon className="h-3 w-3" />
       {badge.label}
+    </Badge>
+  );
+}
+
+type CatalogSource = "default" | "agent_skills" | "hub";
+
+function skillCatalogSource(config: AgentSkill): CatalogSource {
+  const raw = (config.metadata as { catalog_source?: string })?.catalog_source;
+  if (raw === "hub" || raw === "agent_skills" || raw === "default") return raw;
+  if (config.id.startsWith("catalog-")) return "default";
+  return "agent_skills";
+}
+
+const SOURCE_LABELS: Record<CatalogSource, string> = {
+  default: "Built-in",
+  agent_skills: "Custom",
+  hub: "Skill hub",
+};
+
+function CatalogSourceBadge({ config }: { config: AgentSkill }) {
+  const src = skillCatalogSource(config);
+  return (
+    <Badge variant="secondary" className="text-[10px] px-1.5 py-0 font-normal text-muted-foreground">
+      {SOURCE_LABELS[src]}
     </Badge>
   );
 }
@@ -160,12 +189,12 @@ export function SkillsGallery({
     configs,
     isLoading,
     error,
-    loadConfigs,
-    deleteConfig,
+    loadSkills,
+    deleteSkill,
     toggleFavorite,
     isFavorite,
-    getFavoriteConfigs
-  } = useAgentConfigStore();
+    getFavoriteSkills
+  } = useAgentSkillsStore();
   const { isAdmin } = useAdminRole();
   const { data: session } = useSession();
   const router = useRouter();
@@ -176,9 +205,55 @@ export function SkillsGallery({
   const [selectedCategory, setSelectedCategory] = useState<string>("All");
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<"all" | "workflows" | "my-skills" | "team" | "global">("all");
+  const [sourceFilter, setSourceFilter] = useState<"all" | CatalogSource>("all");
+
+  // API help dialog state
+  const [showApiHelp, setShowApiHelp] = useState(false);
+  const [copiedCurl, setCopiedCurl] = useState(false);
+
+  // API token generation state
+  const [generatedToken, setGeneratedToken] = useState<string | null>(null);
+  const [isGeneratingToken, setIsGeneratingToken] = useState(false);
+  const [copiedToken, setCopiedToken] = useState(false);
+  const [tokenError, setTokenError] = useState<string | null>(null);
+  const [tokenDurationDays, setTokenDurationDays] = useState(90);
+
+  const closeApiHelp = useCallback(() => {
+    setShowApiHelp(false);
+    setGeneratedToken(null);
+    setCopiedToken(false);
+    setTokenError(null);
+    setIsGeneratingToken(false);
+    setTokenDurationDays(90);
+  }, []);
+
+  const handleGenerateToken = useCallback(async () => {
+    setIsGeneratingToken(true);
+    setTokenError(null);
+    setGeneratedToken(null);
+    setCopiedToken(false);
+    try {
+      const res = await fetch("/api/skills/token", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ expires_in_days: tokenDurationDays }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || `Failed to generate token (${res.status})`);
+      }
+      const data = await res.json();
+      setGeneratedToken(data.token);
+    } catch (err: any) {
+      setTokenError(err.message || "Failed to generate token");
+    } finally {
+      setIsGeneratingToken(false);
+    }
+  }, [tokenDurationDays]);
 
   // Input form state for skill run modal
-  const [activeFormConfig, setActiveFormConfig] = useState<AgentConfig | null>(null);
+  const [activeFormConfig, setActiveFormConfig] = useState<AgentSkill | null>(null);
   const [formValues, setFormValues] = useState<Record<string, string>>({});
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
   const [editablePrompt, setEditablePrompt] = useState<string>("");
@@ -208,31 +283,37 @@ export function SkillsGallery({
   }, [configs, activeFormConfig]); // Re-run when configs change or activeFormConfig changes
 
   // Check if user can edit a config (admins can edit system configs)
-  const canEditConfig = (config: AgentConfig) => {
+  const canEditConfig = (config: AgentSkill) => {
     if (config.is_system) return isAdmin;
     return true;
   };
 
   // Check if user can delete a config (system configs are never deletable)
-  const canDeleteConfig = (config: AgentConfig) => {
+  const canDeleteConfig = (config: AgentSkill) => {
     return !config.is_system;
   };
 
   // Catalog skills from GET /api/skills (unified source of truth)
-  const [catalogSkills, setCatalogSkills] = useState<AgentConfig[]>([]);
+  const [catalogSkills, setCatalogSkills] = useState<AgentSkill[]>([]);
 
   // Load configs and catalog skills on mount
   useEffect(() => {
-    loadConfigs();
+    loadSkills();
 
-    // Fetch unified catalog to include filesystem-only skills
-    fetch("/api/skills")
+    // Unified catalog: default, agent_skills, and hub entries (FR-021)
+    fetch("/api/skills", { credentials: "include" })
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => {
         if (!data?.skills) return;
-        const mapped: AgentConfig[] = data.skills
-          .filter((s: { source: string }) => s.source === "default")
-          .map((s: { id: string; name: string; description?: string; metadata?: Record<string, unknown> }) => ({
+        const mapped: AgentSkill[] = data.skills.map(
+          (s: {
+            id: string;
+            name: string;
+            source: string;
+            description?: string;
+            metadata?: Record<string, unknown>;
+            visibility?: string;
+          }) => ({
             id: `catalog-${s.id}`,
             name: s.name,
             description: s.description || "",
@@ -244,17 +325,22 @@ export function SkillsGallery({
             created_at: new Date(),
             updated_at: new Date(),
             thumbnail: (s.metadata?.icon as string) || "Zap",
-            metadata: { tags: (s.metadata?.tags as string[]) || [] },
-          } satisfies AgentConfig));
+            metadata: {
+              tags: (s.metadata?.tags as string[]) || [],
+              catalog_source: s.source,
+              catalog_visibility: s.visibility,
+            },
+          } as AgentSkill),
+        );
         setCatalogSkills(mapped);
       })
       .catch(() => {});
-  }, [loadConfigs]);
+  }, [loadSkills]);
 
   // Merge agent configs (store) with catalog-only skills, deduplicating by name
   const allConfigs = useMemo(() => {
     const seen = new Set<string>();
-    const merged: AgentConfig[] = [];
+    const merged: AgentSkill[] = [];
     // Agent configs take priority (richer data, editable)
     for (const config of configs) {
       if (!seen.has(config.id)) {
@@ -296,9 +382,12 @@ export function SkillsGallery({
         (viewMode === "team" && config.visibility === "team") ||
         (viewMode === "global" && (config.visibility === "global" || config.is_system));
 
-      return matchesSearch && matchesCategory && matchesViewMode;
+      const matchesSource =
+        sourceFilter === "all" || skillCatalogSource(config) === sourceFilter;
+
+      return matchesSearch && matchesCategory && matchesViewMode && matchesSource;
     });
-  }, [allConfigs, searchQuery, selectedCategory, viewMode, currentUserEmail]);
+  }, [allConfigs, searchQuery, selectedCategory, viewMode, currentUserEmail, sourceFilter]);
 
   const workflowConfigs = filteredConfigs.filter(c => !c.is_quick_start);
   const skillConfigs = filteredConfigs;
@@ -310,7 +399,7 @@ export function SkillsGallery({
 
   const isFilteredView = viewMode === "my-skills" || viewMode === "team" || viewMode === "global";
 
-  const handleDelete = async (config: AgentConfig, e: React.MouseEvent) => {
+  const handleDelete = async (config: AgentSkill, e: React.MouseEvent) => {
     e.stopPropagation();
 
     if (config.is_system) return;
@@ -319,7 +408,7 @@ export function SkillsGallery({
 
     setDeletingId(config.id);
     try {
-      await deleteConfig(config.id);
+      await deleteSkill(config.id);
     } catch (error: any) {
       console.error("Failed to delete config:", error);
       alert(error.message || "Failed to delete configuration");
@@ -328,10 +417,19 @@ export function SkillsGallery({
     }
   };
 
-  const handleConfigClick = (config: AgentConfig) => {
+  const handleConfigClick = (config: AgentSkill) => {
     if (config.is_quick_start || !workflowRunnerEnabled) {
       const inputForm = config.input_form || generateInputFormFromPrompt(config.tasks[0]?.llm_prompt || "", config.name);
-      const basePrompt = config.tasks[0]?.llm_prompt || "";
+      let basePrompt = config.tasks[0]?.llm_prompt || "";
+
+      // For skills with no explicit prompt (hub skills, builder skills),
+      // generate a concise invocation prompt from the name + description.
+      if (!basePrompt.trim() || config.skill_content) {
+        basePrompt = `Run the "${config.name}" skill.`;
+        if (config.description) {
+          basePrompt += ` ${config.description}`;
+        }
+      }
 
       setActiveFormConfig({ ...config, input_form: inputForm || undefined });
 
@@ -422,7 +520,6 @@ export function SkillsGallery({
     // Create a new conversation
     const conversationId = createConversation();
 
-    // Set the pending message to be auto-submitted when the chat loads
     setPendingMessage(editablePrompt);
 
     // Close the modal
@@ -437,7 +534,7 @@ export function SkillsGallery({
       <div className="flex flex-col items-center justify-center h-64 gap-4">
         <AlertCircle className="h-12 w-12 text-red-400" />
         <p className="text-muted-foreground">{error}</p>
-        <Button variant="outline" onClick={() => loadConfigs()}>Try Again</Button>
+        <Button variant="outline" onClick={() => loadSkills()}>Try Again</Button>
       </div>
     );
   }
@@ -458,10 +555,28 @@ export function SkillsGallery({
                 <p className="text-sm text-muted-foreground">
                   Quick-start templates and multi-step workflows
                 </p>
+                <p className="text-xs text-muted-foreground mt-1 max-w-xl">
+                  Add repo-backed skills in{" "}
+                  <Link href="/admin" className="text-primary font-medium hover:underline">
+                    Admin → Skill Hubs
+                  </Link>
+                  . Catalog sources: <strong>built-in</strong>, <strong>custom</strong>,{" "}
+                  <strong>skill hub</strong> (FR-021).
+                </p>
               </div>
             </div>
 
             <div className="flex items-center gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setShowApiHelp(true)}
+                className="gap-1.5"
+                title="How to access Skills via API"
+              >
+                <HelpCircle className="h-4 w-4" />
+                API
+              </Button>
               <Button size="sm" onClick={onCreateNew} className="gap-2 gradient-primary text-white">
                 <Plus className="h-4 w-4" />
                 Skills Builder
@@ -477,6 +592,29 @@ export function SkillsGallery({
               onChange={(e) => setSearchQuery(e.target.value)}
               className="pl-12 h-12 text-base bg-card/80 backdrop-blur-sm"
             />
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2 mt-3">
+            <span className="text-xs text-muted-foreground mr-1">Source:</span>
+            {(
+              [
+                ["all", "All sources"],
+                ["default", "Built-in"],
+                ["agent_skills", "Custom"],
+                ["hub", "Skill hub"],
+              ] as const
+            ).map(([key, label]) => (
+              <Button
+                key={key}
+                type="button"
+                variant={sourceFilter === key ? "default" : "outline"}
+                size="sm"
+                className="h-7 text-xs"
+                onClick={() => setSourceFilter(key)}
+              >
+                {label}
+              </Button>
+            ))}
           </div>
 
           {/* View Mode & Categories */}
@@ -552,15 +690,15 @@ export function SkillsGallery({
       {!isLoading && (
         <div className="flex-1 overflow-y-auto">
           {/* Favorites Section */}
-          {getFavoriteConfigs().length > 0 && searchQuery === "" && selectedCategory === "All" && !isFilteredView && (
+          {getFavoriteSkills().length > 0 && searchQuery === "" && selectedCategory === "All" && !isFilteredView && (
             <div className="mb-8 p-4 bg-gradient-to-br from-yellow-500/10 to-amber-500/10 rounded-xl border border-yellow-500/30">
               <div className="flex items-center gap-2 mb-4">
                 <Star className="h-5 w-5 text-yellow-500 fill-current" />
                 <h2 className="text-lg font-medium">Favorites</h2>
-                <Badge variant="secondary" className="bg-yellow-500/20 text-yellow-600">{getFavoriteConfigs().length}</Badge>
+                <Badge variant="secondary" className="bg-yellow-500/20 text-yellow-600">{getFavoriteSkills().length}</Badge>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-                {getFavoriteConfigs().map((config, index) => {
+                {getFavoriteSkills().map((config, index) => {
                   const Icon = ICON_MAP[config.thumbnail || (config.is_quick_start ? "Zap" : "Workflow")] || Zap;
                   const gradientClass = CATEGORY_COLORS[config.category] || CATEGORY_COLORS["Custom"];
 
@@ -588,6 +726,7 @@ export function SkillsGallery({
                           ) : (
                             <Badge variant="outline" className="text-[10px] px-1.5 py-0">{config.tasks.length} steps</Badge>
                           )}
+                          <CatalogSourceBadge config={config} />
                           <VisibilityBadge config={config} />
                         </div>
                       </div>
@@ -681,7 +820,8 @@ export function SkillsGallery({
                         <div className={cn("p-2.5 rounded-xl bg-gradient-to-br", gradientClass)}>
                           <Icon className="h-5 w-5 text-white" />
                         </div>
-                        <div className="flex items-center gap-1">
+                        <div className="flex items-center gap-1 flex-wrap justify-end">
+                          <CatalogSourceBadge config={config} />
                           <VisibilityBadge config={config} />
                           <Badge variant="outline" className={cn("text-xs", getDifficultyColor(config.difficulty))}>
                             {config.difficulty || "beginner"}
@@ -806,7 +946,8 @@ export function SkillsGallery({
                         <div className={cn("p-2.5 rounded-xl bg-gradient-to-br", gradientClass)}>
                           <Icon className="h-5 w-5 text-white" />
                         </div>
-                        <div className="flex items-center gap-1">
+                        <div className="flex items-center gap-1 flex-wrap justify-end">
+                          <CatalogSourceBadge config={config} />
                           <VisibilityBadge config={config} />
                           <Badge variant="outline" className={cn("text-xs", getDifficultyColor(config.difficulty))}>
                             {config.difficulty || "beginner"}
@@ -925,6 +1066,7 @@ export function SkillsGallery({
                             <span>Skill</span>
                           </>
                         )}
+                        <CatalogSourceBadge config={config} />
                         <VisibilityBadge config={config} />
                       </div>
 
@@ -975,11 +1117,236 @@ export function SkillsGallery({
           {filteredConfigs.length === 0 && !(isFilteredView && searchQuery === "") && (
             <div className="flex flex-col items-center justify-center h-64 gap-4">
               <Sparkles className="h-12 w-12 text-muted-foreground/50" />
-              <p className="text-muted-foreground">No skills match your search</p>
+              <p className="text-muted-foreground text-center max-w-md">
+                No skills match your search or filters. Try another source filter, or add repo-backed skills via{" "}
+                <Link href="/admin" className="text-primary font-medium hover:underline">
+                  Admin → Skill Hubs
+                </Link>
+                .
+              </p>
             </div>
           )}
         </div>
       )}
+
+      {/* API Help Modal */}
+      <AnimatePresence>
+        {showApiHelp && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+            onClick={closeApiHelp}
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="relative w-full max-w-2xl mx-4 bg-card border rounded-2xl shadow-2xl overflow-hidden max-h-[90vh] flex flex-col"
+              onClick={e => e.stopPropagation()}
+            >
+              <div className="h-1.5 w-full gradient-primary shrink-0" />
+              <div className="p-6 overflow-y-auto flex-1">
+                <div className="flex items-start justify-between mb-6">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2.5 rounded-xl gradient-primary-br shadow-lg">
+                      <Terminal className="h-5 w-5 text-white" />
+                    </div>
+                    <div>
+                      <h2 className="text-xl font-bold">Skills API Access</h2>
+                      <p className="text-sm text-muted-foreground">
+                        Retrieve skills from external clients like Claude Code, Cursor, or any HTTP client
+                      </p>
+                    </div>
+                  </div>
+                  <Button variant="ghost" size="icon" onClick={() => setShowApiHelp(false)}>
+                    <X className="h-4 w-4" />
+                  </Button>
+                </div>
+
+                {/* API Endpoint */}
+                <div className="space-y-4">
+                  <div>
+                    <h3 className="text-sm font-semibold mb-2">API Endpoint</h3>
+                    <div className="px-4 py-3 rounded-lg bg-muted/50 border border-border/50 font-mono text-sm">
+                      GET /api/skills
+                    </div>
+                  </div>
+
+                  {/* Query Parameters */}
+                  <div>
+                    <h3 className="text-sm font-semibold mb-2">Query Parameters</h3>
+                    <div className="text-sm text-muted-foreground space-y-1">
+                      <p><code className="bg-muted px-1.5 py-0.5 rounded text-xs">q</code> — Search by name or description</p>
+                      <p><code className="bg-muted px-1.5 py-0.5 rounded text-xs">source</code> — Filter: <code className="bg-muted px-1 py-0.5 rounded text-xs">default</code>, <code className="bg-muted px-1 py-0.5 rounded text-xs">agent_skills</code>, <code className="bg-muted px-1 py-0.5 rounded text-xs">hub</code></p>
+                      <p><code className="bg-muted px-1.5 py-0.5 rounded text-xs">tags</code> — Comma-separated tag filter</p>
+                      <p><code className="bg-muted px-1.5 py-0.5 rounded text-xs">include_content</code> — Include full SKILL.md content (<code className="bg-muted px-1 py-0.5 rounded text-xs">true</code>/<code className="bg-muted px-1 py-0.5 rounded text-xs">false</code>)</p>
+                      <p><code className="bg-muted px-1.5 py-0.5 rounded text-xs">visibility</code> — Optional: <code className="bg-muted px-1 py-0.5 rounded text-xs">global</code>, <code className="bg-muted px-1 py-0.5 rounded text-xs">team</code>, <code className="bg-muted px-1 py-0.5 rounded text-xs">personal</code></p>
+                      <p><code className="bg-muted px-1.5 py-0.5 rounded text-xs">page</code> / <code className="bg-muted px-1.5 py-0.5 rounded text-xs">page_size</code> — Pagination (1–100 per page)</p>
+                    </div>
+                  </div>
+
+                  {/* Generate API Key */}
+                  <div className="p-4 rounded-lg bg-primary/5 border border-primary/20">
+                    <div className="flex items-center gap-2 mb-3">
+                      <Key className="h-4 w-4 text-primary" />
+                      <h3 className="text-sm font-semibold">Generate API Key</h3>
+                    </div>
+                    <p className="text-xs text-muted-foreground mb-3">
+                      Generate a personal API key for programmatic access to the Skills API from CLI tools, scripts, or AI assistants.
+                    </p>
+
+                    {!generatedToken && (
+                      <div className="flex items-center gap-3">
+                        <div className="flex items-center gap-2">
+                          <label className="text-xs text-muted-foreground whitespace-nowrap">Expires in:</label>
+                          <select
+                            value={tokenDurationDays}
+                            onChange={(e) => setTokenDurationDays(Number(e.target.value))}
+                            className="h-8 px-2 text-xs rounded-md border border-input bg-background"
+                          >
+                            <option value={30}>30 days</option>
+                            <option value={60}>60 days</option>
+                            <option value={90}>90 days</option>
+                          </select>
+                        </div>
+                        <Button
+                          size="sm"
+                          onClick={handleGenerateToken}
+                          disabled={isGeneratingToken}
+                          className="gap-1.5"
+                        >
+                          {isGeneratingToken ? (
+                            <Loader2 className="h-3 w-3 animate-spin" />
+                          ) : (
+                            <Key className="h-3 w-3" />
+                          )}
+                          {isGeneratingToken ? "Generating..." : "Generate API Key"}
+                        </Button>
+                      </div>
+                    )}
+
+                    {tokenError && (
+                      <div className="mt-3 flex items-center gap-2 text-xs text-red-500">
+                        <AlertCircle className="h-3 w-3 shrink-0" />
+                        {tokenError}
+                      </div>
+                    )}
+
+                    {generatedToken && (
+                      <div className="mt-3 space-y-3">
+                        <div className="flex items-start gap-3 p-3 rounded-lg bg-amber-500/10 border border-amber-500/30">
+                          <AlertTriangle className="h-4 w-4 text-amber-500 shrink-0 mt-0.5" />
+                          <p className="text-xs text-amber-600 dark:text-amber-400">
+                            Copy this token now — it won&apos;t be shown again.
+                          </p>
+                        </div>
+                        <div className="relative">
+                          <pre className="p-3 pr-12 rounded-lg bg-[#1e1e2e] border border-border/30 text-[11px] font-mono text-zinc-300 overflow-x-auto whitespace-pre-wrap break-all">
+                            {generatedToken}
+                          </pre>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="absolute top-2 right-2 h-7 w-7"
+                            onClick={() => {
+                              navigator.clipboard.writeText(generatedToken);
+                              setCopiedToken(true);
+                              setTimeout(() => setCopiedToken(false), 2000);
+                            }}
+                          >
+                            {copiedToken ? <Check className="h-3 w-3 text-green-500" /> : <Copy className="h-3 w-3" />}
+                          </Button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* curl Example */}
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <h3 className="text-sm font-semibold">Example Request</h3>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 gap-1.5 text-xs"
+                        onClick={() => {
+                          const token = generatedToken || (session as any)?.accessToken || "YOUR_API_TOKEN";
+                          const baseUrl = typeof window !== "undefined" ? window.location.origin : "https://your-instance.example.com";
+                          const curl = `curl -s "${baseUrl}/api/skills" \\\n  -H "Authorization: Bearer ${token}" | jq .`;
+                          navigator.clipboard.writeText(curl);
+                          setCopiedCurl(true);
+                          setTimeout(() => setCopiedCurl(false), 2000);
+                        }}
+                      >
+                        {copiedCurl ? <Check className="h-3 w-3 text-green-500" /> : <Copy className="h-3 w-3" />}
+                        {copiedCurl ? "Copied!" : "Copy"}
+                      </Button>
+                    </div>
+                    <div className="rounded-lg overflow-hidden border border-border/30 bg-[#1e1e2e]">
+                      <div className="flex items-center justify-between px-4 py-2 border-b border-border/20 bg-[#181825]">
+                        <span className="text-xs text-zinc-500 font-mono uppercase tracking-wide">bash</span>
+                      </div>
+                      <pre className="p-4 text-[13px] leading-relaxed font-mono text-zinc-300 overflow-x-auto">
+{`curl -s "${typeof window !== "undefined" ? window.location.origin : "https://your-instance.example.com"}/api/skills" \\
+  -H "Authorization: Bearer ${generatedToken ? generatedToken.slice(0, 20) + "..." : (session as any)?.accessToken ? (session as any).accessToken.slice(0, 20) + "..." : "$CAIPE_TOKEN"}" | jq .`}
+                      </pre>
+                    </div>
+                  </div>
+
+                  {/* Token Warning */}
+                  <div className="flex items-start gap-3 p-4 rounded-lg bg-red-500/10 border border-red-500/30">
+                    <ShieldAlert className="h-5 w-5 text-red-500 shrink-0 mt-0.5" />
+                    <div>
+                      <p className="text-sm font-semibold text-red-500">Do not share your API token</p>
+                      <p className="text-xs text-red-400/80 mt-1">
+                        Your API token is scoped to your identity and grants access to the Skills API.
+                        Never share it in public repositories, Slack messages, screenshots, or documentation.
+                        Treat it like a password.
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Usage with Claude Code / Cursor */}
+                  <div>
+                    <h3 className="text-sm font-semibold mb-2">Using with Claude Code or Cursor</h3>
+                    <div className="text-sm text-muted-foreground space-y-2">
+                      <p>
+                        You can use the Skills API to list available skills from any client.
+                        Pass the skill name to your AI assistant as context:
+                      </p>
+                      <div className="rounded-lg overflow-hidden border border-border/30 bg-[#1e1e2e]">
+                        <div className="flex items-center px-4 py-2 border-b border-border/20 bg-[#181825]">
+                          <span className="text-xs text-zinc-500 font-mono uppercase tracking-wide">bash</span>
+                        </div>
+                        <pre className="p-4 text-[13px] leading-relaxed font-mono text-zinc-300 overflow-x-auto">
+{`# List all skills
+curl -s "${typeof window !== "undefined" ? window.location.origin : "https://your-instance.example.com"}/api/skills" \\
+  -H "Authorization: Bearer $CAIPE_TOKEN" | jq '.skills[].name'
+
+# Get a specific skill with full content
+curl -s "${typeof window !== "undefined" ? window.location.origin : "https://your-instance.example.com"}/api/skills?q=aws-cost&include_content=true" \\
+  -H "Authorization: Bearer $CAIPE_TOKEN" | jq .`}
+                        </pre>
+                      </div>
+                      <p className="text-xs text-muted-foreground/80 mt-2">
+                        Store your token in an environment variable (<code className="bg-muted px-1 py-0.5 rounded text-xs">CAIPE_TOKEN</code>) instead of
+                        hardcoding it. This makes it easy to use across tools without exposing the value.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Footer */}
+              <div className="flex items-center justify-end gap-3 p-4 border-t bg-muted/30 shrink-0">
+                <Button variant="ghost" onClick={() => setShowApiHelp(false)}>Close</Button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Skill Run Modal */}
       <AnimatePresence>
@@ -1080,6 +1447,15 @@ export function SkillsGallery({
               {/* Footer */}
               <div className="flex items-center justify-end gap-3 p-4 border-t bg-muted/30 shrink-0">
                 <Button variant="ghost" onClick={() => setActiveFormConfig(null)}>Cancel</Button>
+                <Button
+                  onClick={handleRunInChat}
+                  variant="outline"
+                  className="gap-2"
+                  disabled={!editablePrompt.trim()}
+                >
+                  <MessageSquare className="h-4 w-4" />
+                  Run in Chat
+                </Button>
                 {workflowRunnerEnabled && (
                   <Button
                     onClick={handleFormSubmit}

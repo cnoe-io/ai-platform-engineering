@@ -3,24 +3,26 @@ import {
   getAuthFromBearerOrSession,
   withErrorHandler,
 } from "@/lib/api-middleware";
+import { applySkillsCatalogQueryToBackendUrl } from "@/lib/skills-catalog-query";
 
 /**
  * Skills Catalog API — Single source of truth for UI and assistant (FR-001).
  *
  * GET /api/skills
- *   Returns the merged skill catalog from default (filesystem) + agent_configs + hubs.
+ *   Returns the merged skill catalog from default (filesystem) + agent_skills + hubs.
  *   If BACKEND_SKILLS_URL is configured, proxies to the Python backend GET /skills.
- *   Otherwise, aggregates locally from /api/skill-templates and /api/agent-configs.
+ *   Otherwise, aggregates locally from /api/skill-templates and /api/agent-skills.
  *
  * Supports dual-auth: Bearer JWT (for CLI/remote) or NextAuth session (browser).
  *
  * Query params:
  *   q               — case-insensitive text search in skill name and description
- *   source          — filter by source: "default", "agent_config", "hub"
+ *   source          — filter by source: "default", "agent_skills", "hub"
  *   tags            — comma-separated tag filter (metadata.tags includes any)
  *   include_content — include full SKILL.md body for each skill (default false)
  *   page            — page number, 1-indexed (default: omit for all results)
  *   page_size       — items per page, 1-100 (default: 50)
+ *   visibility      — optional: global | team | personal (entitled subset filter)
  *
  * Response shape per contracts/catalog-api.md:
  *   { skills: [...], meta: { total, page, page_size, has_more, sources_loaded, unavailable_sources } }
@@ -34,7 +36,7 @@ interface CatalogSkill {
   id: string;
   name: string;
   description: string;
-  source: "default" | "agent_config" | "hub";
+  source: "default" | "agent_skills" | "hub";
   source_id: string | null;
   content: string | null;
   metadata: Record<string, unknown>;
@@ -55,6 +57,7 @@ interface CatalogResponse {
 interface QueryParams {
   q: string;
   source: string;
+  visibility: string;
   tags: string[];
   includeContent: boolean;
   page: number | null; // null = no pagination
@@ -85,6 +88,7 @@ function parseQueryParams(req: NextRequest): QueryParams {
   return {
     q: (sp.get("q") || "").trim().toLowerCase(),
     source: (sp.get("source") || "").trim().toLowerCase(),
+    visibility: (sp.get("visibility") || "").trim().toLowerCase(),
     tags,
     includeContent: sp.get("include_content") === "true",
     page,
@@ -113,6 +117,14 @@ function filterSkills(
     result = result.filter(
       (s) => s.source.toLowerCase() === params.source,
     );
+  }
+
+  if (params.visibility) {
+    const v = params.visibility;
+    result = result.filter((s) => {
+      const mv = (s.metadata as { visibility?: string })?.visibility;
+      return (mv || "global").toLowerCase() === v;
+    });
   }
 
   if (params.tags.length > 0) {
@@ -174,15 +186,17 @@ async function fetchFromBackend(
 
   try {
     const url = new URL("/skills", backendUrl);
-    if (params.includeContent) url.searchParams.set("include_content", "true");
-    if (params.q) url.searchParams.set("q", params.q);
-    if (params.source) url.searchParams.set("source", params.source);
-    if (params.tags.length > 0)
-      url.searchParams.set("tags", params.tags.join(","));
+    const incoming = new URLSearchParams();
+    if (params.includeContent) incoming.set("include_content", "true");
+    if (params.q) incoming.set("q", params.q);
+    if (params.source) incoming.set("source", params.source);
+    if (params.visibility) incoming.set("visibility", params.visibility);
+    if (params.tags.length > 0) incoming.set("tags", params.tags.join(","));
     if (params.page !== null) {
-      url.searchParams.set("page", String(params.page));
-      url.searchParams.set("page_size", String(params.pageSize));
+      incoming.set("page", String(params.page));
+      incoming.set("page_size", String(params.pageSize));
     }
+    applySkillsCatalogQueryToBackendUrl(url, incoming);
 
     const headers: Record<string, string> = {};
     if (authHeader) headers["Authorization"] = authHeader;
@@ -200,7 +214,7 @@ async function fetchFromBackend(
 
 /**
  * Local aggregation fallback: merge skill-templates (filesystem) and
- * agent-configs (MongoDB) into a single catalog.
+ * agent-skills (MongoDB) into a single catalog.
  */
 async function aggregateLocally(
   includeContent: boolean,
@@ -242,7 +256,7 @@ async function aggregateLocally(
       "@/lib/mongodb"
     );
     if (isMongoDBConfigured) {
-      const collection = await getCollection("agent_configs");
+      const collection = await getCollection("agent_skills");
       const docs = await collection
         .find(
           { skill_template: { $exists: true, $ne: "" } },
@@ -265,43 +279,48 @@ async function aggregateLocally(
           id: String(doc.name),
           name: String(doc.name),
           description: String(doc.description).slice(0, 1024),
-          source: "agent_config",
+          source: "agent_skills",
           source_id: doc.owner_id ?? null,
           content: includeContent ? (doc.skill_template ?? null) : null,
           metadata: doc.metadata ?? {},
         });
       }
-      sourcesLoaded.push("agent_config");
+      sourcesLoaded.push("agent_skills");
     }
   } catch (err) {
-    console.error("[Skills] Failed to load agent_configs:", err);
-    unavailableSources.push("agent_config");
+    console.error("[Skills] Failed to load agent_skills:", err);
+    unavailableSources.push("agent_skills");
   }
 
-  // 3. Check for enabled hubs — hub skill fetching is handled by the Python
-  //    backend; in local aggregation mode, report them as unavailable.
+  // 3. Hub skills (GitHub / GitLab)
   try {
     const { getCollection: getCol, isMongoDBConfigured: mongoOk } = await import(
       "@/lib/mongodb"
     );
     if (mongoOk) {
+      const { getHubSkills } = await import("@/lib/hub-crawl");
       const hubsCol = await getCol("skill_hubs");
-      const enabledHubs = await hubsCol
-        .find({ enabled: true }, { projection: { _id: 0, id: 1 } })
-        .toArray();
-      for (const h of enabledHubs) {
-        if (h.id) unavailableSources.push(`hub:${h.id}`);
+      const enabledHubs = await hubsCol.find({ enabled: true }).toArray();
+      for (const hub of enabledHubs) {
+        try {
+          const hubSkills = await getHubSkills(hub);
+          skills.push(...hubSkills);
+          sourcesLoaded.push(`hub:${hub.id}`);
+        } catch (err) {
+          console.error(`[Skills] Hub ${hub.location} failed:`, err);
+          unavailableSources.push(`hub:${hub.id}`);
+        }
       }
     }
   } catch {
-    // Hub check is best-effort
+    // Hub loading is best-effort
   }
 
-  // Apply precedence: default wins over agent_config (by name)
+  // Apply precedence: default wins over agent_skills (by name)
   const merged = new Map<string, CatalogSkill>();
   const priority: Record<string, number> = {
     default: 0,
-    agent_config: 1,
+    agent_skills: 1,
     hub: 2,
   };
   for (const skill of skills) {

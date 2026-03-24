@@ -1,50 +1,50 @@
 import { create } from "zustand";
 import type {
-  AgentConfig,
-  CreateAgentConfigInput,
-  UpdateAgentConfigInput,
-  AgentConfigCategory,
-} from "@/types/agent-config";
-import { BUILTIN_QUICK_START_TEMPLATES } from "@/types/agent-config";
+  AgentSkill,
+  CreateAgentSkillInput,
+  UpdateAgentSkillInput,
+  AgentSkillCategory,
+} from "@/types/agent-skill";
+import { BUILTIN_QUICK_START_TEMPLATES } from "@/types/agent-skill";
 
 /**
- * Agent Config Store
+ * Agent Skills Store
  * 
- * Manages agent configurations for the Agentic Workflows feature.
+ * Manages agent skills for the Agentic Workflows feature.
  * MongoDB-only storage (no localStorage fallback) since Agentic Workflows
- * requires persistent, shareable configurations.
+ * requires persistent, shareable skills.
  * 
  * On first load, automatically seeds MongoDB with built-in templates.
  */
 
-interface AgentConfigState {
-  configs: AgentConfig[];
+interface AgentSkillsState {
+  configs: AgentSkill[];
   isLoading: boolean;
   error: string | null;
-  selectedConfigId: string | null;
+  selectedSkillId: string | null;
   isSeeded: boolean;
   favorites: string[]; // Array of config IDs
   favoritesLoaded: boolean; // Track if favorites have been loaded from MongoDB
 
   // Actions
-  loadConfigs: () => Promise<void>;
+  loadSkills: () => Promise<void>;
   loadFavorites: () => Promise<void>;
-  createConfig: (config: CreateAgentConfigInput) => Promise<string>;
-  updateConfig: (id: string, updates: UpdateAgentConfigInput) => Promise<void>;
-  deleteConfig: (id: string) => Promise<void>;
-  selectConfig: (id: string | null) => void;
-  getConfigById: (id: string) => AgentConfig | undefined;
-  getConfigsByCategory: (category: AgentConfigCategory | string) => AgentConfig[];
+  createSkill: (config: CreateAgentSkillInput) => Promise<string>;
+  updateSkill: (id: string, updates: UpdateAgentSkillInput) => Promise<void>;
+  deleteSkill: (id: string) => Promise<void>;
+  selectSkill: (id: string | null) => void;
+  getSkillById: (id: string) => AgentSkill | undefined;
+  getSkillsByCategory: (category: AgentSkillCategory | string) => AgentSkill[];
   importFromYaml: (yamlContent: string) => Promise<string[]>;
-  refreshConfigs: () => Promise<void>;
+  refreshSkills: () => Promise<void>;
   seedTemplates: () => Promise<void>;
   toggleFavorite: (id: string) => Promise<void>;
   isFavorite: (id: string) => boolean;
-  getFavoriteConfigs: () => AgentConfig[];
+  getFavoriteSkills: () => AgentSkill[];
 }
 
 // Transform API response to ensure proper date handling
-function transformConfig(config: any): AgentConfig {
+function transformSkill(config: any): AgentSkill {
   return {
     ...config,
     created_at: new Date(config.created_at),
@@ -53,8 +53,8 @@ function transformConfig(config: any): AgentConfig {
 }
 
 // Favorites helpers
-const FAVORITES_STORAGE_KEY = "agent-config-favorites";
-const FAVORITES_MIGRATED_KEY = "agent-config-favorites-migrated";
+const FAVORITES_STORAGE_KEY = "agent-skills-favorites";
+const FAVORITES_MIGRATED_KEY = "agent-skills-favorites-migrated";
 
 /**
  * Load favorites from localStorage (fallback only)
@@ -65,7 +65,7 @@ function loadFavoritesFromLocalStorage(): string[] {
     const stored = localStorage.getItem(FAVORITES_STORAGE_KEY);
     return stored ? JSON.parse(stored) : [];
   } catch (error) {
-    console.error("[AgentConfigStore] Failed to load favorites from localStorage:", error);
+    console.error("[AgentSkillsStore] Failed to load favorites from localStorage:", error);
     return [];
   }
 }
@@ -78,7 +78,7 @@ function saveFavoritesToLocalStorage(favorites: string[]): void {
   try {
     localStorage.setItem(FAVORITES_STORAGE_KEY, JSON.stringify(favorites));
   } catch (error) {
-    console.error("[AgentConfigStore] Failed to save favorites to localStorage:", error);
+    console.error("[AgentSkillsStore] Failed to save favorites to localStorage:", error);
   }
 }
 
@@ -91,13 +91,13 @@ async function loadFavoritesFromMongoDB(): Promise<string[]> {
     
     // Handle 503 (MongoDB not configured) - use localStorage
     if (response.status === 503) {
-      console.log("[AgentConfigStore] MongoDB not configured, using localStorage for favorites");
+      console.log("[AgentSkillsStore] MongoDB not configured, using localStorage for favorites");
       return loadFavoritesFromLocalStorage();
     }
     
     // Handle 401 (not authenticated) - use localStorage
     if (response.status === 401) {
-      console.log("[AgentConfigStore] Not authenticated, using localStorage for favorites");
+      console.log("[AgentSkillsStore] Not authenticated, using localStorage for favorites");
       return loadFavoritesFromLocalStorage();
     }
     
@@ -108,10 +108,10 @@ async function loadFavoritesFromMongoDB(): Promise<string[]> {
     const result = await response.json();
     // API returns { success: true, data: { favorites: [...] } }
     const favorites = result.data?.favorites || [];
-    console.log(`[AgentConfigStore] Loaded ${favorites.length} favorites from MongoDB`);
+    console.log(`[AgentSkillsStore] Loaded ${favorites.length} favorites from MongoDB`);
     return favorites;
   } catch (error) {
-    console.error("[AgentConfigStore] Failed to load favorites from MongoDB:", error);
+    console.error("[AgentSkillsStore] Failed to load favorites from MongoDB:", error);
     // Fallback to localStorage
     return loadFavoritesFromLocalStorage();
   }
@@ -130,14 +130,14 @@ async function saveFavoritesToMongoDB(favorites: string[]): Promise<boolean> {
     
     // Handle 503 (MongoDB not configured) - use localStorage
     if (response.status === 503) {
-      console.log("[AgentConfigStore] MongoDB not configured, using localStorage for favorites");
+      console.log("[AgentSkillsStore] MongoDB not configured, using localStorage for favorites");
       saveFavoritesToLocalStorage(favorites);
       return false;
     }
     
     // Handle 401 (not authenticated) - use localStorage
     if (response.status === 401) {
-      console.log("[AgentConfigStore] Not authenticated, using localStorage for favorites");
+      console.log("[AgentSkillsStore] Not authenticated, using localStorage for favorites");
       saveFavoritesToLocalStorage(favorites);
       return false;
     }
@@ -146,10 +146,10 @@ async function saveFavoritesToMongoDB(favorites: string[]): Promise<boolean> {
       throw new Error(`Failed to save favorites: ${response.status}`);
     }
     
-    console.log(`[AgentConfigStore] Saved ${favorites.length} favorites to MongoDB`);
+    console.log(`[AgentSkillsStore] Saved ${favorites.length} favorites to MongoDB`);
     return true;
   } catch (error) {
-    console.error("[AgentConfigStore] Failed to save favorites to MongoDB:", error);
+    console.error("[AgentSkillsStore] Failed to save favorites to MongoDB:", error);
     // Fallback to localStorage
     saveFavoritesToLocalStorage(favorites);
     return false;
@@ -177,7 +177,7 @@ async function migrateFavoritesToMongoDB(): Promise<void> {
     return;
   }
   
-  console.log(`[AgentConfigStore] Migrating ${localFavorites.length} favorites from localStorage to MongoDB...`);
+  console.log(`[AgentSkillsStore] Migrating ${localFavorites.length} favorites from localStorage to MongoDB...`);
   
   // Save to MongoDB
   const success = await saveFavoritesToMongoDB(localFavorites);
@@ -185,15 +185,15 @@ async function migrateFavoritesToMongoDB(): Promise<void> {
   if (success) {
     // Mark as migrated
     localStorage.setItem(FAVORITES_MIGRATED_KEY, "true");
-    console.log(`[AgentConfigStore] Successfully migrated ${localFavorites.length} favorites to MongoDB`);
+    console.log(`[AgentSkillsStore] Successfully migrated ${localFavorites.length} favorites to MongoDB`);
   }
 }
 
-export const useAgentConfigStore = create<AgentConfigState>()((set, get) => ({
+export const useAgentSkillsStore = create<AgentSkillsState>()((set, get) => ({
   configs: [],
   isLoading: false,
   error: null,
-  selectedConfigId: null,
+  selectedSkillId: null,
   isSeeded: false,
   favorites: [], // Will be loaded from MongoDB
   favoritesLoaded: false,
@@ -204,32 +204,32 @@ export const useAgentConfigStore = create<AgentConfigState>()((set, get) => ({
   seedTemplates: async () => {
     try {
       // Check if seeding is needed
-      const checkResponse = await fetch("/api/agent-configs/seed");
+      const checkResponse = await fetch("/api/agent-skills/seed");
       if (!checkResponse.ok) {
-        console.log("[AgentConfigStore] Seed check failed, skipping");
+        console.log("[AgentSkillsStore] Seed check failed, skipping");
         return;
       }
       
       const status = await checkResponse.json();
       if (!status.needsSeeding) {
-        console.log("[AgentConfigStore] Templates already seeded");
+        console.log("[AgentSkillsStore] Templates already seeded");
         set({ isSeeded: true });
         return;
       }
       
       // Perform seeding
-      console.log("[AgentConfigStore] Seeding built-in templates...");
-      const seedResponse = await fetch("/api/agent-configs/seed", {
+      console.log("[AgentSkillsStore] Seeding built-in templates...");
+      const seedResponse = await fetch("/api/agent-skills/seed", {
         method: "POST",
       });
       
       if (seedResponse.ok) {
         const result = await seedResponse.json();
-        console.log(`[AgentConfigStore] Seeded ${result.seeded} templates`);
+        console.log(`[AgentSkillsStore] Seeded ${result.seeded} templates`);
         set({ isSeeded: true });
       }
     } catch (error) {
-      console.log("[AgentConfigStore] Seeding skipped:", error);
+      console.log("[AgentSkillsStore] Seeding skipped:", error);
     }
   },
 
@@ -240,10 +240,10 @@ export const useAgentConfigStore = create<AgentConfigState>()((set, get) => ({
     // Load favorites from MongoDB
     const favorites = await loadFavoritesFromMongoDB();
     set({ favorites, favoritesLoaded: true });
-    console.log(`[AgentConfigStore] Loaded ${favorites.length} favorites`);
+    console.log(`[AgentSkillsStore] Loaded ${favorites.length} favorites`);
   },
 
-  loadConfigs: async () => {
+  loadSkills: async () => {
     set({ isLoading: true, error: null });
 
     try {
@@ -257,52 +257,52 @@ export const useAgentConfigStore = create<AgentConfigState>()((set, get) => ({
         await get().loadFavorites();
       }
       
-      const response = await fetch("/api/agent-configs");
+      const response = await fetch("/api/agent-skills");
       
       // Handle 503 (MongoDB not configured) gracefully - use built-in templates
       if (response.status === 503) {
-        console.log("[AgentConfigStore] MongoDB not configured, using built-in templates only");
+        console.log("[AgentSkillsStore] MongoDB not configured, using built-in templates only");
         set({ configs: BUILTIN_QUICK_START_TEMPLATES, isLoading: false });
         return;
       }
       
       // Handle 401 (not authenticated) gracefully - use built-in templates
       if (response.status === 401) {
-        console.log("[AgentConfigStore] Not authenticated, using built-in templates only");
+        console.log("[AgentSkillsStore] Not authenticated, using built-in templates only");
         set({ configs: BUILTIN_QUICK_START_TEMPLATES, isLoading: false });
         return;
       }
       
       if (!response.ok) {
-        const error = await response.json().catch(() => ({ error: "Failed to fetch agent configs" }));
+        const error = await response.json().catch(() => ({ error: "Failed to fetch agent skills" }));
         throw new Error(error.error || `HTTP ${response.status}`);
       }
       
       const data = await response.json();
-      const transformed = data.map(transformConfig);
+      const transformed = data.map(transformSkill);
       
       // If no configs from MongoDB, fall back to built-in templates
       if (transformed.length === 0) {
-        console.log("[AgentConfigStore] No configs in MongoDB, using built-in templates");
+        console.log("[AgentSkillsStore] No configs in MongoDB, using built-in templates");
         set({ configs: BUILTIN_QUICK_START_TEMPLATES, isLoading: false });
         return;
       }
       
       set({ configs: transformed, isLoading: false });
-      console.log(`[AgentConfigStore] Loaded ${transformed.length} agent configs from MongoDB`);
+      console.log(`[AgentSkillsStore] Loaded ${transformed.length} agent skills from MongoDB`);
     } catch (error: any) {
-      console.error("[AgentConfigStore] Failed to load configs:", error);
+      console.error("[AgentSkillsStore] Failed to load configs:", error);
       // Fall back to built-in templates
       set({ configs: BUILTIN_QUICK_START_TEMPLATES, isLoading: false });
     }
   },
 
-  createConfig: async (configData) => {
+  createSkill: async (skillData) => {
     try {
-      const response = await fetch("/api/agent-configs", {
+      const response = await fetch("/api/agent-skills", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(configData),
+        body: JSON.stringify(skillData),
       });
 
       // Handle 503 (MongoDB not configured)
@@ -316,28 +316,28 @@ export const useAgentConfigStore = create<AgentConfigState>()((set, get) => ({
       }
 
       if (!response.ok) {
-        const error = await response.json().catch(() => ({ error: "Failed to create agent config" }));
-        throw new Error(error.error || "Failed to create agent config");
+        const error = await response.json().catch(() => ({ error: "Failed to create agent skill" }));
+        throw new Error(error.error || "Failed to create agent skill");
       }
 
       const result = await response.json();
       
       // Reload from server to get the created config
-      await get().loadConfigs();
-      console.log(`[AgentConfigStore] Created agent config "${configData.name}"`);
+      await get().loadSkills();
+      console.log(`[AgentSkillsStore] Created agent skill "${skillData.name}"`);
       
       return result.id;
     } catch (error: any) {
-      console.error("[AgentConfigStore] Failed to create config:", error);
+      console.error("[AgentSkillsStore] Failed to create config:", error);
       throw error;
     }
   },
 
-  updateConfig: async (id, updates) => {
+  updateSkill: async (id, updates) => {
     try {
-      console.log(`[AgentConfigStore] Updating config ${id} with:`, updates);
+      console.log(`[AgentSkillsStore] Updating config ${id} with:`, updates);
       
-      const response = await fetch(`/api/agent-configs?id=${id}`, {
+      const response = await fetch(`/api/agent-skills?id=${id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(updates),
@@ -354,26 +354,26 @@ export const useAgentConfigStore = create<AgentConfigState>()((set, get) => ({
       }
 
       if (!response.ok) {
-        const error = await response.json().catch(() => ({ error: "Failed to update agent config" }));
-        throw new Error(error.error || "Failed to update agent config");
+        const error = await response.json().catch(() => ({ error: "Failed to update agent skill" }));
+        throw new Error(error.error || "Failed to update agent skill");
       }
 
       // Reload from server
-      await get().loadConfigs();
+      await get().loadSkills();
       
       // Log the updated config
-      const updatedConfig = get().configs.find(c => c.id === id);
-      console.log(`[AgentConfigStore] Updated agent config "${id}"`);
-      console.log(`[AgentConfigStore] Reloaded config:`, updatedConfig);
+      const updatedSkill = get().configs.find(c => c.id === id);
+      console.log(`[AgentSkillsStore] Updated agent skill "${id}"`);
+      console.log(`[AgentSkillsStore] Reloaded config:`, updatedSkill);
     } catch (error: any) {
-      console.error("[AgentConfigStore] Failed to update config:", error);
+      console.error("[AgentSkillsStore] Failed to update config:", error);
       throw error;
     }
   },
 
-  deleteConfig: async (id) => {
+  deleteSkill: async (id) => {
     try {
-      const response = await fetch(`/api/agent-configs?id=${id}`, {
+      const response = await fetch(`/api/agent-skills?id=${id}`, {
         method: "DELETE",
       });
 
@@ -388,34 +388,34 @@ export const useAgentConfigStore = create<AgentConfigState>()((set, get) => ({
       }
 
       if (!response.ok) {
-        const error = await response.json().catch(() => ({ error: "Failed to delete agent config" }));
-        throw new Error(error.error || "Failed to delete agent config");
+        const error = await response.json().catch(() => ({ error: "Failed to delete agent skill" }));
+        throw new Error(error.error || "Failed to delete agent skill");
       }
 
       // Reload from server
-      await get().loadConfigs();
+      await get().loadSkills();
       
       // Clear selection if deleted config was selected
-      if (get().selectedConfigId === id) {
-        set({ selectedConfigId: null });
+      if (get().selectedSkillId === id) {
+        set({ selectedSkillId: null });
       }
       
-      console.log(`[AgentConfigStore] Deleted agent config "${id}"`);
+      console.log(`[AgentSkillsStore] Deleted agent skill "${id}"`);
     } catch (error: any) {
-      console.error("[AgentConfigStore] Failed to delete config:", error);
+      console.error("[AgentSkillsStore] Failed to delete config:", error);
       throw error;
     }
   },
 
-  selectConfig: (id) => {
-    set({ selectedConfigId: id });
+  selectSkill: (id) => {
+    set({ selectedSkillId: id });
   },
 
-  getConfigById: (id) => {
+  getSkillById: (id) => {
     return get().configs.find((c) => c.id === id);
   },
 
-  getConfigsByCategory: (category) => {
+  getSkillsByCategory: (category) => {
     return get().configs.filter((c) => c.category === category);
   },
 
@@ -430,14 +430,14 @@ export const useAgentConfigStore = create<AgentConfigState>()((set, get) => ({
       // Parse the task_config.yaml format
       for (const [name, value] of Object.entries(parsed)) {
         if (typeof value !== "object" || !value || !("tasks" in value)) {
-          console.warn(`[AgentConfigStore] Skipping invalid entry: ${name}`);
+          console.warn(`[AgentSkillsStore] Skipping invalid entry: ${name}`);
           continue;
         }
         
-        const configValue = value as { tasks: Array<{ display_text: string; llm_prompt: string; subagent: string }> };
+        const skillValue = value as { tasks: Array<{ display_text: string; llm_prompt: string; subagent: string }> };
         
         // Infer category from name
-        let category: AgentConfigCategory | string = "Custom";
+        let category: AgentSkillCategory | string = "Custom";
         const nameLower = name.toLowerCase();
         if (nameLower.includes("github") || nameLower.includes("repo")) {
           category = "GitHub Operations";
@@ -454,18 +454,18 @@ export const useAgentConfigStore = create<AgentConfigState>()((set, get) => ({
         // Extract env vars from prompts
         const envVarPattern = /\$\{([A-Z_][A-Z0-9_]*)\}/g;
         const envVars = new Set<string>();
-        configValue.tasks.forEach((task) => {
+        skillValue.tasks.forEach((task) => {
           let match;
           while ((match = envVarPattern.exec(task.llm_prompt)) !== null) {
             envVars.add(match[1]);
           }
         });
         
-        const configInput: CreateAgentConfigInput = {
+        const skillInput: CreateAgentSkillInput = {
           name,
           description: `Multi-step workflow for: ${name}`,
           category,
-          tasks: configValue.tasks.map((task) => ({
+          tasks: skillValue.tasks.map((task) => ({
             display_text: task.display_text,
             llm_prompt: task.llm_prompt,
             subagent: task.subagent,
@@ -476,20 +476,20 @@ export const useAgentConfigStore = create<AgentConfigState>()((set, get) => ({
           },
         };
         
-        const id = await get().createConfig(configInput);
+        const id = await get().createSkill(skillInput);
         createdIds.push(id);
       }
       
-      console.log(`[AgentConfigStore] Imported ${createdIds.length} configs from YAML`);
+      console.log(`[AgentSkillsStore] Imported ${createdIds.length} configs from YAML`);
       return createdIds;
     } catch (error: any) {
-      console.error("[AgentConfigStore] Failed to import YAML:", error);
+      console.error("[AgentSkillsStore] Failed to import YAML:", error);
       throw new Error(`Failed to parse YAML: ${error.message}`);
     }
   },
 
-  refreshConfigs: async () => {
-    await get().loadConfigs();
+  refreshSkills: async () => {
+    await get().loadSkills();
   },
 
   toggleFavorite: async (id) => {
@@ -500,7 +500,7 @@ export const useAgentConfigStore = create<AgentConfigState>()((set, get) => ({
     
     // Optimistically update UI
     set({ favorites: newFavorites });
-    console.log(`[AgentConfigStore] Toggled favorite: ${id} (${newFavorites.length} total)`);
+    console.log(`[AgentSkillsStore] Toggled favorite: ${id} (${newFavorites.length} total)`);
     
     // Save to MongoDB (fallback to localStorage if MongoDB fails)
     await saveFavoritesToMongoDB(newFavorites);
@@ -510,19 +510,19 @@ export const useAgentConfigStore = create<AgentConfigState>()((set, get) => ({
     return get().favorites.includes(id);
   },
 
-  getFavoriteConfigs: () => {
+  getFavoriteSkills: () => {
     const favorites = get().favorites;
     const configs = get().configs;
     
     // Deduplicate by id (in case there are duplicates)
     const seen = new Set<string>();
-    const favoriteConfigs = configs.filter((config) => {
+    const favoriteSkills = configs.filter((config) => {
       if (!favorites.includes(config.id)) return false;
       if (seen.has(config.id)) return false;
       seen.add(config.id);
       return true;
     });
     
-    return favoriteConfigs;
+    return favoriteSkills;
   },
 }));

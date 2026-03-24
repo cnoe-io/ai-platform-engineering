@@ -7,7 +7,7 @@ import { authOptions } from '@/lib/auth-config';
 import { getConfig } from '@/lib/config';
 import { getCollection } from '@/lib/mongodb';
 import type { User } from '@/types/mongodb';
-import { validateBearerJWT } from '@/lib/jwt-validation';
+import { validateBearerJWT, validateLocalSkillsJWT } from '@/lib/jwt-validation';
 
 // ============================================================================
 // Authentication Middleware
@@ -118,6 +118,17 @@ export async function getAuthFromBearerOrSession(
   // Path 1: Bearer JWT
   if (authHeader?.startsWith('Bearer ')) {
     const token = authHeader.slice(7);
+
+    // Try local skills API token first (fast HS256, no network)
+    const localIdentity = await validateLocalSkillsJWT(token);
+    if (localIdentity) {
+      return {
+        user: { email: localIdentity.email, name: localIdentity.name, role: 'user' },
+        session: { role: 'user', canViewAdmin: false },
+      };
+    }
+
+    // Fall through to OIDC JWKS validation
     const identity = await validateBearerJWT(token);
     // Bearer users get 'user' role by default; admin escalation is session-only
     const user = { email: identity.email, name: identity.name, role: 'user' };

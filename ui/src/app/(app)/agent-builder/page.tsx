@@ -9,19 +9,19 @@ import {
   YamlImportDialog,
 } from "@/components/agent-builder";
 import { AuthGuard } from "@/components/auth-guard";
-import type { AgentConfig } from "@/types/agent-config";
+import type { AgentSkill } from "@/types/agent-skill";
 
 type ViewMode = "gallery" | "runner";
 
 export default function AgentBuilderPage() {
   const [viewMode, setViewMode] = useState<ViewMode>("gallery");
-  const [selectedConfig, setSelectedConfig] = useState<AgentConfig | null>(null);
-  const [editingConfig, setEditingConfig] = useState<AgentConfig | undefined>(undefined);
+  const [selectedConfig, setSelectedConfig] = useState<AgentSkill | null>(null);
+  const [editingConfig, setEditingConfig] = useState<AgentSkill | undefined>(undefined);
   const [isEditorOpen, setIsEditorOpen] = useState(false);
   const [isYamlImportOpen, setIsYamlImportOpen] = useState(false);
   const [cameFromHistory, setCameFromHistory] = useState(false);
 
-  const handleSelectConfig = (config: AgentConfig, fromHistory: boolean = false) => {
+  const handleSelectConfig = (config: AgentSkill, fromHistory: boolean = false) => {
     setSelectedConfig(config);
     setViewMode("runner");
     setCameFromHistory(fromHistory);
@@ -30,7 +30,7 @@ export default function AgentBuilderPage() {
   // Handle quick-start execution - run inline with AgentBuilderRunner
   const handleRunQuickStart = useCallback((prompt: string, configName?: string) => {
     // Create a temporary config for the quick-start prompt
-    const tempConfig: AgentConfig = {
+    const tempConfig: AgentSkill = {
       id: `quick-start-${Date.now()}`,
       name: configName || "Quick Start",
       description: prompt.length > 100 ? prompt.substring(0, 100) + "..." : prompt,
@@ -53,7 +53,7 @@ export default function AgentBuilderPage() {
     setViewMode("runner");
   }, []);
 
-  const handleEditConfig = (config: AgentConfig) => {
+  const handleEditConfig = (config: AgentSkill) => {
     setEditingConfig(config);
     setIsEditorOpen(true);
   };

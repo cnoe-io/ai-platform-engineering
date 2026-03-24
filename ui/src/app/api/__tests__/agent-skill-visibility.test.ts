@@ -89,14 +89,14 @@ beforeEach(() => {
 // ─────────────────────────────────────────────────────────────────────────────
 // POST - Create with visibility
 // ─────────────────────────────────────────────────────────────────────────────
-describe("POST /api/agent-configs - visibility", () => {
+describe("POST /api/agent-skills - visibility", () => {
   beforeEach(() => {
     mockGetServerSession.mockResolvedValue(userSession());
   });
 
   it("should default to 'private' visibility when not specified", async () => {
-    const { POST } = await import("../agent-configs/route");
-    const request = makeRequest("/api/agent-configs", {
+    const { POST } = await import("../agent-skills/route");
+    const request = makeRequest("/api/agent-skills", {
       method: "POST",
       body: JSON.stringify({
         name: "Test Skill",
@@ -108,15 +108,15 @@ describe("POST /api/agent-configs - visibility", () => {
     const response = await POST(request);
     expect(response.status).toBe(201);
 
-    const collection = await mockGetCollection("agent_configs");
+    const collection = await mockGetCollection("agent_skills");
     const insertedConfig = collection.insertOne.mock.calls[0][0];
     expect(insertedConfig.visibility).toBe("private");
     expect(insertedConfig.shared_with_teams).toBeUndefined();
   });
 
   it("should create with 'global' visibility", async () => {
-    const { POST } = await import("../agent-configs/route");
-    const request = makeRequest("/api/agent-configs", {
+    const { POST } = await import("../agent-skills/route");
+    const request = makeRequest("/api/agent-skills", {
       method: "POST",
       body: JSON.stringify({
         name: "Global Skill",
@@ -129,15 +129,15 @@ describe("POST /api/agent-configs - visibility", () => {
     const response = await POST(request);
     expect(response.status).toBe(201);
 
-    const collection = await mockGetCollection("agent_configs");
+    const collection = await mockGetCollection("agent_skills");
     const insertedConfig = collection.insertOne.mock.calls[0][0];
     expect(insertedConfig.visibility).toBe("global");
     expect(insertedConfig.shared_with_teams).toBeUndefined();
   });
 
   it("should create with 'team' visibility and shared_with_teams", async () => {
-    const { POST } = await import("../agent-configs/route");
-    const request = makeRequest("/api/agent-configs", {
+    const { POST } = await import("../agent-skills/route");
+    const request = makeRequest("/api/agent-skills", {
       method: "POST",
       body: JSON.stringify({
         name: "Team Skill",
@@ -151,15 +151,15 @@ describe("POST /api/agent-configs - visibility", () => {
     const response = await POST(request);
     expect(response.status).toBe(201);
 
-    const collection = await mockGetCollection("agent_configs");
+    const collection = await mockGetCollection("agent_skills");
     const insertedConfig = collection.insertOne.mock.calls[0][0];
     expect(insertedConfig.visibility).toBe("team");
     expect(insertedConfig.shared_with_teams).toEqual(["team-1", "team-2"]);
   });
 
   it("should reject 'team' visibility without shared_with_teams", async () => {
-    const { POST } = await import("../agent-configs/route");
-    const request = makeRequest("/api/agent-configs", {
+    const { POST } = await import("../agent-skills/route");
+    const request = makeRequest("/api/agent-skills", {
       method: "POST",
       body: JSON.stringify({
         name: "Bad Team Skill",
@@ -176,8 +176,8 @@ describe("POST /api/agent-configs - visibility", () => {
   });
 
   it("should reject 'team' visibility with empty shared_with_teams array", async () => {
-    const { POST } = await import("../agent-configs/route");
-    const request = makeRequest("/api/agent-configs", {
+    const { POST } = await import("../agent-skills/route");
+    const request = makeRequest("/api/agent-skills", {
       method: "POST",
       body: JSON.stringify({
         name: "Bad Team Skill",
@@ -193,8 +193,8 @@ describe("POST /api/agent-configs - visibility", () => {
   });
 
   it("should reject invalid visibility value", async () => {
-    const { POST } = await import("../agent-configs/route");
-    const request = makeRequest("/api/agent-configs", {
+    const { POST } = await import("../agent-skills/route");
+    const request = makeRequest("/api/agent-skills", {
       method: "POST",
       body: JSON.stringify({
         name: "Bad Visibility",
@@ -211,8 +211,8 @@ describe("POST /api/agent-configs - visibility", () => {
   });
 
   it("should clear shared_with_teams when visibility is not 'team'", async () => {
-    const { POST } = await import("../agent-configs/route");
-    const request = makeRequest("/api/agent-configs", {
+    const { POST } = await import("../agent-skills/route");
+    const request = makeRequest("/api/agent-skills", {
       method: "POST",
       body: JSON.stringify({
         name: "Global Skill",
@@ -226,7 +226,7 @@ describe("POST /api/agent-configs - visibility", () => {
     const response = await POST(request);
     expect(response.status).toBe(201);
 
-    const collection = await mockGetCollection("agent_configs");
+    const collection = await mockGetCollection("agent_skills");
     const insertedConfig = collection.insertOne.mock.calls[0][0];
     expect(insertedConfig.visibility).toBe("global");
     expect(insertedConfig.shared_with_teams).toBeUndefined();
@@ -236,15 +236,15 @@ describe("POST /api/agent-configs - visibility", () => {
 // ─────────────────────────────────────────────────────────────────────────────
 // GET - Visibility-based listing
 // ─────────────────────────────────────────────────────────────────────────────
-describe("GET /api/agent-configs - visibility filtering", () => {
+describe("GET /api/agent-skills - visibility filtering", () => {
   it("should include global visibility in query filter", async () => {
     mockGetServerSession.mockResolvedValue(userSession());
 
-    const { GET } = await import("../agent-configs/route");
-    const request = makeRequest("/api/agent-configs");
+    const { GET } = await import("../agent-skills/route");
+    const request = makeRequest("/api/agent-skills");
     await GET(request);
 
-    const collection = await mockGetCollection("agent_configs");
+    const collection = await mockGetCollection("agent_skills");
     const findCall = collection.find.mock.calls[0][0];
     const orConditions = findCall.$or;
 
@@ -254,11 +254,11 @@ describe("GET /api/agent-configs - visibility filtering", () => {
   it("should include system configs in query filter", async () => {
     mockGetServerSession.mockResolvedValue(userSession());
 
-    const { GET } = await import("../agent-configs/route");
-    const request = makeRequest("/api/agent-configs");
+    const { GET } = await import("../agent-skills/route");
+    const request = makeRequest("/api/agent-skills");
     await GET(request);
 
-    const collection = await mockGetCollection("agent_configs");
+    const collection = await mockGetCollection("agent_skills");
     const findCall = collection.find.mock.calls[0][0];
     const orConditions = findCall.$or;
 
@@ -280,11 +280,11 @@ describe("GET /api/agent-configs - visibility filtering", () => {
     });
     mockCollections["teams"] = teamsCollection;
 
-    const { GET } = await import("../agent-configs/route");
-    const request = makeRequest("/api/agent-configs");
+    const { GET } = await import("../agent-skills/route");
+    const request = makeRequest("/api/agent-skills");
     await GET(request);
 
-    const agentCollection = await mockGetCollection("agent_configs");
+    const agentCollection = await mockGetCollection("agent_skills");
     const findCall = agentCollection.find.mock.calls[0][0];
     const orConditions = findCall.$or;
 
@@ -298,11 +298,11 @@ describe("GET /api/agent-configs - visibility filtering", () => {
   it("should NOT include team condition when user has no teams", async () => {
     mockGetServerSession.mockResolvedValue(userSession());
 
-    const { GET } = await import("../agent-configs/route");
-    const request = makeRequest("/api/agent-configs");
+    const { GET } = await import("../agent-skills/route");
+    const request = makeRequest("/api/agent-skills");
     await GET(request);
 
-    const collection = await mockGetCollection("agent_configs");
+    const collection = await mockGetCollection("agent_skills");
     const findCall = collection.find.mock.calls[0][0];
     const orConditions = findCall.$or;
 
@@ -316,7 +316,7 @@ describe("GET /api/agent-configs - visibility filtering", () => {
 // ─────────────────────────────────────────────────────────────────────────────
 // PUT - Visibility updates
 // ─────────────────────────────────────────────────────────────────────────────
-describe("PUT /api/agent-configs - visibility updates", () => {
+describe("PUT /api/agent-skills - visibility updates", () => {
   beforeEach(() => {
     mockGetServerSession.mockResolvedValue(userSession());
   });
@@ -328,10 +328,10 @@ describe("PUT /api/agent-configs - visibility updates", () => {
       owner_id: "user@example.com",
       is_system: false,
     });
-    mockCollections["agent_configs"] = configsCollection;
+    mockCollections["agent_skills"] = configsCollection;
 
-    const { PUT } = await import("../agent-configs/route");
-    const request = makeRequest("/api/agent-configs?id=config-1", {
+    const { PUT } = await import("../agent-skills/route");
+    const request = makeRequest("/api/agent-skills?id=config-1", {
       method: "PUT",
       body: JSON.stringify({ visibility: "invalid" }),
     });
@@ -347,10 +347,10 @@ describe("PUT /api/agent-configs - visibility updates", () => {
       owner_id: "user@example.com",
       is_system: false,
     });
-    mockCollections["agent_configs"] = configsCollection;
+    mockCollections["agent_skills"] = configsCollection;
 
-    const { PUT } = await import("../agent-configs/route");
-    const request = makeRequest("/api/agent-configs?id=config-1", {
+    const { PUT } = await import("../agent-skills/route");
+    const request = makeRequest("/api/agent-skills?id=config-1", {
       method: "PUT",
       body: JSON.stringify({ visibility: "team" }),
     });
@@ -373,10 +373,10 @@ describe("PUT /api/agent-configs - visibility updates", () => {
         id: "config-1",
         visibility: "private",
       });
-    mockCollections["agent_configs"] = configsCollection;
+    mockCollections["agent_skills"] = configsCollection;
 
-    const { PUT } = await import("../agent-configs/route");
-    const request = makeRequest("/api/agent-configs?id=config-1", {
+    const { PUT } = await import("../agent-skills/route");
+    const request = makeRequest("/api/agent-skills?id=config-1", {
       method: "PUT",
       body: JSON.stringify({ visibility: "private" }),
     });

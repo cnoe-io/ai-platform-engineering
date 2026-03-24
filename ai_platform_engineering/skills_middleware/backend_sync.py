@@ -104,8 +104,8 @@ def build_skills_files(
 
         if source == "default":
             source_dir = "/skills/default"
-        elif source == "agent_config":
-            source_dir = "/skills/agent-config"
+        elif source == "agent_skills":
+            source_dir = "/skills/agent-skills"
         elif source == "hub" and source_id:
             safe_id = _sanitize_name(source_id)
             source_dir = f"/skills/hub-{safe_id}"
@@ -118,6 +118,10 @@ def build_skills_files(
         file_path = f"{source_dir}/{name}/SKILL.md"
         skill_md = _build_skill_md(skill)
         files[file_path] = _create_file_data(skill_md)
+
+        for rel_path, file_content in skill.get("ancillary_files", {}).items():
+            anc_path = f"{source_dir}/{name}/{rel_path}"
+            files[anc_path] = _create_file_data(file_content)
 
     sources = sorted(source_paths)
     logger.info(

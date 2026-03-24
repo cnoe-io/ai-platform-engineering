@@ -6,18 +6,18 @@ import {
   successResponse,
   ApiError,
 } from "@/lib/api-middleware";
-import type { AgentConfig } from "@/types/agent-config";
-import { BUILTIN_QUICK_START_TEMPLATES } from "@/types/agent-config";
+import type { AgentSkill } from "@/types/agent-skill";
+import { BUILTIN_QUICK_START_TEMPLATES } from "@/types/agent-skill";
 
 /**
  * Seed API Route
  *
- * POST /api/agent-configs/seed
+ * POST /api/agent-skills/seed
  * Seeds the database with built-in templates if they don't exist.
  * Can be called on app startup or manually by admin.
  * Removes system templates that are no longer in the whitelist.
  *
- * GET /api/agent-configs/seed
+ * GET /api/agent-skills/seed
  * Checks if seeding is needed (returns { needsSeeding: boolean, count: number })
  *
  * The BUILTIN_SKILL_IDS env var controls which built-in templates are seeded.
@@ -30,7 +30,7 @@ import { BUILTIN_QUICK_START_TEMPLATES } from "@/types/agent-config";
  * BUILTIN_SKILL_IDS environment variable. If the variable is unset or
  * empty, all templates are returned.
  */
-function getEnabledTemplates(): AgentConfig[] {
+function getEnabledTemplates(): AgentSkill[] {
   const raw = process.env.BUILTIN_SKILL_IDS?.trim();
   if (!raw) {
     return BUILTIN_QUICK_START_TEMPLATES;
@@ -47,7 +47,7 @@ async function checkSeedingStatus(): Promise<{ needsSeeding: boolean; existingCo
     return { needsSeeding: false, existingCount: 0, templateCount: enabledTemplates.length };
   }
 
-  const collection = await getCollection<AgentConfig>("agent_configs");
+  const collection = await getCollection<AgentSkill>("agent_skills");
   const enabledIds = enabledTemplates.map((t) => t.id);
   const allSystemIds = BUILTIN_QUICK_START_TEMPLATES.map((t) => t.id);
   const disabledIds = allSystemIds.filter((id) => !new Set(enabledIds).has(id));
@@ -76,7 +76,7 @@ async function seedBuiltinTemplates(): Promise<{ seeded: number; skipped: number
     throw new ApiError("MongoDB is not configured", 503);
   }
 
-  const collection = await getCollection<AgentConfig>("agent_configs");
+  const collection = await getCollection<AgentSkill>("agent_skills");
   const enabledTemplates = getEnabledTemplates();
   const enabledIds = new Set(enabledTemplates.map((t) => t.id));
 
@@ -93,7 +93,7 @@ async function seedBuiltinTemplates(): Promise<{ seeded: number; skipped: number
     }
 
     // Insert the template with proper dates
-    const configToInsert: AgentConfig = {
+    const configToInsert: AgentSkill = {
       ...template,
       owner_id: "system",
       is_system: true,
@@ -124,7 +124,7 @@ async function seedBuiltinTemplates(): Promise<{ seeded: number; skipped: number
   return { seeded, skipped, removed };
 }
 
-// GET /api/agent-configs/seed - Check if seeding is needed
+// GET /api/agent-skills/seed - Check if seeding is needed
 export const GET = withErrorHandler(async (request: NextRequest) => {
   const enabledTemplates = getEnabledTemplates();
 
@@ -147,7 +147,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
   });
 });
 
-// POST /api/agent-configs/seed - Seed the database (auto-seeds on first call, or admin can force)
+// POST /api/agent-skills/seed - Seed the database (auto-seeds on first call, or admin can force)
 export const POST = withErrorHandler(async (request: NextRequest) => {
   if (!isMongoDBConfigured) {
     throw new ApiError("MongoDB is not configured", 503);

@@ -43,16 +43,16 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { CAIPESpinner } from "@/components/ui/caipe-spinner";
 import { cn } from "@/lib/utils";
-import { useAgentConfigStore } from "@/store/agent-config-store";
+import { useAgentSkillsStore } from "@/store/agent-skills-store";
 import { useChatStore } from "@/store/chat-store";
 import { useAdminRole } from "@/hooks/use-admin-role";
-import type { AgentConfig, AgentConfigCategory, WorkflowDifficulty } from "@/types/agent-config";
-import { generateInputFormFromPrompt } from "@/types/agent-config";
+import type { AgentSkill, AgentSkillCategory, WorkflowDifficulty } from "@/types/agent-skill";
+import { generateInputFormFromPrompt } from "@/types/agent-skill";
 
 interface AgentBuilderGalleryProps {
-  onSelectConfig?: (config: AgentConfig, fromHistory?: boolean) => void;
+  onSelectConfig?: (config: AgentSkill, fromHistory?: boolean) => void;
   onRunQuickStart?: (prompt: string, configName?: string) => void;
-  onEditConfig?: (config: AgentConfig) => void;
+  onEditConfig?: (config: AgentSkill) => void;
   onCreateNew?: () => void;
   onImportYaml?: () => void;
 }
@@ -133,12 +133,12 @@ export function AgentBuilderGallery({
     configs,
     isLoading,
     error,
-    loadConfigs,
-    deleteConfig,
+    loadSkills,
+    deleteSkill,
     toggleFavorite,
     isFavorite,
-    getFavoriteConfigs
-  } = useAgentConfigStore();
+    getFavoriteSkills
+  } = useAgentSkillsStore();
   const { isAdmin } = useAdminRole();
   const router = useRouter();
   const { createConversation, setPendingMessage } = useChatStore();
@@ -149,7 +149,7 @@ export function AgentBuilderGallery({
   const [viewMode, setViewMode] = useState<"all" | "quick-start" | "workflows">("all");
 
   // Input form state for quick-start with placeholders
-  const [activeFormConfig, setActiveFormConfig] = useState<AgentConfig | null>(null);
+  const [activeFormConfig, setActiveFormConfig] = useState<AgentSkill | null>(null);
   const [formValues, setFormValues] = useState<Record<string, string>>({});
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
   const [editablePrompt, setEditablePrompt] = useState<string>("");
@@ -179,7 +179,7 @@ export function AgentBuilderGallery({
   }, [configs, activeFormConfig]); // Re-run when configs change or activeFormConfig changes
 
   // Check if user can edit/delete a config
-  const canModifyConfig = (config: AgentConfig) => {
+  const canModifyConfig = (config: AgentSkill) => {
     // Admins can modify system configs
     if (config.is_system) {
       console.log(`[canModifyConfig] System config ${config.id}, isAdmin: ${isAdmin}`);
@@ -191,8 +191,8 @@ export function AgentBuilderGallery({
 
   // Load configs on mount
   useEffect(() => {
-    loadConfigs();
-  }, [loadConfigs]);
+    loadSkills();
+  }, [loadSkills]);
 
   // Use configs directly from store (MongoDB configs + fallback to built-in)
   // Deduplicate by id to prevent duplicate key errors
@@ -239,7 +239,7 @@ export function AgentBuilderGallery({
   // Non-featured quick-starts (exclude featured ones to avoid duplicate keys)
   const nonFeaturedQuickStartConfigs = quickStartConfigs.filter(c => !featuredIds.includes(c.id));
 
-  const handleDelete = async (config: AgentConfig, e: React.MouseEvent) => {
+  const handleDelete = async (config: AgentSkill, e: React.MouseEvent) => {
     e.stopPropagation();
 
     // Confirm deletion
@@ -251,7 +251,7 @@ export function AgentBuilderGallery({
 
     setDeletingId(config.id);
     try {
-      await deleteConfig(config.id);
+      await deleteSkill(config.id);
     } catch (error: any) {
       console.error("Failed to delete config:", error);
       alert(error.message || "Failed to delete configuration");
@@ -260,7 +260,7 @@ export function AgentBuilderGallery({
     }
   };
 
-  const handleConfigClick = (config: AgentConfig) => {
+  const handleConfigClick = (config: AgentSkill) => {
     if (config.is_quick_start) {
       // Always show modal for quick-starts to allow editing
       const inputForm = config.input_form || generateInputFormFromPrompt(config.tasks[0]?.llm_prompt || "", config.name);
@@ -361,7 +361,7 @@ export function AgentBuilderGallery({
       <div className="flex flex-col items-center justify-center h-64 gap-4">
         <AlertCircle className="h-12 w-12 text-red-400" />
         <p className="text-muted-foreground">{error}</p>
-        <Button variant="outline" onClick={() => loadConfigs()}>Try Again</Button>
+        <Button variant="outline" onClick={() => loadSkills()}>Try Again</Button>
       </div>
     );
   }
@@ -464,15 +464,15 @@ export function AgentBuilderGallery({
       {!isLoading && (
         <div className="flex-1 overflow-y-auto">
           {/* Favorites Section */}
-          {getFavoriteConfigs().length > 0 && searchQuery === "" && selectedCategory === "All" && (
+          {getFavoriteSkills().length > 0 && searchQuery === "" && selectedCategory === "All" && (
             <div className="mb-8 p-4 bg-gradient-to-br from-yellow-500/10 to-amber-500/10 rounded-xl border border-yellow-500/30">
               <div className="flex items-center gap-2 mb-4">
                 <Star className="h-5 w-5 text-yellow-500 fill-current" />
                 <h2 className="text-lg font-medium">Favorites</h2>
-                <Badge variant="secondary" className="bg-yellow-500/20 text-yellow-600">{getFavoriteConfigs().length}</Badge>
+                <Badge variant="secondary" className="bg-yellow-500/20 text-yellow-600">{getFavoriteSkills().length}</Badge>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-                {getFavoriteConfigs().map((config, index) => {
+                {getFavoriteSkills().map((config, index) => {
                   const Icon = ICON_MAP[config.thumbnail || (config.is_quick_start ? "Zap" : "Workflow")] || Zap;
                   const gradientClass = CATEGORY_COLORS[config.category] || CATEGORY_COLORS["Custom"];
 

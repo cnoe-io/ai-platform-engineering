@@ -2,15 +2,15 @@
 
 **Feature**: 097-skills-middleware-integration | **Date**: 2026-03-18
 
-## 1. Single Catalog vs Existing Collections (agent_configs, task_configs)
+## 1. Single Catalog vs Existing Collections (agent_skills, task_configs)
 
-**Decision**: Introduce a dedicated **skill catalog** (e.g. `skills` or `skill_catalog` collection) as the single source of truth for “skills available to the assistant and UI.” Optionally map or sync from existing `agent_configs` and filesystem templates into this catalog so the UI and supervisor both read from one logical store.
+**Decision**: Introduce a dedicated **skill catalog** (e.g. `skills` or `skill_catalog` collection) as the single source of truth for “skills available to the assistant and UI.” Optionally map or sync from existing `agent_skills` and filesystem templates into this catalog so the UI and supervisor both read from one logical store.
 
-**Rationale**: The spec requires one shared catalog. Today the UI uses (1) `/api/skill-templates` (filesystem) and (2) `/api/agent-configs` (MongoDB) for the gallery; the supervisor uses `task_configs` for workflow definitions. Unifying under one catalog avoids divergence: a single API (e.g. `GET /api/skills` or backend equivalent) returns the merged list. Existing `agent_configs` can be treated as one source that is ingested into the catalog (or the catalog can be populated from agent_configs + filesystem + hubs). No requirement to delete agent_configs; they can remain the storage for user-created “Agent Skills” and be projected into the catalog.
+**Rationale**: The spec requires one shared catalog. Today the UI uses (1) `/api/skill-templates` (filesystem) and (2) `/api/agent-skills` (MongoDB) for the gallery; the supervisor uses `task_configs` for workflow definitions. Unifying under one catalog avoids divergence: a single API (e.g. `GET /api/skills` or backend equivalent) returns the merged list. Existing `agent_skills` can be treated as one source that is ingested into the catalog (or the catalog can be populated from agent_skills + filesystem + hubs). No requirement to delete agent_skills; they can remain the storage for user-created “Agent Skills” and be projected into the catalog.
 
 **Alternatives considered**:
 - Use only `task_configs` as the catalog: Task configs are workflow-oriented and may not align 1:1 with agentskills.io skill format; supervisor already uses them for task routing. Keeping a distinct catalog keeps “skill” as a first-class concept and allows hubs to contribute without touching task_configs. Rejected.
-- Use only `agent_configs`: Agent configs are UI-centric (owner_id, visibility). The assistant needs a unified view that includes built-in and hub-sourced skills. A single catalog that aggregates agent_configs + built-ins + hubs is clearer. Chosen.
+- Use only `agent_skills`: Those documents are UI-centric (owner_id, visibility). The assistant needs a unified view that includes built-in and hub-sourced skills. A single catalog that aggregates agent_skills + built-ins + hubs is clearer. Chosen.
 
 ---
 
@@ -95,7 +95,7 @@
 
 ## 9. Supervisor Catalog Refresh: Hot Reload or UI Trigger
 
-**Decision**: The CAIPE supervisor MUST reflect catalog updates (new skills, new hubs, agent_config changes) without restart. Implement either **hot reload** (e.g. on each catalog read or short TTL cache) or a **UI-triggered refresh** (e.g. "Refresh skills" button or automatic trigger after onboarding a hub). At least one of these mechanisms is required (FR-012).
+**Decision**: The CAIPE supervisor MUST reflect catalog updates (new skills, new hubs, changes to **agent-skills** documents / `source: agent_skills`) without restart. Implement either **hot reload** (e.g. on each catalog read or short TTL cache) or a **UI-triggered refresh** (e.g. "Refresh skills" button or automatic trigger after onboarding a hub). At least one of these mechanisms is required (FR-012).
 
 **Rationale**: Spec and clarifications require runtime-updated skills in the supervisor; hot reload keeps the catalog fresh with no user action; a UI trigger gives explicit control after hub onboarding. Either satisfies the requirement.
 
@@ -130,10 +130,10 @@
 
 | Responsibility | Why not upstream |
 |---|---|
-| MongoDB/agent_config loading | Upstream only reads from backend storage paths |
+| MongoDB/agent_skills loading | Upstream only reads from backend storage paths |
 | GitHub hub fetching | Upstream has no hub concept |
 | Dual SKILL.md format normalization (FR-011) | Upstream validates agentskills.io strictly; we need OpenClaw compat |
-| Precedence rules (default > agent_config > hub) | Upstream uses last-wins; we need explicit precedence |
+| Precedence rules (default > agent_skills > hub) | Upstream uses last-wins; we need explicit precedence |
 | Hot reload / TTL cache (FR-012) | Upstream loads once per session; we manage cache invalidation |
 | REST API for UI catalog (`GET /api/skills`) | Upstream is in-process only |
 
@@ -144,11 +144,148 @@
 
 ---
 
+## 11. Supervisor Graph Reload, Cache Refresh, Observability, Hub Crawl (2026-03-23)
+
+**Decision (reload semantics)**: A **new** compiled deep agent is created on every `AIPlatformEngineerMAS._build_graph()` call: at **startup** and when **`platform_registry`** fires **`_on_agents_changed`** → **`_rebuild_graph()`**. Skills are re-merged via **`get_merged_skills()`** inside `_build_graph()`. **`POST /skills/refresh`** MUST **invalidate the catalog cache** and **trigger a MAS rebuild** (e.g. invoke `_rebuild_graph()` through a process-wide or app-held reference to the active `AIPlatformEngineerMAS`), so in-process `_skills_files` / `_skills_sources` match the refreshed catalog (FR-012, spec Supervisor runtime reference).
+
+**Rationale**: Cache-only refresh leaves the supervisor serving stale prompt injection; FR-016 and SC-007 require operators to see alignment between “refreshed catalog” and “what the supervisor loaded.”
+
+**Alternatives considered**:
+- Per-request `get_merged_skills` without rebuild: Would fight `SkillsMiddleware` / graph holding static sources at build time; rebuild is the straightforward fix for v1.
+- Restart pod on every hub change: Rejected by spec (no restart).
+
+**Decision (observability)**: Expose **`graph_generation`**, **`skills_loaded_count`**, and **`skills_merged_at`** (or equivalent) via an authenticated status endpoint or enriched existing status JSON (FR-016). See `contracts/supervisor-skills-status.md`.
+
+**Decision (hub crawl UI)**: Provide a **crawl/preview** API (e.g. `POST /api/skill-hubs/crawl` with `type`, `location`, optional credentials) that returns discovered **`SKILL.md` paths** (and optionally parsed names) **without** persisting the hub, so the admin UI can preview before **POST /api/skill-hubs** (FR-017). Reuse the same GitHub discovery logic as full hub fetch; enforce auth and rate limits.
+
+**Alternatives considered**:
+- Preview only in UI with client-side GitHub API: Would duplicate secrets handling and CORS; server-side crawl preferred.
+
+---
+
+## 12. Try Skills Gateway and Catalog API Keys (2026-03-24)
+
+**Decision**: Expose a **Try skills gateway** in the UI (FR-018) documenting the same catalog HTTP contract as the app uses, with **two** auth paths to the Python catalog: (1) **Okta/OIDC JWT** (existing JWKS validation, FR-014), (2) **scoped catalog API keys** for automation — keys stored as **hashes** with `key_id`, owner, revocation; transmitted via a **single documented** header/scheme (see `contracts/gateway-api.md`).
+
+**Rationale**: Enterprise users expect Okta; integrators and scripts need long-lived, revocable credentials that are not end-user passwords. Aligns with SC-008.
+
+**Alternatives considered**:
+- JWT only: Blocks simple `curl` automation without a token broker. Rejected as sole option.
+- Pat tokens in query string: Leak via logs/referrers. Rejected.
+
+---
+
+## 13. Visibility: Global, Team, Personal (2026-03-24)
+
+**Decision**: Every catalog entry carries `visibility` ∈ {`global`, `team`, `personal`} plus optional `team_ids` and `owner_user_id`. Effective set for a principal = **union** of: all `global` skills; `team` skills where `team_ids` ∩ caller’s teams ≠ ∅; `personal` skills where `owner_user_id` = caller. Enforced in **Python catalog layer** before UI, gateway, `/skills` client, and **before** writing entitled subset into `StateBackend` for the supervisor session (FR-015, FR-020).
+
+**Rationale**: Spec Session 2026-03-24; avoids leaking cross-team or private skills through a shared merge blob.
+
+**Alternatives considered**:
+- Visibility only in UI: Supervisor would still see all merged skills. Rejected.
+- RBAC only (no personal): Does not meet product ask. Rejected.
+
+**Team membership source**: Use existing IdP claims (e.g. `groups`, custom claim) or userinfo document already fetched for RAG; document claim → `team_id` mapping in implementation.
+
+---
+
+## 14. Skill-Scanner Integration (2026-03-24)
+
+**Decision**: Run **[cisco-ai-defense/skill-scanner](https://github.com/cisco-ai-defense/skill-scanner)** on **hub-fetched** skill trees before merge; optionally on default packaged skills in CI. Persist findings (`skill_scan_findings`); default gate **warn** on high, **block** on critical (configurable strict mode). UI and docs repeat upstream disclaimer: **no findings ≠ safe**.
+
+**Rationale**: Constitution VI (“security-scanned before adoption”); FR-023, SC-009.
+
+**Alternatives considered**:
+- Custom regex only: Lower coverage; reuse industry-facing scanner. Rejected as sole control.
+- Block all LLM analyzer in CI: Use static/YARA/pipeline/behavioral in CI; LLM optional in controlled env.
+
+---
+
+## 15. Large Catalogs and Prompt Bounds (2026-03-24)
+
+**Decision**: **Unbounded** storage of skills is OK; **prompt** is not. Combine (1) upstream **progressive disclosure** (FR-015), (2) **cap** `MAX_SKILL_SUMMARIES_IN_PROMPT` (config, e.g. 50–200) or task-relevance subset if/when retrieval exists, (3) **paginated** catalog API (§catalog-api). Only top-N (or selected) skill metadata lines appear in the injected “Skills System” section; remainder discoverable via tool/read_skill paths the middleware already supports.
+
+**Rationale**: FR-024; prevents linear token growth with thousands of skills.
+
+**Alternatives considered**:
+- Inject all descriptions: Fails FR-024. Rejected.
+- Separate “active skill pack” per conversation: Possible future enhancement; v1 uses global cap + entitlement filter.
+
+---
+
+## 16. Catalog source tag `agent_skills` and loader alignment (FR-025, 2026-03-26; rename completed)
+
+**Decision**: MongoDB **`agent_skills`**, the **`agent_skills` loader**, and catalog **`source: agent_skills`** are the **only** conceptual model for user/agent-authored skills (**FR-025** completed: former catalog source naming is fully aligned on **`agent_skills`**). UI routes, components, and copy match this model (same persistence, same API semantics). Use **dual-read** or a one-time migration for any legacy field shapes; do **not** change merge precedence (default > agent_skills > hub among sources) or visibility rules without a spec amendment.
+
+**Rationale**: Reduces duplicate mental models and drift between “agent skills” pages and catalog `source` labels (**FR-021**).
+
+**Alternatives considered**:
+- New collection only for UI: Duplicates `agent_skills`. Rejected.
+- Rename Mongo collection in v1: High migration risk; prefer aliasing at API/UI layer first.
+
+---
+
+## 17. Gateway–supervisor skills sync status (FR-026, SC-010, 2026-03-26)
+
+**Decision**: Expose a **composed sync view** to authorized operators comparing (1) **catalog line**: `catalog_cache_generation` (and optionally last HTTP cache refresh time) from the skills middleware / `GET /skills` lineage, with (2) **supervisor line**: `graph_generation`, `skills_loaded_count`, `skills_merged_at` from the same process (see `contracts/supervisor-skills-status.md`). Derive **`sync_status`**: `in_sync` when generations match (and optional count sanity check), `supervisor_stale` when catalog generation > last graph build’s paired generation (or cache refreshed after `skills_merged_at`), `unknown` when either side is unavailable. Surface in **Try skills gateway** UI (FR-018) with short operator copy (“Refresh skills” / “Supervisor reloading”). Optionally reuse the same payload in admin observability (**FR-016**) without duplicating conflicting numbers.
+
+**Rationale**: Prevents the UX lie that `GET /skills` always reflects what the assistant already injected after hub or config changes.
+
+**Alternatives considered**:
+- Poll-only UI heuristic (compare timestamps without server field): Fragile across replicas. Rejected.
+- Separate microservice for sync: Over-engineering; supervisor and catalog share a process in default deployment.
+
+---
+
+## 18. Skill Scanner third-party attribution (FR-023, SC-009, 2026-03-27)
+
+**Decision**: Treat **[Skill Scanner](https://github.com/cisco-ai-defense/skill-scanner)** as **provided by Cisco AI Defense**. Product documentation, repo **NOTICE** / third-party credit files (where maintained), and **admin UI** that names or summarizes scanning MUST include that attribution and the repository URL **https://github.com/cisco-ai-defense/skill-scanner**, in addition to the existing **no findings ≠ safe** disclaimer ([upstream scope](https://github.com/cisco-ai-defense/skill-scanner)).
+
+**Rationale**: License and good-faith credit to the upstream project team; aligns with spec Session 2026-03-27.
+
+**Alternatives considered**:
+- Link only, no vendor name: Fails explicit “provided by Cisco AI Defense” ask. Rejected.
+
+---
+
+## 19. skill-scanner install (T059, 2026-03-24)
+
+**Decision**: Keep the **Skill Scanner** CLI **out of the default workspace lockfile** so supervisor installs stay lean. Use an explicit install when running scans:
+
+```bash
+uv pip install cisco-ai-skill-scanner
+```
+
+The `skill-scanner` executable on `PATH` is what `scripts/scan-packaged-skills.sh` and `ai_platform_engineering.skills_middleware.skill_scanner_runner` invoke.
+
+---
+
+## 20. Scanner on agent-skills save/publish (FR-027, 2026-03-28)
+
+**Decision**: When a user creates or updates an agent-skills document with `skill_content`, invoke the **skill-scanner** CLI **synchronously** during the save request. The document is **always persisted** to MongoDB, but with a `scan_status` field:
+
+- **`passed`**: scanner ran successfully, no findings met the severity threshold.
+- **`flagged`**: scanner ran and findings met `SKILL_SCANNER_FAIL_ON` severity under `SKILL_SCANNER_GATE=strict`.
+- **`unscanned`**: scanner binary unavailable, `skill_content` absent, or scanner call failed.
+
+Under `SKILL_SCANNER_GATE=strict`, the **`agent_skills` catalog loader** excludes `scan_status: "flagged"` documents from the merged catalog so they do not enter the supervisor's skill set or the UI catalog. The save response includes `scan_status` (and optionally `scan_summary`) so the UI can inform the user immediately.
+
+**Implementation path**: A new FastAPI endpoint `POST /skills/scan-content` accepts `{name, content}`, materializes a single-skill temp tree, runs `skill_scanner_runner.run_scan_all_on_directory`, applies gate/threshold logic, and returns the result. The Next.js `agent-skills` route calls this endpoint before persisting. Scan findings are written to `skill_scan_findings` with `source_type: "agent_skills"` and `source_id` = document id (reusing the same collection as hub scan findings).
+
+**Rationale**: Extends the hub-ingest scanner gate (§14) to user-authored skills. Users get immediate feedback; admins retain visibility via `skill_scan_findings`. Persist-but-flag avoids data loss while maintaining security posture under strict gate.
+
+**Alternatives considered**:
+- **Async scan (background job)**: Saves immediately, scans later. Simpler save path but requires polling/notifications for result, more complex UI state, and a window where unscanned content enters the catalog. Rejected for v1 given single-skill scans complete in seconds.
+- **Reject save on scan failure**: Config is not persisted at all. User loses work if they cannot pass scanning; no admin review path. Rejected — persist-but-flag is strictly better for UX and auditability.
+- **Persist and warn only (no catalog exclusion)**: Config enters catalog regardless; scan result is informational. Does not meet the "strict gate" security requirement. Rejected as the default; effectively what `SKILL_SCANNER_GATE=warn` already provides.
+
+---
+
 ## Summary Table
 
 | Topic | Decision |
 |-------|----------|
-| Catalog vs agent_configs/task_configs | New shared catalog (e.g. `skills` collection); aggregate from agent_configs + built-ins + hubs |
+| Catalog vs agent_skills/task_configs | New shared catalog (e.g. `skills` collection); aggregate from agent_skills + built-ins + hubs |
 | LangGraph skills middleware | New Python component: load catalog + hubs, expose list (and content) to supervisor at build/request time |
 | Hub format | GitHub repo; convention e.g. `skills/*/SKILL.md`; parse both agentskills.io and OpenClaw-style SKILL.md |
 | ClawHub | Out of scope for v1; document as future hub source |
@@ -158,3 +295,13 @@
 | Catalog/hub failure | Graceful “unavailable” message; per-hub failures skip that hub, rest of catalog still served |
 | Supervisor catalog refresh | Hot reload (per-request or short TTL) or UI-triggered refresh; no restart required (FR-012) |
 | System prompt injection | Use upstream `deepagents.middleware.skills.SkillsMiddleware` for progressive disclosure; custom catalog layer feeds skills into `StateBackend` (FR-015) |
+| Supervisor refresh + observability | `POST /skills/refresh` invalidates cache **and** triggers MAS `_rebuild_graph`; status exposes generation, count, timestamp (FR-012, FR-016) |
+| Hub crawl | Server-side crawl/preview endpoint before hub registration (FR-017) |
+| Try skills gateway | UI docs + JWT or catalog API key; same catalog contract ([gateway-api.md](./contracts/gateway-api.md)) |
+| Visibility | global / team / personal; union entitlement; enforce in catalog layer + supervisor feed |
+| Skill-scanner | Hub ingest + optional CI; persisted findings; configurable gate; **Cisco AI Defense attribution** in docs/UI/NOTICE ([skill-scanner-pipeline.md](./contracts/skill-scanner-pipeline.md)) |
+| Prompt bounds | Cap skill summaries in prompt; pagination + search on API; full SKILL.md on demand only |
+| Catalog source tag + collection (FR-025) | Single model: MongoDB `agent_skills` + `source: agent_skills`; refactor UI/routes; backward-compatible reads/migration |
+| Gateway–supervisor sync (FR-026) | Compare `catalog_cache_generation` vs `graph_generation` (+ timestamps); `in_sync` / `supervisor_stale` / `unknown` in Try skills gateway |
+| Scanner on agent-skills save (FR-027) | Sync scan on save; persist always with `scan_status` (`passed` / `flagged` / `unscanned`); strict gate excludes flagged from catalog; findings in `skill_scan_findings` with `source_type: "agent_skills"` |
+| Multi-file skills (FR-028) | Skills may contain ancillary files (scripts, references, assets) alongside SKILL.md per agentskills.io spec. Hub skills fetch the full directory tree. Agent-skills documents support file upload and GitHub fetch-and-snapshot import. 5 MB soft limit for agent-skills documents; no limit for hubs. All files written to StateBackend for agent access via FilesystemMiddleware. |

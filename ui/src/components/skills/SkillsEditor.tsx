@@ -42,23 +42,23 @@ import {
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/components/ui/toast";
-import { useAgentConfigStore } from "@/store/agent-config-store";
+import { useAgentSkillsStore } from "@/store/agent-skills-store";
 import { useAdminRole } from "@/hooks/use-admin-role";
 import type {
-  AgentConfig,
-  AgentConfigTask,
-  AgentConfigCategory,
-  CreateAgentConfigInput,
+  AgentSkill,
+  AgentSkillTask,
+  AgentSkillCategory,
+  CreateAgentSkillInput,
   WorkflowDifficulty,
-} from "@/types/agent-config";
+} from "@/types/agent-skill";
 
 interface SkillsEditorProps {
-  existingConfig?: AgentConfig;
+  existingConfig?: AgentSkill;
   onSuccess?: () => void;
   onCancel?: () => void;
 }
 
-const CATEGORIES: (AgentConfigCategory | string)[] = [
+const CATEGORIES: (AgentSkillCategory | string)[] = [
   "DevOps",
   "Development",
   "Operations",
@@ -139,7 +139,7 @@ const SUBAGENTS = [
   { id: "jira", label: "Jira", description: "Jira ticket operations" },
 ];
 
-const emptyTask: AgentConfigTask = {
+const emptyTask: AgentSkillTask = {
   display_text: "",
   llm_prompt: "",
   subagent: "user_input",
@@ -151,7 +151,7 @@ export function SkillsEditor({
   onCancel,
 }: SkillsEditorProps) {
   const isEditMode = !!existingConfig;
-  const { createConfig, updateConfig } = useAgentConfigStore();
+  const { createSkill, updateSkill } = useAgentSkillsStore();
   const { isAdmin } = useAdminRole();
   const { toast } = useToast();
 
@@ -164,7 +164,7 @@ export function SkillsEditor({
     thumbnail: existingConfig?.thumbnail || "Zap",
     tags: existingConfig?.metadata?.tags?.join(", ") || "",
   });
-  const [tasks, setTasks] = useState<AgentConfigTask[]>(
+  const [tasks, setTasks] = useState<AgentSkillTask[]>(
     existingConfig?.tasks || [{ ...emptyTask }]
   );
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -184,7 +184,7 @@ export function SkillsEditor({
     }
   };
 
-  const handleTaskChange = (index: number, field: keyof AgentConfigTask, value: string) => {
+  const handleTaskChange = (index: number, field: keyof AgentSkillTask, value: string) => {
     setTasks((prev) => {
       const newTasks = [...prev];
       newTasks[index] = { ...newTasks[index], [field]: value };
@@ -365,7 +365,7 @@ export function SkillsEditor({
       console.log(`[SkillsEditor] Tasks to save:`, tasksToSave);
       console.log(`[SkillsEditor] First task llm_prompt:`, tasksToSave[0]?.llm_prompt);
       
-      const configData: CreateAgentConfigInput = {
+      const configData: CreateAgentSkillInput = {
         name: formData.name.trim(),
         description: formData.description.trim() || undefined,
         category: formData.category,
@@ -381,11 +381,11 @@ export function SkillsEditor({
 
       if (isEditMode && existingConfig) {
         console.log(`[SkillsEditor] Updating config ${existingConfig.id}:`, configData);
-        await updateConfig(existingConfig.id, configData);
+        await updateSkill(existingConfig.id, configData);
         console.log(`[SkillsEditor] Update completed successfully`);
       } else {
         console.log(`[SkillsEditor] Creating new config:`, configData);
-        await createConfig(configData);
+        await createSkill(configData);
       }
 
       setSubmitStatus("success");
@@ -938,7 +938,7 @@ interface SkillsEditorDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSuccess?: () => void;
-  existingConfig?: AgentConfig;
+  existingConfig?: AgentSkill;
 }
 
 export function SkillsEditorDialog({

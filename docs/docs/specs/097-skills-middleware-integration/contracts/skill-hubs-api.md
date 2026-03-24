@@ -6,9 +6,44 @@
 
 Authorized users (admins or “skill hub managers”) can register, update, and remove external skill hubs. Unauthorized attempts must receive a clear permission error (FR-009). These endpoints are used by an admin UI or settings page, not by the chat command.
 
+**Crawl / preview (FR-017)**: Before registering a hub, the UI calls a **crawl** endpoint to list discovered `SKILL.md` paths (and optional parsed titles) so admins can confirm what will be ingested.
+
 ---
 
 ## Endpoints
+
+### Crawl / preview hub (no persistence)
+
+**Method**: `POST`  
+**Path**: `/api/skill-hubs/crawl` (or `/api/skill-hubs/preview`)
+
+**Body**:
+
+```json
+{
+  "type": "github",
+  "location": "owner/repo",
+  "credentials_ref": null
+}
+```
+
+**Response (200)**:
+
+```json
+{
+  "paths": ["skills/foo/SKILL.md", "skills/bar/SKILL.md"],
+  "skills_preview": [
+    { "path": "skills/foo/SKILL.md", "name": "foo", "description": "…" }
+  ],
+  "error": null
+}
+```
+
+- On GitHub errors (404, auth): **400** or **502** with clear `message`; do not register a hub.
+- **Authorization**: Same as POST hub (admin / skill hub manager); **403** if unauthorized.
+- **Limits**: Enforce max files, timeout, and depth to avoid abuse (input validation, rate limit).
+
+---
 
 ### List hubs
 

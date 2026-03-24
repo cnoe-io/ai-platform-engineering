@@ -1,5 +1,5 @@
 /**
- * Agent Skills Configuration Types
+ * Agent skill types (catalog source: agent_skills)
  * 
  * These types define the structure for both:
  * - Multi-step agent workflows (based on task_config.yaml)
@@ -12,7 +12,7 @@
 export type WorkflowDifficulty = "beginner" | "intermediate" | "advanced";
 
 /**
- * Visibility level for skills/agent configs
+ * Visibility level for skills
  *
  * - "private":  Only the owner can see and use this skill
  * - "team":     Owner + members of shared_with_teams can see it
@@ -44,21 +44,21 @@ export interface WorkflowInputForm {
 }
 
 /**
- * A single task step within an agent configuration
+ * A single task step within an agent skill
  */
-export interface AgentConfigTask {
+export interface AgentSkillTask {
   /** UI label displayed for this step */
   display_text: string;
   /** LLM prompt template with {variable} or {{variable}} placeholders for substitution */
   llm_prompt: string;
   /** Target subagent to execute this task (caipe, github, aws, argocd, aigateway, webex, jira) */
-  subagent: AgentConfigSubagent;
+  subagent: AgentSkillSubagent;
 }
 
 /**
  * Available subagent types that can execute tasks
  */
-export type AgentConfigSubagent = 
+export type AgentSkillSubagent = 
   | "user_input"  // User input collection via forms
   | "github"    // GitHub operations via gh CLI
   | "aws"       // AWS resource provisioning
@@ -69,9 +69,9 @@ export type AgentConfigSubagent =
   | string;     // Allow custom subagents
 
 /**
- * Categories for organizing agent configurations
+ * Categories for organizing agent skills
  */
-export type AgentConfigCategory =
+export type AgentSkillCategory =
   | "GitHub Operations"
   | "AWS Operations"
   | "ArgoCD Operations"
@@ -88,14 +88,14 @@ export type AgentConfigCategory =
   | "Custom";
 
 /**
- * Metadata for an agent configuration
+ * Metadata for an agent skill
  */
-export interface AgentConfigMetadata {
-  /** Environment variables required for this config to work */
+export interface AgentSkillMetadata {
+  /** Environment variables required for this skill to work */
   env_vars_required?: string[];
   /** Estimated duration for the workflow (e.g., "2-5 minutes") */
   estimated_duration?: string;
-  /** Version of the config schema */
+  /** Version of the skill schema */
   schema_version?: string;
   /** Tags for filtering/searching */
   tags?: string[];
@@ -105,11 +105,14 @@ export interface AgentConfigMetadata {
   allowed_tools?: string[];
 }
 
+/** Scan status set by skill-scanner on save/publish (FR-027). */
+export type ScanStatus = "passed" | "flagged" | "unscanned";
+
 /**
- * Main agent configuration interface
+ * Main agent skill interface
  * Represents both multi-step workflows and quick-start templates
  */
-export interface AgentConfig {
+export interface AgentSkill {
   /** Unique identifier */
   id: string;
   /** Display name (e.g., "Create GitHub Repo") */
@@ -117,19 +120,19 @@ export interface AgentConfig {
   /** Optional description of what this workflow does */
   description?: string;
   /** Category for organization */
-  category: AgentConfigCategory | string;
+  category: AgentSkillCategory | string;
   /** Ordered list of tasks to execute */
-  tasks: AgentConfigTask[];
-  /** Owner's email address (for user-created configs) */
+  tasks: AgentSkillTask[];
+  /** Owner's email address (for user-created skills) */
   owner_id: string;
-  /** Whether this is a system/built-in config (cannot be deleted by users) */
+  /** Whether this is a system/built-in skill (cannot be deleted by users) */
   is_system: boolean;
   /** Creation timestamp */
   created_at: Date;
   /** Last update timestamp */
   updated_at: Date;
   /** Additional metadata */
-  metadata?: AgentConfigMetadata;
+  metadata?: AgentSkillMetadata;
   
   // Quick-start template fields (for single-step workflows)
   /** Whether this is a quick-start template (single prompt, executes in chat) */
@@ -146,17 +149,21 @@ export interface AgentConfig {
   visibility?: SkillVisibility;
   /** Team IDs this skill is shared with (when visibility is "team") */
   shared_with_teams?: string[];
+  /** Scan status from skill-scanner on save (FR-027) */
+  scan_status?: ScanStatus;
+  /** Ancillary files (scripts, references, assets) keyed by relative path (FR-028) */
+  ancillary_files?: Record<string, string>;
 }
 
 /**
- * Input for creating a new agent configuration
+ * Input for creating a new agent skill
  */
-export interface CreateAgentConfigInput {
+export interface CreateAgentSkillInput {
   name: string;
   description?: string;
-  category: AgentConfigCategory | string;
-  tasks: AgentConfigTask[];
-  metadata?: AgentConfigMetadata;
+  category: AgentSkillCategory | string;
+  tasks: AgentSkillTask[];
+  metadata?: AgentSkillMetadata;
   // Quick-start fields
   is_quick_start?: boolean;
   difficulty?: WorkflowDifficulty;
@@ -168,17 +175,21 @@ export interface CreateAgentConfigInput {
   visibility?: SkillVisibility;
   /** Team IDs to share with (when visibility is "team") */
   shared_with_teams?: string[];
+  /** Scan status from skill-scanner on save (FR-027) */
+  scan_status?: ScanStatus;
+  /** Ancillary files keyed by relative path (FR-028) */
+  ancillary_files?: Record<string, string>;
 }
 
 /**
- * Input for updating an existing agent configuration
+ * Input for updating an existing agent skill
  */
-export interface UpdateAgentConfigInput {
+export interface UpdateAgentSkillInput {
   name?: string;
   description?: string;
-  category?: AgentConfigCategory | string;
-  tasks?: AgentConfigTask[];
-  metadata?: AgentConfigMetadata;
+  category?: AgentSkillCategory | string;
+  tasks?: AgentSkillTask[];
+  metadata?: AgentSkillMetadata;
   // Quick-start fields
   is_quick_start?: boolean;
   difficulty?: WorkflowDifficulty;
@@ -190,6 +201,10 @@ export interface UpdateAgentConfigInput {
   visibility?: SkillVisibility;
   /** Team IDs to share with (when visibility is "team") */
   shared_with_teams?: string[];
+  /** Scan status from skill-scanner on save (FR-027) */
+  scan_status?: ScanStatus;
+  /** Ancillary files keyed by relative path (FR-028) */
+  ancillary_files?: Record<string, string>;
 }
 
 /**
@@ -357,17 +372,17 @@ export function generateInputFormFromPrompt(
 }
 
 /**
- * Parse a task_config.yaml style object into AgentConfig array
+ * Parse a task_config.yaml style object into AgentSkill array
  */
 export function parseTaskConfigObject(
   config: Record<string, { tasks: Array<{ display_text: string; llm_prompt: string; subagent: string }> }>,
   ownerId: string = "system"
-): AgentConfig[] {
+): AgentSkill[] {
   const now = new Date();
   
   return Object.entries(config).map(([name, value]) => {
     // Infer category from name
-    let category: AgentConfigCategory = "Custom";
+    let category: AgentSkillCategory = "Custom";
     if (name.toLowerCase().includes("github") || name.toLowerCase().includes("repo")) {
       category = "GitHub Operations";
     } else if (name.toLowerCase().includes("aws") || name.toLowerCase().includes("ec2") || name.toLowerCase().includes("eks") || name.toLowerCase().includes("s3")) {
@@ -398,7 +413,7 @@ export function parseTaskConfigObject(
       tasks: value.tasks.map(task => ({
         display_text: task.display_text,
         llm_prompt: task.llm_prompt,
-        subagent: task.subagent as AgentConfigSubagent,
+        subagent: task.subagent as AgentSkillSubagent,
       })),
       owner_id: ownerId,
       is_system: ownerId === "system",
@@ -416,7 +431,7 @@ export function parseTaskConfigObject(
  * Built-in quick-start templates (formerly "Use Cases")
  * These are single-step prompts that execute directly in chat
  */
-export const BUILTIN_QUICK_START_TEMPLATES: AgentConfig[] = [
+export const BUILTIN_QUICK_START_TEMPLATES: AgentSkill[] = [
   {
     id: "qs-deploy-status",
     name: "Check Deployment Status",

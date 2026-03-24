@@ -34,7 +34,7 @@ import {
 import { CAIPESpinner } from "@/components/ui/caipe-spinner";
 import { cn } from "@/lib/utils";
 import { getStorageMode } from "@/lib/storage-config";
-import type { SkillMetricsPersonal } from "@/types/agent-config";
+import type { SkillMetricsPersonal } from "@/types/agent-skill";
 
 // ─── Types ───────────────────────────────────────────────────────
 interface SkillUsageEntry {
@@ -471,7 +471,7 @@ function InsightsPage() {
               Skill Usage
             </CardTitle>
             <CardDescription>
-              Agent Skills you have invoked, grouped by category
+              Skills you have invoked, grouped by category
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -479,13 +479,13 @@ function InsightsPage() {
               <div className="text-center py-8 space-y-2">
                 <Zap className="h-8 w-8 text-muted-foreground mx-auto" />
                 <p className="text-sm text-muted-foreground">
-                  No skill runs yet. Run an Agent Skill to see your usage here.
+                  No skill runs yet. Run a skill from the skills page to see your usage here.
                 </p>
                 <button
                   onClick={() => router.push("/skills")}
                   className="mt-2 px-4 py-1.5 text-xs rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
                 >
-                  Browse Agent Skills
+                  Browse skills
                 </button>
               </div>
             ) : (

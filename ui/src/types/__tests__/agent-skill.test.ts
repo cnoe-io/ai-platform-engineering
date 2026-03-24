@@ -1,5 +1,5 @@
 /**
- * Tests for agent-config.ts utility functions.
+ * Tests for agent-skill.ts utility functions.
  *
  * Covers:
  *  - extractPromptVariables: single-brace, double-brace, default values, dedup, edge cases
@@ -11,7 +11,7 @@ import {
   extractPromptVariables,
   generateInputFormFromPrompt,
   parseTaskConfigObject,
-} from "../agent-config";
+} from "../agent-skill";
 
 // ---------------------------------------------------------------------------
 // extractPromptVariables

@@ -4,10 +4,10 @@
 
 Merges skills from:
   - Filesystem / SKILLS_DIR  (default)
-  - MongoDB agent_configs    (agent_config)
+  - MongoDB agent_skills    (agent_skills)
   - Registered GitHub hubs   (hub)
 
-Applies deterministic precedence (default > agent_config > hub).
+Applies deterministic precedence (default > agent_skills > hub).
 Provides a TTL-based in-memory cache so the supervisor can hot-reload
 without restart (FR-012).
 """
@@ -20,22 +20,42 @@ import time
 from typing import Any
 
 from ai_platform_engineering.skills_middleware.loaders.default import load_default_skills
-from ai_platform_engineering.skills_middleware.loaders.agent_config import load_agent_config_skills
+from ai_platform_engineering.skills_middleware.loaders.agent_skill import load_agent_skills
 from ai_platform_engineering.skills_middleware.precedence import merge_skills
+from ai_platform_engineering.skills_middleware.entitlement import normalize_merged_skills
 
 logger = logging.getLogger(__name__)
 
-# Cache
+# Cache — TTL defaults raised to avoid re-fetching GitHub hubs on every request.
 _skills_cache: list[dict[str, Any]] | None = None
 _skills_cache_time: float = 0.0
-SKILLS_CACHE_TTL = int(os.getenv("SKILLS_CACHE_TTL", "60"))  # seconds
+SKILLS_CACHE_TTL = int(os.getenv("SKILLS_CACHE_TTL", "3600"))  # seconds (default 1 hour)
+
+# Separate hub cache with longer TTL — GitHub API calls are expensive (~70s).
+_hub_cache: list[dict[str, Any]] | None = None
+_hub_cache_time: float = 0.0
+HUB_CACHE_TTL = int(os.getenv("HUB_CACHE_TTL", "3600"))  # seconds (default 1 hour)
+
+# Bumped on each ``invalidate_skills_cache()`` for UI vs supervisor diff (FR-016).
+_catalog_cache_generation: int = 0
 
 
 def _load_hub_skills(include_content: bool = True) -> list[dict[str, Any]]:
     """Load skills from all enabled hubs in MongoDB ``skill_hubs`` collection.
 
+    Uses a separate cache with longer TTL (``HUB_CACHE_TTL``) because GitHub
+    API calls are the dominant cost (~70s per refresh).  The main catalog cache
+    can expire and cheaply re-merge without re-fetching hubs.
+
     Returns empty list if MongoDB is unavailable or no hubs exist.
     """
+    global _hub_cache, _hub_cache_time
+
+    now = time.time()
+    if _hub_cache is not None and (now - _hub_cache_time) < HUB_CACHE_TTL:
+        logger.debug("Hub cache hit (%d skills, age %.0fs)", len(_hub_cache), now - _hub_cache_time)
+        return list(_hub_cache)
+
     try:
         from ai_platform_engineering.utils.mongodb_client import get_mongodb_client
     except ImportError:
@@ -55,6 +75,8 @@ def _load_hub_skills(include_content: bool = True) -> list[dict[str, Any]]:
         return []
 
     if not hubs:
+        _hub_cache = []
+        _hub_cache_time = now
         return []
 
     from ai_platform_engineering.skills_middleware.loaders.hub_github import fetch_github_hub_skills
@@ -72,9 +94,19 @@ def _load_hub_skills(include_content: bool = True) -> list[dict[str, Any]]:
 
         try:
             skills = fetch_github_hub_skills(hub, include_content=include_content)
+            try:
+                from ai_platform_engineering.skills_middleware.hub_skill_scan import (
+                    hub_scan_should_block_merge,
+                )
+
+                if hub_scan_should_block_merge(str(hub_id), skills):
+                    unavailable.append(hub_id)
+                    continue
+            except Exception as scan_err:
+                logger.warning("Skill scanner hook skipped for hub %s: %s", hub_id, scan_err)
+
             all_hub_skills.extend(skills)
 
-            # Update last_success_at
             hubs_collection.update_one(
                 {"_id": hub["_id"]},
                 {"$set": {"last_success_at": time.time()}},
@@ -82,7 +114,6 @@ def _load_hub_skills(include_content: bool = True) -> list[dict[str, Any]]:
         except Exception as e:
             logger.error("Hub %s fetch failed: %s", hub_id, e)
             unavailable.append(hub_id)
-            # Update last_failure_*
             try:
                 hubs_collection.update_one(
                     {"_id": hub["_id"]},
@@ -94,7 +125,10 @@ def _load_hub_skills(include_content: bool = True) -> list[dict[str, Any]]:
             except Exception:
                 pass
 
-    return all_hub_skills
+    _hub_cache = all_hub_skills
+    _hub_cache_time = now
+    logger.info("Hub cache refreshed: %d skills from %d hubs", len(all_hub_skills), len(hubs) - len(unavailable))
+    return list(all_hub_skills)
 
 
 def get_merged_skills(include_content: bool = False) -> list[dict[str, Any]]:
@@ -119,7 +153,7 @@ def get_merged_skills(include_content: bool = False) -> list[dict[str, Any]]:
         return list(_skills_cache)
 
     default_skills = load_default_skills(include_content=True)
-    agent_config_skills = load_agent_config_skills(include_content=True)
+    agent_skills_list = load_agent_skills(include_content=True)
 
     try:
         hub_skills = _load_hub_skills(include_content=True)
@@ -127,16 +161,17 @@ def get_merged_skills(include_content: bool = False) -> list[dict[str, Any]]:
         logger.exception("Hub skill loading failed; continuing without hub skills")
         hub_skills = []
 
-    merged = merge_skills(default_skills, agent_config_skills, hub_skills)
+    merged = merge_skills(default_skills, agent_skills_list, hub_skills)
+    merged = normalize_merged_skills(merged)
 
     _skills_cache = merged
     _skills_cache_time = now
 
     logger.info(
-        "Skills catalog refreshed: %d total (%d default, %d agent_config, %d hub)",
+        "Skills catalog refreshed: %d total (%d default, %d agent_skills, %d hub)",
         len(merged),
         len(default_skills),
-        len(agent_config_skills),
+        len(agent_skills_list),
         len(hub_skills),
     )
 
@@ -168,8 +203,23 @@ def get_unavailable_sources() -> list[str]:
         return []
 
 
-def invalidate_skills_cache() -> None:
-    """Clear the in-memory skills cache, forcing a fresh load on next access."""
-    global _skills_cache, _skills_cache_time
+def invalidate_skills_cache(*, include_hubs: bool = True) -> None:
+    """Clear the in-memory skills cache, forcing a fresh load on next access.
+
+    Args:
+        include_hubs: Also clear the hub cache (default True).  Set False to
+            keep cached hub results and only re-merge default + agent_skills.
+    """
+    global _skills_cache, _skills_cache_time, _catalog_cache_generation
+    global _hub_cache, _hub_cache_time
     _skills_cache = None
     _skills_cache_time = 0.0
+    _catalog_cache_generation += 1
+    if include_hubs:
+        _hub_cache = None
+        _hub_cache_time = 0.0
+
+
+def get_catalog_cache_generation() -> int:
+    """Monotonic counter incremented when the merged-skills cache is invalidated."""
+    return _catalog_cache_generation

@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { useSearchParams } from "next/navigation";
+import { useSearchParams, useRouter, usePathname } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { motion } from "framer-motion";
 import { Users, MessageSquare, TrendingUp, Activity, Database, Share2, ShieldCheck, ShieldOff, UserPlus, Trash2, UsersIcon, Loader2, Bot, ThumbsUp, ThumbsDown, Clock, Zap, CheckCircle2, AlertCircle, Layers, Eye, Star, Filter, ExternalLink, Plus, Calendar, X, FileText, Shield } from "lucide-react";
@@ -27,11 +27,12 @@ import { AuditLogsTab } from "@/components/admin/AuditLogsTab";
 import { PolicyTab } from "@/components/admin/PolicyTab";
 import { CheckpointStatsSection } from "@/components/admin/CheckpointStatsSection";
 import { SkillHubsSection } from "@/components/admin/SkillHubsSection";
+import { SupervisorSkillsStatusSection } from "@/components/admin/SupervisorSkillsStatusSection";
 import { useAdminRole } from "@/hooks/use-admin-role";
 import { getConfig } from "@/lib/config";
 import { apiClient } from "@/lib/api-client";
 import type { Team as TeamType } from "@/types/teams";
-import type { SkillMetricsAdmin } from "@/types/agent-config";
+import type { SkillMetricsAdmin } from "@/types/agent-skill";
 
 interface AdminStats {
   overview: {
@@ -167,6 +168,8 @@ const VALID_TABS = ['users', 'teams', 'stats', 'skills', 'feedback', 'nps', 'met
 function AdminPage() {
   const { status } = useSession();
   const searchParams = useSearchParams();
+  const router = useRouter();
+  const pathname = usePathname();
   const { isAdmin } = useAdminRole();
   const auditLogsEnabled = getConfig('auditLogsEnabled');
   const [stats, setStats] = useState<AdminStats | null>(null);
@@ -573,7 +576,12 @@ function AdminPage() {
             )}
 
             {/* Tabbed Content */}
-            <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
+            <Tabs value={activeTab} onValueChange={(tab) => {
+              setActiveTab(tab);
+              const params = new URLSearchParams(searchParams.toString());
+              params.set('tab', tab);
+              router.replace(`${pathname}?${params.toString()}`, { scroll: false });
+            }} className="space-y-4">
               <TabsList className={`grid w-full ${(() => {
                 const n = 6
                   + (getConfig('feedbackEnabled') ? 1 : 0)
@@ -938,7 +946,8 @@ function AdminPage() {
                   </Card>
                 )}
 
-                {/* Skill Hubs Management */}
+                {/* Supervisor skills + Skill Hubs */}
+                <SupervisorSkillsStatusSection isAdmin={isAdmin} />
                 <SkillHubsSection isAdmin={isAdmin} />
               </TabsContent>
 

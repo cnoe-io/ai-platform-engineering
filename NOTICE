@@ -1,0 +1,13 @@
+Third-party notices
+===================
+
+Skill Scanner (Cisco AI Defense)
+--------------------------------
+This project may invoke the **Skill Scanner** CLI (`skill-scanner` / `cisco-ai-skill-scanner`) for
+optional security analysis of skill content. Skill Scanner is provided by **Cisco AI Defense**.
+
+- Repository: https://github.com/cisco-ai-defense/skill-scanner
+- License: refer to the upstream project (Apache-2.0 per upstream repository).
+
+See `docs/docs/specs/097-skills-middleware-integration/contracts/skill-scanner-pipeline.md` for
+product usage, attribution, and operational notes.

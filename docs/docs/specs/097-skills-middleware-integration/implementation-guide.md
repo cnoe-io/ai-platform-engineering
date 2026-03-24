@@ -6,7 +6,7 @@
 
 The feature delivers a two-layer skills architecture:
 
-1. **Custom catalog layer** (`ai_platform_engineering/skills_middleware/`) — aggregates skills from filesystem, MongoDB agent_configs, and GitHub hubs; applies precedence; provides TTL-cached access.
+1. **Custom catalog layer** (`ai_platform_engineering/skills_middleware/`) — aggregates skills from filesystem, MongoDB agent_skills, and GitHub hubs; applies precedence; provides TTL-cached access.
 2. **Upstream SkillsMiddleware** (`deepagents.middleware.skills.SkillsMiddleware`) — reads normalized `SKILL.md` files from `StateBackend` and injects them into the supervisor's system prompt via progressive disclosure.
 
 ```
@@ -16,7 +16,7 @@ The feature delivers a two-layer skills architecture:
   +------------------+      +------------------+
   | default loader   |----->|                  |
   +------------------+      |   catalog.py     |----> GET /skills (FastAPI)
-  | agent_config     |----->| get_merged_skills|----> GET /api/skills (Next.js)
+  | agent_skills     |----->| get_merged_skills|----> GET /api/skills (Next.js)
   | loader (MongoDB) |      |   precedence     |
   +------------------+      |   TTL cache      |
   | hub_github       |----->|                  |----> build_skills_files()
@@ -28,6 +28,14 @@ The feature delivers a two-layer skills architecture:
                                                      SkillsMiddleware
                                                      (system prompt injection)
 ```
+
+## SkillsMiddleware lifecycle vs per-invoke `files` (multi-user)
+
+**Normative spec**: [spec.md](./spec.md) — *Supervisor runtime reference* → **Architecture: `SkillsMiddleware` lifecycle, shared graph, and per-invoke `files`**.
+
+- **`SkillsMiddleware` is created when `create_deep_agent` runs** inside `AIPlatformEngineerMAS._build_graph()`, **not** on every A2A message or `serve()` call.
+- **Each invoke** supplies **initial state**, including **`files`** (the virtual filesystem `SkillsMiddleware` reads). Today `deep_agent.py` and `protocol_bindings/a2a/agent.py` copy **`_skills_files`** from the last graph build into that state.
+- For **per-user entitlement (FR-020)**, build **`files` per invoke** at the protocol boundary (where JWT / `sub` / teams are known); keep **one shared compiled graph**. Do **not** mutate `_skills_files` per request without careful concurrency control.
 
 ## Catalog API
 
@@ -109,7 +117,7 @@ Located in the **Skills** tab of the Admin Dashboard (`/admin?tab=skills`). The 
 When the same skill name appears from multiple sources:
 
 1. **default** (filesystem) — highest priority
-2. **agent_config** (MongoDB) — medium
+2. **agent_skills** (MongoDB) — medium
 3. **hub** (GitHub) — lowest; among hubs, earlier registration wins
 
 ## Hot Reload (FR-012)

@@ -20,6 +20,7 @@ from ai_platform_engineering.multi_agents.platform_engineer.deep_agent import (
     AIPlatformEngineerMAS,
     USE_STRUCTURED_RESPONSE,
 )
+from ai_platform_engineering.skills_middleware.mas_registry import set_mas_instance
 from ai_platform_engineering.multi_agents.platform_engineer.prompts import (
     system_prompt
 )
@@ -46,6 +47,7 @@ class AIPlatformEngineerA2ABinding:
 
   def __init__(self):
       self._mas_instance = AIPlatformEngineerMAS()
+      set_mas_instance(self._mas_instance)
       self.graph = self._mas_instance.get_graph()
       self.tracing = TracingManager()
       self._execution_plan_sent = False
@@ -242,6 +244,28 @@ class AIPlatformEngineerA2ABinding:
               logging.debug("No trace_id available from parameter or context")
 
       logging.debug(f"Created tracing config: {config}")
+
+      # Per-invoke entitled + capped skill files (FR-020, T066); fallback to graph snapshot.
+      raw_teams = config.get("metadata", {}).get("team_ids")
+      team_ids_list = [str(x) for x in raw_teams] if isinstance(raw_teams, list) else []
+      entitled_files = None
+      try:
+          from ai_platform_engineering.skills_middleware.invoke_skills import (
+              build_entitled_skills_files,
+          )
+
+          entitled_files = build_entitled_skills_files(
+              sub=str(user_id) if user_id else None,
+              team_ids=team_ids_list,
+          )
+      except Exception:
+          entitled_files = None
+      if entitled_files:
+          inputs["files"] = dict(entitled_files)
+      else:
+          skills_files = getattr(self._mas_instance, "_skills_files", None)
+          if skills_files:
+              inputs["files"] = dict(skills_files)
 
       # ========================================================================
       # CROSS-THREAD MEMORY: Retrieve prior context for new conversations

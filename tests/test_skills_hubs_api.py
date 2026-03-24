@@ -16,6 +16,7 @@ NOTE: These test the Python catalog/hub_github layer, NOT the Next.js API routes
 see test_skills_router below.
 """
 
+import os
 import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -133,6 +134,110 @@ class TestSkillsRouter:
         data = resp.json()
         assert "hub:broken-repo" in data["meta"]["unavailable_sources"]
 
+    def test_get_skills_pagination(self, client):
+        """GET /skills?page=&page_size= slices results (T063)."""
+        skills_list = [
+            {
+                "name": f"s{i}",
+                "description": "d",
+                "source": "default",
+                "source_id": None,
+                "content": None,
+                "metadata": {},
+                "visibility": "global",
+                "team_ids": [],
+                "owner_user_id": None,
+            }
+            for i in range(5)
+        ]
+        with patch(
+            "ai_platform_engineering.skills_middleware.catalog.get_merged_skills",
+            return_value=skills_list,
+        ), patch(
+            "ai_platform_engineering.skills_middleware.catalog.get_unavailable_sources",
+            return_value=[],
+        ):
+            resp = client.get("/skills?page=1&page_size=2")
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["meta"]["total"] == 5
+        assert len(data["skills"]) == 2
+        assert data["meta"]["page"] == 1
+
+    def test_get_skills_visibility_query(self, client):
+        """GET /skills?visibility= filters entitled list (T063)."""
+        skills_list = [
+            {
+                "name": "g",
+                "description": "d",
+                "source": "default",
+                "source_id": None,
+                "content": None,
+                "metadata": {},
+                "visibility": "global",
+                "team_ids": [],
+                "owner_user_id": None,
+            },
+            {
+                "name": "t",
+                "description": "d",
+                "source": "default",
+                "source_id": None,
+                "content": None,
+                "metadata": {},
+                "visibility": "team",
+                "team_ids": ["x"],
+                "owner_user_id": None,
+            },
+        ]
+        with patch(
+            "ai_platform_engineering.skills_middleware.catalog.get_merged_skills",
+            return_value=skills_list,
+        ), patch(
+            "ai_platform_engineering.skills_middleware.catalog.get_unavailable_sources",
+            return_value=[],
+        ):
+            resp = client.get("/skills?visibility=team")
+
+        assert resp.status_code == 200
+        names = [s["name"] for s in resp.json()["skills"]]
+        assert names == ["t"]
+
+    def test_get_skills_invalid_catalog_api_key_401(self, client):
+        """Invalid catalog API key returns 401 (T063)."""
+        with patch.dict(os.environ, {"OIDC_ISSUER": ""}, clear=False), patch(
+            "ai_platform_engineering.skills_middleware.api_keys_store.verify_catalog_api_key",
+            return_value=None,
+        ):
+            resp = client.get(
+                "/skills",
+                headers={"X-Caipe-Catalog-Key": "sk_test.invalid"},
+            )
+        assert resp.status_code == 401
+
+    def test_supervisor_skills_status_includes_sync(self, client):
+        """GET /internal/supervisor/skills-status exposes sync_status (T067)."""
+        mas = MagicMock()
+        mas.get_skills_status.return_value = {
+            "graph_generation": 1,
+            "skills_loaded_count": 2,
+            "skills_merged_at": "2026-01-01T00:00:00Z",
+            "catalog_cache_generation": 3,
+            "last_built_catalog_generation": 2,
+            "sync_status": "supervisor_stale",
+        }
+        with patch(
+            "ai_platform_engineering.skills_middleware.mas_registry.get_mas_instance",
+            return_value=mas,
+        ):
+            resp = client.get("/internal/supervisor/skills-status")
+
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["sync_status"] == "supervisor_stale"
+        assert body["mas_registered"] is True
+
 
 # ---------------------------------------------------------------------------
 # Hub fetcher edge cases
@@ -220,7 +325,7 @@ class TestCatalogHubIntegration:
             "ai_platform_engineering.skills_middleware.catalog.load_default_skills",
             return_value=[],
         ), patch(
-            "ai_platform_engineering.skills_middleware.catalog.load_agent_config_skills",
+            "ai_platform_engineering.skills_middleware.catalog.load_agent_skills",
             return_value=[],
         ), patch(
             "ai_platform_engineering.skills_middleware.catalog._load_hub_skills",
@@ -263,7 +368,7 @@ class TestCatalogHubIntegration:
             "ai_platform_engineering.skills_middleware.catalog.load_default_skills",
             return_value=default_skills,
         ), patch(
-            "ai_platform_engineering.skills_middleware.catalog.load_agent_config_skills",
+            "ai_platform_engineering.skills_middleware.catalog.load_agent_skills",
             return_value=[],
         ), patch(
             "ai_platform_engineering.skills_middleware.catalog._load_hub_skills",
@@ -293,7 +398,7 @@ class TestCatalogHubIntegration:
                 }
             ],
         ), patch(
-            "ai_platform_engineering.skills_middleware.catalog.load_agent_config_skills",
+            "ai_platform_engineering.skills_middleware.catalog.load_agent_skills",
             return_value=[],
         ), patch(
             "ai_platform_engineering.skills_middleware.catalog._load_hub_skills",
@@ -348,7 +453,7 @@ SAMPLE_SKILLS = [
     {
         "name": "agent-test",
         "description": "Run test suite via agent config",
-        "source": "agent_config",
+        "source": "agent_skills",
         "source_id": "user@co",
         "content": None,
         "metadata": {"tags": ["test", "integration"]},

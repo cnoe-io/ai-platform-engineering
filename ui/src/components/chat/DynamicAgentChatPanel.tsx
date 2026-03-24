@@ -21,7 +21,10 @@ import { ChatMessage as ChatMessageType } from "@/types/a2a";
 import { getConfig } from "@/lib/config";
 import { apiClient } from "@/lib/api-client";
 import { FeedbackButton, Feedback } from "./FeedbackButton";
+import { DEFAULT_AGENTS } from "./CustomCallButtons";
 import { MetadataInputForm, type UserInputMetadata, type InputField } from "./MetadataInputForm";
+import { SlashCommandMenu, getFilteredCommands, type SlashCommand } from "./SlashCommandMenu";
+import { useSlashCommands } from "./useSlashCommands";
 import { getGradientStyle } from "@/lib/gradient-themes";
 
 type ReadOnlyReason = 'admin_audit' | 'shared_readonly' | 'agent_deleted' | 'agent_disabled';
@@ -53,7 +56,9 @@ export function DynamicAgentChatPanel({ endpoint, conversationId, conversationTi
   const [input, setInput] = useState("");
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [queuedMessages, setQueuedMessages] = useState<string[]>([]);
-  // Removed mention menu state
+  const [showSlashMenu, setShowSlashMenu] = useState(false);
+  const [slashFilter, setSlashFilter] = useState("");
+  const [slashSelectedIndex, setSlashSelectedIndex] = useState(0);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const scrollViewportRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -107,7 +112,11 @@ export function DynamicAgentChatPanel({ endpoint, conversationId, conversationTi
     // Let's remove it for now to avoid errors, as Dynamic Agents rely on SSE resume, not task polling.
     evictOldMessageContent,
     loadMessagesFromServer,
+    updateConversationTitle,
   } = useChatStore();
+
+  // Slash command registry
+  const slashCommands = useSlashCommands();
 
   // Get access token from session (if SSO is enabled and user is authenticated)
   const ssoEnabled = getConfig('ssoEnabled');
@@ -616,42 +625,113 @@ export function DynamicAgentChatPanel({ endpoint, conversationId, conversationTi
 
     const turnId = `turn-${Date.now()}`;
     addMessage(convId, { role: "user", content: "/skills" }, turnId);
+
+    // Set a descriptive title instead of "/skills"
+    updateConversationTitle(convId, "Skills Catalog");
+
     const msgId = addMessage(convId, { role: "assistant", content: "Loading skills..." }, turnId);
 
     try {
-      const res = await fetch("/api/skills");
+      const res = await fetch("/api/skills?page=1&page_size=50", { credentials: "include" });
       if (!res.ok) {
-        updateMessage(convId, msgId, "Skills are temporarily unavailable. Please try again later.");
+        updateMessage(convId, msgId, { content: "Skills are temporarily unavailable. Please try again later.", isFinal: true });
         return;
       }
       const data = await res.json();
       const skills = data.skills || [];
+      const total = typeof data.meta?.total === "number" ? data.meta.total : skills.length;
+      const noMatches = data.meta?.message === "no_matches";
       if (skills.length === 0) {
-        updateMessage(convId, msgId, "No skills available at the moment.");
+        updateMessage(
+          convId,
+          msgId,
+          {
+            content: noMatches
+              ? "No skills match your current search or filters. Open the skills page to adjust filters or add hubs."
+              : "No skills available at the moment. Ask an admin to register hubs or agent config skills.",
+            isFinal: true,
+          },
+        );
         return;
       }
+      const more = total > skills.length ? ` (showing ${skills.length} of ${total})` : "";
       const lines = [
-        `**Available Skills** (${skills.length})\n`,
+        `**Available Skills**${more}\n`,
         ...skills.map((s: { name: string; description: string; source: string }) =>
           `- **${s.name}**: ${s.description} *(${s.source})*`
         ),
-        "\n*Type /skills any time to see this list.*",
+        "\n*Same catalog as the skills page (first page). Type /skills any time to refresh.*",
       ];
-      updateMessage(convId, msgId, lines.join("\n"));
+      updateMessage(convId, msgId, { content: lines.join("\n"), isFinal: true });
     } catch {
-      updateMessage(convId, msgId, "Skills are temporarily unavailable. Please try again later.");
+      updateMessage(convId, msgId, { content: "Skills are temporarily unavailable. Please try again later.", isFinal: true });
     }
-  }, [activeConversationId, createConversation, addMessage, updateMessage]);
+  }, [activeConversationId, createConversation, addMessage, updateMessage, updateConversationTitle]);
+
+  // Handle /help command: show available commands in chat
+  const handleHelpCommand = useCallback(() => {
+    let convId = activeConversationId;
+    if (!convId) {
+      convId = createConversation();
+    }
+    const turnId = `turn-${Date.now()}`;
+    addMessage(convId, { role: "user", content: "/help" }, turnId);
+
+    // Set a descriptive title instead of "/help"
+    updateConversationTitle(convId, "Help & Commands");
+
+    const agentLines = DEFAULT_AGENTS.map(a => `  \`/@${a.id}\` — ${a.label} agent`).join("\n");
+    const helpText = [
+      "**Available Commands**\n",
+      "  `/skills` — List all available skills",
+      "  `/help` — Show this help message",
+      "  `/clear` — Clear the current conversation",
+      "",
+      "**Agents** (inserts @mention, then keep typing your question)\n",
+      agentLines,
+      "",
+      "*Type `/` to see the autocomplete menu. Use Arrow keys + Tab to select.*",
+    ].join("\n");
+
+    addMessage(convId, { role: "assistant", content: helpText, isFinal: true } as any, turnId);
+  }, [activeConversationId, createConversation, addMessage, updateConversationTitle]);
+
+  // Handle /clear command
+  const handleClearCommand = useCallback(() => {
+    createConversation();
+  }, [createConversation]);
+
+  // Unified slash command executor
+  const executeSlashCommand = useCallback(async (commandId: string) => {
+    switch (commandId) {
+      case "skills":
+        await handleSkillsCommand();
+        break;
+      case "help":
+        handleHelpCommand();
+        break;
+      case "clear":
+        handleClearCommand();
+        break;
+    }
+  }, [handleSkillsCommand, handleHelpCommand, handleClearCommand]);
 
   // Wrapper for form submission that uses input state
   const handleSubmit = useCallback(async (forceSend = false) => {
     if (!input.trim()) return;
 
-    // Detect /skills chat command (FR-002) — client-side, no A2A round-trip
-    if (input.trim().toLowerCase() === "/skills") {
-      setInput("");
-      await handleSkillsCommand();
-      return;
+    // Check for slash commands via the registry
+    const trimmed = input.trim();
+    if (trimmed.startsWith("/")) {
+      const cmdName = trimmed.slice(1).toLowerCase();
+      const cmd = slashCommands.find(
+        (c) => c.action === "execute" && c.id === cmdName,
+      );
+      if (cmd) {
+        setInput("");
+        await executeSlashCommand(cmd.id);
+        return;
+      }
     }
 
     // If streaming and not force sending, queue the message (up to 3)
@@ -689,7 +769,7 @@ export function DynamicAgentChatPanel({ endpoint, conversationId, conversationTi
     setInput("");
 
     await submitMessage(message);
-  }, [input, submitMessage, isThisConversationStreaming, queuedMessages, pendingUserInput, handleSkillsCommand]);
+  }, [input, submitMessage, isThisConversationStreaming, queuedMessages, pendingUserInput, slashCommands, executeSlashCommand]);
 
   // Auto-submit pending message from use case selection
   useEffect(() => {
@@ -857,12 +937,104 @@ export function DynamicAgentChatPanel({ endpoint, conversationId, conversationTi
   }, [pendingUserInput, activeConversationId, accessToken, addMessage, updateMessage,
       appendToMessage, addSSEEvent, setConversationStreaming]);
 
-  // Handle @mention detection - REMOVED
+  // Handle slash command detection in input
   const handleInputChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    setInput(e.target.value);
+    const newValue = e.target.value;
+    setInput(newValue);
+
+    const cursorPos = e.target.selectionStart;
+    const textBeforeCursor = newValue.slice(0, cursorPos);
+
+    // Detect / at start of input or after a newline
+    const lastSlash = textBeforeCursor.lastIndexOf("/");
+    if (lastSlash !== -1) {
+      const charBefore = lastSlash > 0 ? textBeforeCursor[lastSlash - 1] : undefined;
+      const isAtStart = lastSlash === 0 || charBefore === "\n";
+
+      if (isAtStart) {
+        const filterText = textBeforeCursor.slice(lastSlash + 1);
+        if (!filterText.includes(" ") && !filterText.includes("\n")) {
+          setSlashFilter(filterText);
+          setShowSlashMenu(true);
+          setSlashSelectedIndex(0);
+          return;
+        }
+      }
+    }
+
+    setShowSlashMenu(false);
   }, []);
 
+  // Handle slash command selection (Tab/Enter/click)
+  const handleSlashSelect = useCallback((cmd: SlashCommand) => {
+    setShowSlashMenu(false);
+
+    if (cmd.action === "execute") {
+      setInput("");
+      executeSlashCommand(cmd.id);
+      return;
+    }
+
+    // Insert commands
+    if (cmd.category === "agent") {
+      // Agent: replace /text with @agentname + trailing space
+      const cursorPos = inputRef.current?.selectionStart ?? input.length;
+      const textBeforeCursor = input.slice(0, cursorPos);
+      const lastSlash = textBeforeCursor.lastIndexOf("/");
+      const textBefore = lastSlash >= 0 ? input.slice(0, lastSlash) : "";
+      const textAfter = input.slice(cursorPos);
+      const newText = textBefore + cmd.value + " " + textAfter;
+
+      setInput(newText);
+      setTimeout(() => {
+        if (inputRef.current) {
+          const newPos = textBefore.length + cmd.value.length + 1;
+          inputRef.current.selectionStart = newPos;
+          inputRef.current.selectionEnd = newPos;
+          inputRef.current.focus();
+        }
+      }, 0);
+    } else if (cmd.category === "skill") {
+      // Skill: send a rich prompt so the supervisor recognizes the skill invocation
+      setInput("");
+      const skillPrompt = `Execute skill: ${cmd.value}\n\nRead and follow the instructions in the SKILL.md file for the "${cmd.value}" skill.`;
+      submitMessage(skillPrompt).then(() => {
+        const convId = activeConversationId;
+        if (convId) {
+          updateConversationTitle(convId, `Skill: ${cmd.label}`);
+        }
+      });
+    }
+  }, [input, executeSlashCommand, submitMessage, activeConversationId, updateConversationTitle]);
+
   const handleKeyDown = (e: React.KeyboardEvent) => {
+    // Slash menu keyboard navigation
+    if (showSlashMenu) {
+      const filtered = getFilteredCommands(slashCommands, slashFilter);
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        setSlashSelectedIndex((i) => Math.min(i + 1, filtered.length - 1));
+        return;
+      }
+      if (e.key === "ArrowUp") {
+        e.preventDefault();
+        setSlashSelectedIndex((i) => Math.max(i - 1, 0));
+        return;
+      }
+      if (e.key === "Tab" || (e.key === "Enter" && !e.shiftKey)) {
+        e.preventDefault();
+        if (filtered.length > 0) {
+          handleSlashSelect(filtered[slashSelectedIndex]);
+        }
+        return;
+      }
+      if (e.key === "Escape") {
+        e.preventDefault();
+        setShowSlashMenu(false);
+        return;
+      }
+    }
+
     // Force send: Cmd/Ctrl + Enter
     if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
       e.preventDefault();
@@ -1218,7 +1390,14 @@ export function DynamicAgentChatPanel({ endpoint, conversationId, conversationTi
           )}
 
           <div className="relative">
-            {/* NO MENTION MENU */}
+            {/* Slash command autocomplete menu */}
+            <SlashCommandMenu
+              filter={slashFilter}
+              commands={slashCommands}
+              selectedIndex={slashSelectedIndex}
+              onSelect={handleSlashSelect}
+              visible={showSlashMenu}
+            />
 
             <div className="relative flex items-center gap-3 bg-card rounded-xl border border-border p-3 transition-all duration-200">
               <TextareaAutosize
@@ -1231,7 +1410,7 @@ export function DynamicAgentChatPanel({ endpoint, conversationId, conversationTi
                     ? queuedMessages.length >= 3
                       ? "Queue full (3/3). Send or cancel messages to queue more, or Cmd+Enter to force send..."
                       : `Type to queue message (${queuedMessages.length}/3), or Cmd+Enter to force send...`
-                    : `Ask anything, type /skills to see available skills, or @ to mention an agent...`
+                    : `Ask anything, or type / to see commands, skills, and agents...`
                 }
                 className="flex-1 bg-transparent resize-none outline-none px-3 py-2.5 text-sm"
                 minRows={1}

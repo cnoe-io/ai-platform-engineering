@@ -3,9 +3,9 @@
 """
 Skills Middleware — shared skill catalog for CAIPE supervisor and UI.
 
-Aggregates skills from filesystem (SKILLS_DIR), MongoDB agent_configs,
+Aggregates skills from filesystem (SKILLS_DIR), MongoDB agent_skills,
 and registered GitHub hubs.  Applies deterministic precedence
-(default > agent_config > hub) and exposes a merged list via
+(default > agent_skills > hub) and exposes a merged list via
 ``get_merged_skills()``.
 
 The catalog also writes normalized SKILL.md files into a ``StateBackend``

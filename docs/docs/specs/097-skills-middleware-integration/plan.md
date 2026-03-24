@@ -1,23 +1,32 @@
-# Implementation Plan: Integrated Skills with Single Source, Chat Commands, and Skill Hubs
+# Implementation Plan: Integrated Skills — Single Source, Chat Commands, Skill Hubs
 
-**Branch**: `097-skills-middleware-integration` | **Date**: 2026-03-18 | **Spec**: [spec.md](./spec.md)
+**Branch**: `097-skills-middleware-integration` | **Date**: 2026-03-27 | **Spec**: [spec.md](./spec.md)
+
 **Input**: Feature specification from `docs/docs/specs/097-skills-middleware-integration/spec.md`
 
 ## Summary
 
-Deliver a single shared skill catalog consumed by both the chat UI and the CAIPE supervisor via a new **skills middleware** (Python). The supervisor uses the upstream `deepagents.middleware.skills.SkillsMiddleware` for system prompt injection (progressive disclosure); our custom catalog layer aggregates skills from MongoDB, agent_configs, filesystem, and GitHub hubs, then writes them into the `SkillsMiddleware`'s `StateBackend` (FR-015). Remove "run in chat" from the UI and direct users to the `/skills` command to see loaded skills. Support client-side `/skills` in chat (catalog API, no A2A). Allow authorized users to onboard GitHub repos as skill hubs via UI; supervisor must hot reload skills or support a UI-triggered catalog refresh so updates apply without restart. Support both Anthropic/agentskills.io and OpenClaw-style SKILL.md when loading from hubs; ClawHub as a hub source is out of scope for v1.
+Unify the skill catalog for the Next.js UI, Try skills gateway (JWT + catalog API keys), and the CAIPE platform engineer supervisor: aggregate default filesystem/Mongo skills, **`agent_skills`** projection (`source: agent_skills`), and GitHub hubs into `skills_middleware`, feed upstream **`deepagents.middleware.skills.SkillsMiddleware`** via `StateBackend`, remove “run skills” / “Run in Chat” from chat, implement **`/skills`** client-side against the same catalog API, support hub **crawl/preview**, **visibility** (global / team / personal), **search/pagination**, **[Skill Scanner](https://github.com/cisco-ai-defense/skill-scanner)** from **Cisco AI Defense** with **documented third-party attribution** in docs, NOTICE, and admin UI (**FR-023**, **SC-009**), configurable gates, bounded prompt summaries (**FR-024**), **supervisor refresh + observability** (**FR-012**, **FR-016**), **gateway–supervisor sync** (**FR-026**), with catalog **`source: agent_skills`** and **`agent_skills` loader** naming aligned across UI and middleware (**FR-025**, completed).
 
 ## Technical Context
 
-**Language/Version**: Python 3.11+ (backend), TypeScript (Next.js 16, React 19 for UI)
-**Primary Dependencies**: LangGraph, LangChain, FastAPI, pymongo/motor (MongoDB), Next.js App Router, A2A SDK, `deepagents>=0.3.8` (upstream `SkillsMiddleware`, `StateBackend`)
-**Storage**: MongoDB (catalog sources: `skills`, `agent_configs`, `skill_hubs`); optional filesystem/ConfigMap for built-in SKILL.md
-**Testing**: pytest (backend), Jest (UI); integration tests for catalog consistency and hub CRUD
-**Target Platform**: Linux server (backend), browser (UI); Docker/Kubernetes deployment
-**Project Type**: Web application (backend API + frontend); skills middleware is a backend component consumed by supervisor (via upstream `SkillsMiddleware` + custom catalog layer) and by UI via API
-**Performance Goals**: Catalog list response &lt;500ms p95 under normal load; hub fetch non-blocking so catalog remains usable during hub refresh
-**Constraints**: No supervisor restart for catalog updates (hot reload or UI trigger); no "run in chat" action; UI must direct users to `/skills` for discovery. Backend catalog endpoint (GET /skills or equivalent) must validate requests using JWT via JWKS or user_info, same pattern as RAG server (FR-014). Supervisor must use upstream `deepagents.middleware.skills.SkillsMiddleware` for system prompt injection; custom catalog layer feeds skills into its backend (FR-015).
-**Scale/Scope**: Single shared catalog; tens of skills from default + agent_configs + a small number of registered hubs (e.g. &lt;20 hubs)
+**Language/Version**: Python 3.11+ (supervisor, `skills_middleware`); TypeScript / Node 20+ (Next.js UI)
+
+**Primary Dependencies**: LangGraph, LangChain, `deepagents` (≥0.3.8, `SkillsMiddleware`), FastAPI, A2A protocol; Next.js 16, React 19, Tailwind; optional **`cisco-ai-skill-scanner`** CLI/package for hub/CI scans per [skill-scanner](https://github.com/cisco-ai-defense/skill-scanner)
+
+**Storage**: MongoDB (`agent_skills`, optional `skills`, `skill_hubs`, `catalog_api_keys`, `skill_scan_findings`); filesystem `SKILLS_DIR` for packaged defaults; in-process catalog cache with explicit generation counters
+
+**Testing**: `pytest` / `make test`, `make lint` (Ruff); UI `npm run lint`, `npm test` / `make caipe-ui-tests`; integration smoke per Constitution VII (`docker compose -f docker-compose.dev.yaml` minimal profiles)
+
+**Target Platform**: Linux containers (supervisor + UI); local dev via docker-compose
+
+**Project Type**: Multi-part — Python backend (`ai_platform_engineering/`) + Next.js app (`ui/`)
+
+**Performance Goals**: Catalog list **GET** **p95 ~500 ms** under typical catalog sizes; hub fetch bounded; scanner runs off hot path where possible
+
+**Constraints**: No secrets in source; API keys hashed; JWT JWKS validation aligned with RAG; progressive disclosure for skills in prompt; **no restart** for catalog refresh (**FR-012**); per-invoke entitled **`files`** (**FR-020**); scanner **attribution** visible wherever product names the tool (**FR-023**)
+
+**Scale/Scope**: Thousands of skills stored OK; prompt summaries capped (**FR-024**); paginated catalog API (**FR-019**)
 
 ## Constitution Check
 
@@ -25,16 +34,18 @@ Deliver a single shared skill catalog consumed by both the chat UI and the CAIPE
 
 | Principle | Status | Notes |
 |-----------|--------|--------|
-| **I. Specifications as source of truth** | Pass | Spec in `spec.md`; plan and contracts derive from it. |
-| **II. Agent-first** | Pass | Supervisor consumes skills from middleware; skills are first-class for orchestration. |
-| **III. MCP server pattern** | Pass | Skills middleware is in-process/library for supervisor; no new MCP server required for v1. |
-| **IV. LangGraph-based agents** | Pass | Supervisor remains LangGraph; upstream `SkillsMiddleware` plugs into deepagents middleware chain alongside existing middlewares; catalog layer feeds skills at build/request time. |
-| **V. A2A compliance** | Pass | `/skills` is client-side (no A2A for list); assistant execution unchanged. |
-| **VI. Skills over ad-hoc prompts** | Pass | Shared catalog and agentskills.io/OpenClaw-style SKILL.md; upstream `SkillsMiddleware` handles progressive disclosure (skills read on demand); skills from hubs are versioned and auditable. |
-| **VII. Test-first quality gates** | Pass | Acceptance scenarios and quickstart drive tests; `make lint`, `make test`, `make caipe-ui-tests` apply. |
-| **VIII. Structured documentation** | Pass | Spec, plan, research, data-model, contracts, quickstart in `docs/docs/specs/097-skills-middleware-integration/`. |
-| **IX. Security and compliance** | Pass | Hub credentials via env/secret refs; only authorized users manage hubs (FR-009); input validation on hub registration. |
-| **X. Simplicity (YAGNI)** | Pass | Single hub type (GitHub) for v1; ClawHub out of scope; no extra MCP for skills in v1. |
+| I. Specs as source of truth | **Pass** | `spec.md` authoritative |
+| II. Agent-first | **Pass** | Supervisor + `skills_middleware` |
+| III. MCP pattern | **N/A** | Not a new MCP server |
+| IV. LangGraph | **Pass** | Deep agent rebuild semantics in spec |
+| V. A2A | **Pass** | Invoke-time `files` / entitlement |
+| VI. Skills / agentskills.io | **Pass** | Dual format; Cisco AI Defense **Skill Scanner** per FR-023 with attribution |
+| VII. Test-first | **Pass** | Gates: `make lint`, `make test`, `make caipe-ui-tests` |
+| VIII. Documentation | **Pass** | Specs + contracts + NOTICE attribution |
+| IX. Security | **Pass** | AuthN, visibility, scanner disclaimer (no findings ≠ safe) |
+| X. Simplicity | **Pass** | FR-025 consolidation / `source: agent_skills` alignment (delivered) |
+
+**Post-design**: `research.md` §18, `contracts/skill-scanner-pipeline.md`, and `data-model.md` reflect attribution — **Pass**.
 
 ## Project Structure
 
@@ -42,49 +53,58 @@ Deliver a single shared skill catalog consumed by both the chat UI and the CAIPE
 
 ```text
 docs/docs/specs/097-skills-middleware-integration/
-├── plan.md              # This file
-├── spec.md              # Feature specification
-├── research.md          # Phase 0 decisions
-├── data-model.md        # Entities and storage
-├── quickstart.md        # Validation scenarios
-├── contracts/           # API and client contracts
+├── plan.md
+├── research.md
+├── data-model.md
+├── quickstart.md
+├── contracts/
 │   ├── catalog-api.md
+│   ├── gateway-api.md
 │   ├── skill-hubs-api.md
-│   └── chat-command-skills.md
-├── checklists/
-└── tasks.md             # From /speckit.tasks (not from /speckit.plan)
+│   ├── chat-command-skills.md
+│   ├── supervisor-skills-status.md
+│   └── skill-scanner-pipeline.md
+├── tasks.md
+└── spec.md
 ```
 
 ### Source Code (repository root)
 
 ```text
-ai_platform_engineering/          # Python backend
-├── multi_agents/                 # Supervisor; integrates with skills middleware
-│   └── platform_engineer/
-│       └── deep_agent_single.py  # Add SkillsMiddleware to middleware list; write skills to StateBackend
-├── agents/                       # Domain agents (unchanged by this feature)
-├── skills_middleware/            # NEW: catalog aggregation, hub fetch, get_merged_skills()
-│   ├── __init__.py
-│   ├── catalog.py                # Load from MongoDB + filesystem + hubs; write to StateBackend
-│   ├── loaders/                  # Default loader, agent_config projection, hub fetchers
-│   ├── precedence.py             # Deterministic merge and precedence rules
-│   └── backend_sync.py           # Write normalized skills to StateBackend for SkillsMiddleware
-├── utils/
-└── ...
+ai_platform_engineering/
+├── skills_middleware/
+├── multi_agents/platform_engineer/
+│   ├── deep_agent.py
+│   └── protocol_bindings/a2a/agent.py, fastapi/main.py
+ui/
+├── src/app/api/skills/, skill-hubs/
+├── src/components/skills/, chat/
+└── src/lib/
 
-ui/                               # Next.js frontend
-├── src/
-│   ├── app/
-│   │   ├── api/
-│   │   │   ├── skills/           # GET /api/skills (calls backend or merges locally)
-│   │   │   └── skill-hubs/       # CRUD for hubs (admin)
-│   │   └── ...
-│   └── components/               # Chat: /skills detection, placeholder "Type /skills to see available skills"
-└── ...
+scripts/
+└── scan-packaged-skills.sh
 ```
 
-**Structure decision**: Backend adds a `skills_middleware` package under `ai_platform_engineering/` for catalog aggregation, and uses the upstream `deepagents.middleware.skills.SkillsMiddleware` for system prompt injection. The catalog layer's `get_merged_skills()` produces the skill list; a sync function writes them as SKILL.md files into `StateBackend` paths (e.g. `/skills/default/`, `/skills/hub-<id>/`). The supervisor's `deep_agent_single.py` adds `SkillsMiddleware(backend=lambda rt: StateBackend(rt), sources=[...])` to its middleware list. UI adds/updates API routes and chat UX (remove run-in-chat, add `/skills` handling and placeholder/tooltip directing users to `/skills`). No new top-level service; middleware is in-process for supervisor and exposed to UI via existing API layer.
+**Structure Decision**: Python catalog and supervisor under `ai_platform_engineering/`; UI under `ui/`; feature design artifacts under `docs/docs/specs/097-skills-middleware-integration/`.
 
 ## Complexity Tracking
 
-No constitution violations requiring justification. Single new package, upstream `SkillsMiddleware` integration, and API routes only.
+> No constitution violations requiring justification.
+
+| Violation | Why Needed | Simpler Alternative Rejected Because |
+|-----------|------------|-------------------------------------|
+| — | — | — |
+
+## Phase 0 & 1 Outputs (this run)
+
+| Artifact | Path |
+|----------|------|
+| Research | [research.md](./research.md) |
+| Data model | [data-model.md](./data-model.md) |
+| Contracts | [contracts/](./contracts/) |
+| Quickstart | [quickstart.md](./quickstart.md) |
+
+## Next steps
+
+- **`/speckit.tasks`** — ensure tasks cover FR-023 attribution (NOTICE, admin UI copy) and FR-025/FR-026 if not already listed.
+- Implement; verify with `quickstart.md` scenarios.

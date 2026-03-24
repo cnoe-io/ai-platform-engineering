@@ -20,7 +20,7 @@ import { ObjectId } from "mongodb";
 interface SkillHubDoc {
   _id?: ObjectId;
   id: string;
-  type: "github";
+  type: "github" | "gitlab";
   location: string;
   enabled: boolean;
   credentials_ref: string | null;
@@ -66,23 +66,37 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
     if (!type || !location) {
       throw new ApiError("Missing required fields: type, location", 400);
     }
-    if (type !== "github") {
+    if (!["github", "gitlab"].includes(type)) {
       throw new ApiError(
-        `Unsupported hub type: ${type}. Only "github" is supported.`,
+        `Unsupported hub type: ${type}. Supported: "github", "gitlab".`,
         400,
       );
     }
     if (typeof location !== "string" || !location.includes("/")) {
       throw new ApiError(
-        'Invalid location format. Expected "owner/repo".',
+        `Invalid location format. Expected "${type === "gitlab" ? "group/project" : "owner/repo"}".`,
         400,
       );
     }
 
+    // Normalize full URLs to owner/repo format (users may paste a GitHub URL)
+    let normalizedLocation = location.trim();
+    try {
+      const url = new URL(normalizedLocation);
+      if (url.hostname === "github.com" || url.hostname === "gitlab.com" || url.hostname === "www.github.com") {
+        const segments = url.pathname.replace(/^\/+|\/+$/g, "").split("/");
+        if (segments.length >= 2) {
+          normalizedLocation = `${segments[0]}/${segments[1]}`;
+        }
+      }
+    } catch {
+      // Not a URL — keep as-is (already owner/repo format)
+    }
+
     const collection = await getCollection<SkillHubDoc>("skill_hubs");
 
-    // Check for duplicate location
-    const existing = await collection.findOne({ location });
+    // Check for duplicate location (use normalized)
+    const existing = await collection.findOne({ location: normalizedLocation });
     if (existing) {
       throw new ApiError(
         `A hub with location "${location}" is already registered.`,
@@ -94,7 +108,7 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
     const hubDoc: SkillHubDoc = {
       id: new ObjectId().toHexString(),
       type,
-      location,
+      location: normalizedLocation,
       enabled: body.enabled !== false,
       credentials_ref: body.credentials_ref || null,
       last_success_at: null,

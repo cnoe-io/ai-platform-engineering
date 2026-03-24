@@ -225,9 +225,9 @@ describe('mongodb index creation logic', () => {
 
       mockCollection.deleteMany.mockResolvedValue({ deletedCount: 2 });
 
-      const db = createMockDb({ agent_configs: mockCollection });
+      const db = createMockDb({ agent_skills: mockCollection });
 
-      await deduplicateCollection(db, 'agent_configs', ['id']);
+      await deduplicateCollection(db, 'agent_skills', ['id']);
 
       expect(mockCollection.aggregate).toHaveBeenCalled();
       expect(mockCollection.deleteMany).toHaveBeenCalledWith({

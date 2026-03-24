@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useState, useCallback } from "react";
-import { Loader2, Plus, Trash2, Globe, AlertCircle, CheckCircle2, X, RefreshCcw } from "lucide-react";
+import { Loader2, Plus, Trash2, Globe, AlertCircle, CheckCircle2, X, RefreshCcw, Search } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -17,6 +17,11 @@ interface SkillHub {
   last_failure_message: string | null;
   created_at: string;
   updated_at: string;
+  /** Set when skill-scanner runs on hub ingest (backend). */
+  last_skill_scan_at?: number | null;
+  last_skill_scan_exit_code?: number | null;
+  last_skill_scan_max_severity?: string | null;
+  last_skill_scan_blocked?: boolean | null;
 }
 
 interface SkillHubsSectionProps {
@@ -33,6 +38,9 @@ export function SkillHubsSection({ isAdmin }: SkillHubsSectionProps) {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [togglingId, setTogglingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [crawlLoading, setCrawlLoading] = useState(false);
+  const [crawlPaths, setCrawlPaths] = useState<string[]>([]);
+  const [crawlPreview, setCrawlPreview] = useState<{ path: string; name: string; description: string }[]>([]);
 
   const loadHubs = useCallback(async () => {
     try {
@@ -123,10 +131,46 @@ export function SkillHubsSection({ isAdmin }: SkillHubsSectionProps) {
   };
 
   const handleRefresh = async () => {
+    if (isAdmin) {
+      try {
+        await fetch("/api/skills/refresh", { method: "POST" });
+      } catch {
+        /* best-effort — backend may be unavailable */
+      }
+    }
     try {
       await fetch("/api/skills?include_content=false");
     } catch {}
     await loadHubs();
+  };
+
+  const handleCrawlPreview = async () => {
+    if (!formLocation.trim()) return;
+    setCrawlLoading(true);
+    setError(null);
+    setCrawlPaths([]);
+    setCrawlPreview([]);
+    try {
+      const res = await fetch("/api/skill-hubs/crawl", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          type: "github",
+          location: formLocation.trim(),
+          credentials_ref: formCredRef.trim() || null,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data.message || data.detail?.message || data.error || `Crawl failed (${res.status})`);
+      }
+      setCrawlPaths(data.paths || []);
+      setCrawlPreview(data.skills_preview || []);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Crawl preview failed");
+    } finally {
+      setCrawlLoading(false);
+    }
   };
 
   if (loading) {
@@ -200,15 +244,37 @@ export function SkillHubsSection({ isAdmin }: SkillHubsSectionProps) {
                 Name of the environment variable holding a GitHub token. Falls back to GITHUB_TOKEN if empty.
               </p>
             </div>
-            <div className="flex gap-2 pt-1">
+            <div className="flex flex-wrap gap-2 pt-1">
               <Button variant="outline" size="sm" onClick={() => setShowAddForm(false)}>
                 Cancel
+              </Button>
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={handleCrawlPreview}
+                disabled={!formLocation.trim() || crawlLoading}
+                className="gap-1"
+              >
+                {crawlLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : <Search className="h-3 w-3" />}
+                Preview skills (crawl)
               </Button>
               <Button size="sm" onClick={handleAdd} disabled={!formLocation.trim() || adding} className="gap-1">
                 {adding && <Loader2 className="h-3 w-3 animate-spin" />}
                 Register Hub
               </Button>
             </div>
+            {(crawlPaths.length > 0 || crawlPreview.length > 0) && (
+              <div className="mt-3 rounded-md border border-border bg-muted/20 p-3 max-h-48 overflow-y-auto">
+                <p className="text-xs font-medium text-muted-foreground mb-2">
+                  Discovered SKILL.md paths ({crawlPaths.length || crawlPreview.length})
+                </p>
+                <ul className="text-xs font-mono space-y-1">
+                  {(crawlPaths.length ? crawlPaths : crawlPreview.map((p) => p.path)).map((p) => (
+                    <li key={p}>{p}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
           </div>
         )}
 
@@ -232,7 +298,8 @@ export function SkillHubsSection({ isAdmin }: SkillHubsSectionProps) {
               {isAdmin && <div className="text-right">Actions</div>}
             </div>
             {hubs.map((hub) => (
-              <div key={hub.id} className="grid grid-cols-6 gap-4 py-2 text-sm hover:bg-muted/50 rounded px-2 items-center">
+              <div key={hub.id} className="space-y-0.5">
+              <div className="grid grid-cols-6 gap-4 py-2 text-sm hover:bg-muted/50 rounded px-2 items-center">
                 <div className="col-span-2 flex items-center gap-2">
                   <Globe className="h-4 w-4 text-muted-foreground shrink-0" />
                   <span className="font-medium truncate">{hub.location}</span>
@@ -297,6 +364,20 @@ export function SkillHubsSection({ isAdmin }: SkillHubsSectionProps) {
                   </div>
                 )}
               </div>
+              {hub.last_skill_scan_at != null && hub.last_skill_scan_at > 0 ? (
+                <div className="px-2 pl-10 text-[11px] text-muted-foreground">
+                  Skill Scanner:{" "}
+                  {new Date(hub.last_skill_scan_at * 1000).toLocaleString()}
+                  {hub.last_skill_scan_max_severity
+                    ? ` · max severity ${hub.last_skill_scan_max_severity}`
+                    : ""}
+                  {hub.last_skill_scan_blocked ? " · hub merge blocked (strict gate)" : ""}
+                  {hub.last_skill_scan_exit_code != null && hub.last_skill_scan_exit_code !== 0
+                    ? ` · exit ${hub.last_skill_scan_exit_code}`
+                    : ""}
+                </div>
+              ) : null}
+              </div>
             ))}
           </div>
         )}
@@ -311,6 +392,20 @@ export function SkillHubsSection({ isAdmin }: SkillHubsSectionProps) {
             ))}
           </div>
         )}
+
+        <p className="text-xs text-muted-foreground mt-6 border-t border-border pt-4 leading-relaxed">
+          Hub ingest may run{" "}
+          <a
+            href="https://github.com/cisco-ai-defense/skill-scanner"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-primary font-medium hover:underline"
+          >
+            Skill Scanner
+          </a>
+          , provided by <strong>Cisco AI Defense</strong>. Scanner results are best-effort and do not
+          guarantee security; a clean scan does not imply safety.
+        </p>
       </CardContent>
     </Card>
   );

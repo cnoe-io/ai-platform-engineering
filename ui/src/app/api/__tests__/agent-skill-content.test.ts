@@ -106,14 +106,14 @@ beforeEach(() => {
 // ─────────────────────────────────────────────────────────────────────────────
 // POST - Skill content persistence
 // ─────────────────────────────────────────────────────────────────────────────
-describe("POST /api/agent-configs - skill content persistence", () => {
+describe("POST /api/agent-skills - skill content persistence", () => {
   beforeEach(() => {
     mockGetServerSession.mockResolvedValue(userSession());
   });
 
   it("should persist skill_content to MongoDB when provided", async () => {
-    const { POST } = await import("../agent-configs/route");
-    const request = makeRequest("/api/agent-configs", {
+    const { POST } = await import("../agent-skills/route");
+    const request = makeRequest("/api/agent-skills", {
       method: "POST",
       body: JSON.stringify({
         name: "Health of AWS All Accounts",
@@ -126,14 +126,14 @@ describe("POST /api/agent-configs - skill content persistence", () => {
     const response = await POST(request);
     expect(response.status).toBe(201);
 
-    const collection = await mockGetCollection("agent_configs");
+    const collection = await mockGetCollection("agent_skills");
     const insertedConfig = collection.insertOne.mock.calls[0][0];
     expect(insertedConfig.skill_content).toBe(SAMPLE_SKILL_CONTENT);
   });
 
   it("should persist skill_content as undefined when not provided", async () => {
-    const { POST } = await import("../agent-configs/route");
-    const request = makeRequest("/api/agent-configs", {
+    const { POST } = await import("../agent-skills/route");
+    const request = makeRequest("/api/agent-skills", {
       method: "POST",
       body: JSON.stringify({
         name: "Simple Skill",
@@ -145,14 +145,14 @@ describe("POST /api/agent-configs - skill content persistence", () => {
     const response = await POST(request);
     expect(response.status).toBe(201);
 
-    const collection = await mockGetCollection("agent_configs");
+    const collection = await mockGetCollection("agent_skills");
     const insertedConfig = collection.insertOne.mock.calls[0][0];
     expect(insertedConfig.skill_content).toBeUndefined();
   });
 
   it("should persist empty string skill_content", async () => {
-    const { POST } = await import("../agent-configs/route");
-    const request = makeRequest("/api/agent-configs", {
+    const { POST } = await import("../agent-skills/route");
+    const request = makeRequest("/api/agent-skills", {
       method: "POST",
       body: JSON.stringify({
         name: "Empty Content Skill",
@@ -165,14 +165,14 @@ describe("POST /api/agent-configs - skill content persistence", () => {
     const response = await POST(request);
     expect(response.status).toBe(201);
 
-    const collection = await mockGetCollection("agent_configs");
+    const collection = await mockGetCollection("agent_skills");
     const insertedConfig = collection.insertOne.mock.calls[0][0];
     expect(insertedConfig.skill_content).toBe("");
   });
 
   it("should persist is_quick_start when provided", async () => {
-    const { POST } = await import("../agent-configs/route");
-    const request = makeRequest("/api/agent-configs", {
+    const { POST } = await import("../agent-skills/route");
+    const request = makeRequest("/api/agent-skills", {
       method: "POST",
       body: JSON.stringify({
         name: "Quick Start Skill",
@@ -185,14 +185,14 @@ describe("POST /api/agent-configs - skill content persistence", () => {
     const response = await POST(request);
     expect(response.status).toBe(201);
 
-    const collection = await mockGetCollection("agent_configs");
+    const collection = await mockGetCollection("agent_skills");
     const insertedConfig = collection.insertOne.mock.calls[0][0];
     expect(insertedConfig.is_quick_start).toBe(true);
   });
 
   it("should persist difficulty when provided", async () => {
-    const { POST } = await import("../agent-configs/route");
-    const request = makeRequest("/api/agent-configs", {
+    const { POST } = await import("../agent-skills/route");
+    const request = makeRequest("/api/agent-skills", {
       method: "POST",
       body: JSON.stringify({
         name: "Intermediate Skill",
@@ -205,14 +205,14 @@ describe("POST /api/agent-configs - skill content persistence", () => {
     const response = await POST(request);
     expect(response.status).toBe(201);
 
-    const collection = await mockGetCollection("agent_configs");
+    const collection = await mockGetCollection("agent_skills");
     const insertedConfig = collection.insertOne.mock.calls[0][0];
     expect(insertedConfig.difficulty).toBe("intermediate");
   });
 
   it("should persist thumbnail when provided", async () => {
-    const { POST } = await import("../agent-configs/route");
-    const request = makeRequest("/api/agent-configs", {
+    const { POST } = await import("../agent-skills/route");
+    const request = makeRequest("/api/agent-skills", {
       method: "POST",
       body: JSON.stringify({
         name: "Skill With Icon",
@@ -225,7 +225,7 @@ describe("POST /api/agent-configs - skill content persistence", () => {
     const response = await POST(request);
     expect(response.status).toBe(201);
 
-    const collection = await mockGetCollection("agent_configs");
+    const collection = await mockGetCollection("agent_skills");
     const insertedConfig = collection.insertOne.mock.calls[0][0];
     expect(insertedConfig.thumbnail).toBe("aws");
   });
@@ -246,8 +246,8 @@ describe("POST /api/agent-configs - skill content persistence", () => {
       ],
     };
 
-    const { POST } = await import("../agent-configs/route");
-    const request = makeRequest("/api/agent-configs", {
+    const { POST } = await import("../agent-skills/route");
+    const request = makeRequest("/api/agent-skills", {
       method: "POST",
       body: JSON.stringify({
         name: "Skill With Form",
@@ -260,14 +260,14 @@ describe("POST /api/agent-configs - skill content persistence", () => {
     const response = await POST(request);
     expect(response.status).toBe(201);
 
-    const collection = await mockGetCollection("agent_configs");
+    const collection = await mockGetCollection("agent_skills");
     const insertedConfig = collection.insertOne.mock.calls[0][0];
     expect(insertedConfig.input_form).toEqual(inputForm);
   });
 
   it("should persist all skill fields together (full AI-enhanced skill)", async () => {
-    const { POST } = await import("../agent-configs/route");
-    const request = makeRequest("/api/agent-configs", {
+    const { POST } = await import("../agent-skills/route");
+    const request = makeRequest("/api/agent-skills", {
       method: "POST",
       body: JSON.stringify({
         name: "Health of AWS All Accounts",
@@ -289,7 +289,7 @@ describe("POST /api/agent-configs - skill content persistence", () => {
     const response = await POST(request);
     expect(response.status).toBe(201);
 
-    const collection = await mockGetCollection("agent_configs");
+    const collection = await mockGetCollection("agent_skills");
     const insertedConfig = collection.insertOne.mock.calls[0][0];
 
     expect(insertedConfig.name).toBe("Health of AWS All Accounts");
@@ -329,8 +329,8 @@ def hello():
 | Data     | Data     |
 `;
 
-    const { POST } = await import("../agent-configs/route");
-    const request = makeRequest("/api/agent-configs", {
+    const { POST } = await import("../agent-skills/route");
+    const request = makeRequest("/api/agent-skills", {
       method: "POST",
       body: JSON.stringify({
         name: "Special Chars Skill",
@@ -343,14 +343,14 @@ def hello():
     const response = await POST(request);
     expect(response.status).toBe(201);
 
-    const collection = await mockGetCollection("agent_configs");
+    const collection = await mockGetCollection("agent_skills");
     const insertedConfig = collection.insertOne.mock.calls[0][0];
     expect(insertedConfig.skill_content).toBe(contentWithSpecialChars);
   });
 
   it("should persist skill_content alongside visibility and team sharing", async () => {
-    const { POST } = await import("../agent-configs/route");
-    const request = makeRequest("/api/agent-configs", {
+    const { POST } = await import("../agent-skills/route");
+    const request = makeRequest("/api/agent-skills", {
       method: "POST",
       body: JSON.stringify({
         name: "Team Skill With Content",
@@ -366,7 +366,7 @@ def hello():
     const response = await POST(request);
     expect(response.status).toBe(201);
 
-    const collection = await mockGetCollection("agent_configs");
+    const collection = await mockGetCollection("agent_skills");
     const insertedConfig = collection.insertOne.mock.calls[0][0];
     expect(insertedConfig.skill_content).toBe(SAMPLE_SKILL_CONTENT);
     expect(insertedConfig.is_quick_start).toBe(true);
@@ -378,14 +378,14 @@ def hello():
 // ─────────────────────────────────────────────────────────────────────────────
 // POST - skill fields default to undefined when omitted
 // ─────────────────────────────────────────────────────────────────────────────
-describe("POST /api/agent-configs - skill field defaults", () => {
+describe("POST /api/agent-skills - skill field defaults", () => {
   beforeEach(() => {
     mockGetServerSession.mockResolvedValue(userSession());
   });
 
   it("should have undefined skill fields when only required fields are provided", async () => {
-    const { POST } = await import("../agent-configs/route");
-    const request = makeRequest("/api/agent-configs", {
+    const { POST } = await import("../agent-skills/route");
+    const request = makeRequest("/api/agent-skills", {
       method: "POST",
       body: JSON.stringify({
         name: "Minimal Skill",
@@ -397,7 +397,7 @@ describe("POST /api/agent-configs - skill field defaults", () => {
     const response = await POST(request);
     expect(response.status).toBe(201);
 
-    const collection = await mockGetCollection("agent_configs");
+    const collection = await mockGetCollection("agent_skills");
     const insertedConfig = collection.insertOne.mock.calls[0][0];
     expect(insertedConfig.skill_content).toBeUndefined();
     expect(insertedConfig.is_quick_start).toBeUndefined();

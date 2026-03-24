@@ -4,7 +4,7 @@
 
 Precedence order (highest wins):
   1. default  (filesystem / MongoDB built-in skills)
-  2. agent_config  (projected from agent_configs collection)
+  2. agent_skills  (projected from agent_skills collection)
   3. hub  (external sources like GitHub; earlier registration wins among hubs)
 
 When the same skill ``name`` appears from multiple sources, the highest-
@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 SOURCE_PRIORITY: dict[str, int] = {
     "default": 0,       # highest priority (lowest number wins)
-    "agent_config": 1,
+    "agent_skills": 1,
     "hub": 2,            # lowest priority
 }
 

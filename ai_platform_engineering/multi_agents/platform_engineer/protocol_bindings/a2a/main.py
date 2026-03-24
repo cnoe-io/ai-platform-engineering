@@ -149,6 +149,19 @@ a2a_server = A2AStarletteApplication(
 app = a2a_server.build()
 
 ################################################################################
+# Mount the skills middleware REST API alongside the A2A routes.
+# We mount the FastAPI sub-app at "/" but APPEND it (default) so that
+# existing A2A routes (/.well-known/*, task endpoints) are matched first.
+# Only requests that don't match any A2A route fall through to the sub-app.
+################################################################################
+from fastapi import FastAPI as _FastAPI
+from ai_platform_engineering.skills_middleware.router import router as _skills_router
+
+_skills_api = _FastAPI()
+_skills_api.include_router(_skills_router)
+app.mount("/", _skills_api)
+
+################################################################################
 # Add authentication middleware if enabled
 ################################################################################
 A2A_AUTH_OAUTH2 = os.getenv('A2A_AUTH_OAUTH2', 'false').lower() == 'true'
