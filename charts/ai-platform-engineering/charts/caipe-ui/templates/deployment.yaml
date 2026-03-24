@@ -97,8 +97,7 @@ spec:
               subPath: policy.lp
               readOnly: true
             - name: task-config
-              mountPath: /app/task_config.yaml
-              subPath: task_config.yaml
+              mountPath: /app/config/task-config
               readOnly: true
             {{- with .Values.volumeMounts }}
             {{- toYaml . | nindent 12 }}
