@@ -102,7 +102,8 @@ These two systems are **intentionally separate** to maintain clean type boundari
 │     │                                                                            │
 │     ├─► Tool calls      → emit tool_start/tool_end events                       │
 │     ├─► Todo updates    → emit todo_update events                               │
-│     ├─► Subagent calls  → emit subagent_start/subagent_end events               │
+│     ├─► Subagent calls  → emit tool_start/tool_end with tool_name="task"        │
+│     │                     (agent_id injected into args for UI lookup)           │
 │     └─► Complete        → emit final_result event with:                         │
 │                            - artifact.metadata.failed_servers[]                 │
 │                            - artifact.metadata.missing_tools[]                  │
@@ -143,9 +144,8 @@ These two systems are **intentionally separate** to maintain clean type boundari
 ### Per-Message Events (Ephemeral)
 
 These are cleared at the start of each new message via `clearSSEEvents()`:
-- `tool_start` / `tool_end` - Tool invocations
+- `tool_start` / `tool_end` - Tool invocations (including subagents via tool_name="task")
 - `todo_update` - Task list updates
-- `subagent_start` / `subagent_end` - Subagent invocations
 - `content` - LLM token streaming
 - `error` - Error messages
 

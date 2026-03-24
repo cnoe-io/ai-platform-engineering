@@ -24,6 +24,7 @@ import { getGradientStyle } from "@/lib/gradient-themes";
 import {
   SSEAgentEvent,
   EMPTY_SSE_EVENTS,
+  isToolStartData,
 } from "./sse-types";
 import type { SubAgentRef } from "@/types/dynamic-agent";
 import { useShallow } from "zustand/react/shallow";
@@ -116,7 +117,7 @@ export function DynamicAgentContext({
   // Detect write_todos tool events and trigger a fetch
   useEffect(() => {
     const hasWriteTodosEvent = conversationEvents.some(
-      (e) => e.type === "tool_start" && e.toolData?.tool_name === "write_todos"
+      (e) => e.type === "tool_start" && isToolStartData(e.toolData) && e.toolData.tool_name === "write_todos"
     );
     if (hasWriteTodosEvent) {
       setTodosFetchKey((k) => k + 1);
@@ -201,7 +202,8 @@ export function DynamicAgentContext({
     const hasFileWriteEvent = conversationEvents.some(
       (e) =>
         e.type === "tool_start" &&
-        (e.toolData?.tool_name === "write_file" || e.toolData?.tool_name === "edit_file")
+        isToolStartData(e.toolData) &&
+        (e.toolData.tool_name === "write_file" || e.toolData.tool_name === "edit_file")
     );
     if (hasFileWriteEvent) {
       setFilesFetchKey((k) => k + 1);

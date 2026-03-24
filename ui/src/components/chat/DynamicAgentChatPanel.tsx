@@ -15,7 +15,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useChatStore } from "@/store/chat-store";
 import { DynamicAgentClient } from "@/lib/dynamic-agent-client";
-import { type SSEAgentEvent } from "@/components/dynamic-agents/sse-types";
+import { type SSEAgentEvent, type ToolStartEventData, type ToolEndEventData } from "@/components/dynamic-agents/sse-types";
 import { useFeatureFlagStore } from "@/store/feature-flag-store";
 import { cn, deduplicateByKey } from "@/lib/utils";
 import { ChatMessage as ChatMessageType } from "@/types/a2a";
@@ -329,15 +329,12 @@ export function DynamicAgentChatPanel({ endpoint, conversationId, conversationTi
     if (dismissedInputForMessageRef.current.has(lastMsg.id)) return;
 
     // Check for SSE "input_required" events
-    const msgEvents = lastMsg.events || [];
-    // We also check conversation.sseEvents if any are global, but usually they are attached to messages or we look at the store.
-    // In ChatStore, addSSEEvent adds to conversation.sseEvents.
-    const convEvents = conversation.sseEvents || [];
-    const eventsToCheck = [...convEvents, ...(msgEvents as SSEAgentEvent[])];
-
+    // Note: Only sseEvents have the input_required type. Message events (A2A) don't.
+    const sseEventsFromConv = conversation.sseEvents || [];
+    
     // Find the last input_required event
     // We reverse to find the most recent one
-    const inputEvent = [...eventsToCheck].reverse().find((e) => e.type === "input_required");
+    const inputEvent = [...sseEventsFromConv].reverse().find((e) => e.type === "input_required");
 
     if (inputEvent && inputEvent.inputRequiredData) {
        const { prompt, fields } = inputEvent.inputRequiredData;
@@ -463,8 +460,6 @@ export function DynamicAgentChatPanel({ endpoint, conversationId, conversationTi
         const isImportantArtifact = 
              sseEvent.type === "tool_start" ||
              sseEvent.type === "tool_end" ||
-             sseEvent.type === "subagent_start" ||
-             sseEvent.type === "subagent_end" ||
              sseEvent.type === "error";
 
         if (isImportantArtifact && eventBuffer.length > 0) {
@@ -1212,6 +1207,10 @@ interface SubagentCall {
   purpose?: string;
   parentAgent?: string;
   status: "running" | "completed";
+  /** tool_call_id used to match tool_end events back to this subagent */
+  toolCallId?: string;
+  /** MongoDB agent_id for looking up subagent config (avatar, display name, etc.) */
+  agentId?: string;
 }
 
 interface ErrorEvent {
@@ -1274,53 +1273,56 @@ function parseStreamSegments(events: SSEAgentEvent[], isStreaming: boolean): Str
         // Flush any pending content before the tool
         flushContent();
         if (event.toolData) {
-          const { tool_name, tool_call_id, args, agent } = event.toolData;
-          const tool: ToolCall = {
-            id: tool_call_id,
-            tool: tool_name,
-            args,
-            agent,
-            status: "running",
-          };
-          toolsMap.set(tool_call_id, tool);
-          segments.push({ type: "tool", id: tool_call_id, data: tool });
-        }
-        break;
-
-      case "tool_end":
-        // Update tool status (segment already in array)
-        if (event.toolData) {
-          const tool = toolsMap.get(event.toolData.tool_call_id);
-          if (tool) {
-            tool.status = "completed";
+          const { tool_name, tool_call_id, args } = event.toolData as ToolStartEventData;
+          // Determine parent agent from namespace (empty = root agent)
+          const parentAgentId = event.namespace.length > 0 ? event.namespace[0] : undefined;
+          
+          // Check if this is a subagent invocation (task tool)
+          if (tool_name === "task") {
+            const subagent_type = args?.subagent_type as string || "unknown";
+            const purpose = args?.description as string || "";
+            const subagentId = `subagent-${tool_call_id}`;
+            const subagent: SubagentCall = {
+              id: subagentId,
+              name: subagent_type,
+              purpose,
+              parentAgent: parentAgentId,
+              status: "running",
+              toolCallId: tool_call_id,
+              // subagent_type IS the agent_id now (semantic slug)
+              agentId: subagent_type,
+            };
+            subagentsMap.set(tool_call_id, subagent);
+            segments.push({ type: "subagent", id: subagentId, data: subagent });
+          } else {
+            // Regular tool call
+            const tool: ToolCall = {
+              id: tool_call_id,
+              tool: tool_name,
+              args,
+              agent: parentAgentId,
+              status: "running",
+            };
+            toolsMap.set(tool_call_id, tool);
+            segments.push({ type: "tool", id: tool_call_id, data: tool });
           }
         }
         break;
 
-      case "subagent_start":
-        // Flush any pending content before the subagent
-        flushContent();
-        if (event.subagentData) {
-          const { subagent_name, purpose, parent_agent } = event.subagentData;
-          const subagentId = `subagent-${event.id || idx}`;
-          const subagent: SubagentCall = {
-            id: subagentId,
-            name: subagent_name,
-            purpose,
-            parentAgent: parent_agent,
-            status: "running",
-          };
-          subagentsMap.set(subagent_name, subagent);
-          segments.push({ type: "subagent", id: subagentId, data: subagent });
-        }
-        break;
-
-      case "subagent_end":
-        // Update subagent status (segment already in array)
-        if (event.subagentData) {
-          const subagent = subagentsMap.get(event.subagentData.subagent_name);
+      case "tool_end":
+        // Update tool or subagent status (segment already in array)
+        if (event.toolData) {
+          const { tool_call_id } = event.toolData as ToolEndEventData;
+          // Check if this is a subagent completion
+          const subagent = subagentsMap.get(tool_call_id);
           if (subagent) {
             subagent.status = "completed";
+          } else {
+            // Regular tool completion
+            const tool = toolsMap.get(tool_call_id);
+            if (tool) {
+              tool.status = "completed";
+            }
           }
         }
         break;

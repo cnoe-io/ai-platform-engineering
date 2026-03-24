@@ -312,8 +312,10 @@ class AgentRuntime:
             subagent_prompt = subagent_config.system_prompt
 
             # Create SubAgent dict in deepagents format
+            # Use agent_id as the name - this ensures namespace[0] from LangGraph
+            # matches the MongoDB agent_id exactly
             subagent_dict: dict[str, Any] = {
-                "name": _sanitize_agent_name(ref.name),
+                "name": ref.agent_id,
                 "description": ref.description,
                 "system_prompt": subagent_prompt,
                 "tools": subagent_tools,
@@ -410,10 +412,8 @@ class AgentRuntime:
 
         Emits structured SSE events for the UI:
         - content: Streaming text tokens
-        - tool_start: Tool call started (with args)
+        - tool_start: Tool call started (with args). For task tool, includes agent_id.
         - tool_end: Tool call completed
-        - subagent_start: Subagent delegation started (task tool)
-        - subagent_end: Subagent delegation completed
         - input_required: Agent requests user input (HITL form)
 
         The stream ends with a 'done' SSE event (handled by the HTTP layer).
@@ -432,10 +432,10 @@ class AgentRuntime:
 
         config = self._build_stream_config(session_id, user_id, trace_id)
 
-        # Track active task tool calls (subagents) so we can emit correct end events
-        # This is the minimal state needed - just tool_call_ids of task tools
-        active_task_calls: set[str] = set()
         accumulated_content: list[str] = []
+        # Namespace mapping: LangGraph task UUID → tool_call_id for subagent correlation
+        # See stream_events.py for details on why this mapping is needed.
+        namespace_mapping: dict[str, str] = {}
 
         logger.info(f"[stream] Starting stream for agent '{self.config.name}': user={user_id}, conv={session_id}")
 
@@ -443,10 +443,10 @@ class AgentRuntime:
         async for chunk in self._graph.astream(
             {"messages": [{"role": "user", "content": message}]},
             config=config,
-            stream_mode=["messages", "updates"],
+            stream_mode=["messages", "updates", "tasks"],
             subgraphs=True,
         ):
-            for event in transform_stream_chunk(chunk, self.config.name, active_task_calls, accumulated_content):
+            for event in transform_stream_chunk(chunk, accumulated_content, namespace_mapping):
                 if self._event_adapter:
                     event = self._event_adapter(event)
                 yield event
@@ -563,9 +563,9 @@ class AgentRuntime:
 
         config = self._build_stream_config(session_id, user_id, trace_id)
 
-        # Track active task tool calls (subagents) so we can emit correct end events
-        active_task_calls: set[str] = set()
         accumulated_content: list[str] = []
+        # Namespace mapping: LangGraph task UUID → tool_call_id for subagent correlation
+        namespace_mapping: dict[str, str] = {}
 
         logger.info(f"[resume] Resuming stream for agent '{self.config.name}': user={user_id}, conv={session_id}")
 
@@ -624,10 +624,10 @@ class AgentRuntime:
         async for chunk in self._graph.astream(
             Command(resume=resume_payload),
             config=config,
-            stream_mode=["messages", "updates"],
+            stream_mode=["messages", "updates", "tasks"],
             subgraphs=True,
         ):
-            for event in transform_stream_chunk(chunk, self.config.name, active_task_calls, accumulated_content):
+            for event in transform_stream_chunk(chunk, accumulated_content, namespace_mapping):
                 if self._event_adapter:
                     event = self._event_adapter(event)
                 yield event

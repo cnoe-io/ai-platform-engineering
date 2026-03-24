@@ -81,12 +81,16 @@ async def _generate_sse_events(
         async for event in runtime.stream(message, session_id, user.email, trace_id):
             event_type = event.get("type", "event")
             event_data = event.get("data", "")
+            namespace = event.get("namespace", [])
 
-            # Format as SSE
+            # Format as SSE - include namespace in data payload
             if isinstance(event_data, dict):
+                # Add namespace to dict data
+                event_data["namespace"] = namespace
                 data = json.dumps(event_data)
             else:
-                data = str(event_data)
+                # For content events (string data), wrap with namespace
+                data = json.dumps({"text": event_data, "namespace": namespace})
 
             # Use proper SSE encoding (handles newlines in content)
             sse_data = _encode_sse_data(data)
@@ -197,12 +201,16 @@ async def _generate_resume_sse_events(
         async for event in runtime.resume(session_id, user.email, form_data, trace_id):
             event_type = event.get("type", "event")
             event_data = event.get("data", "")
+            namespace = event.get("namespace", [])
 
-            # Format as SSE
+            # Format as SSE - include namespace in data payload
             if isinstance(event_data, dict):
+                # Add namespace to dict data
+                event_data["namespace"] = namespace
                 data = json.dumps(event_data)
             else:
-                data = str(event_data)
+                # For content events (string data), wrap with namespace
+                data = json.dumps({"text": event_data, "namespace": namespace})
 
             # Use proper SSE encoding (handles newlines in content)
             sse_data = _encode_sse_data(data)

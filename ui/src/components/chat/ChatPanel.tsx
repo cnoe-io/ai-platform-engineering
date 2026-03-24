@@ -501,11 +501,10 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
         // Flush buffer immediately for important events that update the Tasks panel
         // (execution plans, tool notifications, final results, user input forms)
         // For SSE events, map new event types to importance
+        // Note: Subagent invocations come through as tool_start/tool_end with tool_name="task"
         const isImportantArtifact = isSSEEvent
           ? (sseEvent.type === "tool_start" ||
              sseEvent.type === "tool_end" ||
-             sseEvent.type === "subagent_start" ||
-             sseEvent.type === "subagent_end" ||
              sseEvent.type === "error")
           : (artifactName === "execution_plan_update" ||
              artifactName === "execution_plan_status_update" ||

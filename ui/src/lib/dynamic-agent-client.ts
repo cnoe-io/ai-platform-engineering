@@ -11,10 +11,9 @@
  * SSE event types from the backend (stream_events.py):
  *   - content: streaming text token (data is a string)
  *   - tool_start: tool invocation started (data is structured JSON)
+ *                 Note: Subagent invocations also use tool_start with tool_name="task"
  *   - tool_end: tool invocation completed (data is structured JSON)
  *   - todo_update: task list update (data is structured JSON)
- *   - subagent_start: subagent delegation started (data is structured JSON)
- *   - subagent_end: subagent completed (data is structured JSON)
  *   - warning: non-fatal issue (data is structured JSON, rendered inline)
  *   - error: error message (data is JSON with error field, rendered inline)
  *   - done: stream complete (data is empty JSON)
@@ -342,29 +341,24 @@ export class DynamicAgentClient {
   private mapToAgentEvent(raw: RawSSEEvent): SSEAgentEvent | null {
     const { event, data } = raw;
 
-    // ─── Structured events: content, tool_*, todo_update, subagent_*, input_required, warning ───
+    // ─── Structured events: content, tool_*, todo_update, input_required, warning ───
+    // Note: Subagent invocations come through as tool_start/tool_end with tool_name="task"
+    // All events are now JSON with namespace included in the data
     if (
       event === "content" ||
       event === "tool_start" ||
       event === "tool_end" ||
       event === "todo_update" ||
-      event === "subagent_start" ||
-      event === "subagent_end" ||
       event === "input_required" ||
       event === "warning"
     ) {
       try {
-        // content events have data as plain string, others are JSON
-        let parsedData: unknown;
-        if (event === "content") {
-          // Pass through content as-is (newlines are now properly encoded via multi-line data:)
-          parsedData = data;
-        } else {
-          parsedData = JSON.parse(data);
-        }
+        // All events are now JSON (content is wrapped as {text, namespace})
+        const parsedData = JSON.parse(data);
 
         const agentEvent = createSSEAgentEvent(
-          { type: event, data: parsedData },
+          event,
+          parsedData,
           undefined, // taskId could be added later for crash recovery
         );
 
@@ -398,6 +392,7 @@ export class DynamicAgentClient {
           displayContent: `Error: ${errorMsg}`,
           content: `Error: ${errorMsg}`,
           isFinal: true,
+          namespace: parsed.namespace ?? [],
         };
       } catch {
         console.log(`[DynamicAgent] ❌ Failed to parse error, using raw data`);
@@ -409,6 +404,7 @@ export class DynamicAgentClient {
           displayContent: `Error: ${data}`,
           content: `Error: ${data}`,
           isFinal: true,
+          namespace: [],
         };
       }
     }

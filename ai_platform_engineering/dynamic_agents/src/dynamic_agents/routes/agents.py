@@ -124,7 +124,12 @@ async def create_agent(
         if not is_valid:
             raise HTTPException(status_code=400, detail=error)
 
-    agent = mongo.create_agent(config, owner_id=user.email)
+    try:
+        agent = mongo.create_agent(config, owner_id=user.email)
+    except ValueError as e:
+        # Reserved name or duplicate slug
+        raise HTTPException(status_code=409, detail=str(e))
+
     logger.info(f"Created dynamic agent '{config.name}' ({agent.id}) by {user.email}")
 
     return ApiResponse(
