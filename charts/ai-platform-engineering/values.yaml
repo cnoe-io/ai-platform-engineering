@@ -379,12 +379,18 @@ agent-slack:
     pullPolicy: "IfNotPresent"
   mcp:
     image:
-      repository: "ghcr.io/cnoe-io/mcp-slack"
-      # tag defaults to .Chart.AppVersion when not specified
-      tag: ""
+      repository: "ghcr.io/korotovsky/slack-mcp-server"
+      tag: "v1.2.3"
       pullPolicy: "IfNotPresent"
     mode: "http" # Options: stdio, http
-    port: 8000
+    port: 3001
+    command: ["--transport", "http"]
+    env:
+      SLACK_MCP_HOST: "0.0.0.0"
+      SLACK_MCP_PORT: "3001"
+      # Message posting disabled by default for safety. Set to "true" to enable,
+      # or restrict to specific channel IDs: "C123,C456" (whitelist), "!C789" (blacklist)
+      # SLACK_MCP_ADD_MESSAGE_TOOL: "false"
 
 agent-aws:
   nameOverride: "agent-aws"

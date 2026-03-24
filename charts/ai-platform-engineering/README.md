@@ -154,11 +154,11 @@ helm show values oci://ghcr.io/cnoe-io/charts/ai-platform-engineering --version 
 | agent-petstore.nameOverride | string | `"agent-petstore"` |  |
 | agent-slack.image.pullPolicy | string | `"Always"` |  |
 | agent-slack.image.repository | string | `"ghcr.io/cnoe-io/agent-slack"` |  |
-| agent-slack.mcp.image.pullPolicy | string | `"Always"` |  |
-| agent-slack.mcp.image.repository | string | `"ghcr.io/cnoe-io/mcp-slack"` |  |
-| agent-slack.mcp.image.tag | string | `""` |  |
+| agent-slack.mcp.image.pullPolicy | string | `"IfNotPresent"` |  |
+| agent-slack.mcp.image.repository | string | `"ghcr.io/korotovsky/slack-mcp-server"` |  |
+| agent-slack.mcp.image.tag | string | `"v1.2.3"` |  |
 | agent-slack.mcp.mode | string | `"http"` |  |
-| agent-slack.mcp.port | int | `8000` |  |
+| agent-slack.mcp.port | int | `3001` |  |
 | agent-slack.nameOverride | string | `"agent-slack"` |  |
 | agent-splunk.image.pullPolicy | string | `"Always"` |  |
 | agent-splunk.image.repository | string | `"ghcr.io/cnoe-io/agent-splunk"` |  |

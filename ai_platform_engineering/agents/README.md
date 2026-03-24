@@ -142,12 +142,8 @@ include ../common.mk
 ```
 
 ### Slack MCP Server
-```makefile
-AGENT_NAME = slack
-MCP_PACKAGE_NAME = mcp_slack
-MCP_MODE = SSE
-include ../../mcp-common.mk
-```
+The Slack agent uses the external OSS [korotovsky/slack-mcp-server](https://github.com/korotovsky/slack-mcp-server)
+instead of a custom in-tree MCP server. See `agents/slack/Makefile` for details.
 
 ## Migration Guide
 

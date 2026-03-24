@@ -26,7 +26,6 @@
     "komodor",
     "netutils",
     "pagerduty",
-    "slack",
     "splunk",
     "victorops",
     "webex"
