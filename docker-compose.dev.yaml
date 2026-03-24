@@ -1793,6 +1793,7 @@ services:
     container_name: slack-bot
     volumes:
       - ./ai_platform_engineering/integrations/slack_bot:/app
+    command: ["sh", "-c", "uv sync --no-dev && exec python -m app"]
     env_file: [.env]
     ports: ["8030:3000"]  # Only used in HTTP mode (SLACK_INTEGRATION_BOT_MODE=http)
     environment:

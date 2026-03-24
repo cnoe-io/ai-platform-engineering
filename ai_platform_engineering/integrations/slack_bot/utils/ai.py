@@ -23,6 +23,7 @@ from .event_parser import (
     EventType,
 )
 from . import slack_formatter
+from . import utils as _utils
 from .throttler import create_throttled_updater
 
 
@@ -165,6 +166,7 @@ def stream_a2a_response(
     throttler = None
 
     # Plan-mode streaming state
+    thread_deleted = False        # True if Slack reports the thread_ts is gone
     stream_ts = None              # ts from chat.startStream (None = not started)
     stream_buf = None             # StreamBuffer instance (created when stream starts)
     plan_steps = {}               # step_id -> step dict (latest plan state)
@@ -204,7 +206,9 @@ def stream_a2a_response(
 
     def _start_stream_if_needed():
         """Lazily start the Slack stream on first real content. Returns stream_ts or None."""
-        nonlocal stream_ts, stream_buf
+        nonlocal stream_ts, stream_buf, thread_deleted
+        if thread_deleted:
+            return None
         if stream_ts:
             return stream_ts  # Already started
         if not can_stream or overthink_mode:
@@ -224,7 +228,11 @@ def stream_a2a_response(
             _set_typing_status("")
             return stream_ts
         except Exception as e:
-            logger.warning(f"[{thread_ts}] SLACK startStream FAILED: {e}")
+            if "invalid_thread_ts" in str(e) or "thread_not_found" in str(e):
+                thread_deleted = True
+                logger.warning(f"[{thread_ts}] Thread was deleted mid-processing — aborting response")
+            else:
+                logger.warning(f"[{thread_ts}] SLACK startStream FAILED: {e}")
             return None
 
     if not overthink_mode:
@@ -275,6 +283,10 @@ def stream_a2a_response(
             context_id=context_id,
             metadata=metadata,
         ):
+            if thread_deleted:
+                logger.info(f"[{thread_ts}] Thread deleted — stopping A2A stream processing")
+                break
+
             parsed = parse_event(event_data)
 
             # # Debug: uncomment to log every A2A event for diagnostics
@@ -674,6 +686,9 @@ def stream_a2a_response(
             return stop_blocks
 
         elif can_stream:
+            if thread_deleted:
+                logger.warning(f"[{thread_ts}] Thread deleted — dropping response to avoid posting in main channel")
+                return None
             # startStream failed earlier — post as regular message
             logger.warning(f"[{thread_ts}] Stream not started, falling back to regular post")
             return _post_final_response(
@@ -683,6 +698,9 @@ def stream_a2a_response(
                 additional_footer=additional_footer,
             )
         else:
+            if thread_deleted:
+                logger.warning(f"[{thread_ts}] Thread deleted — dropping response to avoid posting in main channel")
+                return None
             # Bot user — delete progress msg, post final
             if response_ts:
                 try:
@@ -713,7 +731,7 @@ def stream_a2a_response(
                 throttler.force_update(error_blocks, "Error")
             except Exception as slack_err:
                 logger.warning(f"[{thread_ts}] Failed to post error to Slack: {slack_err}")
-        else:
+        elif not thread_deleted:
             try:
                 slack_client.chat_postMessage(
                     channel=channel_id,
@@ -983,6 +1001,10 @@ def handle_ai_alert_processing(
     user_id = event.get("user", event.get("bot_id"))
 
     logger.info(f"[{thread_ts}] AI processing alert from {bot_username}")
+
+    if not _utils.verify_thread_exists(slack_client, channel_id, thread_ts):
+        logger.warning(f"[{thread_ts}] Ignoring alert — parent message was deleted")
+        return None
 
     if config.silence_env:
         logger.info(f"[{thread_ts}] Silencing AI alert processing")
