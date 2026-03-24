@@ -199,6 +199,7 @@ As a platform architect, I need to understand the trade-offs between adopting Ag
 - Deployment models and operational characteristics for self-hosted environments
 - Security analysis: default-deny, formal verification, audit logging
 - Implementation checklists and migration paths for CAIPE
+- **Documentation site and contributor workflow** (merged from former `095-enterprise-identity-federation-docs`): publish enterprise identity architecture to `docs/docs/architecture/`, and keep `CLAUDE.md` and root `.cursorrules` aligned with git worktrees and `prebuild/<type>/<description>` branch naming (see dedicated section below)
 
 ### Out of Scope
 
@@ -216,3 +217,71 @@ As a platform architect, I need to understand the trade-offs between adopting Ag
 - **Slack/Webex Bot Integration**: The bot delegation scenario depends on the bot service account configuration in Keycloak.
 - **AgentGateway Project**: The comparison references AgentGateway (agentgateway.dev), a Linux Foundation project. Evaluation depends on publicly available documentation, feature set as of March 2026, and compatibility with Keycloak OAuth providers.
 - **IBAC & OpenFGA**: The comparison references [IBAC](https://ibac.dev/) (Intent-Based Access Control for agentic AI, built on OpenFGA) and [OpenFGA](https://openfga.dev/) (ReBAC/Zanzibar-style authorization). Evaluation uses publicly available documentation, research paper (2026), and reference implementation.
+
+## Documentation site and contributor workflow (merged from former `095-enterprise-identity-federation-docs`)
+
+This section folds the former standalone spec **`095-enterprise-identity-federation-docs`** into **093** so architecture publication and contributor git workflow live in one place alongside policy and identity research.
+
+### Overview
+
+Ship the Enterprise Identity Federation and user-impersonation architecture narrative on the CAIPE docs site, and keep developer-facing rules aligned with **git worktrees** and **`prebuild/<type>/<description>`** branch naming (no bare `git checkout -b` for feature work).
+
+### Motivation
+
+- The [enterprise identity federation architecture page](../../architecture/enterprise-identity-federation.md) belongs with other architecture docs (gateway, MAS).
+- Contributors and automation should see one consistent story in `CLAUDE.md` and `.cursorrules` (sibling worktrees under the cnoe directory, `prebuild/<type>/...` branches).
+
+### Scope (documentation and rules only)
+
+**In scope**
+
+- `docs/docs/architecture/enterprise-identity-federation.md` (and related architecture pages this effort touches, e.g. evolution / Slack docs when promoted from research).
+- Root **`CLAUDE.md`**: worktree commands, branch naming, optional local `uv` / worktree setup notes.
+- Root **`.cursorrules`**: Development Workflow section with the same worktree and branch conventions.
+
+**Out of scope**
+
+- Changing the technical content of the identity federation architecture narrative except where normal doc maintenance applies.
+- Docusaurus sidebar wiring when docs are auto-discovered.
+- Implementing federation in product code (separate engineering work).
+
+### Components affected
+
+| Area | Role |
+|------|------|
+| `docs/docs/architecture/` | Published architecture markdown |
+| `CLAUDE.md` | Claude / contributor git workflow |
+| `.cursorrules` (repo root) | Cursor / AI assistant and human developer defaults |
+
+### Acceptance criteria
+
+- [ ] `docs/docs/architecture/enterprise-identity-federation.md` is present and consistent with the research baseline in this folder.
+- [ ] `CLAUDE.md` documents `prebuild/<type>/<description>` naming and git worktree usage.
+- [ ] `.cursorrules` Development Workflow uses matching branch names and worktree examples.
+- [ ] PR passes CI (docs build, lint).
+
+### Implementation plan
+
+**Phase 1 — Documentation**
+
+- [ ] Ensure architecture pages under `docs/docs/architecture/` reflect the intended narratives (including federation, bots, evolution where applicable).
+
+**Phase 2 — Contributor rules**
+
+- [ ] Update `CLAUDE.md` git workflow section.
+- [ ] Update `.cursorrules` branch naming and worktree examples.
+
+### Testing strategy
+
+- Manual: open architecture pages in the docs site preview.
+- Manual: skim `CLAUDE.md` and `.cursorrules` for consistent `prebuild/<type>/...` and worktree paths.
+
+### Rollout
+
+Merge via normal PR to default branch; docs publish through existing Docusaurus CI.
+
+### Related
+
+- Research index: [README.md](./README.md)
+- ADR: none required for doc and rules-only updates.
+- Feature branch example: `prebuild/docs/enterprise-identity-federation`
