@@ -198,60 +198,65 @@ class AgentRuntime:
             f"tools={len(tools)}, subagents={len(subagents) if subagents else 0}"
         )
 
-    def _build_builtin_tools(self, user: UserContext | None = None) -> list:
+    def _build_builtin_tools(
+        self,
+        user: UserContext | None = None,
+        agent_config: DynamicAgentConfig | None = None,
+    ) -> list:
         """Build list of built-in tools based on agent config.
 
         Args:
             user: User context for tools that need user info
+            agent_config: Agent config to use. Defaults to self.config (parent agent).
+                          Pass subagent config to build tools for a subagent.
 
         Returns:
             List of LangChain tools to add to the agent.
         """
+        config = agent_config or self.config
         tools = []
         config_summary: dict[str, Any] = {}
 
-        if not self.config.builtin_tools:
+        if not config.builtin_tools:
             return tools
 
         # fetch_url tool (disabled by default)
-        fetch_url_config = self.config.builtin_tools.fetch_url
+        fetch_url_config = config.builtin_tools.fetch_url
         if fetch_url_config and fetch_url_config.enabled:
             allowed_domains = fetch_url_config.allowed_domains or "*"
             tools.append(create_fetch_url_tool(allowed_domains=allowed_domains))
             config_summary["fetch_url"] = {"allowed_domains": allowed_domains}
 
         # current_datetime tool (enabled by default)
-        current_datetime_config = self.config.builtin_tools.current_datetime
+        current_datetime_config = config.builtin_tools.current_datetime
         if current_datetime_config and current_datetime_config.enabled:
             tools.append(create_current_datetime_tool())
             config_summary["current_datetime"] = {}
 
         # user_info tool (enabled by default)
-        user_info_config = self.config.builtin_tools.user_info
+        user_info_config = config.builtin_tools.user_info
         if user_info_config and user_info_config.enabled:
             if user:
                 tools.append(create_user_info_tool(user))
                 config_summary["user_info"] = {"user": user.email}
             else:
-                logger.warning(f"Agent '{self.config.name}': user_info enabled but no user context available")
+                logger.warning(f"Agent '{config.name}': user_info enabled but no user context available")
 
         # sleep tool (enabled by default)
-        sleep_config = self.config.builtin_tools.sleep
+        sleep_config = config.builtin_tools.sleep
         if sleep_config and sleep_config.enabled:
             max_seconds = sleep_config.max_seconds or 300
             tools.append(create_sleep_tool(max_seconds=max_seconds))
             config_summary["sleep"] = {"max_seconds": max_seconds}
 
         # request_user_input tool (enabled by default)
-        request_user_input_config = self.config.builtin_tools.request_user_input
+        request_user_input_config = config.builtin_tools.request_user_input
         if request_user_input_config and request_user_input_config.enabled:
             tools.append(create_request_user_input_tool())
             config_summary["request_user_input"] = {}
 
         if tools:
-            logger.info(f"Agent '{self.config.name}': added built-in tools: {config_summary}")
-        else:
-            logger.warning(f"Agent '{self.config.name}': no built-in tools configured")
+            logger.info(f"Agent '{config.name}': added built-in tools: {config_summary}")
 
         return tools
 
@@ -331,28 +336,31 @@ class AgentRuntime:
         return subagents
 
     async def _build_subagent_tools(self, subagent_config: DynamicAgentConfig) -> list:
-        """Build MCP tools for a subagent.
+        """Build tools for a subagent (MCP tools + built-in tools).
 
         Args:
             subagent_config: The subagent's configuration
 
         Returns:
-            List of LangChain tools from MCP servers
+            List of LangChain tools (MCP + built-in based on subagent config)
         """
+        tools: list = []
+
+        # 1. Build MCP tools from subagent's allowed_tools config
         server_ids = list(subagent_config.allowed_tools.keys())
-        if not server_ids:
-            return []
+        if server_ids:
+            connections = build_mcp_connections(self.mcp_servers, server_ids)
+            if connections:
+                mcp_client = MultiServerMCPClient(connections, tool_name_prefix=True)
+                all_tools = await mcp_client.get_tools()
+                mcp_tools, _ = filter_tools_by_allowed(all_tools, subagent_config.allowed_tools)
+                tools.extend(mcp_tools)
 
-        connections = build_mcp_connections(self.mcp_servers, server_ids)
-        if not connections:
-            return []
+        # 2. Add built-in tools based on subagent's config
+        builtin_tools = self._build_builtin_tools(self._user, subagent_config)
+        if builtin_tools:
+            tools.extend(builtin_tools)
 
-        # Create MCP client for subagent
-        mcp_client = MultiServerMCPClient(connections, tool_name_prefix=True)
-        all_tools = await mcp_client.get_tools()
-
-        # Filter tools based on subagent's allowed_tools config
-        tools, _ = filter_tools_by_allowed(all_tools, subagent_config.allowed_tools)
         return tools
 
     def _build_stream_config(self, session_id: str, user_id: str, trace_id: str | None) -> dict[str, Any]:
