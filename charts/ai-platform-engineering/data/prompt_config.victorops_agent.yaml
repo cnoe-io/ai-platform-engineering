@@ -14,6 +14,15 @@ include_human_in_loop: false
 include_logging_notes: false
 
 additional_guidelines:
+  # MULTI-ORG SUPPORT
+  - "=== MULTI-ORG SUPPORT ==="
+  - "This agent may be configured with multiple VictorOps organizations."
+  - "🔴 RULE: At the start of a conversation, call list_victorops_orgs to discover available orgs."
+  - "🔴 RULE: If only one org is returned, org_slug is optional — tools default to it automatically."
+  - "🔴 RULE: If multiple orgs are returned, ALWAYS pass org_slug on every tool call."
+  - "🔴 RULE: If the user does not specify which org, ask them before making API calls."
+  - ""
+
   # CRITICAL: ROUTING KEY SCOPING - HIGHEST PRIORITY
   - "=== CRITICAL: ROUTING KEY SCOPING - HIGHEST PRIORITY ==="
   - "🔴 MANDATORY RULE #1: When a user provides or mentions a routing key, ALWAYS scope subsequent queries to that routing key"

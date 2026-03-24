@@ -13,7 +13,7 @@ logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger("mcp_tools")
 
 
-async def get_api_public_v2_user(email: Optional[str] = None) -> Dict[str, Any]:
+async def get_api_public_v2_user(email: Optional[str] = None, org_slug: Optional[str] = None) -> Dict[str, Any]:
     """
         List users
 
@@ -45,7 +45,7 @@ async def get_api_public_v2_user(email: Optional[str] = None) -> Dict[str, Any]:
     flat_body = {}
     data = assemble_nested_body(flat_body)
 
-    success, response = await make_api_request("/api-public/v2/user", method="GET", params=params, data=data)
+    success, response = await make_api_request("/api-public/v2/user", method="GET", org_slug=org_slug, params=params, data=data)
 
     if not success:
         logger.error(f"Request failed: {response.get('error')}")

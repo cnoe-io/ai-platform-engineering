@@ -5,7 +5,7 @@
 """Tools for /api-public/v1/user/{user} operations"""
 
 import logging
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 from ..api.client import make_api_request, assemble_nested_body
 
 # Configure logging
@@ -13,7 +13,7 @@ logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger("mcp_tools")
 
 
-async def get_api_public_v1_user_user(path_user: str) -> Dict[str, Any]:
+async def get_api_public_v1_user_user(path_user: str, org_slug: Optional[str] = None) -> Dict[str, Any]:
     """
         Retrieve information for a user
 
@@ -27,6 +27,7 @@ async def get_api_public_v1_user_user(path_user: str) -> Dict[str, Any]:
 
             path_user (str): The VictorOps user to fetch
 
+            org_slug (str): VictorOps organization slug. Required when multiple orgs are configured.
 
         Returns:
             Dict[str, Any]: The JSON response from the API call.
@@ -43,7 +44,7 @@ async def get_api_public_v1_user_user(path_user: str) -> Dict[str, Any]:
     data = assemble_nested_body(flat_body)
 
     success, response = await make_api_request(
-        f"/api-public/v1/user/{path_user}", method="GET", params=params, data=data
+        f"/api-public/v1/user/{path_user}", method="GET", org_slug=org_slug, params=params, data=data
     )
 
     if not success:
@@ -60,6 +61,7 @@ async def put_api_public_v1_user_user(
     body_email: str,
     body_admin: bool = None,
     body_expirationHours: float = None,
+    org_slug: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
         Update a user
@@ -114,7 +116,7 @@ async def put_api_public_v1_user_user(
     data = assemble_nested_body(flat_body)
 
     success, response = await make_api_request(
-        f"/api-public/v1/user/{path_user}", method="PUT", params=params, data=data
+        f"/api-public/v1/user/{path_user}", method="PUT", org_slug=org_slug, params=params, data=data
     )
 
     if not success:
@@ -124,7 +126,7 @@ async def put_api_public_v1_user_user(
 
 
 async def delete_api_public_v1_user_user(
-    path_user: str, body_replacement: str = None, body_replacementStrategy: str = None
+    path_user: str, body_replacement: str = None, body_replacementStrategy: str = None, org_slug: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
         Remove a user
@@ -179,7 +181,7 @@ async def delete_api_public_v1_user_user(
     data = assemble_nested_body(flat_body)
 
     success, response = await make_api_request(
-        f"/api-public/v1/user/{path_user}", method="DELETE", params=params, data=data
+        f"/api-public/v1/user/{path_user}", method="DELETE", org_slug=org_slug, params=params, data=data
     )
 
     if not success:
