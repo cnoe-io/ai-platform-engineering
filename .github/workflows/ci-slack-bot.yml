@@ -114,14 +114,15 @@ jobs:
         with:
           python-version: "3.13"
 
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+
       - name: Install dependencies and run tests
         run: |
           cd ai_platform_engineering/integrations/slack_bot
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install pytest pytest-mock
+          uv sync --group unittest
           cd ../../..
-          python -m pytest ai_platform_engineering/integrations/slack_bot/tests/ -v -m "not integration"
+          uv run --project ai_platform_engineering/integrations/slack_bot pytest ai_platform_engineering/integrations/slack_bot/tests/ -v -m "not integration"
 
   build-and-push:
     runs-on: ubuntu-latest
