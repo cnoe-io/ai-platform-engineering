@@ -29,6 +29,8 @@ jest.mock('next-auth/react', () => ({
 
 jest.mock('next/navigation', () => ({
   useSearchParams: () => new URLSearchParams(),
+  useRouter: () => ({ push: jest.fn(), replace: jest.fn(), back: jest.fn(), refresh: jest.fn() }),
+  usePathname: () => '/admin',
 }));
 
 jest.mock('@/components/auth-guard', () => ({

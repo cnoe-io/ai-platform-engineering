@@ -42,6 +42,7 @@ jest.mock('@/lib/mongodb', () => ({
 
 jest.mock('@/lib/jwt-validation', () => ({
   validateBearerJWT: jest.fn(),
+  validateLocalSkillsJWT: jest.fn().mockResolvedValue(null),
 }));
 const mockValidateBearerJWT =
   jest.requireMock<{ validateBearerJWT: jest.Mock }>('@/lib/jwt-validation')
