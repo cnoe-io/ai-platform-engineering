@@ -31,6 +31,12 @@
 | `rag` | `rag#kb.read:<kb-id>` | Read/query a specific KB | `kb_reader:<kb-id>` or team owner | RAG API | RAG server (JWT + MongoDB) | Per-KB scoped |
 | `rag` | `rag#kb.ingest:<kb-id>` | Ingest into a specific KB | `kb_ingestor:<kb-id>` or `kb_admin` | RAG API | RAG server (JWT + MongoDB) | Per-KB scoped |
 | `rag` | `rag#kb.admin:<kb-id>` | Administer a specific KB | `kb_admin:<kb-id>` or `admin` | RAG API | RAG server (JWT + MongoDB) | Per-KB scoped |
+| `dynamic_agent` | `dynamic_agent#view` | View/list agents | `chat_user` (CEL-filtered) | Dynamic Agents API | CEL | Filtered by visibility + roles + team |
+| `dynamic_agent` | `dynamic_agent#invoke` | Invoke/chat with agent | `agent_user:<id>` or visibility match | Dynamic Agents API | CEL | Per-agent scoped |
+| `dynamic_agent` | `dynamic_agent#configure` | Update agent config | `agent_admin:<id>` or owner | Dynamic Agents API | CEL | Per-agent scoped |
+| `dynamic_agent` | `dynamic_agent#delete` | Delete agent + cleanup KC resource | `agent_admin:<id>` or owner | Dynamic Agents API | CEL | Per-agent scoped |
+| `dynamic_agent` | `dynamic_agent#create` | Create new agent + sync KC resource | `team_member` or `admin` | Dynamic Agents API | Keycloak + CEL | — |
+| `dynamic_agent` | `dynamic_agent#mcp.invoke` | Agent's MCP tool call (via deepagent) | User's OBO JWT roles | AG proxy | AG CEL | FR-030; same as `mcp#invoke` |
 | `sub_agent` | `sub_agent#invoke` | Dispatch sub-agent | `chat_user` | AG proxy | AG | Composable with ASP |
 | `sub_agent` | `sub_agent#configure` | Configure sub-agents | `admin` | UI BFF | Keycloak | — |
 | `sub_agent` | `sub_agent#admin` | Full sub-agent admin | `admin` | UI BFF / AG | Both | — |
@@ -60,6 +66,30 @@ Per-KB capabilities (`rag#kb.read:<kb-id>`, `rag#kb.ingest:<kb-id>`, `rag#kb.adm
 
 **Query-time filtering**: The RAG server's `/v1/query` endpoint injects `datasource_id` filters to restrict results to authorized KBs (server-side enforced, transparent to caller).
 
+## Per-Agent Access Control (FR-028)
+
+Per-agent capabilities (`dynamic_agent#view`, `dynamic_agent#invoke`, `dynamic_agent#configure`, `dynamic_agent#delete`) are enforced by the **Dynamic Agents service** using **CEL evaluation** across three sources:
+
+| Source | Storage | How It Works |
+|--------|---------|--------------|
+| **Keycloak per-agent roles** | JWT `roles` claim | Roles like `agent_user:agent-123`, `agent_admin:agent-456`, `agent_user:*` (wildcard) grant scoped access to specific agents |
+| **MongoDB visibility** | `DynamicAgentConfig` document | `visibility` (`private`/`team`/`global`) + `shared_with_teams` determines base access model |
+| **Ownership** | `DynamicAgentConfig.owner_id` | Agent creator has full access to their own agents |
+
+**Global overrides**: `admin` role grants access to **all** agents without per-agent roles.
+
+**CEL evaluation**: A single CEL expression combines all three sources at runtime. The expression is **configurable** (loaded from config), not hardcoded. Example:
+
+```cel
+user.roles.exists(r, r == "admin")
+  || user.roles.exists(r, r == "agent_user:" + resource.id)
+  || resource.visibility == "global"
+  || (resource.visibility == "team" && resource.shared_with_teams.exists(t, t in user.teams))
+  || resource.owner_id == user.email
+```
+
+**Keycloak resource sync**: On agent creation, a Keycloak resource is created (type: `dynamic_agent`). On deletion, the resource and dangling per-agent roles are cleaned up.
+
 ## Roles Summary
 
 | Role | Description | Typical IdP Group |
@@ -71,6 +101,9 @@ Per-KB capabilities (`rag#kb.read:<kb-id>`, `rag#kb.ingest:<kb-id>`, `rag#kb.adm
 | `kb_reader:<kb-id>` | Per-KB reader — can query a specific KB | Admin-assigned per user/team |
 | `kb_ingestor:<kb-id>` | Per-KB ingestor — can ingest into a specific KB | Admin-assigned per user/team |
 | `kb_admin:<kb-id>` | Per-KB admin — full admin on a specific KB | Admin-assigned per user/team |
+| `agent_user:<agent-id>` | Per-agent user — can view and invoke a specific agent | Admin-assigned per user/team |
+| `agent_admin:<agent-id>` | Per-agent admin — full access on a specific agent | Admin-assigned per user/team |
+| `agent_user:*` | Wildcard agent user — can view and invoke all agents | Admin-assigned |
 
 ## Enforcement Points
 
@@ -81,8 +114,11 @@ Per-KB capabilities (`rag#kb.read:<kb-id>`, `rag#kb.ingest:<kb-id>`, `rag#kb.adm
 | MCP tool invocation | Agent Gateway | CEL policy + JWT validation |
 | A2A inter-agent traffic | Agent Gateway | CEL policy + JWT validation |
 | Agent/sub-agent dispatch | Agent Gateway | CEL policy + JWT validation |
-| RAG server KB operations | RAG server (defense-in-depth) | JWT → Keycloak role mapper + per-KB access (FR-026, FR-027) |
-| RAG server `/v1/query` | RAG server (query-time filter) | `inject_kb_filter()` restricts results to accessible KBs (FR-027) |
+| RAG server KB operations | RAG server (defense-in-depth) | JWT → Keycloak role mapper + CEL per-KB access (FR-026, FR-027, FR-029) |
+| RAG server `/v1/query` | RAG server (query-time filter) | CEL `inject_kb_filter()` restricts results to accessible KBs (FR-027, FR-029) |
+| Dynamic agent operations | Dynamic Agents service | CEL evaluator + Keycloak resources + per-agent roles + MongoDB visibility (FR-028, FR-029) |
+| Dynamic agent MCP calls | Agent Gateway | CEL policy + OBO JWT; deepagent MCP calls route through AG (FR-030) |
+| BFF RBAC middleware | Next.js BFF | CEL evaluator extends `requireRbacPermission` (FR-029) |
 
 ## Composition Rules (FR-012)
 

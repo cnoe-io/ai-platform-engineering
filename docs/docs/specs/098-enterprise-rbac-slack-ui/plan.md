@@ -5,7 +5,7 @@
 
 ## Summary
 
-Deliver **enterprise RBAC** consistent across **Slack, CAIPE Admin UI, Supervisor, RAG, sub-agents, tools, skills, A2A, and MCP** (FR-008, FR-014), grounded in **IdP directory groups** (Okta, Entra ID) federated through **Keycloak** (required OIDC broker and PDP), with **OBO token exchange** for end-to-end user identity delegation (FR-018–FR-021, absorbed from 093), **Agent Gateway** as the required MCP/A2A/agent data-plane gateway, and **RAG server Keycloak integration** with **per-KB access control** (FR-026, FR-027) providing defense-in-depth enforcement at the data layer.
+Deliver **enterprise RBAC** consistent across **Slack, CAIPE Admin UI, Supervisor, RAG, sub-agents, tools, skills, A2A, and MCP** (FR-008, FR-014), grounded in **IdP directory groups** (Okta, Entra ID) federated through **Keycloak** (required OIDC broker and PDP), with **OBO token exchange** for end-to-end user identity delegation (FR-018–FR-021, absorbed from 093), **Agent Gateway** as the required MCP/A2A/agent data-plane gateway, **RAG server Keycloak integration** with **per-KB access control** (FR-026, FR-027) providing defense-in-depth enforcement at the data layer, **dynamic agent RBAC** with three-layer Keycloak resource + per-agent roles + MongoDB visibility (FR-028), **CEL as the mandated policy engine** at all enforcement points (FR-029), and **deepagent MCP routing through Agent Gateway** (FR-030).
 
 **Technical approach**: Dual-PDP architecture:
 - **Keycloak Authorization Services** — PDP for UI/Slack paths (FR-022). The 098 permission matrix is modeled as Keycloak resources, scopes, and role-based policies. BFF and Slack bot call Keycloak AuthZ for every protected operation.
@@ -52,6 +52,8 @@ Deliver **enterprise RBAC** consistent across **Slack, CAIPE Admin UI, Superviso
 **Post–Phase 1 re-check**: Design artifacts ([data-model.md](./data-model.md), [contracts/](./contracts/)) align with dual-PDP model. No unjustified new microservice beyond Keycloak (required broker) and AG (required gateway).
 
 **Post–Phase 10 addition (Session 2026-03-24)**: RAG server Keycloak JWT integration (FR-026) and per-KB access control (FR-027) added as Phase 10 / User Story 7 (P1). Defense-in-depth: BFF coarse AuthZ + RAG server fine-grained per-KB enforcement + query-time filtering. See [architecture.md § Map RAG RBAC to Keycloak](./architecture.md#map-rag-rbac-to-keycloak--per-kb-access-control-architecture-overview).
+
+**Post–Phase 11 addition (Session 2026-03-25)**: Dynamic agent RBAC (FR-028), CEL as mandated policy engine (FR-029), and deepagent MCP routing through AG (FR-030) added as Phase 11 / User Story 8 (P1). Three-layer Keycloak resource + per-agent roles + MongoDB visibility model. CEL evaluators embedded in all services (AG, RAG, dynamic agents, BFF). See [architecture.md § Dynamic Agent RBAC](./architecture.md#dynamic-agent-rbac-architecture-fr-028-fr-029-fr-030).
 
 ## Project Structure
 
@@ -113,6 +115,13 @@ ai_platform_engineering/
 │   │   └── restapi.py                           # Extended: per-KB access dependencies on KB endpoints
 │   └── common/src/common/models/
 │       └── rbac.py                              # Extended: KeycloakRole constants, KbPermission model, UserContext.kb_permissions
+├── dynamic_agents/src/dynamic_agents/
+│   ├── auth/
+│   │   ├── access.py                              # Extended: CEL-based access evaluation replacing can_view_agent/can_use_agent (FR-028, FR-029)
+│   │   └── auth.py                                # Extended: Keycloak role mapper, per-agent role extraction from JWT (FR-028)
+│   ├── services/
+│   │   └── agent_runtime.py                       # Extended: OBO JWT forwarding through LangGraph to MCP client (FR-030)
+│   └── models.py                                  # Extended: Keycloak resource sync on agent create/delete (FR-028)
 ├── integrations/slack_bot/
 │   ├── app.py                                 # Slack bot entry (identity linking callback, RBAC middleware)
 │   └── utils/
@@ -146,6 +155,7 @@ deploy/
 |-----------|------------|-------------------------------------|
 | Keycloak as required infrastructure (Principle X) | Consolidates OIDC brokering, OBO token exchange, groups→roles mapping, Authorization Services (PDP), and Slack identity link storage into one proven component | Custom `caipe-authorization-server` rejected — would duplicate Keycloak AuthZ functionality; direct Okta/Entra without broker rejected — no OBO, no unified PDP (Session 2026-04-03) |
 | Agent Gateway as required infrastructure (Principle X) | Centralizes JWT validation + policy for all MCP/A2A/agent traffic; solves remote-MCP and auth-less-MCP gaps | No AG: leaves MCP/A2A without uniform auth gateway; per-agent JWT validation: inconsistent, harder to audit (Session 2026-04-01) |
+| CEL as mandated policy engine (Principle X) | Provides consistent, configurable, sandboxed policy evaluation across all enforcement points (AG, RAG, dynamic agents, BFF) with a shared context schema | Code-based checks rejected — not configurable, not auditable, inconsistent across services; OPA/Rego rejected — heavier runtime, different from AG's built-in CEL (Session 2026-03-25) |
 
 ## Generated artifacts (Phases 0–1)
 
@@ -158,7 +168,7 @@ deploy/
 
 ## Next step
 
-Run **`/speckit.tasks`** to produce `tasks.md` with ordered implementation items (already generated — 75 tasks across 10 phases).
+Run **`/speckit.tasks`** to produce `tasks.md` with ordered implementation items (already generated — 88 tasks across 11 phases).
 
 **Paths (relative to repository root)**
 

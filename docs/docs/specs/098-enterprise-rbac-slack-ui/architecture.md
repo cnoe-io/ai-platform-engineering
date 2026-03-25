@@ -606,6 +606,183 @@ If **any** layer denies, the operation is denied. If MongoDB is unavailable for 
 
 ---
 
+## Dynamic Agent RBAC Architecture (FR-028, FR-029, FR-030)
+
+Dynamic agents are governed by the same Keycloak RBAC model as KBs and tools. This section documents the three-layer authorization model, CEL as the universal policy engine, and deepagent MCP routing through Agent Gateway.
+
+### Three-Layer Enforcement Flow
+
+```mermaid
+flowchart TD
+    subgraph creation ["Agent Write Path (Creation)"]
+        AdminUI["Admin UI / API\nPOST /api/v1/agents"]
+        MongoDB_W["MongoDB\nDynamicAgentConfig\n(visibility, shared_with_teams,\nowner_id)"]
+        KCResource["Keycloak Resource\ntype: dynamic_agent\nscopes: view, invoke,\nconfigure, delete"]
+        KCPolicy["Keycloak Policies\n(auto-generated from\nvisibility level)"]
+    end
+
+    subgraph assignment ["Role Assignment (Admin Path)"]
+        RoleAssign["Admin assigns\nper-agent realm roles\n(or IdP group mapping)"]
+        PerAgentRoles["Keycloak Realm Roles\nagent_user:agent-123\nagent_admin:agent-123\nagent_user:*"]
+    end
+
+    subgraph runtime ["Runtime Access Check"]
+        UserJWT["User JWT\nroles: [agent_user:agent-123,\nchat_user, team_member]"]
+        CELEval["CEL Evaluator\n(embedded in service)"]
+        MongoViz["MongoDB\nvisibility + shared_with_teams\n+ owner_id"]
+        Result["Allow / Deny\n+ filtered agent list"]
+    end
+
+    subgraph mcp_path ["Deepagent MCP Path (FR-030)"]
+        AgentRT["AgentRuntime\n(LangGraph deepagent)"]
+        MCPClient["MCP Client\n(OBO JWT attached)"]
+        AG_MCP["Agent Gateway\nCEL policy evaluation"]
+        MCPServer["MCP Server"]
+    end
+
+    AdminUI --> MongoDB_W
+    AdminUI --> KCResource
+    KCResource --> KCPolicy
+
+    RoleAssign --> PerAgentRoles
+
+    UserJWT --> CELEval
+    MongoViz --> CELEval
+    CELEval --> Result
+
+    AgentRT -->|"user OBO JWT"| MCPClient
+    MCPClient -->|"Bearer token"| AG_MCP
+    AG_MCP -->|"CEL allow"| MCPServer
+```
+
+### Dynamic Agent Role Mapping Table
+
+| Keycloak Realm Role | Scopes Granted | Agent Access |
+|---------------------|----------------|--------------|
+| `admin` | view, invoke, configure, delete | All agents (global override) |
+| `agent_admin:<agent-id>` | view, invoke, configure, delete | Specified agent only |
+| `agent_admin:*` | view, invoke, configure, delete | All agents (wildcard) |
+| `agent_user:<agent-id>` | view, invoke | Specified agent only |
+| `agent_user:*` | view, invoke | All agents (wildcard) |
+| `team_member(team-x)` | view, invoke (team agents) | Agents with `visibility: team` + `shared_with_teams` includes `team-x` |
+| *(owner)* | view, invoke, configure, delete | Own agents (`owner_id` match) |
+| *(no matching role)* | *(none)* | Only `visibility: global` agents |
+
+### Per-Agent Access Resolution
+
+Effective agent access is the **union** of three sources: per-agent Keycloak roles, MongoDB visibility, and ownership. CEL evaluates all three at runtime.
+
+```mermaid
+flowchart TD
+    JWT["JWT roles claim"] --> ExtractGlobal["Extract global roles\n(admin)"]
+    JWT --> ExtractPerAgent["Extract per-agent roles\n(agent_user:X, agent_admin:X)"]
+
+    ExtractGlobal --> GlobalCheck{"Has admin?"}
+
+    GlobalCheck -->|Yes| AllAgents["Access: ALL agents\n(global override)"]
+    GlobalCheck -->|No| MergeAccess["CEL evaluates\naccess per agent"]
+
+    ExtractPerAgent --> PerAgentList["Per-agent role list:\nagent_user:agent-123 → view+invoke\nagent_admin:agent-456 → full"]
+
+    MongoViz["MongoDB:\nagent.visibility\nagent.shared_with_teams\nagent.owner_id"] --> CELInputs["CEL context:\nresource.visibility\nresource.shared_with_teams\nresource.owner_id"]
+
+    TeamMembership["User teams\n(from JWT or session)"] --> CELInputs
+
+    PerAgentList --> MergeAccess
+    CELInputs --> MergeAccess
+
+    MergeAccess --> EffectiveAccess["Effective access =\nCEL(per-agent roles\n∪ visibility match\n∪ ownership)"]
+```
+
+### CEL as Universal Policy Engine (FR-029)
+
+CEL is mandated at **all four enforcement points**. Each service embeds a CEL evaluator library with a shared context schema.
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│                    CEL Context Schema                        │
+│                                                              │
+│  user.roles      : ["admin", "agent_user:agent-123", ...]   │
+│  user.teams      : ["team-a", "team-b"]                     │
+│  user.email      : "user@corp.com"                          │
+│  resource.id     : "agent-123" | "kb-team-a" | ...          │
+│  resource.type   : "dynamic_agent" | "kb" | "rag_tool"      │
+│  resource.visibility : "private" | "team" | "global"        │
+│  resource.owner_id   : "owner@corp.com"                     │
+│  resource.shared_with_teams : ["team-a"]                    │
+│  action          : "view" | "invoke" | "configure" | ...    │
+└──────────────────────────────────────────────────────────────┘
+         │              │               │              │
+         ▼              ▼               ▼              ▼
+┌──────────────┐ ┌──────────────┐ ┌──────────────┐ ┌──────────┐
+│ Agent        │ │ RAG Server   │ │ Dynamic      │ │ BFF      │
+│ Gateway      │ │ (Python)     │ │ Agents       │ │ (TS)     │
+│              │ │              │ │ (Python)     │ │          │
+│ CEL built-in │ │ cel-python   │ │ cel-python   │ │ cel-js   │
+│ (Rust)       │ │              │ │              │ │          │
+│              │ │ Per-KB       │ │ Per-agent    │ │ RBAC     │
+│ MCP/A2A/     │ │ access       │ │ access       │ │ middleware│
+│ agent policy │ │ (FR-027)     │ │ (FR-028)     │ │ checks   │
+└──────────────┘ └──────────────┘ └──────────────┘ └──────────┘
+```
+
+**Example CEL expressions** (configurable, not hardcoded):
+
+```cel
+// Dynamic agent view access
+user.roles.exists(r, r == "admin")
+  || user.roles.exists(r, r == "agent_user:" + resource.id)
+  || user.roles.exists(r, r == "agent_user:*")
+  || resource.visibility == "global"
+  || (resource.visibility == "team"
+      && resource.shared_with_teams.exists(t, t in user.teams))
+  || resource.owner_id == user.email
+
+// KB read access (same pattern)
+user.roles.exists(r, r == "admin" || r == "kb_admin")
+  || user.roles.exists(r, r == "kb_reader:" + resource.id)
+  || user.roles.exists(r, r == "kb_reader:*")
+  || resource.team_owned_by.exists(t, t in user.teams)
+```
+
+### Deepagent MCP Routing (FR-030)
+
+```mermaid
+sequenceDiagram
+    actor User
+    participant UI as Dynamic Agent UI
+    participant RT as AgentRuntime<br>(LangGraph)
+    participant MCP as MCP Client
+    participant AG as Agent Gateway
+    participant Tool as MCP Server
+
+    User->>UI: Chat message
+    UI->>RT: start-stream(message, user_context)
+
+    Note over RT: LangGraph deepagent executes<br>with user's OBO JWT stored<br>in AgentContext
+
+    RT->>RT: LLM decides to call MCP tool
+
+    RT->>MCP: tool_call(name, args)
+    MCP->>AG: HTTP request + Authorization:<br>Bearer {user_obo_jwt}
+
+    AG->>AG: Validate JWT<br>+ CEL policy evaluation<br>(user.roles vs tool pattern)
+
+    alt CEL allows
+        AG->>Tool: Authorized tool call
+        Tool-->>AG: Tool result
+        AG-->>MCP: Result
+        MCP-->>RT: Tool output
+        RT-->>UI: Streamed response
+    else CEL denies
+        AG-->>MCP: 403 Forbidden
+        MCP-->>RT: Tool call denied
+        RT-->>UI: Error: insufficient permissions
+    end
+```
+
+---
+
 ## Component Summary
 
 | Component | Role | Required? | Authorization |
@@ -619,7 +796,8 @@ If **any** layer denies, the operation is denied. If MongoDB is unavailable for 
 | **Supervisor / Orchestrator** | A2A server, agent routing | Yes | Carries forwarded identity |
 | **Domain Agents** | GitHub, Jira, ArgoCD, etc. | Yes | OBO tokens for downstream |
 | **MCP Servers** | Tool invocation | Yes | AG-gated access |
-| **RAG Server** | KBs, datasources | Yes | PDP-gated admin; AG-gated queries |
+| **RAG Server** | KBs, datasources | Yes | PDP-gated admin; AG-gated queries; CEL per-KB access (FR-027) |
+| **Dynamic Agents** | User-created/runtime agents, deepagent LangGraph | Yes | Three-layer RBAC: Keycloak resource + per-agent roles + MongoDB visibility + CEL (FR-028); MCP calls via AG (FR-030) |
 | **MongoDB** | Users, policies, permission matrix, team/KB config (no Slack identity links — those are in Keycloak) | Yes | Data store for PDP + Admin UI |
 
 ---
